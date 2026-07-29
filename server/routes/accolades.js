@@ -266,3 +266,74 @@ Respond with ONLY a JSON array:
     res.json({ ok: true, reviewed: verdicts.length, weak });
   } catch (e) { next(e); }
 });
+
+// ---- NFL Top 100 (player-voted) ----
+db.exec(`
+  CREATE TABLE IF NOT EXISTS nfl_top100 (
+    season INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT,
+    fetched_at TEXT,
+    PRIMARY KEY (season, rank)
+  );
+`);
+
+const nameKey = n => (n ?? '').toLowerCase().replace(/[.'’-]/g, '')
+  .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * The list is revealed a few players at a time between June and early September,
+ * so a mid-summer sync legitimately returns a partial list.
+ */
+export async function syncTop100(season = Number(process.env.NFL_SEASON) || 2026) {
+  const url = `${WIKI_API}?action=query&prop=revisions&rvprop=content&rvslots=main&format=json&formatversion=2`
+    + `&redirects=1&titles=${encodeURIComponent(`NFL Top 100 Players of ${season}`)}`;
+  const resp = await fetch(url, { headers: { 'User-Agent': 'GridironHQ/1.0 (local personal use)' } });
+  if (!resp.ok) throw new Error(`Wikipedia ${resp.status} — likely rate limited, try again shortly`);
+  const ct = resp.headers.get('content-type') ?? '';
+  if (!ct.includes('json')) throw new Error('Wikipedia returned non-JSON (rate limited) — try again shortly');
+  const data = await resp.json();
+  const page = data?.query?.pages?.[0];
+  if (!page || page.missing) throw new Error(`No Wikipedia page for the ${season} list yet`);
+  const text = page.revisions?.[0]?.slots?.main?.content ?? '';
+
+  // rows look like:  | 100 || {{sortname|Azeez|Al-Shaair}} || ...   (or plain [[links]])
+  const found = new Map();
+  const rowRe = /\|\s*(\d{1,3})\s*(?:\|\||\n\s*\|)\s*(?:\{\{sortname\|([^|}]+)\|([^|}]+)[^}]*\}\}|\[\[([^\]|]+)(?:\|[^\]]+)?\]\])/g;
+  for (const m of text.matchAll(rowRe)) {
+    const rank = Number(m[1]);
+    if (!rank || rank < 1 || rank > 100) continue;
+    const name = m[2] ? `${m[2].trim()} ${m[3].trim()}` : (m[4] ?? '').trim();
+    if (!name || found.has(rank)) continue;
+    found.set(rank, name);
+  }
+  if (!found.size) throw new Error('Could not parse any ranks from the article');
+
+  const upsert = db.prepare(`INSERT INTO nfl_top100 (season, rank, name, name_key, fetched_at)
+    VALUES (?,?,?,?,datetime('now'))
+    ON CONFLICT(season, rank) DO UPDATE SET name=excluded.name, name_key=excluded.name_key, fetched_at=excluded.fetched_at`);
+  for (const [rank, name] of found) upsert.run(season, rank, name, nameKey(name));
+
+  const ranks = [...found.keys()].sort((a, b) => a - b);
+  return {
+    season, revealed: found.size,
+    range: ranks.length ? `#${ranks[ranks.length - 1]} → #${ranks[0]}` : null,
+    note: found.size < 100 ? 'Partial — the NFL reveals this list through early September.' : 'Complete.'
+  };
+}
+
+r.post('/top100/sync', async (req, res, next) => {
+  try { res.json(await syncTop100(Number(req.query.season) || undefined)); } catch (e) { next(e); }
+});
+
+r.get('/top100/list', (req, res) => {
+  const season = Number(req.query.season) || Number(process.env.NFL_SEASON) || 2026;
+  res.json(rows('SELECT rank, name FROM nfl_top100 WHERE season = ? ORDER BY rank', season));
+});
+
+/** rank lookup by normalized name, for badges elsewhere */
+export function top100Map(season = Number(process.env.NFL_SEASON) || 2026) {
+  return new Map(rows('SELECT rank, name_key FROM nfl_top100 WHERE season = ?', season)
+    .map(r => [r.name_key, r.rank]));
+}

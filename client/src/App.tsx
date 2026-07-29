@@ -12,6 +12,7 @@ import Projections from './pages/Projections';
 import Leagues from './pages/Leagues';
 import { PlayerCardProvider } from './components/PlayerCard';
 import DevHub from './components/DevHub';
+import RefreshAll from './components/RefreshAll';
 import News from './pages/News';
 import Settings from './pages/Settings';
 
@@ -87,7 +88,8 @@ export default function App() {
             </svg>
           </button>
           <span className="text-sm font-semibold text-slate-500">Gridiron HQ</span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} />
             <DevHub />
           </div>
         </header>

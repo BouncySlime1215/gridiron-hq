@@ -38,4 +38,32 @@ r.delete('/key', (req, res) => { clearApiKey(); res.json({ ok: true }); });
 
 r.get('/usage', (req, res) => res.json(usageSummary(Number(req.query.days) || 30)));
 
+
+/** One button: repull every live data source. */
+r.post('/refresh-all', async (req, res, next) => {
+  try {
+    const { syncRosters, syncDepthChart, syncSchedules, syncCap } = await import('./nfldata.js');
+    const { syncPlayersFromESPN, syncGeneralNews } = await import('./espn.js');
+    const { syncStats } = await import('./stats.js');
+    const { syncTop100 } = await import('./accolades.js');
+
+    const step = async (name, fn) => {
+      try { return { name, ok: true, ...(await fn()) }; }
+      catch (e) { return { name, ok: false, error: e.message }; }
+    };
+    const results = [];
+    results.push(await step('rosters', syncRosters));
+    results.push(await step('depth charts', () => syncDepthChart()));
+    results.push(await step('players', syncPlayersFromESPN));
+    results.push(await step('schedules', () => syncSchedules()));
+    results.push(await step('salary cap', syncCap));
+    results.push(await step('stats', () => syncStats()));
+    results.push(await step('news', syncGeneralNews));
+    results.push(await step('NFL Top 100', () => syncTop100()));
+
+    res.json({ ok: true, steps: results,
+      failed: results.filter(r => !r.ok).map(r => `${r.name}: ${r.error}`) });
+  } catch (e) { next(e); }
+});
+
 export default r;

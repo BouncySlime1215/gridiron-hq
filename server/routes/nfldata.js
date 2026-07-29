@@ -408,6 +408,11 @@ r.get('/roster/:abbr', (req, res) => {
  * (for skill players) FantasyCalc market value percentile.
  */
 export function unitGrades(teamId) {
+  const t100 = rows(`SELECT rank, name_key FROM nfl_top100 WHERE season = ?`,
+    Number(process.env.NFL_SEASON) || 2026);
+  const top100 = new Map(t100.map(r => [r.name_key, r.rank]));
+  const nk = n => (n ?? '').toLowerCase().replace(/[.'’-]/g, '')
+    .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
   const roster = rows(`SELECT rp.id, rp.name, rp.position, rp.depth_slot, rp.depth_order, rp.age, rp.experience,
                               m.value AS market, a.pro_bowls, a.first_team_all_pro, a.second_team_all_pro,
                               a.super_bowls, a.major_awards, a.draft_round, a.draft_pick, a.draft_year,
@@ -442,6 +447,11 @@ export function unitGrades(teamId) {
 
     // ---- STRENGTH: earned accolades and pedigree, not age guesses ----
     const badges = [];
+    const t100rank = top100.get(nk(s.name));
+    if (t100rank != null) {
+      badges.push({ label: t100rank <= 10 ? `NFL Top 10 (#${t100rank})` : `NFL Top 100 (#${t100rank})`,
+                    weight: t100rank <= 25 ? 4 : 3 });
+    }
     if (s.first_team_all_pro > 0) badges.push({ label: `${s.first_team_all_pro}× First-team All-Pro`, weight: 3 });
     if (s.second_team_all_pro > 0) badges.push({ label: `${s.second_team_all_pro}× All-Pro (2nd)`, weight: 2 });
     if (s.pro_bowls > 0) badges.push({ label: `${s.pro_bowls}× Pro Bowl`, weight: s.pro_bowls >= 3 ? 3 : 2 });
@@ -460,6 +470,8 @@ export function unitGrades(teamId) {
     const isWeak = s.ai_weakness === 'weak';
 
     let grade = 'ok';
+    // elite = multiple top-tier credentials (Top-100 + All-Pro, MVP, etc.)
+    const elite = strengthWeight >= 6;
     if (strengthWeight >= 3) grade = 'strength';
     else if (isWeak && strengthWeight === 0) grade = 'weakness';
 
@@ -467,6 +479,8 @@ export function unitGrades(teamId) {
       starter: s.name,
       roster_player_id: s.id,
       grade,
+      elite,
+      top100_rank: t100rank ?? null,
       badges: badges.map(b => b.label),
       strength_weight: strengthWeight,
       weakness_reason: isWeak ? s.ai_reason : null,

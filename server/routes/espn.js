@@ -101,11 +101,11 @@ export async function syncPlayersFromESPN() {
       let playerId;
       if (existing) {
         playerId = existing.id;
-        run('UPDATE players SET team_id = ?, fantasy_relevant = 1 WHERE id = ?', teamId, playerId);
+        run('UPDATE players SET team_id = ?, fantasy_relevant = 1, espn_id = ? WHERE id = ?', teamId, pl.id ?? null, playerId);
         updated++;
       } else {
-        const result = run('INSERT INTO players (name, position, team_id, depth_rank, phase, fantasy_relevant) VALUES (?,?,?,?,?,1)',
-          pl.fullName, pos, teamId, 1, pos === 'K' ? 'special_teams' : 'offense');
+        const result = run('INSERT INTO players (name, position, team_id, depth_rank, phase, fantasy_relevant, espn_id) VALUES (?,?,?,?,?,1,?)',
+          pl.fullName, pos, teamId, 1, pos === 'K' ? 'special_teams' : 'offense', pl.id ?? null);
         playerId = Number(result.lastInsertRowid);
         added++;
       }

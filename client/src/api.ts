@@ -30,6 +30,13 @@ export function useApi<T = any>(path: string | null) {
   return { data, loading, error, refetch };
 }
 
+/** Headshot URL from whichever platform id we have. */
+export function headshotUrl(p: { espn_id?: number | null; sleeper_id?: string | null }) {
+  if (p.espn_id) return `https://a.espncdn.com/i/headshots/nfl/players/full/${p.espn_id}.png`;
+  if (p.sleeper_id) return `https://sleepercdn.com/content/nfl/players/${p.sleeper_id}.jpg`;
+  return null;
+}
+
 export interface Team {
   id: number; abbr: string; name: string; conference: string; division: string;
   head_coach: string; oc_name?: string; dc_name?: string;

@@ -116,10 +116,53 @@ db.exec(`
   );
 `);
 
-// lightweight migration: track when a team's AI analysis was last refreshed
+// lightweight migrations
 const teamCols = db.prepare(`PRAGMA table_info(nfl_teams)`).all().map(c => c.name);
 if (!teamCols.includes('analysis_updated_at')) {
   db.exec(`ALTER TABLE nfl_teams ADD COLUMN analysis_updated_at TEXT`);
+}
+const playerCols = db.prepare(`PRAGMA table_info(players)`).all().map(c => c.name);
+if (!playerCols.includes('espn_id')) db.exec(`ALTER TABLE players ADD COLUMN espn_id INTEGER`);
+if (!playerCols.includes('sleeper_id')) db.exec(`ALTER TABLE players ADD COLUMN sleeper_id TEXT`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS leagues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,             -- 'espn' | 'sleeper'
+    league_id TEXT NOT NULL,
+    season INTEGER,
+    name TEXT,
+    my_team_id TEXT,
+    espn_s2 TEXT,
+    swid TEXT,
+    team_count INTEGER,
+    ppr REAL DEFAULT 1,
+    superflex INTEGER DEFAULT 0,
+    roster_positions TEXT,              -- JSON array
+    payload TEXT,                       -- cached full league JSON
+    fetched_at TEXT,
+    UNIQUE(platform, league_id, season)
+  );
+
+  CREATE TABLE IF NOT EXISTS player_analysis (
+    player_id INTEGER PRIMARY KEY REFERENCES players(id),
+    verdict TEXT,                       -- BUY | SELL | HOLD
+    reasoning TEXT,
+    generated_at TEXT
+  );
+`);
+
+// migrate the old single-league espn_settings row into leagues
+const legacy = db.prepare('SELECT * FROM espn_settings WHERE id = 1').get();
+if (legacy?.league_id) {
+  const exists = db.prepare(`SELECT 1 FROM leagues WHERE platform='espn' AND league_id=? AND season=?`)
+    .get(String(legacy.league_id), legacy.season);
+  if (!exists) {
+    db.prepare(`INSERT INTO leagues (platform, league_id, season, my_team_id, espn_s2, swid)
+                VALUES ('espn', ?, ?, ?, ?, ?)`)
+      .run(String(legacy.league_id), legacy.season, legacy.team_id != null ? String(legacy.team_id) : null,
+        legacy.espn_s2, legacy.swid);
+  }
 }
 
 export function rows(sql, ...params) {

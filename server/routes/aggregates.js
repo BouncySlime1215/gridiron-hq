@@ -61,6 +61,7 @@ async function syncSleeper() {
     if (!['QB', 'RB', 'WR', 'TE', 'K'].includes(p.position)) continue;
     const id = lookup.get(`${normName(p.full_name)}|${p.position}`);
     if (!id) continue;
+    run('UPDATE players SET sleeper_id = ? WHERE id = ?', p.player_id, id);
     run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'sleeper_rank',?,datetime('now'))
          ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
       id, p.search_rank);
@@ -73,28 +74,74 @@ async function syncSleeper() {
   return { matched };
 }
 
+// FantasyCalc — market trade values from real trades (via akodsi/fantasy-advisor).
+// We use redraft values + the 30-day trend as a buy/sell signal.
+async function syncFantasyCalc() {
+  const league = row(`SELECT team_count, ppr, superflex FROM leagues ORDER BY id LIMIT 1`);
+  const params = new URLSearchParams({
+    isDynasty: 'false',
+    numQbs: String(league?.superflex ? 2 : 1),
+    numTeams: String(league?.team_count ?? 12),
+    ppr: String(league?.ppr ?? 1)
+  });
+  const resp = await fetch(`https://api.fantasycalc.com/values/current?${params}`, { headers: { Accept: 'application/json' } });
+  if (!resp.ok) throw new Error(`FantasyCalc API ${resp.status}`);
+  const data = await resp.json();
+  const bySleeper = new Map(rows('SELECT id, sleeper_id FROM players WHERE sleeper_id IS NOT NULL').map(p => [p.sleeper_id, p.id]));
+  const lookup = playerLookup();
+  let matched = 0;
+  const upsert = (id, source, value) =>
+    run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,?,?,datetime('now'))
+         ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
+      id, source, value);
+  for (const entry of data) {
+    const p = entry.player ?? {};
+    if (p.position === 'PICK') continue;
+    const id = (p.sleeperId && bySleeper.get(String(p.sleeperId)))
+      ?? lookup.get(`${normName(p.name ?? '')}|${p.position}`);
+    if (!id) continue;
+    if (entry.redraftValue != null) upsert(id, 'fc_value', entry.redraftValue);
+    if (entry.trend30Day != null) upsert(id, 'fc_trend30', entry.trend30Day);
+    if (entry.maybeAdp != null) upsert(id, 'fc_adp', entry.maybeAdp);
+    matched++;
+  }
+  return { fetched: data.length, matched };
+}
+
 r.post('/sync', async (req, res, next) => {
   try {
     const season = row('SELECT season FROM espn_settings WHERE id = 1')?.season ?? new Date().getFullYear();
-    const [ffc, sleeper] = await Promise.allSettled([syncFFC(season), syncSleeper()]);
+    const [ffc, sleeper, fc] = await Promise.allSettled([syncFFC(season), syncSleeper(), syncFantasyCalc()]);
     res.json({
       ok: true,
       ffc: ffc.status === 'fulfilled' ? ffc.value : { error: ffc.reason.message },
-      sleeper: sleeper.status === 'fulfilled' ? sleeper.value : { error: sleeper.reason.message }
+      sleeper: sleeper.status === 'fulfilled' ? sleeper.value : { error: sleeper.reason.message },
+      fantasycalc: fc.status === 'fulfilled' ? fc.value : { error: fc.reason.message }
     });
   } catch (e) { next(e); }
 });
 
+/** FantasyCalc's trend30Day is a raw point delta — express it as % of the prior value. */
+export function trendPct(value, trend) {
+  if (value == null || trend == null) return null;
+  const prior = value - trend;
+  if (!prior) return null;
+  return (trend / prior) * 100;
+}
+
 // Aggregate view: each source rank + blended consensus
 export function computeConsensus() {
   const players = rows(`
-    SELECT p.id, p.name, p.position, t.abbr AS team_abbr, t.primary_color,
-           ffc.value AS ffc_adp, sl.value AS sleeper_rank, inj.value AS injury_flag
+    SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color,
+           ffc.value AS ffc_adp, sl.value AS sleeper_rank, inj.value AS injury_flag,
+           fcv.value AS fc_value, fct.value AS fc_trend30
     FROM players p
     LEFT JOIN nfl_teams t ON t.id = p.team_id
     LEFT JOIN player_metrics ffc ON ffc.player_id = p.id AND ffc.source = 'ffc_adp'
     LEFT JOIN player_metrics sl ON sl.player_id = p.id AND sl.source = 'sleeper_rank'
     LEFT JOIN player_metrics inj ON inj.player_id = p.id AND inj.source = 'injury_flag'
+    LEFT JOIN player_metrics fcv ON fcv.player_id = p.id AND fcv.source = 'fc_value'
+    LEFT JOIN player_metrics fct ON fct.player_id = p.id AND fct.source = 'fc_trend30'
     WHERE ffc.value IS NOT NULL OR sl.value IS NOT NULL`);
 
   // convert each source's raw value to an ordinal rank, then average available ranks
@@ -106,6 +153,8 @@ export function computeConsensus() {
   return players.map(p => {
     const ranks = [ffcRank.get(p.id), slRank.get(p.id)].filter(x => x != null);
     return { ...p, ffc_rank: ffcRank.get(p.id) ?? null, sleeper_ordinal: slRank.get(p.id) ?? null,
+             // fc_trend30 is a raw point change; convert to % of the value 30 days ago
+             fc_trend_pct: trendPct(p.fc_value, p.fc_trend30),
              consensus: ranks.length ? ranks.reduce((a, b) => a + b, 0) / ranks.length : null };
   }).filter(p => p.consensus != null).sort((a, b) => a.consensus - b.consensus);
 }
@@ -140,9 +189,11 @@ r.post('/refresh-all', async (req, res, next) => {
     }
     const season = row('SELECT season FROM espn_settings WHERE id = 1')?.season ?? new Date().getFullYear();
     const [ffc, sleeper] = await Promise.allSettled([syncFFC(season), syncSleeper()]);
+    const fc = await syncFantasyCalc().catch(e => ({ error: e.message })); // after Sleeper so sleeper_ids exist
     result.aggregates = {
       ffc: ffc.status === 'fulfilled' ? ffc.value : { error: ffc.reason.message },
-      sleeper: sleeper.status === 'fulfilled' ? sleeper.value : { error: sleeper.reason.message }
+      sleeper: sleeper.status === 'fulfilled' ? sleeper.value : { error: sleeper.reason.message },
+      fantasycalc: fc
     };
     res.json({ ok: true, ...result,
       note: 'Now run the AI analysis pass (POST /api/analysis/refresh) — it updates outlooks for teams with new news.' });

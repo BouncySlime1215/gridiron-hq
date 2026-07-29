@@ -27,7 +27,7 @@ r.delete('/:id', (req, res) => {
 });
 
 r.get('/:id/entries', (req, res) => {
-  res.json(rows(`SELECT re.*, p.name, p.position, t.abbr AS team_abbr, t.primary_color
+  res.json(rows(`SELECT re.*, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color
                  FROM ranking_entries re
                  JOIN players p ON p.id = re.player_id
                  LEFT JOIN nfl_teams t ON t.id = p.team_id

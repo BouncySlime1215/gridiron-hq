@@ -104,14 +104,14 @@ r.delete('/:id', (req, res) => {
 r.get('/:id', (req, res) => {
   const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
   if (!draft) return res.status(404).json({ error: 'draft not found' });
-  const picks = rows(`SELECT dp.*, p.name, p.position, t.abbr AS team_abbr, t.primary_color
+  const picks = rows(`SELECT dp.*, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color
                       FROM draft_picks dp
                       JOIN players p ON p.id = dp.player_id
                       LEFT JOIN nfl_teams t ON t.id = p.team_id
                       WHERE dp.draft_id = ? ORDER BY dp.pick_number`, draft.id);
   let available = [];
   if (draft.ranking_set_id) {
-    available = rows(`SELECT re.rank, re.tier, re.note, p.id AS player_id, p.name, p.position,
+    available = rows(`SELECT re.rank, re.tier, re.note, p.id AS player_id, p.name, p.position, p.espn_id, p.sleeper_id,
                              t.abbr AS team_abbr, t.primary_color
                       FROM ranking_entries re
                       JOIN players p ON p.id = re.player_id

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, Draft, useApi } from '../api';
+import { api, Draft, headshotUrl, useApi } from '../api';
 import FormationView from '../components/FormationView';
-
-const TIER_COLORS = ['', '#f43f5e', '#f59e0b', '#10b981', '#38bdf8', '#a78bfa', '#64748b'];
+import PlayerRow from '../components/PlayerRow';
+import { PlayerName } from '../components/PlayerCard';
 
 export default function DraftRoom() {
   const { id } = useParams();
@@ -117,18 +117,19 @@ export default function DraftRoom() {
             ))}
           </div>
           {available.slice(0, 60).map(a => (
-            <button key={a.player_id} onClick={() => pick(a.player_id)}
-              title={myTurn ? 'Draft to MY team' : `Mark as taken by team ${onClockSlot}`}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 text-left text-sm group">
-              <span className="w-6 text-right text-slate-500 font-mono text-xs">{a.rank}</span>
-              <span className="w-1 h-5 rounded" style={{ background: TIER_COLORS[a.tier] }} />
-              <span className={`font-bold w-8 text-xs pos-${a.position}`}>{a.position}</span>
-              <span className="truncate">{a.name}</span>
-              <span className="text-slate-500 text-xs">{a.team_abbr}</span>
-              <span className="ml-auto opacity-0 group-hover:opacity-100 text-emerald-600 text-xs font-bold">
-                {myTurn ? 'DRAFT →' : 'TAKEN →'}
-              </span>
-            </button>
+            <PlayerRow
+              key={a.player_id}
+              playerId={a.player_id}
+              rank={a.rank}
+              name={a.name}
+              position={a.position}
+              teamAbbr={a.team_abbr}
+              headshot={headshotUrl(a as any)}
+              tier={a.tier}
+              dense
+              onClickRow={() => pick(a.player_id)}
+              actionLabel={myTurn ? 'DRAFT →' : 'TAKEN →'}
+            />
           ))}
           {available.length === 0 && <p className="text-xs text-slate-500 p-2">Everyone on your board is drafted. Add more players in Rankings.</p>}
         </div>
@@ -180,8 +181,8 @@ export default function DraftRoom() {
             <div key={p.pick_number} className="flex items-center gap-2 text-sm py-1">
               <span className="text-slate-400 text-xs w-8">{p.pick_number}.</span>
               <span className={`font-bold w-8 text-xs pos-${p.position}`}>{p.position}</span>
-              <span className="truncate">{p.name}</span>
-              <span className="text-slate-500 text-xs ml-auto">{p.team_abbr}</span>
+              <PlayerName id={p.player_id} className="truncate">{p.name}</PlayerName>
+              <span className="text-slate-400 text-xs ml-auto">{p.team_abbr}</span>
             </div>
           ))}
           {myPicks.length === 0 && <p className="text-xs text-slate-500">Your picks land here.</p>}

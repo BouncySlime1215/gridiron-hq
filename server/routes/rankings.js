@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
+import { statsFor } from './stats.js';
 
 const r = Router();
 
@@ -27,11 +28,19 @@ r.delete('/:id', (req, res) => {
 });
 
 r.get('/:id/entries', (req, res) => {
-  res.json(rows(`SELECT re.*, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color
-                 FROM ranking_entries re
-                 JOIN players p ON p.id = re.player_id
-                 LEFT JOIN nfl_teams t ON t.id = p.team_id
-                 WHERE re.set_id = ? ORDER BY re.rank`, req.params.id));
+  const entries = rows(`SELECT re.*, p.name, p.position, p.espn_id, p.sleeper_id,
+                               t.abbr AS team_abbr, t.primary_color,
+                               m.value AS market_value, mt.value AS market_trend, adp.value AS adp,
+                               inj.value AS injury_flag
+                        FROM ranking_entries re
+                        JOIN players p ON p.id = re.player_id
+                        LEFT JOIN nfl_teams t ON t.id = p.team_id
+                        LEFT JOIN player_metrics m   ON m.player_id = p.id   AND m.source = 'fc_value'
+                        LEFT JOIN player_metrics mt  ON mt.player_id = p.id  AND mt.source = 'fc_trend30'
+                        LEFT JOIN player_metrics adp ON adp.player_id = p.id AND adp.source = 'ffc_adp'
+                        LEFT JOIN player_metrics inj ON inj.player_id = p.id AND inj.source = 'injury_flag'
+                        WHERE re.set_id = ? ORDER BY re.rank`, req.params.id);
+  res.json(entries.map(e => ({ ...e, stats: statsFor(e.player_id) })));
 });
 
 // Full reorder: body is [{player_id, rank, tier, note}]

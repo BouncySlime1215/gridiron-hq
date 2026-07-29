@@ -141,7 +141,13 @@ export default function DraftRoom() {
                 <PosBadge pos={rec.recommendation.position} />
                 <div>
                   <div className="font-bold text-slate-900 leading-tight">{rec.recommendation.name}</div>
-                  <div className="text-[11px] text-slate-500">{rec.recommendation.team_abbr} · market #{rec.recommendation.market_rank}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {rec.recommendation.team_abbr} · market #{rec.recommendation.market_rank}
+                    {rec.recommendation.projected_points != null && (
+                      <> · proj <strong className="text-slate-700">{Math.round(rec.recommendation.projected_points)}</strong>
+                        {rec.recommendation.projected_pos_rank && ` (${rec.recommendation.position}${rec.recommendation.projected_pos_rank})`}</>
+                    )}
+                  </div>
                 </div>
                 <button
                   onClick={() => pick(rec.recommendation.player_id)}
@@ -207,6 +213,9 @@ export default function DraftRoom() {
                 tier={a.tier}
                 dense
                 hidePos
+                meta={a.projected_points != null
+                  ? `${a.position}${a.projected_pos_rank ?? ''} · proj ${Math.round(a.projected_points)}${a.last_season_points != null ? ` · '25 ${Math.round(a.last_season_points)}` : ''}`
+                  : undefined}
                 action={
                   <button
                     onClick={e => { e.stopPropagation(); pick(a.player_id); }}

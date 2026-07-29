@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
+import { unitGrades } from './nfldata.js';
 
 const EDITABLE = ['head_coach', 'oc_name', 'dc_name', 'off_scheme', 'off_scheme_detail',
   'def_scheme', 'def_scheme_detail', 'st_coordinator', 'ol_analysis', 'dl_analysis',
@@ -15,7 +16,24 @@ r.get('/:abbr', (req, res) => {
   const team = row('SELECT * FROM nfl_teams WHERE abbr = ?', req.params.abbr.toUpperCase());
   if (!team) return res.status(404).json({ error: 'team not found' });
   const players = rows('SELECT * FROM players WHERE team_id = ? ORDER BY phase, slot_code', team.id);
-  res.json({ ...team, players });
+
+  // Real starters straight off ESPN's depth chart — this is what the X-and-O
+  // diagrams render, so the O-line and all 11 defenders are actual players.
+  // ranks 1-3 per slot: rank 1 is the starter, 2-3 fill WR2/WR3 and rotational spots
+  const starters = rows(`SELECT rp.name, rp.position, rp.depth_slot, rp.depth_order, rp.jersey, rp.espn_id,
+                                p.id AS player_id
+                         FROM roster_players rp
+                         LEFT JOIN players p ON p.espn_id = rp.espn_id
+                         WHERE rp.team_id = ? AND rp.depth_slot IS NOT NULL
+                           AND rp.depth_order IS NOT NULL AND rp.depth_order <= 4
+                         ORDER BY rp.depth_slot, rp.depth_order`, team.id);
+  const depth = {}, multi = {};
+  for (const s of starters) {
+    (multi[s.depth_slot] ??= []).push(s);
+    if (s.depth_order === 1 && !depth[s.depth_slot]) depth[s.depth_slot] = s;
+  }
+
+  res.json({ ...team, players, depth, depth_multi: multi, grades: unitGrades(team.id) });
 });
 
 r.put('/:abbr', (req, res) => {

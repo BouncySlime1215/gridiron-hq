@@ -1,0 +1,128 @@
+import { db, rows, row, run } from '../db/index.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ENV_PATH = path.join(__dirname, '..', '..', '.env');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    feature TEXT NOT NULL,
+    model TEXT,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    calls INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
+`);
+
+// $ per million tokens — Haiku 4.5 is what every feature here uses.
+export const PRICING = {
+  'claude-haiku-4-5-20251001': { in: 1.00, out: 5.00 },
+  default: { in: 1.00, out: 5.00 }
+};
+
+export function getApiKey() {
+  return process.env.ANTHROPIC_API_KEY
+    || row(`SELECT value FROM app_settings WHERE key = 'anthropic_api_key'`)?.value
+    || null;
+}
+
+export function setApiKey(key) {
+  run(`INSERT INTO app_settings (key, value) VALUES ('anthropic_api_key', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key);
+  process.env.ANTHROPIC_API_KEY = key;
+  // persist to .env so it survives restarts
+  try {
+    let env = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
+    env = env.replace(/^ANTHROPIC_API_KEY=.*$/m, '').trim();
+    env = `${env}\nANTHROPIC_API_KEY=${key}\n`.trimStart();
+    fs.writeFileSync(ENV_PATH, env, { mode: 0o600 });
+    return { persisted: true };
+  } catch (e) {
+    return { persisted: false, error: e.message };
+  }
+}
+
+export function clearApiKey() {
+  run(`DELETE FROM app_settings WHERE key = 'anthropic_api_key'`);
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    if (fs.existsSync(ENV_PATH)) {
+      const env = fs.readFileSync(ENV_PATH, 'utf8').replace(/^ANTHROPIC_API_KEY=.*$/m, '').trim();
+      fs.writeFileSync(ENV_PATH, env ? env + '\n' : '', { mode: 0o600 });
+    }
+  } catch { /* best effort */ }
+}
+
+export function recordUsage(feature, model, usage) {
+  if (!usage) return;
+  run(`INSERT INTO ai_usage (date, feature, model, input_tokens, output_tokens, calls)
+       VALUES (date('now'), ?, ?, ?, ?, 1)`,
+    feature, model, usage.input_tokens ?? 0, usage.output_tokens ?? 0);
+}
+
+export const costOf = (model, inTok, outTok) => {
+  const p = PRICING[model] ?? PRICING.default;
+  return (inTok / 1e6) * p.in + (outTok / 1e6) * p.out;
+};
+
+/**
+ * Single entry point for every Claude call in the app: enforces the key,
+ * records token usage, and returns the raw message.
+ */
+export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt }) {
+  const key = getApiKey();
+  if (!key) {
+    const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
+    err.status = 400;
+    throw err;
+  }
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey: key });
+  const msg = await client.messages.create({
+    model, max_tokens: maxTokens,
+    messages: [{ role: 'user', content: prompt }]
+  });
+  recordUsage(feature, model, msg.usage);
+  return msg;
+}
+
+/** Parse a JSON-only response, tolerating code fences. */
+export function parseJson(msg) {
+  const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');
+  return JSON.parse(text);
+}
+
+export function usageSummary(days = 30) {
+  const daily = rows(`SELECT date, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+                             SUM(calls) AS calls, model
+                      FROM ai_usage WHERE date >= date('now', ?) GROUP BY date, model ORDER BY date DESC`,
+    `-${days} days`);
+  const byFeature = rows(`SELECT feature, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
+                                 SUM(calls) AS calls
+                          FROM ai_usage WHERE date >= date('now', ?) GROUP BY feature ORDER BY calls DESC`,
+    `-${days} days`);
+  const today = row(`SELECT COALESCE(SUM(input_tokens),0) AS input_tokens,
+                            COALESCE(SUM(output_tokens),0) AS output_tokens,
+                            COALESCE(SUM(calls),0) AS calls
+                     FROM ai_usage WHERE date = date('now')`);
+
+  const withCost = r => ({ ...r, cost: +costOf(r.model, r.input_tokens, r.output_tokens).toFixed(4) });
+  const totalCost = daily.reduce((s, d) => s + costOf(d.model, d.input_tokens, d.output_tokens), 0);
+
+  return {
+    today: { ...today, cost: +costOf('default', today.input_tokens, today.output_tokens).toFixed(4) },
+    period_days: days,
+    period_cost: +totalCost.toFixed(4),
+    daily: daily.map(withCost),
+    by_feature: byFeature.map(f => ({ ...f, cost: +costOf('default', f.input_tokens, f.output_tokens).toFixed(4) }))
+  };
+}

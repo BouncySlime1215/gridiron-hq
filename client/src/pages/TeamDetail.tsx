@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, Team, useApi } from '../api';
 import FormationView from '../components/FormationView';
@@ -45,14 +45,14 @@ export default function TeamDetail() {
     } catch (e: any) { setAiMsg(e.message); }
     finally { setAiBusy(false); }
   };
+  const { data: validation } = useApi<any>(`/analysis/validate?team=${abbr}`);
+  const staleNames: string[] = Array.from(new Set(
+    (validation?.teams?.[0]?.stale ?? []).map((x: any) => x.name)
+  )) as string[];
   const [phase, setPhase] = useState<Phase>('offense');
   const [unit, setUnit] = useState<string | null>(null);
 
-  const slots = useMemo(() => {
-    const m: Record<string, { name: string; id: number }> = {};
-    for (const p of team?.players ?? []) if (p.slot_code) m[p.slot_code] = { name: p.name, id: p.id };
-    return m;
-  }, [team]);
+
 
   if (loading || !team) return <p className="text-slate-500">Loading team…</p>;
 
@@ -94,13 +94,56 @@ export default function TeamDetail() {
         {phase === 'offseason' ? <OffseasonPanel abbr={team.abbr} /> : (<>
         <FormationView
           phase={phase as any}
-          slots={slots}
-          scheme={phase === 'defense' ? team.def_scheme : team.off_scheme}
+          depth={(team as any).depth ?? {}}
+          depthMulti={(team as any).depth_multi}
+          grades={(team as any).grades}
           accent={team.primary_color}
           onPlayerClick={pid => nav(`/players/${pid}`)}
           onUnitClick={u => setUnit(u === unit ? null : u)}
           selectedUnit={unit}
         />
+
+        <div className="flex items-center gap-4 mt-2 mb-1 text-[11px] text-slate-500 flex-wrap">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(16,185,129,0.25)', border: '1.5px solid #10b981' }} />
+            strength
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(244,63,94,0.25)', border: '1.5px solid #f43f5e' }} />
+            weak spot (pulsing)
+          </span>
+          <span className="text-slate-400">hover a highlighted player for why</span>
+        </div>
+
+        {(team as any).grades?.units && (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">
+            {Object.entries((team as any).grades.units).map(([unit, g]: any) => (
+              <div key={unit} className={`rounded-lg border p-2 ${
+                g.grade === 'strength' ? 'border-emerald-300 bg-emerald-50'
+                : g.grade === 'weakness' ? 'border-rose-300 bg-rose-50' : 'border-slate-200 bg-white'}`}>
+                <div className="text-[10px] font-bold text-slate-500">{unit}</div>
+                <div className={`text-xs font-bold ${
+                  g.grade === 'strength' ? 'text-emerald-700' : g.grade === 'weakness' ? 'text-rose-700' : 'text-slate-600'}`}>
+                  {g.grade === 'ok' ? 'average' : g.grade}
+                </div>
+                <div className="text-[10px] text-slate-500 truncate" title={`weakest: ${g.weakest}`}>
+                  weak link: {g.weakest?.split(' ').slice(-1)[0] ?? '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {staleNames.length > 0 && (
+          <div className="card p-3 mt-3 border-amber-300 bg-amber-50">
+            <p className="text-xs text-amber-800">
+              <strong>Heads up:</strong> the written analysis below still mentions{' '}
+              <strong>{staleNames.join(', ')}</strong>, who {staleNames.length === 1 ? 'is' : 'are'} not on
+              the current {team.abbr} roster. The diagrams and unit grades above use the live roster and are correct.
+              {' '}Use <em>Re-check outlook</em> to rewrite it (needs an API key in the Dev Hub).
+            </p>
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-4 mt-4">
           <div className="card p-4">

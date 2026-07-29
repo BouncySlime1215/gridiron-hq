@@ -23,16 +23,22 @@ export default function MyTeam() {
   const starters = roster.filter((e: any) => STARTER_SLOTS.has(e.lineupSlotId));
   const bench = roster.filter((e: any) => !STARTER_SLOTS.has(e.lineupSlotId));
 
+  // Map my fantasy starters onto the same slot codes the formation view uses.
   const slots = useMemo(() => {
-    const s: Record<string, string> = {};
-    const by = (want: string[]) => starters.filter((e: any) =>
-      want.includes(SLOT[e.lineupSlotId] ?? '')).map((e: any) => e.playerPoolEntry?.player?.fullName);
-    const [qb] = by(['QB']); if (qb) s.QB = qb;
-    const rbs = by(['RB']); if (rbs[0]) s.RB1 = rbs[0];
-    const wrs = by(['WR']); wrs.slice(0, 3).forEach((w: string, i: number) => { s[`WR${i + 1}`] = w; });
-    const flex = by(['FLEX', 'RB/WR', 'WR/TE', 'OP']); if (flex[0] && !s.WR3) s.WR3 = flex[0];
-    const [te] = by(['TE']); if (te) s.TE1 = te;
-    const [k] = by(['K']); if (k) s.K = k;
+    const s: Record<string, { name: string }> = {};
+    const by = (want: string[]) => starters
+      .filter((e: any) => want.includes(SLOT[e.lineupSlotId] ?? ''))
+      .map((e: any) => e.playerPoolEntry?.player?.fullName)
+      .filter(Boolean);
+    const [qb] = by(['QB']); if (qb) s.QB = { name: qb };
+    const rbs = by(['RB']); if (rbs[0]) s.RB = { name: rbs[0] };
+    const wrs = by(['WR']);
+    if (wrs[0]) s.LWR = { name: wrs[0] };
+    if (wrs[1]) s.RWR = { name: wrs[1] };
+    if (wrs[2]) s.SWR = { name: wrs[2] };
+    const flex = by(['FLEX', 'RB/WR', 'WR/TE', 'OP']); if (flex[0] && !s.SWR) s.SWR = { name: flex[0] };
+    const [te] = by(['TE']); if (te) s.TE = { name: te };
+    const [k] = by(['K']); if (k) s.K = { name: k };
     return s;
   }, [starters]);
 
@@ -101,7 +107,7 @@ export default function MyTeam() {
         <div className="grid lg:grid-cols-[1fr_320px] gap-4">
           <div>
             <h2 className="text-sm font-bold text-slate-700 mb-2">Starting Lineup — X&apos;s &amp; O&apos;s</h2>
-            <FormationView phase="offense" slots={slots} accent="#10b981" />
+            <FormationView phase="offense" depth={slots} accent="#0f766e" />
             <div className="grid md:grid-cols-2 gap-4 mt-4">
               <div className="card p-4">
                 <h3 className="text-sm font-bold text-slate-700 mb-2">Starters</h3>

@@ -23,8 +23,56 @@ const VERDICT_STYLE: Record<string, string> = {
   HOLD: 'bg-slate-100 text-slate-600 border-slate-300'
 };
 
+function GameLog({ playerId, position }: { playerId: number; position: string }) {
+  const { data, loading } = useApi<any>(`/players/${playerId}/gamelog`);
+  if (loading) return <p className="text-xs text-slate-500">Loading game log…</p>;
+  if (!data || data.unavailable || !data.games?.length)
+    return <p className="text-xs text-slate-500">{data?.unavailable ?? 'No game log available.'}</p>;
+
+  // show the stat columns that matter for this position
+  const COLS: Record<string, [string, string][]> = {
+    QB: [['completions', 'CMP'], ['passingAttempts', 'ATT'], ['passingYards', 'YDS'], ['passingTouchdowns', 'TD'],
+         ['interceptions', 'INT'], ['rushingYards', 'RUSH'], ['rushingTouchdowns', 'RTD']],
+    RB: [['rushingAttempts', 'CAR'], ['rushingYards', 'YDS'], ['rushingTouchdowns', 'TD'],
+         ['receptions', 'REC'], ['receivingYards', 'RECY'], ['receivingTouchdowns', 'RTD']],
+    WR: [['receivingTargets', 'TGT'], ['receptions', 'REC'], ['receivingYards', 'YDS'],
+         ['receivingTouchdowns', 'TD'], ['rushingYards', 'RUSH']],
+    TE: [['receivingTargets', 'TGT'], ['receptions', 'REC'], ['receivingYards', 'YDS'], ['receivingTouchdowns', 'TD']]
+  };
+  const cols = COLS[position] ?? COLS.WR;
+
+  return (
+    <div className="overflow-x-auto -mx-1">
+      <table className="w-full text-xs min-w-[380px]">
+        <thead>
+          <tr className="text-[10px] uppercase tracking-wide text-slate-400">
+            <th className="text-left font-medium pb-1 pl-1">Wk</th>
+            <th className="text-left font-medium pb-1">Opp</th>
+            {cols.map(([, label]) => <th key={label} className="text-right font-medium pb-1 pr-1">{label}</th>)}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {data.games.map((g: any, i: number) => (
+            <tr key={i} className="hover:bg-slate-50">
+              <td className="py-1 pl-1 text-slate-400 tabular-nums">{g.week ?? '—'}</td>
+              <td className="py-1 text-slate-600 whitespace-nowrap">{g.opponent || '—'}</td>
+              {cols.map(([key, label]) => (
+                <td key={label} className="py-1 pr-1 text-right tabular-nums text-slate-700">
+                  {g.stats?.[key] ?? '—'}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-[10px] text-slate-400 mt-1 pl-1">{data.season} game log · ESPN</p>
+    </div>
+  );
+}
+
 function Card({ id, onClose }: { id: number; onClose: () => void }) {
   const { data: p, loading, refetch } = useApi<any>(`/players/${id}`);
+  const [tab, setTab] = useState<'overview' | 'gamelog'>('overview');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -78,10 +126,12 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
             </div>
 
             <div className="grid grid-cols-4 gap-px bg-slate-200 border-b border-slate-200">
-              {[['Market value', m.fc_value != null ? Math.round(m.fc_value) : '—'],
+              {[['Proj pts', p.stats?.projected_points != null
+                    ? `${Math.round(p.stats.projected_points)}${p.stats.projected_pos_rank ? ` · ${p.position}${p.stats.projected_pos_rank}` : ''}`
+                    : '—'],
+                [`${(p.stats?.last_season ?? '')} actual`, p.stats?.last_season_points != null ? Math.round(p.stats.last_season_points) : '—'],
                 ['30-day trend', <Trend value={m.fc_value} trend={m.fc_trend30} />],
-                ['ADP', m.ffc_adp != null ? m.ffc_adp.toFixed(1) : m.fc_adp != null ? m.fc_adp.toFixed(1) : '—'],
-                ['Sleeper rank', m.sleeper_rank != null ? Math.round(m.sleeper_rank) : '—']].map(([label, val], i) => (
+                ['ADP', m.ffc_adp != null ? m.ffc_adp.toFixed(1) : m.fc_adp != null ? m.fc_adp.toFixed(1) : '—']].map(([label, val], i) => (
                 <div key={i} className="bg-white px-3 py-2">
                   <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
                   <div className="text-sm font-bold text-slate-800">{val as any}</div>
@@ -89,6 +139,19 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
               ))}
             </div>
 
+            <div className="flex gap-1 px-5 pt-3 border-b border-slate-200">
+              {(['overview', 'gamelog'] as const).map(t => (
+                <button key={t} onClick={() => setTab(t)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg border-b-2 -mb-px transition-colors ${
+                    tab === t ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+                  {t === 'overview' ? 'Overview' : 'Game log'}
+                </button>
+              ))}
+            </div>
+
+            {tab === 'gamelog' ? (
+              <div className="p-5"><GameLog playerId={p.id} position={p.position} /></div>
+            ) : (
             <div className="p-5 space-y-4">
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -140,6 +203,7 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
                 full page (X&apos;s and O&apos;s, unit analysis) →
               </Link>
             </div>
+            )}
           </>
         )}
       </div>

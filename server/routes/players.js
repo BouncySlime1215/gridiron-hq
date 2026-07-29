@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { trendPct } from './aggregates.js';
 import { unitRoster, computeSOS } from './nfldata.js';
+import { statsFor, fetchGameLog } from './stats.js';
+import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 
 const r = Router();
 
@@ -55,6 +57,18 @@ r.get('/:id', (req, res) => {
   const teammates = player.team_id
     ? rows('SELECT id, name, position, slot_code, phase FROM players WHERE team_id = ? ORDER BY phase, slot_code', player.team_id)
     : [];
+  // real depth-chart starters for this player's team (drives the X-and-O view)
+  const depth = {}, depthMulti = {};
+  if (player.team_id) {
+    for (const s of rows(`SELECT rp.name, rp.position, rp.depth_slot, rp.depth_order, rp.jersey, p.id AS player_id
+                          FROM roster_players rp LEFT JOIN players p ON p.espn_id = rp.espn_id
+                          WHERE rp.team_id = ? AND rp.depth_slot IS NOT NULL
+                            AND rp.depth_order IS NOT NULL AND rp.depth_order <= 4
+                          ORDER BY rp.depth_slot, rp.depth_order`, player.team_id)) {
+      (depthMulti[s.depth_slot] ??= []).push(s);
+      if (s.depth_order === 1 && !depth[s.depth_slot]) depth[s.depth_slot] = s;
+    }
+  }
   const verdict = row('SELECT verdict, reasoning, generated_at FROM player_analysis WHERE player_id = ?', player.id);
   res.json({
     ...player,
@@ -63,8 +77,31 @@ r.get('/:id', (req, res) => {
     ranks,
     news: newsFor(player),
     teammates,
+    depth,
+    depth_multi: depthMulti,
+    stats: statsFor(player.id),
     verdict: verdict ?? null
   });
+});
+
+/** Game-by-game log — proxied live from ESPN. */
+r.get('/:id/gamelog', async (req, res, next) => {
+  try {
+    const p = row('SELECT espn_id, name, position FROM players WHERE id = ?', req.params.id);
+    if (!p) return res.status(404).json({ error: 'player not found' });
+    // some rows come from ranking imports without an ESPN id — fall back to the roster table by name
+    let espnId = p.espn_id;
+    if (!espnId) {
+      const norm = n => n.toLowerCase().replace(/[.'’]/g, '').replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').trim();
+      const match = rows('SELECT name, espn_id FROM roster_players WHERE espn_id IS NOT NULL')
+        .find(x => norm(x.name) === norm(p.name));
+      espnId = match?.espn_id ?? null;
+      if (espnId) run('UPDATE players SET espn_id = ? WHERE id = ?', espnId, req.params.id);
+    }
+    if (!espnId) return res.json({ unavailable: `No ESPN id matched for ${p.name}.`, games: [] });
+    const season = Number(req.query.season) || (Number(process.env.NFL_SEASON) || 2026) - 1;
+    res.json(await fetchGameLog(espnId, season));
+  } catch (e) { next(e); }
 });
 
 // Heuristic buy/sell used when no API key is configured (and as the AI's starting point).
@@ -87,9 +124,9 @@ r.post('/:id/analyze', async (req, res, next) => {
     const m = metricsFor(player.id);
     const news = newsFor(player);
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!getApiKey()) {
       const h = heuristicVerdict(m);
-      if (!h) return res.status(400).json({ error: 'ANTHROPIC_API_KEY not set and no market trend available.' });
+      if (!h) return res.status(400).json({ error: 'No API key configured (Dev Hub, top right) and no market trend available.' });
       run(`INSERT INTO player_analysis (player_id, verdict, reasoning, generated_at)
            VALUES (?,?,?,datetime('now'))
            ON CONFLICT(player_id) DO UPDATE SET verdict=excluded.verdict, reasoning=excluded.reasoning, generated_at=excluded.generated_at`,
@@ -106,14 +143,10 @@ r.post('/:id/analyze', async (req, res, next) => {
       : '(not synced)';
     const sos = player.team_abbr ? computeSOS().find(s => s.abbr === player.team_abbr) : null;
 
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic();
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 700,
-      messages: [{
-        role: 'user',
-        content: `Fantasy football buy/sell call for THIS season (2026 redraft).
+    const msg = await callClaude({
+      feature: 'player-verdict',
+      maxTokens: 700,
+      prompt: `Fantasy football buy/sell call for THIS season (2026 redraft).
 
 PLAYER: ${player.name}, ${player.position}, ${player.team_name ?? 'free agent'}
 TEAM CONTEXT: HC ${player.head_coach ?? '?'}, OC ${player.oc_name ?? '?'}. Offense: ${player.off_scheme ?? '?'} — ${player.off_scheme_detail ?? ''}
@@ -131,10 +164,8 @@ ${news.map(n => `[${n.date}] ${n.headline}${n.body ? ' — ' + n.body : ''}`).jo
 Give a BUY, SELL, or HOLD call for this season. Ground it in scheme fit, target/touch competition from the depth chart above, the market trend, and the news. Never mention players who aren't on the depth chart. Be specific and opinionated, 3-4 sentences.
 
 Respond with ONLY JSON: {"verdict":"BUY|SELL|HOLD","reasoning":"..."}`
-      }]
     });
-    const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');
-    const out = JSON.parse(text);
+    const out = parseJson(msg);
     run(`INSERT INTO player_analysis (player_id, verdict, reasoning, generated_at)
          VALUES (?,?,?,datetime('now'))
          ON CONFLICT(player_id) DO UPDATE SET verdict=excluded.verdict, reasoning=excluded.reasoning, generated_at=excluded.generated_at`,

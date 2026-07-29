@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { computeConsensus } from './aggregates.js';
+import { statsMap } from './stats.js';
 
 const r = Router();
 
@@ -202,7 +203,14 @@ r.get('/:id', (req, res) => {
     available.push({ rank: boardMax + overflow, tier: 6, note: null, player_id: c.id,
       name: c.name, position: c.position, team_abbr: c.team_abbr, primary_color: c.primary_color });
   }
-  res.json({ ...draft, picks, available });
+  const sm = statsMap();
+  const withStats = p => {
+    const st = sm.get(p.player_id ?? p.id);
+    return st ? { ...p, projected_points: st.projected_points ?? null,
+                  last_season_points: st.last_season_points ?? null,
+                  projected_pos_rank: st.projected_pos_rank ?? null } : p;
+  };
+  res.json({ ...draft, picks: picks.map(withStats), available: available.map(withStats) });
 });
 
 r.post('/:id/picks', (req, res) => {
@@ -313,11 +321,16 @@ r.get('/:id/recommendation', (req, res) => {
     return { ...c, score: -c.market + bonus, notes };
   }).sort((a, b) => b.score - a.score);
 
+  const sm2 = statsMap();
   const top = scored.slice(0, 5).map(c => {
     const p = byId.get(c.id) ?? {};
+    const st = sm2.get(c.id);
     return { player_id: c.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
              espn_id: p.espn_id, sleeper_id: p.sleeper_id,
-             market_rank: Math.round(c.market), notes: c.notes };
+             market_rank: Math.round(c.market), notes: c.notes,
+             projected_points: st?.projected_points ?? null,
+             projected_pos_rank: st?.projected_pos_rank ?? null,
+             last_season_points: st?.last_season_points ?? null };
   });
   const best = top[0];
   res.json({

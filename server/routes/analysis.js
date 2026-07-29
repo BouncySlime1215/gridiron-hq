@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { unitRoster, computeSOS } from './nfldata.js';
+import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 
 const r = Router();
 
@@ -20,7 +21,7 @@ const fmtUnit = list => list.length
   ? list.slice(0, 12).map(p => `${p.name} (${p.position}${p.age ? `, ${p.age}yo` : ''}${p.experience === 0 ? ', rookie' : ''})`).join(', ')
   : '(not synced)';
 
-async function refreshTeam(client, team) {
+async function refreshTeam(_client, team) {
   const { players, news } = teamContext(team);
   const units = unitRoster(team.id);
   const cap = row('SELECT cap_space, dead_money FROM team_cap WHERE team_id = ?', team.id);
@@ -30,12 +31,10 @@ async function refreshTeam(client, team) {
   const newsText = news.map(n => `[${n.date}] ${n.headline}${n.body ? ' — ' + n.body : ''}`).join('\n') || '(no recent stories)';
   const current = ANALYSIS_FIELDS.map(f => `${f}: ${team[f]}`).join('\n\n');
 
-  const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 3000,
-    messages: [{
-      role: 'user',
-      content: `You maintain scouting analyses for the ${team.name} (2026 NFL season). HC ${team.head_coach}, OC ${team.oc_name}, DC ${team.dc_name}. Offense: ${team.off_scheme}. Defense: ${team.def_scheme}.
+  const msg = await callClaude({
+    feature: 'team-analysis',
+    maxTokens: 3000,
+    prompt: `You maintain scouting analyses for the ${team.name} (2026 NFL season). HC ${team.head_coach}, OC ${team.oc_name}, DC ${team.dc_name}. Offense: ${team.off_scheme}. Defense: ${team.def_scheme}.
 
 SKILL DEPTH CHART:
 ${skill}
@@ -63,10 +62,8 @@ Task: rewrite any analysis field that is stale, wrong, or vague. Requirements:
 - Omit any field that is already accurate and specific.
 
 Respond with ONLY a JSON object. Keys: any of ${ANALYSIS_FIELDS.join(', ')} (only ones you changed), plus "changed" (boolean) and "reason" (one sentence).`
-    }]
   });
-  const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');
-  const result = JSON.parse(text);
+  const result = parseJson(msg);
   const updates = ANALYSIS_FIELDS.filter(f => typeof result[f] === 'string' && result[f].length > 10);
   if (updates.length > 0) {
     run(`UPDATE nfl_teams SET ${updates.map(f => `${f} = ?`).join(', ')}, analysis_updated_at = datetime('now') WHERE id = ?`,
@@ -81,11 +78,10 @@ Respond with ONLY a JSON object. Keys: any of ${ANALYSIS_FIELDS.join(', ')} (onl
 // Default: only teams with news newer than their last analysis refresh.
 r.post('/refresh', async (req, res, next) => {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(400).json({ error: 'ANTHROPIC_API_KEY not set — add it to .env and restart to enable live AI analysis.' });
+    if (!getApiKey()) {
+      return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right) to enable live AI analysis.' });
     }
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic();
+    const client = null;
 
     let teams;
     if (Array.isArray(req.body?.teams) && req.body.teams.length) {
@@ -113,6 +109,71 @@ r.post('/refresh', async (req, res, next) => {
     }
     res.json({ ok: true, refreshed: results });
   } catch (e) { next(e); }
+});
+
+
+/**
+ * Validate every analysis field against the real 90-man roster: flag any player
+ * name mentioned who is no longer on that team (e.g. a traded WR still named in
+ * last season's scheme blurb).
+ */
+const ANALYSIS_TEXT_FIELDS = [...ANALYSIS_FIELDS];
+
+function rosterNameSet(teamId) {
+  const set = new Set();
+  const add = n => {
+    if (!n) return;
+    set.add(n.toLowerCase());
+    const parts = n.split(' ');
+    if (parts.length > 1) set.add(parts.slice(1).join(' ').toLowerCase()); // last name
+  };
+  for (const p of rows('SELECT name FROM roster_players WHERE team_id = ?', teamId)) add(p.name);
+  for (const p of rows('SELECT name FROM players WHERE team_id = ?', teamId)) add(p.name);
+  return set;
+}
+
+// Capitalised multi-word tokens that look like person names.
+const NAME_RE = /\b([A-Z][a-zA-Z'’.-]+(?:\s+(?:Jr\.|Sr\.|II|III|IV))?\s+[A-Z][a-zA-Z'’.-]+(?:\s+(?:Jr\.|Sr\.|II|III|IV))?)\b/g;
+// Words that start sentences / are football terms, not players.
+const NOT_NAMES = new Set(['The','This','That','His','New','Super Bowl','Pro Bowl','All Pro','West Coast','Air Raid',
+  'Special Teams','Red Zone','Play Action','O Line','D Line','Wide Zone','Big Nickel','Cover ','Week ']);
+
+function findStaleNames(team) {
+  const roster = rosterNameSet(team.id);
+  const teamWords = new Set((team.name ?? '').split(' ').map(w => w.toLowerCase()));
+  const stale = [];
+  for (const field of ANALYSIS_TEXT_FIELDS) {
+    const text = team[field];
+    if (!text) continue;
+    for (const m of text.matchAll(NAME_RE)) {
+      const candidate = m[1].trim();
+      if (NOT_NAMES.has(candidate)) continue;
+      const lower = candidate.toLowerCase();
+      // ignore coach names and team/city words
+      if (lower === (team.head_coach ?? '').toLowerCase()) continue;
+      if (lower === (team.oc_name ?? '').toLowerCase()) continue;
+      if (lower === (team.dc_name ?? '').toLowerCase()) continue;
+      if (candidate.split(' ').some(w => teamWords.has(w.toLowerCase()))) continue;
+      if (roster.has(lower)) continue;
+      // last-name-only match counts as on-roster
+      const last = candidate.split(' ').slice(-1)[0].toLowerCase();
+      if (roster.has(last)) continue;
+      stale.push({ field, name: candidate });
+    }
+  }
+  return stale;
+}
+
+r.get('/validate', (req, res) => {
+  const teams = req.query.team
+    ? rows('SELECT * FROM nfl_teams WHERE abbr = ?', String(req.query.team).toUpperCase())
+    : rows('SELECT * FROM nfl_teams');
+  const out = [];
+  for (const t of teams) {
+    const stale = findStaleNames(t);
+    if (stale.length) out.push({ abbr: t.abbr, name: t.name, stale });
+  }
+  res.json({ teams_with_stale_names: out.length, total_flags: out.reduce((s, t) => s + t.stale.length, 0), teams: out });
 });
 
 export default r;

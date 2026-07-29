@@ -72,9 +72,15 @@ export interface Draft {
 export interface DraftPick {
   pick_number: number; team_slot: number; player_id: number;
   name: string; position: string; team_abbr: string | null; primary_color?: string;
+  espn_id?: number | null; sleeper_id?: string | null;
+  projected_points?: number | null; projected_pos_rank?: number | null;
 }
 
 export interface AvailableEntry {
   rank: number; tier: number; note: string | null; player_id: number;
   name: string; position: string; team_abbr: string | null; primary_color?: string;
+  espn_id?: number | null; sleeper_id?: string | null;
+  projected_points?: number | null;
+  projected_pos_rank?: number | null;
+  last_season_points?: number | null;
 }

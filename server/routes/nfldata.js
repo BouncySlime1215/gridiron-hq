@@ -401,4 +401,97 @@ r.get('/roster/:abbr', (req, res) => {
   res.json({ team, ...unitRoster(team.id) });
 });
 
+
+/**
+ * Per-slot and per-unit grades computed from real roster data — no AI, no guesses.
+ * Signals: starter experience, room depth behind the starter, average age, and
+ * (for skill players) FantasyCalc market value percentile.
+ */
+export function unitGrades(teamId) {
+  const roster = rows(`SELECT rp.name, rp.position, rp.depth_slot, rp.depth_order, rp.age, rp.experience,
+                              m.value AS market
+                       FROM roster_players rp
+                       LEFT JOIN players p ON p.espn_id = rp.espn_id
+                       LEFT JOIN player_metrics m ON m.player_id = p.id AND m.source = 'fc_value'
+                       WHERE rp.team_id = ? AND rp.depth_slot IS NOT NULL`, teamId);
+
+  // league-wide market percentile reference for skill positions
+  const marketVals = rows(`SELECT value FROM player_metrics WHERE source = 'fc_value' ORDER BY value`).map(r => r.value);
+  const pct = v => {
+    if (v == null || !marketVals.length) return null;
+    let lo = 0, hi = marketVals.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (marketVals[mid] < v) lo = mid + 1; else hi = mid; }
+    return lo / marketVals.length;
+  };
+
+  const bySlot = {};
+  for (const p of roster) (bySlot[p.depth_slot] ??= []).push(p);
+  for (const list of Object.values(bySlot)) list.sort((a, b) => (a.depth_order ?? 99) - (b.depth_order ?? 99));
+
+  const slots = {};
+  for (const [slot, list] of Object.entries(bySlot)) {
+    const starter = list[0];
+    if (!starter) continue;
+    let score = 0.5;                                  // neutral baseline
+    const reasons = [];
+
+    const mp = pct(starter.market);
+    if (mp != null) {
+      score = mp;                                     // market is the strongest signal when we have it
+      if (mp >= 0.9) reasons.push('elite market value');
+      else if (mp <= 0.35) reasons.push('low market value');
+    }
+    const exp = starter.experience;
+    if (exp === 0) { score -= 0.12; reasons.push('rookie starter'); }
+    else if (exp != null && exp >= 9) { score -= 0.05; reasons.push(`${exp}-year vet`); }
+    if (starter.age != null && starter.age >= 31) { score -= 0.08; reasons.push(`age ${starter.age}`); }
+    if (starter.age != null && starter.age <= 24 && exp && exp >= 2) { score += 0.05; reasons.push('young ascending'); }
+
+    const depthCount = list.length;
+    if (depthCount <= 1) { score -= 0.10; reasons.push('no proven backup'); }
+    else if (depthCount >= 4) { score += 0.04; reasons.push('deep room'); }
+
+    score = Math.max(0, Math.min(1, score));
+    slots[slot] = {
+      starter: starter.name,
+      score: +score.toFixed(2),
+      grade: score >= 0.58 ? 'strength' : score <= 0.40 ? 'weakness' : 'ok',
+      // skill slots are graded on real market value; trenches only on age/experience/depth
+      basis: starter.market != null ? 'market value + age/experience/depth' : 'age, experience and depth only',
+      reasons,
+      depth: depthCount
+    };
+  }
+
+  // roll slots up into units
+  const UNIT_SLOTS = {
+    OL: ['LT', 'LG', 'C', 'RG', 'RT'],
+    SKILL: ['QB', 'RB', 'LWR', 'RWR', 'SWR', 'WR', 'TE'],
+    DL: ['LDE', 'RDE', 'NT', 'LDT', 'RDT'],
+    LB: ['MLB', 'WLB', 'SLB', 'LILB', 'RILB', 'LOLB', 'ROLB'],
+    DB: ['LCB', 'RCB', 'NB', 'SS', 'FS']
+  };
+  const units = {};
+  for (const [unit, codes] of Object.entries(UNIT_SLOTS)) {
+    const present = codes.map(c => slots[c]).filter(Boolean);
+    if (!present.length) continue;
+    const avg = present.reduce((s, x) => s + x.score, 0) / present.length;
+    units[unit] = {
+      score: +avg.toFixed(2),
+      grade: avg >= 0.56 ? 'strength' : avg <= 0.43 ? 'weakness' : 'ok',
+      weakest: present.slice().sort((a, b) => a.score - b.score)[0]?.starter ?? null,
+      strongest: present.slice().sort((a, b) => b.score - a.score)[0]?.starter ?? null,
+      filled: present.length,
+      expected: codes.length
+    };
+  }
+  return { slots, units };
+}
+
+r.get('/grades/:abbr', (req, res) => {
+  const team = row('SELECT id, abbr, name FROM nfl_teams WHERE abbr = ?', req.params.abbr.toUpperCase());
+  if (!team) return res.status(404).json({ error: 'team not found' });
+  res.json({ team, ...unitGrades(team.id) });
+});
+
 export default r;

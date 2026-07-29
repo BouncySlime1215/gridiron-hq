@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useApi } from '../api';
 import FormationView from '../components/FormationView';
@@ -24,11 +24,7 @@ export default function PlayerDetail() {
   const nav = useNavigate();
   const { data: p, loading } = useApi<any>(`/players/${id}`);
 
-  const slots = useMemo(() => {
-    const m: Record<string, { name: string; id: number }> = {};
-    for (const t of p?.teammates ?? []) if (t.slot_code) m[t.slot_code] = { name: t.name, id: t.id };
-    return m;
-  }, [p]);
+
 
   if (loading || !p) return <p className="text-slate-500">Loading player…</p>;
 
@@ -68,11 +64,11 @@ export default function PlayerDetail() {
         )}
       </div>
 
-      {p.team_abbr && Object.keys(slots).length > 0 && (
+      {p.team_abbr && p.depth && Object.keys(p.depth).length > 0 && (
         <FormationView
           phase={phase}
-          slots={slots}
-          scheme={phase === 'defense' ? p.def_scheme : p.off_scheme}
+          depth={p.depth}
+          depthMulti={p.depth_multi}
           accent={p.primary_color ?? '#0f766e'}
           onPlayerClick={pid => { if (pid !== p.id) nav(`/players/${pid}`); }}
         />

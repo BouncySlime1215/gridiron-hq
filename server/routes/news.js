@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
+import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 
 const r = Router();
 
@@ -39,24 +40,18 @@ r.delete('/:id', (req, res) => {
 r.post('/analyze', async (req, res, next) => {
   try {
     const { date, items } = req.body; // items: [{team_abbr, headline, body?}]
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(400).json({ error: 'ANTHROPIC_API_KEY not set. Add it to .env and restart, or use manual entry.' });
+    if (!getApiKey()) {
+      return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right), or use manual entry.' });
     }
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'items array required' });
     }
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic();
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048,
-      messages: [{
-        role: 'user',
-        content: `You are an NFL training-camp analyst for a fantasy football dashboard. For each story below, write a JSON array where each element has: "team_abbr", "headline" (cleaned up), "ai_analysis" (2-3 sentences of sharp football analysis: scheme fit, depth chart, usage), "fantasy_impact" (1 sentence, specific), "importance" (1=minor, 2=notable, 3=major). Only respond with the JSON array, no other text.\n\nStories:\n${items.map((it, i) => `${i + 1}. [${it.team_abbr}] ${it.headline}${it.body ? ' — ' + it.body : ''}`).join('\n')}`
-      }]
+    const msg = await callClaude({
+      feature: 'news-analyze',
+      maxTokens: 2048,
+      prompt: `You are an NFL training-camp analyst for a fantasy football dashboard. For each story below, write a JSON array where each element has: "team_abbr", "headline" (cleaned up), "ai_analysis" (2-3 sentences of sharp football analysis: scheme fit, depth chart, usage), "fantasy_impact" (1 sentence, specific), "importance" (1=minor, 2=notable, 3=major). Only respond with the JSON array, no other text.\n\nStories:\n${items.map((it, i) => `${i + 1}. [${it.team_abbr}] ${it.headline}${it.body ? ' — ' + it.body : ''}`).join('\n')}`
     });
-    const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');
-    const analyzed = JSON.parse(text);
+    const analyzed = parseJson(msg);
     for (const a of analyzed) {
       const team = row('SELECT id FROM nfl_teams WHERE abbr = ?', (a.team_abbr || '').toUpperCase());
       run(`INSERT INTO news_items (date, team_id, headline, ai_analysis, fantasy_impact, importance, source)
@@ -93,8 +88,8 @@ function myRosterNames() {
 /** "What does this actually mean?" — on-demand, per story. */
 r.post('/:id/explain', async (req, res, next) => {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(400).json({ error: 'ANTHROPIC_API_KEY not set — add it to .env and restart to enable AI summaries.' });
+    if (!getApiKey()) {
+      return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
     }
     const n = row(`SELECT n.*, t.abbr AS team_abbr, t.name AS team_name, t.head_coach, t.oc_name,
                           t.off_scheme, t.off_scheme_detail, t.coach_analysis
@@ -107,14 +102,10 @@ r.post('/:id/explain', async (req, res, next) => {
       : [];
     const mine = myRosterNames();
 
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic();
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 900,
-      messages: [{
-        role: 'user',
-        content: `Explain what this NFL story actually means. 2026 season.
+    const msg = await callClaude({
+      feature: 'news-explain',
+      maxTokens: 900,
+      prompt: `Explain what this NFL story actually means. 2026 season.
 
 STORY (${n.date}${n.team_abbr ? `, ${n.team_name}` : ''}): ${n.headline}
 ${n.body ?? ''}
@@ -130,10 +121,8 @@ Answer in JSON with exactly two keys:
 "my_impact": 2-3 sentences on what it means specifically for MY fantasy roster listed above. If nobody on my roster is affected, say so plainly and name the one player I should be watching instead.
 
 Respond with ONLY the JSON object.`
-      }]
     });
-    const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');
-    const out = JSON.parse(text);
+    const out = parseJson(msg);
     run(`UPDATE news_items SET ai_analysis = ?, fantasy_impact = ? WHERE id = ?`,
       out.team_impact, out.my_impact, n.id);
     res.json(out);
@@ -143,8 +132,8 @@ Respond with ONLY the JSON object.`
 /** Camp roundup: one paragraph on the day + the teams most affected. */
 r.post('/roundup', async (req, res, next) => {
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return res.status(400).json({ error: 'ANTHROPIC_API_KEY not set — add it to .env and restart to enable the roundup.' });
+    if (!getApiKey()) {
+      return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
     }
     const date = req.body?.date;
     const stories = date
@@ -155,14 +144,10 @@ r.post('/roundup', async (req, res, next) => {
     if (!stories.length) return res.status(400).json({ error: 'No stories to summarize — pull news first.' });
 
     const mine = myRosterNames();
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic();
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1400,
-      messages: [{
-        role: 'user',
-        content: `Here are today's NFL training-camp headlines (2026). Write a camp roundup.
+    const msg = await callClaude({
+      feature: 'news-roundup',
+      maxTokens: 1400,
+      prompt: `Here are today's NFL training-camp headlines (2026). Write a camp roundup.
 
 ${stories.map(s => `[${s.abbr ?? 'NFL'}] ${s.headline}${s.body ? ' — ' + s.body : ''}`).join('\n')}
 
@@ -175,10 +160,8 @@ Respond with ONLY JSON:
   "teams_affected": [{"team":"ABBR","why":"one sentence"}]
 }
 Limit battles and teams_affected to the 5 most consequential each.`
-      }]
     });
-    const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');
-    res.json(JSON.parse(text));
+    res.json(parseJson(msg));
   } catch (e) { next(e); }
 });
 

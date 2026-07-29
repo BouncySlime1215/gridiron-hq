@@ -9,6 +9,7 @@ import DraftRoom from './pages/DraftRoom';
 import MyTeam from './pages/MyTeam';
 import PlayerDetail from './pages/PlayerDetail';
 import Projections from './pages/Projections';
+import Edge from './pages/Edge';
 import Leagues from './pages/Leagues';
 import { PlayerCardProvider } from './components/PlayerCard';
 import DevHub from './components/DevHub';
@@ -23,6 +24,7 @@ const NAV = [
   { to: '/drafts', label: 'Draft Room', icon: '🎯' },
   { to: '/teams', label: '32 Teams', icon: '🏈' },
   { to: '/projections', label: 'Projections', icon: '📊' },
+  { to: '/edge', label: 'Edge', icon: '🧠' },
   { to: '/news', label: 'Camp News', icon: '📰' },
   { to: '/leagues', label: 'My Leagues', icon: '🔗' },
   { to: '/settings', label: 'ESPN Settings', icon: '⚙️' }
@@ -100,6 +102,7 @@ export default function App() {
           <Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} />
           <Route path="/projections" element={<Projections />} />
+          <Route path="/edge" element={<Edge />} />
           <Route path="/rankings" element={<Rankings />} />
           <Route path="/drafts" element={<Drafts />} />
           <Route path="/drafts/:id" element={<DraftRoom />} />

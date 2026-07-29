@@ -72,7 +72,16 @@ function GameLog({ playerId, position }: { playerId: number; position: string })
 
 function Card({ id, onClose }: { id: number; onClose: () => void }) {
   const { data: p, loading, refetch } = useApi<any>(`/players/${id}`);
-  const [tab, setTab] = useState<'overview' | 'gamelog'>('overview');
+  const [tab, setTab] = useState<'overview' | 'gamelog' | 'scout'>('overview');
+  const { data: scout, refetch: refetchScout } = useApi<any>(`/edge/scout/${id}`);
+  const [scoutBusy, setScoutBusy] = useState(false);
+  const [scoutErr, setScoutErr] = useState<string | null>(null);
+  const runScout = async () => {
+    setScoutBusy(true); setScoutErr(null);
+    try { await api(`/edge/scout/${id}`, { method: 'POST' }); refetchScout(); }
+    catch (e: any) { setScoutErr(e.message); }
+    finally { setScoutBusy(false); }
+  };
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -140,16 +149,45 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
             </div>
 
             <div className="flex gap-1 px-5 pt-3 border-b border-slate-200">
-              {(['overview', 'gamelog'] as const).map(t => (
+              {(['overview', 'gamelog', 'scout'] as const).map(t => (
                 <button key={t} onClick={() => setTab(t)}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg border-b-2 -mb-px transition-colors ${
                     tab === t ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-                  {t === 'overview' ? 'Overview' : 'Game log'}
+                  {t === 'overview' ? 'Overview' : t === 'gamelog' ? 'Game log' : '🧠 Scout report'}
                 </button>
               ))}
             </div>
 
-            {tab === 'gamelog' ? (
+            {tab === 'scout' ? (
+              <div className="p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  {scout?.verdict && (
+                    <span className={`text-xs font-black px-2.5 py-1 rounded border ${
+                      /LEAGUE WINNER|SOLID VALUE/.test(scout.verdict) ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                      : /AVOID|OVERPRICED/.test(scout.verdict) ? 'bg-rose-100 text-rose-700 border-rose-300'
+                      : 'bg-slate-100 text-slate-600 border-slate-300'}`}>
+                      {scout.verdict}
+                    </span>
+                  )}
+                  {scout?.confidence && <span className="text-[10px] text-slate-400">{scout.confidence} confidence</span>}
+                  <button className="btn-ghost text-xs ml-auto" onClick={runScout} disabled={scoutBusy}>
+                    {scoutBusy ? 'Scouting…' : scout ? '↻ Re-scout' : '✨ Generate report'}
+                  </button>
+                </div>
+                {scoutErr && <p className="text-xs text-rose-600 mb-2">{scoutErr}</p>}
+                {scout?.report ? (
+                  <>
+                    <p className="text-sm text-slate-700 leading-relaxed">{scout.report}</p>
+                    <p className="text-[10px] text-slate-400 mt-2">as of {scout.generated_at}</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    A full scouting report synthesising his VOR and ADP edge, weekly floor/ceiling and boom rate,
+                    fantasy-playoff schedule, scheme fit, O-line and recent news into one verdict.
+                  </p>
+                )}
+              </div>
+            ) : tab === 'gamelog' ? (
               <div className="p-5"><GameLog playerId={p.id} position={p.position} /></div>
             ) : (
             <div className="p-5 space-y-4">

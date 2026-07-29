@@ -26,6 +26,8 @@ export default function DraftRoom() {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [rec, setRec] = useState<any>(null);
   const [zoom, setZoom] = useState(1);   // draft-board scale
+  const { data: vorBoard } = useApi<any[]>('/edge/vor');
+  const vorById = useMemo(() => new Map((vorBoard ?? []).map(v => [v.id, v])), [vorBoard]);
   const [recapOpen, setRecapOpen] = useState(false);
   const [recapShown, setRecapShown] = useState(false);
   const busy = useRef(false);
@@ -234,9 +236,16 @@ export default function DraftRoom() {
                 tier={a.tier}
                 dense
                 hidePos
-                meta={a.projected_points != null
-                  ? `${a.position}${a.projected_pos_rank ?? ''} · proj ${Math.round(a.projected_points)}${a.last_season_points != null ? ` · '25 ${Math.round(a.last_season_points)}` : ''}`
-                  : undefined}
+                meta={(() => {
+                  const v = vorById.get(a.player_id);
+                  const bits: string[] = [];
+                  if (a.projected_points != null) bits.push(`${a.position}${a.projected_pos_rank ?? ''} · ${Math.round(a.projected_points)}pts`);
+                  if (v?.vor != null) bits.push(`VOR ${v.vor}`);
+                  if (v?.adp_edge != null && Math.abs(v.adp_edge) >= 4) {
+                    bits.push(v.adp_edge > 0 ? `value +${v.adp_edge.toFixed(0)}` : `reach ${v.adp_edge.toFixed(0)}`);
+                  }
+                  return bits.length ? bits.join(' · ') : undefined;
+                })()}
                 action={
                   <button
                     onClick={e => { e.stopPropagation(); pick(a.player_id); }}

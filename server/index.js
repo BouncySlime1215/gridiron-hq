@@ -14,6 +14,7 @@ import nfldataRouter from './routes/nfldata.js';
 import statsRouter from './routes/stats.js';
 import devRouter from './routes/dev.js';
 import accoladesRouter from './routes/accolades.js';
+import edgeRouter from './routes/edge.js';
 
 const app = express();
 app.use(express.json());
@@ -33,6 +34,7 @@ app.use('/api/nfl', nfldataRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/dev', devRouter);
 app.use('/api/accolades', accoladesRouter);
+app.use('/api/edge', edgeRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

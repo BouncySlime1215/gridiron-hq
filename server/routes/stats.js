@@ -24,7 +24,7 @@ const STAT_LABEL = {
   42: 'recYds', 43: 'recTD', 53: 'rec', 58: 'targets'
 };
 
-const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K' };
+const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
 
 /**
  * Pull ESPN's season projections (statSourceId 1) and last year's actuals

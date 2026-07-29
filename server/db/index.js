@@ -149,6 +149,12 @@ db.exec(`
     UNIQUE(platform, league_id, season)
   );
 
+  CREATE TABLE IF NOT EXISTS draft_grades (
+    draft_id INTEGER PRIMARY KEY REFERENCES drafts(id) ON DELETE CASCADE,
+    grade TEXT, summary TEXT, strengths TEXT, weaknesses TEXT,
+    best_pick TEXT, reach TEXT, generated_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS player_analysis (
     player_id INTEGER PRIMARY KEY REFERENCES players(id),
     verdict TEXT,                       -- BUY | SELL | HOLD

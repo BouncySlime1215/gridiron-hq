@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { api, Draft, headshotUrl, useApi } from '../api';
 import PlayerRow, { Headshot, PosBadge } from '../components/PlayerRow';
 import { PlayerName } from '../components/PlayerCard';
+import DraftRecap from '../components/DraftRecap';
 
 const POS_TINT: Record<string, string> = {
   QB: 'bg-rose-50 border-rose-200', RB: 'bg-emerald-50 border-emerald-200',
@@ -25,6 +26,8 @@ export default function DraftRoom() {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [rec, setRec] = useState<any>(null);
   const [zoom, setZoom] = useState(1);   // draft-board scale
+  const [recapOpen, setRecapOpen] = useState(false);
+  const [recapShown, setRecapShown] = useState(false);
   const busy = useRef(false);
 
   const nextPick = (draft?.picks.length ?? 0) + 1;
@@ -87,6 +90,10 @@ export default function DraftRoom() {
     if (secondsLeft === 0 && myTurn && rec?.recommendation) pick(rec.recommendation.player_id);
   }, [secondsLeft, myTurn]);
 
+  useEffect(() => {
+    if (draftOver && !recapShown) { setRecapOpen(true); setRecapShown(true); }
+  }, [draftOver, recapShown]);
+
   const myPicks = useMemo(() => draft?.picks.filter(p => p.team_slot === draft.my_slot) ?? [], [draft]);
   const available = (draft?.available ?? []).filter(a => filter === 'ALL' || a.position === filter);
 
@@ -101,6 +108,7 @@ export default function DraftRoom() {
 
   return (
     <div>
+      <DraftRecap draft={draft} open={recapOpen} onClose={() => setRecapOpen(false)} />
       {/* ---- status bar ---- */}
       <div className="flex items-center gap-3 mb-3 flex-wrap">
         <Link to="/drafts" className="text-xs text-slate-500 hover:text-slate-700">← drafts</Link>
@@ -113,13 +121,26 @@ export default function DraftRoom() {
           {isMock && !draftOver && (
             <button className="btn-ghost" onClick={() => setPaused(p => !p)}>{paused ? '▶ Resume' : '⏸ Pause'}</button>
           )}
+          {isMock && !draftOver && (
+            <button className="btn-ghost" onClick={async () => {
+              setPaused(true);
+              await api(`/drafts/${id}/sim-to-end`, { method: 'POST' });
+              refetch();
+            }}>⏭ Sim to end</button>
+          )}
+          {draft.picks.length > 0 && (
+            <button className="btn-ghost" onClick={() => setRecapOpen(true)}>📋 Recap</button>
+          )}
           <button className="btn-ghost" onClick={undo} disabled={draft.picks.length === 0}>↩ Undo</button>
         </div>
       </div>
 
       {/* ---- ON THE CLOCK banner ---- */}
       {draftOver ? (
-        <div className="card p-4 mb-4 text-center text-slate-600 font-semibold">Draft complete — {myPicks.length} players on your roster.</div>
+        <div className="card p-4 mb-4 flex items-center justify-center gap-3">
+          <span className="text-slate-600 font-semibold">Draft complete — {myPicks.length} players on your roster.</span>
+          <button className="btn-primary" onClick={() => setRecapOpen(true)}>View recap &amp; grade</button>
+        </div>
       ) : myTurn ? (
         <div className={`rounded-2xl mb-4 overflow-hidden border-2 ${urgent ? 'border-rose-500' : 'border-emerald-500'}`}>
           <div className={`px-5 py-3 flex items-center gap-4 flex-wrap ${urgent ? 'bg-rose-600' : 'bg-emerald-600'}`}>

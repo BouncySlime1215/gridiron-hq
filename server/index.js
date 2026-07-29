@@ -13,6 +13,7 @@ import leaguesRouter from './routes/leagues.js';
 import nfldataRouter from './routes/nfldata.js';
 import statsRouter from './routes/stats.js';
 import devRouter from './routes/dev.js';
+import accoladesRouter from './routes/accolades.js';
 
 const app = express();
 app.use(express.json());
@@ -31,6 +32,7 @@ app.use('/api/leagues', leaguesRouter);
 app.use('/api/nfl', nfldataRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/dev', devRouter);
+app.use('/api/accolades', accoladesRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

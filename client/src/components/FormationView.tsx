@@ -1,7 +1,13 @@
 export interface SlotPlayer { name: string; player_id?: number | null; position?: string; jersey?: string | null }
 type DepthMap = Record<string, SlotPlayer | undefined>;
 
-export interface SlotGrade { score: number; grade: 'strength' | 'ok' | 'weakness'; reasons: string[]; starter: string; basis?: string }
+export interface SlotGrade {
+  grade: 'strength' | 'ok' | 'weakness';
+  starter: string;
+  badges?: string[];
+  weakness_reason?: string | null;
+  basis?: string;
+}
 
 interface Props {
   phase: 'offense' | 'defense' | 'special_teams';
@@ -61,7 +67,14 @@ function Node({ x, y, type, code, player, accent, onClick, grade }: {
         </circle>
       )}
       {grade && grade.grade !== 'ok' && (
-        <title>{`${grade.starter} — ${grade.grade.toUpperCase()}: ${grade.reasons.join(', ')}`}</title>
+        <title>{grade.grade === 'strength'
+          ? `${grade.starter} — STRENGTH: ${(grade.badges ?? []).join(' · ')}`
+          : `${grade.starter} — WEAK SPOT: ${grade.weakness_reason ?? 'below starting standard'}`}</title>
+      )}
+      {grade?.grade === 'strength' && grade.badges?.[0] && (
+        <text x={x} y={y + 39} textAnchor="middle" fontSize={7.5} fontWeight={700} fill="#059669">
+          {grade.badges[0].length > 22 ? grade.badges[0].slice(0, 20) + '…' : grade.badges[0]}
+        </text>
       )}
       {type === 'O' ? (
         <circle cx={x} cy={y} r={14} fill={player ? accent : '#fff'} fillOpacity={player ? 0.14 : 1}

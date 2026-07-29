@@ -408,14 +408,20 @@ r.get('/roster/:abbr', (req, res) => {
  * (for skill players) FantasyCalc market value percentile.
  */
 export function unitGrades(teamId) {
-  const roster = rows(`SELECT rp.name, rp.position, rp.depth_slot, rp.depth_order, rp.age, rp.experience,
-                              m.value AS market
+  const roster = rows(`SELECT rp.id, rp.name, rp.position, rp.depth_slot, rp.depth_order, rp.age, rp.experience,
+                              m.value AS market, a.pro_bowls, a.first_team_all_pro, a.second_team_all_pro,
+                              a.super_bowls, a.major_awards, a.draft_round, a.draft_pick, a.draft_year,
+                              ps.fantasy_points AS proj_points,
+                              w.verdict AS ai_weakness, w.reasoning AS ai_reason
                        FROM roster_players rp
                        LEFT JOIN players p ON p.espn_id = rp.espn_id
                        LEFT JOIN player_metrics m ON m.player_id = p.id AND m.source = 'fc_value'
+                       LEFT JOIN player_accolades a ON a.roster_player_id = rp.id
+                       LEFT JOIN player_season_stats ps ON ps.player_id = p.id
+                            AND ps.kind = 'projected'
+                       LEFT JOIN slot_weakness w ON w.roster_player_id = rp.id
                        WHERE rp.team_id = ? AND rp.depth_slot IS NOT NULL`, teamId);
 
-  // league-wide market percentile reference for skill positions
   const marketVals = rows(`SELECT value FROM player_metrics WHERE source = 'fc_value' ORDER BY value`).map(r => r.value);
   const pct = v => {
     if (v == null || !marketVals.length) return null;
@@ -428,42 +434,49 @@ export function unitGrades(teamId) {
   for (const p of roster) (bySlot[p.depth_slot] ??= []).push(p);
   for (const list of Object.values(bySlot)) list.sort((a, b) => (a.depth_order ?? 99) - (b.depth_order ?? 99));
 
+  const currentYear = Number(process.env.NFL_SEASON) || 2026;
   const slots = {};
   for (const [slot, list] of Object.entries(bySlot)) {
-    const starter = list[0];
-    if (!starter) continue;
-    let score = 0.5;                                  // neutral baseline
-    const reasons = [];
+    const s = list[0];
+    if (!s) continue;
 
-    const mp = pct(starter.market);
-    if (mp != null) {
-      score = mp;                                     // market is the strongest signal when we have it
-      if (mp >= 0.9) reasons.push('elite market value');
-      else if (mp <= 0.35) reasons.push('low market value');
-    }
-    const exp = starter.experience;
-    if (exp === 0) { score -= 0.12; reasons.push('rookie starter'); }
-    else if (exp != null && exp >= 9) { score -= 0.05; reasons.push(`${exp}-year vet`); }
-    if (starter.age != null && starter.age >= 31) { score -= 0.08; reasons.push(`age ${starter.age}`); }
-    if (starter.age != null && starter.age <= 24 && exp && exp >= 2) { score += 0.05; reasons.push('young ascending'); }
+    // ---- STRENGTH: earned accolades and pedigree, not age guesses ----
+    const badges = [];
+    if (s.first_team_all_pro > 0) badges.push({ label: `${s.first_team_all_pro}× First-team All-Pro`, weight: 3 });
+    if (s.second_team_all_pro > 0) badges.push({ label: `${s.second_team_all_pro}× All-Pro (2nd)`, weight: 2 });
+    if (s.pro_bowls > 0) badges.push({ label: `${s.pro_bowls}× Pro Bowl`, weight: s.pro_bowls >= 3 ? 3 : 2 });
+    if (s.major_awards) badges.push({ label: s.major_awards, weight: 3 });
+    if (s.super_bowls > 0) badges.push({ label: `${s.super_bowls}× Super Bowl champ`, weight: 1 });
+    if (s.draft_round === 1 && s.draft_year === currentYear) badges.push({ label: `${s.draft_year} 1st-round pick`, weight: 2 });
+    else if (s.draft_round === 1 && s.draft_pick <= 15) badges.push({ label: `top-15 pick (${s.draft_year})`, weight: 1 });
 
-    const depthCount = list.length;
-    if (depthCount <= 1) { score -= 0.10; reasons.push('no proven backup'); }
-    else if (depthCount >= 4) { score += 0.04; reasons.push('deep room'); }
+    const mp = pct(s.market);
+    if (mp != null && mp >= 0.97) badges.push({ label: 'top-50 fantasy asset', weight: 3 });
+    else if (mp != null && mp >= 0.90) badges.push({ label: 'high market value', weight: 2 });
 
-    score = Math.max(0, Math.min(1, score));
+    const strengthWeight = badges.reduce((t, b) => t + b.weight, 0);
+
+    // ---- WEAKNESS: only the AI stat review can mark one ----
+    const isWeak = s.ai_weakness === 'weak';
+
+    let grade = 'ok';
+    if (strengthWeight >= 3) grade = 'strength';
+    else if (isWeak && strengthWeight === 0) grade = 'weakness';
+
     slots[slot] = {
-      starter: starter.name,
-      score: +score.toFixed(2),
-      grade: score >= 0.58 ? 'strength' : score <= 0.40 ? 'weakness' : 'ok',
-      // skill slots are graded on real market value; trenches only on age/experience/depth
-      basis: starter.market != null ? 'market value + age/experience/depth' : 'age, experience and depth only',
-      reasons,
-      depth: depthCount
+      starter: s.name,
+      roster_player_id: s.id,
+      grade,
+      badges: badges.map(b => b.label),
+      strength_weight: strengthWeight,
+      weakness_reason: isWeak ? s.ai_reason : null,
+      depth: list.length,
+      basis: badges.length
+        ? 'accolades / draft capital / market value'
+        : (isWeak ? 'AI review of production' : 'no accolades on record')
     };
   }
 
-  // roll slots up into units
   const UNIT_SLOTS = {
     OL: ['LT', 'LG', 'C', 'RG', 'RT'],
     SKILL: ['QB', 'RB', 'LWR', 'RWR', 'SWR', 'WR', 'TE'],
@@ -475,12 +488,13 @@ export function unitGrades(teamId) {
   for (const [unit, codes] of Object.entries(UNIT_SLOTS)) {
     const present = codes.map(c => slots[c]).filter(Boolean);
     if (!present.length) continue;
-    const avg = present.reduce((s, x) => s + x.score, 0) / present.length;
+    const strengths = present.filter(x => x.grade === 'strength');
+    const weaknesses = present.filter(x => x.grade === 'weakness');
     units[unit] = {
-      score: +avg.toFixed(2),
-      grade: avg >= 0.56 ? 'strength' : avg <= 0.43 ? 'weakness' : 'ok',
-      weakest: present.slice().sort((a, b) => a.score - b.score)[0]?.starter ?? null,
-      strongest: present.slice().sort((a, b) => b.score - a.score)[0]?.starter ?? null,
+      grade: strengths.length >= 2 && weaknesses.length === 0 ? 'strength'
+           : weaknesses.length >= 2 ? 'weakness' : 'ok',
+      strengths: strengths.map(x => x.starter),
+      weaknesses: weaknesses.map(x => x.starter),
       filled: present.length,
       expected: codes.length
     };

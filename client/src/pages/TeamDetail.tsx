@@ -112,7 +112,7 @@ export default function TeamDetail() {
             <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(244,63,94,0.25)', border: '1.5px solid #f43f5e' }} />
             weak spot (pulsing)
           </span>
-          <span className="text-slate-400">hover a highlighted player for why</span>
+          <span className="text-slate-400">green = Pro Bowl / All-Pro / 1st-round / top-50 market · red = AI stat review</span>
         </div>
 
         {(team as any).grades?.units && (
@@ -126,8 +126,12 @@ export default function TeamDetail() {
                   g.grade === 'strength' ? 'text-emerald-700' : g.grade === 'weakness' ? 'text-rose-700' : 'text-slate-600'}`}>
                   {g.grade === 'ok' ? 'average' : g.grade}
                 </div>
-                <div className="text-[10px] text-slate-500 truncate" title={`weakest: ${g.weakest}`}>
-                  weak link: {g.weakest?.split(' ').slice(-1)[0] ?? '—'}
+                <div className="text-[10px] text-slate-500 truncate">
+                  {g.strengths?.length > 0
+                    ? `★ ${g.strengths.map((n: string) => n.split(' ').slice(-1)[0]).join(', ')}`
+                    : g.weaknesses?.length > 0
+                      ? `⚠ ${g.weaknesses.map((n: string) => n.split(' ').slice(-1)[0]).join(', ')}`
+                      : 'no accolades on record'}
                 </div>
               </div>
             ))}

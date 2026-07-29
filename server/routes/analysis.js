@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
+import { unitRoster, computeSOS } from './nfldata.js';
 
 const r = Router();
 
@@ -15,9 +16,17 @@ function teamContext(team) {
   return { players, news };
 }
 
+const fmtUnit = list => list.length
+  ? list.slice(0, 12).map(p => `${p.name} (${p.position}${p.age ? `, ${p.age}yo` : ''}${p.experience === 0 ? ', rookie' : ''})`).join(', ')
+  : '(not synced)';
+
 async function refreshTeam(client, team) {
   const { players, news } = teamContext(team);
-  const roster = players.map(p => `${p.slot_code ?? p.position}: ${p.name}`).join('\n');
+  const units = unitRoster(team.id);
+  const cap = row('SELECT cap_space, dead_money FROM team_cap WHERE team_id = ?', team.id);
+  const sos = computeSOS().find(s => s.abbr === team.abbr);
+
+  const skill = players.map(p => `${p.slot_code ?? p.position}: ${p.name}`).join('\n');
   const newsText = news.map(n => `[${n.date}] ${n.headline}${n.body ? ' — ' + n.body : ''}`).join('\n') || '(no recent stories)';
   const current = ANALYSIS_FIELDS.map(f => `${f}: ${team[f]}`).join('\n\n');
 
@@ -26,10 +35,20 @@ async function refreshTeam(client, team) {
     max_tokens: 3000,
     messages: [{
       role: 'user',
-      content: `You maintain fantasy-football team analyses for the ${team.name} (2026 season). HC ${team.head_coach}, OC ${team.oc_name}, DC ${team.dc_name}. Offense: ${team.off_scheme}. Defense: ${team.def_scheme}.
+      content: `You maintain scouting analyses for the ${team.name} (2026 NFL season). HC ${team.head_coach}, OC ${team.oc_name}, DC ${team.dc_name}. Offense: ${team.off_scheme}. Defense: ${team.def_scheme}.
 
-CURRENT ROSTER (source of truth — anyone NOT listed is no longer on the team):
-${roster}
+SKILL DEPTH CHART:
+${skill}
+
+ACTUAL 90-MAN ROSTER BY UNIT (from ESPN — this is the source of truth; NEVER name a player who is not listed here or on the skill depth chart):
+OFFENSIVE LINE: ${fmtUnit(units.OL)}
+INTERIOR D-LINE: ${fmtUnit(units.DL)}
+EDGE: ${fmtUnit(units.EDGE)}
+LINEBACKERS: ${fmtUnit(units.LB)}
+SECONDARY: ${fmtUnit(units.DB)}
+SPECIALISTS: ${fmtUnit(units.ST)}
+
+CONTEXT: ${cap ? `Cap space $${Math.round(cap.cap_space).toLocaleString()}, dead money $${Math.round(cap.dead_money ?? 0).toLocaleString()}.` : ''} ${sos ? `Strength of schedule ranks ${sos.rank}/32 (1 = easiest).` : ''}
 
 RECENT NEWS:
 ${newsText}
@@ -37,9 +56,13 @@ ${newsText}
 CURRENT ANALYSES:
 ${current}
 
-Task: Did any of the news, roster, or coaching info change the outlook? Rewrite ONLY the analysis fields that are stale — especially any that mention players who are NOT on the current roster, or contradict the news. Keep the same sharp, concise editorial voice (2-4 sentences per field). If a field is still accurate, omit it.
+Task: rewrite any analysis field that is stale, wrong, or vague. Requirements:
+- ol_analysis / dl_analysis / lb_analysis / secondary_analysis / st_analysis MUST name specific players from the unit lists above and say how the unit's makeup (talent, age, rookies, depth) affects the team on the field and fantasy production. No generic filler.
+- Purge any player who is not on the roster above.
+- Keep the sharp, opinionated editorial voice. 2-4 sentences per field.
+- Omit any field that is already accurate and specific.
 
-Respond with ONLY a JSON object. Keys: any of ${ANALYSIS_FIELDS.join(', ')} (only the ones you changed), plus "changed" (boolean) and "reason" (one sentence on what drove the update, or why nothing changed).`
+Respond with ONLY a JSON object. Keys: any of ${ANALYSIS_FIELDS.join(', ')} (only ones you changed), plus "changed" (boolean) and "reason" (one sentence).`
     }]
   });
   const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');

@@ -6,7 +6,7 @@ export default function Drafts() {
   const { data: drafts, refetch } = useApi<any[]>('/drafts');
   const { data: sets } = useApi<any[]>('/rankings');
   const nav = useNavigate();
-  const [form, setForm] = useState({ name: '', type: 'mock', team_count: 12, rounds: 16, my_slot: 1, ranking_set_id: 0 });
+  const [form, setForm] = useState({ name: '', type: 'mock', team_count: 12, rounds: 16, my_slot: 1, ranking_set_id: 0, pick_seconds: 90 });
 
   const create = async () => {
     if (!form.name) return alert('Give the draft a name');
@@ -44,6 +44,12 @@ export default function Drafts() {
         <label className="text-xs text-slate-600">My pick slot
           <input type="number" className="input block mt-1 w-20" value={form.my_slot}
             onChange={e => setForm(f => ({ ...f, my_slot: Number(e.target.value) }))} />
+        </label>
+        <label className="text-xs text-slate-600">Clock (sec)
+          <select className="input block mt-1 w-24" value={form.pick_seconds}
+            onChange={e => setForm(f => ({ ...f, pick_seconds: Number(e.target.value) }))}>
+            {[30, 60, 90, 120, 180].map(s => <option key={s} value={s}>{s}s</option>)}
+          </select>
         </label>
         <label className="text-xs text-slate-600">Ranking set
           <select className="input block mt-1" value={form.ranking_set_id}

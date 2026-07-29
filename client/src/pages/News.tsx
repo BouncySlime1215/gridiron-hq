@@ -18,8 +18,38 @@ export default function News() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState<string | null>(null);
   const [manual, setManual] = useState({ team_abbr: '', headline: '', body: '', importance: 2 });
+  const [pulling, setPulling] = useState(false);
+  const [roundup, setRoundup] = useState<any>(null);
+  const [roundupBusy, setRoundupBusy] = useState(false);
+  const [roundupErr, setRoundupErr] = useState<string | null>(null);
+  const [explaining, setExplaining] = useState<number | null>(null);
+  const [explainErr, setExplainErr] = useState<string | null>(null);
 
   const refresh = () => { refetch(); refetchDates(); };
+
+  const pullNews = async () => {
+    setPulling(true);
+    try {
+      await api(`/espn/sync-news${teamFilter ? `?team=${teamFilter}` : ''}`, { method: 'POST' });
+      refresh();
+    } catch (e: any) { setRoundupErr(e.message); }
+    finally { setPulling(false); }
+  };
+
+  const roundupNow = async () => {
+    setRoundupBusy(true); setRoundupErr(null);
+    try {
+      setRoundup(await api('/news/roundup', { method: 'POST', body: JSON.stringify({ date: date || undefined }) }));
+    } catch (e: any) { setRoundupErr(e.message); }
+    finally { setRoundupBusy(false); }
+  };
+
+  const explain = async (id: number) => {
+    setExplaining(id); setExplainErr(null);
+    try { await api(`/news/${id}/explain`, { method: 'POST' }); refresh(); }
+    catch (e: any) { setExplainErr(e.message); }
+    finally { setExplaining(null); }
+  };
 
   const analyze = async () => {
     const lines = aiText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -58,8 +88,51 @@ export default function News() {
           <option value="">All teams</option>
           {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr} — {t.name}</option>)}
         </select>
-        <button className="btn-primary ml-auto" onClick={() => setShowAdd(v => !v)}>{showAdd ? 'Close' : '+ Add news'}</button>
+        <button className="btn-ghost ml-auto" onClick={pullNews} disabled={pulling}>
+          {pulling ? 'Pulling…' : '↻ Pull ESPN news'}
+        </button>
+        <button className="btn-primary" onClick={roundupNow} disabled={roundupBusy}>
+          {roundupBusy ? 'Reading the day…' : '📋 Camp roundup'}
+        </button>
+        <button className="btn-ghost" onClick={() => setShowAdd(v => !v)}>{showAdd ? 'Close' : '+ Add'}</button>
       </div>
+
+      {roundupErr && <p className="text-sm text-rose-600 mb-3">{roundupErr}</p>}
+      {roundup && (
+        <div className="card p-5 mb-6 border-emerald-200 bg-emerald-50/30">
+          <div className="flex items-center gap-2 mb-2">
+            <h2 className="font-bold text-slate-800">Camp Roundup</h2>
+            <button className="text-xs text-slate-400 hover:text-slate-700 ml-auto" onClick={() => setRoundup(null)}>dismiss</button>
+          </div>
+          <p className="text-sm text-slate-700 leading-relaxed">{roundup.summary}</p>
+          {roundup.battles?.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Camp battles to watch</h3>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {roundup.battles.map((b: any, i: number) => (
+                  <div key={i} className="bg-white rounded-lg border border-slate-200 p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-slate-700">{b.team}</span>
+                      <span className="text-xs font-semibold text-slate-800">{b.battle}</span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">{b.status}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {roundup.teams_affected?.length > 0 && (
+            <div className="mt-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Most affected</h3>
+              <ul className="text-xs text-slate-600 space-y-0.5">
+                {roundup.teams_affected.map((t: any, i: number) => (
+                  <li key={i}><Link to={`/teams/${t.team}`} className="font-bold text-slate-800 hover:text-emerald-700">{t.team}</Link> — {t.why}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {showAdd && (
         <div className="grid md:grid-cols-2 gap-4 mb-6">
@@ -121,12 +194,28 @@ export default function News() {
             </div>
             <h3 className="font-semibold">{n.headline}</h3>
             {n.body && <p className="text-sm text-slate-600 mt-1">{n.body}</p>}
-            {n.ai_analysis && (
-              <p className="text-sm text-slate-700 mt-2 border-l-2 border-emerald-700 pl-3">{n.ai_analysis}</p>
-            )}
-            {n.fantasy_impact && (
-              <p className="text-xs text-amber-600 mt-2">🎯 {n.fantasy_impact}</p>
-            )}
+
+            {(n.ai_analysis || n.fantasy_impact) ? (
+              <div className="mt-3 space-y-2">
+                {n.ai_analysis && (
+                  <div className="border-l-2 border-slate-300 pl-3">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">What it means for {n.team_abbr ?? 'the team'}</div>
+                    <p className="text-sm text-slate-700">{n.ai_analysis}</p>
+                  </div>
+                )}
+                {n.fantasy_impact && (
+                  <div className="border-l-2 border-emerald-500 pl-3">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">What it means for my team</div>
+                    <p className="text-sm text-slate-700">{n.fantasy_impact}</p>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            <button className="btn-ghost text-xs mt-3" onClick={() => explain(n.id)} disabled={explaining === n.id}>
+              {explaining === n.id ? 'Reading…' : n.ai_analysis ? '↻ Re-analyze' : '✨ What does this mean?'}
+            </button>
+            {explainErr && explaining === null && <span className="text-xs text-rose-600 ml-2">{explainErr}</span>}
           </div>
         ))}
       </div>

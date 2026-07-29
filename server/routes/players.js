@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { trendPct } from './aggregates.js';
+import { unitRoster, computeSOS } from './nfldata.js';
 
 const r = Router();
 
@@ -99,6 +100,11 @@ r.post('/:id/analyze', async (req, res, next) => {
     const depth = rows(`SELECT name, position, slot_code FROM players
                         WHERE team_id = ? AND slot_code IS NOT NULL AND phase = 'offense'
                         ORDER BY slot_code`, player.team_id ?? -1);
+    const units = player.team_id ? unitRoster(player.team_id) : { OL: [] };
+    const olText = units.OL.length
+      ? units.OL.slice(0, 8).map(p => `${p.name} (${p.position}${p.age ? `, ${p.age}` : ''})`).join(', ')
+      : '(not synced)';
+    const sos = player.team_abbr ? computeSOS().find(s => s.abbr === player.team_abbr) : null;
 
     const { default: Anthropic } = await import('@anthropic-ai/sdk');
     const client = new Anthropic();
@@ -111,7 +117,9 @@ r.post('/:id/analyze', async (req, res, next) => {
 
 PLAYER: ${player.name}, ${player.position}, ${player.team_name ?? 'free agent'}
 TEAM CONTEXT: HC ${player.head_coach ?? '?'}, OC ${player.oc_name ?? '?'}. Offense: ${player.off_scheme ?? '?'} — ${player.off_scheme_detail ?? ''}
-O-LINE: ${player.ol_analysis ?? 'n/a'}
+O-LINE (actual roster): ${olText}
+O-LINE SCOUTING: ${player.ol_analysis ?? 'n/a'}
+${sos ? `STRENGTH OF SCHEDULE: ranks ${sos.rank}/32 (1 = easiest).` : ''}
 CURRENT DEPTH CHART (source of truth — only these players are on the team):
 ${depth.map(d => `${d.slot_code}: ${d.name}`).join('\n') || 'n/a'}
 

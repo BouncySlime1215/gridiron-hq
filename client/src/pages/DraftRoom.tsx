@@ -1,191 +1,292 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { api, Draft, headshotUrl, useApi } from '../api';
-import FormationView from '../components/FormationView';
-import PlayerRow from '../components/PlayerRow';
+import PlayerRow, { Headshot, PosBadge } from '../components/PlayerRow';
 import { PlayerName } from '../components/PlayerCard';
+
+const POS_TINT: Record<string, string> = {
+  QB: 'bg-rose-50 border-rose-200', RB: 'bg-emerald-50 border-emerald-200',
+  WR: 'bg-sky-50 border-sky-200', TE: 'bg-amber-50 border-amber-200',
+  K: 'bg-violet-50 border-violet-200'
+};
+
+const lastName = (n: string) => {
+  const parts = n.split(' ');
+  return parts.length > 1 ? parts.slice(1).join(' ') : n;
+};
 
 export default function DraftRoom() {
   const { id } = useParams();
-  const nav = useNavigate();
-  const { data: draft, refetch, loading } = useApi<Draft>(`/drafts/${id}`);
+  const { data: draft, refetch, loading } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
   const [filter, setFilter] = useState('ALL');
-  const [showField, setShowField] = useState(false);
+  const [lastCpu, setLastCpu] = useState<any>(null);
+  const [entering, setEntering] = useState(true);
+  const [paused, setPaused] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [rec, setRec] = useState<any>(null);
+  const busy = useRef(false);
 
   const nextPick = (draft?.picks.length ?? 0) + 1;
+  const totalPicks = draft ? draft.team_count * draft.rounds : 0;
   const round = draft ? Math.ceil(nextPick / draft.team_count) : 1;
   const posInRound = draft ? ((nextPick - 1) % draft.team_count) + 1 : 1;
   const onClockSlot = draft ? (round % 2 === 1 ? posInRound : draft.team_count - posInRound + 1) : 1;
-  const myTurn = draft && onClockSlot === draft.my_slot;
+  const myTurn = !!draft && onClockSlot === draft.my_slot;
+  const draftOver = !!draft && draft.picks.length >= totalPicks;
+  const isMock = draft?.type === 'mock';
 
-  const [simming, setSimming] = useState(false);
-  const simGuard = useRef(false);
+  // one CPU pick at a time, with a flash on arrival
+  const cpuStep = useCallback(async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      const r = await api(`/drafts/${id}/cpu-pick`, { method: 'POST' });
+      if (r.pick) {
+        // slide the outgoing pick out, swap, then slide the new one in
+        setEntering(false);
+        await new Promise(res => setTimeout(res, 160));
+        setLastCpu(r.pick);
+        await refetch();
+        requestAnimationFrame(() => setEntering(true));
+      }
+    } catch { /* next refetch surfaces it */ }
+    finally { busy.current = false; }
+  }, [id, refetch]);
 
-  const simulate = async () => {
-    if (simGuard.current) return;
-    simGuard.current = true;
-    setSimming(true);
-    try { await api(`/drafts/${id}/simulate`, { method: 'POST' }); refetch(); }
-    catch (e: any) { console.error(e); }
-    finally { setSimming(false); simGuard.current = false; }
-  };
-
-  const draftOver = draft ? draft.picks.length >= draft.team_count * draft.rounds : false;
-
-  // In mock drafts the CPU teams pick for themselves — auto-sim whenever it's not my turn.
   useEffect(() => {
-    if (draft && draft.type === 'mock' && !myTurn && !draftOver && !simGuard.current) {
-      const t = setTimeout(simulate, 400);
-      return () => clearTimeout(t);
-    }
-  }, [draft, myTurn, draftOver]);
+    if (!isMock || myTurn || draftOver || paused) return;
+    const t = setTimeout(cpuStep, 1100);
+    return () => clearTimeout(t);
+  }, [isMock, myTurn, draftOver, paused, draft?.picks.length, cpuStep]);
+
+  useEffect(() => {
+    if (!myTurn || draftOver) { setSecondsLeft(null); return; }
+    setSecondsLeft(draft?.pick_seconds ?? 90);
+    const iv = setInterval(() => setSecondsLeft(s => (s == null ? null : Math.max(0, s - 1))), 1000);
+    return () => clearInterval(iv);
+  }, [myTurn, draftOver, draft?.pick_seconds, draft?.picks.length]);
+
+  useEffect(() => {
+    if (!myTurn || draftOver) { setRec(null); return; }
+    api(`/drafts/${id}/recommendation`).then(setRec).catch(() => setRec(null));
+  }, [myTurn, draftOver, id, draft?.picks.length]);
 
   const pick = async (playerId: number) => {
     await api(`/drafts/${id}/picks`, { method: 'POST', body: JSON.stringify({ player_id: playerId }) });
+    setLastCpu(null);
     refetch();
   };
   const undo = async () => {
     await api(`/drafts/${id}/picks/last`, { method: 'DELETE' });
+    setLastCpu(null);
     refetch();
   };
 
+  useEffect(() => {
+    if (secondsLeft === 0 && myTurn && rec?.recommendation) pick(rec.recommendation.player_id);
+  }, [secondsLeft, myTurn]);
+
   const myPicks = useMemo(() => draft?.picks.filter(p => p.team_slot === draft.my_slot) ?? [], [draft]);
-
-  const mySlots = useMemo(() => {
-    const s: Record<string, { name: string; id: number }> = {};
-    const take = (pos: string, codes: string[]) => {
-      const players = myPicks.filter(p => p.position === pos);
-      codes.forEach((c, i) => { if (players[i]) s[c] = { name: players[i].name, id: players[i].player_id }; });
-    };
-    take('QB', ['QB']);
-    take('RB', ['RB1']);
-    take('WR', ['WR1', 'WR2', 'WR3']);
-    take('TE', ['TE1']);
-    take('K', ['K']);
-    return s;
-  }, [myPicks]);
-
   const available = (draft?.available ?? []).filter(a => filter === 'ALL' || a.position === filter);
 
   if (loading || !draft) return <p className="text-slate-500">Loading draft…</p>;
 
-  type BoardPick = Draft['picks'][number] | null;
-  const boardRounds: BoardPick[][] = [];
-  for (let r = 0; r < draft.rounds; r++) {
-    const rowPicks: BoardPick[] = [];
-    for (let s = 1; s <= draft.team_count; s++) {
-      const slot = r % 2 === 0 ? s : draft.team_count - s + 1;
-      const pickNo = r * draft.team_count + s;
-      rowPicks.push(draft.picks.find(p => p.pick_number === pickNo) ?? null);
-    }
-    boardRounds.push(rowPicks);
-    if (r * draft.team_count >= draft.picks.length + draft.team_count) break; // show one empty round ahead
-  }
+  const lastPickNo = draft.picks.length;
+  const roundsToShow = Math.min(draft.rounds, Math.ceil((lastPickNo + draft.team_count) / draft.team_count) + 1);
+  const urgent = secondsLeft != null && secondsLeft <= 15;
+  const pickByCell = new Map(draft.picks.map(p => [`${Math.ceil(p.pick_number / draft.team_count)}|${p.team_slot}`, p]));
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
+      {/* ---- status bar ---- */}
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
         <Link to="/drafts" className="text-xs text-slate-500 hover:text-slate-700">← drafts</Link>
-        <h1 className="text-xl font-bold">{draft.name}</h1>
-        <span className={`text-[10px] px-2 py-0.5 rounded-full ${draft.type === 'mock' ? 'bg-sky-100 text-sky-700' : 'bg-amber-900 text-amber-600'}`}>
-          {draft.type === 'mock' ? 'MOCK' : 'LIVE TRACKER'}
+        <h1 className="text-lg font-bold">{draft.name}</h1>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isMock ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'}`}>
+          {isMock ? 'MOCK' : 'LIVE'}
         </span>
-        <span className={`text-sm px-3 py-1 rounded-lg font-semibold ${myTurn ? 'bg-emerald-600 text-white animate-pulse' : 'bg-slate-100 text-slate-700'}`}>
-          {draftOver ? 'DRAFT COMPLETE'
-            : myTurn ? `Pick ${nextPick} · Round ${round} · YOU ARE ON THE CLOCK`
-            : draft.type === 'mock' ? `Pick ${nextPick} · Round ${round} · ${simming ? 'CPU teams drafting…' : `Team ${onClockSlot} thinking…`}`
-            : `Pick ${nextPick} · Round ${round} · Team ${onClockSlot} on the clock`}
-        </span>
-        <button className="btn-ghost ml-auto" onClick={undo} disabled={draft.picks.length === 0}>↩ Undo last pick</button>
-        <button className="btn-ghost" onClick={() => setShowField(v => !v)}>{showField ? 'Hide' : 'Show'} my lineup (X&O)</button>
+        <span className="text-xs text-slate-400">Pick {Math.min(nextPick, totalPicks)}/{totalPicks} · Rd {round}</span>
+        <div className="ml-auto flex gap-2">
+          {isMock && !draftOver && (
+            <button className="btn-ghost" onClick={() => setPaused(p => !p)}>{paused ? '▶ Resume' : '⏸ Pause'}</button>
+          )}
+          <button className="btn-ghost" onClick={undo} disabled={draft.picks.length === 0}>↩ Undo</button>
+        </div>
       </div>
 
-      {showField && (
-        <div className="max-w-2xl mb-4">
-          <FormationView phase="offense" slots={mySlots} accent="#0f766e" onPlayerClick={pid => nav(`/players/${pid}`)} />
+      {/* ---- ON THE CLOCK banner ---- */}
+      {draftOver ? (
+        <div className="card p-4 mb-4 text-center text-slate-600 font-semibold">Draft complete — {myPicks.length} players on your roster.</div>
+      ) : myTurn ? (
+        <div className={`rounded-2xl mb-4 overflow-hidden border-2 ${urgent ? 'border-rose-500' : 'border-emerald-500'}`}>
+          <div className={`px-5 py-3 flex items-center gap-4 flex-wrap ${urgent ? 'bg-rose-600' : 'bg-emerald-600'}`}>
+            <span className="text-white font-black tracking-wide text-lg">YOU'RE ON THE CLOCK</span>
+            {secondsLeft != null && (
+              <span className={`font-mono tabular-nums text-3xl font-black text-white ${urgent ? 'animate-pulse' : ''}`}>
+                {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}
+              </span>
+            )}
+            <span className="text-white/80 text-xs ml-auto">
+              Round {round}, pick {posInRound} · auto-picks the recommendation at 0:00
+            </span>
+          </div>
+          {rec?.recommendation && (
+            <div className="bg-white px-5 py-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Recommended</span>
+                <Headshot src={headshotUrl(rec.recommendation)} pos={rec.recommendation.position} size={40} />
+                <PosBadge pos={rec.recommendation.position} />
+                <div>
+                  <div className="font-bold text-slate-900 leading-tight">{rec.recommendation.name}</div>
+                  <div className="text-[11px] text-slate-500">{rec.recommendation.team_abbr} · market #{rec.recommendation.market_rank}</div>
+                </div>
+                <button
+                  onClick={() => pick(rec.recommendation.player_id)}
+                  className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base px-6 py-3 rounded-xl shadow-sm">
+                  ✓ DRAFT {lastName(rec.recommendation.name).toUpperCase()}
+                </button>
+              </div>
+              <p className="text-xs text-slate-600 mt-2">{rec.recommendation.why}</p>
+              {rec.alternatives?.length > 0 && (
+                <div className="flex gap-2 mt-3 flex-wrap items-center">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wide">Or take:</span>
+                  {rec.alternatives.slice(0, 4).map((a: any) => (
+                    <button key={a.player_id} onClick={() => pick(a.player_id)}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-white border-2 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 font-medium">
+                      <span className={`font-bold pos-${a.position}`}>{a.position}</span> {lastName(a.name)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="card px-4 py-3 mb-4 flex items-center gap-3 overflow-hidden">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+          <span className="text-sm font-semibold text-slate-700 shrink-0">Team {onClockSlot} on the clock</span>
+          {lastCpu && (
+            <div className="flex items-center gap-2.5 ml-4 min-w-0 transition-all ease-out duration-300"
+              style={{ opacity: entering ? 1 : 0, transform: entering ? 'translateY(0)' : 'translateY(6px)' }}>
+              <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                {lastCpu.round}.{String(((lastCpu.pick_number - 1) % draft.team_count) + 1).padStart(2, '0')}
+              </span>
+              <Headshot src={headshotUrl(lastCpu)} pos={lastCpu.position} size={30} />
+              <span className="font-bold text-slate-800 shrink-0">{lastCpu.name}</span>
+              <span className="text-xs text-slate-400 shrink-0">{lastCpu.team_abbr}</span>
+              {lastCpu.reason && <span className="text-xs text-slate-500 italic truncate">“{lastCpu.reason}”</span>}
+            </div>
+          )}
+          {paused && <span className="ml-auto text-xs text-amber-600 font-medium shrink-0">paused</span>}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr_260px] gap-4">
-        {/* Best available */}
-        <div className="card p-3 max-h-[75vh] overflow-y-auto">
-          <div className="flex items-center gap-1 mb-2 sticky top-0 bg-white pb-2">
+      <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr_220px] gap-4">
+        {/* ---- available ---- */}
+        <div className="card overflow-hidden flex flex-col max-h-[68vh]">
+          <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-200 bg-slate-50">
             <h3 className="text-sm font-bold text-slate-700 mr-auto">Best Available</h3>
             {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
               <button key={p} onClick={() => setFilter(p)}
-                className={`text-[10px] px-1.5 py-0.5 rounded ${filter === p ? 'bg-slate-300 text-white' : 'bg-slate-100 text-slate-600'}`}>{p}</button>
+                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${filter === p ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}>{p}</button>
             ))}
           </div>
-          {available.slice(0, 60).map(a => (
-            <PlayerRow
-              key={a.player_id}
-              playerId={a.player_id}
-              rank={a.rank}
-              name={a.name}
-              position={a.position}
-              teamAbbr={a.team_abbr}
-              headshot={headshotUrl(a as any)}
-              tier={a.tier}
-              dense
-              onClickRow={() => pick(a.player_id)}
-              actionLabel={myTurn ? 'DRAFT →' : 'TAKEN →'}
-            />
-          ))}
-          {available.length === 0 && <p className="text-xs text-slate-500 p-2">Everyone on your board is drafted. Add more players in Rankings.</p>}
+          <div className="overflow-y-auto divide-y divide-slate-100">
+            {available.slice(0, 80).map(a => (
+              <PlayerRow
+                key={a.player_id}
+                playerId={a.player_id}
+                rank={a.rank}
+                name={a.name}
+                position={a.position}
+                teamAbbr={a.team_abbr}
+                headshot={headshotUrl(a as any)}
+                tier={a.tier}
+                dense
+                action={
+                  <button
+                    onClick={e => { e.stopPropagation(); pick(a.player_id); }}
+                    title={myTurn ? 'Draft this player' : 'Mark as taken'}
+                    className={`shrink-0 text-[10px] font-black px-2 py-1 rounded-lg transition-colors
+                      ${myTurn
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                        : 'bg-slate-100 text-slate-400 hover:bg-slate-200 opacity-0 group-hover:opacity-100'}`}>
+                    {myTurn ? 'DRAFT' : 'TAKEN'}
+                  </button>
+                }
+              />
+            ))}
+            {available.length === 0 && <p className="p-4 text-xs text-slate-500">Board is empty — add players in Rankings.</p>}
+          </div>
         </div>
 
-        {/* Board */}
-        <div className="card p-3 overflow-x-auto max-h-[75vh] overflow-y-auto">
-          <h3 className="text-sm font-bold text-slate-700 mb-2">Draft Board</h3>
-          <table className="text-[11px] border-separate" style={{ borderSpacing: 3 }}>
-            <thead>
-              <tr>
-                <th className="text-slate-400 font-normal pr-1">Rd</th>
-                {Array.from({ length: draft.team_count }, (_, i) => (
-                  <th key={i} className={`px-1 font-semibold ${i + 1 === draft.my_slot ? 'text-emerald-600' : 'text-slate-500'}`}>
-                    {i + 1 === draft.my_slot ? 'ME' : `T${i + 1}`}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {boardRounds.map((rowPicks, r) => (
-                <tr key={r}>
-                  <td className="text-slate-400 pr-1">{r + 1}</td>
-                  {Array.from({ length: draft.team_count }, (_, i) => {
-                    const slot = i + 1;
-                    const p = rowPicks.find(x => x && x.team_slot === slot && Math.ceil(x.pick_number / draft.team_count) === r + 1) ?? null;
-                    return (
-                      <td key={slot}
-                        className={`rounded px-1.5 py-1 min-w-[76px] align-top ${p ? '' : 'bg-slate-100/40'} ${slot === draft.my_slot ? 'ring-1 ring-emerald-700/50' : ''}`}
-                        style={p ? { background: `${p.primary_color ?? '#334155'}55` } : {}}>
-                        {p ? (
-                          <>
-                            <span className={`font-bold pos-${p.position}`}>{p.position}</span>{' '}
-                            <span className="text-slate-900">{p.name.split(' ').slice(-1)[0]}</span>
-                          </>
-                        ) : <span className="text-slate-700">—</span>}
-                      </td>
-                    );
-                  })}
+        {/* ---- board: compact cells, horizontal scroll, nothing overlaps ---- */}
+        <div className="card overflow-hidden flex flex-col max-h-[68vh]">
+          <div className="px-3 py-2 border-b border-slate-200 bg-slate-50 flex items-center">
+            <h3 className="text-sm font-bold text-slate-700">Draft Board</h3>
+            <span className="text-[10px] text-slate-400 ml-auto">scroll for all {draft.team_count} teams</span>
+          </div>
+          <div className="overflow-auto p-2">
+            <table className="border-separate" style={{ borderSpacing: '3px' }}>
+              <thead>
+                <tr>
+                  <th className="w-5" />
+                  {Array.from({ length: draft.team_count }, (_, i) => (
+                    <th key={i}
+                      className={`w-[74px] text-[9px] font-bold py-0.5 rounded
+                        ${i + 1 === draft.my_slot ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
+                      {i + 1 === draft.my_slot ? 'YOU' : `T${i + 1}`}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {Array.from({ length: roundsToShow }, (_, r) => (
+                  <tr key={r}>
+                    <td className="text-[9px] text-slate-400 font-mono text-right pr-0.5">{r + 1}</td>
+                    {Array.from({ length: draft.team_count }, (_, i) => {
+                      const slot = i + 1;
+                      const p = pickByCell.get(`${r + 1}|${slot}`) ?? null;
+                      const isLatest = p && p.pick_number === lastPickNo;
+                      return (
+                        <td key={slot} className="p-0 align-top">
+                          <div
+                            className={`w-[74px] h-[34px] rounded-md border px-1 py-0.5 overflow-hidden transition-all duration-700 ease-out
+                              ${p ? (POS_TINT[p.position] ?? 'bg-slate-50 border-slate-200') : 'bg-slate-50/40 border-dashed border-slate-200'}
+                              ${isLatest ? 'ring-2 ring-emerald-400/70' : ''}
+                              ${slot === draft.my_slot && !p ? 'border-emerald-300' : ''}`}>
+                            {p ? (
+                              <>
+                                <div className="text-[8px] font-bold text-slate-500 leading-none">{p.position}</div>
+                                <div className="text-[10px] font-semibold text-slate-800 leading-tight truncate">{lastName(p.name)}</div>
+                              </>
+                            ) : <div className="text-[9px] text-slate-300 text-center leading-[26px]">—</div>}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* My team */}
-        <div className="card p-3 max-h-[75vh] overflow-y-auto">
-          <h3 className="text-sm font-bold text-slate-700 mb-2">My Team ({myPicks.length})</h3>
-          {myPicks.map(p => (
-            <div key={p.pick_number} className="flex items-center gap-2 text-sm py-1">
-              <span className="text-slate-400 text-xs w-8">{p.pick_number}.</span>
-              <span className={`font-bold w-8 text-xs pos-${p.position}`}>{p.position}</span>
-              <PlayerName id={p.player_id} className="truncate">{p.name}</PlayerName>
-              <span className="text-slate-400 text-xs ml-auto">{p.team_abbr}</span>
-            </div>
-          ))}
-          {myPicks.length === 0 && <p className="text-xs text-slate-500">Your picks land here.</p>}
+        {/* ---- my team ---- */}
+        <div className="card overflow-hidden flex flex-col max-h-[68vh]">
+          <div className="px-3 py-2 border-b border-slate-200 bg-slate-50">
+            <h3 className="text-sm font-bold text-slate-700">My Team ({myPicks.length})</h3>
+          </div>
+          <div className="overflow-y-auto p-2 space-y-1">
+            {myPicks.map(p => (
+              <div key={p.pick_number} className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 overflow-hidden ${POS_TINT[p.position] ?? 'bg-slate-50 border-slate-200'}`}>
+                <span className="text-[10px] text-slate-400 font-mono w-5 shrink-0">{p.pick_number}</span>
+                <span className={`text-[10px] font-black w-6 shrink-0 pos-${p.position}`}>{p.position}</span>
+                <PlayerName id={p.player_id} className="text-xs font-medium truncate flex-1 min-w-0">{p.name}</PlayerName>
+              </div>
+            ))}
+            {myPicks.length === 0 && <p className="text-xs text-slate-500 p-2">Your picks land here.</p>}
+          </div>
         </div>
       </div>
     </div>

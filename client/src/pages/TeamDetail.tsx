@@ -2,14 +2,16 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, Team, useApi } from '../api';
 import FormationView from '../components/FormationView';
+import OffseasonPanel from '../components/OffseasonPanel';
 import SidePanel from '../components/SidePanel';
 
-type Phase = 'offense' | 'defense' | 'special_teams';
+type Phase = 'offense' | 'defense' | 'special_teams' | 'offseason';
 
 const PHASE_TABS: { key: Phase; label: string }[] = [
   { key: 'offense', label: 'Offense' },
   { key: 'defense', label: 'Defense' },
-  { key: 'special_teams', label: 'Special Teams' }
+  { key: 'special_teams', label: 'Special Teams' },
+  { key: 'offseason', label: 'Offseason & Schedule' }
 ];
 
 const UNIT_LABEL: Record<string, string> = {
@@ -89,8 +91,9 @@ export default function TeamDetail() {
           ))}
         </div>
 
+        {phase === 'offseason' ? <OffseasonPanel abbr={team.abbr} /> : (<>
         <FormationView
-          phase={phase}
+          phase={phase as any}
           slots={slots}
           scheme={phase === 'defense' ? team.def_scheme : team.off_scheme}
           accent={team.primary_color}
@@ -158,6 +161,7 @@ export default function TeamDetail() {
             </div>
           ))}
         </div>
+        </>)}
       </div>
       <SidePanel />
     </div>

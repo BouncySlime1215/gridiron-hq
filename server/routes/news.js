@@ -67,4 +67,119 @@ r.post('/analyze', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+function myRosterNames() {
+  // players on my team(s) across every connected league
+  const out = new Set();
+  for (const lg of rows('SELECT platform, payload, my_team_id FROM leagues WHERE payload IS NOT NULL')) {
+    let payload; try { payload = JSON.parse(lg.payload); } catch { continue; }
+    if (lg.platform === 'sleeper') {
+      const mine = (payload.rosters ?? []).find(r => String(r.roster_id) === String(lg.my_team_id))
+        ?? (payload.rosters ?? [])[0];
+      for (const sid of mine?.players ?? []) {
+        const p = row('SELECT name FROM players WHERE sleeper_id = ?', sid);
+        if (p) out.add(p.name);
+      }
+    } else {
+      const mine = (payload.teams ?? []).find(t => String(t.id) === String(lg.my_team_id));
+      for (const e of mine?.roster?.entries ?? []) {
+        const n = e.playerPoolEntry?.player?.fullName;
+        if (n) out.add(n);
+      }
+    }
+  }
+  return [...out];
+}
+
+/** "What does this actually mean?" — on-demand, per story. */
+r.post('/:id/explain', async (req, res, next) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(400).json({ error: 'ANTHROPIC_API_KEY not set — add it to .env and restart to enable AI summaries.' });
+    }
+    const n = row(`SELECT n.*, t.abbr AS team_abbr, t.name AS team_name, t.head_coach, t.oc_name,
+                          t.off_scheme, t.off_scheme_detail, t.coach_analysis
+                   FROM news_items n LEFT JOIN nfl_teams t ON t.id = n.team_id WHERE n.id = ?`, req.params.id);
+    if (!n) return res.status(404).json({ error: 'story not found' });
+
+    const depth = n.team_id
+      ? rows(`SELECT name, position, slot_code FROM players
+              WHERE team_id = ? AND slot_code IS NOT NULL AND phase = 'offense' ORDER BY slot_code`, n.team_id)
+      : [];
+    const mine = myRosterNames();
+
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 900,
+      messages: [{
+        role: 'user',
+        content: `Explain what this NFL story actually means. 2026 season.
+
+STORY (${n.date}${n.team_abbr ? `, ${n.team_name}` : ''}): ${n.headline}
+${n.body ?? ''}
+
+${n.team_abbr ? `TEAM CONTEXT: HC ${n.head_coach}, OC ${n.oc_name}. ${n.off_scheme ?? ''}. ${n.off_scheme_detail ?? ''}
+DEPTH CHART (source of truth — never name anyone else as being on this team):
+${depth.map(d => `${d.slot_code}: ${d.name}`).join('\n') || 'n/a'}` : ''}
+
+MY FANTASY ROSTER (across my leagues): ${mine.length ? mine.join(', ') : '(no leagues connected)'}
+
+Answer in JSON with exactly two keys:
+"team_impact": 2-3 sentences on what this means for ${n.team_name ?? 'the team'} as a whole — scheme, depth chart, who gains and who loses snaps/targets.
+"my_impact": 2-3 sentences on what it means specifically for MY fantasy roster listed above. If nobody on my roster is affected, say so plainly and name the one player I should be watching instead.
+
+Respond with ONLY the JSON object.`
+      }]
+    });
+    const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');
+    const out = JSON.parse(text);
+    run(`UPDATE news_items SET ai_analysis = ?, fantasy_impact = ? WHERE id = ?`,
+      out.team_impact, out.my_impact, n.id);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/** Camp roundup: one paragraph on the day + the teams most affected. */
+r.post('/roundup', async (req, res, next) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(400).json({ error: 'ANTHROPIC_API_KEY not set — add it to .env and restart to enable the roundup.' });
+    }
+    const date = req.body?.date;
+    const stories = date
+      ? rows(`SELECT n.headline, n.body, t.abbr FROM news_items n LEFT JOIN nfl_teams t ON t.id = n.team_id
+              WHERE n.date = ? ORDER BY n.importance DESC LIMIT 60`, date)
+      : rows(`SELECT n.headline, n.body, t.abbr FROM news_items n LEFT JOIN nfl_teams t ON t.id = n.team_id
+              ORDER BY n.date DESC, n.importance DESC LIMIT 60`);
+    if (!stories.length) return res.status(400).json({ error: 'No stories to summarize — pull news first.' });
+
+    const mine = myRosterNames();
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1400,
+      messages: [{
+        role: 'user',
+        content: `Here are today's NFL training-camp headlines (2026). Write a camp roundup.
+
+${stories.map(s => `[${s.abbr ?? 'NFL'}] ${s.headline}${s.body ? ' — ' + s.body : ''}`).join('\n')}
+
+MY FANTASY ROSTER: ${mine.length ? mine.join(', ') : '(none connected)'}
+
+Respond with ONLY JSON:
+{
+  "summary": "one flowing paragraph (5-7 sentences) covering the real story of the day across the league — camp battles, injuries, depth-chart movement. Prioritize what changes fantasy value. No bullet points.",
+  "battles": [{"team":"ABBR","battle":"short label e.g. 'QB1 competition'","status":"one sentence on where it stands"}],
+  "teams_affected": [{"team":"ABBR","why":"one sentence"}]
+}
+Limit battles and teams_affected to the 5 most consequential each.`
+      }]
+    });
+    const text = msg.content[0].text.trim().replace(/^```json?\n?|```$/g, '');
+    res.json(JSON.parse(text));
+  } catch (e) { next(e); }
+});
+
 export default r;

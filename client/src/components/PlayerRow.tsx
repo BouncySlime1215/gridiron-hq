@@ -13,7 +13,7 @@ const POS_BG: Record<string, string> = {
 
 export function PosBadge({ pos }: { pos: string }) {
   return (
-    <span className={`text-[10px] font-black w-8 text-center py-1 rounded ring-1 ${POS_BG[pos] ?? 'bg-slate-50 text-slate-600 ring-slate-200'}`}>
+    <span className={`text-[10px] font-black w-8 shrink-0 text-center py-1 rounded ring-1 ${POS_BG[pos] ?? 'bg-slate-50 text-slate-600 ring-slate-200'}`}>
       {pos}
     </span>
   );
@@ -39,7 +39,7 @@ export function Trend({ v, raw, value, trend, className = '' }: {
   v?: number | null; raw?: number | null; value?: number | null; trend?: number | null; className?: string;
 }) {
   let pct = v ?? null;
-  let points = raw ?? trend ?? null;
+  const points = raw ?? trend ?? null;
   if (pct == null && value != null && trend != null && value - trend !== 0) {
     pct = (trend / (value - trend)) * 100;
   }
@@ -61,47 +61,44 @@ interface RowProps {
   teamAbbr?: string | null;
   headshot?: string | null;
   tier?: number;
-  tierBreak?: boolean;
   right?: ReactNode;
   meta?: ReactNode;
   onClickRow?: () => void;
-  actionLabel?: string;
+  action?: ReactNode;
   dense?: boolean;
 }
 
-/** One list row: headshot, rank, position badge, name (opens pop-out), team, right-side stats. */
+/**
+ * One list row. Everything sits in a single flex line with explicit shrink rules
+ * so nothing can ever overlap: only the name column flexes, and it truncates.
+ */
 export default function PlayerRow({
-  playerId, rank, name, position, teamAbbr, headshot, tier, tierBreak,
-  right, meta, onClickRow, actionLabel, dense
+  playerId, rank, name, position, teamAbbr, headshot, tier,
+  right, meta, onClickRow, action, dense
 }: RowProps) {
   const open = usePlayerCard();
   return (
     <div
       onClick={onClickRow}
-      className={`group flex items-center gap-3 px-3 ${dense ? 'py-1.5' : 'py-2'} transition-colors
-        ${tierBreak ? 'border-t-2 border-t-slate-200' : ''}
+      className={`group flex items-center gap-2.5 px-3 ${dense ? 'py-1.5' : 'py-2'} overflow-hidden
         ${onClickRow ? 'cursor-pointer hover:bg-emerald-50/60' : 'hover:bg-slate-50'}`}>
-      <span className="w-7 text-right text-xs font-mono text-slate-400 tabular-nums">{rank}</span>
+      <span className="w-7 shrink-0 text-right text-xs font-mono text-slate-400 tabular-nums">{rank}</span>
       {tier != null && (
-        <span className="w-1 self-stretch rounded-full" style={{ background: TIER_COLORS[tier] ?? '#cbd5e1' }} title={`Tier ${tier}`} />
+        <span className="w-1 shrink-0 self-stretch rounded-full" style={{ background: TIER_COLORS[tier] ?? '#cbd5e1' }} title={`Tier ${tier}`} />
       )}
       <Headshot src={headshot} pos={position} size={dense ? 30 : 36} />
       <PosBadge pos={position} />
-      <div className="min-w-0 flex-1">
+      <div className="flex-1 min-w-0">
         <button
           onClick={e => { e.stopPropagation(); open(playerId); }}
-          className="font-semibold text-slate-800 hover:text-emerald-700 hover:underline decoration-dotted underline-offset-2 truncate block text-left">
+          className="block w-full text-left font-semibold text-slate-800 hover:text-emerald-700 truncate">
           {name}
         </button>
-        {meta && <div className="text-[11px] text-slate-400 leading-tight">{meta}</div>}
+        {meta && <div className="text-[11px] text-slate-400 leading-tight truncate">{meta}</div>}
       </div>
-      {teamAbbr && <span className="text-xs text-slate-400 font-medium w-9">{teamAbbr}</span>}
+      {teamAbbr && <span className="shrink-0 text-xs text-slate-400 font-medium w-9 text-right">{teamAbbr}</span>}
       {right}
-      {actionLabel && (
-        <span className="opacity-0 group-hover:opacity-100 text-emerald-600 text-xs font-bold whitespace-nowrap">
-          {actionLabel}
-        </span>
-      )}
+      {action}
     </div>
   );
 }

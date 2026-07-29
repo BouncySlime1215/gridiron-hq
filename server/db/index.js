@@ -125,6 +125,11 @@ const playerCols = db.prepare(`PRAGMA table_info(players)`).all().map(c => c.nam
 if (!playerCols.includes('espn_id')) db.exec(`ALTER TABLE players ADD COLUMN espn_id INTEGER`);
 if (!playerCols.includes('sleeper_id')) db.exec(`ALTER TABLE players ADD COLUMN sleeper_id TEXT`);
 
+const dpCols = db.prepare(`PRAGMA table_info(draft_picks)`).all().map(c => c.name);
+if (!dpCols.includes('reason')) db.exec(`ALTER TABLE draft_picks ADD COLUMN reason TEXT`);
+const draftCols = db.prepare(`PRAGMA table_info(drafts)`).all().map(c => c.name);
+if (!draftCols.includes('pick_seconds')) db.exec(`ALTER TABLE drafts ADD COLUMN pick_seconds INTEGER DEFAULT 90`);
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS leagues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

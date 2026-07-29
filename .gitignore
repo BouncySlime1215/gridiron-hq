@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# local data — contains ESPN league cookies and your personal rankings/drafts
+server/data.sqlite
+server/data.sqlite-shm
+server/data.sqlite-wal
+
+# secrets
+.env
+
+# build output
+client/dist/
+dist/
+
+# OS
+.DS_Store

@@ -1,0 +1,33 @@
+import express from 'express';
+import { db } from './db/index.js';
+import { seedIfEmpty } from './db/seed/index.js';
+import teamsRouter from './routes/teams.js';
+import playersRouter from './routes/players.js';
+import rankingsRouter from './routes/rankings.js';
+import draftsRouter from './routes/drafts.js';
+import espnRouter from './routes/espn.js';
+import newsRouter from './routes/news.js';
+import aggregatesRouter from './routes/aggregates.js';
+import analysisRouter from './routes/analysis.js';
+
+const app = express();
+app.use(express.json());
+
+seedIfEmpty();
+
+app.use('/api/teams', teamsRouter);
+app.use('/api/players', playersRouter);
+app.use('/api/rankings', rankingsRouter);
+app.use('/api/drafts', draftsRouter);
+app.use('/api/espn', espnRouter);
+app.use('/api/news', newsRouter);
+app.use('/api/aggregates', aggregatesRouter);
+app.use('/api/analysis', analysisRouter);
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: err.message });
+});
+
+const PORT = process.env.API_PORT || 5177;
+app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));

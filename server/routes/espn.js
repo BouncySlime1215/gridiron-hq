@@ -1,0 +1,190 @@
+import { Router } from 'express';
+import { rows, row, run } from '../db/index.js';
+
+const r = Router();
+const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
+
+function getSettings() {
+  return row('SELECT * FROM espn_settings WHERE id = 1');
+}
+
+r.get('/settings', (req, res) => {
+  const s = getSettings();
+  // never leak full cookie values back to the client
+  res.json(s ? { league_id: s.league_id, season: s.season, team_id: s.team_id,
+    has_espn_s2: !!s.espn_s2, has_swid: !!s.swid } : null);
+});
+
+r.put('/settings', (req, res) => {
+  const { league_id, season, team_id, espn_s2, swid } = req.body;
+  const existing = getSettings();
+  if (existing) {
+    run(`UPDATE espn_settings SET league_id = ?, season = ?, team_id = ?,
+         espn_s2 = COALESCE(?, espn_s2), swid = COALESCE(?, swid) WHERE id = 1`,
+      league_id, season, team_id, espn_s2 || null, swid || null);
+  } else {
+    run('INSERT INTO espn_settings (id, league_id, season, team_id, espn_s2, swid) VALUES (1,?,?,?,?,?)',
+      league_id, season, team_id, espn_s2 || null, swid || null);
+  }
+  res.json({ ok: true });
+});
+
+async function espnFetch(views) {
+  const s = getSettings();
+  if (!s?.league_id || !s?.season) throw new Error('ESPN settings not configured');
+  const params = views.map(v => `view=${v}`).join('&');
+  const url = `${BASE}/seasons/${s.season}/segments/0/leagues/${s.league_id}?${params}`;
+  const headers = { Accept: 'application/json' };
+  if (s.espn_s2 && s.swid) {
+    headers.Cookie = `espn_s2=${s.espn_s2}; SWID=${s.swid}`;
+  }
+  const resp = await fetch(url, { headers });
+  if (!resp.ok) throw new Error(`ESPN API ${resp.status}: ${resp.statusText}`);
+  return resp.json();
+}
+
+r.post('/sync', async (req, res, next) => {
+  try {
+    const data = await espnFetch(['mTeam', 'mRoster', 'mMatchup', 'mSettings']);
+    run(`INSERT INTO espn_cache (key, payload, fetched_at) VALUES ('league', ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at`,
+      JSON.stringify(data));
+    // League sync always refreshes the player universe too — ESPN is the source of truth.
+    let playerSync = null;
+    try { playerSync = await syncPlayersFromESPN(); }
+    catch (err) { playerSync = { error: err.message }; }
+    res.json({ ok: true, teams: data.teams?.length ?? 0, playerSync });
+  } catch (e) { next(e); }
+});
+
+r.get('/league', (req, res) => {
+  const cached = row(`SELECT payload, fetched_at FROM espn_cache WHERE key = 'league'`);
+  if (!cached) return res.json(null);
+  res.json({ fetched_at: cached.fetched_at, ...JSON.parse(cached.payload) });
+});
+
+// ESPN proTeamId -> our abbr
+const PRO_TEAM = {
+  1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN', 8: 'DET',
+  9: 'GB', 10: 'TEN', 11: 'IND', 12: 'KC', 13: 'LV', 14: 'LAR', 15: 'MIA', 16: 'MIN',
+  17: 'NE', 18: 'NO', 19: 'NYG', 20: 'NYJ', 21: 'PHI', 22: 'ARI', 23: 'PIT', 24: 'LAC',
+  25: 'SF', 26: 'SEA', 27: 'TB', 28: 'WAS', 29: 'CAR', 30: 'JAX', 33: 'BAL', 34: 'HOU'
+};
+const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K' };
+
+// Pull ESPN's fantasy player universe (rookies included) and upsert as source of truth.
+export async function syncPlayersFromESPN() {
+  {
+    const s = getSettings();
+    const season = s?.season || new Date().getFullYear();
+    const url = `${BASE}/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
+    const filter = { players: { limit: 800, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
+    const headers = { Accept: 'application/json', 'X-Fantasy-Filter': JSON.stringify(filter) };
+    if (s?.espn_s2 && s?.swid) headers.Cookie = `espn_s2=${s.espn_s2}; SWID=${s.swid}`;
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) throw new Error(`ESPN players API ${resp.status}`);
+    const data = await resp.json();
+    const players = data.players ?? [];
+
+    const teamIdByAbbr = {};
+    for (const t of rows('SELECT id, abbr FROM nfl_teams')) teamIdByAbbr[t.abbr] = t.id;
+
+    let updated = 0, added = 0;
+    const candidates = {}; // teamId -> position -> [{id, pct}] for depth-chart rebuild
+    players.forEach((entry, idx) => {
+      const pl = entry.player ?? entry;
+      const pos = ESPN_POS[pl.defaultPositionId];
+      if (!pos || !pl.fullName) return;
+      const abbr = PRO_TEAM[pl.proTeamId] ?? null;
+      const teamId = abbr ? teamIdByAbbr[abbr] : null;
+      const existing = row('SELECT id, team_id FROM players WHERE lower(name) = lower(?) AND position = ?', pl.fullName, pos);
+      let playerId;
+      if (existing) {
+        playerId = existing.id;
+        run('UPDATE players SET team_id = ?, fantasy_relevant = 1 WHERE id = ?', teamId, playerId);
+        updated++;
+      } else {
+        const result = run('INSERT INTO players (name, position, team_id, depth_rank, phase, fantasy_relevant) VALUES (?,?,?,?,?,1)',
+          pl.fullName, pos, teamId, 1, pos === 'K' ? 'special_teams' : 'offense');
+        playerId = Number(result.lastInsertRowid);
+        added++;
+      }
+      // ESPN list is sorted by ownership; use percentOwned with list order as fallback
+      const pct = pl.ownership?.percentOwned ?? (players.length - idx) / players.length;
+      if (teamId) (((candidates[teamId] ??= {})[pos] ??= [])).push({ id: playerId, pct });
+    });
+
+    // Rebuild offensive depth charts from ESPN ownership — ESPN is the source of truth.
+    // (Defensive slots keep their editorial assignments; ESPN's fantasy pull is offense+K.)
+    const SLOT_ORDER = { QB: ['QB'], RB: ['RB1', 'RB2'], WR: ['WR1', 'WR2', 'WR3'], TE: ['TE1'], K: ['K'] };
+    run(`UPDATE players SET slot_code = NULL WHERE phase IN ('offense','special_teams')`);
+    for (const [teamId, byPos] of Object.entries(candidates)) {
+      for (const [pos, codes] of Object.entries(SLOT_ORDER)) {
+        const ranked = (byPos[pos] ?? []).sort((a, b) => b.pct - a.pct);
+        codes.forEach((code, i) => {
+          if (ranked[i]) run('UPDATE players SET slot_code = ?, depth_rank = ? WHERE id = ?', code, i + 1, ranked[i].id);
+        });
+      }
+    }
+    return { ok: true, fetched: players.length, updated, added };
+  }
+}
+
+r.post('/sync-players', async (req, res, next) => {
+  try { res.json(await syncPlayersFromESPN()); } catch (e) { next(e); }
+});
+
+function insertArticles(articles, teams, forcedTeamId = null) {
+  let added = 0;
+  for (const a of articles) {
+    if (!a.headline) continue;
+    const exists = row('SELECT id FROM news_items WHERE headline = ?', a.headline);
+    if (exists) continue;
+    const date = (a.published ?? new Date().toISOString()).slice(0, 10);
+    const text = `${a.headline} ${a.description ?? ''}`;
+    // word-boundary match on full team name or nickname ("Browns" must not match "Brown")
+    const team = forcedTeamId != null
+      ? { id: forcedTeamId }
+      : teams.find(t => {
+          const nickname = t.name.split(' ').pop();
+          return new RegExp(`\\b${t.name}\\b`).test(text) || new RegExp(`\\b${nickname}\\b`).test(text);
+        });
+    run(`INSERT INTO news_items (date, team_id, headline, body, importance, source)
+         VALUES (?,?,?,?,2,'ESPN')`, date, team?.id ?? null, a.headline, a.description ?? null);
+    added++;
+  }
+  return added;
+}
+
+export async function syncTeamNewsFeed(abbr) {
+  const teams = rows('SELECT id, abbr, name FROM nfl_teams');
+  const abbrToEspnId = Object.fromEntries(Object.entries(PRO_TEAM).map(([id, ab]) => [ab, id]));
+  const team = teams.find(t => t.abbr === abbr);
+  const espnId = abbrToEspnId[abbr];
+  if (!team || !espnId) throw new Error(`unknown team ${abbr}`);
+  const resp = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?team=${espnId}&limit=20`,
+    { headers: { Accept: 'application/json' } });
+  if (!resp.ok) throw new Error(`ESPN team news API ${resp.status}`);
+  return insertArticles((await resp.json()).articles ?? [], teams, team.id);
+}
+
+export async function syncGeneralNews() {
+  const teams = rows('SELECT id, abbr, name FROM nfl_teams');
+  const resp = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=50',
+    { headers: { Accept: 'application/json' } });
+  if (!resp.ok) throw new Error(`ESPN news API ${resp.status}`);
+  return insertArticles((await resp.json()).articles ?? [], teams);
+}
+
+// Pull latest headlines from ESPN's public news API. With ?team=ABBR pulls that
+// team's own feed (press conferences, beat coverage); otherwise league-wide news.
+r.post('/sync-news', async (req, res, next) => {
+  try {
+    const added = req.query.team
+      ? await syncTeamNewsFeed(String(req.query.team).toUpperCase())
+      : await syncGeneralNews();
+    res.json({ ok: true, added });
+  } catch (e) { next(e); }
+});
+
+export default r;

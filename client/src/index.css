@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-white text-slate-900 antialiased;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { @apply bg-slate-100; }
+::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded; }
+
+.card {
+  @apply bg-white border border-slate-200 rounded-xl shadow-sm;
+}
+.btn {
+  @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors;
+}
+.btn-primary {
+  @apply btn bg-emerald-600 hover:bg-emerald-500 text-white;
+}
+.btn-ghost {
+  @apply btn bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200;
+}
+.input {
+  @apply bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900
+         focus:outline-none focus:border-emerald-500;
+}
+.pos-QB { @apply text-rose-600; }
+.pos-RB { @apply text-emerald-600; }
+.pos-WR { @apply text-sky-600; }
+.pos-TE { @apply text-amber-600; }
+.pos-K  { @apply text-violet-600; }
+.pos-DEF, .pos-EDGE, .pos-DL, .pos-LB, .pos-CB, .pos-S { @apply text-slate-500; }

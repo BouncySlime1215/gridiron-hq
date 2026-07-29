@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -17,11 +17,14 @@ export function useApi<T = any>(path: string | null) {
   const [loading, setLoading] = useState(!!path);
   const [error, setError] = useState<string | null>(null);
 
+  // `loading` only flips while we have nothing to show. Background refetches keep
+  // the previous data on screen so views never flash empty mid-update.
+  const hasData = useRef(false);
   const refetch = useCallback(() => {
     if (!path) return;
-    setLoading(true);
-    api<T>(path)
-      .then(d => { setData(d); setError(null); })
+    if (!hasData.current) setLoading(true);
+    return api<T>(path)
+      .then(d => { hasData.current = true; setData(d); setError(null); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [path]);

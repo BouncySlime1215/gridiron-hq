@@ -24,6 +24,7 @@ export default function DraftRoom() {
   const [paused, setPaused] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [rec, setRec] = useState<any>(null);
+  const [zoom, setZoom] = useState(1);   // draft-board scale
   const busy = useRef(false);
 
   const nextPick = (draft?.picks.length ?? 0) + 1;
@@ -89,7 +90,9 @@ export default function DraftRoom() {
   const myPicks = useMemo(() => draft?.picks.filter(p => p.team_slot === draft.my_slot) ?? [], [draft]);
   const available = (draft?.available ?? []).filter(a => filter === 'ALL' || a.position === filter);
 
-  if (loading || !draft) return <p className="text-slate-500">Loading draft…</p>;
+  // Only blank the page on the very first load — refetching after each pick must
+  // never tear down the board, or every CPU pick looks like a page reload.
+  if (!draft) return <p className="text-slate-500">Loading draft…</p>;
 
   const lastPickNo = draft.picks.length;
   const roundsToShow = Math.min(draft.rounds, Math.ceil((lastPickNo + draft.team_count) / draft.team_count) + 1);
@@ -181,7 +184,7 @@ export default function DraftRoom() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr_220px] gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr_210px] gap-4">
         {/* ---- available ---- */}
         <div className="card overflow-hidden flex flex-col max-h-[68vh]">
           <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-200 bg-slate-50">
@@ -203,11 +206,12 @@ export default function DraftRoom() {
                 headshot={headshotUrl(a as any)}
                 tier={a.tier}
                 dense
+                hidePos
                 action={
                   <button
                     onClick={e => { e.stopPropagation(); pick(a.player_id); }}
                     title={myTurn ? 'Draft this player' : 'Mark as taken'}
-                    className={`shrink-0 text-[10px] font-black px-2 py-1 rounded-lg transition-colors
+                    className={`shrink-0 text-[9px] font-black px-1.5 py-1 rounded-md transition-colors
                       ${myTurn
                         ? 'bg-emerald-600 text-white hover:bg-emerald-500'
                         : 'bg-slate-100 text-slate-400 hover:bg-slate-200 opacity-0 group-hover:opacity-100'}`}>
@@ -224,7 +228,17 @@ export default function DraftRoom() {
         <div className="card overflow-hidden flex flex-col max-h-[68vh]">
           <div className="px-3 py-2 border-b border-slate-200 bg-slate-50 flex items-center">
             <h3 className="text-sm font-bold text-slate-700">Draft Board</h3>
-            <span className="text-[10px] text-slate-400 ml-auto">scroll for all {draft.team_count} teams</span>
+            <div className="ml-auto flex items-center gap-1">
+              <button onClick={() => setZoom(z => Math.max(0.7, +(z - 0.15).toFixed(2)))}
+                className="w-6 h-6 rounded-md bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 text-sm leading-none"
+                title="Zoom out">−</button>
+              <span className="text-[10px] text-slate-400 w-9 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+              <button onClick={() => setZoom(z => Math.min(1.6, +(z + 0.15).toFixed(2)))}
+                className="w-6 h-6 rounded-md bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 text-sm leading-none"
+                title="Zoom in">+</button>
+              <button onClick={() => setZoom(1)}
+                className="text-[10px] text-slate-400 hover:text-slate-700 ml-1">reset</button>
+            </div>
           </div>
           <div className="overflow-auto p-2">
             <table className="border-separate" style={{ borderSpacing: '3px' }}>
@@ -233,7 +247,8 @@ export default function DraftRoom() {
                   <th className="w-5" />
                   {Array.from({ length: draft.team_count }, (_, i) => (
                     <th key={i}
-                      className={`w-[74px] text-[9px] font-bold py-0.5 rounded
+                      style={{ width: 74 * zoom, fontSize: 9 * zoom }}
+                      className={`font-bold py-0.5 rounded
                         ${i + 1 === draft.my_slot ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
                       {i + 1 === draft.my_slot ? 'YOU' : `T${i + 1}`}
                     </th>
@@ -251,14 +266,15 @@ export default function DraftRoom() {
                       return (
                         <td key={slot} className="p-0 align-top">
                           <div
-                            className={`w-[74px] h-[34px] rounded-md border px-1 py-0.5 overflow-hidden transition-all duration-700 ease-out
+                            style={{ width: 74 * zoom, height: 34 * zoom }}
+                            className={`rounded-md border px-1 py-0.5 overflow-hidden transition-all duration-700 ease-out
                               ${p ? (POS_TINT[p.position] ?? 'bg-slate-50 border-slate-200') : 'bg-slate-50/40 border-dashed border-slate-200'}
                               ${isLatest ? 'ring-2 ring-emerald-400/70' : ''}
                               ${slot === draft.my_slot && !p ? 'border-emerald-300' : ''}`}>
                             {p ? (
                               <>
-                                <div className="text-[8px] font-bold text-slate-500 leading-none">{p.position}</div>
-                                <div className="text-[10px] font-semibold text-slate-800 leading-tight truncate">{lastName(p.name)}</div>
+                                <div style={{ fontSize: 8 * zoom }} className="font-bold text-slate-500 leading-none">{p.position}</div>
+                                <div style={{ fontSize: 10.5 * zoom }} className="font-semibold text-slate-800 leading-tight truncate">{lastName(p.name)}</div>
                               </>
                             ) : <div className="text-[9px] text-slate-300 text-center leading-[26px]">—</div>}
                           </div>

@@ -66,6 +66,8 @@ interface RowProps {
   onClickRow?: () => void;
   action?: ReactNode;
   dense?: boolean;
+  /** Hide the position chip when space is tight (the headshot ring already encodes it). */
+  hidePos?: boolean;
 }
 
 /**
@@ -74,29 +76,32 @@ interface RowProps {
  */
 export default function PlayerRow({
   playerId, rank, name, position, teamAbbr, headshot, tier,
-  right, meta, onClickRow, action, dense
+  right, meta, onClickRow, action, dense, hidePos
 }: RowProps) {
   const open = usePlayerCard();
   return (
     <div
       onClick={onClickRow}
-      className={`group flex items-center gap-2.5 px-3 ${dense ? 'py-1.5' : 'py-2'} overflow-hidden
+      className={`group flex items-center gap-2 px-2.5 ${dense ? 'py-1.5' : 'py-2'} overflow-hidden
         ${onClickRow ? 'cursor-pointer hover:bg-emerald-50/60' : 'hover:bg-slate-50'}`}>
-      <span className="w-7 shrink-0 text-right text-xs font-mono text-slate-400 tabular-nums">{rank}</span>
+      <span className="w-6 shrink-0 text-right text-[11px] font-mono text-slate-400 tabular-nums">{rank}</span>
       {tier != null && (
         <span className="w-1 shrink-0 self-stretch rounded-full" style={{ background: TIER_COLORS[tier] ?? '#cbd5e1' }} title={`Tier ${tier}`} />
       )}
-      <Headshot src={headshot} pos={position} size={dense ? 30 : 36} />
-      <PosBadge pos={position} />
-      <div className="flex-1 min-w-0">
+      <Headshot src={headshot} pos={position} size={dense ? 28 : 36} />
+      {!hidePos && <PosBadge pos={position} />}
+      {/* name gets every remaining pixel; basis-0 stops flex from reserving content width */}
+      <div className="flex-1 basis-0 min-w-0">
         <button
           onClick={e => { e.stopPropagation(); open(playerId); }}
-          className="block w-full text-left font-semibold text-slate-800 hover:text-emerald-700 truncate">
+          className="block w-full text-left font-semibold text-slate-800 hover:text-emerald-700 truncate"
+          title={name}>
+          {hidePos && <span className={`text-[10px] font-black mr-1.5 pos-${position}`}>{position}</span>}
           {name}
         </button>
         {meta && <div className="text-[11px] text-slate-400 leading-tight truncate">{meta}</div>}
       </div>
-      {teamAbbr && <span className="shrink-0 text-xs text-slate-400 font-medium w-9 text-right">{teamAbbr}</span>}
+      {teamAbbr && <span className="shrink-0 text-[11px] text-slate-400 font-medium">{teamAbbr}</span>}
       {right}
       {action}
     </div>

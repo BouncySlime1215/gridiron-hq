@@ -8,7 +8,7 @@ import Drafts from './pages/Drafts';
 import DraftRoom from './pages/DraftRoom';
 import MyTeam from './pages/MyTeam';
 import PlayerDetail from './pages/PlayerDetail';
-import Projections from './pages/Projections';
+import Players from './pages/Players';
 import Edge from './pages/Edge';
 import TradeLab from './pages/TradeLab';
 import Leagues from './pages/Leagues';
@@ -21,11 +21,10 @@ import Settings from './pages/Settings';
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '🏠' },
   { to: '/my-team', label: 'My Team', icon: '⭐' },
-  { to: '/rankings', label: 'Rankings', icon: '📋' },
+  { to: '/players', label: 'Players', icon: '📋' },
   { to: '/drafts', label: 'Draft Room', icon: '🎯' },
   { to: '/teams', label: '32 Teams', icon: '🏈' },
-  { to: '/projections', label: 'Projections', icon: '📊' },
-  { to: '/edge', label: 'Edge', icon: '🧠' },
+  { to: '/edge', label: 'Edge Tools', icon: '🧠' },
   { to: '/trade-lab', label: 'Trade Lab', icon: '🤝' },
   { to: '/news', label: 'Camp News', icon: '📰' },
   { to: '/leagues', label: 'My Leagues', icon: '🔗' },
@@ -103,10 +102,11 @@ export default function App() {
           <Route path="/teams" element={<Teams />} />
           <Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} />
-          <Route path="/projections" element={<Projections />} />
+          <Route path="/players" element={<Players />} />
           <Route path="/edge" element={<Edge />} />
           <Route path="/trade-lab" element={<TradeLab />} />
           <Route path="/rankings" element={<Rankings />} />
+          <Route path="/projections" element={<Players />} />
           <Route path="/drafts" element={<Drafts />} />
           <Route path="/drafts/:id" element={<DraftRoom />} />
           <Route path="/my-team" element={<MyTeam />} />

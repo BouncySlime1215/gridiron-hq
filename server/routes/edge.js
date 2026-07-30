@@ -404,3 +404,121 @@ r.get('/efficiency', (req, res) => {
       : null
   })).sort((a, b) => (b.points ?? 0) - (a.points ?? 0)));
 });
+
+/* ------------------------------------------------------------------ */
+/** One row per player with every metric the app knows — the single source
+ *  behind the unified Players board. Replaces the separate rankings /
+ *  projections / VOR payloads that each re-queried the same tables. */
+r.get('/board', (req, res) => {
+  const teams = Number(req.query.teams) || 12;
+  const setId = req.query.set_id ? Number(req.query.set_id) : null;
+
+  const vor = new Map(vorBoard(teams).map(p => [p.id, p]));
+  const vol = volatility();
+  const sched = new Map(scheduleEdge().map(s => [s.abbr, s]));
+  const t100 = new Map(rows('SELECT rank, name_key FROM nfl_top100 WHERE season = ?', SEASON)
+    .map(x => [x.name_key, x.rank]));
+  const nk = n => (n ?? '').toLowerCase().replace(/[.'’-]/g, '')
+    .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
+
+  const myRank = setId
+    ? new Map(rows('SELECT player_id, rank, tier, note FROM ranking_entries WHERE set_id = ?', setId)
+        .map(e => [e.player_id, e]))
+    : new Map();
+
+  const base = rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id,
+                            t.abbr AS team_abbr, t.primary_color,
+                            pr.fantasy_points AS proj, pr.raw AS proj_raw,
+                            ac.fantasy_points AS last_pts, ac.raw AS last_raw,
+                            mv.value AS market_value, mt.value AS market_trend,
+                            adp.value AS adp, inj.value AS injury,
+                            rp.age, rp.experience,
+                            acc.pro_bowls, acc.first_team_all_pro, acc.major_awards,
+                            acc.draft_round, acc.draft_pick, acc.draft_year,
+                            sr.verdict AS scout_verdict, pa.verdict AS buy_sell
+                     FROM players p
+                     LEFT JOIN nfl_teams t ON t.id = p.team_id
+                     LEFT JOIN player_season_stats pr ON pr.player_id = p.id AND pr.season = ? AND pr.kind='projected'
+                     LEFT JOIN player_season_stats ac ON ac.player_id = p.id AND ac.season = ? AND ac.kind='actual'
+                     LEFT JOIN player_metrics mv  ON mv.player_id  = p.id AND mv.source='fc_value'
+                     LEFT JOIN player_metrics mt  ON mt.player_id  = p.id AND mt.source='fc_trend30'
+                     LEFT JOIN player_metrics adp ON adp.player_id = p.id AND adp.source='ffc_adp'
+                     LEFT JOIN player_metrics inj ON inj.player_id = p.id AND inj.source='injury_flag'
+                     LEFT JOIN roster_players rp ON rp.espn_id = p.espn_id
+                     LEFT JOIN player_accolades acc ON acc.roster_player_id = rp.id
+                     LEFT JOIN scout_reports sr ON sr.player_id = p.id
+                     LEFT JOIN player_analysis pa ON pa.player_id = p.id
+                     WHERE pr.fantasy_points IS NOT NULL OR adp.value IS NOT NULL
+                        OR p.id IN (SELECT player_id FROM ranking_entries)`,
+    SEASON, SEASON - 1);
+
+  // positional projection rank
+  const byPos = {};
+  for (const p of base) if (p.proj != null) (byPos[p.position] ??= []).push(p);
+  for (const list of Object.values(byPos)) {
+    list.sort((a, b) => b.proj - a.proj);
+    list.forEach((p, i) => { p._posRank = i + 1; });
+  }
+
+  const seen = new Set();
+  const out = [];
+  for (const p of base) {
+    if (seen.has(p.id)) continue;            // roster_players join can duplicate
+    seen.add(p.id);
+    const v = vor.get(p.id);
+    const w = vol.get(p.id);
+    const s = p.team_abbr ? sched.get(p.team_abbr) : null;
+    const mine = myRank.get(p.id);
+    const projLine = p.proj_raw ? JSON.parse(p.proj_raw) : null;
+    const lastLine = p.last_raw ? JSON.parse(p.last_raw) : null;
+    const badges = [];
+    const rank100 = t100.get(nk(p.name));
+    if (rank100) badges.push(`Top 100 #${rank100}`);
+    if (p.first_team_all_pro > 0) badges.push(`${p.first_team_all_pro}× All-Pro`);
+    else if (p.pro_bowls > 0) badges.push(`${p.pro_bowls}× Pro Bowl`);
+    if (p.major_awards) badges.push(p.major_awards.split(',')[0].trim());
+    if (p.draft_round === 1 && p.draft_year === SEASON) badges.push('Rookie R1');
+
+    out.push({
+      id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
+      espn_id: p.espn_id, sleeper_id: p.sleeper_id,
+      age: p.age ?? null, experience: p.experience ?? null,
+      injury: p.injury ? 1 : 0, badges, top100: rank100 ?? null,
+      // projections
+      proj: p.proj != null ? +p.proj.toFixed(1) : null,
+      pos_rank: p._posRank ?? null,
+      last_pts: p.last_pts != null ? +p.last_pts.toFixed(1) : null,
+      delta: p.proj != null && p.last_pts != null ? +(p.proj - p.last_pts).toFixed(1) : null,
+      proj_line: projLine, last_line: lastLine,
+      // value
+      vor: v?.vor ?? null, vor_rank: v?.vor_rank ?? null,
+      adp: p.adp ?? null, adp_edge: v?.adp_edge ?? null,
+      market_value: p.market_value ?? null,
+      market_trend_pct: p.market_value && p.market_trend != null && p.market_value - p.market_trend !== 0
+        ? +((p.market_trend / (p.market_value - p.market_trend)) * 100).toFixed(1) : null,
+      // weekly profile
+      games: w?.games ?? null, avg: w?.avg ?? null, floor: w?.floor ?? null,
+      ceiling: w?.ceiling ?? null, boom: w?.boom_rate ?? null, bust: w?.bust_rate ?? null,
+      consistency: w?.consistency ?? null,
+      // schedule
+      playoff_sos: s?.playoff_sos ?? null, playoff_rank: s?.playoff_rank ?? null,
+      season_sos: s?.season_sos ?? null,
+      // my board + AI
+      my_rank: mine?.rank ?? null, tier: mine?.tier ?? null, note: mine?.note ?? null,
+      scout_verdict: p.scout_verdict ?? null, buy_sell: p.buy_sell ?? null
+    });
+  }
+  out.sort((a, b) => (a.my_rank ?? 9999) - (b.my_rank ?? 9999) || (b.vor ?? -999) - (a.vor ?? -999));
+  res.json(out);
+});
+
+/** Weekly point series per player, for inline sparklines on the board. */
+r.get('/sparklines', (req, res) => {
+  const season = Number(req.query.season) || SEASON - 1;
+  const out = {};
+  for (const g of rows(`SELECT player_id, week, fantasy_points FROM player_gamelog
+                        WHERE season = ? ORDER BY player_id, week`, season)) {
+    (out[g.player_id] ??= []).push(+(g.fantasy_points ?? 0).toFixed(1));
+  }
+  res.json(out);
+});

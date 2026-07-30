@@ -161,7 +161,40 @@ db.exec(`
     reasoning TEXT,
     generated_at TEXT
   );
+
+  -- Dynasty / format-aware market values. Kept separate from player_metrics on
+  -- purpose: FantasyCalc prices per league format (a superflex QB is worth roughly
+  -- double his 1QB value), so values cannot be stored once globally. player_metrics
+  -- keeps serving the redraft 'fc_value' path unchanged.
+  CREATE TABLE IF NOT EXISTS dynasty_values (
+    format_key TEXT NOT NULL,
+    player_id INTEGER NOT NULL REFERENCES players(id),
+    value INTEGER,
+    redraft_value INTEGER,
+    trend30 INTEGER,
+    age REAL,
+    pos_rank INTEGER,
+    fetched_at TEXT,
+    PRIMARY KEY (format_key, player_id)
+  );
+
+  -- Draft pick market values, e.g. pick_key 'FP_2027_1' = "2027 1st".
+  CREATE TABLE IF NOT EXISTS pick_values (
+    format_key TEXT NOT NULL,
+    pick_key TEXT NOT NULL,
+    label TEXT,
+    season INTEGER,
+    round INTEGER,
+    value INTEGER,
+    fetched_at TEXT,
+    PRIMARY KEY (format_key, pick_key)
+  );
 `);
+
+const leagueCols = db.prepare(`PRAGMA table_info(leagues)`).all().map(c => c.name);
+// 'redraft' | 'keeper' | 'dynasty' — drives whether we price this league off
+// FantasyCalc's dynasty or redraft value set.
+if (!leagueCols.includes('league_type')) db.exec(`ALTER TABLE leagues ADD COLUMN league_type TEXT`);
 
 // migrate the old single-league espn_settings row into leagues
 const legacy = db.prepare('SELECT * FROM espn_settings WHERE id = 1').get();

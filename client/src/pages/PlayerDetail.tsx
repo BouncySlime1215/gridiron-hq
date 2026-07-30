@@ -1,7 +1,8 @@
 
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useApi } from '../api';
 import FormationView from '../components/FormationView';
+import { usePlayerCard } from '../components/PlayerCard';
 
 // Which unit analysis matters for this position
 const UNIT_FOR_POS: Record<string, { key: string; label: string }> = {
@@ -21,7 +22,7 @@ const OFF_POS = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
 
 export default function PlayerDetail() {
   const { id } = useParams();
-  const nav = useNavigate();
+  const openCard = usePlayerCard();
   const { data: p, loading } = useApi<any>(`/players/${id}`);
 
 
@@ -70,7 +71,7 @@ export default function PlayerDetail() {
           depth={p.depth}
           depthMulti={p.depth_multi}
           accent={p.primary_color ?? '#0f766e'}
-          onPlayerClick={pid => { if (pid !== p.id) nav(`/players/${pid}`); }}
+          onPlayerClick={pid => { if (pid !== p.id) openCard(pid); }}
         />
       )}
 

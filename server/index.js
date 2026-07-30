@@ -15,6 +15,7 @@ import statsRouter from './routes/stats.js';
 import devRouter from './routes/dev.js';
 import accoladesRouter from './routes/accolades.js';
 import edgeRouter from './routes/edge.js';
+import tradelabRouter from './routes/tradelab.js';
 
 const app = express();
 app.use(express.json());
@@ -35,6 +36,7 @@ app.use('/api/stats', statsRouter);
 app.use('/api/dev', devRouter);
 app.use('/api/accolades', accoladesRouter);
 app.use('/api/edge', edgeRouter);
+app.use('/api/tradelab', tradelabRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

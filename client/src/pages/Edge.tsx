@@ -3,11 +3,12 @@ import { api, headshotUrl, useApi } from '../api';
 import { Headshot } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
 
-type Tab = 'vor' | 'movers' | 'volatility' | 'schedule' | 'trade' | 'sim';
+type Tab = 'vor' | 'movers' | 'volatility' | 'efficiency' | 'schedule' | 'trade' | 'sim';
 const TABS: [Tab, string, string][] = [
   ['vor', 'Value Board', 'Points over replacement — the real draft currency'],
   ['movers', 'Breakouts & Regression', 'Who the projections are moving on, and why'],
   ['volatility', 'Boom / Bust', 'Weekly floor, ceiling and consistency from real games'],
+  ['efficiency', 'Efficiency', 'Rate stats — usage share, yards per opportunity, TD-rate regression'],
   ['schedule', 'Playoff Schedule', 'Weeks 15-17 strength, ranked easiest to hardest'],
   ['trade', 'Trade Analyzer', 'Value both sides on VOR, not vibes'],
   ['sim', 'Season Simulator', 'Monte Carlo your lineup from real distributions']
@@ -65,6 +66,7 @@ export default function Edge() {
   const { data: movers } = useApi<any>('/edge/movers');
   const { data: vol } = useApi<any[]>('/edge/volatility');
   const { data: sched } = useApi<any[]>('/edge/schedule-edge');
+  const { data: eff } = useApi<any[]>(`/edge/efficiency${pos !== 'ALL' ? `?position=${pos}` : ''}`);
 
   const [give, setGive] = useState<number[]>([]);
   const [get, setGet] = useState<number[]>([]);
@@ -87,7 +89,7 @@ export default function Edge() {
             {label}
           </button>
         ))}
-        {['vor', 'movers', 'volatility'].includes(tab) && (
+        {['vor', 'movers', 'volatility', 'efficiency'].includes(tab) && (
           <div className="ml-auto flex gap-1">
             {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
               <button key={p} onClick={() => setPos(p)}
@@ -199,6 +201,55 @@ export default function Edge() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ---------- efficiency ---------- */}
+      {tab === 'efficiency' && (
+        <div className="card overflow-hidden">
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-800">
+            Usage share is computed across tracked fantasy players on each team, so it reads high for
+            concentrated offenses — treat it as relative, not a true team-target percentage.
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th className="text-left px-3 py-2">Player</th>
+                  <th className="text-right px-2 py-2">Tgt</th><th className="text-right px-2 py-2">Car</th>
+                  <th className="text-right px-2 py-2">Use%</th><th className="text-right px-2 py-2">Catch%</th>
+                  <th className="text-right px-2 py-2">Y/Tgt</th><th className="text-right px-2 py-2">Y/Car</th>
+                  <th className="text-right px-2 py-2">Y/Tch</th><th className="text-right px-2 py-2">TD%</th>
+                  <th className="text-left px-3 py-2">Regression signal</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(eff ?? []).slice(0, 90).map(p => (
+                  <tr key={p.id} className="hover:bg-emerald-50/50">
+                    <td className="px-3 py-1.5">
+                      <Name id={p.id} name={p.name} pos={p.position} />
+                      <span className="text-[10px] text-slate-400 ml-1">{p.team_abbr}</span>
+                    </td>
+                    <td className="text-right px-2 py-1.5 tabular-nums text-slate-600">{p.targets || '—'}</td>
+                    <td className="text-right px-2 py-1.5 tabular-nums text-slate-600">{p.carries || '—'}</td>
+                    <td className="text-right px-2 py-1.5 tabular-nums text-slate-500">
+                      {p.target_share ?? p.rush_share ?? '—'}
+                    </td>
+                    <td className="text-right px-2 py-1.5 tabular-nums text-slate-500">{p.catch_rate ?? '—'}</td>
+                    <td className="text-right px-2 py-1.5 tabular-nums font-semibold text-slate-700">{p.yds_per_target ?? '—'}</td>
+                    <td className="text-right px-2 py-1.5 tabular-nums text-slate-600">{p.yds_per_carry ?? '—'}</td>
+                    <td className="text-right px-2 py-1.5 tabular-nums text-slate-600">{p.yds_per_touch ?? '—'}</td>
+                    <td className={`text-right px-2 py-1.5 tabular-nums font-semibold ${
+                      p.td_rate_vs_pos == null ? 'text-slate-400'
+                      : p.td_rate_vs_pos > 2 ? 'text-rose-600' : p.td_rate_vs_pos < -2 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                      {p.td_rate ?? '—'}
+                    </td>
+                    <td className="px-3 py-1.5 text-[11px] text-slate-500">{p.regression_flag ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

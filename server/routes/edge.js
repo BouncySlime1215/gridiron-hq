@@ -332,3 +332,75 @@ r.post('/simulate', (req, res) => {
 });
 
 export default r;
+
+/* ------------------------------------------ Efficiency & opportunity metrics */
+/**
+ * Rate stats, not totals. Volume tells you the role; efficiency tells you
+ * whether the role is being converted — and which way a projection should bend.
+ */
+r.get('/efficiency', (req, res) => {
+  const season = Number(req.query.season) || SEASON - 1;
+  const pos = req.query.position;
+  const list = rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr,
+                            a.raw AS actual, pr.raw AS proj_raw,
+                            a.fantasy_points AS pts, pr.fantasy_points AS proj
+                     FROM players p
+                     LEFT JOIN nfl_teams t ON t.id = p.team_id
+                     JOIN player_season_stats a  ON a.player_id = p.id  AND a.season = ? AND a.kind='actual'
+                     LEFT JOIN player_season_stats pr ON pr.player_id = p.id AND pr.season = ? AND pr.kind='projected'
+                     WHERE a.raw IS NOT NULL ${pos ? 'AND p.position = ?' : ''}`,
+    season, SEASON, ...(pos ? [pos] : []));
+
+  // team pass/rush volume so we can express usage as a share of the offense
+  const teamTot = {};
+  for (const p of list) {
+    const s = JSON.parse(p.actual);
+    const k = p.team_abbr ?? '—';
+    teamTot[k] ??= { targets: 0, carries: 0 };
+    teamTot[k].targets += s.targets ?? 0;
+    teamTot[k].carries += s.rushAtt ?? 0;
+  }
+
+  const out = list.map(p => {
+    const s = JSON.parse(p.actual);
+    const tt = teamTot[p.team_abbr ?? '—'] ?? { targets: 1, carries: 1 };
+    const targets = s.targets ?? 0, rec = s.rec ?? 0, carries = s.rushAtt ?? 0;
+    const recYds = s.recYds ?? 0, rushYds = s.rushYds ?? 0;
+    const tds = (s.recTD ?? 0) + (s.rushTD ?? 0) + (s.passTD ?? 0);
+    const touches = carries + rec;
+    return {
+      id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
+      espn_id: p.espn_id, sleeper_id: p.sleeper_id,
+      points: p.pts, projected: p.proj,
+      // opportunity
+      targets, carries, touches,
+      target_share: tt.targets ? +((targets / tt.targets) * 100).toFixed(1) : null,
+      rush_share: tt.carries ? +((carries / tt.carries) * 100).toFixed(1) : null,
+      // efficiency
+      catch_rate: targets ? +((rec / targets) * 100).toFixed(1) : null,
+      yds_per_target: targets ? +(recYds / targets).toFixed(2) : null,
+      yds_per_catch: rec ? +(recYds / rec).toFixed(2) : null,
+      yds_per_carry: carries ? +(rushYds / carries).toFixed(2) : null,
+      yds_per_touch: touches ? +((recYds + rushYds) / touches).toFixed(2) : null,
+      // scoring rate — the most regression-prone number in fantasy
+      td_rate: touches ? +((tds / touches) * 100).toFixed(1) : null,
+      tds
+    };
+  }).filter(p => p.touches >= 20 || p.position === 'QB');
+
+  // flag TD rates far from positional norm — those are the projections most likely to move
+  const byPos = {};
+  for (const p of out) if (p.td_rate != null) (byPos[p.position] ??= []).push(p.td_rate);
+  const mean = {};
+  for (const [k, v] of Object.entries(byPos)) mean[k] = v.reduce((a, b) => a + b, 0) / v.length;
+
+  res.json(out.map(p => ({
+    ...p,
+    td_rate_vs_pos: p.td_rate != null && mean[p.position]
+      ? +(p.td_rate - mean[p.position]).toFixed(1) : null,
+    regression_flag: p.td_rate != null && mean[p.position]
+      ? (p.td_rate > mean[p.position] * 1.6 ? 'TD rate unsustainably high'
+        : p.td_rate < mean[p.position] * 0.5 ? 'TD rate due to rebound' : null)
+      : null
+  })).sort((a, b) => (b.points ?? 0) - (a.points ?? 0)));
+});

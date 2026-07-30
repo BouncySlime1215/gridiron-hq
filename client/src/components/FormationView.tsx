@@ -1,4 +1,4 @@
-export interface SlotPlayer { name: string; player_id?: number | null; position?: string; jersey?: string | null }
+export interface SlotPlayer { name: string; player_id?: number | null; position?: string; jersey?: string | null; espn_id?: number | null; sleeper_id?: string | null }
 type DepthMap = Record<string, SlotPlayer | undefined>;
 
 export interface SlotGrade {
@@ -50,12 +50,19 @@ function pickSlot(depth: DepthMap, multi: Record<string, SlotPlayer[]> | undefin
 
 const GRADE_COLOR = { strength: '#10b981', weakness: '#f43f5e', ok: '#cbd5e1' } as const;
 
+const shot = (p?: SlotPlayer) =>
+  p?.espn_id ? `https://a.espncdn.com/i/headshots/nfl/players/full/${p.espn_id}.png`
+  : p?.sleeper_id ? `https://sleepercdn.com/content/nfl/players/${p.sleeper_id}.jpg`
+  : null;
+
 function Node({ x, y, type, code, player, accent, onClick, grade }: {
   x: number; y: number; type: 'O' | 'X'; code: string; player?: SlotPlayer;
   accent: string; onClick?: (id: number) => void; grade?: SlotGrade;
 }) {
   const clickable = !!(onClick && player?.player_id);
   const halo = grade && grade.grade !== 'ok' ? GRADE_COLOR[grade.grade] : null;
+  const img = shot(player);
+  const clipId = `clip-${code}-${x}-${y}`;
   return (
     <g onClick={clickable ? () => onClick!(player!.player_id!) : undefined}
       style={{ cursor: clickable ? 'pointer' : 'default' }}>
@@ -76,16 +83,40 @@ function Node({ x, y, type, code, player, accent, onClick, grade }: {
           {grade.badges[0].length > 22 ? grade.badges[0].slice(0, 20) + '…' : grade.badges[0]}
         </text>
       )}
-      {type === 'O' ? (
-        <circle cx={x} cy={y} r={14} fill={player ? accent : '#fff'} fillOpacity={player ? 0.14 : 1}
-          stroke={player ? accent : '#cbd5e1'} strokeWidth={2} />
-      ) : (
-        <g stroke={player ? accent : '#cbd5e1'} strokeWidth={3.5} strokeLinecap="round">
-          <line x1={x - 9} y1={y - 9} x2={x + 9} y2={y + 9} />
-          <line x1={x - 9} y1={y + 9} x2={x + 9} y2={y - 9} />
-        </g>
+      {img && (
+        <defs>
+          <clipPath id={clipId}><circle cx={x} cy={y} r={15} /></clipPath>
+        </defs>
       )}
-      <text x={x} y={type === 'O' ? y + 4 : y - 14} textAnchor="middle" fontSize={8.5} fontWeight={800}
+      {type === 'O' ? (
+        <>
+          <circle cx={x} cy={y} r={15} fill={img ? '#f1f5f9' : player ? accent : '#fff'}
+            fillOpacity={img ? 1 : player ? 0.14 : 1} />
+          {img && (
+            <image href={img} x={x - 15} y={y - 15} width={30} height={30}
+              clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
+          )}
+          <circle cx={x} cy={y} r={15} fill="none" stroke={player ? accent : '#cbd5e1'} strokeWidth={2} />
+        </>
+      ) : (
+        <>
+          {img ? (
+            <>
+              <circle cx={x} cy={y} r={15} fill="#f1f5f9" />
+              <image href={img} x={x - 15} y={y - 15} width={30} height={30}
+                clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
+              <circle cx={x} cy={y} r={15} fill="none" stroke={player ? accent : '#cbd5e1'} strokeWidth={2}
+                strokeDasharray="3 2" />
+            </>
+          ) : (
+            <g stroke={player ? accent : '#cbd5e1'} strokeWidth={3.5} strokeLinecap="round">
+              <line x1={x - 9} y1={y - 9} x2={x + 9} y2={y + 9} />
+              <line x1={x - 9} y1={y + 9} x2={x + 9} y2={y - 9} />
+            </g>
+          )}
+        </>
+      )}
+      <text x={x} y={y - 20} textAnchor="middle" fontSize={8} fontWeight={800}
         fill={player ? accent : '#94a3b8'}>{code}</text>
       <text x={x} y={y + 28} textAnchor="middle" fontSize={11} fontWeight={700}
         fill={player ? '#0f172a' : '#cbd5e1'}

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { api, Team, useApi } from '../api';
 import FormationView from '../components/FormationView';
+import { usePlayerCard } from '../components/PlayerCard';
 import OffseasonPanel from '../components/OffseasonPanel';
 import SidePanel from '../components/SidePanel';
 
@@ -21,7 +22,7 @@ const UNIT_LABEL: Record<string, string> = {
 
 export default function TeamDetail() {
   const { abbr } = useParams();
-  const nav = useNavigate();
+  const openCard = usePlayerCard();
   const { data: team, loading, refetch: refetchTeam } = useApi<Team>(`/teams/${abbr}`);
   const { data: teamNews, refetch: refetchNews } = useApi<any[]>(`/news?team=${abbr}`);
   const [newsBusy, setNewsBusy] = useState(false);
@@ -98,7 +99,7 @@ export default function TeamDetail() {
           depthMulti={(team as any).depth_multi}
           grades={(team as any).grades}
           accent={team.primary_color}
-          onPlayerClick={pid => nav(`/players/${pid}`)}
+          onPlayerClick={openCard}
           onUnitClick={u => setUnit(u === unit ? null : u)}
           selectedUnit={unit}
         />

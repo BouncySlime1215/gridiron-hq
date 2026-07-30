@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { syncPlayersFromESPN, syncGeneralNews, syncTeamNewsFeed } from './espn.js';
+import { deriveFormat } from '../services/format.js';
 
 const r = Router();
 
@@ -108,15 +109,80 @@ async function syncFantasyCalc() {
   return { fetched: data.length, matched };
 }
 
+/**
+ * Format-aware value sync. FantasyCalc prices per league shape, so we pull one value
+ * set per distinct format across the connected leagues rather than one global set.
+ * Draft picks only exist in the dynasty value set (isDynasty=false returns zero picks),
+ * which is why dynasty leagues need this to have any pick capital at all.
+ */
+export async function syncDynastyValues() {
+  const leagues = rows('SELECT * FROM leagues');
+  const seen = new Set();
+  const results = [];
+
+  for (const lg of leagues) {
+    const { formatKey, params, isDynasty } = deriveFormat(lg);
+    if (seen.has(formatKey)) continue;
+    seen.add(formatKey);
+
+    const resp = await fetch(`https://api.fantasycalc.com/values/current?${params}`,
+      { headers: { Accept: 'application/json' } });
+    if (!resp.ok) { results.push({ formatKey, error: `FantasyCalc ${resp.status}` }); continue; }
+    const data = await resp.json();
+
+    const bySleeper = new Map(rows('SELECT id, sleeper_id FROM players WHERE sleeper_id IS NOT NULL')
+      .map(p => [String(p.sleeper_id), p.id]));
+    const lookup = playerLookup();
+
+    const upPlayer = db.prepare(`INSERT INTO dynasty_values
+        (format_key, player_id, value, redraft_value, trend30, age, pos_rank, fetched_at)
+      VALUES (?,?,?,?,?,?,?,datetime('now'))
+      ON CONFLICT(format_key, player_id) DO UPDATE SET
+        value=excluded.value, redraft_value=excluded.redraft_value, trend30=excluded.trend30,
+        age=excluded.age, pos_rank=excluded.pos_rank, fetched_at=excluded.fetched_at`);
+    const upPick = db.prepare(`INSERT INTO pick_values
+        (format_key, pick_key, label, season, round, value, fetched_at)
+      VALUES (?,?,?,?,?,?,datetime('now'))
+      ON CONFLICT(format_key, pick_key) DO UPDATE SET
+        label=excluded.label, season=excluded.season, round=excluded.round,
+        value=excluded.value, fetched_at=excluded.fetched_at`);
+
+    let players = 0, picks = 0;
+    for (const entry of data) {
+      const p = entry.player ?? {};
+      if (p.position === 'PICK') {
+        // Generic round values ("2027 1st" -> FP_2027_1) are what pick inventory uses;
+        // draft order is unknown ahead of time so slot-specific DP_ keys are skipped.
+        const m = /^FP_(\d{4})_(\d+)$/.exec(p.sleeperId ?? '');
+        if (!m) continue;
+        upPick.run(formatKey, p.sleeperId, p.name ?? null, Number(m[1]), Number(m[2]), entry.value ?? 0);
+        picks++;
+        continue;
+      }
+      const id = (p.sleeperId && bySleeper.get(String(p.sleeperId)))
+        ?? lookup.get(`${normName(p.name ?? '')}|${p.position}`);
+      if (!id) continue;
+      upPlayer.run(formatKey, id, entry.value ?? null, entry.redraftValue ?? null,
+        entry.trend30Day ?? null, p.maybeAge ?? null, entry.positionRank ?? null);
+      players++;
+    }
+    results.push({ formatKey, isDynasty, fetched: data.length, players, picks });
+  }
+  return { formats: results };
+}
+
 r.post('/sync', async (req, res, next) => {
   try {
     const season = row('SELECT season FROM espn_settings WHERE id = 1')?.season ?? new Date().getFullYear();
-    const [ffc, sleeper, fc] = await Promise.allSettled([syncFFC(season), syncSleeper(), syncFantasyCalc()]);
+    const [ffc, sleeper, fc, dyn] = await Promise.allSettled([
+      syncFFC(season), syncSleeper(), syncFantasyCalc(), syncDynastyValues()
+    ]);
     res.json({
       ok: true,
       ffc: ffc.status === 'fulfilled' ? ffc.value : { error: ffc.reason.message },
       sleeper: sleeper.status === 'fulfilled' ? sleeper.value : { error: sleeper.reason.message },
-      fantasycalc: fc.status === 'fulfilled' ? fc.value : { error: fc.reason.message }
+      fantasycalc: fc.status === 'fulfilled' ? fc.value : { error: fc.reason.message },
+      dynasty: dyn.status === 'fulfilled' ? dyn.value : { error: dyn.reason.message }
     });
   } catch (e) { next(e); }
 });
@@ -190,10 +256,12 @@ r.post('/refresh-all', async (req, res, next) => {
     const season = row('SELECT season FROM espn_settings WHERE id = 1')?.season ?? new Date().getFullYear();
     const [ffc, sleeper] = await Promise.allSettled([syncFFC(season), syncSleeper()]);
     const fc = await syncFantasyCalc().catch(e => ({ error: e.message })); // after Sleeper so sleeper_ids exist
+    const dyn = await syncDynastyValues().catch(e => ({ error: e.message }));
     result.aggregates = {
       ffc: ffc.status === 'fulfilled' ? ffc.value : { error: ffc.reason.message },
       sleeper: sleeper.status === 'fulfilled' ? sleeper.value : { error: sleeper.reason.message },
-      fantasycalc: fc
+      fantasycalc: fc,
+      dynasty: dyn
     };
     res.json({ ok: true, ...result,
       note: 'Now run the AI analysis pass (POST /api/analysis/refresh) — it updates outlooks for teams with new news.' });

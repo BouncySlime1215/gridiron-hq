@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
+import { leagueTypeFromPayload } from '../services/format.js';
 
 const r = Router();
 
@@ -7,7 +8,8 @@ const ESPN_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 
 r.get('/', (req, res) => {
-  res.json(rows(`SELECT id, platform, league_id, season, name, my_team_id, team_count, ppr, superflex, fetched_at,
+  res.json(rows(`SELECT id, platform, league_id, season, name, my_team_id, team_count, ppr, superflex,
+                        league_type, fetched_at,
                         espn_s2 IS NOT NULL AS has_cookies
                  FROM leagues ORDER BY id`));
 });
@@ -63,9 +65,11 @@ async function syncEspnLeague(lg) {
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
   const rosterPositions = Object.entries(lineup)
     .flatMap(([slot, n]) => Array(n).fill(ESPN_SLOT_NAME[slot]).filter(Boolean));
-  run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?, fetched_at = datetime('now') WHERE id = ?`,
+  run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?,
+       league_type = ?, fetched_at = datetime('now') WHERE id = ?`,
     data.settings?.name ?? `ESPN ${lg.league_id}`, data.teams?.length ?? null,
-    JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null, lg.id);
+    JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null,
+    leagueTypeFromPayload('espn', data), lg.id);
   return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack };
 }
 
@@ -75,18 +79,25 @@ async function syncSleeperLeague(lg) {
     if (!resp.ok) throw new Error(`Sleeper API ${resp.status} on ${p}`);
     return resp.json();
   };
-  const [league, rosters, users] = await Promise.all([
-    j(`/league/${lg.league_id}`), j(`/league/${lg.league_id}/rosters`), j(`/league/${lg.league_id}/users`)
+  // traded_picks + drafts drive draft-pick capital: the ledger says who holds which
+  // future pick, and draft status says which seasons are already spent.
+  const [league, rosters, users, tradedPicks, drafts] = await Promise.all([
+    j(`/league/${lg.league_id}`), j(`/league/${lg.league_id}/rosters`), j(`/league/${lg.league_id}/users`),
+    j(`/league/${lg.league_id}/traded_picks`).catch(() => []),
+    j(`/league/${lg.league_id}/drafts`).catch(() => [])
   ]);
   const scoring = league.scoring_settings ?? {};
   const rp = league.roster_positions ?? [];
+  const payload = { league, rosters, users, traded_picks: tradedPicks, drafts };
   run(`UPDATE leagues SET name = ?, team_count = ?, ppr = ?, superflex = ?, roster_positions = ?,
-       payload = ?, fetched_at = datetime('now') WHERE id = ?`,
+       league_type = ?, payload = ?, fetched_at = datetime('now') WHERE id = ?`,
     league.name, league.total_rosters ?? rosters.length,
     scoring.rec >= 1 ? 1 : scoring.rec >= 0.5 ? 0.5 : 0,
     rp.includes('SUPER_FLEX') ? 1 : 0,
-    JSON.stringify(rp), JSON.stringify({ league, rosters, users }), lg.id);
-  return { teams: rosters.length };
+    JSON.stringify(rp),
+    leagueTypeFromPayload('sleeper', payload),
+    JSON.stringify(payload), lg.id);
+  return { teams: rosters.length, traded_picks: tradedPicks.length, drafts: drafts.length };
 }
 
 r.post('/:id/sync', async (req, res, next) => {

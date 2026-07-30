@@ -18,12 +18,18 @@ const Chip = ({ label }: { label: string }) => (
   </span>
 );
 
+/**
+ * Player chip. Shows market price rather than VOR: these are trade assets, and a bench
+ * player's VOR is negative by construction (he sits behind a startable player), which
+ * reads as though he is worthless.
+ */
 const P = ({ p }: { p: any }) => {
   const open = usePlayerCard();
   return (
     <button onClick={() => open(p.id)} className="hover:text-emerald-700 hover:underline">
       <span className={`text-[9px] font-black mr-1 pos-${p.position}`}>{p.position}</span>{p.name}
-      <span className="text-slate-400 ml-1">{p.vor}</span>
+      {p.value > 0 && <span className="text-emerald-700 font-semibold ml-1">{p.value.toLocaleString()}</span>}
+      {p.age != null && <span className="text-slate-400 ml-1">{p.age}y</span>}
     </button>
   );
 };
@@ -82,6 +88,18 @@ export default function TradeLab() {
             <span><span className="font-bold text-rose-600">Needs:</span> {partners.me.needs.map((n: any) => `${n.position} (gap ${n.gap})`).join(', ') || 'none'}</span>
             <span><span className="font-bold text-emerald-600">Surplus:</span> {partners.me.surplus.map((s: any) => s.position).join(', ') || 'none'}</span>
           </div>
+          {partners.me.picks_value > 0 && (
+            <div className="flex gap-4 mt-2 text-xs flex-wrap text-slate-600">
+              <span title={partners.me.picks.map((p: any) => p.label).join(', ')}>
+                <span className="font-bold text-slate-500">Draft capital:</span>{' '}
+                {partners.me.picks_value.toLocaleString()} across {partners.me.picks.length} picks
+              </span>
+              <span>
+                <span className="font-bold text-slate-500">Total capital:</span>{' '}
+                {partners.me.market_capital.toLocaleString()}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -101,6 +119,11 @@ export default function TradeLab() {
                 </button>
               </div>
               <p className="text-[11px] text-slate-500 mt-1">{m.window.stance}</p>
+              {m.picks_value > 0 && (
+                <p className="text-[11px] text-slate-500 mt-1" title={m.picks.map((p: any) => p.label).join(', ')}>
+                  draft capital {m.picks_value.toLocaleString()} ({m.picks.length} picks) · total {m.market_capital.toLocaleString()}
+                </p>
+              )}
 
               <div className="grid sm:grid-cols-2 gap-3 mt-3">
                 <div>
@@ -179,6 +202,11 @@ export default function TradeLab() {
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
                     capital {t.competitiveness}x · core age {t.core_age ?? '—'}
+                    {t.picks_value > 0 && (
+                      <span title={t.picks.map((p: any) => p.label).join(', ')}>
+                        {' '}· picks {t.picks_value.toLocaleString()}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

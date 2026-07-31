@@ -11,6 +11,26 @@ local SQLite file.
 
 ## Install
 
+No command line needed:
+
+1. On this page, click **Code → Download ZIP**, then unzip it.
+2. **macOS**: double-click **`Install Gridiron HQ.command`**.
+   **Windows**: double-click **`Install Gridiron HQ.cmd`**.
+3. The first time, your OS will warn that the file is from an unidentified source — that's
+   normal for anything downloaded, and only happens once. **Mac**: right-click the file and choose
+   **Open** instead of double-clicking. **Windows**: click **More info → Run anyway**.
+
+A window opens and does everything: installs Node.js if you don't have it, installs every
+package, builds the interface, seeds the database, pulls live NFL data, and puts a **Gridiron HQ**
+icon on your Desktop. Double-click that icon any time afterward to start the app — the installer
+is only for the first run.
+
+If Node had to be installed fresh, you may need to double-click the installer file a second time
+to pick it up.
+
+<details>
+<summary>Prefer the command line?</summary>
+
 **macOS / Linux**
 
 ```bash
@@ -23,17 +43,14 @@ git clone https://github.com/BouncySlime1215/gridiron-hq.git && cd gridiron-hq &
 git clone https://github.com/BouncySlime1215/gridiron-hq.git; cd gridiron-hq; powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-The installer checks your Node version, installs every package, builds the interface, seeds the
-database, pulls live NFL data, and puts a **Gridiron HQ** launcher on your Desktop. Double-click
-it any time to start the app.
+Same installer either way — cloning with git instead of downloading a ZIP just makes `git pull`
+available later for updates. Flags: `--no-shortcut` (skip the Desktop launcher), `--no-data`
+(skip the live data pull), `--quick` (one season of boxscores instead of three), `--key sk-ant-...`
+(set the API key non-interactively).
+</details>
 
 Requires **Node.js 22.5+** (the app uses Node's built-in SQLite, so there is nothing to compile
-and no native build step to go wrong). If Node is missing the installer tells you exactly how to
-get it for your platform.
-
-Flags: `--no-shortcut` (skip the Desktop launcher), `--no-data` (skip the live data pull),
-`--quick` (one season of boxscores instead of three), `--key sk-ant-...` (set the API key
-non-interactively).
+and no native build step to go wrong) — the installer gets this for you automatically where it can.
 
 ### Your Claude API key
 

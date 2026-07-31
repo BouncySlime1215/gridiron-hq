@@ -16,9 +16,19 @@ No command line needed:
 1. On this page, click **Code → Download ZIP**, then unzip it.
 2. **macOS**: double-click **`Install Gridiron HQ.command`**.
    **Windows**: double-click **`Install Gridiron HQ.cmd`**.
-3. The first time, your OS will warn that the file is from an unidentified source — that's
-   normal for anything downloaded, and only happens once. **Mac**: right-click the file and choose
-   **Open** instead of double-clicking. **Windows**: click **More info → Run anyway**.
+3. The first time, your OS will warn that the file is from an unidentified source — normal for
+   anything downloaded, and only happens once.
+   - **Windows**: click **More info → Run anyway**.
+   - **Mac**: if you get a dialog offering **Open**, click it and you're done. On newer macOS
+     (Sequoia and later) the dialog only offers **Done** / **Move to Trash** instead — click
+     **Done** (not Trash), then unblock the file with either:
+     - **No Terminal**: ** → System Settings → Privacy & Security**, scroll to the bottom, find
+       "'Install Gridiron HQ.command' was blocked," click **Open Anyway**, then double-click the
+       file again.
+     - **Terminal** (faster): open Terminal, type `xattr -d com.apple.quarantine ` (with a
+       trailing space, don't press Enter), drag the `Install Gridiron HQ.command` file from
+       Finder into the Terminal window to fill in its path, then press Enter. Double-click the
+       file normally from then on.
 
 A window opens and does everything: installs Node.js if you don't have it, installs every
 package, builds the interface, seeds the database, pulls live NFL data, and puts a **Gridiron HQ**

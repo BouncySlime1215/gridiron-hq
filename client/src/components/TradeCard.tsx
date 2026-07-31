@@ -140,6 +140,12 @@ export default function TradeCard({ deal, leagueId, compact = false }: { deal: a
             BOTH SIDES WIN
           </span>
         )}
+        {!deal.mutual && deal.plausible && (
+          <span className="text-[10px] font-black text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full"
+            title="Their lineup doesn't clearly improve, but the trade is fair on market value and doesn't cost them much — a realistic ask, not a lock">
+            FAIR ASK
+          </span>
+        )}
         <span className={`text-[11px] font-semibold ${FAIRNESS_TONE[deal.fairness] ?? 'text-slate-500'}`}>
           {deal.fairness}
         </span>

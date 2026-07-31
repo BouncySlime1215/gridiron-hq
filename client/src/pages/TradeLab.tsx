@@ -93,6 +93,14 @@ function FindDeals({ leagueId, teamId }: { leagueId: number; teamId: string | nu
           bigger packages find fits that 1-for-1s miss.
         </div>
       )}
+      {data?.fell_back && (data?.deals?.length ?? 0) > 0 && (
+        <div className="card p-3 mb-3 border-amber-200 bg-amber-50/40 text-xs text-amber-800">
+          Nothing here clearly improves both lineups — your tradeable value is concentrated in a couple of
+          starters rather than spare depth, so there&apos;s nothing cheap to sweeten a deal with. These are the
+          closest fits anyway: expect to give a bit more than feels even, or try <b>Target a player</b> to work
+          the ask up from a lowball offer instead.
+        </div>
+      )}
       <div className="space-y-3">
         {(data?.deals ?? []).map((d: any, i: number) => <TradeCard key={i} deal={d} leagueId={leagueId} />)}
       </div>

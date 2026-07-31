@@ -247,9 +247,23 @@ export function evaluate(a, b, slots) {
   // what makes that possible — it comes from positional scarcity, not from one manager
   // being wrong.
   const joint = +(A.ppg_delta + B.ppg_delta).toFixed(2);
+  const theirTotal = B.value_out + B.value_in;
+  const theirValuePct = theirTotal ? (B.value_delta / theirTotal) * 100 : 0;
+  const bothImprove = A.ppg_delta > 0.15 && B.ppg_delta > 0.15;
+  // "Would a real GM take this" is a lower bar than "does the optimal-lineup solver
+  // say their projection went up." A team whose tradeable capital is a couple of
+  // starters (no scrub depth to sweeten with — exactly the shape of a roster that is
+  // stacked at one position and thin at another) will never clear bothImprove, because
+  // it has nothing spare to throw in. Real trades routinely go through on fairness
+  // alone: a need-for-need swap that is roughly even by market value and doesn't
+  // gut the other side's lineup, even if it doesn't strictly improve it. Demanding
+  // bothImprove for every suggestion left exactly those teams with zero offers.
+  const fairEnough = B.ppg_delta > -1.25 && theirValuePct >= -8;
   return {
     me: A, them: B, joint_ppg: joint,
-    mutual: A.ppg_delta > 0.15 && B.ppg_delta > 0.15,
+    mutual: bothImprove,
+    plausible: bothImprove || fairEnough,
+    their_value_pct: +theirValuePct.toFixed(1),
     fairness: fairnessLabel(A.value_delta, A.value_out + A.value_in)
   };
 }
@@ -347,7 +361,6 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots);
         if (ev.me.ppg_delta <= 0.15) continue;
-        if (requireMutual && !ev.mutual) continue;
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
           i_give: give.map(slim), i_get: get.map(slim),
@@ -374,8 +387,25 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
     return true;
   });
 
+  let result = unique;
+  let fellBack = false;
+  if (requireMutual) {
+    const acceptable = unique.filter(d => d.plausible);
+    if (acceptable.length) result = acceptable;
+    else {
+      // Nothing cleared the bar — this happens to teams whose tradeable value is
+      // concentrated in one or two starters with no bench left to sweeten a deal
+      // (see evaluate()). Showing an empty page reads as the feature being broken;
+      // showing the closest available offers, honestly marked as a stretch, is more
+      // useful than a dead end and is still exactly the ranked list — just without
+      // pretending any of them clear the "fair" bar.
+      result = unique.slice(0, limit);
+      fellBack = unique.length > 0;
+    }
+  }
+
   return { me: { roster_id: me.roster_id, owner: me.owner }, slots, considered: deals.length,
-           deals: unique.slice(0, limit) };
+           fell_back: fellBack, deals: result.slice(0, limit) };
 }
 
 /**

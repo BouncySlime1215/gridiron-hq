@@ -1,4 +1,7 @@
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db } from './db/index.js';
 import { seedIfEmpty } from './db/seed/index.js';
 import teamsRouter from './routes/teams.js';
@@ -16,6 +19,9 @@ import devRouter from './routes/dev.js';
 import accoladesRouter from './routes/accolades.js';
 import edgeRouter from './routes/edge.js';
 import tradelabRouter from './routes/tradelab.js';
+import tradesRouter from './routes/trades.js';
+import espnConnectRouter from './routes/espn-connect.js';
+import modelRouter from './routes/model.js';
 
 const app = express();
 app.use(express.json());
@@ -37,11 +43,27 @@ app.use('/api/dev', devRouter);
 app.use('/api/accolades', accoladesRouter);
 app.use('/api/edge', edgeRouter);
 app.use('/api/tradelab', tradelabRouter);
+app.use('/api/trades', tradesRouter);
+app.use('/api/espn-connect', espnConnectRouter);
+app.use('/api/model', modelRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).json({ error: err.message });
 });
 
+/**
+ * Installed mode: serve the built client from the same process, so a user who ran
+ * the installer has one command and one port instead of a dev server pair. In dev
+ * this directory does not exist and Vite handles the frontend on 5178 as before.
+ */
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DIST = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(path.join(DIST, 'index.html'))) {
+  app.use(express.static(DIST));
+  // SPA fallback — client-side routes like /trade-lab must not 404 on refresh.
+  app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
+}
+
 const PORT = process.env.API_PORT || 5177;
-app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Gridiron HQ listening on http://localhost:${PORT}`));

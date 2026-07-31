@@ -1,36 +1,162 @@
 # Gridiron HQ — 2026 Fantasy Football Command Center
 
-A local full-stack dashboard: rankings builder, mock/live draft tracker, X's-and-O's team
-deep dives for all 32 NFL teams, ESPN league sync, and AI-analyzed training camp news.
-Everything runs on your Mac — no hosting, no accounts, data stays local in SQLite.
+A local full-stack fantasy dashboard: a trade engine that finds and prices deals across your
+league, weekly matchup analytics built from four seasons of real boxscores, a rankings and mock
+draft room, X's-and-O's breakdowns for all 32 NFL teams, and ESPN/Sleeper league sync.
 
-## Run it
+Everything runs on your own machine. No hosting, no accounts, no telemetry — data lives in a
+local SQLite file.
+
+---
+
+## Install
+
+**macOS / Linux**
+
+```bash
+git clone https://github.com/BouncySlime1215/gridiron-hq.git && cd gridiron-hq && ./install.sh
+```
+
+**Windows** (PowerShell)
+
+```powershell
+git clone https://github.com/BouncySlime1215/gridiron-hq.git; cd gridiron-hq; powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+The installer checks your Node version, installs every package, builds the interface, seeds the
+database, pulls live NFL data, and puts a **Gridiron HQ** launcher on your Desktop. Double-click
+it any time to start the app.
+
+Requires **Node.js 22.5+** (the app uses Node's built-in SQLite, so there is nothing to compile
+and no native build step to go wrong). If Node is missing the installer tells you exactly how to
+get it for your platform.
+
+Flags: `--no-shortcut` (skip the Desktop launcher), `--no-data` (skip the live data pull),
+`--quick` (one season of boxscores instead of three), `--key sk-ant-...` (set the API key
+non-interactively).
+
+### Your Claude API key
+
+**Optional.** Every number in the app — projections, trade scores, matchup ratings, opponent
+history, the scouting report — is computed locally and works with no key at all.
+
+A key adds the *written* layer: trade pitch copy, scouting prose, and buy/sell verdicts. It uses
+Claude Haiku and costs a few cents a month. The installer offers to save one, or add it later in
+the app under **Dev Hub** (top right). It is stored in a git-ignored `.env` and never leaves your
+machine.
+
+### Connecting your league
+
+On the **My Leagues** page, add an ESPN or Sleeper league.
+
+- **Sleeper** and **public ESPN** leagues need only the league ID.
+- **Private ESPN** leagues also need your `espn_s2` and `SWID` cookies — the **ESPN Settings**
+  page walks you through finding them in your browser. They are stored only in the local SQLite
+  file and are sent only to ESPN.
+
+---
+
+## What's in it
+
+### Trade Lab
+
+The core of the app. Every deal is scored on one currency: **points your optimal starting lineup
+projects for**, adjusted for how each defense actually treats that position. A roster is only as
+good as the players it can start, so a trade is a win when your lineup projects higher afterwards
+— regardless of how the raw player values add up.
+
+- **Find deals** — enumerates realistic packages against all nine rivals, scores both sides, and
+  ranks them. Flags the ones where *both* lineups improve, which is what makes a trade get
+  accepted rather than laughed at.
+- **Target a player** — name anyone in your league and get a three-rung offer ladder: what to
+  open with, where to settle, and the point past which you are overpaying. Includes how
+  replaceable he is to his current owner, which is the whole basis of your leverage. If he
+  wouldn't crack your lineup, it says so and tells you what bar a real upgrade has to clear.
+- **Mock a trade** — pick any players from two rosters and see who wins, with before/after
+  lineups, market fairness, weekly floor/ceiling shift, and playoff-week impact.
+- **Matchups** — defense-vs-position rankings computed from four seasons of weekly boxscores.
+
+### My Team → Scouting report
+
+Where you're strong, where you're thin, and what to do about it: position-by-position strength
+against the other teams in *your* league, what your lineup loses if your best player at each spot
+goes down, bye-week collisions among starters, whose Weeks 15–17 schedule turns, and a
+priority-ordered fix list.
+
+### The rest
+
+- **Players** — one board with projections, VOR, ADP, market value, weekly floor/ceiling, boom and
+  bust rates, schedule strength, and sparklines.
+- **Draft Room** — mock drafts and live-draft tracking, best-available driven by *your* board.
+- **32 Teams** — offense/defense/special-teams formation views, scheme and coach breakdowns,
+  unit-level analysis. Reflects the 2026 offseason.
+- **Camp News** — team news feeds with optional AI scheme and fantasy analysis.
+
+---
+
+## Running it
+
+```bash
+npm start
+```
+
+Opens at <http://localhost:5177>. That's the Desktop launcher's job too.
+
+For development with hot reload:
 
 ```bash
 npm run dev
 ```
 
-Then open http://localhost:5178. (API runs on 5177, frontend on 5178.)
+Frontend on 5178, API on 5177.
 
-## Features
+### Refreshing data
 
-- **Rankings** — seeded with the July 2026 consensus PPR top 100. Drag to reorder,
-  set tiers, add notes, create multiple boards, add any player by search.
-- **Draft Room** — mock drafts or live-draft tracking. Best-available is driven by
-  *your* board; snake order handled automatically; toggle an X&O view of your picks.
-- **32 Teams** — offense / defense / special teams formation views (skill players named,
-  O-line and D-front shown as units), coach & scheme breakdowns, unit-level analyses.
-  Reflects the 2026 offseason: 10 new head coaches, free agency, and the draft.
-- **My Team** — connect a private ESPN league (league ID + espn_s2/SWID cookies,
-  instructions on the Settings page). Roster, starting lineup on the field, weekly points.
-- **Camp News** — log day-by-day camp stories per team. Paste headlines and Claude
-  (Haiku) writes scheme + fantasy analysis (requires `ANTHROPIC_API_KEY` in `.env`,
-  costs fractions of a cent per batch), or write your own takes.
+The **Refresh data** button in the app header repulls rosters, news, projections and market
+values. From the command line:
+
+```bash
+npm run sync:data
+```
+
+Add `--quick` for one season of boxscores instead of three.
+
+---
+
+## How the analytics work
+
+**Defense vs position** is computed from `player_gamelog` — every weekly boxscore for the top 400
+players across the last several seasons. For each defense and position it takes the weighted mean
+fantasy points allowed, expressed as a multiplier of league average. Recent seasons count more.
+Only games where the player cleared a startable score count: including every WR5 who played six
+snaps drags every defense toward the same number and washes out the signal.
+
+**Opponent history** is the same data cut per player: his average against a given team versus his
+own weighted baseline. Relative to his own norm, so a 22-ppg receiver isn't flagged as "great
+against Dallas" for a 20-point game.
+
+**Schedule adjustment** multiplies each player's per-game projection by the mean matchup
+multiplier of his remaining slate, with the fantasy-playoff weeks (15–17) tracked separately —
+that stretch is the only one that decides a title.
+
+**Lineup solving** fills dedicated slots with the top player at each position, then flex slots
+from whoever is left. That greedy order is optimal here because flex eligibility is a superset of
+the dedicated slots it competes with.
+
+**Market value** comes from FantasyCalc, priced per league format — a superflex QB is worth
+roughly double his 1QB value, so each league shape gets its own value set. It is tracked as a
+*separate* axis from lineup points, because "did I improve" and "did I get fleeced" are different
+questions and a good deal answers both.
+
+Kickers and defenses are deliberately excluded from lineup scoring: they're near-random week to
+week and roughly interchangeable, so including them only adds noise to every comparison.
+
+---
 
 ## Notes
 
-- ESPN cookies are stored only in the local SQLite file (`server/data.sqlite`) and are
-  sent only to ESPN's API.
-- To reset all data, delete `server/data.sqlite*` and restart — the seed reloads.
-- Depth charts/coaching data are a July 2026 snapshot; edit via the DB or ask Claude
-  Code to refresh them as camp battles shake out.
+- ESPN cookies and your API key live only in local files (`server/data.sqlite`, `.env`), both
+  git-ignored.
+- To reset everything, delete `server/data.sqlite*` and restart — the seed reloads.
+- Depth charts and coaching data are a July 2026 snapshot; the live syncs update rosters and
+  ownership on top of it.

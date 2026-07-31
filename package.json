@@ -3,10 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
+    "install-app": "node scripts/install.mjs",
+    "start": "node scripts/start.mjs",
+    "build": "vite build --config client/vite.config.ts",
     "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "node --watch --env-file-if-exists=.env server/index.js",
-    "dev:client": "vite --config client/vite.config.ts"
+    "dev:client": "vite --config client/vite.config.ts",
+    "sync:data": "node scripts/bootstrap-data.mjs",
+    "sync:history": "node server/scripts/sync-history.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

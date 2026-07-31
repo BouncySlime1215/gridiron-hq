@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import FormationView from '../components/FormationView';
+import TeamScout from '../components/TeamScout';
 
 const POS: Record<number, string> = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'D/ST' };
 const SLOT: Record<number, string> = {
@@ -13,8 +14,12 @@ const STARTER_SLOTS = new Set([0, 2, 3, 4, 5, 6, 7, 16, 17, 23]);
 export default function MyTeam() {
   const { data: settings } = useApi<any>('/espn/settings');
   const { data: league, refetch } = useApi<any>('/espn/league');
+  // The scouting report runs off the multi-league table, which is the only place
+  // roster slots and league size are recorded per league.
+  const { data: leagues } = useApi<any[]>('/leagues');
   const [teamId, setTeamId] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [tab, setTab] = useState<'roster' | 'scout'>('scout');
 
   const myTeamId = teamId ?? settings?.team_id ?? league?.teams?.[0]?.id ?? null;
   const myTeam = league?.teams?.find((t: any) => t.id === myTeamId);
@@ -97,13 +102,33 @@ export default function MyTeam() {
         </button>
       </div>
 
+      <div className="flex gap-1 border-b border-slate-200 mb-4">
+        {([['scout', 'Scouting report'], ['roster', 'Roster & lineup']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {!league && (
         <div className="card p-6 text-sm text-slate-600">
           No league data yet — hit <button className="text-emerald-600 underline" onClick={sync}>Sync</button> to pull your league from ESPN.
         </div>
       )}
 
-      {myTeam && (
+      {tab === 'scout' && (
+        leagues?.length
+          ? <TeamScout leagueId={leagues[0].id} teamId={myTeamId != null ? String(myTeamId) : null} />
+          : <div className="card p-6 text-sm text-slate-500">
+              Add this league on the <Link to="/leagues" className="text-emerald-600 underline">My Leagues</Link> page
+              to unlock the scouting report — it needs the roster slots and league size recorded there.
+            </div>
+      )}
+
+      {tab === 'roster' && myTeam && (
         <div className="grid lg:grid-cols-[1fr_320px] gap-4">
           <div>
             <h2 className="text-sm font-bold text-slate-700 mb-2">Starting Lineup — X&apos;s &amp; O&apos;s</h2>

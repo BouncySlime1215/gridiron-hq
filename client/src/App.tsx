@@ -11,6 +11,7 @@ import PlayerDetail from './pages/PlayerDetail';
 import Players from './pages/Players';
 import Edge from './pages/Edge';
 import TradeLab from './pages/TradeLab';
+import Model from './pages/Model';
 import Leagues from './pages/Leagues';
 import { PlayerCardProvider } from './components/PlayerCard';
 import DevHub from './components/DevHub';
@@ -26,6 +27,7 @@ const NAV = [
   { to: '/teams', label: '32 Teams', icon: '🏈' },
   { to: '/edge', label: 'Edge Tools', icon: '🧠' },
   { to: '/trade-lab', label: 'Trade Lab', icon: '🤝' },
+  { to: '/model', label: 'Prediction Engine', icon: '📈' },
   { to: '/news', label: 'Camp News', icon: '📰' },
   { to: '/leagues', label: 'My Leagues', icon: '🔗' },
   { to: '/settings', label: 'ESPN Settings', icon: '⚙️' }
@@ -105,6 +107,7 @@ export default function App() {
           <Route path="/players" element={<Players />} />
           <Route path="/edge" element={<Edge />} />
           <Route path="/trade-lab" element={<TradeLab />} />
+          <Route path="/model" element={<Model />} />
           <Route path="/rankings" element={<Rankings />} />
           <Route path="/projections" element={<Players />} />
           <Route path="/drafts" element={<Drafts />} />

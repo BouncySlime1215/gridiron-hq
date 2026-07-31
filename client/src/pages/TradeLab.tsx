@@ -1,60 +1,25 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { api, useApi } from '../api';
+import TradeCard, { PlayerPill, num } from '../components/TradeCard';
 import { usePlayerCard } from '../components/PlayerCard';
 
-const WINDOW_TONE: Record<string, string> = {
-  Juggernaut: 'bg-violet-100 text-violet-700 border-violet-300',
-  'Win-now': 'bg-amber-100 text-amber-700 border-amber-300',
-  Contender: 'bg-emerald-100 text-emerald-700 border-emerald-300',
-  Balanced: 'bg-slate-100 text-slate-600 border-slate-300',
-  Retool: 'bg-sky-100 text-sky-700 border-sky-300',
-  Rebuild: 'bg-blue-100 text-blue-700 border-blue-300',
-  Reset: 'bg-rose-100 text-rose-700 border-rose-300'
-};
+const TABS = [
+  { id: 'find', label: 'Find deals', hint: 'Every realistic trade in your league, ranked' },
+  { id: 'target', label: 'Target a player', hint: 'Name him — get the offer that lands him' },
+  { id: 'mock', label: 'Mock a trade', hint: 'Build any deal, see who wins' },
+  { id: 'matchups', label: 'Matchups', hint: 'Defence vs position, and head-to-head history' }
+] as const;
+type Tab = typeof TABS[number]['id'];
 
-const Chip = ({ label }: { label: string }) => (
-  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${WINDOW_TONE[label] ?? WINDOW_TONE.Balanced}`}>
-    {label}
-  </span>
-);
-
-/**
- * Player chip. Shows market price rather than VOR: these are trade assets, and a bench
- * player's VOR is negative by construction (he sits behind a startable player), which
- * reads as though he is worthless.
- */
-const P = ({ p }: { p: any }) => {
-  const open = usePlayerCard();
-  return (
-    <button onClick={() => open(p.id)} className="hover:text-emerald-700 hover:underline">
-      <span className={`text-[9px] font-black mr-1 pos-${p.position}`}>{p.position}</span>{p.name}
-      {p.value > 0 && <span className="text-emerald-700 font-semibold ml-1">{p.value.toLocaleString()}</span>}
-      {p.age != null && <span className="text-slate-400 ml-1">{p.age}y</span>}
-    </button>
-  );
-};
-
+/* ------------------------------------------------------------------ shell */
 export default function TradeLab() {
   const { data: leagues } = useApi<any[]>('/leagues');
   const [lid, setLid] = useState<number | null>(null);
   const active = lid ?? leagues?.[0]?.id ?? null;
-  const { data: analysis } = useApi<any>(active ? `/tradelab/${active}/analysis` : null);
-  const { data: partners } = useApi<any>(active ? `/tradelab/${active}/partners` : null);
-  const { data: trending } = useApi<any[]>('/tradelab/trending');
-  const [pitch, setPitch] = useState<any>(null);
-  const [pitchFor, setPitchFor] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const makePitch = async (targetId: any, owner: string) => {
-    setBusy(true); setErr(null); setPitchFor(owner);
-    try {
-      setPitch(await api(`/tradelab/${active}/pitch`, {
-        method: 'POST', body: JSON.stringify({ target_id: targetId })
-      }));
-    } catch (e: any) { setErr(e.message); setPitch(null); }
-    finally { setBusy(false); }
-  };
+  const [tab, setTab] = useState<Tab>('find');
+  const { data: rosters } = useApi<any>(active ? `/trades/${active}/rosters` : null);
+  const [teamId, setTeamId] = useState<string | null>(null);
+  const me = teamId ?? rosters?.my_team_id ?? rosters?.teams?.[0]?.roster_id ?? null;
 
   return (
     <div>
@@ -65,173 +30,386 @@ export default function TradeLab() {
             {leagues.map(l => <option key={l.id} value={l.id}>{l.name ?? l.league_id}</option>)}
           </select>
         )}
-        <button className="btn-ghost ml-auto" onClick={async () => { await api('/tradelab/trending/sync', { method: 'POST' }); location.reload(); }}>
-          ↻ Sync trending
-        </button>
+        {rosters?.teams && (
+          <select className="input" value={me ?? ''} onChange={e => setTeamId(e.target.value)}>
+            {rosters.teams.map((t: any) => (
+              <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>
+            ))}
+          </select>
+        )}
       </div>
       <p className="text-sm text-slate-500 mb-4">
-        Every roster scored on contention window and positional need, then partners ranked by two-way fit.
+        Every deal is scored on the only currency that matters — points your <em>starting lineup</em> projects
+        for, adjusted for how each defence actually treats that position.
       </p>
 
-      {analysis?.empty && <div className="card p-6 text-sm text-slate-500">{analysis.message}</div>}
+      <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} title={t.hint}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+              tab === t.id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      {/* my position + ranked partners */}
-      {partners?.me && (
-        <div className="card p-4 mb-4 border-emerald-200">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">You</span>
-            <span className="font-bold text-slate-800">{partners.me.owner}</span>
-            <Chip label={partners.me.window.label} />
-          </div>
-          <p className="text-xs text-slate-600 mt-1">{partners.me.window.stance}</p>
-          <div className="flex gap-4 mt-2 text-xs flex-wrap">
-            <span><span className="font-bold text-rose-600">Needs:</span> {partners.me.needs.map((n: any) => `${n.position} (gap ${n.gap})`).join(', ') || 'none'}</span>
-            <span><span className="font-bold text-emerald-600">Surplus:</span> {partners.me.surplus.map((s: any) => s.position).join(', ') || 'none'}</span>
-          </div>
-          {partners.me.picks_value > 0 && (
-            <div className="flex gap-4 mt-2 text-xs flex-wrap text-slate-600">
-              <span title={partners.me.picks.map((p: any) => p.label).join(', ')}>
-                <span className="font-bold text-slate-500">Draft capital:</span>{' '}
-                {partners.me.picks_value.toLocaleString()} across {partners.me.picks.length} picks
-              </span>
-              <span>
-                <span className="font-bold text-slate-500">Total capital:</span>{' '}
-                {partners.me.market_capital.toLocaleString()}
-              </span>
+      {!active && <div className="card p-6 text-sm text-slate-500">Connect a league on the My Leagues page first.</div>}
+      {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} />}
+      {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} />}
+      {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} />}
+      {active && tab === 'matchups' && <Matchups />}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- find deals */
+function FindDeals({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
+  const [mutual, setMutual] = useState(true);
+  const [size, setSize] = useState(2);
+  const q = `/trades/${leagueId}/find?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}&limit=15`;
+  const { data, loading } = useApi<any>(teamId ? q : null);
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-3 flex-wrap text-xs">
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked={mutual} onChange={e => setMutual(e.target.checked)} className="accent-emerald-600" />
+          <span className="text-slate-600">Only deals they&apos;d plausibly accept</span>
+        </label>
+        <label className="flex items-center gap-1.5">
+          <span className="text-slate-500">Package size</span>
+          <select className="input py-1" value={size} onChange={e => setSize(Number(e.target.value))}>
+            <option value={1}>1-for-1</option>
+            <option value={2}>up to 2-for-2</option>
+            <option value={3}>up to 3-for-3</option>
+          </select>
+        </label>
+        {data && <span className="text-slate-400 ml-auto">{data.considered} candidate deals evaluated</span>}
+      </div>
+
+      {loading && <div className="card p-6 text-sm text-slate-500">Searching every roster in the league…</div>}
+      {data?.deals?.length === 0 && (
+        <div className="card p-6 text-sm text-slate-500">
+          Nothing clears the bar right now. Try unticking “only deals they&apos;d accept”, or widening the package size —
+          bigger packages find fits that 1-for-1s miss.
+        </div>
+      )}
+      <div className="space-y-3">
+        {(data?.deals ?? []).map((d: any, i: number) => <TradeCard key={i} deal={d} leagueId={leagueId} />)}
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------- target a player */
+function TargetPlayer({ leagueId, teamId, rosters }: { leagueId: number; teamId: string | null; rosters: any }) {
+  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState<any>(null);
+  const { data: offer, loading } = useApi<any>(
+    picked && teamId ? `/trades/${leagueId}/offer?team_id=${teamId}&player_id=${picked.id}` : null);
+  const { data: outlook } = useApi<any>(picked ? `/trades/${leagueId}/player/${picked.id}` : null);
+
+  // Everyone rostered by somebody other than me — the only players I can trade for.
+  const pool = useMemo(() => {
+    if (!rosters?.teams) return [];
+    return rosters.teams
+      .filter((t: any) => t.roster_id !== teamId)
+      .flatMap((t: any) => t.players.map((p: any) => ({ ...p, owner: t.owner })));
+  }, [rosters, teamId]);
+
+  const results = useMemo(() => {
+    if (query.trim().length < 2) return [];
+    const q = query.toLowerCase();
+    return pool.filter((p: any) => p.name.toLowerCase().includes(q))
+      .sort((a: any, b: any) => b.value - a.value).slice(0, 8);
+  }, [query, pool]);
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_340px] gap-4 items-start">
+      <div>
+        <div className="card p-4 mb-3">
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Who do you want?</label>
+          <input className="input w-full mt-1.5" placeholder="Start typing a player's name…"
+            value={query} onChange={e => { setQuery(e.target.value); setPicked(null); }} />
+          {results.length > 0 && !picked && (
+            <div className="mt-2 divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+              {results.map((p: any) => (
+                <button key={p.id} onClick={() => { setPicked(p); setQuery(p.name); }}
+                  className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                  <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
+                  <span className="font-semibold">{p.name}</span>
+                  <span className="text-xs text-slate-400">{p.team_abbr}</span>
+                  <span className="text-xs text-slate-500 ml-auto">{p.owner}</span>
+                  <span className="text-xs text-emerald-700 font-semibold tabular-nums">{p.value?.toLocaleString()}</span>
+                </button>
+              ))}
             </div>
           )}
+        </div>
+
+        {loading && <div className="card p-6 text-sm text-slate-500">Pricing him against your roster…</div>}
+        {offer?.error && (
+          <div className="card p-5 border-amber-200 bg-amber-50/40">
+            <p className="font-bold text-slate-800 mb-1.5">{offer.error}</p>
+            {offer.reason && <p className="text-sm text-slate-600 mb-2">{offer.reason}</p>}
+            {offer.bar && (
+              <p className="text-xs text-slate-500">
+                To upgrade this spot you need someone above{' '}
+                <span className="font-semibold text-slate-700">{offer.bar.adj_ppg} ppg</span> — check the
+                Find deals tab, which only surfaces players who clear that bar.
+              </p>
+            )}
+            {offer.leverage && <p className="text-xs text-slate-500 mt-2">{offer.leverage}</p>}
+          </div>
+        )}
+
+        {offer && !offer.error && (
+          <div className="space-y-3">
+            <div className="card p-4 border-emerald-200">
+              <div className="flex items-center gap-2 flex-wrap">
+                <PlayerPill p={offer.target} tone="get" />
+                <span className="text-xs text-slate-500">owned by <span className="font-semibold text-slate-700">{offer.owner}</span></span>
+              </div>
+              <p className="text-xs text-slate-600 mt-2">{offer.leverage}</p>
+            </div>
+
+            {(['open_with', 'fair', 'max'] as const).map(k => offer[k] && (
+              <div key={k}>
+                <div className="flex items-baseline gap-2 mb-1">
+                  <h3 className="text-sm font-bold text-slate-700">
+                    {k === 'open_with' ? '1. Open with this' : k === 'fair' ? '2. Settle here' : '3. Do not go past this'}
+                  </h3>
+                  <span className="text-[11px] text-slate-400">
+                    {(offer[k].ratio * 100).toFixed(0)}% of his market price
+                  </span>
+                </div>
+                {k === 'max' && <p className="text-[11px] text-amber-700 mb-1.5">{offer.max.note}</p>}
+                <TradeCard deal={{ ...offer[k], partner: offer.owner, i_get: [offer.target] }} leagueId={leagueId} compact={k === 'max'} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {outlook && !outlook.error && <PlayerOutlook o={outlook} />}
+    </div>
+  );
+}
+
+/** Schedule + opponent-history panel for the player being targeted. */
+function PlayerOutlook({ o }: { o: any }) {
+  return (
+    <div className="space-y-3">
+      <div className="card overflow-hidden">
+        <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+          <h3 className="text-sm font-bold text-slate-700">{o.name} — outlook</h3>
+        </div>
+        <dl className="p-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+          <div><dt className="text-slate-400">Projected</dt><dd className="font-semibold tabular-nums">{o.proj} pts · {o.ppg}/wk</dd></div>
+          <div><dt className="text-slate-400">Market</dt><dd className="font-semibold tabular-nums">{o.value?.toLocaleString()}</dd></div>
+          <div><dt className="text-slate-400">Floor / ceiling</dt><dd className="tabular-nums">{o.floor ?? '—'} / {o.ceiling ?? '—'}</dd></div>
+          <div><dt className="text-slate-400">Consistency</dt><dd className="tabular-nums">{o.consistency ?? '—'}</dd></div>
+          <div><dt className="text-slate-400">Season SOS</dt>
+            <dd className={`tabular-nums font-semibold ${o.sos > 1.02 ? 'text-emerald-600' : o.sos < 0.98 ? 'text-rose-600' : ''}`}>{o.sos}</dd></div>
+          <div><dt className="text-slate-400">Playoff SOS</dt>
+            <dd className={`tabular-nums font-semibold ${o.playoff_sos > 1.02 ? 'text-emerald-600' : o.playoff_sos < 0.98 ? 'text-rose-600' : ''}`}>{o.playoff_sos}</dd></div>
+          <div><dt className="text-slate-400">Bye</dt><dd className="tabular-nums">Week {o.bye ?? '—'}</dd></div>
+          <div><dt className="text-slate-400">Age</dt><dd className="tabular-nums">{o.age ?? '—'}</dd></div>
+        </dl>
+      </div>
+
+      {o.splits?.upcoming?.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <h3 className="text-sm font-bold text-slate-700">History vs 2026 opponents</h3>
+            <p className="text-[10px] text-slate-400">His average against each, vs his own {o.splits.baseline} ppg baseline</p>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {o.splits.upcoming.map((s: any) => (
+              <div key={s.opponent} className="px-3 py-1.5 flex items-center gap-2 text-xs">
+                <span className="font-bold text-slate-700 w-10">{s.opponent}</span>
+                <span className="tabular-nums text-slate-600">{s.avg} ppg</span>
+                <span className="text-[10px] text-slate-400">{s.games}g</span>
+                <span className={`ml-auto font-bold tabular-nums ${s.pct > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {s.pct > 0 ? '+' : ''}{s.pct}%
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-4">
-        <div className="space-y-3">
-          <h2 className="text-sm font-bold text-slate-700">Best trade partners</h2>
-          {(partners?.matches ?? []).map((m: any) => (
-            <div key={m.roster_id} className={`card p-4 ${m.two_way ? 'border-emerald-300' : ''}`}>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-slate-800">{m.owner}</span>
-                <Chip label={m.window.label} />
-                {m.two_way && <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">TWO-WAY FIT</span>}
-                <span className="text-[10px] text-slate-400">fit score {m.score}</span>
-                <button className="btn-primary ml-auto text-xs" disabled={busy}
-                  onClick={() => makePitch(m.roster_id, m.owner)}>
-                  {busy && pitchFor === m.owner ? 'Writing…' : '✨ Build the offer'}
-                </button>
+      {o.playoff_games?.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <h3 className="text-sm font-bold text-slate-700">Fantasy playoffs</h3>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {o.playoff_games.map((g: any) => (
+              <div key={g.week} className="px-3 py-1.5 flex items-center gap-2 text-xs">
+                <span className="text-slate-400 w-8">W{g.week}</span>
+                <span className="font-semibold">{g.home ? '' : '@'}{g.opponent}</span>
+                <span className="ml-auto text-slate-500">
+                  {g.rank ? `${g.rank}${g.rank === 1 ? 'st' : g.rank === 2 ? 'nd' : g.rank === 3 ? 'rd' : 'th'} softest` : '—'}
+                </span>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">{m.window.stance}</p>
-              {m.picks_value > 0 && (
-                <p className="text-[11px] text-slate-500 mt-1" title={m.picks.map((p: any) => p.label).join(', ')}>
-                  draft capital {m.picks_value.toLocaleString()} ({m.picks.length} picks) · total {m.market_capital.toLocaleString()}
-                </p>
-              )}
-
-              <div className="grid sm:grid-cols-2 gap-3 mt-3">
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-600 mb-1">
-                    They can send you
-                  </div>
-                  {m.they_send.length ? m.they_send.map((s: any) => (
-                    <div key={s.position} className="text-xs text-slate-600 mb-1">
-                      <span className="font-bold">{s.position}</span> ({s.ratio}x avg) —{' '}
-                      {s.players.slice(0, 3).map((p: any, i: number) => (
-                        <span key={p.id}>{i > 0 && ', '}<P p={p} /></span>
-                      ))}
-                    </div>
-                  )) : <p className="text-xs text-slate-400">nothing at your needs</p>}
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
-                    You can send them
-                  </div>
-                  {m.i_send.length ? m.i_send.map((s: any) => (
-                    <div key={s.position} className="text-xs text-slate-600 mb-1">
-                      <span className="font-bold">{s.position}</span> —{' '}
-                      {s.players.slice(0, 3).map((p: any, i: number) => (
-                        <span key={p.id}>{i > 0 && ', '}<P p={p} /></span>
-                      ))}
-                    </div>
-                  )) : <p className="text-xs text-slate-400">nothing they need</p>}
-                </div>
-              </div>
-
-              {pitchFor === m.owner && err && <p className="text-xs text-rose-600 mt-3">{err}</p>}
-              {pitchFor === m.owner && pitch && (
-                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
-                  {(['anchor', 'fair'] as const).map(k => pitch[k] && (
-                    <div key={k} className="text-xs">
-                      <span className="font-black uppercase text-emerald-700">{k === 'anchor' ? 'Open with' : 'Settle at'}</span>{' '}
-                      <span className="text-slate-700">
-                        give {pitch[k].i_give?.join(', ')} → get {pitch[k].i_get?.join(', ')}
-                      </span>
-                      <div className="text-slate-500">{pitch[k].why}</div>
-                    </div>
-                  ))}
-                  {pitch.walk_away && <div className="text-xs"><span className="font-black uppercase text-rose-600">Walk away</span> <span className="text-slate-600">{pitch.walk_away}</span></div>}
-                  {pitch.read && <div className="text-xs"><span className="font-black uppercase text-slate-500">Their likely counter</span> <span className="text-slate-600">{pitch.read}</span></div>}
-                  {pitch.pitch && (
-                    <div className="bg-white rounded-lg border border-slate-200 p-2.5">
-                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">Message to send</div>
-                      <p className="text-xs text-slate-700 italic">{pitch.pitch}</p>
-                      <button className="text-[10px] text-emerald-600 mt-1 hover:underline"
-                        onClick={() => navigator.clipboard?.writeText(pitch.pitch)}>copy</button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-          {partners && partners.matches?.length === 0 && (
-            <div className="card p-6 text-sm text-slate-500">
-              No fits right now — nobody has surplus at your needs. Check back after a few waiver moves.
-            </div>
-          )}
+            ))}
+          </div>
         </div>
+      )}
 
-        {/* league windows + trending */}
-        <div className="space-y-4">
-          <div className="card overflow-hidden">
-            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700">League windows</h3>
-            </div>
-            <div className="divide-y divide-slate-100 max-h-[40vh] overflow-y-auto">
-              {(analysis?.teams ?? []).slice().sort((a: any, b: any) => b.competitiveness - a.competitiveness).map((t: any) => (
-                <div key={t.roster_id} className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold truncate flex-1">{t.owner}</span>
-                    <Chip label={t.window.label} />
-                  </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">
-                    capital {t.competitiveness}x · core age {t.core_age ?? '—'}
-                    {t.picks_value > 0 && (
-                      <span title={t.picks.map((p: any) => p.label).join(', ')}>
-                        {' '}· picks {t.picks_value.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+      {o.news?.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <h3 className="text-sm font-bold text-slate-700">Recent news</h3>
           </div>
+          <div className="divide-y divide-slate-100">
+            {o.news.map((n: any, i: number) => (
+              <div key={i} className="px-3 py-2 text-xs">
+                <div className="text-[10px] text-slate-400">{n.date}</div>
+                <div className="text-slate-700">{n.headline}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-          <div className="card overflow-hidden">
-            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700">Trending (24h, Sleeper)</h3>
-            </div>
-            <div className="divide-y divide-slate-100 max-h-[40vh] overflow-y-auto">
-              {(trending ?? []).slice(0, 20).map(t => (
-                <div key={t.player_id} className="px-3 py-1.5 flex items-center gap-2 text-xs">
-                  <span className={t.kind === 'add' ? 'text-emerald-600' : 'text-rose-600'}>
-                    {t.kind === 'add' ? '▲' : '▼'}
-                  </span>
-                  <P p={{ id: t.player_id, name: t.name, position: t.position, vor: '' }} />
-                  <span className="ml-auto text-slate-400 tabular-nums">{(t.count / 1000).toFixed(0)}k</span>
-                </div>
-              ))}
-              {(trending ?? []).length === 0 && <p className="p-3 text-xs text-slate-500">Hit “Sync trending”.</p>}
-            </div>
-          </div>
+/* ------------------------------------------------------------ mock trades */
+function MockTrade({ leagueId, teamId, rosters }: { leagueId: number; teamId: string | null; rosters: any }) {
+  const [theirId, setTheirId] = useState<string | null>(null);
+  const [give, setGive] = useState<number[]>([]);
+  const [get, setGet] = useState<number[]>([]);
+  const [result, setResult] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const mine = rosters?.teams?.find((t: any) => t.roster_id === teamId);
+  const others = rosters?.teams?.filter((t: any) => t.roster_id !== teamId) ?? [];
+  const them = others.find((t: any) => t.roster_id === theirId) ?? others[0];
+
+  const toggle = (list: number[], set: (v: number[]) => void, id: number) =>
+    set(list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
+
+  const run = async () => {
+    setBusy(true); setErr(null);
+    try {
+      setResult(await api(`/trades/${leagueId}/evaluate`, {
+        method: 'POST',
+        body: JSON.stringify({ my_team_id: teamId, their_team_id: them?.roster_id, give, get })
+      }));
+    } catch (e: any) { setErr(e.message); setResult(null); }
+    finally { setBusy(false); }
+  };
+
+  const Column = ({ team, sel, onToggle, tone }: any) => (
+    <div className="card overflow-hidden">
+      <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+        <h3 className="text-sm font-bold text-slate-700 truncate">{team?.owner ?? '—'}</h3>
+        <span className="text-[10px] text-slate-400 ml-auto tabular-nums">{team?.lineup_ppg} ppg</span>
+      </div>
+      <div className="divide-y divide-slate-100 max-h-[52vh] overflow-y-auto">
+        {(team?.players ?? []).map((p: any) => (
+          <button key={p.id} onClick={() => onToggle(p.id)}
+            className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-slate-50 transition-colors ${
+              sel.includes(p.id) ? (tone === 'give' ? 'bg-rose-50' : 'bg-emerald-50') : ''}`}>
+            <input type="checkbox" readOnly checked={sel.includes(p.id)}
+              className={tone === 'give' ? 'accent-rose-500' : 'accent-emerald-600'} />
+            <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
+            <span className={`truncate ${p.starter ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>{p.name}</span>
+            {p.starter && <span className="text-[9px] text-emerald-600 font-bold">ST</span>}
+            <span className="ml-auto text-slate-400 tabular-nums shrink-0">{p.value?.toLocaleString()}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap text-xs">
+        <span className="text-slate-500">Trading with</span>
+        <select className="input py-1" value={them?.roster_id ?? ''} onChange={e => { setTheirId(e.target.value); setGet([]); setResult(null); }}>
+          {others.map((t: any) => <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>)}
+        </select>
+        <button className="btn-primary text-xs ml-auto" disabled={busy || (!give.length && !get.length)} onClick={run}>
+          {busy ? 'Scoring…' : 'Who wins this?'}
+        </button>
+        {(give.length > 0 || get.length > 0) && (
+          <button className="btn-ghost text-xs" onClick={() => { setGive([]); setGet([]); setResult(null); }}>Clear</button>
+        )}
+      </div>
+      {err && <p className="text-xs text-rose-600 mb-2">{err}</p>}
+
+      <div className="grid md:grid-cols-2 gap-3 mb-4">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-wide text-rose-500 mb-1">You send ({give.length})</div>
+          <Column team={mine} sel={give} onToggle={(id: number) => { toggle(give, setGive, id); setResult(null); }} tone="give" />
+        </div>
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-wide text-emerald-600 mb-1">You receive ({get.length})</div>
+          <Column team={them} sel={get} onToggle={(id: number) => { toggle(get, setGet, id); setResult(null); }} tone="get" />
         </div>
       </div>
+
+      {result && <TradeCard deal={{ ...result, partner: them?.owner, i_give: result.me.gives, i_get: result.me.gets }} leagueId={leagueId} />}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- matchups */
+function Matchups() {
+  const [pos, setPos] = useState('WR');
+  const { data } = useApi<any>(`/trades/dvp?position=${pos}`);
+  const open = usePlayerCard();
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 text-xs flex-wrap">
+        <span className="text-slate-500">Points allowed to</span>
+        {['QB', 'RB', 'WR', 'TE'].map(p => (
+          <button key={p} onClick={() => setPos(p)}
+            className={`px-2.5 py-1 rounded-lg font-bold border transition-colors ${
+              pos === p ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
+            {p}
+          </button>
+        ))}
+        {data && <span className="text-slate-400 ml-auto">from {data.seasons?.join(', ')} boxscores</span>}
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        {[['Softest defences — target these', 0, 8, 'emerald'], ['Toughest defences — fade these', -8, undefined, 'rose']].map(
+          ([title, from, to, tone]: any) => {
+            const list = to != null ? (data?.table ?? []).slice(from, to) : (data?.table ?? []).slice(from).reverse();
+            return (
+              <div key={title} className="card overflow-hidden">
+                <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+                  <h3 className="text-sm font-bold text-slate-700">{title}</h3>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {list.map((d: any) => (
+                    <div key={d.opponent} className="px-3 py-1.5 flex items-center gap-2 text-xs">
+                      <span className="font-bold text-slate-700 w-10">{d.opponent}</span>
+                      <span className="tabular-nums text-slate-600">{d.allowed} ppg allowed</span>
+                      <span className="text-[10px] text-slate-400">{d.games}g</span>
+                      <span className={`ml-auto font-bold tabular-nums text-${tone}-600`}>
+                        {d.mult > 1 ? '+' : ''}{((d.mult - 1) * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+      </div>
+
+      <p className="text-[11px] text-slate-400 mt-3">
+        Weighted so recent seasons count more, and computed only over players who actually cleared a startable score —
+        including every WR5 who played six snaps flattens every defence toward the same number.
+      </p>
     </div>
   );
 }

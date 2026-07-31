@@ -105,7 +105,15 @@ r.post('/:id/sync', async (req, res, next) => {
     const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
     if (!lg) return res.status(404).json({ error: 'league not found' });
     const result = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
-    res.json({ ok: true, ...result });
+
+    // Market values are priced per league format, so they can only be fetched once a
+    // league exists to derive that format from. Without this a freshly connected
+    // league shows every player at value 0 until the user happens to hit "Refresh
+    // data" — which is not a step anyone would guess at.
+    const { syncDynastyValues } = await import('./aggregates.js');
+    const values = await syncDynastyValues().catch(e => ({ error: e.message }));
+
+    res.json({ ok: true, ...result, values });
   } catch (e) { next(e); }
 });
 

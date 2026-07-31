@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import EspnConnect from '../components/EspnConnect';
 import { api, useApi } from '../api';
 
 export default function Settings() {
@@ -36,6 +37,7 @@ export default function Settings() {
 
   return (
     <div className="max-w-2xl">
+      <EspnConnect />
       <h1 className="text-2xl font-bold mb-1">ESPN League Settings</h1>
       <p className="text-sm text-slate-600 mb-6">Connects directly from your Mac to ESPN — credentials never leave this machine.</p>
 

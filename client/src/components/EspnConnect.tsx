@@ -1,13 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, useApi } from '../api';
 
 /**
  * One-click ESPN connection.
  *
  * The manual route is nine steps in DevTools and most people give up partway. This
- * hands them a bookmarklet that reads the cookies on ESPN's own page and posts them
- * back to localhost, then lists the leagues on the account so nobody has to dig a
- * league id out of a URL.
+ * hands them one button that reads the cookies on ESPN's own page and posts them back
+ * to localhost, then lists every league on the account so nobody has to dig a league
+ * id out of a URL.
+ *
+ * Two things this version fixes over the first pass, both found by watching a real
+ * (non-technical) user get stuck on it:
+ *   - "Connected" now means connected, whichever way the cookies got here — the old
+ *     check only recognised its own bookmarklet and kept telling an already-connected
+ *     user to reconnect (server/routes/espn-connect.js: getCookies()).
+ *   - When already connected, leagues are looked up automatically. There is nothing
+ *     to click for the common case; the button only matters the first time.
  */
 export default function EspnConnect() {
   const { data: status, refetch } = useApi<any>('/espn-connect/status');
@@ -15,17 +23,43 @@ export default function EspnConnect() {
   const [discovered, setDiscovered] = useState<any[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [showManual, setShowManual] = useState(false);
+  const [banner, setBanner] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const autoRan = useRef(false);
 
-  const discover = async () => {
-    setBusy(true); setMsg(null);
+  const discover = async (silent = false) => {
+    if (!silent) setBusy(true);
+    setMsg(null);
     try {
       const d = await api<any>('/espn-connect/discover');
       setDiscovered(d.leagues);
-      if (!d.leagues.length) setMsg('Signed in, but no football leagues found for this season.');
-    } catch (e: any) { setMsg(e.message); }
+      if (!silent && !d.leagues.length) setMsg('Connected, but no fantasy football leagues found on this account for this season.');
+    } catch (e: any) { if (!silent) setMsg(e.message); }
     finally { setBusy(false); }
   };
+
+  // Just arrived back from the "connect" button — show a plain-English confirmation
+  // instead of the browser's own alert() popup, then clean the URL and look up leagues.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('espn_connected') === '1') {
+      const found = Number(params.get('found') ?? 0);
+      setBanner(found > 0
+        ? `Connected! Found ${found} league${found === 1 ? '' : 's'} on your ESPN account below.`
+        : 'Connected to ESPN. No leagues showed up yet — try "Find my leagues" below.');
+      window.history.replaceState({}, '', location.pathname);
+      refetch();
+    }
+  }, []);
+
+  // Already connected (from any source) and haven't looked up leagues yet this visit —
+  // just do it, so the common case ("I already did this") needs zero clicks.
+  useEffect(() => {
+    if (status?.connected && !autoRan.current) {
+      autoRan.current = true;
+      discover(true);
+    }
+  }, [status?.connected]);
 
   const add = async (l: any) => {
     setBusy(true); setMsg(null);
@@ -37,8 +71,14 @@ export default function EspnConnect() {
       await api(`/leagues/${r.id}/sync`, { method: 'POST' });
       setMsg(`Added and synced ${l.name}.`);
       refetch();
-    } catch (e: any) { setMsg(`Added, but sync failed: ${e.message}`); }
+    } catch (e: any) { setMsg(`Added, but the first sync failed: ${e.message}. Try "Sync" on the My Leagues page.`); }
     finally { setBusy(false); }
+  };
+
+  const disconnect = async () => {
+    await api('/espn-connect/cookies', { method: 'DELETE' });
+    setDiscovered(null); autoRan.current = false;
+    refetch();
   };
 
   return (
@@ -52,19 +92,33 @@ export default function EspnConnect() {
         )}
       </div>
 
+      {banner && (
+        <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-3 py-2">
+          {banner}
+        </div>
+      )}
+
       {!status?.connected && (
         <>
           <p className="text-xs text-slate-600 mb-3">
-            Private ESPN leagues need two browser cookies. Rather than hunting for them in
-            DevTools, drag this button to your bookmarks bar, open{' '}
-            <a href="https://www.espn.com/fantasy/football/" target="_blank" rel="noreferrer"
-              className="text-emerald-600 underline">espn.com</a>{' '}
-            signed in, and click it.
+            Private ESPN leagues need you to be signed in to ESPN so this app can see your leagues.
+            Three steps, no copying anything:
           </p>
+          <ol className="text-xs text-slate-600 space-y-2 mb-3 list-decimal list-inside">
+            <li>Drag the green button below up to your browser's bookmarks bar.</li>
+            <li>
+              Open{' '}
+              <a href="https://www.espn.com/fantasy/football/" target="_blank" rel="noreferrer"
+                className="text-emerald-600 underline">espn.com</a>{' '}
+              and make sure you're signed in.
+            </li>
+            <li>Click that bookmark. It'll bring you right back here, connected.</li>
+          </ol>
+
           <div className="flex items-center gap-3 flex-wrap">
             {bm?.href && (
               // A real anchor so it can be dragged to the bookmarks bar; clicking it here
-              // would run the script against this page, where the cookies do not exist.
+              // would run the script against this page, where the ESPN cookies do not exist.
               <a href={bm.href} onClick={e => e.preventDefault()}
                 draggable
                 title="Drag me to your bookmarks bar"
@@ -72,17 +126,24 @@ export default function EspnConnect() {
                 🔗 Connect Gridiron HQ
               </a>
             )}
-            <span className="text-[11px] text-slate-400">← drag this to your bookmarks bar</span>
+            <span className="text-[11px] text-slate-400">← drag this up to your bookmarks bar</span>
           </div>
 
-          <button onClick={() => setShowManual(s => !s)}
+          <p className="text-[11px] text-slate-400 mt-2">
+            Don't see a bookmarks bar? Press <kbd className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-600">⌘⇧B</kbd>{' '}
+            (Mac) or <kbd className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-600">Ctrl⇧B</kbd>{' '}
+            (Windows) to show it, then try again. On a trackpad, click and hold the button until it lifts, then drag.
+          </p>
+
+          <button onClick={() => setShowHelp(s => !s)}
             className="text-[11px] text-slate-500 hover:text-slate-700 underline mt-3">
-            {showManual ? 'Hide' : 'Can’t use bookmarks? Paste a snippet instead'}
+            {showHelp ? 'Hide other option' : "Can't drag to bookmarks? Try this instead"}
           </button>
-          {showManual && bm?.console_snippet && (
+          {showHelp && bm?.console_snippet && (
             <div className="mt-2">
               <p className="text-[11px] text-slate-500 mb-1">
-                On espn.com, open the browser console (⌥⌘J on Mac, Ctrl+Shift+J on Windows) and paste this:
+                While on espn.com, signed in: right-click the page and choose <b>Inspect</b>, click the{' '}
+                <b>Console</b> tab at the top of the panel that opens, paste this in, and press Enter:
               </p>
               <div className="relative">
                 <pre className="text-[10px] bg-slate-50 border border-slate-200 rounded-lg p-2 overflow-x-auto max-h-32 text-slate-600">
@@ -94,24 +155,25 @@ export default function EspnConnect() {
             </div>
           )}
           <p className="text-[10px] text-slate-400 mt-3">
-            The cookies go from your browser straight to this app on localhost. They are stored in
-            the local database and sent only to ESPN.
+            Nothing is sent anywhere but ESPN and this app running on your own Mac.
           </p>
         </>
       )}
 
       {status?.connected && (
         <>
-          <div className="text-[11px] text-slate-500 space-y-0.5 mb-3">
-            <div>espn_s2 <span className="font-mono text-slate-600">{status.espn_s2_preview}</span></div>
-            <div>SWID <span className="font-mono text-slate-600">{status.swid_preview}</span></div>
-          </div>
+          <p className="text-xs text-slate-600 mb-3">
+            {discovered === null
+              ? 'Looking up the leagues on your ESPN account…'
+              : discovered.length
+                ? 'Add any league below, or re-sync one you already added.'
+                : 'Connected, but no leagues showed up for this account this season.'}
+          </p>
           <div className="flex gap-2 flex-wrap">
-            <button className="btn-primary text-xs" onClick={discover} disabled={busy}>
-              {busy ? 'Working…' : 'Find my leagues'}
+            <button className="btn-primary text-xs" onClick={() => discover(false)} disabled={busy}>
+              {busy ? 'Working…' : '↻ Find my leagues again'}
             </button>
-            <button className="btn-ghost text-xs"
-              onClick={async () => { await api('/espn-connect/cookies', { method: 'DELETE' }); refetch(); setDiscovered(null); }}>
+            <button className="btn-ghost text-xs" onClick={disconnect}>
               Disconnect
             </button>
           </div>
@@ -129,7 +191,7 @@ export default function EspnConnect() {
                 <div className="min-w-0">
                   <div className="font-semibold text-slate-800 truncate">{l.name}</div>
                   <div className="text-[10px] text-slate-400">
-                    id {l.league_id}{l.team_name ? ` · your team: ${l.team_name}` : ''}
+                    {l.team_name ? `your team: ${l.team_name}` : `id ${l.league_id}`}
                   </div>
                 </div>
                 <button className={`ml-auto text-xs ${already ? 'btn-ghost' : 'btn-primary'}`}
@@ -139,17 +201,6 @@ export default function EspnConnect() {
               </div>
             );
           })}
-        </div>
-      )}
-
-      {status?.leagues?.length > 0 && (
-        <div className="mt-3">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">Connected leagues</div>
-          {status.leagues.map((l: any) => (
-            <div key={l.id} className="text-xs text-slate-600">
-              {l.name ?? l.league_id} <span className="text-slate-400">· {l.season} · {l.team_count ?? '?'} teams</span>
-            </div>
-          ))}
         </div>
       )}
     </div>

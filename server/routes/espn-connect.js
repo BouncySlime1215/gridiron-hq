@@ -14,6 +14,36 @@ import { rows, row, run } from '../db/index.js';
 const r = Router();
 const PORT = process.env.API_PORT || 5177;
 
+/**
+ * Cookies, wherever they actually live.
+ *
+ * There are two ways cookies get into this app: through this bookmarklet (written to
+ * `app_settings`), or through the original manual paste-the-cookie form on the Settings
+ * page (written directly onto a `leagues` row). A user who connected the old way and
+ * never touches the bookmarklet would otherwise see "not connected" forever here, even
+ * though everything already works — which is exactly the confusing state this file was
+ * found in. Checking both makes "connected" mean what it says.
+ */
+function getCookies() {
+  const get = k => row(`SELECT value FROM app_settings WHERE key = ?`, k)?.value ?? null;
+  let s2 = get('espn_s2'), swid = get('swid');
+  if (s2 && swid) return { s2, swid, source: 'bookmarklet' };
+
+  const lg = row(`SELECT espn_s2, swid FROM leagues
+                  WHERE platform = 'espn' AND espn_s2 IS NOT NULL AND swid IS NOT NULL
+                  ORDER BY fetched_at DESC LIMIT 1`);
+  if (lg?.espn_s2 && lg?.swid) {
+    // Backfill so every code path agrees from here on, and the manual-form user gets
+    // the same "connected" fast path (Find my leagues, etc.) with no extra steps.
+    run(`INSERT INTO app_settings (key, value) VALUES ('espn_s2', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`, lg.espn_s2);
+    run(`INSERT INTO app_settings (key, value) VALUES ('swid', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`, lg.swid);
+    return { s2: lg.espn_s2, swid: lg.swid, source: 'manual form' };
+  }
+  return { s2: null, swid: null, source: null };
+}
+
 /* --------------------------------------------------------- the bookmarklet */
 
 /**
@@ -49,12 +79,14 @@ const BOOKMARKLET = origin => `
   })
   .then(function(r){ return r.json(); })
   .then(function(d){
-    alert(d.ok
-      ? 'Connected to Gridiron HQ.' + (d.leagues_found ? '\\n\\nFound ' + d.leagues_found + ' league(s) on your account.' : '') + '\\n\\nGo back to the app and open My Leagues.'
-      : 'Gridiron HQ said: ' + (d.error || 'unknown error'));
+    // Send the tab back to our own app rather than popping a raw JS alert — a page the
+    // user already recognises, showing a real confirmation, beats a dialog box that
+    // looks like a browser warning.
+    if (d.ok) location.href = '${origin}/settings?espn_connected=1&found=' + (d.leagues_found || 0);
+    else alert('Gridiron HQ said: ' + (d.error || 'unknown error'));
   })
   .catch(function(){
-    alert('Could not reach Gridiron HQ at ${origin}.\\n\\nMake sure the app is running, then try again.');
+    alert('Could not reach Gridiron HQ at ${origin}.\\n\\nMake sure the app is running (npm start, or double-click the Desktop icon), then try again.');
   });
 })();`;
 
@@ -98,10 +130,10 @@ r.post('/cookies', async (req, res, next) => {
 
 /** Cookies currently held, masked — enough to confirm they are set, not to leak them. */
 r.get('/status', (req, res) => {
-  const get = k => row(`SELECT value FROM app_settings WHERE key = ?`, k)?.value ?? null;
-  const s2 = get('espn_s2'), swid = get('swid');
+  const { s2, swid, source } = getCookies();
   res.json({
     connected: !!(s2 && swid),
+    source,
     espn_s2_preview: s2 ? `${s2.slice(0, 6)}…${s2.slice(-4)} (${s2.length} chars)` : null,
     swid_preview: swid ? `${swid.slice(0, 10)}…` : null,
     leagues: rows(`SELECT id, league_id, season, name, team_count FROM leagues WHERE platform='espn'`)
@@ -150,12 +182,11 @@ async function discoverLeagues(espn_s2, swid) {
   return [...new Map(out.map(l => [l.league_id, l])).values()];
 }
 
-/** Re-run discovery on demand, using stored cookies. */
+/** Re-run discovery on demand, using stored cookies from whichever source has them. */
 r.get('/discover', async (req, res, next) => {
   try {
-    const get = k => row(`SELECT value FROM app_settings WHERE key = ?`, k)?.value ?? null;
-    const s2 = get('espn_s2'), swid = get('swid');
-    if (!s2 || !swid) return res.status(400).json({ error: 'no ESPN cookies stored yet — run the connector first' });
+    const { s2, swid } = getCookies();
+    if (!s2 || !swid) return res.status(400).json({ error: 'no ESPN cookies stored yet — connect below first' });
     res.json({ leagues: await discoverLeagues(s2, swid) });
   } catch (e) { next(e); }
 });
@@ -165,8 +196,7 @@ r.post('/add', async (req, res, next) => {
   try {
     const { league_id, season, my_team_id, name } = req.body ?? {};
     if (!league_id) return res.status(400).json({ error: 'league_id required' });
-    const get = k => row(`SELECT value FROM app_settings WHERE key = ?`, k)?.value ?? null;
-    const s2 = get('espn_s2'), swid = get('swid');
+    const { s2, swid } = getCookies();
     const yr = Number(season) || Number(process.env.NFL_SEASON) || new Date().getFullYear();
 
     run(`INSERT INTO leagues (platform, league_id, season, name, my_team_id, espn_s2, swid)

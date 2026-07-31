@@ -17,6 +17,14 @@ import { deriveFormat } from '../services/format.js';
 
 const r = Router();
 
+/** `?exclude=id1,id2` -> a Set of numeric player ids, or null when empty. */
+function excludeSet(req) {
+  const raw = String(req.query.exclude ?? '').trim();
+  if (!raw) return null;
+  const ids = raw.split(',').map(Number).filter(Number.isFinite);
+  return ids.length ? new Set(ids) : null;
+}
+
 /** Shared preamble: every route needs a synced league. */
 function league(req, res) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.leagueId);
@@ -44,7 +52,8 @@ r.get('/:leagueId/find', (req, res, next) => {
       // still worth seeing, they just need a better sales pitch.
       requireMutual: req.query.mutual !== '0',
       limit: Math.min(50, Number(req.query.limit) || 20),
-      targetId: req.query.target_id || null
+      targetId: req.query.target_id || null,
+      excludeIds: excludeSet(req)
     }));
   } catch (e) { next(e); }
 });
@@ -54,7 +63,9 @@ r.get('/:leagueId/offer', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!req.query.player_id) return res.status(400).json({ error: 'player_id required' });
-    res.json(offerFor(lg, { myTeamId: req.query.team_id, targetId: req.query.player_id }));
+    res.json(offerFor(lg, {
+      myTeamId: req.query.team_id, targetId: req.query.player_id, excludeIds: excludeSet(req)
+    }));
   } catch (e) { next(e); }
 });
 

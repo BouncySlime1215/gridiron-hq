@@ -12,6 +12,14 @@ const TABS = [
 ] as const;
 type Tab = typeof TABS[number]['id'];
 
+/** Reads/writes the untouchable-player list for one league from localStorage. */
+const untouchableKey = (leagueId: number) => `gh:untouchable:${leagueId}`;
+const loadUntouchable = (leagueId: number | null): number[] => {
+  if (!leagueId) return [];
+  try { return JSON.parse(localStorage.getItem(untouchableKey(leagueId)) ?? '[]'); }
+  catch { return []; }
+};
+
 /* ------------------------------------------------------------------ shell */
 export default function TradeLab() {
   // Which league is active now lives in the header, shared with My Team and the
@@ -23,6 +31,19 @@ export default function TradeLab() {
   // A "which team is me" pick only means something within the league it was made in.
   useEffect(() => { setTeamId(null); }, [active]);
   const me = teamId ?? rosters?.my_team_id ?? rosters?.teams?.[0]?.roster_id ?? null;
+
+  // Players marked untouchable are never offered by Find Deals or Target a Player —
+  // saved per league, since "don't trade him" only means something within one roster.
+  const [untouchable, setUntouchable] = useState<number[]>(() => loadUntouchable(active));
+  useEffect(() => { setUntouchable(loadUntouchable(active)); }, [active]);
+  const toggleUntouchable = (id: number) => {
+    setUntouchable(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      if (active) localStorage.setItem(untouchableKey(active), JSON.stringify(next));
+      return next;
+    });
+  };
+  const myPlayers = rosters?.teams?.find((t: any) => t.roster_id === me)?.players ?? [];
 
   return (
     <div>
@@ -41,6 +62,10 @@ export default function TradeLab() {
         for, adjusted for how each defence actually treats that position.
       </p>
 
+      {myPlayers.length > 0 && (
+        <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />
+      )}
+
       <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} title={t.hint}
@@ -53,19 +78,61 @@ export default function TradeLab() {
       </div>
 
       {!active && <div className="card p-6 text-sm text-slate-500">Connect a league on the My Leagues page first.</div>}
-      {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} />}
-      {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} />}
-      {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} />}
+      {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} untouchable={untouchable} />}
+      {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} />}
+      {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} />}
       {active && tab === 'matchups' && <Matchups />}
     </div>
   );
 }
 
+/** Collapsible roster picker for marking players your auto-suggestions must leave alone. */
+function Untouchables({ players, ids, onToggle }: { players: any[]; ids: number[]; onToggle: (id: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const set = new Set(ids);
+  const locked = players.filter((p: any) => set.has(p.id));
+
+  return (
+    <div className="card p-3 mb-4">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
+        <span className="text-sm">🔒</span>
+        <span className="text-xs font-bold text-slate-700">Untouchables</span>
+        <span className="text-[11px] text-slate-400">
+          {locked.length ? `${locked.length} locked — never offered in Find Deals or Target a Player` : 'Mark players Find Deals and Target a Player should never offer'}
+        </span>
+        <span className="ml-auto text-slate-400 text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+      {!open && locked.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {locked.map((p: any) => (
+            <span key={p.id} className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+              🔒 {p.name}
+            </span>
+          ))}
+        </div>
+      )}
+      {open && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {players.map((p: any) => (
+            <button key={p.id} onClick={() => onToggle(p.id)}
+              className={`text-[11px] px-2 py-1 rounded-lg border transition-colors ${
+                set.has(p.id) ? 'bg-amber-100 border-amber-300 text-amber-800' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
+              }`}>
+              {set.has(p.id) ? '🔒 ' : ''}{p.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- find deals */
-function FindDeals({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
+function FindDeals({ leagueId, teamId, untouchable }: { leagueId: number; teamId: string | null; untouchable: number[] }) {
   const [mutual, setMutual] = useState(true);
   const [size, setSize] = useState(2);
-  const q = `/trades/${leagueId}/find?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}&limit=15`;
+  const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
+  const q = `/trades/${leagueId}/find?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}&limit=15${exclude}`;
   const { data, loading } = useApi<any>(teamId ? q : null);
 
   return (
@@ -109,11 +176,12 @@ function FindDeals({ leagueId, teamId }: { leagueId: number; teamId: string | nu
 }
 
 /* --------------------------------------------------------- target a player */
-function TargetPlayer({ leagueId, teamId, rosters }: { leagueId: number; teamId: string | null; rosters: any }) {
+function TargetPlayer({ leagueId, teamId, rosters, untouchable }: { leagueId: number; teamId: string | null; rosters: any; untouchable: number[] }) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<any>(null);
+  const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
   const { data: offer, loading } = useApi<any>(
-    picked && teamId ? `/trades/${leagueId}/offer?team_id=${teamId}&player_id=${picked.id}` : null);
+    picked && teamId ? `/trades/${leagueId}/offer?team_id=${teamId}&player_id=${picked.id}${exclude}` : null);
   const { data: outlook } = useApi<any>(picked ? `/trades/${leagueId}/player/${picked.id}` : null);
 
   // Everyone rostered by somebody other than me — the only players I can trade for.
@@ -180,20 +248,28 @@ function TargetPlayer({ leagueId, teamId, rosters }: { leagueId: number; teamId:
               <p className="text-xs text-slate-600 mt-2">{offer.leverage}</p>
             </div>
 
-            {(['open_with', 'fair', 'max'] as const).map(k => offer[k] && (
-              <div key={k}>
-                <div className="flex items-baseline gap-2 mb-1">
-                  <h3 className="text-sm font-bold text-slate-700">
-                    {k === 'open_with' ? '1. Open with this' : k === 'fair' ? '2. Settle here' : '3. Do not go past this'}
-                  </h3>
-                  <span className="text-[11px] text-slate-400">
-                    {(offer[k].ratio * 100).toFixed(0)}% of his market price
-                  </span>
+            {offer.offers?.length > 0 && (
+              <div>
+                <h3 className="text-sm font-bold text-slate-700 mb-0.5">Go get him — {offer.offers.length} ways to land him</h3>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Cheapest first. Open with #1; if he says no, move down the list.
+                  {untouchable.length > 0 && ` Your ${untouchable.length} untouchable player${untouchable.length > 1 ? 's' : ''} never appear here.`}
+                </p>
+                <div className="space-y-2">
+                  {offer.offers.map((o: any) => (
+                    <div key={o.rank}>
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <span className="text-[10px] font-black text-white bg-slate-700 rounded-full w-4 h-4 inline-flex items-center justify-center">{o.rank}</span>
+                        <h4 className="text-xs font-bold text-slate-700">{o.label}</h4>
+                        <span className="text-[11px] text-slate-400">{(o.ratio * 100).toFixed(0)}% of his market price</span>
+                      </div>
+                      <TradeCard deal={{ ...o, partner: offer.owner, i_get: [offer.target] }} leagueId={leagueId} compact />
+                    </div>
+                  ))}
                 </div>
-                {k === 'max' && <p className="text-[11px] text-amber-700 mb-1.5">{offer.max.note}</p>}
-                <TradeCard deal={{ ...offer[k], partner: offer.owner, i_get: [offer.target] }} leagueId={leagueId} compact={k === 'max'} />
+                {offer.max?.note && <p className="text-[11px] text-amber-700 mt-2">{offer.max.note}</p>}
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
@@ -285,7 +361,7 @@ function PlayerOutlook({ o }: { o: any }) {
 }
 
 /* ------------------------------------------------------------ mock trades */
-function MockTrade({ leagueId, teamId, rosters }: { leagueId: number; teamId: string | null; rosters: any }) {
+function MockTrade({ leagueId, teamId, rosters, untouchable }: { leagueId: number; teamId: string | null; rosters: any; untouchable: number[] }) {
   const [theirId, setTheirId] = useState<string | null>(null);
   const [give, setGive] = useState<number[]>([]);
   const [get, setGet] = useState<number[]>([]);
@@ -311,6 +387,7 @@ function MockTrade({ leagueId, teamId, rosters }: { leagueId: number; teamId: st
     finally { setBusy(false); }
   };
 
+  const untouchableSet = new Set(untouchable);
   const Column = ({ team, sel, onToggle, tone }: any) => (
     <div className="card overflow-hidden">
       <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
@@ -318,18 +395,23 @@ function MockTrade({ leagueId, teamId, rosters }: { leagueId: number; teamId: st
         <span className="text-[10px] text-slate-400 ml-auto tabular-nums">{team?.lineup_ppg} ppg</span>
       </div>
       <div className="divide-y divide-slate-100 max-h-[52vh] overflow-y-auto">
-        {(team?.players ?? []).map((p: any) => (
-          <button key={p.id} onClick={() => onToggle(p.id)}
-            className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-slate-50 transition-colors ${
-              sel.includes(p.id) ? (tone === 'give' ? 'bg-rose-50' : 'bg-emerald-50') : ''}`}>
-            <input type="checkbox" readOnly checked={sel.includes(p.id)}
-              className={tone === 'give' ? 'accent-rose-500' : 'accent-emerald-600'} />
-            <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
-            <span className={`truncate ${p.starter ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>{p.name}</span>
-            {p.starter && <span className="text-[9px] text-emerald-600 font-bold">ST</span>}
-            <span className="ml-auto text-slate-400 tabular-nums shrink-0">{p.value?.toLocaleString()}</span>
-          </button>
-        ))}
+        {(team?.players ?? []).map((p: any) => {
+          const locked = tone === 'give' && untouchableSet.has(p.id);
+          return (
+            <button key={p.id} onClick={() => onToggle(p.id)}
+              title={locked ? 'Marked untouchable — you can still send him here, this is just a reminder' : undefined}
+              className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-slate-50 transition-colors ${
+                sel.includes(p.id) ? (tone === 'give' ? 'bg-rose-50' : 'bg-emerald-50') : ''}`}>
+              <input type="checkbox" readOnly checked={sel.includes(p.id)}
+                className={tone === 'give' ? 'accent-rose-500' : 'accent-emerald-600'} />
+              <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
+              <span className={`truncate ${p.starter ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>{p.name}</span>
+              {p.starter && <span className="text-[9px] text-emerald-600 font-bold">ST</span>}
+              {locked && <span className="text-[10px]" title="Untouchable">🔒</span>}
+              <span className="ml-auto text-slate-400 tabular-nums shrink-0">{p.value?.toLocaleString()}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

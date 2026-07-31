@@ -306,11 +306,14 @@ function combos(list, max) {
  * moving. Anyone startable is included (that's most of a trade's substance), but
  * we cut the deep bench, which nobody trades for and which explodes the search space.
  */
-function candidates(team, slots, limit = 11) {
+function candidates(team, slots, limit = 11, excludeIds = null) {
   const line = bestLineup(team.players, slots);
   const startersById = new Set(line.slots.map(s => s.player?.id).filter(Boolean));
   return team.players
     .filter(p => SCORED.has(p.position) && (p.value > 0 || p.proj > 0))
+    // Untouchables never enter the search at all — not "ranked low," genuinely absent,
+    // so they can never appear as a give in any suggestion.
+    .filter(p => !excludeIds || !excludeIds.has(p.id))
     .map(p => ({ ...p, is_starter: startersById.has(p.id) }))
     .sort((a, b) => b.value - a.value || b.adj_ppg - a.adj_ppg)
     .slice(0, limit);
@@ -322,7 +325,7 @@ function candidates(team, slots, limit = 11) {
  * @param opts.max_per_side  package size cap (2 keeps it realistic and fast)
  * @param opts.require_mutual only surface deals that also improve their lineup
  */
-export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null } = {}) {
+export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null } = {}) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
@@ -331,7 +334,7 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
   if (!me) return { error: 'your team not found in this league' };
   const target = targetId ? resolvePlayer(targetId, assets, teams)?.id ?? null : null;
 
-  const myPool = candidates(me, slots);
+  const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
 
   for (const them of teams) {
@@ -432,7 +435,7 @@ export function resolvePlayer(id, assets, teams) {
  * Offer ladder for a specific target: the cheapest package that plausibly gets it
  * done, a fair-market version, and the point past which you are overpaying.
  */
-export function offerFor(lg, { myTeamId, targetId }) {
+export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
@@ -483,7 +486,7 @@ export function offerFor(lg, { myTeamId, targetId }) {
     };
   }
 
-  const myPool = candidates(me, slots, 12);
+  const myPool = candidates(me, slots, 12, excludeIds);
   const packages = combos(myPool, 3).filter(c => c.length <= 3);
 
   const priced = [];
@@ -505,6 +508,7 @@ export function offerFor(lg, { myTeamId, targetId }) {
       ...context,
       error: 'He would help, but nothing on your roster prices out.',
       reason: `Adding him is worth ${upside} ppg to your lineup, but every package in his price range (${Math.round(target.value * 0.7)}–${Math.round(target.value * 1.65)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
+        + (excludeIds?.size ? ` This search also left out the player(s) you've marked untouchable.` : '')
     };
   }
 
@@ -516,8 +520,31 @@ export function offerFor(lg, { myTeamId, targetId }) {
   const byEfficiency = [...pool].sort((a, b) => b.efficiency - a.efficiency);
   const ceiling = [...priced].sort((a, b) => b.ratio - a.ratio)[0];
 
+  /**
+   * "Go get him": five distinct, playable packages that would land the target —
+   * not five variants of the same core piece with a different throw-in. Collapsed
+   * to one representative per headline give (the most valuable piece in the
+   * package) before ranking, the same technique findTrades() uses to keep a deal
+   * list from being ten copies of one idea.
+   */
+  const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
+  const seenHeadline = new Set();
+  const distinctByCost = [...pool]
+    .sort((a, b) => a.ratio - b.ratio || b.me.ppg_delta - a.me.ppg_delta)
+    .filter(p => {
+      const k = headline(p.i_give);
+      if (seenHeadline.has(k)) return false;
+      seenHeadline.add(k);
+      return true;
+    });
+  const RUNG_LABEL = ['Opening offer', 'Good value', 'Fair price', 'Sweetened', 'Safest bet'];
+  const offers = distinctByCost.slice(0, 5).map((p, i) => ({
+    ...p, rank: i + 1, label: RUNG_LABEL[i] ?? `Offer ${i + 1}`
+  }));
+
   return {
     ...context,
+    offers,
     open_with: byRatio[0],
     fair: byEfficiency[0],
     max: { ...ceiling, note: `Past roughly ${Math.round(target.value * 1.35)} in market value you are paying a tax you will not recover.` },

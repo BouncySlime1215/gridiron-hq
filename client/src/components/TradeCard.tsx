@@ -93,7 +93,9 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
   );
 }
 
-export default function TradeCard({ deal, leagueId, compact = false }: { deal: any; leagueId: number; compact?: boolean }) {
+export default function TradeCard({ deal, leagueId, compact = false, untouchableNames = [] }: {
+  deal: any; leagueId: number; compact?: boolean; untouchableNames?: string[];
+}) {
   const [copy, setCopy] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -122,7 +124,7 @@ export default function TradeCard({ deal, leagueId, compact = false }: { deal: a
 
   const explain = async () => {
     setBusy(true); setErr(null);
-    try { setCopy(await api(`/trades/${leagueId}/explain`, { method: 'POST', body: JSON.stringify({ deal }) })); }
+    try { setCopy(await api(`/trades/${leagueId}/explain`, { method: 'POST', body: JSON.stringify({ deal, untouchables: untouchableNames }) })); }
     catch (e: any) { setErr(e.message); }
     finally { setBusy(false); }
   };

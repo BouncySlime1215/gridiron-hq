@@ -174,6 +174,12 @@ r.post('/:leagueId/explain', async (req, res, next) => {
       `lineup ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}), ` +
       `market value ${s.value_delta > 0 ? '+' : ''}${s.value_delta}`;
 
+    // Untouchables never enter the search that produced this deal, but the pitch is
+    // free-text — without telling the model who is off-limits, a "sweeten it with one
+    // more piece" suggestion in the counter-read could name exactly the player you
+    // marked protected.
+    const untouchables = Array.isArray(req.body?.untouchables) ? req.body.untouchables.filter(Boolean) : [];
+
     const msg = await callClaude({
       feature: 'trade-explain',
       maxTokens: 900,
@@ -184,6 +190,7 @@ ${fmtSide(d.me)}
 ${fmtSide(d.them)}
 Fairness on market price: ${d.fairness}. Both sides improve: ${d.mutual ? 'yes' : 'no'}.
 ${d.me.playoff_ppg_delta != null ? `My weeks 15-17 lineup changes by ${d.me.playoff_ppg_delta} ppg.` : ''}
+${untouchables.length ? `Untouchable — never suggest offering these, not even as a sweetener: ${untouchables.join(', ')}.` : ''}
 
 Write the negotiation. Frame it around what THEY get, never mention that you ran an analysis, no fake urgency, no flattery. If the deal is lopsided in my favour, the pitch still has to sound reasonable to them.
 

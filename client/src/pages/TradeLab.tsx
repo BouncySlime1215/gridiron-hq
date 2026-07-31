@@ -44,6 +44,9 @@ export default function TradeLab() {
     });
   };
   const myPlayers = rosters?.teams?.find((t: any) => t.roster_id === me)?.players ?? [];
+  // Resolved once here and handed to every TradeCard, so the AI writing a pitch
+  // knows never to suggest one of these as a sweetener — see server/routes/trades.js.
+  const untouchableNames = myPlayers.filter((p: any) => untouchable.includes(p.id)).map((p: any) => p.name);
 
   return (
     <div>
@@ -78,9 +81,9 @@ export default function TradeLab() {
       </div>
 
       {!active && <div className="card p-6 text-sm text-slate-500">Connect a league on the My Leagues page first.</div>}
-      {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} untouchable={untouchable} />}
-      {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} />}
-      {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} />}
+      {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'matchups' && <Matchups />}
     </div>
   );
@@ -128,7 +131,9 @@ function Untouchables({ players, ids, onToggle }: { players: any[]; ids: number[
 }
 
 /* ------------------------------------------------------------- find deals */
-function FindDeals({ leagueId, teamId, untouchable }: { leagueId: number; teamId: string | null; untouchable: number[] }) {
+function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
+  leagueId: number; teamId: string | null; untouchable: number[]; untouchableNames: string[];
+}) {
   const [mutual, setMutual] = useState(true);
   const [size, setSize] = useState(2);
   const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
@@ -169,14 +174,16 @@ function FindDeals({ leagueId, teamId, untouchable }: { leagueId: number; teamId
         </div>
       )}
       <div className="space-y-3">
-        {(data?.deals ?? []).map((d: any, i: number) => <TradeCard key={i} deal={d} leagueId={leagueId} />)}
+        {(data?.deals ?? []).map((d: any, i: number) => <TradeCard key={i} deal={d} leagueId={leagueId} untouchableNames={untouchableNames} />)}
       </div>
     </div>
   );
 }
 
 /* --------------------------------------------------------- target a player */
-function TargetPlayer({ leagueId, teamId, rosters, untouchable }: { leagueId: number; teamId: string | null; rosters: any; untouchable: number[] }) {
+function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames }: {
+  leagueId: number; teamId: string | null; rosters: any; untouchable: number[]; untouchableNames: string[];
+}) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<any>(null);
   const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
@@ -263,7 +270,7 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable }: { leagueId: nu
                         <h4 className="text-xs font-bold text-slate-700">{o.label}</h4>
                         <span className="text-[11px] text-slate-400">{(o.ratio * 100).toFixed(0)}% of his market price</span>
                       </div>
-                      <TradeCard deal={{ ...o, partner: offer.owner, i_get: [offer.target] }} leagueId={leagueId} compact />
+                      <TradeCard deal={{ ...o, partner: offer.owner, i_get: [offer.target] }} leagueId={leagueId} compact untouchableNames={untouchableNames} />
                     </div>
                   ))}
                 </div>
@@ -361,7 +368,9 @@ function PlayerOutlook({ o }: { o: any }) {
 }
 
 /* ------------------------------------------------------------ mock trades */
-function MockTrade({ leagueId, teamId, rosters, untouchable }: { leagueId: number; teamId: string | null; rosters: any; untouchable: number[] }) {
+function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }: {
+  leagueId: number; teamId: string | null; rosters: any; untouchable: number[]; untouchableNames: string[];
+}) {
   const [theirId, setTheirId] = useState<string | null>(null);
   const [give, setGive] = useState<number[]>([]);
   const [get, setGet] = useState<number[]>([]);
@@ -443,7 +452,7 @@ function MockTrade({ leagueId, teamId, rosters, untouchable }: { leagueId: numbe
         </div>
       </div>
 
-      {result && <TradeCard deal={{ ...result, partner: them?.owner, i_give: result.me.gives, i_get: result.me.gets }} leagueId={leagueId} />}
+      {result && <TradeCard deal={{ ...result, partner: them?.owner, i_give: result.me.gives, i_get: result.me.gets }} leagueId={leagueId} untouchableNames={untouchableNames} />}
     </div>
   );
 }

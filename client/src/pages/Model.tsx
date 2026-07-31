@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, useApi } from '../api';
+import { useLeague } from '../state/league';
 import { usePlayerCard } from '../components/PlayerCard';
 
 /**
@@ -183,8 +184,9 @@ const Stat = ({ label, value, hint }: { label: string; value: any; hint?: string
 
 /* --------------------------------------------------------- champ odds */
 function Odds() {
-  const { data: leagues } = useApi<any[]>('/leagues');
-  const id = leagues?.[0]?.id;
+  // Follows the league picked in the header — previously this silently always used
+  // whichever league synced first, with no way to see odds for a second league.
+  const { activeId: id } = useLeague();
   const { data, loading } = useApi<any>(id ? `/model/${id}/simulate?runs=2000` : null);
 
   if (!id) return <div className="card p-6 text-sm text-slate-500">Connect a league first.</div>;

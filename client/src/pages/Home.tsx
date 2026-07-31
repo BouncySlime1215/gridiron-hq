@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
+import { useLeague } from '../state/league';
 
 export default function Home() {
   const { data: drafts } = useApi<any[]>('/drafts');
   const { data: sets } = useApi<any[]>('/rankings');
   const { data: news, refetch: refetchNews } = useApi<any[]>('/news');
-  const { data: espn } = useApi<any>('/espn/settings');
+  const { leagues, active: activeLeague } = useLeague();
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -58,11 +59,13 @@ export default function Home() {
             {sets?.length ?? 0} board{sets?.length === 1 ? '' : 's'} · seeded with July consensus top 100
           </div>
         </Link>
-        <Link to={espn?.league_id ? '/my-team' : '/settings'} className="card p-5 hover:border-emerald-700 transition-colors">
+        <Link to={leagues.length ? '/my-team' : '/leagues'} className="card p-5 hover:border-emerald-700 transition-colors">
           <div className="text-3xl mb-2">⭐</div>
-          <div className="font-bold">{espn?.league_id ? 'My ESPN Team' : 'Connect ESPN'}</div>
+          <div className="font-bold">{leagues.length ? 'My Team' : 'Connect a league'}</div>
           <div className="text-xs text-slate-500 mt-1">
-            {espn?.league_id ? `League ${espn.league_id}` : 'Link your league for rosters & scores'}
+            {leagues.length
+              ? `${activeLeague?.name ?? 'League'}${leagues.length > 1 ? ` +${leagues.length - 1} more` : ''}`
+              : 'Link ESPN or Sleeper for rosters & scores'}
           </div>
         </Link>
       </div>

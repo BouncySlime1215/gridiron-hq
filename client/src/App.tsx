@@ -14,6 +14,8 @@ import TradeLab from './pages/TradeLab';
 import Model from './pages/Model';
 import Leagues from './pages/Leagues';
 import { PlayerCardProvider } from './components/PlayerCard';
+import { LeagueProvider } from './state/league';
+import LeagueSwitcher from './components/LeagueSwitcher';
 import DevHub from './components/DevHub';
 import RefreshAll from './components/RefreshAll';
 import News from './pages/News';
@@ -40,6 +42,7 @@ export default function App() {
   }, [collapsed]);
 
   return (
+    <LeagueProvider>
     <PlayerCardProvider>
     <div className="flex min-h-screen">
       <aside
@@ -93,6 +96,7 @@ export default function App() {
             </svg>
           </button>
           <span className="text-sm font-semibold text-slate-500">Gridiron HQ</span>
+          <LeagueSwitcher />
           <div className="ml-auto flex items-center gap-2">
             <RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} />
             <DevHub />
@@ -121,5 +125,6 @@ export default function App() {
       </div>
     </div>
     </PlayerCardProvider>
+    </LeagueProvider>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, useApi } from '../api';
+import { useLeague } from '../state/league';
 import { PlayerName } from '../components/PlayerCard';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
@@ -14,8 +15,9 @@ function StatusPill({ status, ratio }: { status: string; ratio: number }) {
 }
 
 export default function Leagues() {
-  const { data: leagues, refetch } = useApi<any[]>('/leagues');
-  const [sel, setSel] = useState<number | null>(null);
+  // Shared with the header switcher — clicking a league card here to view its
+  // analysis also makes it the active league on My Team, Trade Lab, etc.
+  const { leagues, refetch, activeId: sel, setActiveId: setSel } = useLeague();
   const { data: analysis, refetch: refetchAnalysis } = useApi<any>(sel ? `/leagues/${sel}/analysis` : null);
   const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026, espn_s2: '', swid: '' });
   const [busy, setBusy] = useState(false);

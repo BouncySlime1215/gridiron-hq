@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, useApi } from '../api';
+import { useLeague } from '../state/league';
 import TradeCard, { PlayerPill, num } from '../components/TradeCard';
 import { usePlayerCard } from '../components/PlayerCard';
 
@@ -13,23 +14,20 @@ type Tab = typeof TABS[number]['id'];
 
 /* ------------------------------------------------------------------ shell */
 export default function TradeLab() {
-  const { data: leagues } = useApi<any[]>('/leagues');
-  const [lid, setLid] = useState<number | null>(null);
-  const active = lid ?? leagues?.[0]?.id ?? null;
+  // Which league is active now lives in the header, shared with My Team and the
+  // Prediction Engine — this page just follows it rather than keeping its own.
+  const { activeId: active } = useLeague();
   const [tab, setTab] = useState<Tab>('find');
   const { data: rosters } = useApi<any>(active ? `/trades/${active}/rosters` : null);
   const [teamId, setTeamId] = useState<string | null>(null);
+  // A "which team is me" pick only means something within the league it was made in.
+  useEffect(() => { setTeamId(null); }, [active]);
   const me = teamId ?? rosters?.my_team_id ?? rosters?.teams?.[0]?.roster_id ?? null;
 
   return (
     <div>
       <div className="flex items-center gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold">Trade Lab</h1>
-        {leagues && leagues.length > 1 && (
-          <select className="input" value={active ?? ''} onChange={e => setLid(Number(e.target.value))}>
-            {leagues.map(l => <option key={l.id} value={l.id}>{l.name ?? l.league_id}</option>)}
-          </select>
-        )}
         {rosters?.teams && (
           <select className="input" value={me ?? ''} onChange={e => setTeamId(e.target.value)}>
             {rosters.teams.map((t: any) => (

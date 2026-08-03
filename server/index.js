@@ -22,6 +22,7 @@ import tradelabRouter from './routes/tradelab.js';
 import tradesRouter from './routes/trades.js';
 import espnConnectRouter from './routes/espn-connect.js';
 import modelRouter from './routes/model.js';
+import propsRouter from './routes/props.js';
 
 const app = express();
 app.use(express.json());
@@ -46,6 +47,7 @@ app.use('/api/tradelab', tradelabRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/model', modelRouter);
+app.use('/api/props', propsRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

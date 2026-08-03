@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Route, Routes } from 'react-router-dom';
+import { NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import Teams from './pages/Teams';
 import TeamDetail from './pages/TeamDetail';
@@ -20,6 +20,9 @@ import DevHub from './components/DevHub';
 import RefreshAll from './components/RefreshAll';
 import News from './pages/News';
 import Settings from './pages/Settings';
+import PropsBoard from './pages/props/PropsBoard';
+import PropsPicks from './pages/props/PropsPicks';
+import PropsModel from './pages/props/PropsModel';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '🏠' },
@@ -35,11 +38,21 @@ const NAV = [
   { to: '/settings', label: 'ESPN Settings', icon: '⚙️' }
 ];
 
+// A different sport, a different data source entirely (see server/routes/props.js) —
+// grouped on its own rather than mixed into the fantasy-football nav above.
+const PROPS_NAV = [
+  { to: '/props', label: 'Model Board', icon: '⚾' },
+  { to: '/props/picks', label: 'My Picks', icon: '🎫' },
+  { to: '/props/model', label: 'Model Info', icon: 'ℹ️' }
+];
+
 export default function App() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('gh:sidebar') === 'collapsed');
   useEffect(() => {
     localStorage.setItem('gh:sidebar', collapsed ? 'collapsed' : 'open');
   }, [collapsed]);
+  const location = useLocation();
+  const inProps = location.pathname.startsWith('/props');
 
   return (
     <LeagueProvider>
@@ -77,6 +90,35 @@ export default function App() {
             </span>
           </NavLink>
         ))}
+
+        {/* A different sport, a different tool — set off from the fantasy football nav
+            above rather than blended into it. */}
+        <div className={`mt-3 mb-1 border-t border-slate-200 pt-3 ${collapsed ? '' : 'px-1'}`}>
+          {!collapsed && (
+            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 px-2 mb-1 whitespace-nowrap">
+              MLB Props
+            </div>
+          )}
+        </div>
+        {PROPS_NAV.map(n => (
+          <NavLink
+            key={n.to}
+            to={n.to}
+            end={n.to === '/props'}
+            title={collapsed ? n.label : undefined}
+            className={({ isActive }) =>
+              `py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
+                collapsed ? 'px-0 justify-center' : 'px-3'
+              } ${isActive ? 'bg-sky-100 text-sky-700' : 'text-slate-700 hover:bg-slate-100'}`
+            }
+          >
+            <span className="shrink-0">{n.icon}</span>
+            <span className={`transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'}`}>
+              {n.label}
+            </span>
+          </NavLink>
+        ))}
+
         {!collapsed && (
           <div className="mt-auto px-2 text-[10px] text-slate-400 whitespace-nowrap">
             Local app · data stays on your Mac
@@ -96,7 +138,7 @@ export default function App() {
             </svg>
           </button>
           <span className="text-sm font-semibold text-slate-500">Gridiron HQ</span>
-          <LeagueSwitcher />
+          {!inProps && <LeagueSwitcher />}
           <div className="ml-auto flex items-center gap-2">
             <RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} />
             <DevHub />
@@ -120,6 +162,9 @@ export default function App() {
           <Route path="/news" element={<News />} />
           <Route path="/leagues" element={<Leagues />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/props" element={<PropsBoard />} />
+          <Route path="/props/picks" element={<PropsPicks />} />
+          <Route path="/props/model" element={<PropsModel />} />
         </Routes>
         </main>
       </div>

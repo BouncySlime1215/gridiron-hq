@@ -48,7 +48,12 @@ db.exec(`
 const glCols = db.prepare(`PRAGMA table_info(game_lines)`).all().map(c => c.name);
 for (const [col, type] of [
   ['team_score', 'INTEGER'], ['opp_score', 'INTEGER'], ['moneyline', 'INTEGER'],
-  ['spread_odds', 'INTEGER'], ['total_over_odds', 'INTEGER'], ['total_under_odds', 'INTEGER']
+  ['spread_odds', 'INTEGER'], ['total_over_odds', 'INTEGER'], ['total_under_odds', 'INTEGER'],
+  // Game context: weather, surface, rest and divisional status all come from the
+  // same games.csv row already being read, and drive a whole family of betting
+  // variables (dome vs wind, short week, off a bye, division familiarity).
+  ['temp', 'INTEGER'], ['wind', 'INTEGER'], ['roof', 'TEXT'], ['surface', 'TEXT'],
+  ['rest_days', 'INTEGER'], ['div_game', 'INTEGER'], ['gameday', 'TEXT'], ['gametime', 'TEXT']
 ]) {
   if (!glCols.includes(col)) db.exec(`ALTER TABLE game_lines ADD COLUMN ${col} ${type}`);
 }
@@ -69,21 +74,27 @@ export async function syncHistoricalLines() {
   const { header, records } = parseCsv(await res.text());
   const at = n => header.indexOf(n);
   const [iS, iW, iAway, iHome, iSpread, iTotal, iAwayScore, iHomeScore,
-    iAwayMl, iHomeMl, iAwaySpreadOdds, iHomeSpreadOdds, iUnderOdds, iOverOdds] =
+    iAwayMl, iHomeMl, iAwaySpreadOdds, iHomeSpreadOdds, iUnderOdds, iOverOdds,
+    iTemp, iWind, iRoof, iSurface, iAwayRest, iHomeRest, iDiv, iGameday, iGametime] =
     ['season', 'week', 'away_team', 'home_team', 'spread_line', 'total_line', 'away_score', 'home_score',
-      'away_moneyline', 'home_moneyline', 'away_spread_odds', 'home_spread_odds', 'under_odds', 'over_odds'].map(at);
+      'away_moneyline', 'home_moneyline', 'away_spread_odds', 'home_spread_odds', 'under_odds', 'over_odds',
+      'temp', 'wind', 'roof', 'surface', 'away_rest', 'home_rest', 'div_game', 'gameday', 'gametime'].map(at);
   if (iSpread < 0 || iTotal < 0) throw new Error('games.csv is missing spread_line/total_line');
 
   const stmt = db.prepare(`INSERT INTO game_lines
       (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at,
-       team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds)
-    VALUES (?,?,?,?,?,?,?,?, 'nflverse', datetime('now'), ?,?,?,?,?,?)
+       team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds,
+       temp, wind, roof, surface, rest_days, div_game, gameday, gametime)
+    VALUES (?,?,?,?,?,?,?,?, 'nflverse', datetime('now'), ?,?,?,?,?,?, ?,?,?,?,?,?,?,?)
     ON CONFLICT(season, week, team) DO UPDATE SET
       spread=excluded.spread, total=excluded.total, implied_points=excluded.implied_points,
       opponent=excluded.opponent, home=excluded.home, source=excluded.source,
       team_score=excluded.team_score, opp_score=excluded.opp_score, moneyline=excluded.moneyline,
       spread_odds=excluded.spread_odds, total_over_odds=excluded.total_over_odds,
-      total_under_odds=excluded.total_under_odds`);
+      total_under_odds=excluded.total_under_odds,
+      temp=excluded.temp, wind=excluded.wind, roof=excluded.roof, surface=excluded.surface,
+      rest_days=excluded.rest_days, div_game=excluded.div_game,
+      gameday=excluded.gameday, gametime=excluded.gametime`);
 
   // `Number('')` is 0, not NaN — an unplayed game's blank score/odds columns must
   // stay null, or every future game silently looks like a 0-0 final.
@@ -104,10 +115,15 @@ export async function syncHistoricalLines() {
       const homeMl = int(r[iHomeMl]), awayMl = int(r[iAwayMl]);
       const homeSpreadOdds = int(r[iHomeSpreadOdds]), awaySpreadOdds = int(r[iAwaySpreadOdds]);
       const overOdds = int(r[iOverOdds]), underOdds = int(r[iUnderOdds]);
+      const temp = int(r[iTemp]), wind = int(r[iWind]);
+      const roof = r[iRoof] || null, surface = r[iSurface] || null;
+      const divGame = int(r[iDiv]), gameday = r[iGameday] || null, gametime = r[iGametime] || null;
       stmt.run(season, week, home, away, 1, homeSpread, total, impliedPoints(homeSpread, total),
-        homeScore, awayScore, homeMl, homeSpreadOdds, overOdds, underOdds);
+        homeScore, awayScore, homeMl, homeSpreadOdds, overOdds, underOdds,
+        temp, wind, roof, surface, int(r[iHomeRest]), divGame, gameday, gametime);
       stmt.run(season, week, away, home, 0, -homeSpread, total, impliedPoints(-homeSpread, total),
-        awayScore, homeScore, awayMl, awaySpreadOdds, overOdds, underOdds);
+        awayScore, homeScore, awayMl, awaySpreadOdds, overOdds, underOdds,
+        temp, wind, roof, surface, int(r[iAwayRest]), divGame, gameday, gametime);
       n += 2;
     }
     db.exec('COMMIT');

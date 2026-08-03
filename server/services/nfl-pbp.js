@@ -87,7 +87,27 @@ const teamAcc = () => ({
   shotgun: 0, no_huddle: 0,
   deep_att: 0, short_att: 0,
   drives: new Set(), series_succ: 0, series_n: 0,
-  td: 0, pass_td: 0, rush_td: 0
+  td: 0, pass_td: 0, rush_td: 0,
+
+  /* ---- advanced ---- */
+  // Win-probability filtered: plays inside a competitive game only. Garbage
+  // time flatters bad offenses and punishes good defenses, and is the single
+  // biggest source of noise in raw season efficiency numbers.
+  nwp_plays: 0, nwp_epa: 0, nwp_succ: 0,
+  wpa: 0,
+  stuffs: 0,                                   // runs held to zero or fewer
+  tfl: 0, forced_fumbles: 0, pass_defended: 0, // havoc components
+  yards_gained: 0, sack_yards: 0,
+  ytg_sum: 0, ytg_n: 0,
+  epa_sq: 0,                                   // for volatility
+  own_epa: 0, own_n: 0, mid_epa: 0, mid_n: 0, opp_epa: 0, opp_n: 0,
+  q4c_epa: 0, q4c_n: 0,
+  sl_epa: 0, sl_n: 0,                          // second and long
+  t_short_att: 0, t_short_conv: 0, t_long_att: 0, t_long_conv: 0,
+  deep_epa: 0, deep_n: 0, short_epa: 0, short_n: 0,
+  press_epa: 0, press_n: 0, clean_epa: 0, clean_n: 0,
+  xyac: 0, xyac_n: 0,
+  driveInfo: new Map()                         // driveId -> { result, start, plays, seconds }
 });
 
 const playerAcc = () => ({
@@ -101,11 +121,36 @@ const playerAcc = () => ({
   // receiving
   targets: 0, rec: 0, rec_yds: 0, rec_td: 0, rec_air: 0, rec_yac: 0, rec_epa: 0,
   rec_succ: 0, expl_rec: 0, deep_tgt: 0, rec_rz_tgt: 0,
+  // advanced
+  nwp_touches: 0, nwp_epa: 0, wpa: 0, first_downs: 0, stuffs: 0,
+  xyac: 0, xyac_n: 0, third_tgt: 0, ez_tgt: 0, two_min_tgt: 0,
+  gtg_tgt: 0, expl_plays: 0, touches: 0,
   position: null, team: null, opponent: null, name: null
 });
 
 const div = (a, b) => (b > 0 ? a / b : null);
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
+/** "3:41" -> 221 seconds. Drive time of possession arrives as a clock string. */
+const parseClock = s => {
+  if (!s || !/^\d+:\d{2}$/.test(s)) return null;
+  const [m, sec] = s.split(':').map(Number);
+  return m * 60 + sec;
+};
+
+/**
+ * "KC 25" -> yards from the possessing team's own goal line.
+ * The prefix names whose half of the field the ball is on, so the same "25"
+ * means a terrible starting spot for KC and a great one for its opponent.
+ */
+const parseFieldPosition = (s, posteam) => {
+  if (!s) return null;
+  const m = /^([A-Z]{2,3})\s+(\d{1,2})$/.exec(String(s).trim());
+  if (!m) return null;
+  const [, side, yd] = m;
+  const n = Number(yd);
+  if (!Number.isFinite(n)) return null;
+  return side === posteam ? n : 100 - n;
+};
 
 /* ------------------------------------------------------------------ ingest */
 
@@ -242,6 +287,61 @@ export async function syncPbpSeason(season, { onProgress } = {}) {
       const drv = num(rec, 'fixed_drive'); if (drv != null) side.drives.add(`${week}|${drv}`);
       const ss = num(rec, 'series_success'); if (ss != null) { side.series_succ += ss; side.series_n++; }
       if (num(rec, 'penalty') === 1) side.penalties++;
+
+      /* ---- advanced ---- */
+      // Win probability is stated for the possessing team, so the defensive
+      // slot must read its own side or "competitive" gets evaluated backwards.
+      const rawWp = num(rec, 'wp');
+      const sideWp = side === o ? rawWp : (num(rec, 'def_wp') ?? (rawWp == null ? null : 1 - rawWp));
+      if (sideWp != null && sideWp > 0.1 && sideWp < 0.9) {
+        side.nwp_plays++; side.nwp_epa += epa; if (success) side.nwp_succ++;
+      }
+      const w = num(rec, 'wpa'); if (w != null) side.wpa += side === o ? w : -w;
+      const gained = num(rec, 'yards_gained');
+      if (gained != null) side.yards_gained += gained;
+      if (!isPass && gained != null && gained <= 0) side.stuffs++;
+      if (num(rec, 'sack') === 1 && gained != null) side.sack_yards += Math.abs(gained);
+      if (num(rec, 'tackled_for_loss') === 1) side.tfl++;
+      if (num(rec, 'fumble_forced') === 1) side.forced_fumbles++;
+      if (str(rec, 'pass_defense_1_player_id')) side.pass_defended++;
+      if (ydstogo != null) { side.ytg_sum += ydstogo; side.ytg_n++; }
+      side.epa_sq += epa * epa;
+      if (yl100 != null) {
+        if (yl100 > 60) { side.own_epa += epa; side.own_n++; }
+        else if (yl100 > 40) { side.mid_epa += epa; side.mid_n++; }
+        else { side.opp_epa += epa; side.opp_n++; }
+      }
+      if (qtr >= 4 && Math.abs(diff) <= 8) { side.q4c_epa += epa; side.q4c_n++; }
+      if (down === 2 && (ydstogo ?? 0) >= 8) { side.sl_epa += epa; side.sl_n++; }
+      if (down === 3) {
+        const conv = num(rec, 'third_down_converted') === 1;
+        if ((ydstogo ?? 0) <= 3) { side.t_short_att++; if (conv) side.t_short_conv++; }
+        if ((ydstogo ?? 0) >= 7) { side.t_long_att++; if (conv) side.t_long_conv++; }
+      }
+      if (isPass && airY != null) {
+        if (airY >= 15) { side.deep_epa += epa; side.deep_n++; }
+        else { side.short_epa += epa; side.short_n++; }
+      }
+      if (isPass) {
+        if (num(rec, 'qb_hit') === 1) { side.press_epa += epa; side.press_n++; }
+        else { side.clean_epa += epa; side.clean_n++; }
+      }
+      // YAC over expected: how much more the receiver made after the catch than
+      // an average player would have, given where and how he caught it.
+      const xy = num(rec, 'xyac_mean_yardage');
+      if (xy != null && yacY != null) { side.xyac += yacY - xy; side.xyac_n++; }
+
+      if (drv != null) {
+        const id = `${week}|${drv}`;
+        if (!side.driveInfo.has(id)) {
+          side.driveInfo.set(id, {
+            result: str(rec, 'fixed_drive_result'),
+            start: parseFieldPosition(str(rec, 'drive_start_yard_line'), side === o ? posteam : defteam),
+            plays: num(rec, 'drive_play_count'),
+            seconds: parseClock(str(rec, 'drive_time_of_possession'))
+          });
+        }
+      }
     }
 
     /* ---- players ---- */
@@ -268,10 +368,16 @@ export async function syncPbpSeason(season, { onProgress } = {}) {
       p.name ??= str(rec, 'rusher_player_name'); p.team ??= posteam; p.opponent ??= defteam;
       p.carries++; p.rush_yds += rushYds; p.rush_epa += epa;
       if (success) p.rush_succ++;
-      if (rushYds >= 10) p.expl_rush++;
+      if (rushYds >= 10) { p.expl_rush++; p.expl_plays++; }
       if (num(rec, 'rush_touchdown') === 1) p.rush_td++;
       if (yl100 != null && yl100 <= 20) p.rush_rz++;
       if (num(rec, 'goal_to_go') === 1) p.rush_gtg++;
+      p.touches++;
+      if (rushYds <= 0) p.stuffs++;
+      if (num(rec, 'first_down') === 1) p.first_downs++;
+      const w = num(rec, 'wpa'); if (w != null) p.wpa += w;
+      const wp = num(rec, 'wp');
+      if (wp != null && wp > 0.1 && wp < 0.9) { p.nwp_touches++; p.nwp_epa += epa; }
     }
     const recId = str(rec, 'receiver_player_id');
     if (recId) {
@@ -282,10 +388,21 @@ export async function syncPbpSeason(season, { onProgress } = {}) {
       if (num(rec, 'complete_pass') === 1) {
         p.rec++; p.rec_yds += recYds; if (yacY != null) p.rec_yac += yacY;
         if (success) p.rec_succ++;
-        if (recYds >= 20) p.expl_rec++;
+        if (recYds >= 20) { p.expl_rec++; p.expl_plays++; }
+        p.touches++;
+        if (num(rec, 'first_down') === 1) p.first_downs++;
+        const xy = num(rec, 'xyac_mean_yardage');
+        if (xy != null && yacY != null) { p.xyac += yacY - xy; p.xyac_n++; }
       }
       if (num(rec, 'pass_touchdown') === 1 && num(rec, 'complete_pass') === 1) p.rec_td++;
       if (yl100 != null && yl100 <= 20) p.rec_rz_tgt++;
+      if (yl100 != null && yl100 <= 10) p.ez_tgt++;
+      if (down === 3) p.third_tgt++;
+      if (num(rec, 'goal_to_go') === 1) p.gtg_tgt++;
+      if ((num(rec, 'half_seconds_remaining') ?? 9999) <= 120) p.two_min_tgt++;
+      const w = num(rec, 'wpa'); if (w != null) p.wpa += w;
+      const wp = num(rec, 'wp');
+      if (wp != null && wp > 0.1 && wp < 0.9) { p.nwp_touches++; p.nwp_epa += epa; }
     }
 
     if (onProgress && plays % 20000 === 0) onProgress(plays);
@@ -359,7 +476,61 @@ function sideFeatures(a, p) {
     [`${p}_series_success_rate`]: r3(div(a.series_succ, a.series_n)),
     [`${p}_td_per_drive`]: r3(div(a.td, drives)),
     [`${p}_pass_td`]: a.pass_td,
-    [`${p}_rush_td`]: a.rush_td
+    [`${p}_rush_td`]: a.rush_td,
+
+    /* ---- advanced ---- */
+    [`${p}_epa_neutral_wp`]: r3(div(a.nwp_epa, a.nwp_plays)),
+    [`${p}_success_rate_neutral_wp`]: r3(div(a.nwp_succ, a.nwp_plays)),
+    [`${p}_garbage_time_share`]: r3(1 - (div(a.nwp_plays, a.plays) ?? 0)),
+    [`${p}_wpa_total`]: r3(a.wpa),
+    [`${p}_wpa_per_play`]: r3(div(a.wpa, a.plays)),
+    [`${p}_stuff_rate`]: r3(div(a.stuffs, a.carries)),
+    [`${p}_tfl_rate`]: r3(div(a.tfl, a.plays)),
+    [`${p}_havoc_rate`]: r3(div(a.tfl + a.forced_fumbles + a.pass_defended + a.ints, a.plays)),
+    [`${p}_forced_fumbles`]: a.forced_fumbles,
+    [`${p}_passes_defended`]: a.pass_defended,
+    [`${p}_yards_per_play`]: r3(div(a.yards_gained, a.plays)),
+    [`${p}_sack_yards`]: a.sack_yards,
+    [`${p}_avg_yards_to_go`]: r3(div(a.ytg_sum, a.ytg_n)),
+    // Volatility: a team averaging 0.1 EPA through steady drives is a different
+    // bet than one averaging 0.1 on a few explosions and a lot of nothing.
+    [`${p}_epa_volatility`]: r3(Math.sqrt(Math.max(0, div(a.epa_sq, a.plays) - (div(a.epa, a.plays) ?? 0) ** 2))),
+    [`${p}_epa_own_territory`]: r3(div(a.own_epa, a.own_n)),
+    [`${p}_epa_midfield`]: r3(div(a.mid_epa, a.mid_n)),
+    [`${p}_epa_opp_territory`]: r3(div(a.opp_epa, a.opp_n)),
+    [`${p}_epa_q4_close`]: r3(div(a.q4c_epa, a.q4c_n)),
+    [`${p}_second_and_long_epa`]: r3(div(a.sl_epa, a.sl_n)),
+    [`${p}_third_and_short_rate`]: r3(div(a.t_short_conv, a.t_short_att)),
+    [`${p}_third_and_long_rate`]: r3(div(a.t_long_conv, a.t_long_att)),
+    [`${p}_deep_pass_epa`]: r3(div(a.deep_epa, a.deep_n)),
+    [`${p}_short_pass_epa`]: r3(div(a.short_epa, a.short_n)),
+    [`${p}_pressure_epa`]: r3(div(a.press_epa, a.press_n)),
+    [`${p}_clean_pocket_epa`]: r3(div(a.clean_epa, a.clean_n)),
+    [`${p}_pressure_epa_delta`]: r3((div(a.press_epa, a.press_n) ?? 0) - (div(a.clean_epa, a.clean_n) ?? 0)),
+    [`${p}_yac_over_expected`]: r3(div(a.xyac, a.xyac_n)),
+    ...driveFeatures(a, p)
+  };
+}
+
+/** Drive outcome mix — how possessions actually end, not just how plays went. */
+function driveFeatures(a, p) {
+  const info = [...a.driveInfo.values()];
+  const n = info.length;
+  const share = re => r3(div(info.filter(d => d.result && re.test(d.result)).length, n));
+  const starts = info.map(d => d.start).filter(v => v != null);
+  const secs = info.map(d => d.seconds).filter(v => v != null);
+  const plays = info.map(d => d.plays).filter(v => v != null);
+  return {
+    [`${p}_drive_td_rate`]: share(/Touchdown/i),
+    [`${p}_drive_fg_rate`]: share(/Field goal/i),
+    [`${p}_drive_punt_rate`]: share(/Punt/i),
+    [`${p}_drive_turnover_rate`]: share(/Interception|Fumble|Downs/i),
+    [`${p}_drive_scoring_rate`]: share(/Touchdown|Field goal/i),
+    [`${p}_three_and_out_rate`]: r3(div(info.filter(d => (d.plays ?? 9) <= 3 && /Punt/i.test(d.result ?? '')).length, n)),
+    [`${p}_avg_drive_start`]: r3(starts.length ? starts.reduce((s, v) => s + v, 0) / starts.length : null),
+    [`${p}_seconds_per_drive`]: r3(secs.length ? secs.reduce((s, v) => s + v, 0) / secs.length : null),
+    [`${p}_avg_drive_plays`]: r3(plays.length ? plays.reduce((s, v) => s + v, 0) / plays.length : null),
+    [`${p}_yards_per_drive`]: r3(div(a.yards_gained, n))
   };
 }
 
@@ -453,7 +624,25 @@ function writePlayerWeeks(season, players, teams) {
         wopr: r3(1.5 * (tgtShare ?? 0) + 0.7 * (airShare ?? 0)),
         total_touches: p.carries + p.rec,
         total_yards: p.rush_yds + p.rec_yds + p.pass_yds,
-        total_tds: p.rush_td + p.rec_td + p.pass_td
+        total_tds: p.rush_td + p.rec_td + p.pass_td,
+
+        /* ---- advanced ---- */
+        epa_neutral_wp: r3(div(p.nwp_epa, p.nwp_touches)),
+        wpa_total: r3(p.wpa),
+        first_down_rate: r3(div(p.first_downs, p.touches)),
+        first_downs: p.first_downs,
+        stuff_rate: r3(div(p.stuffs, p.carries)),
+        // Did he beat the average player's yards-after-catch on the same throws?
+        yac_over_expected: r3(div(p.xyac, p.xyac_n)),
+        yac_oe_total: r3(p.xyac),
+        third_down_targets: p.third_tgt,
+        third_down_target_rate: r3(div(p.third_tgt, p.targets)),
+        end_zone_targets: p.ez_tgt,
+        goal_to_go_targets: p.gtg_tgt,
+        two_minute_targets: p.two_min_tgt,
+        explosive_play_rate: r3(div(p.expl_plays, p.touches)),
+        yards_per_touch: r3(div(p.rush_yds + p.rec_yds, p.touches)),
+        opportunity_share: r3(div(p.carries + p.targets, (tt.carries + tt.targets) || 0))
       };
       stmt.run(season, Number(week), pid, p.name, p.team, p.opponent, p.position, JSON.stringify(f));
     }

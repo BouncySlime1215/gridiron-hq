@@ -53,7 +53,10 @@ for (const [col, type] of [
   // same games.csv row already being read, and drive a whole family of betting
   // variables (dome vs wind, short week, off a bye, division familiarity).
   ['temp', 'INTEGER'], ['wind', 'INTEGER'], ['roof', 'TEXT'], ['surface', 'TEXT'],
-  ['rest_days', 'INTEGER'], ['div_game', 'INTEGER'], ['gameday', 'TEXT'], ['gametime', 'TEXT']
+  ['rest_days', 'INTEGER'], ['div_game', 'INTEGER'], ['gameday', 'TEXT'], ['gametime', 'TEXT'],
+  // Opening numbers, so line movement (and reverse line movement) is measurable
+  // rather than inferred. ESPN reports both the open and the current quote.
+  ['open_spread', 'REAL'], ['open_total', 'REAL'], ['book_count', 'INTEGER']
 ]) {
   if (!glCols.includes(col)) db.exec(`ALTER TABLE game_lines ADD COLUMN ${col} ${type}`);
 }
@@ -142,8 +145,9 @@ export async function syncHistoricalLines() {
 export async function syncCurrentLines(season, weeks = 18) {
   const stmt = db.prepare(`INSERT INTO game_lines
       (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at,
-       team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds)
-    VALUES (?,?,?,?,?,?,?,?, 'espn', datetime('now'), ?,?,?,?,?,?)
+       team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds,
+       open_spread, open_total)
+    VALUES (?,?,?,?,?,?,?,?, 'espn', datetime('now'), ?,?,?,?,?,?,?,?)
     ON CONFLICT(season, week, team) DO UPDATE SET
       spread=excluded.spread, total=excluded.total, implied_points=excluded.implied_points,
       source=excluded.source, fetched_at=excluded.fetched_at,
@@ -152,7 +156,9 @@ export async function syncCurrentLines(season, weeks = 18) {
       moneyline=COALESCE(excluded.moneyline, moneyline),
       spread_odds=COALESCE(excluded.spread_odds, spread_odds),
       total_over_odds=COALESCE(excluded.total_over_odds, total_over_odds),
-      total_under_odds=COALESCE(excluded.total_under_odds, total_under_odds)`);
+      total_under_odds=COALESCE(excluded.total_under_odds, total_under_odds),
+      open_spread=COALESCE(excluded.open_spread, open_spread),
+      open_total=COALESCE(excluded.open_total, open_total)`);
 
   // `Number('')` is 0, not NaN — an unplayed game's blank score/odds columns must
   // stay null, or every future game silently looks like a 0-0 final.
@@ -188,10 +194,20 @@ export async function syncCurrentLines(season, weeks = 18) {
         const overOdds = int(odds.total?.over?.close?.odds ?? odds.overOdds);
         const underOdds = int(odds.total?.under?.close?.odds ?? odds.underOdds);
 
+        // ESPN reports the opening quote alongside the current one; spread opens
+        // are stated from the home side, matching `odds.spread`.
+        const openTotal = Number(odds.open?.total?.american ?? odds.open?.total?.alternateDisplayValue);
+        const openSpreadRaw = Number(odds.open?.pointSpread?.alternateDisplayValue
+          ?? odds.open?.spread?.american ?? odds.open?.spread?.alternateDisplayValue);
+        const openTotalV = Number.isFinite(openTotal) ? openTotal : null;
+        const openSpreadV = Number.isFinite(openSpreadRaw) ? openSpreadRaw : null;
+
         stmt.run(season, week, ha, aa, 1, hs, total, impliedPoints(hs, total),
-          hScore, aScore, homeMl, homeSpreadOdds, overOdds, underOdds);
+          hScore, aScore, homeMl, homeSpreadOdds, overOdds, underOdds,
+          openSpreadV, openTotalV);
         stmt.run(season, week, aa, ha, 0, -hs, total, impliedPoints(-hs, total),
-          aScore, hScore, awayMl, awaySpreadOdds, overOdds, underOdds);
+          aScore, hScore, awayMl, awaySpreadOdds, overOdds, underOdds,
+          openSpreadV == null ? null : -openSpreadV, openTotalV);
         updated += 2;
       }
     } catch { /* a missing week is normal out of season */ }

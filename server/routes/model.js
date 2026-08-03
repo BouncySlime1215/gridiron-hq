@@ -76,9 +76,19 @@ r.get('/projections/:playerId', (req, res, next) => {
     }
     if (!p) return res.status(404).json({ error: 'no projection for this player — he has no usage history' });
 
+    // The season-long distribution stays neutral (mult=1) on purpose — it averages
+    // across a whole slate of different opponents, so no single week's Vegas line
+    // belongs in it. The *weekly* number is a specific start/sit call for a specific
+    // upcoming opponent, which is exactly what game script is for.
+    const week = Number(req.query.week) || 1;
+    const gs = p.team ? gameScriptFor(p.team, SEASON, week) : null;
+    const mult = gs?.line ? { pass: gs.pass_mult, rush: gs.rush_mult } : 1;
+
     res.json({
       ...p,
-      weekly: weeklyDistribution(p, { runs: 4000, scoring }),
+      week,
+      game_script: gs,
+      weekly: weeklyDistribution(p, { runs: 4000, scoring, mult }),
       season: (() => { const s = seasonDistribution(p, { runs: 800, scoring }); delete s.samples; return s; })(),
       availability: availability().get(p.player_id) ?? null,
       usage_history: usageFor(p.player_id).slice(0, 20)

@@ -25,29 +25,37 @@ import PropsPicks from './pages/props/PropsPicks';
 import PropsModel from './pages/props/PropsModel';
 import PropsAutoPicks from './pages/props/PropsAutoPicks';
 import NflMarketBoard from './pages/NflMarketBoard';
+import FantasyLab from './pages/FantasyLab';
+import BettingHome from './pages/betting/BettingHome';
+import NflProps from './pages/betting/NflProps';
+import VariableCatalog from './pages/betting/VariableCatalog';
 
+// Fantasy and betting answer different questions off different data, so they get
+// separate sections rather than one long mixed list. Edge Tools and the
+// Prediction Engine are now one hub (see FantasyLab) instead of two entries.
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '🏠' },
   { to: '/my-team', label: 'My Team', icon: '⭐' },
   { to: '/players', label: 'Players', icon: '📋' },
   { to: '/drafts', label: 'Draft Room', icon: '🎯' },
   { to: '/teams', label: '32 Teams', icon: '🏈' },
-  { to: '/edge', label: 'Edge Tools', icon: '🧠' },
+  { to: '/lab', label: 'Fantasy Lab', icon: '🧠' },
   { to: '/trade-lab', label: 'Trade Lab', icon: '🤝' },
-  { to: '/model', label: 'Prediction Engine', icon: '📈' },
-  { to: '/nfl-board', label: 'NFL Board', icon: '🎰' },
   { to: '/news', label: 'Camp News', icon: '📰' },
   { to: '/leagues', label: 'My Leagues', icon: '🔗' },
   { to: '/settings', label: 'ESPN Settings', icon: '⚙️' }
 ];
 
-// A different sport, a different data source entirely (see server/routes/props.js) —
-// grouped on its own rather than mixed into the fantasy-football nav above.
-const PROPS_NAV = [
-  { to: '/props', label: 'Model Board', icon: '⚾' },
-  { to: '/props/auto-picks', label: 'Auto Picks', icon: '🤖' },
-  { to: '/props/picks', label: 'My Picks', icon: '🎫' },
-  { to: '/props/model', label: 'Model Info', icon: 'ℹ️' }
+const BETTING_NAV = [
+  { to: '/betting', label: 'Betting Home', icon: '🎰', end: true },
+  { to: '/betting/nfl', label: 'NFL Board', icon: '🏈' },
+  { to: '/betting/nfl/props', label: 'NFL Props', icon: '🎯' },
+  { to: '/betting/nfl/picks', label: 'NFL Auto Picks', icon: '🤖' },
+  { to: '/betting/mlb', label: 'MLB Board', icon: '⚾' },
+  { to: '/betting/mlb/auto', label: 'MLB Auto Picks', icon: '🤖' },
+  { to: '/betting/mlb/picks', label: 'MLB My Picks', icon: '🎫' },
+  { to: '/betting/catalog', label: 'Variables', icon: '📚' },
+  { to: '/betting/mlb/model', label: 'Model Info', icon: 'ℹ️' }
 ];
 
 export default function App() {
@@ -56,7 +64,9 @@ export default function App() {
     localStorage.setItem('gh:sidebar', collapsed ? 'collapsed' : 'open');
   }, [collapsed]);
   const location = useLocation();
-  const inProps = location.pathname.startsWith('/props');
+  // The league switcher is fantasy-only context; betting pages have no league.
+  const inBetting = location.pathname.startsWith('/betting') || location.pathname.startsWith('/props')
+    || location.pathname.startsWith('/nfl-board');
 
   return (
     <LeagueProvider>
@@ -95,20 +105,20 @@ export default function App() {
           </NavLink>
         ))}
 
-        {/* A different sport, a different tool — set off from the fantasy football nav
-            above rather than blended into it. */}
+        {/* Betting is its own product — different sports, different data, no league
+            context — so it gets a labelled section rather than being blended in. */}
         <div className={`mt-3 mb-1 border-t border-slate-200 pt-3 ${collapsed ? '' : 'px-1'}`}>
           {!collapsed && (
             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 px-2 mb-1 whitespace-nowrap">
-              MLB Props
+              Betting
             </div>
           )}
         </div>
-        {PROPS_NAV.map(n => (
+        {BETTING_NAV.map(n => (
           <NavLink
             key={n.to}
             to={n.to}
-            end={n.to === '/props'}
+            end={n.end}
             title={collapsed ? n.label : undefined}
             className={({ isActive }) =>
               `py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
@@ -142,7 +152,7 @@ export default function App() {
             </svg>
           </button>
           <span className="text-sm font-semibold text-slate-500">Gridiron HQ</span>
-          {!inProps && <LeagueSwitcher />}
+          {!inBetting && <LeagueSwitcher />}
           <div className="ml-auto flex items-center gap-2">
             <RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} />
             <DevHub />
@@ -166,6 +176,22 @@ export default function App() {
           <Route path="/news" element={<News />} />
           <Route path="/leagues" element={<Leagues />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/lab" element={<FantasyLab />} />
+
+          {/* Betting section */}
+          <Route path="/betting" element={<BettingHome />} />
+          <Route path="/betting/nfl" element={<NflMarketBoard />} />
+          <Route path="/betting/nfl/props" element={<NflProps />} />
+          <Route path="/betting/nfl/picks" element={<NflMarketBoard />} />
+          <Route path="/betting/catalog" element={<VariableCatalog />} />
+          <Route path="/betting/mlb" element={<PropsBoard />} />
+          <Route path="/betting/mlb/auto" element={<PropsAutoPicks />} />
+          <Route path="/betting/mlb/picks" element={<PropsPicks />} />
+          <Route path="/betting/mlb/model" element={<PropsModel />} />
+
+          {/* Previous paths, kept so existing links and bookmarks still resolve. */}
+          <Route path="/edge" element={<FantasyLab />} />
+          <Route path="/model" element={<FantasyLab />} />
           <Route path="/nfl-board" element={<NflMarketBoard />} />
           <Route path="/props" element={<PropsBoard />} />
           <Route path="/props/auto-picks" element={<PropsAutoPicks />} />

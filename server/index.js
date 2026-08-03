@@ -25,6 +25,8 @@ import modelRouter from './routes/model.js';
 import propsRouter from './routes/props.js';
 import mlbRouter from './routes/mlb.js';
 import nflMarketRouter from './routes/nfl-market.js';
+import nflBettingRouter from './routes/nfl-betting.js';
+import bettingHubRouter from './routes/betting-hub.js';
 
 const app = express();
 app.use(express.json());
@@ -52,6 +54,8 @@ app.use('/api/model', modelRouter);
 app.use('/api/props', propsRouter);
 app.use('/api/mlb', mlbRouter);
 app.use('/api/nfl-market', nflMarketRouter);
+app.use('/api/nfl-betting', nflBettingRouter);
+app.use('/api/betting', bettingHubRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

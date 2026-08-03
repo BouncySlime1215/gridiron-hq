@@ -19,8 +19,13 @@ const TABS = [
 ] as const;
 type Tab = typeof TABS[number]['id'];
 
-export default function Model() {
-  const [tab, setTab] = useState<Tab>('accuracy');
+/**
+ * Renders standalone, or driven by the Fantasy Lab hub — see the matching note
+ * on Edge. `embedded` hides the local title and tab strip so the hub owns one bar.
+ */
+export default function Model({ tab: controlledTab, embedded }: { tab?: Tab; embedded?: boolean } = {}) {
+  const [ownTab, setTab] = useState<Tab>('accuracy');
+  const tab = controlledTab ?? ownTab;
   const { data: status } = useApi<any>('/model/status');
   const [syncing, setSyncing] = useState(false);
 
@@ -34,15 +39,17 @@ export default function Model() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold">Prediction Engine</h1>
+        {!embedded && <h1 className="text-2xl font-bold">Prediction Engine</h1>}
         <button className="btn-ghost ml-auto text-xs" onClick={sync} disabled={syncing}>
           {syncing ? 'Syncing…' : '↻ Resync & refit'}
         </button>
       </div>
-      <p className="text-sm text-slate-500 mb-3">
-        Projections are built from opportunity and efficiency separately, then simulated
-        rather than reported as a single number.
-      </p>
+      {!embedded && (
+        <p className="text-sm text-slate-500 mb-3">
+          Projections are built from opportunity and efficiency separately, then simulated
+          rather than reported as a single number.
+        </p>
+      )}
 
       {status && (
         <div className="flex gap-4 flex-wrap text-[11px] text-slate-500 mb-4">
@@ -54,15 +61,17 @@ export default function Model() {
         </div>
       )}
 
-      <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
-              tab === t.id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {!embedded && (
+        <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+                tab === t.id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === 'accuracy' && <Accuracy />}
       {tab === 'odds' && <Odds />}

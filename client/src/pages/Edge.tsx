@@ -58,8 +58,14 @@ function PlayerPicker({ label, ids, setIds }: { label: string; ids: number[]; se
   );
 }
 
-export default function Edge() {
-  const [tab, setTab] = useState<Tab>('vor');
+/**
+ * Renders standalone, or driven by the Fantasy Lab hub: passing `tab` makes the
+ * selection controlled and `embedded` hides the local header and tab strip, so
+ * the hub can own one unified bar instead of stacking two.
+ */
+export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embedded?: boolean } = {}) {
+  const [ownTab, setTab] = useState<Tab>('vor');
+  const tab = controlledTab ?? ownTab;
   const [pos, setPos] = useState('ALL');
 
   const { data: vor } = useApi<any[]>('/edge/vor');
@@ -79,11 +85,15 @@ export default function Edge() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-1">Edge</h1>
-      <p className="text-sm text-slate-500 mb-4">{active[2]}</p>
+      {!embedded && (
+        <>
+          <h1 className="text-2xl font-bold mb-1">Edge</h1>
+          <p className="text-sm text-slate-500 mb-4">{active[2]}</p>
+        </>
+      )}
 
       <div className="flex gap-1.5 mb-4 flex-wrap">
-        {TABS.map(([k, label]) => (
+        {!embedded && TABS.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`btn ${tab === k ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
             {label}

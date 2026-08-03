@@ -1,0 +1,191 @@
+/**
+ * NFL betting API: the feature catalog, prop projections, weekly totals,
+ * pick reasoning, role tracking and the combined hub summary.
+ */
+import { Router } from 'express';
+import { catalog, countVariables, teamFeatureVector, playerFeatureVector, bettingTrends } from '../services/nfl-features.js';
+import { propBoard, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
+import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
+import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
+import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
+import { boardFor, accuracy } from '../services/nfl-market.js';
+import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
+import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
+import { standouts, reconcile } from '../services/betting-fantasy-link.js';
+
+const r = Router();
+const SEASON = Number(process.env.NFL_SEASON) || 2026;
+const wk = req => Number(req.query.week) || 1;
+const ssn = req => Number(req.query.season) || SEASON;
+
+/* ---------------------------------------------------------------- catalog */
+
+r.get('/catalog', (req, res, next) => {
+  try {
+    const c = catalog();
+    const scope = req.query.scope;
+    res.json({
+      summary: countVariables(),
+      variables: scope ? c.filter(v => v.scope === scope) : c
+    });
+  } catch (e) { next(e); }
+});
+
+r.get('/features/team', (req, res, next) => {
+  try {
+    const team = String(req.query.team ?? '').toUpperCase();
+    if (!team) return res.status(400).json({ error: 'team query param required' });
+    res.json({ season: ssn(req), week: wk(req), team, features: teamFeatureVector(ssn(req), wk(req), team) });
+  } catch (e) { next(e); }
+});
+
+r.get('/features/player', (req, res, next) => {
+  try {
+    const id = req.query.player_id;
+    if (!id) return res.status(400).json({ error: 'player_id query param required' });
+    res.json(playerFeatureVector(ssn(req), wk(req), String(id)) ?? { error: 'no history for this player' });
+  } catch (e) { next(e); }
+});
+
+r.get('/trends', (req, res, next) => {
+  try {
+    const team = String(req.query.team ?? '').toUpperCase();
+    if (!team) return res.status(400).json({ error: 'team query param required' });
+    res.json({ team, season: ssn(req), week: wk(req), trends: bettingTrends(ssn(req), wk(req), team) });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------------ props */
+
+/** Model-only by default; `?market=1` spends Odds API credits to price it. */
+r.get('/props', async (req, res, next) => {
+  try {
+    res.json(await propBoard(ssn(req), wk(req), {
+      fetchMarket: req.query.market === '1',
+      limit: Number(req.query.limit) || 60,
+      maxEvents: Math.min(Number(req.query.max_events) || 4, 16)
+    }));
+  } catch (e) { next(e); }
+});
+
+/* ----------------------------------------------------------------- totals */
+
+r.get('/totals', async (req, res, next) => {
+  try {
+    const picks = await topTotals(ssn(req), wk(req), Number(req.query.n) || 5);
+    if (picks?.error) return res.status(409).json(picks);
+    res.json({
+      season: ssn(req), week: wk(req),
+      picks: picks.map(p => ({ ...p, reasoning: explainPick({
+        season: ssn(req), week: wk(req), market: 'total',
+        pickTeam: p.home_team, oppTeam: p.away_team, side: p.side, line: p.line,
+        modelProbability: p.model_probability, impliedProbability: p.implied_probability,
+        detail: p.detail
+      }) }))
+    });
+  } catch (e) { next(e); }
+});
+
+r.post('/totals/lock', async (req, res, next) => {
+  try { res.json({ picks: await ensureTotalPicks(ssn(req), wk(req), Number(req.query.n) || 5) }); }
+  catch (e) { next(e); }
+});
+
+r.get('/totals/results', (req, res, next) => {
+  try { res.json({ results: gradeTotalPicks(), standing: totalPicksStanding() }); }
+  catch (e) { next(e); }
+});
+
+/* -------------------------------------------------------------- reasoning */
+
+/** The full board with a computed rationale attached to every row. */
+r.get('/board/explained', (req, res, next) => {
+  try {
+    const board = boardFor(ssn(req), wk(req));
+    if (board?.error) return res.status(409).json(board);
+    const filtered = req.query.market ? board.filter(b => b.market === req.query.market) : board;
+    res.json({
+      season: ssn(req), week: wk(req),
+      board: explainBoard(ssn(req), wk(req), filtered.slice(0, Number(req.query.limit) || 20))
+    });
+  } catch (e) { next(e); }
+});
+
+r.get('/sentiment', (req, res, next) => {
+  try {
+    const team = String(req.query.team ?? '').toUpperCase();
+    if (!team) return res.status(400).json({ error: 'team query param required' });
+    res.json(publicSignal(ssn(req), wk(req), team, req.query.market ?? 'spread'));
+  } catch (e) { next(e); }
+});
+
+/* -------------------------------------------------- betting -> fantasy */
+
+/** Players the betting model is highest on this week, in fantasy points. */
+r.get('/fantasy/standouts', (req, res, next) => {
+  try {
+    res.json({
+      season: ssn(req), week: wk(req),
+      players: standouts(ssn(req), wk(req), {
+        minPoints: Number(req.query.min_points) || 8,
+        limit: Number(req.query.limit) || 25
+      })
+    });
+  } catch (e) { next(e); }
+});
+
+/** One player: betting-model points vs the fantasy projection, and why they differ. */
+r.get('/fantasy/reconcile', (req, res, next) => {
+  try {
+    const id = req.query.player_id;
+    if (!id) return res.status(400).json({ error: 'player_id query param required' });
+    const fp = req.query.fantasy_points != null ? Number(req.query.fantasy_points) : null;
+    const out = reconcile(ssn(req), wk(req), String(id), fp);
+    if (!out) return res.status(404).json({ error: 'no usage history for this player' });
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------------ roles */
+
+r.get('/roles', (req, res, next) => {
+  try {
+    const team = String(req.query.team ?? '').toUpperCase();
+    if (!team) return res.status(400).json({ error: 'team query param required' });
+    res.json({ season: ssn(req), week: wk(req), team, roles: rolesFor(ssn(req), wk(req), team) });
+  } catch (e) { next(e); }
+});
+
+r.get('/roles/timeline', (req, res, next) => {
+  try {
+    const id = req.query.gsis_id;
+    if (!id) return res.status(400).json({ error: 'gsis_id query param required' });
+    res.json({ season: ssn(req), timeline: roleTimeline(ssn(req), String(id)) });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------------ admin */
+
+r.get('/status', (req, res, next) => {
+  try {
+    res.json({
+      variables: countVariables(),
+      pbp: pbpCoverage(),
+      advanced: advancedCoverage(),
+      odds_api: oddsUsage(),
+      odds_cache: cacheStatus()
+    });
+  } catch (e) { next(e); }
+});
+
+r.post('/sync', async (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    const out = { pbp: [] };
+    for (const s of seasons) out.pbp.push(await syncPbpSeason(s));
+    out.advanced = await syncAllAdvanced(seasons);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+export default r;

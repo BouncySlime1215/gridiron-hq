@@ -166,27 +166,40 @@ export function projectWeek(season, week, { minVolume = 2 } = {}) {
  * filled in when a key is configured. `fetchMarket` is opt-in so simply loading
  * the page never spends credits.
  */
-export async function propBoard(season, week, { fetchMarket = false, limit = 60 } = {}) {
+export async function propBoard(season, week, {
+  fetchMarket = false, limit = 60,
+  maxEvents = 4, markets = PROP_MARKETS
+} = {}) {
   const projections = projectWeek(season, week);
   const byName = new Map();
   for (const p of projections) if (p.name) byName.set(normalizeName(p.name), p);
 
   let market = [];
+  let creditsSpent = 0;
+  // The Odds API bills one credit per market per event, so a full 16-game slate
+  // across five markets is 80 credits — most of a free month in one click.
+  // Fetching is capped and the cost is reported rather than discovered later.
+  const estimate = maxEvents * markets.length;
   let marketStatus = hasKey()
-    ? (fetchMarket ? 'fetching' : 'not requested — press Refresh odds to spend a credit')
+    ? (fetchMarket ? 'fetching' : `not requested — refreshing costs about ${estimate} credits (${maxEvents} games x ${markets.length} markets)`)
     : 'no ODDS_API_KEY configured — model-only';
 
   if (fetchMarket && hasKey()) {
     try {
       const evs = await events();
-      const wk = (evs ?? []).filter(e => withinWeek(e.commence_time, season, week));
+      const all = (evs ?? []).filter(e => withinWeek(e.commence_time, season, week));
+      // Earliest kickoffs first, so a capped fetch covers the games closest to
+      // locking rather than an arbitrary slice.
+      const wk = all.sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time)).slice(0, maxEvents);
       for (const e of wk) {
-        const payload = await playerProps(e.id, { markets: PROP_MARKETS });
+        const before = market.length;
+        const payload = await playerProps(e.id, { markets });
         if (payload) market.push(...flattenProps(payload));
+        if (market.length !== before) creditsSpent += markets.length;
       }
       marketStatus = market.length
-        ? `${market.length} priced props across ${wk.length} games`
-        : `no player props posted yet for week ${week} (books post them closer to kickoff)`;
+        ? `${market.length} priced props from ${wk.length} of ${all.length} games (~${creditsSpent} credits used; cached 6h)`
+        : `no player props posted yet for week ${week} — books post these closer to kickoff, and no credits were charged`;
     } catch (e) {
       marketStatus = `odds fetch failed: ${e.message}`;
     }

@@ -17,9 +17,22 @@ import { Router } from 'express';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parseCsv } from '../services/nflverse.js';
+import { db, rows as dbRows, run } from '../db/index.js';
 
 const execFileAsync = promisify(execFile);
 const r = Router();
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS props_auto_picks (
+    pick_date TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    market TEXT, selection TEXT, matchup TEXT, game_time TEXT, side TEXT, line REAL,
+    american_price INTEGER, model_probability REAL, implied_probability REAL,
+    probability_difference REAL, recommendation TEXT, signal TEXT,
+    selected_at TEXT NOT NULL,
+    PRIMARY KEY (pick_date, rank)
+  );
+`);
 
 const OWNER = 'glederer04';
 const REPO = 'Baseball-Props';
@@ -58,53 +71,97 @@ const num = v => { const n = Number(v); return v !== '' && Number.isFinite(n) ? 
 
 /* ------------------------------------------------------------------ board */
 
+/** Shared by the /board route and the auto-pick selector below. */
+async function buildBoard() {
+  const [board, projections, status] = await Promise.all([
+    fetchCsv('site-data/latest_board.csv'),
+    fetchCsv('site-data/today_projections.csv'),
+    fetchCsv('site-data/pipeline_status.csv')
+  ]);
+
+  // Same join the R site does: attach the live FanDuel price to a projection row
+  // when one exists, so "model-only" rows aren't actually priceless when a line
+  // happens to already be captured for them.
+  const normMarket = m => (m === 'totals_1st_1_innings' ? 'nrfi' : m);
+  const priceByKey = new Map();
+  for (const b of board) {
+    const joinMarket = normMarket(b.market);
+    const joinSide = joinMarket === 'nrfi' ? b.selection : b.side;
+    const key = [b.selection, b.matchup, joinMarket, joinSide].join('||');
+    if (!priceByKey.has(key)) priceByKey.set(key, b.american_price);
+  }
+
+  return {
+    board: board
+      .map(b => ({
+        selection: b.selection, matchup: b.matchup, game_time: b.game_time,
+        market: normMarket(b.market), side: b.side, line: num(b.line),
+        american_price: num(b.american_price),
+        model_probability: num(b.model_probability),
+        implied_probability: num(b.implied_probability),
+        probability_difference: num(b.probability_difference),
+        signal: b.signal, captured_at: b.captured_at,
+        slate_date: b.captured_at?.slice(0, 10) ?? null
+      }))
+      .sort((a, b) => (b.probability_difference ?? -1) - (a.probability_difference ?? -1)),
+    projections: projections.map(p => {
+      const key = [p.selection, p.matchup, p.market, p.recommended_side].join('||');
+      return {
+        slate_date: p.slate_date, slate_label: p.slate_label,
+        selection: p.selection, matchup: p.matchup, game_time: p.game_time,
+        market: p.market, recommended_side: p.recommended_side, recommendation: p.recommendation,
+        expected_count: num(p.expected_count), reference_line: num(p.reference_line),
+        line_gap: num(p.line_gap), model_probability: num(p.model_probability),
+        confidence: num(p.confidence), projection_note: p.projection_note, status: p.status,
+        american_price: num(priceByKey.get(key))
+      };
+    }),
+    status: status[0] ?? null
+  };
+}
+
 r.get('/board', async (req, res, next) => {
+  try { res.json(await buildBoard()); } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------- auto-picks */
+
+/**
+ * The top 5 FanDuel-priced edges for a slate, auto-selected and locked in —
+ * every pick is graded as its own straight bet, never combined into a parlay.
+ * Generation is idempotent per slate date: once today's five are picked, they
+ * stay fixed even if the board re-ranks later in the day.
+ */
+async function ensureAutoPicksFor(slateDate, board) {
+  const existing = dbRows('SELECT * FROM props_auto_picks WHERE pick_date = ? ORDER BY rank', slateDate);
+  if (existing.length) return existing;
+
+  const candidates = board.filter(b => b.slate_date === slateDate && b.american_price != null)
+    .sort((a, b) => (b.probability_difference ?? -1) - (a.probability_difference ?? -1))
+    .slice(0, 5);
+  if (!candidates.length) return [];
+
+  const now = new Date().toISOString();
+  candidates.forEach((b, i) => {
+    run(`INSERT INTO props_auto_picks
+        (pick_date, rank, market, selection, matchup, game_time, side, line, american_price,
+         model_probability, implied_probability, probability_difference, recommendation, signal, selected_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(pick_date, rank) DO NOTHING`,
+      slateDate, i + 1, b.market, b.selection, b.matchup, b.game_time, b.side, b.line, b.american_price,
+      b.model_probability, b.implied_probability, b.probability_difference,
+      `${b.side ?? b.selection} ${b.line ?? ''}`.trim(), b.signal, now);
+  });
+  return dbRows('SELECT * FROM props_auto_picks WHERE pick_date = ? ORDER BY rank', slateDate);
+}
+
+r.get('/auto-picks', async (req, res, next) => {
   try {
-    const [board, projections, status] = await Promise.all([
-      fetchCsv('site-data/latest_board.csv'),
-      fetchCsv('site-data/today_projections.csv'),
-      fetchCsv('site-data/pipeline_status.csv')
-    ]);
-
-    // Same join the R site does: attach the live FanDuel price to a projection row
-    // when one exists, so "model-only" rows aren't actually priceless when a line
-    // happens to already be captured for them.
-    const normMarket = m => (m === 'totals_1st_1_innings' ? 'nrfi' : m);
-    const priceByKey = new Map();
-    for (const b of board) {
-      const joinMarket = normMarket(b.market);
-      const joinSide = joinMarket === 'nrfi' ? b.selection : b.side;
-      const key = [b.selection, b.matchup, joinMarket, joinSide].join('||');
-      if (!priceByKey.has(key)) priceByKey.set(key, b.american_price);
-    }
-
-    res.json({
-      board: board
-        .map(b => ({
-          selection: b.selection, matchup: b.matchup, game_time: b.game_time,
-          market: normMarket(b.market), side: b.side, line: num(b.line),
-          american_price: num(b.american_price),
-          model_probability: num(b.model_probability),
-          implied_probability: num(b.implied_probability),
-          probability_difference: num(b.probability_difference),
-          signal: b.signal, captured_at: b.captured_at,
-          slate_date: b.captured_at?.slice(0, 10) ?? null
-        }))
-        .sort((a, b) => (b.probability_difference ?? -1) - (a.probability_difference ?? -1)),
-      projections: projections.map(p => {
-        const key = [p.selection, p.matchup, p.market, p.recommended_side].join('||');
-        return {
-          slate_date: p.slate_date, slate_label: p.slate_label,
-          selection: p.selection, matchup: p.matchup, game_time: p.game_time,
-          market: p.market, recommended_side: p.recommended_side, recommendation: p.recommendation,
-          expected_count: num(p.expected_count), reference_line: num(p.reference_line),
-          line_gap: num(p.line_gap), model_probability: num(p.model_probability),
-          confidence: num(p.confidence), projection_note: p.projection_note, status: p.status,
-          american_price: num(priceByKey.get(key))
-        };
-      }),
-      status: status[0] ?? null
-    });
+    const { board } = await buildBoard();
+    const slateDate = board[0]?.slate_date ?? new Date().toISOString().slice(0, 10);
+    const today = await ensureAutoPicksFor(slateDate, board);
+    const history = dbRows('SELECT * FROM props_auto_picks ORDER BY pick_date DESC, rank ASC');
+    res.json({ slate_date: slateDate, today, history });
   } catch (e) { next(e); }
 });
 

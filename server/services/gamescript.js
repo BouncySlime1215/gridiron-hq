@@ -42,6 +42,17 @@ db.exec(`
   );
 `);
 
+// Real final scores and real sportsbook prices (not just the spread/total numbers), added
+// alongside the original columns — both are already sitting in the same nflverse/ESPN
+// responses this file already fetches, and the NFL win/cover/total model needs them.
+const glCols = db.prepare(`PRAGMA table_info(game_lines)`).all().map(c => c.name);
+for (const [col, type] of [
+  ['team_score', 'INTEGER'], ['opp_score', 'INTEGER'], ['moneyline', 'INTEGER'],
+  ['spread_odds', 'INTEGER'], ['total_over_odds', 'INTEGER'], ['total_under_odds', 'INTEGER']
+]) {
+  if (!glCols.includes(col)) db.exec(`ALTER TABLE game_lines ADD COLUMN ${col} ${type}`);
+}
+
 /**
  * A team's implied point total: half the game total, adjusted by half the spread.
  * This is the single most useful derived quantity from a line — it is the market's
@@ -57,17 +68,26 @@ export async function syncHistoricalLines() {
   if (!res.ok) throw new Error(`games.csv -> HTTP ${res.status}`);
   const { header, records } = parseCsv(await res.text());
   const at = n => header.indexOf(n);
-  const [iS, iW, iAway, iHome, iSpread, iTotal] =
-    ['season', 'week', 'away_team', 'home_team', 'spread_line', 'total_line'].map(at);
+  const [iS, iW, iAway, iHome, iSpread, iTotal, iAwayScore, iHomeScore,
+    iAwayMl, iHomeMl, iAwaySpreadOdds, iHomeSpreadOdds, iUnderOdds, iOverOdds] =
+    ['season', 'week', 'away_team', 'home_team', 'spread_line', 'total_line', 'away_score', 'home_score',
+      'away_moneyline', 'home_moneyline', 'away_spread_odds', 'home_spread_odds', 'under_odds', 'over_odds'].map(at);
   if (iSpread < 0 || iTotal < 0) throw new Error('games.csv is missing spread_line/total_line');
 
   const stmt = db.prepare(`INSERT INTO game_lines
-      (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at)
-    VALUES (?,?,?,?,?,?,?,?, 'nflverse', datetime('now'))
+      (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at,
+       team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds)
+    VALUES (?,?,?,?,?,?,?,?, 'nflverse', datetime('now'), ?,?,?,?,?,?)
     ON CONFLICT(season, week, team) DO UPDATE SET
       spread=excluded.spread, total=excluded.total, implied_points=excluded.implied_points,
-      opponent=excluded.opponent, home=excluded.home, source=excluded.source`);
+      opponent=excluded.opponent, home=excluded.home, source=excluded.source,
+      team_score=excluded.team_score, opp_score=excluded.opp_score, moneyline=excluded.moneyline,
+      spread_odds=excluded.spread_odds, total_over_odds=excluded.total_over_odds,
+      total_under_odds=excluded.total_under_odds`);
 
+  // `Number('')` is 0, not NaN — an unplayed game's blank score/odds columns must
+  // stay null, or every future game silently looks like a 0-0 final.
+  const int = v => { if (v === '' || v == null) return null; const n = Number(v); return Number.isFinite(n) ? Math.round(n) : null; };
   let n = 0;
   db.exec('BEGIN');
   try {
@@ -77,9 +97,17 @@ export async function syncHistoricalLines() {
       // nflverse states spread_line from the HOME team's perspective, positive = home favoured.
       const homeSpread = -Number(r[iSpread]);
       if (!Number.isFinite(total) || !Number.isFinite(homeSpread) || !season || !week) continue;
-      const home = r[iHome], away = r[iAway];
-      stmt.run(season, week, home, away, 1, homeSpread, total, impliedPoints(homeSpread, total));
-      stmt.run(season, week, away, home, 0, -homeSpread, total, impliedPoints(-homeSpread, total));
+      // nflverse abbreviates the Rams "LA"; the rest of this app (and ESPN) uses "LAR" —
+      // without this they split into two team identities for the same current franchise.
+      const home = r[iHome] === 'LA' ? 'LAR' : r[iHome], away = r[iAway] === 'LA' ? 'LAR' : r[iAway];
+      const homeScore = int(r[iHomeScore]), awayScore = int(r[iAwayScore]);
+      const homeMl = int(r[iHomeMl]), awayMl = int(r[iAwayMl]);
+      const homeSpreadOdds = int(r[iHomeSpreadOdds]), awaySpreadOdds = int(r[iAwaySpreadOdds]);
+      const overOdds = int(r[iOverOdds]), underOdds = int(r[iUnderOdds]);
+      stmt.run(season, week, home, away, 1, homeSpread, total, impliedPoints(homeSpread, total),
+        homeScore, awayScore, homeMl, homeSpreadOdds, overOdds, underOdds);
+      stmt.run(season, week, away, home, 0, -homeSpread, total, impliedPoints(-homeSpread, total),
+        awayScore, homeScore, awayMl, awaySpreadOdds, overOdds, underOdds);
       n += 2;
     }
     db.exec('COMMIT');
@@ -87,15 +115,32 @@ export async function syncHistoricalLines() {
   return { rows: n };
 }
 
-/** Current-slate lines from ESPN, which carry live sportsbook numbers. */
+/**
+ * Current-slate lines from ESPN, which carry live sportsbook numbers — including,
+ * when the primary provider quotes them, real moneyline/spread/total prices (not
+ * just the spread and total numbers), which is what a genuine no-vig market
+ * probability needs. `COALESCE` on the odds/score columns means a refresh before
+ * a book posts real prices, or before a game goes final, never clobbers real data
+ * already stored with a null.
+ */
 export async function syncCurrentLines(season, weeks = 18) {
   const stmt = db.prepare(`INSERT INTO game_lines
-      (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at)
-    VALUES (?,?,?,?,?,?,?,?, 'espn', datetime('now'))
+      (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at,
+       team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds)
+    VALUES (?,?,?,?,?,?,?,?, 'espn', datetime('now'), ?,?,?,?,?,?)
     ON CONFLICT(season, week, team) DO UPDATE SET
       spread=excluded.spread, total=excluded.total, implied_points=excluded.implied_points,
-      source=excluded.source, fetched_at=excluded.fetched_at`);
+      source=excluded.source, fetched_at=excluded.fetched_at,
+      team_score=COALESCE(excluded.team_score, team_score),
+      opp_score=COALESCE(excluded.opp_score, opp_score),
+      moneyline=COALESCE(excluded.moneyline, moneyline),
+      spread_odds=COALESCE(excluded.spread_odds, spread_odds),
+      total_over_odds=COALESCE(excluded.total_over_odds, total_over_odds),
+      total_under_odds=COALESCE(excluded.total_under_odds, total_under_odds)`);
 
+  // `Number('')` is 0, not NaN — an unplayed game's blank score/odds columns must
+  // stay null, or every future game silently looks like a 0-0 final.
+  const int = v => { if (v === '' || v == null) return null; const n = Number(v); return Number.isFinite(n) ? Math.round(n) : null; };
   let updated = 0;
   for (let week = 1; week <= weeks; week++) {
     try {
@@ -112,10 +157,25 @@ export async function syncCurrentLines(season, weeks = 18) {
         if (!home || !away) continue;
         // ESPN quotes `spread` from the home side, negative = home favoured.
         const hs = Number(odds.spread), total = Number(odds.overUnder);
-        const ha = home.team?.abbreviation, aa = away.team?.abbreviation;
+        // ESPN abbreviates Washington "WSH"; nflverse's historical data (and the rest of
+        // this app) uses "WAS" — normalize so the two don't split into separate teams.
+        const normAbbr = a => (a === 'WSH' ? 'WAS' : a);
+        const ha = normAbbr(home.team?.abbreviation), aa = normAbbr(away.team?.abbreviation);
         if (!ha || !aa || !Number.isFinite(hs) || !Number.isFinite(total)) continue;
-        stmt.run(season, week, ha, aa, 1, hs, total, impliedPoints(hs, total));
-        stmt.run(season, week, aa, ha, 0, -hs, total, impliedPoints(-hs, total));
+
+        const isFinal = c.status?.type?.completed === true;
+        const hScore = isFinal ? int(home.score) : null, aScore = isFinal ? int(away.score) : null;
+        const homeMl = int(odds.moneyline?.home?.close?.odds ?? odds.moneyline?.home?.odds);
+        const awayMl = int(odds.moneyline?.away?.close?.odds ?? odds.moneyline?.away?.odds);
+        const homeSpreadOdds = int(odds.pointSpread?.home?.close?.odds ?? odds.homeTeamOdds?.spreadOdds);
+        const awaySpreadOdds = int(odds.pointSpread?.away?.close?.odds ?? odds.awayTeamOdds?.spreadOdds);
+        const overOdds = int(odds.total?.over?.close?.odds ?? odds.overOdds);
+        const underOdds = int(odds.total?.under?.close?.odds ?? odds.underOdds);
+
+        stmt.run(season, week, ha, aa, 1, hs, total, impliedPoints(hs, total),
+          hScore, aScore, homeMl, homeSpreadOdds, overOdds, underOdds);
+        stmt.run(season, week, aa, ha, 0, -hs, total, impliedPoints(-hs, total),
+          aScore, hScore, awayMl, awaySpreadOdds, overOdds, underOdds);
         updated += 2;
       }
     } catch { /* a missing week is normal out of season */ }

@@ -23,6 +23,8 @@ import tradesRouter from './routes/trades.js';
 import espnConnectRouter from './routes/espn-connect.js';
 import modelRouter from './routes/model.js';
 import propsRouter from './routes/props.js';
+import mlbRouter from './routes/mlb.js';
+import nflMarketRouter from './routes/nfl-market.js';
 
 const app = express();
 app.use(express.json());
@@ -48,6 +50,8 @@ app.use('/api/trades', tradesRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/model', modelRouter);
 app.use('/api/props', propsRouter);
+app.use('/api/mlb', mlbRouter);
+app.use('/api/nfl-market', nflMarketRouter);
 
 app.use((err, req, res, next) => {
   console.error(err);

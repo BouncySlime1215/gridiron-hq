@@ -23,6 +23,8 @@ import Settings from './pages/Settings';
 import PropsBoard from './pages/props/PropsBoard';
 import PropsPicks from './pages/props/PropsPicks';
 import PropsModel from './pages/props/PropsModel';
+import PropsAutoPicks from './pages/props/PropsAutoPicks';
+import NflMarketBoard from './pages/NflMarketBoard';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '🏠' },
@@ -33,6 +35,7 @@ const NAV = [
   { to: '/edge', label: 'Edge Tools', icon: '🧠' },
   { to: '/trade-lab', label: 'Trade Lab', icon: '🤝' },
   { to: '/model', label: 'Prediction Engine', icon: '📈' },
+  { to: '/nfl-board', label: 'NFL Board', icon: '🎰' },
   { to: '/news', label: 'Camp News', icon: '📰' },
   { to: '/leagues', label: 'My Leagues', icon: '🔗' },
   { to: '/settings', label: 'ESPN Settings', icon: '⚙️' }
@@ -42,6 +45,7 @@ const NAV = [
 // grouped on its own rather than mixed into the fantasy-football nav above.
 const PROPS_NAV = [
   { to: '/props', label: 'Model Board', icon: '⚾' },
+  { to: '/props/auto-picks', label: 'Auto Picks', icon: '🤖' },
   { to: '/props/picks', label: 'My Picks', icon: '🎫' },
   { to: '/props/model', label: 'Model Info', icon: 'ℹ️' }
 ];
@@ -162,7 +166,9 @@ export default function App() {
           <Route path="/news" element={<News />} />
           <Route path="/leagues" element={<Leagues />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/nfl-board" element={<NflMarketBoard />} />
           <Route path="/props" element={<PropsBoard />} />
+          <Route path="/props/auto-picks" element={<PropsAutoPicks />} />
           <Route path="/props/picks" element={<PropsPicks />} />
           <Route path="/props/model" element={<PropsModel />} />
         </Routes>

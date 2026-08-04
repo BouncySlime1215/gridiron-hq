@@ -27,11 +27,18 @@ import mlbRouter from './routes/mlb.js';
 import nflMarketRouter from './routes/nfl-market.js';
 import nflBettingRouter from './routes/nfl-betting.js';
 import bettingHubRouter from './routes/betting-hub.js';
+import { startScheduler } from './services/scheduler.js';
 
 const app = express();
 app.use(express.json());
 
 seedIfEmpty();
+
+// Nothing in this project used to refresh on its own, which is how the MLB board
+// went sixteen days stale without failing. The timer keeps a long-running app
+// current; routes additionally trigger a background refresh when data is stale,
+// so an app that was closed all week catches up on the first page load.
+startScheduler({ intervalMinutes: 30 });
 
 app.use('/api/teams', teamsRouter);
 app.use('/api/players', playersRouter);

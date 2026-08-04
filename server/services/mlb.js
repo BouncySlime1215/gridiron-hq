@@ -31,6 +31,7 @@ db.exec(`
     first_inning_away_runs INTEGER,
     yrfi INTEGER
   );
+  CREATE INDEX IF NOT EXISTS idx_mlb_games_date ON mlb_games(date);
   CREATE INDEX IF NOT EXISTS idx_mlb_games_season ON mlb_games(season);
 
   CREATE TABLE IF NOT EXISTS mlb_pitcher_games (
@@ -73,6 +74,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_mlb_bg_player ON mlb_batter_games(player_id);
 `);
 
+// Columns added after the first release; existing databases get them here
+// rather than needing a separate migration.
+const gameCols = db.prepare(`PRAGMA table_info(mlb_games)`).all().map(c => c.name);
+if (!gameCols.includes('status')) db.exec(`ALTER TABLE mlb_games ADD COLUMN status TEXT`);
+if (!gameCols.includes('game_time')) db.exec(`ALTER TABLE mlb_games ADD COLUMN game_time TEXT`);
+
 async function getJson(url, timeoutMs = 20000) {
   const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`MLB Stats API ${res.status} on ${url}`);
@@ -100,33 +107,41 @@ export async function syncSeasonSchedule(season) {
   const data = await getJson(url, 60000);
   const stmt = db.prepare(`INSERT INTO mlb_games
       (game_pk, season, date, home_team, away_team, home_team_id, away_team_id,
-       venue, first_inning_home_runs, first_inning_away_runs, yrfi)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+       venue, first_inning_home_runs, first_inning_away_runs, yrfi, status, game_time)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(game_pk) DO UPDATE SET
       first_inning_home_runs=excluded.first_inning_home_runs,
-      first_inning_away_runs=excluded.first_inning_away_runs, yrfi=excluded.yrfi`);
+      first_inning_away_runs=excluded.first_inning_away_runs, yrfi=excluded.yrfi,
+      status=excluded.status, game_time=excluded.game_time`);
 
-  let n = 0;
+  let n = 0, upcoming = 0;
   db.exec('BEGIN');
   try {
     for (const d of data.dates ?? []) {
       for (const g of d.games ?? []) {
-        if (g.status?.abstractGameState !== 'Final') continue;
-        const first = g.linescore?.innings?.find(inn => inn.num === 1);
-        if (!first) continue;
-        const hR = first.home?.runs ?? 0, aR = first.away?.runs ?? 0;
+        const final = g.status?.abstractGameState === 'Final';
+        // Upcoming games are stored too. A betting board that only knows about
+        // finished games can never show tonight's slate, which is the one you
+        // would actually bet — this used to skip anything not yet Final.
+        const first = final ? g.linescore?.innings?.find(inn => inn.num === 1) : null;
+        const hR = first ? (first.home?.runs ?? 0) : null;
+        const aR = first ? (first.away?.runs ?? 0) : null;
         stmt.run(
           g.gamePk, season, g.officialDate,
           g.teams.home.team.name, g.teams.away.team.name,
           g.teams.home.team.id, g.teams.away.team.id,
-          g.venue?.name ?? null, hR, aR, (hR > 0 || aR > 0) ? 1 : 0
+          g.venue?.name ?? null, hR, aR,
+          first ? ((hR > 0 || aR > 0) ? 1 : 0) : null,
+          final ? 'Final' : (g.status?.detailedState ?? 'Scheduled'),
+          g.gameDate ?? null
         );
         n++;
+        if (!final) upcoming++;
       }
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { season, games: n };
+  return { season, games: n, upcoming };
 }
 
 /* --------------------------------------------------------- player game logs */

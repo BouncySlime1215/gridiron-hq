@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { syncSeason, syncSeasonSchedule, syncPitcherGameLogs, syncBatterGameLogs, coverage } from '../services/mlb.js';
 import { boardFor as firstPartyBoard, coverage as projCoverage } from '../services/mlb-projections.js';
 import { ensurePicksFor, allPicks, standing as picksStanding, backfill } from '../services/mlb-auto-picks.js';
+import { refreshInBackground, schedulerStatus, runIfStale } from '../services/scheduler.js';
 
 const r = Router();
 
@@ -36,6 +37,9 @@ r.get('/status', (req, res, next) => {
  */
 r.get('/board', (req, res, next) => {
   try {
+    // Kick a refresh if the schedule is stale. Fire-and-forget, so this request
+    // still answers immediately from what is already stored.
+    refreshInBackground(['mlb_schedule']);
     const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
     res.json(firstPartyBoard(date, { limit: Number(req.query.limit) || 40 }));
   } catch (e) { next(e); }
@@ -70,6 +74,19 @@ r.get('/auto-picks', (req, res, next) => {
 /** Generates picks for recent past dates so the record is not empty on day one. */
 r.post('/auto-picks/backfill', (req, res, next) => {
   try { res.json(backfill(Number(req.query.days) || 14)); } catch (e) { next(e); }
+});
+
+/** What the background scheduler has done, and when. */
+r.get('/sync/status', (req, res, next) => {
+  try { res.json(schedulerStatus()); } catch (e) { next(e); }
+});
+
+/** Force a refresh now rather than waiting for the timer. */
+r.post('/sync/now', async (req, res, next) => {
+  try {
+    const job = String(req.query.job ?? 'mlb_schedule');
+    res.json(await runIfStale(job, { force: true }));
+  } catch (e) { next(e); }
 });
 
 export default r;

@@ -31,6 +31,7 @@ import NflProps from './pages/betting/NflProps';
 import VariableCatalog from './pages/betting/VariableCatalog';
 import EnsemblePage from './pages/betting/Ensemble';
 import Training from './pages/betting/Training';
+import MlbBoard from './pages/betting/MlbBoard';
 
 // Fantasy and betting answer different questions off different data, so they get
 // separate sections rather than one long mixed list. Edge Tools and the
@@ -56,6 +57,7 @@ const BETTING_NAV = [
   { to: '/betting/nfl/picks', label: 'NFL Auto Picks', icon: '🤖' },
   { to: '/betting/training', label: 'Training', icon: '🔬' },
   { to: '/betting/mlb', label: 'MLB Board', icon: '⚾' },
+  { to: '/betting/mlb/legacy', label: 'MLB (proxied)', icon: '🔗' },
   { to: '/betting/mlb/auto', label: 'MLB Auto Picks', icon: '🤖' },
   { to: '/betting/mlb/picks', label: 'MLB My Picks', icon: '🎫' },
   { to: '/betting/catalog', label: 'Variables', icon: '📚' },
@@ -190,7 +192,8 @@ export default function App() {
           <Route path="/betting/nfl/ensemble" element={<EnsemblePage />} />
           <Route path="/betting/training" element={<Training />} />
           <Route path="/betting/catalog" element={<VariableCatalog />} />
-          <Route path="/betting/mlb" element={<PropsBoard />} />
+          <Route path="/betting/mlb" element={<MlbBoard />} />
+          <Route path="/betting/mlb/legacy" element={<PropsBoard />} />
           <Route path="/betting/mlb/auto" element={<PropsAutoPicks />} />
           <Route path="/betting/mlb/picks" element={<PropsPicks />} />
           <Route path="/betting/mlb/model" element={<PropsModel />} />

@@ -14,6 +14,8 @@ import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
 import { modelCatalog, ensembleWeek, ensembleLine } from '../services/nfl-ensemble.js';
 import { replaySeason, trainingIteration, validateAdjustment } from '../services/nfl-replay.js';
+import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
+import { stakeFor, evaluateSizing } from '../services/staking.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -235,6 +237,76 @@ r.get('/replay/validate', (req, res, next) => {
       config: { minEdge: Number(req.query.min_edge) || 1.5 },
       adjust: b => ((b.disagreement ?? 0) <= maxDis ? b : null)
     }));
+  } catch (e) { next(e); }
+});
+
+/* --------------------------------------------------------- line shopping */
+
+/**
+ * The best available price on every side across all books.
+ * This is the one edge that needs no prediction — only refusing the worse number.
+ */
+r.get('/lines/shop', async (req, res, next) => {
+  try {
+    const out = await shopSlate();
+    if (out?.error) return res.status(409).json(out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/** Where books disagree on the number itself, not just the price. */
+r.get('/lines/disagreement', async (req, res, next) => {
+  try {
+    const out = await numberDisagreement();
+    if (out?.error) return res.status(409).json(out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/** Records the current board so closing line value becomes measurable later. */
+r.post('/lines/snapshot', async (req, res, next) => {
+  try {
+    const out = await snapshotLines();
+    if (out?.error) return res.status(409).json(out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+r.get('/lines/clv', (req, res, next) => {
+  try { res.json(closingLineValue()); } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- staking */
+
+/** Fractional-Kelly stake for a single price and model probability. */
+r.get('/stake', (req, res, next) => {
+  try {
+    const winProb = Number(req.query.prob);
+    const odds = Number(req.query.odds);
+    if (!Number.isFinite(winProb) || !Number.isFinite(odds)) {
+      return res.status(400).json({ error: 'prob and odds query params required' });
+    }
+    res.json(stakeFor({
+      winProb, americanOdds: odds,
+      bankroll: Number(req.query.bankroll) || 100,
+      multiplier: Number(req.query.kelly) || 0.25
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Does confidence-tiered sizing actually beat flat staking on past bets? */
+r.get('/stake/evaluate', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    const bets = [];
+    for (const s of seasons) {
+      const rp = replaySeason(s, {
+        minEdge: Number(req.query.min_edge) || 1.5,
+        maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null
+      });
+      if (!rp.error) bets.push(...rp.bets.filter(b => b.result !== 'Push'));
+    }
+    res.json({ seasons, bets: bets.length, ...evaluateSizing(bets) });
   } catch (e) { next(e); }
 });
 

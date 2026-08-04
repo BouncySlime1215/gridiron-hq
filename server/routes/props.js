@@ -120,8 +120,34 @@ async function buildBoard() {
   };
 }
 
+/**
+ * Age of the slate being served. This board is proxied from a separate repo
+ * whose pipeline runs on its own schedule, so it can silently go stale — and a
+ * two-week-old slate presented as today's is worse than an empty one. The age
+ * is computed here so the UI can say so plainly.
+ */
+function staleness(board, status) {
+  const slate = board.find(b => b.slate_date)?.slate_date ?? null;
+  if (!slate) return { slate_date: null, age_days: null, is_stale: false };
+  const today = new Date().toISOString().slice(0, 10);
+  const ageDays = Math.round(
+    (new Date(`${today}T00:00:00Z`) - new Date(`${slate}T00:00:00Z`)) / 86400000
+  );
+  return {
+    slate_date: slate, today, age_days: ageDays,
+    is_stale: ageDays >= 1,
+    source_generated_at: status?.site_data_generated_at ?? null,
+    message: ageDays >= 1
+      ? `This board is from ${slate}, ${ageDays} day${ageDays === 1 ? '' : 's'} ago. The upstream Diamond Signal pipeline last published on ${status?.site_data_generated_at ?? 'an unknown date'} — these are not today's games.`
+      : null
+  };
+}
+
 r.get('/board', async (req, res, next) => {
-  try { res.json(await buildBoard()); } catch (e) { next(e); }
+  try {
+    const out = await buildBoard();
+    res.json({ ...out, freshness: staleness(out.board, out.status) });
+  } catch (e) { next(e); }
 });
 
 /* ------------------------------------------------------------- auto-picks */
@@ -157,11 +183,16 @@ async function ensureAutoPicksFor(slateDate, board) {
 
 r.get('/auto-picks', async (req, res, next) => {
   try {
-    const { board } = await buildBoard();
+    const { board, status } = await buildBoard();
+    const fresh = staleness(board, status);
     const slateDate = board[0]?.slate_date ?? new Date().toISOString().slice(0, 10);
-    const today = await ensureAutoPicksFor(slateDate, board);
+    // Only lock in picks for a slate that is actually current. Locking a stale
+    // board would record bets on games that already finished.
+    const picks = fresh.is_stale ? dbRows(
+      'SELECT * FROM props_auto_picks WHERE pick_date = ? ORDER BY rank', slateDate
+    ) : await ensureAutoPicksFor(slateDate, board);
     const history = dbRows('SELECT * FROM props_auto_picks ORDER BY pick_date DESC, rank ASC');
-    res.json({ slate_date: slateDate, today, history });
+    res.json({ slate_date: slateDate, today: picks, history, freshness: fresh });
   } catch (e) { next(e); }
 });
 

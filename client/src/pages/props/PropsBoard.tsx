@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApi } from '../../api';
+import StaleBanner, { type Freshness } from '../../components/StaleBanner';
 import { usePickSlip } from './usePickSlip';
 import {
   americanFmt, pct, formatMarket, normalizeMarket,
@@ -14,7 +15,7 @@ import {
  * for where the data actually comes from.
  */
 export default function PropsBoard() {
-  const { data, loading, error } = useApi<{ board: BoardRow[]; projections: ProjectionRow[]; status: PipelineStatus | null }>('/props/board');
+  const { data, loading, error } = useApi<{ board: BoardRow[]; projections: ProjectionRow[]; status: PipelineStatus | null; freshness?: Freshness }>('/props/board');
   const { addLeg, isInSlip } = usePickSlip();
   const [marketFilter, setMarketFilter] = useState<string>('all');
   const [matchupFilter, setMatchupFilter] = useState<string>('all');
@@ -66,6 +67,7 @@ export default function PropsBoard() {
           </span>
         )}
       </div>
+      <StaleBanner freshness={data?.freshness} />
       <p className="text-sm text-slate-500 mb-4">
         Use the FanDuel-priced section first when it's available — those are today's picks that cleared the
         model's edge threshold. The board below is the full research slate, ranked for reference only.

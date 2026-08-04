@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { api, useApi } from '../api';
 import { pct, americanFmt } from './props/lib';
+import PickReasoning, { type Reasoning } from '../components/PickReasoning';
 
 interface BoardRow {
   market: 'moneyline' | 'spread' | 'total';
   matchup: string; selection: string; side: string;
   american_price: number | null; model_probability: number; implied_probability: number;
   probability_difference: number; detail: string;
+  home_team?: string; away_team?: string; line?: number | null;
+  reasoning?: Reasoning;
 }
 interface Accuracy {
   games_graded: number; win_accuracy: number; brier_score: number;
@@ -45,7 +48,10 @@ const STATUS_STYLE: Record<string, string> = {
 export default function NflMarketBoard() {
   const [week, setWeek] = useState(1);
   const [marketFilter, setMarketFilter] = useState<string>('all');
-  const { data, loading, error } = useApi<{ season: number; week: number; board: BoardRow[] }>(`/nfl-market/board?week=${week}`);
+  // The explained endpoint returns the same board with a computed rationale on
+  // every row, which is what the "Why this pick" panel renders.
+  const { data, loading, error } = useApi<{ season: number; week: number; board: BoardRow[] }>(
+    `/nfl-betting/board/explained?week=${week}&limit=60`);
   const { data: acc } = useApi<Accuracy>('/nfl-market/accuracy');
   const { data: history, refetch: refetchHistory } = useApi<{ results: Graded[]; standing: Standing }>('/nfl-market/picks/history');
 
@@ -160,39 +166,32 @@ export default function NflMarketBoard() {
           No priced lines for week {week} yet — books haven't posted this far out, or the season hasn't reached it.
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-slate-400">
-                <tr>{['Matchup', 'Market', 'Pick', 'Price', 'Model', 'Mkt %', 'Edge', 'Detail'].map((h, i) => (
-                  <th key={i} className="text-left font-semibold px-3 py-2 whitespace-nowrap">{h}</th>
-                ))}</tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {board.map((b, i) => {
-                  const strong = Math.abs(b.probability_difference) >= 0.08;
-                  return (
-                    <tr key={i} className="hover:bg-slate-50">
-                      <td className="px-3 py-2 font-semibold text-slate-800 whitespace-nowrap">{b.matchup}</td>
-                      <td className="px-3 py-2">
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                          {MARKET_LABEL[b.market]}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{b.side}</td>
-                      <td className="px-3 py-2 tabular-nums">{americanFmt(b.american_price)}</td>
-                      <td className="px-3 py-2 tabular-nums">{pct(b.model_probability)}</td>
-                      <td className="px-3 py-2 tabular-nums">{pct(b.implied_probability)}</td>
-                      <td className={`px-3 py-2 tabular-nums font-semibold text-emerald-700 ${strong ? '' : 'opacity-60'}`}>
-                        +{pct(b.probability_difference)}
-                      </td>
-                      <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{b.detail}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-2">
+          {board.map((b, i) => {
+            const strong = Math.abs(b.probability_difference) >= 0.08;
+            return (
+              <div key={i} className="card p-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="font-semibold text-slate-800 w-28 shrink-0">{b.matchup}</div>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                    {MARKET_LABEL[b.market]}
+                  </span>
+                  <div className="text-xs font-semibold text-slate-700 min-w-[80px]">{b.side}</div>
+                  <Col label="Price" value={americanFmt(b.american_price)} />
+                  <Col label="Model" value={pct(b.model_probability)} />
+                  <Col label="Market" value={pct(b.implied_probability)} />
+                  <div className="min-w-[64px]">
+                    <div className="text-[9px] uppercase tracking-wide text-slate-400">Edge</div>
+                    <div className={`text-sm font-bold tabular-nums text-emerald-700 ${strong ? '' : 'opacity-60'}`}>
+                      +{pct(b.probability_difference)}
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-slate-400 ml-auto whitespace-nowrap">{b.detail}</div>
+                </div>
+                <PickReasoning reasoning={b.reasoning} />
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -268,3 +267,10 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: '
     </div>
   );
 }
+
+const Col = ({ label, value }: { label: string; value: string }) => (
+  <div className="min-w-[58px]">
+    <div className="text-[9px] uppercase tracking-wide text-slate-400">{label}</div>
+    <div className="text-xs font-semibold text-slate-700 tabular-nums">{value}</div>
+  </div>
+);

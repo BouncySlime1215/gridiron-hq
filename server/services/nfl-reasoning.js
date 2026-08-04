@@ -165,9 +165,13 @@ export function explainPick({ season, week, market, pickTeam, oppTeam, side, lin
   const edge = modelProbability != null && impliedProbability != null
     ? modelProbability - impliedProbability : null;
 
+  // Totals already carry the number in `side` ("Over 38.5"); appending `line`
+  // again produced "Over 38.5 38.5".
+  const label = line != null && !String(side).includes(String(line))
+    ? `${side} ${line}` : String(side);
   const headline = edge == null
-    ? `Model likes ${side}${line != null ? ` ${line}` : ''}.`
-    : `Model gives ${side}${line != null ? ` ${line}` : ''} a ${(modelProbability * 100).toFixed(1)}% chance versus ${(impliedProbability * 100).toFixed(1)}% priced in — a ${(edge * 100).toFixed(1)}-point disagreement.`;
+    ? `Model likes ${label}.`
+    : `Model gives ${label} a ${(modelProbability * 100).toFixed(1)}% chance versus ${(impliedProbability * 100).toFixed(1)}% priced in — a ${(edge * 100).toFixed(1)}-point disagreement.`;
 
   // Does the market's own movement agree with us, or is it a warning?
   let marketAgreement = null;
@@ -185,17 +189,25 @@ export function explainPick({ season, week, market, pickTeam, oppTeam, side, lin
   const counters = fa.opposing.map(f =>
     `${cap(f.label)}: ${f.pick_display} vs ${f.opponent_display} — this favours the other side.`);
 
+  // Week 1 has no prior games to compare, so there is genuinely nothing to
+  // reason from. Saying that is better than an empty panel labelled "contested".
+  const noHistory = fa.considered === 0;
+
   return {
     headline,
     model_probability: modelProbability, implied_probability: impliedProbability,
     edge: edge == null ? null : r2(edge),
     projection_note: detail ?? null,
     factors_considered: fa.considered,
+    no_history: noHistory,
+    no_history_note: noHistory
+      ? `No games have been played yet in ${season} before week ${week}, so there is no team-vs-team evidence to weigh. This pick rests on the ratings carried over from prior seasons.`
+      : null,
     supporting: fa.supporting, opposing: fa.opposing,
     supporting_text: bullets, opposing_text: counters,
     market_sentiment: sentiment,
     market_agreement: marketAgreement,
-    confidence: confidenceLabel(edge, fa)
+    confidence: noHistory ? 'no in-season evidence yet' : confidenceLabel(edge, fa)
   };
 }
 

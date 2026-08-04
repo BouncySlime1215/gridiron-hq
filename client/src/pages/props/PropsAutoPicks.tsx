@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useApi } from '../../api';
+import StaleBanner, { type Freshness } from '../../components/StaleBanner';
 import {
   americanFmt, pct, formatMarket, formatDate, normalizeMarket,
   americanToDecimal, buildResultIndex, gradeLeg,
@@ -48,7 +49,7 @@ const GRADE_STYLE: Record<string, string> = {
  * as when it does.
  */
 export default function PropsAutoPicks() {
-  const { data, loading, error } = useApi<{ slate_date: string; today: AutoPick[]; history: AutoPick[] }>('/props/auto-picks');
+  const { data, loading, error } = useApi<{ slate_date: string; today: AutoPick[]; history: AutoPick[]; freshness?: Freshness }>('/props/auto-picks');
   const { data: resultsData } = useApi<ResultRow[]>('/props/results');
 
   const resultIndex = useMemo(() => buildResultIndex(resultsData ?? []), [resultsData]);
@@ -84,6 +85,7 @@ export default function PropsAutoPicks() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-1">Auto Picks</h1>
+      <StaleBanner freshness={data?.freshness} />
       <p className="text-sm text-slate-500 mb-4">
         The top 5 FanDuel-priced edges each slate, selected automatically by rank — no manual curation.
         Every pick is tracked as its own straight bet; none of these are combined into a parlay.
@@ -97,7 +99,9 @@ export default function PropsAutoPicks() {
         <Metric label="Days tracked" value={String(byDate.length)} />
       </div>
 
-      <h2 className="text-sm font-bold text-slate-700 mb-2">Today's five — {formatDate(data?.slate_date ?? '')}</h2>
+      <h2 className="text-sm font-bold text-slate-700 mb-2">
+        {data?.freshness?.is_stale ? 'Latest available slate' : "Today's five"} — {formatDate(data?.slate_date ?? '')}
+      </h2>
       {today.length === 0 ? (
         <div className="card p-6 text-sm text-slate-500 mb-6">
           No FanDuel-priced edges are available yet to select from for this slate.

@@ -12,6 +12,7 @@ import { boardFor, accuracy } from '../services/nfl-market.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
+import { modelCatalog, ensembleWeek, ensembleLine } from '../services/nfl-ensemble.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -161,6 +162,32 @@ r.get('/roles/timeline', (req, res, next) => {
     const id = req.query.gsis_id;
     if (!id) return res.status(400).json({ error: 'gsis_id query param required' });
     res.json({ season: ssn(req), timeline: roleTimeline(ssn(req), String(id)) });
+  } catch (e) { next(e); }
+});
+
+/* --------------------------------------------------------------- ensemble */
+
+r.get('/ensemble/models', (req, res, next) => {
+  try {
+    const c = modelCatalog();
+    if (c?.error) return res.status(409).json(c);
+    res.json(c);
+  } catch (e) { next(e); }
+});
+
+r.get('/ensemble/week', (req, res, next) => {
+  try {
+    res.json({ season: ssn(req), week: wk(req), games: ensembleWeek(ssn(req), wk(req)) });
+  } catch (e) { next(e); }
+});
+
+r.get('/ensemble/game', (req, res, next) => {
+  try {
+    const { home, away } = req.query;
+    if (!home || !away) return res.status(400).json({ error: 'home and away query params required' });
+    const out = ensembleLine(ssn(req), wk(req), String(home).toUpperCase(), String(away).toUpperCase());
+    if (out?.error) return res.status(409).json(out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 

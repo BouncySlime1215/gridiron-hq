@@ -15,6 +15,7 @@ import { standouts, reconcile } from '../services/betting-fantasy-link.js';
 import { modelCatalog, ensembleWeek, ensembleLine } from '../services/nfl-ensemble.js';
 import { replaySeason, trainingIteration, validateAdjustment } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
+import { runIfStale } from '../services/scheduler.js';
 import { stakeFor, evaluateSizing } from '../services/staking.js';
 
 const r = Router();
@@ -332,6 +333,16 @@ r.post('/sync', async (req, res, next) => {
     out.advanced = await syncAllAdvanced(seasons);
     res.json(out);
   } catch (e) { next(e); }
+});
+
+/**
+ * The lightweight refresh a board's "Refresh" button should trigger — current
+ * lines and scores only, not the multi-season play-by-play resync above, which
+ * takes minutes and would make a refresh button feel broken.
+ */
+r.post('/lines/sync-now', async (req, res, next) => {
+  try { res.json(await runIfStale('nfl_lines', { force: true })); }
+  catch (e) { next(e); }
 });
 
 export default r;

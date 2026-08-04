@@ -13,6 +13,7 @@
  */
 import { rows } from '../db/index.js';
 import { randPoisson, randBinomial, mean } from './stats-util.js';
+import { starterFor } from './mlb.js';
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const SIMS = 4000;
@@ -239,11 +240,14 @@ export function boardFor(requestedDate, { season: seasonOpt, limit = 40 } = {}) 
                           WHERE season = ? AND date < ? AND team_id IN (${[...teamIds].map(() => '?').join(',')})
                           GROUP BY player_id HAVING COUNT(*) >= 15`,
                           season, date, ...teamIds).map(r => r.player_id);
-  const pitcherIds = rows(`SELECT player_id FROM mlb_pitcher_games
-                           WHERE season = ? AND date < ? AND games_started = 1
-                             AND team_id IN (${[...teamIds].map(() => '?').join(',')})
-                           GROUP BY player_id HAVING COUNT(*) >= 5`,
-                           season, date, ...teamIds).map(r => r.player_id);
+
+  // The pitcher for each of today's games specifically — confirmed probable
+  // for today/future, the real box-score starter for past dates — rather than
+  // the best arm anywhere in a five-man rotation. A rotation makes any given
+  // starter wrong four days out of five if his talent alone is the filter.
+  const pitcherIds = [...new Set(games.flatMap(g =>
+    [starterFor(g.home_team_id, date), starterFor(g.away_team_id, date)]
+  ).filter(Boolean).map(s => s.player_id))];
 
   const batters = batterIds
     .map(id => batterTotalBases(projectBatter(id, season, date)))

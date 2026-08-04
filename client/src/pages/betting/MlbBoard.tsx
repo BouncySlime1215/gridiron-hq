@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi } from '../../api';
+import { api, useApi } from '../../api';
 
 interface Nrfi {
   home_first_inning_rate: number; away_first_inning_rate: number;
@@ -44,7 +44,20 @@ export default function MlbBoard() {
   const today = new Date().toISOString().slice(0, 10);
   const [date, setDate] = useState(today);
   const [tab, setTab] = useState<'games' | 'batters' | 'pitchers'>('games');
-  const { data, loading, error } = useApi<Board>(`/mlb/board?date=${date}&limit=40`);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
+  const { data, loading, error, refetch } = useApi<Board>(`/mlb/board?date=${date}&limit=40`);
+
+  const refreshNow = async () => {
+    setRefreshing(true); setRefreshMsg(null);
+    try {
+      const r = await api('/mlb/sync/now?job=mlb_schedule', { method: 'POST' });
+      const detail = r.detail ?? r;
+      setRefreshMsg(`Synced — ${detail.games ?? 0} games (${detail.upcoming ?? 0} upcoming).`);
+      refetch();
+    } catch (e: any) { setRefreshMsg(e.message); }
+    finally { setRefreshing(false); }
+  };
 
   return (
     <div>
@@ -53,8 +66,12 @@ export default function MlbBoard() {
         <div className="flex items-center gap-2 text-xs ml-auto">
           <input type="date" className="input py-1" value={date} onChange={e => setDate(e.target.value)} />
           <button className="btn-ghost text-xs" onClick={() => setDate(today)}>Today</button>
+          <button className="btn-primary text-xs" onClick={refreshNow} disabled={refreshing}>
+            {refreshing ? 'Refreshing…' : '↻ Refresh'}
+          </button>
         </div>
       </div>
+      {refreshMsg && <div className="card p-2 mb-3 text-xs text-slate-600">{refreshMsg}</div>}
       <p className="text-sm text-slate-500 mb-4">
         Built from this project's own MLB Stats API ingestion — schedule, game logs and projections
         all local. Model side only; no market prices are attached.

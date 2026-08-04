@@ -86,6 +86,30 @@ async function refreshNflLines() {
 }
 
 /**
+ * Confirmed starting pitchers for the next few days. This is what makes the
+ * strikeout picks mean anything — without it, the board ranked a team's whole
+ * rotation by talent and picked the ace regardless of whether he was actually
+ * pitching that day, which is why those picks could never settle.
+ */
+async function refreshMlbProbables() {
+  const { syncProbableStarters } = await import('./mlb.js');
+  return syncProbableStarters(5);
+}
+
+/**
+ * Locks in tomorrow's five picks as soon as there is enough to work with,
+ * rather than waiting for someone to open the page after midnight. Cheap to
+ * run often — ensurePicksFor is idempotent, so an already-locked slate just
+ * returns immediately.
+ */
+async function prepareTomorrowPicks() {
+  const { ensurePicksFor } = await import('./mlb-auto-picks.js');
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const picks = ensurePicksFor(tomorrow);
+  return { date: tomorrow, picks: picks.length };
+}
+
+/**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
  * slate, box scores only settle after games end, and NFL lines move all week.
@@ -93,6 +117,8 @@ async function refreshNflLines() {
 export const JOBS = {
   mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, label: 'MLB schedule and results' },
   mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, label: 'MLB player game logs' },
+  mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, label: 'MLB probable starters' },
+  mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' }
 };
 

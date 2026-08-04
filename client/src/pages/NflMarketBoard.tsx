@@ -50,7 +50,7 @@ export default function NflMarketBoard() {
   const [marketFilter, setMarketFilter] = useState<string>('all');
   // The explained endpoint returns the same board with a computed rationale on
   // every row, which is what the "Why this pick" panel renders.
-  const { data, loading, error } = useApi<{ season: number; week: number; board: BoardRow[] }>(
+  const { data, loading, error, refetch } = useApi<{ season: number; week: number; board: BoardRow[] }>(
     `/nfl-betting/board/explained?week=${week}&limit=60`);
   const { data: acc } = useApi<Accuracy>('/nfl-market/accuracy');
   const { data: history, refetch: refetchHistory } = useApi<{ results: Graded[]; standing: Standing }>('/nfl-market/picks/history');
@@ -58,6 +58,8 @@ export default function NflMarketBoard() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
 
   const runWeekly = async () => {
     setRunning(true); setRunError(null); setRunResult(null);
@@ -67,6 +69,22 @@ export default function NflMarketBoard() {
       refetchHistory();
     } catch (e: any) { setRunError(e.message); }
     finally { setRunning(false); }
+  };
+
+  // A quick pull of current lines and scores, separate from the full weekly
+  // analysis (which refits the model and locks new picks). This just answers
+  // "has anything moved" without the heavier run.
+  const refreshLines = async () => {
+    setRefreshing(true); setRefreshMsg(null);
+    try {
+      const r = await api('/nfl-betting/lines/sync-now', { method: 'POST' });
+      const detail = r.detail ?? r;
+      setRefreshMsg(r.skipped
+        ? `Already fresh (${r.age_minutes}m old, refreshes every ${r.max_age_minutes}m).`
+        : `Synced — ${detail.updated ?? 0} line updates.`);
+      refetch();
+    } catch (e: any) { setRefreshMsg(e.message); }
+    finally { setRefreshing(false); }
   };
 
   const board = (data?.board ?? []).filter(b => marketFilter === 'all' || b.market === marketFilter);
@@ -81,6 +99,9 @@ export default function NflMarketBoard() {
           <select className="input py-1" value={week} onChange={e => setWeek(Number(e.target.value))}>
             {Array.from({ length: 18 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{w}</option>)}
           </select>
+          <button className="btn-ghost text-xs" onClick={refreshLines} disabled={refreshing}>
+            {refreshing ? 'Refreshing…' : '↻ Refresh'}
+          </button>
           <button className="btn-primary text-xs" onClick={runWeekly} disabled={running}>
             {running ? 'Analyzing…' : '▶ Run Weekly Analysis'}
           </button>
@@ -100,6 +121,7 @@ export default function NflMarketBoard() {
         </div>
       )}
       {runError && <div className="card p-3 mb-4 text-xs text-rose-600">{runError}</div>}
+      {refreshMsg && <div className="card p-2 mb-3 text-xs text-slate-600">{refreshMsg}</div>}
 
       {standing && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">

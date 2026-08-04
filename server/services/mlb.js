@@ -34,6 +34,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_mlb_games_date ON mlb_games(date);
   CREATE INDEX IF NOT EXISTS idx_mlb_games_season ON mlb_games(season);
 
+  CREATE TABLE IF NOT EXISTS mlb_probable_starters (
+    game_pk INTEGER NOT NULL,
+    team_id INTEGER NOT NULL,
+    opponent_id INTEGER,
+    date TEXT NOT NULL,
+    pitcher_id INTEGER,
+    pitcher_name TEXT,
+    fetched_at TEXT,
+    PRIMARY KEY (game_pk, team_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_probable_date ON mlb_probable_starters(date);
+
   CREATE TABLE IF NOT EXISTS mlb_pitcher_games (
     game_pk INTEGER NOT NULL,
     player_id INTEGER NOT NULL,
@@ -142,6 +154,80 @@ export async function syncSeasonSchedule(season) {
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   return { season, games: n, upcoming };
+}
+
+/**
+ * Confirmed probable starters for the next few days.
+ *
+ * This is the piece that was missing entirely: the auto-picks board was
+ * ranking every pitcher on a team's season-long rotation by talent and picking
+ * the best one, with no check on whether he was actually starting that game.
+ * A five-man rotation means that is wrong four days out of five — which is
+ * exactly why Dylan Cease kept showing up as a "pick" on days he wasn't
+ * pitching, and why those picks could never settle.
+ *
+ * MLB posts probable starters roughly 1-5 days out, and they can change (a
+ * scratch, a doubleheader shuffle), so this is synced on its own frequent
+ * schedule rather than folded into the once-an-hour full schedule sync.
+ */
+export async function syncProbableStarters(daysAhead = 5) {
+  const start = new Date();
+  const startStr = start.toISOString().slice(0, 10);
+  const end = new Date(start.getTime() + daysAhead * 86400000).toISOString().slice(0, 10);
+  const url = `${BASE}/schedule?sportId=1&startDate=${startStr}&endDate=${end}&hydrate=probablePitcher`;
+  const data = await getJson(url, 30000);
+
+  const stmt = db.prepare(`INSERT INTO mlb_probable_starters
+      (game_pk, team_id, opponent_id, date, pitcher_id, pitcher_name, fetched_at)
+    VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(game_pk, team_id) DO UPDATE SET
+      pitcher_id=excluded.pitcher_id, pitcher_name=excluded.pitcher_name,
+      fetched_at=excluded.fetched_at`);
+
+  let n = 0;
+  const now = new Date().toISOString();
+  db.exec('BEGIN');
+  try {
+    for (const d of data.dates ?? []) {
+      for (const g of d.games ?? []) {
+        const home = g.teams?.home, away = g.teams?.away;
+        if (home?.probablePitcher) {
+          stmt.run(g.gamePk, home.team.id, away?.team?.id ?? null, g.officialDate,
+            home.probablePitcher.id, home.probablePitcher.fullName, now);
+          n++;
+        }
+        if (away?.probablePitcher) {
+          stmt.run(g.gamePk, away.team.id, home?.team?.id ?? null, g.officialDate,
+            away.probablePitcher.id, away.probablePitcher.fullName, now);
+          n++;
+        }
+      }
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return { from: startStr, to: end, confirmed: n };
+}
+
+/**
+ * The starting pitcher for one team's game on one date — confirmed for
+ * today/future games, actual for past games.
+ *
+ * Past dates use the real box score rather than the (long since irrelevant)
+ * probable-pitcher call, since we already know exactly who started. This is
+ * also what makes historical backfill correct: it grades the pitcher who
+ * really took the mound, not whoever a projection liked best.
+ */
+export function starterFor(teamId, date) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (date < todayStr) {
+    return rows(`SELECT player_id, player_name FROM mlb_pitcher_games
+                 WHERE team_id = ? AND date = ? AND games_started = 1 LIMIT 1`,
+      teamId, date)[0] ?? null;
+  }
+  const p = rows(`SELECT pitcher_id AS player_id, pitcher_name AS player_name
+                  FROM mlb_probable_starters WHERE team_id = ? AND date = ?`,
+    teamId, date)[0];
+  return p?.player_id ? p : null;
 }
 
 /* --------------------------------------------------------- player game logs */

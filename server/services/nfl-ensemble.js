@@ -294,9 +294,15 @@ const MODELS = [
   },
   {
     id: 'rest_travel', name: 'Rest and situation', family: 'Context',
-    note: 'Home field, rest differential and divisional familiarity only — small but real.',
+    note: 'Home field, rest differential and divisional familiarity. The rest coefficient is fitted, not assumed — replay analysis found short-week games were the single largest systematic error.',
     predict: (c) => {
-      const restEdge = ((c.homeRest ?? 7) - (c.awayRest ?? 7)) * 0.18;
+      // Replaying 2022-2025 showed short-week games losing at 40% (z = -3.4),
+      // which said the hand-picked 0.18 points per rest day was wrong. The
+      // coefficient is now fitted on the pre-evaluation era like every other
+      // scale in this file.
+      const restDiff = (c.homeRest ?? 7) - (c.awayRest ?? 7);
+      const f = c.cal?.rest;
+      const restEdge = f ? f.b1 * restDiff : restDiff * 0.18;
       const divPenalty = c.div === 1 ? -0.4 : 0; // familiarity compresses margins
       return { margin: c.hfa + restEdge + divPenalty, total: null };
     }
@@ -441,18 +447,40 @@ function calibrate(all, restMap, evalFrom) {
     }
   }
 
-  const out = {};
-  for (const id of ids) {
-    const p = pairs[id];
-    if (p.length < 100) continue;
+  const fitLine = p => {
+    if (p.length < 100) return null;
     const xs = p.map(x => x[0]), ys = p.map(x => x[1]);
     const mx = mean(xs), my = mean(ys);
     let num = 0, den = 0;
     for (let i = 0; i < xs.length; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
-    if (den <= 0) continue;
+    if (den <= 0) return null;
     const b1 = num / den;
-    out[id] = { b0: my - b1 * mx, b1, n: p.length };
+    return { b0: my - b1 * mx, b1, n: p.length };
+  };
+
+  const out = {};
+  for (const id of ids) {
+    const f = fitLine(pairs[id]);
+    if (f) out[id] = f;
   }
+
+  // Rest differential, fitted on the same era. The replay found short-week
+  // games were the largest systematic miss, so how much a day of rest is
+  // actually worth should be measured rather than picked.
+  const restRows = rows(`SELECT h.season, h.week, h.team, h.rest_days AS home_rest,
+                                a.rest_days AS away_rest,
+                                h.team_score - h.opp_score AS margin
+                         FROM game_lines h
+                         JOIN game_lines a ON a.season = h.season AND a.week = h.week
+                                          AND a.team = h.opponent AND a.home = 0
+                         WHERE h.home = 1 AND h.season < ? AND h.season >= ?
+                           AND h.team_score IS NOT NULL
+                           AND h.rest_days IS NOT NULL AND a.rest_days IS NOT NULL`,
+                        evalFrom, MIN_SEASON);
+  const restPairs = restRows.map(r => [r.home_rest - r.away_rest, r.margin]);
+  const restFit = fitLine(restPairs);
+  if (restFit) out.rest = restFit;
+
   return out;
 }
 

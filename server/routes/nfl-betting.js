@@ -13,6 +13,7 @@ import { standing as spreadStanding, allPickResults } from '../services/nfl-auto
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
 import { modelCatalog, ensembleWeek, ensembleLine } from '../services/nfl-ensemble.js';
+import { replaySeason, trainingIteration, validateAdjustment } from '../services/nfl-replay.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -188,6 +189,52 @@ r.get('/ensemble/game', (req, res, next) => {
     const out = ensembleLine(ssn(req), wk(req), String(home).toUpperCase(), String(away).toUpperCase());
     if (out?.error) return res.status(409).json(out);
     res.json(out);
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- replay */
+
+/** Replays a season betting the ensemble, walk-forward, and grades every pick. */
+r.get('/replay', (req, res, next) => {
+  try {
+    const out = replaySeason(ssn(req), {
+      minEdge: Number(req.query.min_edge) || 1.5,
+      maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null,
+      markets: String(req.query.markets ?? 'spread,total').split(',')
+    });
+    if (out?.error) return res.status(409).json(out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/** Replay across seasons plus the systematic error analysis. */
+r.get('/replay/train', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    res.json(trainingIteration(seasons, {
+      minEdge: Number(req.query.min_edge) || 1.5,
+      maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null,
+      minBets: Number(req.query.min_bets) || 30
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Tests a threshold change the honest way: derived on some seasons, judged on
+ * others. `min_edge` and `max_disagreement` are the two knobs worth tuning.
+ */
+r.get('/replay/validate', (req, res, next) => {
+  try {
+    const discovery = String(req.query.discovery ?? '2022,2023').split(',').map(Number);
+    const holdout = String(req.query.holdout ?? '2024,2025').split(',').map(Number);
+    const maxDis = req.query.max_disagreement ? Number(req.query.max_disagreement) : 4.5;
+    // The candidate correction: skip bets where the models scatter more than
+    // the threshold, on the theory that internal disagreement means no edge.
+    res.json(validateAdjustment({
+      discoverySeasons: discovery, holdoutSeasons: holdout,
+      config: { minEdge: Number(req.query.min_edge) || 1.5 },
+      adjust: b => ((b.disagreement ?? 0) <= maxDis ? b : null)
+    }));
   } catch (e) { next(e); }
 });
 

@@ -33,6 +33,7 @@ import EnsemblePage from './pages/betting/Ensemble';
 import Training from './pages/betting/Training';
 import MlbBoard from './pages/betting/MlbBoard';
 import LineShop from './pages/betting/LineShop';
+import MlbAutoPicks from './pages/betting/MlbAutoPicks';
 
 // Fantasy and betting answer different questions off different data, so they get
 // separate sections rather than one long mixed list. Edge Tools and the
@@ -197,7 +198,8 @@ export default function App() {
           <Route path="/betting/catalog" element={<VariableCatalog />} />
           <Route path="/betting/mlb" element={<MlbBoard />} />
           <Route path="/betting/mlb/legacy" element={<PropsBoard />} />
-          <Route path="/betting/mlb/auto" element={<PropsAutoPicks />} />
+          <Route path="/betting/mlb/auto" element={<MlbAutoPicks />} />
+          <Route path="/betting/mlb/auto-legacy" element={<PropsAutoPicks />} />
           <Route path="/betting/mlb/picks" element={<PropsPicks />} />
           <Route path="/betting/mlb/model" element={<PropsModel />} />
 

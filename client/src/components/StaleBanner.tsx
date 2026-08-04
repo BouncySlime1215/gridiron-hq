@@ -16,10 +16,10 @@ export default function StaleBanner({ freshness }: { freshness?: Freshness | nul
   return (
     <div className="card p-3 mb-4 border-amber-300 bg-amber-50">
       <div className="flex items-start gap-2">
-        <span className="text-base leading-none">\u26a0\ufe0f</span>
+        <span className="text-base leading-none">⚠️</span>
         <div>
           <div className="text-xs font-bold text-amber-900">
-            Not today\u2019s slate \u2014 this board is {freshness.age_days} day
+            Not today’s slate — this board is {freshness.age_days} day
             {freshness.age_days === 1 ? '' : 's'} old
           </div>
           <p className="text-[11px] text-amber-800 mt-0.5">{freshness.message}</p>

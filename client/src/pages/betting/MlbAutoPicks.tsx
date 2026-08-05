@@ -20,6 +20,15 @@ interface Payload {
   requested_date: string; slate_date: string | null;
   today: Pick[]; history: Pick[]; standing: Standing;
 }
+interface AuditMetric {
+  n: number; wins: number; losses: number; win_rate: number | null;
+  brier: number | null; log_loss: number | null; win_rate_95: [number | null, number | null];
+  status: 'validated' | 'provisional' | 'insufficient';
+}
+interface Audit {
+  season: number; through_date: string; sampled_dates: number; overall: AuditMetric;
+  by_market: Record<string, AuditMetric>; note: string;
+}
 
 const MARKET_LABEL: Record<string, string> = {
   nrfi: 'NRFI / YRFI',
@@ -55,6 +64,8 @@ const fmtDate = (d: string) => {
  */
 export default function MlbAutoPicks() {
   const [busy, setBusy] = useState(false);
+  const [auditBusy, setAuditBusy] = useState(false);
+  const [audit, setAudit] = useState<Audit | null>(null);
   const { data, loading, error, refetch } = useApi<Payload>('/mlb/auto-picks');
 
   const byDate = useMemo(() => {
@@ -72,6 +83,11 @@ export default function MlbAutoPicks() {
     try { await api('/mlb/auto-picks/backfill?days=21', { method: 'POST' }); refetch(); }
     finally { setBusy(false); }
   };
+  const runAudit = async () => {
+    setAuditBusy(true);
+    try { setAudit(await api('/mlb/model/accuracy?lookback_days=120&cadence_days=14')); }
+    finally { setAuditBusy(false); }
+  };
 
   if (loading) return <div className="card p-6 text-sm text-slate-500">Building today's slate…</div>;
   if (error) return <div className="card p-6 text-sm text-rose-600">{error}</div>;
@@ -83,7 +99,10 @@ export default function MlbAutoPicks() {
     <div>
       <div className="flex items-center gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold">MLB Auto Picks</h1>
-        <button className="btn-ghost text-xs ml-auto" onClick={backfill} disabled={busy}>
+        <button className="btn-ghost text-xs ml-auto" onClick={runAudit} disabled={auditBusy}>
+          {auditBusy ? 'Auditing…' : '◉ Run blind calibration audit'}
+        </button>
+        <button className="btn-ghost text-xs" onClick={backfill} disabled={busy}>
           {busy ? 'Backfilling…' : '↻ Backfill 21 days'}
         </button>
       </div>
@@ -91,6 +110,32 @@ export default function MlbAutoPicks() {
         Five picks a slate, chosen by the model with no manual curation, graded against local box
         scores. Every pick is its own straight bet — never combined.
       </p>
+
+      {audit && (
+        <div className="card overflow-hidden mb-5 border-indigo-200">
+          <div className="px-3 py-2 bg-indigo-50 border-b border-indigo-100 text-xs font-bold text-indigo-800">
+            Walk-forward calibration · {audit.sampled_dates} fixed-cadence slates through {audit.through_date}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-slate-400"><tr>{['Market', 'Sample', 'Record', 'Win rate', '95% interval', 'Brier', 'Status'].map(h => <th key={h} className="text-left px-3 py-2">{h}</th>)}</tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {Object.entries(audit.by_market).map(([market, m]) => (
+                  <tr key={market}>
+                    <td className="px-3 py-2 font-semibold">{MARKET_LABEL[market] ?? market}</td>
+                    <td className="px-3 py-2">{m.n}</td><td className="px-3 py-2">{m.wins}-{m.losses}</td>
+                    <td className="px-3 py-2">{pct(m.win_rate)}</td>
+                    <td className="px-3 py-2">{pct(m.win_rate_95[0])}–{pct(m.win_rate_95[1])}</td>
+                    <td className="px-3 py-2">{m.brier ?? '—'}</td>
+                    <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${m.status === 'validated' ? 'bg-emerald-100 text-emerald-700' : m.status === 'provisional' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{m.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="px-3 py-2 text-[10px] text-slate-500 border-t border-slate-100">{audit.note}</p>
+        </div>
+      )}
 
       {data?.slate_date && data.slate_date !== data.requested_date && (
         <div className="card p-3 mb-4 border-amber-300 bg-amber-50">

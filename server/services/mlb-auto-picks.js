@@ -17,6 +17,7 @@
  */
 import { db, rows, run } from '../db/index.js';
 import { boardFor } from './mlb-projections.js';
+import { mean } from './stats-util.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS mlb_first_party_picks (
@@ -50,6 +51,7 @@ const PLAUSIBLE_MIN = 0.54;
 const PLAUSIBLE_MAX = 0.78;
 /** A starter, not an opener or a long reliever who happened to start. */
 const MIN_IP_PER_START = 4.0;
+const auditCache = new Map();
 
 /**
  * Builds the day's candidate plays across all three markets, ranked by how
@@ -109,6 +111,21 @@ export function candidatesFor(date) {
   return { date: board.date, fell_back: board.fell_back ?? null, candidates: out };
 }
 
+function diversifiedTop(candidates, n = 5) {
+  const picked = [], perMarket = {};
+  for (const c of candidates) {
+    const used = perMarket[c.market] ?? 0;
+    if (used >= 2) continue;
+    picked.push(c); perMarket[c.market] = used + 1;
+    if (picked.length >= n) break;
+  }
+  for (const c of candidates) {
+    if (picked.length >= n) break;
+    if (!picked.includes(c)) picked.push(c);
+  }
+  return picked.slice(0, n);
+}
+
 /**
  * Locks in the day's five picks. Idempotent per date, so revisiting the page
  * never reshuffles a slate that has already been committed to.
@@ -122,19 +139,7 @@ export function ensurePicksFor(date, n = 5) {
 
   // Spread the five across markets rather than letting one dominate — five
   // strikeout unders on the same slate is one correlated bet, not five.
-  const picked = [];
-  const perMarket = {};
-  for (const c of candidates) {
-    const used = perMarket[c.market] ?? 0;
-    if (used >= 2 && picked.length < n) continue;
-    picked.push(c);
-    perMarket[c.market] = used + 1;
-    if (picked.length >= n) break;
-  }
-  for (const c of candidates) {
-    if (picked.length >= n) break;
-    if (!picked.includes(c)) picked.push(c);
-  }
+  const picked = diversifiedTop(candidates, n);
 
   const now = new Date().toISOString();
   picked.slice(0, n).forEach((c, i) => {
@@ -256,6 +261,64 @@ export function standing() {
       };
     }).filter(x => x.picks > 0)
   };
+}
+
+/**
+ * Chronological, reproducible model audit on prior completed slates. Dates are
+ * sampled at a fixed cadence to keep the endpoint responsive; each prediction
+ * still uses only information strictly before its slate date.
+ */
+export function modelAudit(season, throughDate, { lookbackDays = 120, cadenceDays = 7 } = {}) {
+  const key = `${season}|${throughDate}|${lookbackDays}|${cadenceDays}`;
+  if (auditCache.has(key)) return auditCache.get(key);
+  const start = new Date(`${throughDate}T12:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - lookbackDays);
+  const eligible = rows(`SELECT DISTINCT date FROM mlb_games
+                         WHERE season=? AND date>=? AND date<? AND yrfi IS NOT NULL ORDER BY date`,
+                        season, start.toISOString().slice(0, 10), throughDate).map(x => x.date);
+  const sampled = [];
+  let last = 0;
+  for (const date of eligible) {
+    const ms = Date.parse(`${date}T12:00:00Z`);
+    if (last && ms - last < cadenceDays * 86400000) continue;
+    sampled.push(date); last = ms;
+  }
+
+  const graded = [];
+  for (const date of sampled) {
+    const slate = candidatesFor(date);
+    for (const p of diversifiedTop(slate.candidates ?? [], 5)) {
+      const result = gradePick({ ...p, pick_date: date });
+      if (result.status !== 'Won' && result.status !== 'Lost') continue;
+      graded.push({ ...p, date, outcome: result.status === 'Won' ? 1 : 0 });
+    }
+  }
+
+  const score = list => {
+    const n = list.length, wins = list.reduce((s, x) => s + x.outcome, 0);
+    if (!n) return { n: 0, wins: 0, win_rate: null, brier: null, log_loss: null, win_rate_95: [null, null], status: 'insufficient' };
+    const brier = mean(list.map(x => (x.model_probability - x.outcome) ** 2));
+    const logLoss = -mean(list.map(x => x.outcome * Math.log(Math.max(1e-6, x.model_probability))
+      + (1 - x.outcome) * Math.log(Math.max(1e-6, 1 - x.model_probability))));
+    const phat = wins / n, z = 1.96, den = 1 + z * z / n;
+    const center = (phat + z * z / (2 * n)) / den;
+    const half = z * Math.sqrt((phat * (1 - phat) + z * z / (4 * n)) / n) / den;
+    const lo = Math.max(0, center - half), hi = Math.min(1, center + half);
+    return {
+      n, wins, losses: n - wins, win_rate: r3(phat), brier: r3(brier), log_loss: r3(logLoss),
+      win_rate_95: [r3(lo), r3(hi)],
+      status: n < 30 ? 'insufficient' : lo > 0.5 ? 'validated' : 'provisional'
+    };
+  };
+  const byMarket = Object.fromEntries(['nrfi', 'batter_total_bases', 'pitcher_strikeouts']
+    .map(m => [m, score(graded.filter(x => x.market === m))]));
+  const out = {
+    season, through_date: throughDate, sampled_dates: sampled.length,
+    overall: score(graded), by_market: byMarket,
+    note: 'Fixed-cadence walk-forward audit. Every slate is predicted from earlier games only; status requires sample size and a Wilson interval above chance.'
+  };
+  auditCache.set(key, out);
+  return out;
 }
 
 /** Backfills picks for past dates so the record is not empty on day one. */

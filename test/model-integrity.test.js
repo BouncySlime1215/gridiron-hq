@@ -9,13 +9,14 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { __test: sim } = await import('../server/services/season-sim.js');
 const { db } = await import('../server/db/index.js');
-const { projectBatter } = await import('../server/services/mlb-projections.js');
+const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../server/services/mlb-projections.js');
 const { fitEnsemble, clearEnsembleCache } = await import('../server/services/nfl-ensemble.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
 const { weeklyDecisionBacktest } = await import('../server/services/backtest.js');
 await import('../server/services/nflverse.js');
 const { gameScriptFor, clearGameScriptCache } = await import('../server/services/gamescript.js');
 const { weeklyAvailability } = await import('../server/services/contingency.js');
+const { createExperiment } = await import('../server/services/nfl-experiments.js');
 
 test.after(() => {
   db.close();
@@ -84,6 +85,28 @@ test('MLB population priors cannot see games after the projection date', () => {
   }
   const after = projectBatter(10, 2026, '2026-05-01');
   assert.deepEqual(after, before);
+});
+
+test('MLB probability distributions are deterministic and preserve projected means', () => {
+  const batter = { expected_ab: 4.1, tb_per_ab: 0.43, hit_per_ab: 0.26, hr_per_hit: 0.14, non_hr_bases: 1.32 };
+  const a = batterTotalBases(batter), b = batterTotalBases(batter);
+  assert.deepEqual(a, b);
+  assert.equal(a.mean_tb, +(4.1 * 0.43).toFixed(4));
+  assert.ok(a.probabilities['over_0.5'] > a.probabilities['over_1.5']);
+  const pitcher = pitcherStrikeouts({ expected_bf: 24, k_per_bf: 0.25 });
+  assert.equal(pitcher.mean_k, 6);
+  assert.ok(pitcher.probabilities['over_4.5'] > pitcher.probabilities['over_7.5']);
+});
+
+test('NFL experiment splits reject overlap and non-chronological holdouts', () => {
+  assert.throws(() => createExperiment({
+    name: 'bad overlap', hypothesis: 'must fail',
+    discovery: [2019, 2020], validation: [2020], holdout: [2021], candidate: { minEdge: 4 }
+  }), /cannot overlap/);
+  assert.throws(() => createExperiment({
+    name: 'bad order', hypothesis: 'must fail',
+    discovery: [2020], validation: [2022], holdout: [2021], candidate: { minEdge: 4 }
+  }), /chronological/);
 });
 
 test('historical ensemble weights exclude the season being predicted and all future seasons', () => {

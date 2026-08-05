@@ -186,6 +186,28 @@ stat plus Brier score, log loss and a touchdown reliability curve. Betting
 replays include 95% win-rate and ROI intervals so a profitable-looking run with
 too little evidence is visibly provisional.
 
+### Locked NFL improvement experiments
+
+NFL changes can be tested through the immutable experiment registry at
+`/api/nfl-betting/experiments`. Each experiment locks a falsifiable hypothesis,
+model weighting/family ablation, thresholds, and three chronological,
+non-overlapping windows before results are calculated. Discovery runs first;
+validation must beat the production baseline, beat the vig, meet the minimum
+sample, and reach at least a 75% estimated chance of positive ROI. Only then can
+the holdout be opened, once. Failed validation leaves the holdout sealed, and no
+stage can be overwritten.
+
+Every NFL ensemble component also publishes a source, availability time, cutoff
+rule, and missing-data policy at `/api/nfl-betting/ensemble/contracts`. Missing
+play-by-play or market inputs abstain rather than becoming zero-valued evidence.
+
+MLB total-base and strikeout probabilities are deterministic: total bases use
+an exact compound-Poisson distribution and strikeouts use Poisson thinning.
+Matchup projections incorporate date-bounded opponent quality, park context,
+opponent strikeout tendency, and starter run prevention. The rolling audit at
+`/api/mlb/model/accuracy` reports Brier score, log loss, Wilson intervals, and a
+market-specific validated/provisional/insufficient status.
+
 Game-script regressions are fitted as of each prediction week, so historical
 spread/total-to-volume adjustments cannot use later workloads. Weekly fantasy
 distributions combine durability with that week's official injury and practice

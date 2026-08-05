@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../../api';
+import { api, useApi } from '../../api';
 
 interface Segment {
   dimension: string; segment: string; bets: number;
@@ -26,6 +26,11 @@ interface Training {
   per_season: SeasonSummary[];
   analysis: { segments: Segment[]; weakest: Segment[]; strongest: Segment[]; note: string };
 }
+interface Protocol {
+  production_baseline: { minEdge: number; maxDisagreement: number; markets: string[]; modelOptions: { weighting: string } };
+  supported_weightings: string[]; supported_families: string[]; rules: string[];
+}
+interface Experiment { id: number; name: string; hypothesis: string; created_at: string; verdict: string | null; validation_passed: boolean | null; holdout: unknown; }
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}u`);
@@ -47,6 +52,8 @@ export default function Training() {
   const [data, setData] = useState<Training | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const { data: protocol } = useApi<Protocol>('/nfl-betting/experiments/protocol');
+  const { data: registry } = useApi<{ experiments: Experiment[] }>('/nfl-betting/experiments');
 
   const run = async () => {
     setBusy(true); setErr(null); setData(null);
@@ -77,6 +84,31 @@ export default function Training() {
         looks for where the model is systematically wrong. The production policy was frozen on
         2018–2020; do not turn holdout segments into new rules without a fresh future test.
       </p>
+
+      {protocol && (
+        <div className="card p-4 mb-5 border-indigo-200 bg-indigo-50/30">
+          <div className="text-[10px] font-black uppercase tracking-wide text-indigo-600">Locked improvement protocol</div>
+          <div className="grid md:grid-cols-2 gap-4 mt-2">
+            <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-600">
+              {protocol.rules.map((rule, i) => <li key={i}>{rule}</li>)}
+            </ol>
+            <div className="text-[11px] text-slate-600">
+              <div><b>Production:</b> {protocol.production_baseline.minEdge}+ edge · ≤{protocol.production_baseline.maxDisagreement} disagreement · {protocol.production_baseline.modelOptions.weighting} weighting</div>
+              <div className="mt-2"><b>Testable weighting:</b> {protocol.supported_weightings.join(', ')}</div>
+              <div className="mt-1"><b>Ablation families:</b> {protocol.supported_families.join(', ')}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!!registry?.experiments?.length && (
+        <div className="card overflow-hidden mb-5">
+          <div className="px-3 py-2 bg-slate-50 border-b text-xs font-bold text-slate-700">Immutable experiment registry</div>
+          <div className="divide-y divide-slate-100">
+            {registry.experiments.map(x => <div key={x.id} className="px-3 py-2 text-xs flex gap-3"><b>#{x.id} {x.name}</b><span className="text-slate-500">{x.hypothesis}</span><span className="ml-auto text-slate-600">{x.verdict ?? 'Locked; not run'}</span></div>)}
+          </div>
+        </div>
+      )}
 
       {busy && (
         <div className="card p-3 mb-4 text-xs text-slate-500">

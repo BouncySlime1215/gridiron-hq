@@ -87,9 +87,10 @@ export function replaySeason(season, {
   // 2018-2020 before the 2021-2025 evaluation window was opened.
   maxDisagreement = 4.5,
   markets = ['spread', 'total'],
+  modelOptions = {},
   label = null
 } = {}) {
-  const fit = fitEnsemble();
+  const fit = fitEnsemble(modelOptions);
   if (fit.error) return fit;
 
   const slate = rows(`
@@ -104,7 +105,7 @@ export function replaySeason(season, {
 
   const bets = [];
   for (const g of slate) {
-    const line = ensembleLine(season, g.week, g.home, g.away);
+    const line = ensembleLine(season, g.week, g.home, g.away, modelOptions);
     if (line.error) continue;
     const e = line.ensemble;
     if (maxDisagreement != null && (e.model_disagreement_margin ?? 0) > maxDisagreement) continue;
@@ -167,7 +168,7 @@ export function replaySeason(season, {
     // Breaking even against -110 needs 52.4%, so anything below that is a loss
     // no matter how good the win count looks in isolation.
     beat_vig: wins + losses ? wins / (wins + losses) > 0.524 : null,
-    config: { minEdge, maxDisagreement, markets },
+    config: { minEdge, maxDisagreement, markets, modelOptions },
     uncertainty: uncertainty(bets)
   };
   return { summary, bets };

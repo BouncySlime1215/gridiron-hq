@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { syncSeason, syncSeasonSchedule, syncPitcherGameLogs, syncBatterGameLogs, coverage } from '../services/mlb.js';
 import { boardFor as firstPartyBoard, coverage as projCoverage } from '../services/mlb-projections.js';
-import { ensurePicksFor, allPicks, standing as picksStanding, backfill } from '../services/mlb-auto-picks.js';
+import { ensurePicksFor, allPicks, standing as picksStanding, backfill, modelAudit } from '../services/mlb-auto-picks.js';
 import { refreshInBackground, schedulerStatus, runIfStale } from '../services/scheduler.js';
 
 const r = Router();
@@ -47,6 +47,17 @@ r.get('/board', (req, res, next) => {
 
 r.get('/coverage', (req, res, next) => {
   try { res.json(projCoverage()); } catch (e) { next(e); }
+});
+
+r.get('/model/accuracy', (req, res, next) => {
+  try {
+    const through = String(req.query.through ?? new Date().toISOString().slice(0, 10));
+    const season = Number(req.query.season) || Number(through.slice(0, 4));
+    res.json(modelAudit(season, through, {
+      lookbackDays: Number(req.query.lookback_days) || 120,
+      cadenceDays: Number(req.query.cadence_days) || 7
+    }));
+  } catch (e) { next(e); }
 });
 
 /**

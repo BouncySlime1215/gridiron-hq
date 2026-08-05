@@ -12,11 +12,12 @@ import { boardFor, accuracy } from '../services/nfl-market.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
-import { modelCatalog, ensembleWeek, ensembleLine } from '../services/nfl-ensemble.js';
+import { modelCatalog, ensembleWeek, ensembleLine, featureContracts } from '../services/nfl-ensemble.js';
 import { replaySeason, trainingIteration, validateAdjustment } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
 import { runIfStale } from '../services/scheduler.js';
 import { stakeFor, evaluateSizing } from '../services/staking.js';
+import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -190,6 +191,10 @@ r.get('/ensemble/models', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/ensemble/contracts', (req, res, next) => {
+  try { res.json({ contracts: featureContracts() }); } catch (e) { next(e); }
+});
+
 r.get('/ensemble/week', (req, res, next) => {
   try {
     res.json({ season: ssn(req), week: wk(req), games: ensembleWeek(ssn(req), wk(req)) });
@@ -325,6 +330,30 @@ r.get('/stake/evaluate', (req, res, next) => {
 });
 
 /* ------------------------------------------------------------------ admin */
+
+r.get('/experiments/protocol', (req, res, next) => {
+  try { res.json(experimentProtocol()); } catch (e) { next(e); }
+});
+
+r.get('/experiments', (req, res, next) => {
+  try { res.json({ experiments: listExperiments() }); } catch (e) { next(e); }
+});
+
+r.get('/experiments/:id', (req, res, next) => {
+  try {
+    const out = getExperiment(req.params.id);
+    if (!out) return res.status(404).json({ error: 'experiment not found' });
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+r.post('/experiments', (req, res, next) => {
+  try { res.status(201).json(createExperiment(req.body ?? {})); } catch (e) { next(e); }
+});
+
+r.post('/experiments/:id/:stage', (req, res, next) => {
+  try { res.json(runExperimentStage(req.params.id, req.params.stage)); } catch (e) { next(e); }
+});
 
 r.get('/status', (req, res, next) => {
   try {

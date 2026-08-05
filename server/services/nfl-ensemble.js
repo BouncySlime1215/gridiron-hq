@@ -340,17 +340,43 @@ const MODELS = [
   {
     id: 'market_anchor', name: 'Market anchor', family: 'Market',
     note: 'Starts from the number the books opened and keeps it — the market is a strong prior.',
-    predict: (c) => ({ margin: c.openSpread != null ? -c.openSpread : -c.spread, total: c.openTotal ?? c.total })
+    predict: (c) => ({
+      margin: c.openSpread != null ? -c.openSpread : c.spread != null ? -c.spread : null,
+      total: c.openTotal ?? c.total ?? null
+    })
   },
   {
     id: 'market_regression', name: 'Market regression', family: 'Market',
     note: 'Fitted relationship between the closing line and the margin that actually happened.',
     predict: (c) => ({
-      margin: c.reg ? c.reg.b0 + c.reg.b1 * (-c.spread) : -c.spread,
-      total: c.total
+      margin: c.spread == null ? null : c.reg ? c.reg.b0 + c.reg.b1 * (-c.spread) : -c.spread,
+      total: c.total ?? null
     })
   }
 ];
+
+const FAMILY_CONTRACTS = {
+  'Rating systems': {
+    source: 'game_lines final scores', availability: 'game final',
+    cutoff_rule: 'season < target OR same season and week < target week',
+    missing_policy: 'cold-start neutral rating; never fabricate a completed game'
+  },
+  Efficiency: {
+    source: 'nflverse play-by-play aggregated by team-week', availability: 'after game final',
+    cutoff_rule: 'teamWeeks are filtered to week < target week',
+    missing_policy: 'component abstains when either team lacks the required feature'
+  },
+  Context: {
+    source: 'pregame schedule, weather, rest and prior play-by-play', availability: 'before kickoff',
+    cutoff_rule: 'target-game context plus outcomes only from strictly earlier games',
+    missing_policy: 'nullable context stays null or the component abstains'
+  },
+  Market: {
+    source: 'pregame sportsbook spread and total', availability: 'before kickoff',
+    cutoff_rule: 'target-game quote is allowed; no target-game result enters fitting',
+    missing_policy: 'market component abstains when no real quote exists'
+  }
+};
 
 /**
  * Shared shape for "difference two teams on one feature, scale to points".
@@ -521,9 +547,10 @@ export function clearEnsembleCache() { _cache.clear(); }
  * game in a week sees the same prior history — this is what keeps a full
  * evaluation to seconds instead of minutes.
  */
-export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeWeek = null } = {}) {
+export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeWeek = null,
+  weighting = 'exponential' } = {}) {
   const cutoffKey = beforeSeason == null ? 'live' : `${beforeSeason}|${beforeWeek ?? 1}`;
-  const cacheKey = `${evalFrom}|${cutoffKey}`;
+  const cacheKey = `${evalFrom}|${cutoffKey}|${weighting}`;
   if (_cache.has(cacheKey)) return _cache.get(cacheKey);
   const all = games();
   if (all.length < 200) return { error: `only ${all.length} games available — sync game lines first` };
@@ -589,7 +616,12 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // best prior forecasts. Inverse-MSE made a weak model with 17 RMSE nearly as
   // influential as the market near 14 RMSE, so a crowd of correlated mediocre
   // models could overwhelm the strongest prior merely by being numerous.
-  const rawWeight = (m, key) => m[key] ? Math.exp(-0.7 * m[key]) : 0;
+  const rawWeight = (m, key) => {
+    if (!m[key]) return 0;
+    if (weighting === 'equal') return 1;
+    if (weighting === 'inverse_mse') return 1 / m[key] ** 2;
+    return Math.exp(-0.7 * m[key]);
+  };
   const wsum = key => scored.reduce((s, m) => s + rawWeight(m, key), 0);
   const mW = wsum('margin_rmse'), tW = wsum('total_rmse');
   for (const m of scored) {
@@ -599,7 +631,7 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
 
   const result = {
     models: scored, evaluated_weeks: weeks.length, games: all.length,
-    calibration: cal,
+    calibration: cal, weighting,
     weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }
   };
   _cache.set(cacheKey, result);
@@ -610,11 +642,11 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
  * The ensemble's line for one upcoming game: every model's own number, the
  * weighted consensus, and how much the models disagree.
  */
-export function ensembleLine(season, week, home, away) {
+export function ensembleLine(season, week, home, away, { weighting = 'exponential', families = null } = {}) {
   // This cutoff is what makes season replay genuinely walk-forward. Live games
   // naturally use every completed game before their kickoff; historical games
   // can no longer borrow weights learned from themselves or the future.
-  const fit = fitEnsemble({ beforeSeason: season, beforeWeek: week });
+  const fit = fitEnsemble({ beforeSeason: season, beforeWeek: week, weighting });
   if (fit.error) return fit;
 
   const all = games();
@@ -629,8 +661,9 @@ export function ensembleLine(season, week, home, away) {
   const ctx = { ...buildContext({ ...g, season, week, home, away }, hist, restMap),
     home, away, cal: fit.calibration };
 
+  const allowedFamilies = families?.length ? new Set(families) : null;
   const perModel = [];
-  for (const m of MODELS) {
+  for (const m of MODELS.filter(x => !allowedFamilies || allowedFamilies.has(x.family))) {
     let p; try { p = m.predict(ctx); } catch { p = null; }
     const w = fit.models.find(x => x.id === m.id) ?? {};
     perModel.push({
@@ -708,6 +741,11 @@ export function modelCatalog() {
     count: MODELS.length,
     evaluated_weeks: fit.evaluated_weeks,
     games: fit.games,
-    models: fit.models
+    weighting: fit.weighting,
+    models: fit.models.map(m => ({ ...m, contract: FAMILY_CONTRACTS[m.family] }))
   };
+}
+
+export function featureContracts() {
+  return MODELS.map(m => ({ id: m.id, name: m.name, family: m.family, ...FAMILY_CONTRACTS[m.family] }));
 }

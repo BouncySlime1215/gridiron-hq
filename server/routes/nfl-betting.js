@@ -13,7 +13,7 @@ import { standing as spreadStanding, allPickResults } from '../services/nfl-auto
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
 import { modelCatalog, ensembleWeek, ensembleLine, featureContracts } from '../services/nfl-ensemble.js';
-import { replaySeason, trainingIteration, validateAdjustment } from '../services/nfl-replay.js';
+import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
 import { runIfStale } from '../services/scheduler.js';
 import { stakeFor, evaluateSizing } from '../services/staking.js';
@@ -216,11 +216,13 @@ r.get('/ensemble/game', (req, res, next) => {
 /** Replays a season betting the ensemble, walk-forward, and grades every pick. */
 r.get('/replay', (req, res, next) => {
   try {
-    const out = replaySeason(ssn(req), {
+    const research = req.query.research === '1';
+    const out = replaySeason(ssn(req), research ? {
       minEdge: Number(req.query.min_edge) || 3,
       maxDisagreement: disagreement(req),
-      markets: String(req.query.markets ?? 'spread,total').split(',')
-    });
+      markets: String(req.query.markets ?? 'spread').split(','),
+      maxPicksPerWeek: Number(req.query.max_picks) || 5
+    } : {});
     if (out?.error) return res.status(409).json(out);
     res.json(out);
   } catch (e) { next(e); }
@@ -230,12 +232,27 @@ r.get('/replay', (req, res, next) => {
 r.get('/replay/train', (req, res, next) => {
   try {
     const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
-    res.json(trainingIteration(seasons, {
+    const research = req.query.research === '1';
+    res.json(trainingIteration(seasons, research ? {
       minEdge: Number(req.query.min_edge) || 3,
       maxDisagreement: disagreement(req),
+      maxPicksPerWeek: Number(req.query.max_picks) || 5,
+      markets: String(req.query.markets ?? 'spread').split(','),
       minBets: Number(req.query.min_bets) || 30
-    }));
+    } : { minBets: Number(req.query.min_bets) || 30 }));
   } catch (e) { next(e); }
+});
+
+/** Runs and stores the canonical exact-policy audit used by the decision desk. */
+r.post('/replay/train', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
+    res.json(saveTrainingAudit(trainingIteration(seasons, { minBets: Number(req.query.min_bets) || 30 })));
+  } catch (e) { next(e); }
+});
+
+r.get('/replay/latest', (_req, res, next) => {
+  try { res.json({ audit: latestTrainingAudit() }); } catch (e) { next(e); }
 });
 
 /**

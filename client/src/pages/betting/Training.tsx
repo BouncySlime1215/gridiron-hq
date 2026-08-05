@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, useApi } from '../../api';
+import { Notice, SectionHeading, StatusPill } from '../../components/betting/BettingUI';
 
 interface Segment {
   dimension: string; segment: string; bets: number;
@@ -11,6 +12,7 @@ interface SeasonSummary {
   win_rate: number | null; units: number; roi: number; beat_vig: boolean | null; error?: string;
 }
 interface Uncertainty {
+  method?: string; clusters?: number; trials?: number;
   win_rate_95: [number | null, number | null];
   roi_95: [number | null, number | null];
   probability_roi_above_zero: number | null;
@@ -27,7 +29,7 @@ interface Training {
   analysis: { segments: Segment[]; weakest: Segment[]; strongest: Segment[]; note: string };
 }
 interface Protocol {
-  production_baseline: { minEdge: number; maxDisagreement: number; markets: string[]; modelOptions: { weighting: string } };
+  production_baseline: { id: string; version: string; minEdge: number; maxDisagreement: number; maxPicksPerWeek: number; markets: string[]; modelOptions: { weighting: string } };
   supported_weightings: string[]; supported_families: string[]; rules: string[];
 }
 interface Experiment { id: number; name: string; hypothesis: string; created_at: string; verdict: string | null; validation_passed: boolean | null; holdout: unknown; }
@@ -39,8 +41,8 @@ const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+'
  * The training loop, made visible.
  *
  * Replays past seasons betting the model's own picks and grades every one. The
- * headline number is deliberately the ROI against the break-even a -110 bet
- * needs, not the raw win count — 50% looks fine and loses money.
+ * headline number is ROI settled at each stored historical price, not a
+ * synthetic flat -110 assumption.
  *
  * The segment table below is where improvement actually comes from: places the
  * model is wrong across many games, not individual losses. Chasing individual
@@ -48,7 +50,6 @@ const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+'
  */
 export default function Training() {
   const [seasons, setSeasons] = useState('2021,2022,2023,2024,2025');
-  const [minEdge, setMinEdge] = useState(3);
   const [data, setData] = useState<Training | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -58,7 +59,8 @@ export default function Training() {
   const run = async () => {
     setBusy(true); setErr(null); setData(null);
     try {
-      setData(await api(`/nfl-betting/replay/train?seasons=${seasons}&min_edge=${minEdge}&min_bets=25`));
+      const saved = await api(`/nfl-betting/replay/train?seasons=${seasons}&min_bets=25`, { method: 'POST' });
+      setData(saved.result);
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(false); }
   };
@@ -67,33 +69,31 @@ export default function Training() {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold">Blind Replay</h1>
-        <div className="flex items-center gap-2 text-xs ml-auto">
-          <input className="input py-1 w-44" value={seasons} onChange={e => setSeasons(e.target.value)} />
-          <label className="text-slate-500">min edge</label>
-          <input type="number" step="0.5" className="input py-1 w-16" value={minEdge}
-            onChange={e => setMinEdge(Number(e.target.value))} />
+      <div className="flex items-end gap-3 mb-4 flex-wrap">
+        <SectionHeading eyebrow="Evidence lab" title="Blind replay"
+          description="Replay frozen policies chronologically and inspect uncertainty before any candidate reaches a holdout." />
+        <div className="flex items-end gap-2 text-sm ml-auto flex-wrap">
+          <label className="text-slate-500"><span className="block text-xs font-bold mb-1">Research seasons</span>
+            <input aria-label="Replay seasons" className="input py-2 w-52" value={seasons} onChange={e => setSeasons(e.target.value)} />
+          </label>
           <button className="btn-primary text-xs" onClick={run} disabled={busy}>
             {busy ? 'Replaying…' : '▶ Replay & analyze'}
           </button>
         </div>
       </div>
-      <p className="text-sm text-slate-500 mb-4">
-        Replays each season week by week, betting only on information available at the time, then
-        looks for where the model is systematically wrong. The production policy was frozen on
-        2018–2020; do not turn holdout segments into new rules without a fresh future test.
-      </p>
+      <Notice title="Exact production-policy replay" tone="info">
+        This audit uses the same versioned spread-only policy, three-point edge floor, disagreement guard, weekly five-pick cap, ranking rule, and stored prices as the live decision desk.
+      </Notice>
 
       {protocol && (
-        <div className="card p-4 mb-5 border-indigo-200 bg-indigo-50/30">
-          <div className="text-[10px] font-black uppercase tracking-wide text-indigo-600">Locked improvement protocol</div>
+        <div className="card my-5 border-slate-300 bg-slate-50 p-4">
+          <div className="text-xs font-black uppercase tracking-wide text-slate-600">Locked improvement protocol</div>
           <div className="grid md:grid-cols-2 gap-4 mt-2">
-            <ol className="list-decimal pl-4 space-y-1 text-[11px] text-slate-600">
+            <ol className="list-decimal pl-4 space-y-2 text-sm leading-5 text-slate-600">
               {protocol.rules.map((rule, i) => <li key={i}>{rule}</li>)}
             </ol>
-            <div className="text-[11px] text-slate-600">
-              <div><b>Production:</b> {protocol.production_baseline.minEdge}+ edge · ≤{protocol.production_baseline.maxDisagreement} disagreement · {protocol.production_baseline.modelOptions.weighting} weighting</div>
+            <div className="text-sm leading-5 text-slate-600">
+              <div><b>Production:</b> {protocol.production_baseline.id}@{protocol.production_baseline.version} · {protocol.production_baseline.minEdge}+ edge · ≤{protocol.production_baseline.maxDisagreement} disagreement · max {protocol.production_baseline.maxPicksPerWeek}/week · {protocol.production_baseline.modelOptions.weighting} weighting</div>
               <div className="mt-2"><b>Testable weighting:</b> {protocol.supported_weightings.join(', ')}</div>
               <div className="mt-1"><b>Ablation families:</b> {protocol.supported_families.join(', ')}</div>
             </div>
@@ -105,7 +105,7 @@ export default function Training() {
         <div className="card overflow-hidden mb-5">
           <div className="px-3 py-2 bg-slate-50 border-b text-xs font-bold text-slate-700">Immutable experiment registry</div>
           <div className="divide-y divide-slate-100">
-            {registry.experiments.map(x => <div key={x.id} className="px-3 py-2 text-xs flex gap-3"><b>#{x.id} {x.name}</b><span className="text-slate-500">{x.hypothesis}</span><span className="ml-auto text-slate-600">{x.verdict ?? 'Locked; not run'}</span></div>)}
+            {registry.experiments.map(x => <div key={x.id} className="px-4 py-3 text-sm flex flex-col gap-2 lg:flex-row lg:items-center"><b>#{x.id} {x.name}</b><span className="text-slate-500">{x.hypothesis}</span><span className="lg:ml-auto"><StatusPill tone={x.validation_passed ? 'good' : x.verdict ? 'warn' : 'neutral'}>{x.verdict ?? 'Locked; not run'}</StatusPill></span></div>)}
           </div>
         </div>
       )}
@@ -120,7 +120,7 @@ export default function Training() {
 
       {o && (
         <>
-          <div className={`card p-3 mb-4 border ${o.beat_vig ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}>
+          <div className={`card mb-4 border p-3 ${o.beat_vig ? 'border-slate-300 bg-slate-50' : 'border-slate-300 bg-white'}`}>
             <div className="text-xs font-bold text-slate-800">
               {o.beat_vig
                 ? `Beat the vig — ${pct(o.win_rate)} clears the ${pct(o.break_even_needed)} a -110 bet needs.`
@@ -143,11 +143,11 @@ export default function Training() {
 
           {o.uncertainty && (
             <div className={`card p-4 mb-5 border ${
-              (o.uncertainty.roi_95?.[0] ?? -1) > 0 ? 'border-emerald-300 bg-emerald-50/50' : 'border-indigo-200 bg-indigo-50/40'
+              (o.uncertainty.roi_95?.[0] ?? -1) > 0 ? 'border-slate-300 bg-slate-50' : 'border-blue-200 bg-blue-50/40'
             }`}>
               <div className="flex items-start gap-3 flex-wrap">
                 <div>
-                  <div className="text-[10px] font-black uppercase tracking-wide text-indigo-500">Uncertainty audit</div>
+                  <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Uncertainty audit</div>
                   <div className="text-sm font-bold text-slate-800 mt-0.5">
                     ROI 95% interval: {pct(o.uncertainty.roi_95?.[0])} to {pct(o.uncertainty.roi_95?.[1])}
                   </div>
@@ -155,14 +155,17 @@ export default function Training() {
                     Win-rate interval {pct(o.uncertainty.win_rate_95?.[0])}–{pct(o.uncertainty.win_rate_95?.[1])}
                     {' · '}estimated chance true ROI is positive {pct(o.uncertainty.probability_roi_above_zero)}
                   </div>
+                  {o.uncertainty.method && <div className="mt-1 text-[11px] text-slate-500">
+                    {o.uncertainty.method} · {o.uncertainty.clusters ?? 0} NFL weeks · {o.uncertainty.trials?.toLocaleString() ?? 0} trials
+                  </div>}
                 </div>
                 <div className={`ml-auto text-xs font-bold rounded-full px-3 py-1 ${
-                  (o.uncertainty.roi_95?.[0] ?? -1) > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  (o.uncertainty.roi_95?.[0] ?? -1) > 0 ? 'bg-slate-200 text-slate-900' : 'bg-white text-slate-700 border border-slate-300'
                 }`}>
                   {(o.uncertainty.roi_95?.[0] ?? -1) > 0 ? 'Signal clears zero' : 'Not proven yet'}
                 </div>
               </div>
-              {o.uncertainty.sample_warning && <p className="text-[11px] text-amber-800 mt-2">⚠ {o.uncertainty.sample_warning}</p>}
+              {o.uncertainty.sample_warning && <p className="mt-2 text-[11px] text-slate-600">{o.uncertainty.sample_warning}</p>}
             </div>
           )}
 
@@ -182,7 +185,7 @@ export default function Training() {
                     <td className="px-3 py-2 tabular-nums">{s.error ? '—' : `${s.wins}-${s.losses}`}</td>
                     <td className="px-3 py-2 tabular-nums">{pct(s.win_rate)}</td>
                     <td className={`px-3 py-2 tabular-nums font-semibold ${
-                      (s.units ?? 0) > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{u(s.units)}</td>
+                      (s.units ?? 0) > 0 ? 'text-slate-900' : 'text-rose-600'}`}>{u(s.units)}</td>
                     <td className="px-3 py-2">{s.beat_vig ? '✓' : '—'}</td>
                   </tr>
                 ))}
@@ -215,7 +218,7 @@ export default function Training() {
                         </td>
                         <td className="px-3 py-1.5 tabular-nums">{s.bets}</td>
                         <td className={`px-3 py-1.5 tabular-nums font-semibold ${
-                          (s.win_rate ?? 0) >= 0.524 ? 'text-emerald-700' : 'text-rose-600'}`}>{pct(s.win_rate)}</td>
+                          (s.win_rate ?? 0) >= 0.524 ? 'text-slate-900' : 'text-rose-600'}`}>{pct(s.win_rate)}</td>
                         <td className="px-3 py-1.5 tabular-nums">{(s.roi * 100).toFixed(1)}%</td>
                         <td className={`px-3 py-1.5 tabular-nums ${real ? 'font-bold text-slate-800' : 'text-slate-400'}`}>
                           {s.z > 0 ? '+' : ''}{s.z.toFixed(2)}
@@ -248,7 +251,7 @@ export default function Training() {
 const Metric = ({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'bad' }) => (
   <div className="card p-3">
     <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
-    <div className={`text-lg font-bold ${tone === 'good' ? 'text-emerald-700' : tone === 'bad' ? 'text-rose-600' : 'text-slate-800'}`}>
+    <div className={`text-lg font-bold ${tone === 'good' ? 'text-slate-950' : tone === 'bad' ? 'text-rose-600' : 'text-slate-800'}`}>
       {value}
     </div>
   </div>

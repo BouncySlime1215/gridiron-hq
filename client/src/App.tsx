@@ -73,15 +73,15 @@ export default function App() {
           transition-[width] duration-300 ease-in-out overflow-hidden ${collapsed ? 'px-2' : 'px-4'}`}>
         <div className={`mb-4 ${collapsed ? 'px-0 text-center' : 'px-2'}`}>
           {collapsed ? (
-            <div className="text-xl font-black tracking-tight text-emerald-600">G<span className="text-slate-800">H</span></div>
+            <div className="text-xl font-black tracking-tight text-slate-900">GH</div>
           ) : (
             <>
-              <div className="text-xl font-bold tracking-tight whitespace-nowrap">Gridiron <span className="text-emerald-600">HQ</span></div>
-              <div className="text-xs text-slate-500 whitespace-nowrap">2026 Fantasy Command Center</div>
+              <div className="text-xl font-bold tracking-tight whitespace-nowrap">Gridiron <span className={inBetting ? 'text-slate-900' : 'text-emerald-600'}>HQ</span></div>
+              <div className="text-xs text-slate-500 whitespace-nowrap">{inBetting ? 'Betting Intelligence Desk' : '2026 Fantasy Command Center'}</div>
             </>
           )}
         </div>
-        {NAV.map(n => (
+        {!inBetting && NAV.map(n => (
           <NavLink
             key={n.to}
             to={n.to}
@@ -102,10 +102,14 @@ export default function App() {
 
         {/* Betting is its own product — different sports, different data, no league
             context — so it gets a labelled section rather than being blended in. */}
-        <div className={`mt-3 mb-1 border-t border-slate-200 pt-3 ${collapsed ? '' : 'px-1'}`}>
+        {inBetting && <NavLink to="/" title={collapsed ? 'Back to fantasy' : undefined}
+          className={`mb-2 py-2 rounded-lg text-sm font-medium flex items-center gap-2 text-slate-500 hover:bg-slate-100 ${collapsed ? 'px-0 justify-center' : 'px-3'}`}>
+          <span>←</span><span className={collapsed ? 'hidden' : ''}>Back to fantasy</span>
+        </NavLink>}
+        <div className={`${inBetting ? 'mt-1' : 'mt-3'} mb-1 border-t border-slate-200 pt-3 ${collapsed ? '' : 'px-1'}`}>
           {!collapsed && (
             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 px-2 mb-1 whitespace-nowrap">
-              Betting
+              {inBetting ? 'Betting desk' : 'Betting'}
             </div>
           )}
         </div>
@@ -118,7 +122,7 @@ export default function App() {
             className={({ isActive }) =>
               `py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
                 collapsed ? 'px-0 justify-center' : 'px-3'
-              } ${isActive ? 'bg-sky-100 text-sky-700' : 'text-slate-700 hover:bg-slate-100'}`
+              } ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`
             }
           >
             <span className="shrink-0">{n.icon}</span>
@@ -146,14 +150,14 @@ export default function App() {
               <line x1={collapsed ? '5.5' : '5.5'} y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" />
             </svg>
           </button>
-          <span className="text-sm font-semibold text-slate-500">Gridiron HQ</span>
+          <span className="text-sm font-semibold text-slate-500">{inBetting ? 'Betting Intelligence' : 'Gridiron HQ'}</span>
           {!inBetting && <LeagueSwitcher />}
           <div className="ml-auto flex items-center gap-2">
             <RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} />
             <DevHub />
           </div>
         </header>
-        <main className="flex-1 min-w-0 p-6">
+        <main className={`flex-1 min-w-0 p-4 sm:p-6 ${inBetting ? 'bg-slate-50/50' : ''}`}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/teams" element={<Teams />} />

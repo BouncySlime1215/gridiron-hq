@@ -232,12 +232,16 @@ export function allPicks() {
     .map(p => {
       const g = gradePick(p);
       const units = g.status === 'Won' ? 100 / 110 : g.status === 'Lost' ? -1 : 0;
-      return { ...p, ...g, units: +units.toFixed(3) };
+      const selectedDate = String(p.selected_at ?? '').slice(0, 10);
+      return {
+        ...p, ...g, units: +units.toFixed(3),
+        tracking_mode: selectedDate && selectedDate > p.pick_date ? 'retrospective' : 'forward'
+      };
     });
 }
 
-export function standing() {
-  const graded = allPicks();
+export function standing(throughDate = null) {
+  const graded = allPicks().filter(g => throughDate == null || g.pick_date <= throughDate);
   const settled = graded.filter(g => g.status === 'Won' || g.status === 'Lost');
   const wins = settled.filter(g => g.status === 'Won').length;
   const losses = settled.filter(g => g.status === 'Lost').length;

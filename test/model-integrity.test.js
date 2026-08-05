@@ -17,6 +17,8 @@ await import('../server/services/nflverse.js');
 const { gameScriptFor, clearGameScriptCache } = await import('../server/services/gamescript.js');
 const { weeklyAvailability } = await import('../server/services/contingency.js');
 const { createExperiment } = await import('../server/services/nfl-experiments.js');
+const { applyNflPolicy, NFL_PRODUCTION_POLICY } = await import('../server/services/nfl-policy.js');
+const { uncertainty } = await import('../server/services/nfl-replay.js');
 
 test.after(() => {
   db.close();
@@ -40,6 +42,32 @@ test('seeded simulations are exactly reproducible', () => {
   const c = withRandomSeed(42, () => Array.from({ length: 8 }, random));
   assert.deepEqual(a, b);
   assert.notDeepEqual(a, c);
+});
+
+test('live and replay policy enforces the same eligibility rules and weekly cap', () => {
+  const candidates = Array.from({ length: 8 }, (_, i) => ({
+    market: 'spread', matchup: `A${i} at B${i}`, selection: `A${i}`,
+    line: 3, american_price: -110, edge_points: 8 - i / 2, disagreement: 3
+  }));
+  candidates.push({ market: 'spread', matchup: 'low at edge', selection: 'low', line: 2,
+    american_price: -110, edge_points: 2.9, disagreement: 2 });
+  const result = applyNflPolicy(candidates, NFL_PRODUCTION_POLICY);
+  assert.equal(result.selected.length, 5);
+  assert.deepEqual(result.selected.map(x => x.edge_points), [8, 7.5, 7, 6.5, 6]);
+  assert.equal(result.decisions.filter(x => x.abstention_reason === 'weekly_capacity').length, 3);
+  assert.equal(result.decisions.find(x => x.selection === 'low').abstention_reason, 'edge_below_threshold');
+});
+
+test('NFL replay uncertainty resamples weekly clusters deterministically', () => {
+  const bets = [
+    { season: 2024, week: 1, result: 'Won', units: 0.91 },
+    { season: 2024, week: 1, result: 'Lost', units: -1 },
+    { season: 2024, week: 2, result: 'Won', units: 1.05 }
+  ];
+  const a = uncertainty(bets), b = uncertainty(bets);
+  assert.deepEqual(a, b);
+  assert.equal(a.clusters, 2);
+  assert.equal(a.method, 'deterministic weekly-cluster bootstrap');
 });
 
 test('weekly decision report charges missed starts and availability failures as regret', () => {
@@ -107,6 +135,17 @@ test('NFL experiment splits reject overlap and non-chronological holdouts', () =
     name: 'bad order', hypothesis: 'must fail',
     discovery: [2020], validation: [2022], holdout: [2021], candidate: { minEdge: 4 }
   }), /chronological/);
+});
+
+test('NFL experiments pin code, data snapshot, feature coverage, and model version', () => {
+  const x = createExperiment({
+    name: 'provenance contract', hypothesis: 'metadata stays immutable',
+    discovery: [2019], validation: [2020], holdout: [2021], candidate: { minEdge: 4 }
+  });
+  assert.match(x.spec.provenance.git_commit, /^(unavailable|[a-f0-9]{40})$/);
+  assert.match(x.spec.provenance.data_snapshot_hash, /^[a-f0-9]{64}$/);
+  assert.equal(typeof x.spec.provenance.feature_coverage.team_week_rows, 'number');
+  assert.equal(x.spec.provenance.model_version, 'nfl-spread-v1@1.0.0');
 });
 
 test('historical ensemble weights exclude the season being predicted and all future seasons', () => {

@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { boardFor, accuracy, predictGame, clearNflMarketCache } from '../services/nfl-market.js';
 import { syncCurrentLines } from '../services/gamescript.js';
-import { autoPickCandidates, ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
+import { autoPickDecisionBoard, persistPickDecisions, ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
+import { NFL_PRODUCTION_POLICY } from '../services/nfl-policy.js';
+import { closingLineValue } from '../services/line-shopping.js';
+import { latestTrainingAudit } from '../services/nfl-replay.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -40,6 +43,27 @@ r.get('/picks', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/** Current production-policy candidates without locking or mutating the slate. */
+r.get('/picks/candidates', (req, res, next) => {
+  try {
+    const season = Number(req.query.season) || SEASON;
+    const week = Number(req.query.week) || 1;
+    const decisionBoard = autoPickDecisionBoard(season, week);
+    const evidence = latestTrainingAudit();
+    res.json({
+      season, week, candidates: decisionBoard.selected,
+      abstentions: decisionBoard.decisions.filter(d => !d.eligible),
+      policy: decisionBoard.policy,
+      clv: closingLineValue(),
+      evidence,
+      evidence_status: evidence ? 'not_proven' : 'requires_exact_replay',
+      evidence_note: evidence
+        ? 'The exact-policy interval crosses zero. Require 2026 forward evidence and CLV before calling an edge proven.'
+        : 'The prior five-season ROI came from a non-parity replay and is retired. Rerun the exact versioned policy.'
+    });
+  } catch (e) { next(e); }
+});
+
 /**
  * The weekly workflow: refresh every current-season line (which is also how last
  * week's final scores arrive), grade whatever picks are now settled, then lock in
@@ -59,13 +83,16 @@ r.post('/sync-and-pick', async (req, res, next) => {
     const lastWeek = week - 1;
     const lastWeekResults = lastWeek >= 1 ? pickResultsFor(season, lastWeek) : [];
 
-    const candidates = autoPickCandidates(season, week);
-    const newPicks = ensurePicksFor(season, week, candidates, 5);
+    const decisionBoard = autoPickDecisionBoard(season, week);
+    const decisionAudit = persistPickDecisions(season, week, decisionBoard);
+    const candidates = decisionBoard.selected;
+    const newPicks = ensurePicksFor(season, week, candidates, NFL_PRODUCTION_POLICY.maxPicksPerWeek);
 
     res.json({
       season, week, trials, synced,
       last_week: { week: lastWeek, results: lastWeekResults },
-      policy: { model: 'walk-forward ensemble', min_edge: 3, max_disagreement: 4.5 },
+      policy: decisionBoard.policy,
+      decision_audit: decisionAudit,
       eligible_candidates: candidates.length, new_picks: newPicks,
       standing: standing()
     });

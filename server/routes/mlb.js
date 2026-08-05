@@ -72,19 +72,28 @@ r.get('/auto-picks', (req, res, next) => {
     // Grade the current slate too — ensurePicksFor returns raw rows, so reusing
     // the graded list keeps the status column from rendering blank.
     const graded = allPicks();
+    const visible = graded.filter(p => p.pick_date <= date);
     res.json({
       requested_date: date,
       slate_date: slateDate,
-      today: graded.filter(p => p.pick_date === slateDate),
-      history: graded,
-      standing: picksStanding()
+      today: visible.filter(p => p.pick_date === slateDate),
+      history: visible,
+      standing: picksStanding(date),
+      economics: {
+        available: false,
+        odds_feed: false,
+        note: 'No MLB prices are stored. Win rate grades projection direction only; units, ROI and sportsbook edge are unavailable.'
+      }
     });
   } catch (e) { next(e); }
 });
 
 /** Generates picks for recent past dates so the record is not empty on day one. */
 r.post('/auto-picks/backfill', (req, res, next) => {
-  try { res.json(backfill(Number(req.query.days) || 14)); } catch (e) { next(e); }
+  try {
+    const through = req.query.through ? String(req.query.through) : undefined;
+    res.json(backfill(Number(req.query.days) || 14, through));
+  } catch (e) { next(e); }
 });
 
 /** What the background scheduler has done, and when. */

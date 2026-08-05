@@ -17,14 +17,14 @@ body {
   @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors;
 }
 .btn-primary {
-  @apply btn bg-emerald-600 hover:bg-emerald-500 text-white;
+  @apply btn bg-slate-900 hover:bg-slate-800 text-white;
 }
 .btn-ghost {
   @apply btn bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200;
 }
 .input {
   @apply bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900
-         focus:outline-none focus:border-emerald-500;
+         focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100;
 }
 .pos-QB { @apply text-rose-600; }
 .pos-RB { @apply text-emerald-600; }

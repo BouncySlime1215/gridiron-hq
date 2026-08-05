@@ -7,8 +7,10 @@
  * cannot quietly become another tuning loop.
  */
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { db, rows, run } from '../db/index.js';
 import { trainingIteration } from './nfl-replay.js';
+import { NFL_PRODUCTION_POLICY } from './nfl-policy.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_experiments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,7 +21,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_experiments (
 )`);
 
 const PRODUCTION = {
-  minEdge: 3, maxDisagreement: 4.5, markets: ['spread', 'total'],
+  ...NFL_PRODUCTION_POLICY,
   modelOptions: { weighting: 'exponential', families: null }
 };
 const FAMILIES = new Set(['Rating systems', 'Efficiency', 'Context', 'Market']);
@@ -38,6 +40,7 @@ function normalizeConfig(raw = {}) {
   const maxDisagreement = raw.maxDisagreement == null ? null : Number(raw.maxDisagreement);
   const markets = (raw.markets ?? PRODUCTION.markets).filter(x => x === 'spread' || x === 'total');
   const weighting = raw.modelOptions?.weighting ?? 'exponential';
+  const maxPicksPerWeek = Math.max(1, Math.floor(Number(raw.maxPicksPerWeek ?? PRODUCTION.maxPicksPerWeek)));
   const families = raw.modelOptions?.families == null ? null
     : [...new Set(raw.modelOptions.families)].filter(x => FAMILIES.has(x));
   if (!Number.isFinite(minEdge) || minEdge < 0 || minEdge > 14) throw new Error('minEdge outside safe range');
@@ -46,8 +49,9 @@ function normalizeConfig(raw = {}) {
   }
   if (!markets.length) throw new Error('at least one supported market is required');
   if (!WEIGHTINGS.has(weighting)) throw new Error('unsupported weighting method');
+  if (!Number.isFinite(maxPicksPerWeek) || maxPicksPerWeek > 20) throw new Error('weekly cap outside safe range');
   if (raw.modelOptions?.families != null && !families.length) throw new Error('no supported model families selected');
-  return { minEdge, maxDisagreement, markets, modelOptions: { weighting, families } };
+  return { minEdge, maxDisagreement, maxPicksPerWeek, markets, modelOptions: { weighting, families } };
 }
 
 function normalizedSpec(input) {
@@ -70,11 +74,35 @@ function normalizedSpec(input) {
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const parse = value => value ? JSON.parse(value) : null;
 
+function experimentProvenance() {
+  let gitCommit = 'unavailable';
+  try { gitCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: process.cwd(), encoding: 'utf8' }).trim(); } catch {}
+  const snapshot = {};
+  for (const table of ['game_lines', 'nfl_team_week_features', 'nfl_player_week_features']) {
+    try {
+      snapshot[table] = rows(`SELECT COUNT(*) AS rows, MAX(COALESCE(fetched_at, '')) AS latest FROM ${table}`)[0];
+    } catch {
+      try { snapshot[table] = rows(`SELECT COUNT(*) AS rows FROM ${table}`)[0]; }
+      catch { snapshot[table] = { rows: 0, unavailable: true }; }
+    }
+  }
+  return {
+    git_commit: gitCommit,
+    data_snapshot_hash: hash(snapshot),
+    data_snapshot: snapshot,
+    feature_coverage: {
+      team_week_rows: snapshot.nfl_team_week_features?.rows ?? 0,
+      player_week_rows: snapshot.nfl_player_week_features?.rows ?? 0
+    },
+    model_version: `${NFL_PRODUCTION_POLICY.id}@${NFL_PRODUCTION_POLICY.version}`
+  };
+}
+
 export function createExperiment({ name, hypothesis, ...input }) {
   if (!String(name ?? '').trim() || !String(hypothesis ?? '').trim()) {
     throw new Error('name and falsifiable hypothesis are required');
   }
-  const spec = normalizedSpec(input);
+  const spec = { ...normalizedSpec(input), provenance: experimentProvenance() };
   const specHash = hash({ name: String(name).trim(), hypothesis: String(hypothesis).trim(), spec });
   run(`INSERT INTO nfl_model_experiments
        (name,hypothesis,created_at,spec_hash,spec_json) VALUES (?,?,datetime('now'),?,?)`,

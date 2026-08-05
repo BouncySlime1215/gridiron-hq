@@ -15,8 +15,8 @@
  * output is low confidence, and the spread between them is reported as exactly
  * that.
  *
- * Weighting is by inverse mean squared error on held-out games, so a model that
- * predicts badly is down-weighted automatically instead of being argued about.
+ * Weighting is exponential in held-out RMSE, so a model that predicts badly is
+ * down-weighted automatically instead of being argued about.
  * Model families follow published work — Massey and Colley least-squares
  * ratings, Pythagenport expectation, margin-dependent Elo — implemented here
  * rather than imported.
@@ -723,7 +723,7 @@ function confidenceFrom(disagreement, margin, marketMargin) {
   const edge = Math.abs(margin - marketMargin);
   if (edge < 1) return 'no edge — the models land on the market';
   const ratio = edge / disagreement;
-  if (ratio >= 1.0) return 'strong — the disagreement is large relative to how much the models scatter';
+  if (ratio >= 1.0) return 'strong — the market edge is large relative to how much the models scatter';
   if (ratio >= 0.5) return 'moderate';
   return 'weak — the models disagree among themselves more than they disagree with the market';
 }

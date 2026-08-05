@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, useApi } from '../../api';
 import { Notice, SectionHeading, StatusPill } from '../../components/betting/BettingUI';
 
@@ -26,6 +26,7 @@ interface Training {
     uncertainty?: Uncertainty;
   };
   per_season: SeasonSummary[];
+  equity_curve: { week: string; week_units: number; cumulative_units: number }[];
   analysis: { segments: Segment[]; weakest: Segment[]; strongest: Segment[]; note: string };
 }
 interface Protocol {
@@ -33,6 +34,12 @@ interface Protocol {
   supported_weightings: string[]; supported_families: string[]; rules: string[];
 }
 interface Experiment { id: number; name: string; hypothesis: string; created_at: string; verdict: string | null; validation_passed: boolean | null; holdout: unknown; }
+interface Calibration {
+  model_version: string; trained_from: number; trained_through: number; created_at: string; sample_size: number;
+  edge_slope: number; metrics: { walk_forward_n: number; walk_forward_calibrated_brier: number | null;
+    walk_forward_market_brier: number | null; forward_gate_passed: boolean };
+  reliability: { range: string; n: number; predicted: number | null; actual: number | null }[];
+}
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}u`);
@@ -55,6 +62,10 @@ export default function Training() {
   const [err, setErr] = useState<string | null>(null);
   const { data: protocol } = useApi<Protocol>('/nfl-betting/experiments/protocol');
   const { data: registry } = useApi<{ experiments: Experiment[] }>('/nfl-betting/experiments');
+  const { data: calibrationPayload } = useApi<{ calibration: Calibration | null }>('/nfl-betting/calibration/cover');
+  const { data: latestAudit } = useApi<{ audit: { result: Training } | null }>('/nfl-betting/replay/latest');
+  const calibration = calibrationPayload?.calibration;
+  useEffect(() => { if (!data && latestAudit?.audit?.result) setData(latestAudit.audit.result); }, [latestAudit, data]);
 
   const run = async () => {
     setBusy(true); setErr(null); setData(null);
@@ -140,6 +151,10 @@ export default function Training() {
             <Metric label="Units" value={u(o.units)} tone={o.units > 0 ? 'good' : 'bad'} />
             <Metric label="ROI" value={`${(o.roi * 100).toFixed(1)}%`} tone={o.roi > 0 ? 'good' : 'bad'} />
           </div>
+
+          {!!data!.equity_curve?.length && <EquityCurve points={data!.equity_curve} />}
+
+          {calibration && <CalibrationPanel calibration={calibration} />}
 
           {o.uncertainty && (
             <div className={`card p-4 mb-5 border ${
@@ -256,3 +271,50 @@ const Metric = ({ label, value, tone }: { label: string; value: string; tone?: '
     </div>
   </div>
 );
+
+function EquityCurve({ points }: { points: Training['equity_curve'] }) {
+  const width = 900, height = 210, pad = 24;
+  const values = points.map(p => p.cumulative_units);
+  const lo = Math.min(0, ...values), hi = Math.max(0, ...values), span = Math.max(1, hi - lo);
+  const xy = points.map((p, i) => ({
+    x: pad + (i / Math.max(1, points.length - 1)) * (width - pad * 2),
+    y: pad + ((hi - p.cumulative_units) / span) * (height - pad * 2)
+  }));
+  const path = xy.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const zeroY = pad + ((hi - 0) / span) * (height - pad * 2);
+  return <section className="card mb-5 overflow-hidden p-4 sm:p-5">
+    <SectionHeading eyebrow="Path, not just endpoint" title="Weekly equity curve"
+      description="Cumulative units are ordered chronologically and grouped by NFL week, preserving clustered winning and losing runs." />
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Cumulative units by week">
+      <line x1={pad} x2={width - pad} y1={zeroY} y2={zeroY} stroke="#d2d2d7" strokeDasharray="5 5" />
+      <path d={path} fill="none" stroke="#0071e3" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      {xy.length > 0 && <circle cx={xy.at(-1)!.x} cy={xy.at(-1)!.y} r="5" fill="#0071e3" />}
+    </svg>
+    <div className="mt-2 flex justify-between text-xs text-slate-500"><span>{points[0]?.week}</span><span className="font-semibold text-slate-800">Ends {u(values.at(-1))}</span><span>{points.at(-1)?.week}</span></div>
+  </section>;
+}
+
+function CalibrationPanel({ calibration: c }: { calibration: Calibration }) {
+  const m = c.metrics;
+  return <section className="card mb-5 p-4 sm:p-5">
+    <SectionHeading eyebrow="Probability integrity" title="Market-anchored cover calibration"
+      description={`Fit on ${c.trained_from}–${c.trained_through}; promotion is decided only by chronological walk-forward Brier score.`} />
+    <div className="grid gap-3 sm:grid-cols-4">
+      <Metric label="Walk-forward sample" value={m.walk_forward_n?.toLocaleString() ?? '—'} />
+      <Metric label="Calibrated Brier" value={m.walk_forward_calibrated_brier?.toFixed(4) ?? '—'} />
+      <Metric label="Market Brier" value={m.walk_forward_market_brier?.toFixed(4) ?? '—'} />
+      <Metric label="Production gate" value={m.forward_gate_passed ? 'Passed' : 'Blocked'} tone={m.forward_gate_passed ? 'good' : 'bad'} />
+    </div>
+    <div className="mt-5 grid grid-cols-5 gap-2">
+      {c.reliability.filter(b => b.n > 0).map(b => <div key={b.range} className="rounded-xl bg-slate-50 p-3">
+        <div className="text-[10px] font-semibold text-slate-500">{b.range} · n={b.n}</div>
+        <div className="mt-2 h-20 rounded-md bg-white p-1 flex items-end gap-1">
+          <div title="Predicted" className="w-1/2 rounded-sm bg-blue-500" style={{ height: `${(b.predicted ?? 0) * 100}%` }} />
+          <div title="Actual" className="w-1/2 rounded-sm bg-slate-900" style={{ height: `${(b.actual ?? 0) * 100}%` }} />
+        </div>
+        <div className="mt-1 text-[10px] text-slate-500">P {pct(b.predicted)} · A {pct(b.actual)}</div>
+      </div>)}
+    </div>
+    <p className="mt-3 text-xs leading-5 text-slate-500">Blue is predicted cover frequency; black is observed. If calibration cannot beat the no-vig market baseline out of sample, the UI suppresses model probability edge.</p>
+  </section>;
+}

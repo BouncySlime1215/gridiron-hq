@@ -8,16 +8,18 @@ import { propBoard, propAccuracy, topTotals, ensureTotalPicks, gradeTotalPicks, 
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
-import { boardFor, accuracy } from '../services/nfl-market.js';
+import { boardFor, accuracy, clearNflMarketCache } from '../services/nfl-market.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
-import { modelCatalog, ensembleWeek, ensembleLine, featureContracts } from '../services/nfl-ensemble.js';
+import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsembleCache } from '../services/nfl-ensemble.js';
 import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
 import { runIfStale } from '../services/scheduler.js';
 import { stakeFor, evaluateSizing } from '../services/staking.js';
 import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
+import { buildCoverCalibration, latestCoverCalibration } from '../services/nfl-cover-calibration.js';
+import { capturePregameSnapshots, pregameSnapshotCoverage } from '../services/nfl-pregame.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -255,6 +257,26 @@ r.get('/replay/latest', (_req, res, next) => {
   try { res.json({ audit: latestTrainingAudit() }); } catch (e) { next(e); }
 });
 
+r.get('/calibration/cover', (req, res, next) => {
+  try { res.json({ calibration: latestCoverCalibration(Number(req.query.before_season) || SEASON) }); }
+  catch (e) { next(e); }
+});
+
+r.post('/calibration/cover', (req, res, next) => {
+  try { res.json(buildCoverCalibration({
+    fromSeason: Number(req.query.from) || 2021,
+    throughSeason: Number(req.query.through) || SEASON - 1
+  })); } catch (e) { next(e); }
+});
+
+r.get('/pregame/snapshots', (_req, res, next) => {
+  try { res.json({ coverage: pregameSnapshotCoverage() }); } catch (e) { next(e); }
+});
+
+r.post('/pregame/snapshots', (req, res, next) => {
+  try { res.json(capturePregameSnapshots(ssn(req), wk(req))); } catch (e) { next(e); }
+});
+
 /**
  * Tests a threshold change the honest way: derived on some seasons, judged on
  * others. `min_edge` and `max_disagreement` are the two knobs worth tuning.
@@ -390,6 +412,9 @@ r.post('/sync', async (req, res, next) => {
     const out = { pbp: [] };
     for (const s of seasons) out.pbp.push(await syncPbpSeason(s));
     out.advanced = await syncAllAdvanced(seasons);
+    clearEnsembleCache();
+    clearNflMarketCache();
+    out.cache_invalidated = true;
     res.json(out);
   } catch (e) { next(e); }
 });

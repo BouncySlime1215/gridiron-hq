@@ -19,6 +19,8 @@ const { weeklyAvailability } = await import('../server/services/contingency.js')
 const { createExperiment } = await import('../server/services/nfl-experiments.js');
 const { applyNflPolicy, NFL_PRODUCTION_POLICY } = await import('../server/services/nfl-policy.js');
 const { uncertainty } = await import('../server/services/nfl-replay.js');
+const { starterFor } = await import('../server/services/mlb.js');
+const { createMlbExperiment } = await import('../server/services/mlb-experiments.js');
 
 test.after(() => {
   db.close();
@@ -124,6 +126,27 @@ test('MLB probability distributions are deterministic and preserve projected mea
   const pitcher = pitcherStrikeouts({ expected_bf: 24, k_per_bf: 0.25 });
   assert.equal(pitcher.mean_k, 6);
   assert.ok(pitcher.probabilities['over_4.5'] > pitcher.probabilities['over_7.5']);
+});
+
+test('MLB historical starter lookup never substitutes the completed box score', () => {
+  db.prepare(`INSERT INTO mlb_pitcher_games
+    (game_pk,player_id,player_name,season,date,team_id,opponent_id,is_home,games_started,strikeouts,innings_pitched,batters_faced,earned_runs)
+    VALUES (9001,7001,'Outcome Era Starter',2025,'2025-06-01',77,88,1,1,12,7,25,0)`).run();
+  assert.equal(starterFor(77, '2025-06-01'), null,
+    'a completed-game starter is unavailable unless a pregame probable snapshot was preserved');
+  db.prepare(`INSERT INTO mlb_probable_starters
+    (game_pk,team_id,opponent_id,date,pitcher_id,pitcher_name,fetched_at)
+    VALUES (9001,77,88,'2025-06-01',7002,'Pregame Probable','2025-05-31T20:00:00Z')`).run();
+  assert.equal(starterFor(77, '2025-06-01').player_id, 7002);
+});
+
+test('MLB experiment registry rejects overlapping and non-chronological ranges', () => {
+  assert.throws(() => createMlbExperiment({
+    market: 'nrfi', name: 'invalid chronology', hypothesis: 'must fail',
+    discovery: { from: '2025-04-01', through: '2025-06-01' },
+    validation: { from: '2025-05-01', through: '2025-07-01' },
+    holdout: { from: '2025-08-01', through: '2025-09-01' }
+  }), /chronological and non-overlapping/);
 });
 
 test('NFL experiment splits reject overlap and non-chronological holdouts', () => {

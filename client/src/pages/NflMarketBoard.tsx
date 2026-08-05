@@ -11,8 +11,8 @@ import VariableCatalog from './betting/VariableCatalog';
 interface BoardRow {
   market: 'moneyline' | 'spread' | 'total';
   matchup: string; selection: string; side: string;
-  american_price: number | null; model_probability: number; implied_probability: number;
-  probability_difference: number; detail: string;
+  american_price: number | null; model_probability: number | null; implied_probability: number | null;
+  probability_difference: number | null; detail: string;
   home_team?: string; away_team?: string; line?: number | null;
   reasoning?: Reasoning;
 }
@@ -25,10 +25,12 @@ interface Accuracy {
 interface AutoPick {
   season: number; week: number; rank: number; home_team: string; away_team: string; matchup: string;
   selection: string; side: string; line: number; american_price: number;
-  model_probability: number; implied_probability: number; probability_difference: number;
+  model_probability: number | null; implied_probability: number | null; probability_difference: number | null;
   detail: string; units_staked: number; edge_points?: number; disagreement?: number;
   book?: string | null; quote_at?: string | null; quote_source?: string | null;
-  feature_snapshot?: { margin_models_active?: number; margin_models_available?: number };
+  feature_snapshot?: { margin_models_active?: number; margin_models_available?: number;
+    cover_calibration?: string | null; pregame_snapshot_at?: string | null;
+    pregame_context?: { roster_rows?: number; injury_rows?: number; prior_feature_games?: number; production_eligible?: boolean } | null };
 }
 interface Graded extends AutoPick { status: 'Pending' | 'Won' | 'Lost' | 'Push'; units: number; }
 interface Standing { wins: number; losses: number; pushes: number; win_rate: number | null; units: number; weeks_tracked: number; }
@@ -50,7 +52,11 @@ interface EnsembleCatalog {
 }
 interface SystemStatus {
   pbp: { team: { season: number; rows: number; teams: number; through_week: number }[]; player: { season: number; rows: number; players: number }[] };
+  odds_cache?: { cache_key: string; fetched_at: string; bytes: number }[];
 }
+interface CoverCalibration { created_at: string; sample_size: number; trained_from: number; trained_through: number;
+  metrics: { walk_forward_n: number; walk_forward_calibrated_brier: number | null; walk_forward_market_brier: number | null; forward_gate_passed: boolean }; }
+interface PregameCoverage { season: number; week: number; teams: number; first_capture: string; last_capture: string; }
 
 const MARKET_LABEL: Record<string, string> = { moneyline: 'Moneyline', spread: 'Spread', total: 'Total' };
 const STATUS_STYLE: Record<string, string> = {
@@ -81,13 +87,17 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
 
+  // Cheap integrity endpoints mount first so the server can paint factual
+  // evidence before the CPU-heavy ensemble request begins.
+  const { data: system, loading: systemLoading } = useApi<SystemStatus>('/nfl-betting/status');
+  const { data: calibrationPayload, loading: calibrationLoading } = useApi<{ calibration: CoverCalibration | null }>('/nfl-betting/calibration/cover');
+  const { data: pregamePayload, loading: pregameLoading } = useApi<{ coverage: PregameCoverage[] }>('/nfl-betting/pregame/snapshots');
+  const { data: acc } = useApi<Accuracy>('/nfl-market/accuracy');
+  const historyApi = useApi<{ results: Graded[]; standing: Standing }>('/nfl-market/picks/history');
   const boardApi = useApi<{ season: number; week: number; board: BoardRow[] }>(
     `/nfl-betting/board/explained?week=${week}&limit=60`);
   const candidateApi = useApi<CandidatePayload>(`/nfl-market/picks/candidates?season=2026&week=${week}`);
-  const { data: acc } = useApi<Accuracy>('/nfl-market/accuracy');
-  const historyApi = useApi<{ results: Graded[]; standing: Standing }>('/nfl-market/picks/history');
-  const { data: catalog } = useApi<EnsembleCatalog>('/nfl-betting/ensemble/models');
-  const { data: system } = useApi<SystemStatus>('/nfl-betting/status');
+  const { data: catalog, loading: catalogLoading } = useApi<EnsembleCatalog>('/nfl-betting/ensemble/models');
 
   const refreshLines = async () => {
     setRefreshing(true); setRefreshMsg(null);
@@ -118,6 +128,9 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const activeMargin = catalog?.models.filter(m => m.margin_n > 0 && m.margin_weight > 0).length ?? 0;
   const activeTotal = catalog?.models.filter(m => m.total_n > 0 && m.total_weight > 0).length ?? 0;
   const pbpRows = system?.pbp.team.reduce((n, s) => n + s.rows, 0) ?? 0;
+  const calibration = calibrationPayload?.calibration;
+  const pregame = pregamePayload?.coverage.find(x => x.season === 2026 && x.week === week);
+  const latestQuote = system?.odds_cache?.[0]?.fetched_at ?? null;
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-5">
@@ -134,15 +147,16 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
               {Array.from({ length: 18 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{w}</option>)}
             </select>
           </label>
-          <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          <button className="btn-ghost text-sm"
             onClick={refreshLines} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh lines'}</button>
-          <button className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-black text-white hover:bg-slate-800"
+          <button className="btn-primary text-sm"
             onClick={runWeekly} disabled={running}>{running ? 'Analyzing…' : 'Lock eligible picks'}</button>
         </> : undefined}
       >
         <StatusPill tone="neutral">2026 · Week {week}</StatusPill>
-        <StatusPill tone={pbpRows > 0 ? 'good' : 'warn'}>{pbpRows > 0 ? 'Play-by-play ready' : 'Play-by-play unavailable'}</StatusPill>
+        <StatusPill tone={systemLoading ? 'neutral' : pbpRows > 0 ? 'good' : 'warn'}>{systemLoading ? 'Checking play-by-play…' : pbpRows > 0 ? 'Play-by-play ready' : 'Play-by-play unavailable'}</StatusPill>
         <StatusPill tone="info">Policy: 3+ edge · ≤4.5 disagreement</StatusPill>
+        <StatusPill tone={calibrationLoading ? 'neutral' : calibration?.metrics.forward_gate_passed ? 'good' : 'warn'}>{calibrationLoading ? 'Checking calibration…' : calibration?.metrics.forward_gate_passed ? 'Cover calibration passed' : 'Probability edge suppressed'}</StatusPill>
       </BettingHero>
 
       <nav aria-label="NFL Auto Picks tools" className="card grid grid-cols-2 gap-1 p-1.5 sm:grid-cols-3 xl:grid-cols-6">
@@ -187,7 +201,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
             </div>
 
             <div className="space-y-3">
-              <SignalCard label="Active ensemble" value={`${activeMargin}/${catalog?.count ?? 20} margin`}
+              <SignalCard label="Active ensemble" value={catalogLoading ? 'Evaluating…' : `${activeMargin}/${catalog?.count ?? 20} margin`}
                 detail={`${activeTotal}/${catalog?.count ?? 20} models currently carry a total forecast. Missing sources abstain.`}
                 tone={activeMargin >= 15 ? 'good' : 'warn'} />
               <SignalCard label="Evidence status" value="Not proven"
@@ -198,6 +212,12 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
               <SignalCard label="CLV" value={candidateApi.data?.clv?.available ? 'Tracking' : 'Unavailable'}
                 detail={candidateApi.data?.clv?.available ? `${candidateApi.data.clv.snapshots} stored quotes` : 'Two or more timed snapshots are required.'}
                 tone={candidateApi.data?.clv?.available ? 'info' : 'warn'} />
+              <SignalCard label="Data freshness" value={systemLoading || pregameLoading ? 'Checking…' : latestQuote ? new Date(latestQuote).toLocaleDateString() : 'No live quote'}
+                detail={pregameLoading ? 'Loading immutable pregame coverage.' : pregame ? `${pregame.teams}/32 team snapshots · ${new Date(pregame.last_capture).toLocaleString()}` : 'Current-week roster, QB and injury context has not been captured.'}
+                tone={pregame?.teams === 32 ? 'good' : 'warn'} />
+              <SignalCard label="Cover calibration" value={calibrationLoading ? 'Checking…' : calibration?.metrics.forward_gate_passed ? 'Promoted' : 'Blocked'}
+                detail={calibrationLoading ? 'Loading the latest chronological calibration audit.' : calibration ? `${calibration.metrics.walk_forward_n} walk-forward covers · model ${calibration.metrics.walk_forward_calibrated_brier?.toFixed(4) ?? '—'} vs market ${calibration.metrics.walk_forward_market_brier?.toFixed(4) ?? '—'} Brier.` : 'No fitted calibration is available.'}
+                tone={calibration?.metrics.forward_gate_passed ? 'good' : 'warn'} />
               <SignalCard label="Tracked result" value={standing ? `${standing.wins}-${standing.losses}` : 'No settled picks'}
                 detail={standing ? `${standing.units >= 0 ? '+' : ''}${standing.units.toFixed(2)}u across ${standing.weeks_tracked} tracked week${standing.weeks_tracked === 1 ? '' : 's'}.` : 'The live record begins only when picks are locked before kickoff.'} />
             </div>
@@ -282,6 +302,8 @@ function CandidateList({ rows }: { rows: AutoPick[] }) {
         <div className="mt-1 text-xs text-slate-400">
           {p.book ?? 'Book unavailable'} · {p.quote_at ? `quoted ${new Date(p.quote_at).toLocaleString()}` : 'quote time unavailable'}
           {p.feature_snapshot?.margin_models_active != null ? ` · ${p.feature_snapshot.margin_models_active}/${p.feature_snapshot.margin_models_available ?? 20} models active` : ''}
+          {p.feature_snapshot?.cover_calibration ? ` · ${p.feature_snapshot.cover_calibration}` : ' · probability gate unavailable'}
+          {p.feature_snapshot?.pregame_snapshot_at ? ` · pregame ${new Date(p.feature_snapshot.pregame_snapshot_at).toLocaleString()}` : ' · no pregame snapshot'}
         </div>
       </div>
       <div className="flex gap-5 sm:text-right">

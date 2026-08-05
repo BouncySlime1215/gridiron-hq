@@ -377,7 +377,9 @@ export function boardFor(requestedDate, { season: seasonOpt, limit = 40 } = {}) 
       const game = games.find(g => g.home_team_id === last?.team_id || g.away_team_id === last?.team_id);
       if (!game) return null;
       const opponentId = game.home_team_id === last.team_id ? game.away_team_id : game.home_team_id;
-      return batterTotalBases(projectBatter(id, season, date, { opponentId, venue: game.venue }));
+      const projection = batterTotalBases(projectBatter(id, season, date, { opponentId, venue: game.venue }));
+      return projection ? { ...projection, game_pk: game.game_pk, matchup: `${game.away_team} at ${game.home_team}`,
+        team_id: last.team_id, opponent_id: opponentId } : null;
     })
     .filter(Boolean)
     .sort((a, b) => b.mean_tb - a.mean_tb)
@@ -389,7 +391,9 @@ export function boardFor(requestedDate, { season: seasonOpt, limit = 40 } = {}) 
         { game: g, team: g.home_team_id, opp: g.away_team_id, starter: starterFor(g.home_team_id, date) },
         { game: g, team: g.away_team_id, opp: g.home_team_id, starter: starterFor(g.away_team_id, date) }
       ]).find(x => x.starter?.player_id === id);
-      return start ? pitcherStrikeouts(projectPitcher(id, season, date, { opponentId: start.opp })) : null;
+      const projection = start ? pitcherStrikeouts(projectPitcher(id, season, date, { opponentId: start.opp })) : null;
+      return projection ? { ...projection, game_pk: start.game.game_pk,
+        matchup: `${start.game.away_team} at ${start.game.home_team}`, team_id: start.team, opponent_id: start.opp } : null;
     })
     .filter(Boolean)
     .sort((a, b) => b.mean_k - a.mean_k)

@@ -7,8 +7,9 @@
  */
 import { db, rows, run } from '../db/index.js';
 import { ensembleWeek } from './nfl-ensemble.js';
-import { normalCdf } from './stats-util.js';
 import { NFL_PRODUCTION_POLICY, applyNflPolicy } from './nfl-policy.js';
+import { calibratedCoverProbability } from './nfl-cover-calibration.js';
+import { pregameSnapshotFor } from './nfl-pregame.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_auto_picks (
@@ -83,19 +84,19 @@ export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLI
     const quote = prices.get(selection);
     const opposite = prices.get(home ? game.away : game.home);
     const implied = noVigProbability(quote?.spread_odds, opposite?.spread_odds);
-    // This remains an edge proxy until a dedicated cover calibration layer is
-    // trained. Anchor it to the actual no-vig price so a -120 side is never
-    // presented as a 50% market proposition.
-    const incremental = edge == null ? null : normalCdf(Math.abs(edge) / 13.5) - 0.5;
-    const modelProbability = implied == null || incremental == null ? null : Math.max(0.01, Math.min(0.99, implied + incremental));
+    const calibrated = calibratedCoverProbability({ season, marketProbability: implied,
+      edgePoints: edge == null ? null : Math.abs(edge) });
+    const modelProbability = calibrated.probability;
+    const incremental = modelProbability == null || implied == null ? null : modelProbability - implied;
     const activeModels = game.models.filter(m => m.margin != null && m.margin_weight > 0);
+    const pregame = pregameSnapshotFor(season, week, selection);
     out.push({
       market: 'spread', home_team: game.home, away_team: game.away,
       matchup: `${game.away} at ${game.home}`, selection,
       side: quote?.spread == null ? null : `${quote.spread > 0 ? '+' : ''}${quote.spread}`, line: quote?.spread ?? null,
       american_price: quote?.spread_odds ?? null,
-      // Probability is calibrated conservatively from the incremental edge,
-      // not the full predicted margin; the market remains the prior.
+      // The no-vig market probability is the prior. Historical cover outcomes
+      // calibrate how much incremental probability a model edge has earned.
       model_probability: modelProbability,
       implied_probability: implied,
       probability_difference: incremental,
@@ -106,7 +107,11 @@ export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLI
         margin_models_active: activeModels.length,
         margin_models_available: game.models.length,
         active_model_ids: activeModels.map(m => m.id),
-        unavailable_model_ids: game.models.filter(m => m.margin == null || !(m.margin_weight > 0)).map(m => m.id)
+        unavailable_model_ids: game.models.filter(m => m.margin == null || !(m.margin_weight > 0)).map(m => m.id),
+        cover_calibration: calibrated.calibration
+          ? `${calibrated.calibration.model_version}:${calibrated.calibration.trained_from}-${calibrated.calibration.trained_through}` : null,
+        pregame_snapshot_at: pregame?.captured_at ?? null,
+        pregame_context: pregame?.feature_coverage ?? null
       }
     });
   }

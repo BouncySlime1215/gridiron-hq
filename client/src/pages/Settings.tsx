@@ -74,7 +74,7 @@ export default function Settings() {
               setMsg(`Player database pulled from ESPN — ${r.fetched} players (${r.added} new, ${r.updated} updated). Rookies included.`);
             } catch (e: any) { setMsg(`Player sync failed: ${e.message}`); }
             finally { setSyncing(false); }
-          }}>⬇ Pull player database</button>
+          }}>Pull player database</button>
           <button className="btn-ghost" disabled={syncing} onClick={async () => {
             setSyncing(true); setMsg(null);
             try {
@@ -82,7 +82,7 @@ export default function Settings() {
               setMsg(`Pulled ${r.added} new ESPN headlines into Camp News.`);
             } catch (e: any) { setMsg(`News sync failed: ${e.message}`); }
             finally { setSyncing(false); }
-          }}>📰 Pull ESPN news</button>
+          }}>Pull ESPN news</button>
         </div>
         {msg && <p className="text-sm text-amber-600">{msg}</p>}
         <p className="text-[11px] text-slate-500">“Pull player database” works even before you connect a league — it grabs ESPN&apos;s top-800 fantasy players (rookies included) and becomes the source of truth for rosters. Re-run it any time rosters change.</p>

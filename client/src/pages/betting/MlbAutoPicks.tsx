@@ -7,12 +7,16 @@ interface Pick {
   player_id: number | null; matchup: string | null; game_pk: number | null;
   side: string; line: number | null; model_probability: number | null;
   projection: number | null; selected_at: string; tracking_mode: 'forward' | 'retrospective';
-  status: 'Won' | 'Lost' | 'Push' | 'Void' | 'Pending'; detail: string; units: number;
+  status: 'Won' | 'Lost' | 'Push' | 'Void' | 'Pending'; detail: string; units: number | null;
+  american_price: number | null; implied_probability: number | null; probability_difference: number | null;
+  book: string | null; quote_at: string | null; pregame_snapshot_at: string | null; lineup_status: string | null;
+  model_version: string | null; evidence_eligible: boolean;
 }
-interface MarketRow { market: string; picks: number; wins: number; losses: number; win_rate: number | null; units: number; }
+interface MarketRow { market: string; picks: number; wins: number; losses: number; win_rate: number | null; }
 interface Standing {
   wins: number; losses: number; pushes: number; voids: number; pending: number;
-  win_rate: number | null; units: number; days_tracked: number; by_market: MarketRow[];
+  win_rate: number | null; units: number | null; roi: number | null; priced_settled: number;
+  quarantined: number; days_tracked: number; by_market: MarketRow[];
 }
 interface Payload {
   requested_date: string; slate_date: string | null; today: Pick[]; history: Pick[]; standing: Standing;
@@ -22,7 +26,14 @@ interface AuditMetric {
   n: number; wins: number; losses: number; win_rate: number | null;
   brier: number | null; log_loss: number | null; win_rate_95: [number | null, number | null];
   status: 'validated' | 'provisional' | 'insufficient';
+  reliability?: { range: string; n: number; predicted: number | null; actual: number | null }[];
 }
+interface PregameStatus {
+  snapshots: { slate_date: string; games: number; captures: number; confirmed_lineups: number; latest: string | null }[];
+  quotes: { market: string; quotes: number; games: number; first_capture: string; last_capture: string }[];
+  odds_api: { has_key: boolean };
+}
+interface MlbExperiment { id: number; market: string; name: string; hypothesis: string; verdict: string | null; validation_passed: boolean | null; spec: { provenance: { model_version: string; data_snapshot_hash: string } }; }
 interface Audit {
   season: number; through_date: string; sampled_dates: number; overall: AuditMetric;
   by_market: Record<string, AuditMetric>; note: string;
@@ -54,6 +65,8 @@ export default function MlbAutoPicks() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [visibleDays, setVisibleDays] = useState(5);
   const pickApi = useApi<Payload>(`/mlb/auto-picks?date=${localDate}`);
+  const pregameApi = useApi<PregameStatus>('/mlb/pregame/status');
+  const { data: experimentData } = useApi<{ experiments: MlbExperiment[] }>('/mlb/experiments');
 
   const byDate = useMemo(() => {
     const m = new Map<string, Pick[]>();
@@ -76,6 +89,14 @@ export default function MlbAutoPicks() {
     catch (e: any) { setActionError(e.message); }
     finally { setAuditBusy(false); }
   };
+  const capturePregame = async () => {
+    setBusy(true); setActionError(null);
+    try {
+      await api(`/mlb/pregame/snapshot?date=${localDate}`, { method: 'POST' });
+      await Promise.all([pregameApi.refetch(), pickApi.refetch()]);
+    } catch (e: any) { setActionError(e.message); }
+    finally { setBusy(false); }
+  };
 
   if (pickApi.loading) return <div className="card p-6 text-sm text-slate-500">Building the current MLB slate…</div>;
   if (pickApi.error) return <Notice title="MLB slate unavailable" tone="bad">{pickApi.error}</Notice>;
@@ -86,18 +107,21 @@ export default function MlbAutoPicks() {
   const retrospective = data?.history.filter(p => p.tracking_mode === 'retrospective').length ?? 0;
   const forward = data?.history.filter(p => p.tracking_mode === 'forward').length ?? 0;
   const slateIsRetrospective = !!data?.today.length && data.today.every(p => p.tracking_mode === 'retrospective');
+  const slateIsQuarantined = !!data?.today.length && data.today.every(p => !p.evidence_eligible);
   const marketStatus = audit ? Object.values(audit.by_market).every(x => x.status === 'insufficient') ? 'Sample insufficient' : 'Calibration available' : 'Audit not run';
+  const latestCapture = pregameApi.data?.snapshots?.[0]?.latest ?? null;
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-5">
       <BettingHero eyebrow="MLB projection lab" title="Daily Picks Tracker"
-        description="Five model-selected directions per slate, graded against box scores. No sportsbook prices are connected, so this page measures projection calibration—not betting profit."
-        status={<StatusPill tone="warn">Unpriced research</StatusPill>}
-        actions={<button className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-black text-white hover:bg-slate-800"
-          onClick={runAudit} disabled={auditBusy}>{auditBusy ? 'Auditing…' : 'Run calibration audit'}</button>}
+        description="Pregame-only selections with preserved starters, lineups and real book quotes. Anything reconstructed or missing cutoff evidence is visibly quarantined."
+        status={<StatusPill tone={data?.economics.available ? 'good' : 'warn'}>{data?.economics.available ? 'Priced forward ledger' : 'Forward evidence pending'}</StatusPill>}
+        actions={<><button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture pregame slate'}</button><button className="btn-primary text-sm"
+          onClick={runAudit} disabled={auditBusy}>{auditBusy ? 'Auditing…' : 'Run calibration audit'}</button></>}
       >
         <StatusPill tone="neutral">Local slate · {fmtDate(localDate)}</StatusPill>
-        <StatusPill tone="warn">No MLB odds feed</StatusPill>
+        <StatusPill tone={pregameApi.data?.odds_api.has_key ? 'good' : 'warn'}>{pregameApi.data?.odds_api.has_key ? 'Odds feed connected' : 'Odds key unavailable'}</StatusPill>
+        <StatusPill tone={latestCapture ? 'info' : 'warn'}>{latestCapture ? `Fresh ${new Date(latestCapture).toLocaleString()}` : 'No pregame snapshot'}</StatusPill>
         <StatusPill tone={audit && audit.overall.n >= 30 ? 'info' : 'warn'}>{marketStatus}</StatusPill>
       </BettingHero>
 
@@ -113,9 +137,11 @@ export default function MlbAutoPicks() {
       )}
 
       <section>
-        <SectionHeading eyebrow={slateIsRetrospective ? 'Most recent retrospective slate' : 'Current slate'}
+        <SectionHeading eyebrow={slateIsQuarantined ? 'Quarantined slate' : slateIsRetrospective ? 'Most recent retrospective slate' : 'Current slate'}
           title={data?.slate_date ? fmtDate(data.slate_date) : 'No synced slate'}
-          description={slateIsRetrospective
+          description={slateIsQuarantined
+            ? 'These rows are visible for audit continuity only. They lack a real pregame price or preserved cutoff snapshot and are excluded from every performance claim.'
+            : slateIsRetrospective
             ? 'These selections were reconstructed after the slate date and count only toward the retrospective calibration ledger.'
             : "Probability is the model's unpriced directional confidence. It is not a sportsbook edge."} />
         {!data?.today.length ? <EmptyState title="No model selection for this slate"
@@ -126,16 +152,27 @@ export default function MlbAutoPicks() {
       <section>
         <SectionHeading eyebrow="Evidence ledger" title="What has actually been measured"
           description="Retrospective backfills and forward selections are counted separately so historical reconstruction cannot masquerade as a live record." />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <SignalCard label="Graded predictions" value={settled.toLocaleString()} detail={`${s?.wins ?? 0} correct · ${s?.losses ?? 0} incorrect`} />
           <SignalCard label="Directional hit rate" value={pct(s?.win_rate)} detail="Does not include price or break-even" tone="info" />
           <SignalCard label="Retrospective rows" value={retrospective.toLocaleString()} detail="Generated after the historical slate date" tone={retrospective ? 'warn' : 'good'} />
           <SignalCard label="Forward rows" value={forward.toLocaleString()} detail="Selected on or before the slate date" />
           <SignalCard label="Pending" value={(s?.pending ?? 0).toLocaleString()} detail={`${s?.voids ?? 0} void · ${s?.pushes ?? 0} push`} />
+          <SignalCard label="Quarantined" value={(s?.quarantined ?? 0).toLocaleString()} detail="Excluded: missing price, snapshot, or current model version" tone={(s?.quarantined ?? 0) ? 'warn' : 'good'} />
         </div>
       </section>
 
       {audit && <AuditPanel audit={audit} />}
+
+      {!!experimentData?.experiments.length && <section>
+        <SectionHeading eyebrow="Locked research" title="Market-specific experiment registry"
+          description="Each hypothesis pins its model version and data snapshot before independent validation and one-time holdout access." />
+        <div className="grid gap-3 md:grid-cols-2">{experimentData.experiments.map(x => <div key={x.id} className="card p-4">
+          <div className="flex items-center gap-2"><StatusPill tone="neutral">{MARKET_LABEL[x.market] ?? x.market}</StatusPill><span className="ml-auto text-xs text-slate-400">#{x.id}</span></div>
+          <div className="mt-3 font-semibold text-slate-900">{x.name}</div><p className="mt-1 text-sm leading-5 text-slate-500">{x.hypothesis}</p>
+          <div className="mt-3 flex items-center gap-2"><StatusPill tone={x.validation_passed ? 'good' : x.verdict ? 'bad' : 'warn'}>{x.verdict ?? 'Locked; not run'}</StatusPill><span className="text-[10px] text-slate-400">{x.spec.provenance.model_version}</span></div>
+        </div>)}</div>
+      </section>}
 
       {!!s?.by_market.length && <section>
         <SectionHeading eyebrow="Market cuts" title="Directional results by model family"
@@ -167,11 +204,12 @@ export default function MlbAutoPicks() {
 
 function PickCard({ pick: p }: { pick: Pick }) {
   return <div className="card p-4">
-    <div className="flex items-center justify-between gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-slate-900 text-xs font-black text-white">{p.rank}</span><StatusPill tone={p.tracking_mode === 'retrospective' ? 'warn' : 'neutral'}>{p.tracking_mode}</StatusPill></div>
+    <div className="flex items-center justify-between gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-slate-900 text-xs font-black text-white">{p.rank}</span><StatusPill tone={!p.evidence_eligible || p.tracking_mode === 'retrospective' ? 'warn' : 'good'}>{!p.evidence_eligible ? 'quarantined' : p.tracking_mode}</StatusPill></div>
     <div className="mt-4 min-h-11"><div className="font-black leading-5 text-slate-900">{p.selection}</div><div className="mt-0.5 text-xs text-slate-500">{MARKET_LABEL[p.market] ?? p.market}</div></div>
     <div className="mt-3 text-lg font-black text-slate-800">{p.side}{p.line != null ? ` ${p.line}` : ''}</div>
-    <div className="mt-1 text-2xl font-black text-slate-950">{pct(p.model_probability)}</div>
-    <div className="text-xs text-slate-500">model confidence{p.projection != null ? ` · projection ${p.projection.toFixed(2)}` : ''}</div>
+    <div className="mt-1 text-2xl font-black text-slate-950">{p.american_price == null ? pct(p.model_probability) : `${p.american_price > 0 ? '+' : ''}${p.american_price}`}</div>
+    <div className="text-xs text-slate-500">{p.american_price == null ? 'model confidence' : `${p.book} · ${pct(p.probability_difference)} calibrated gap`}{p.projection != null ? ` · projection ${p.projection.toFixed(2)}` : ''}</div>
+    <div className="mt-2 text-[10px] leading-4 text-slate-400">{p.pregame_snapshot_at ? `Snapshot ${new Date(p.pregame_snapshot_at).toLocaleString()} · ${p.lineup_status ?? 'lineup unknown'}` : 'No preserved pregame snapshot'}</div>
     <div className="mt-3 border-t border-slate-100 pt-3"><span className={`rounded-full border px-2 py-1 text-xs font-bold ${STATUS_STYLE[p.status]}`}>{p.status}</span><div className="mt-2 text-xs leading-5 text-slate-500">{p.detail}</div></div>
   </div>;
 }
@@ -184,7 +222,15 @@ function AuditPanel({ audit }: { audit: Audit }) {
       <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400"><tr>{['Model family', 'Sample', 'Record', 'Hit rate', '95% interval', 'Brier', 'Status'].map(h => <th key={h} className="whitespace-nowrap px-4 py-3 text-left font-bold">{h}</th>)}</tr></thead>
       <tbody className="divide-y divide-slate-100">{Object.entries(audit.by_market).map(([market, m]) => <tr key={market}><td className="px-4 py-3 font-black">{MARKET_LABEL[market] ?? market}</td><td className="px-4 py-3">{m.n}</td><td className="px-4 py-3">{m.wins}-{m.losses}</td><td className="px-4 py-3 font-bold">{pct(m.win_rate)}</td><td className="px-4 py-3">{pct(m.win_rate_95[0])}–{pct(m.win_rate_95[1])}</td><td className="px-4 py-3">{m.brier ?? '—'}</td><td className="px-4 py-3"><StatusPill tone={m.status === 'validated' ? 'good' : m.status === 'provisional' ? 'warn' : 'neutral'}>{m.status}</StatusPill></td></tr>)}</tbody>
     </table></div><div className="border-t border-slate-200 px-4 py-3 text-sm text-slate-500">{audit.note}</div></div>
+    <div className="mt-3 grid gap-3 md:grid-cols-3">{Object.entries(audit.by_market).map(([market, m]) => <Reliability key={market} label={MARKET_LABEL[market] ?? market} bins={m.reliability ?? []} />)}</div>
   </section>;
+}
+
+function Reliability({ label, bins }: { label: string; bins: NonNullable<AuditMetric['reliability']> }) {
+  return <div className="card p-4"><div className="text-sm font-semibold text-slate-900">{label} reliability</div>
+    <div className="mt-4 flex h-24 items-end gap-2">{bins.map(b => <div key={b.range} className="flex h-full flex-1 items-end gap-px border-b border-slate-200" title={`${b.range}: n=${b.n}`}><span className="w-1/2 rounded-t bg-blue-500" style={{ height: `${(b.predicted ?? 0) * 100}%` }} /><span className="w-1/2 rounded-t bg-slate-900" style={{ height: `${(b.actual ?? 0) * 100}%` }} /></div>)}</div>
+    <div className="mt-2 text-[10px] text-slate-500">Blue predicted · black observed</div>
+  </div>;
 }
 
 function DayLedger({ date, picks }: { date: string; picks: Pick[] }) {

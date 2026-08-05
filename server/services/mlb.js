@@ -14,6 +14,7 @@
  * A season is on the order of 1,500 requests total, not tens of thousands.
  */
 import { db, rows, run } from '../db/index.js';
+import { appDate } from './date-util.js';
 
 const BASE = 'https://statsapi.mlb.com/api/v1';
 
@@ -172,8 +173,8 @@ export async function syncSeasonSchedule(season) {
  */
 export async function syncProbableStarters(daysAhead = 5) {
   const start = new Date();
-  const startStr = start.toISOString().slice(0, 10);
-  const end = new Date(start.getTime() + daysAhead * 86400000).toISOString().slice(0, 10);
+  const startStr = appDate(start);
+  const end = appDate(new Date(start.getTime() + daysAhead * 86400000));
   const url = `${BASE}/schedule?sportId=1&startDate=${startStr}&endDate=${end}&hydrate=probablePitcher`;
   const data = await getJson(url, 30000);
 
@@ -209,21 +210,11 @@ export async function syncProbableStarters(daysAhead = 5) {
 }
 
 /**
- * The starting pitcher for one team's game on one date — confirmed for
- * today/future games, actual for past games.
- *
- * Past dates use the real box score rather than the (long since irrelevant)
- * probable-pitcher call, since we already know exactly who started. This is
- * also what makes historical backfill correct: it grades the pitcher who
- * really took the mound, not whoever a projection liked best.
+ * The starting pitcher known before the game. Completed-box-score starters are
+ * never substituted because that is outcome-era information. Historical dates
+ * without a preserved probable-starter snapshot remain unavailable.
  */
 export function starterFor(teamId, date) {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  if (date < todayStr) {
-    return rows(`SELECT player_id, player_name FROM mlb_pitcher_games
-                 WHERE team_id = ? AND date = ? AND games_started = 1 LIMIT 1`,
-      teamId, date)[0] ?? null;
-  }
   const p = rows(`SELECT pitcher_id AS player_id, pitcher_name AS player_name
                   FROM mlb_probable_starters WHERE team_id = ? AND date = ?`,
     teamId, date)[0];

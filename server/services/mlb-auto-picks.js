@@ -18,6 +18,8 @@
 import { db, rows, run } from '../db/index.js';
 import { boardFor } from './mlb-projections.js';
 import { mean } from './stats-util.js';
+import { latestMlbQuotes, latestMlbSnapshot } from './mlb-pregame.js';
+import { appDate } from './date-util.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS mlb_first_party_picks (
@@ -29,6 +31,15 @@ db.exec(`
     PRIMARY KEY (pick_date, rank)
   );
 `);
+
+for (const [name, type] of [
+  ['american_price', 'INTEGER'], ['implied_probability', 'REAL'], ['probability_difference', 'REAL'],
+  ['book', 'TEXT'], ['quote_at', 'TEXT'], ['quote_event_id', 'TEXT'], ['model_version', 'TEXT'],
+  ['pregame_snapshot_at', 'TEXT'], ['lineup_status', 'TEXT'], ['tracking_mode', 'TEXT']
+]) {
+  const cols = db.prepare('PRAGMA table_info(mlb_first_party_picks)').all().map(c => c.name);
+  if (!cols.includes(name)) db.exec(`ALTER TABLE mlb_first_party_picks ADD COLUMN ${name} ${type}`);
+}
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 /** Distance from a coin flip — the only conviction measure available without prices. */
@@ -70,12 +81,13 @@ export function candidatesFor(date) {
     if (p < PLAUSIBLE_MIN || p > PLAUSIBLE_MAX) continue;
     out.push({
       market: 'nrfi', selection: g.matchup, matchup: g.matchup, game_pk: g.game_pk,
-      side, line: null, model_probability: r3(p), projection: null,
+      side, line: 0.5, model_probability: r3(p), projection: null,
       conviction: r3(conviction(p))
     });
   }
 
-  for (const b of board.batters) {
+  const historical = date < appDate();
+  for (const b of historical ? [] : board.batters) {
     // 1.5 total bases is the standard line and the one worth an opinion.
     const p = b.probabilities?.['over_1.5'];
     if (p == null) continue;
@@ -84,13 +96,13 @@ export function candidatesFor(date) {
     if (sideProb < PLAUSIBLE_MIN || sideProb > PLAUSIBLE_MAX) continue;
     out.push({
       market: 'batter_total_bases', selection: b.name, player_id: b.player_id,
-      matchup: null, side: over ? 'Over' : 'Under', line: 1.5,
+      matchup: b.matchup, game_pk: b.game_pk, side: over ? 'Over' : 'Under', line: 1.5,
       model_probability: r3(sideProb), projection: b.mean_tb,
       conviction: r3(conviction(p))
     });
   }
 
-  for (const pit of board.pitchers) {
+  for (const pit of historical ? [] : board.pitchers) {
     // Openers and long relievers make the strikeout line meaningless — a book
     // only posts 5.5 for someone expected to work into the fifth or beyond.
     if ((pit.ip_per_start ?? 0) < MIN_IP_PER_START) continue;
@@ -101,7 +113,7 @@ export function candidatesFor(date) {
     if (sideProb < PLAUSIBLE_MIN || sideProb > PLAUSIBLE_MAX) continue;
     out.push({
       market: 'pitcher_strikeouts', selection: pit.name, player_id: pit.player_id,
-      matchup: null, side: over ? 'Over' : 'Under', line: 5.5,
+      matchup: pit.matchup, game_pk: pit.game_pk, side: over ? 'Over' : 'Under', line: 5.5,
       model_probability: r3(sideProb), projection: pit.mean_k,
       conviction: r3(conviction(p))
     });
@@ -109,6 +121,42 @@ export function candidatesFor(date) {
 
   out.sort((a, b) => b.conviction - a.conviction);
   return { date: board.date, fell_back: board.fell_back ?? null, candidates: out };
+}
+
+const normalize = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const implied = o => o == null ? null : o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100);
+
+function priceForwardCandidates(date, candidates) {
+  const quotes = latestMlbQuotes(date);
+  const marketKey = { nrfi: 'totals_1st_1_innings', batter_total_bases: 'batter_total_bases', pitcher_strikeouts: 'pitcher_strikeouts' };
+  const out = [];
+  for (const c of candidates) {
+    const snapshot = latestMlbSnapshot(c.game_pk);
+    if (!snapshot || snapshot.odds_status !== 'captured') continue;
+    if (c.market === 'nrfi' && (snapshot.probable_starters?.length ?? 0) < 2) continue;
+    if (c.market === 'batter_total_bases' && !snapshot.lineups?.some(p => p.player_id === c.player_id && p.batting_order)) continue;
+    if (c.market === 'pitcher_strikeouts' && !snapshot.probable_starters?.some(p => p.pitcher_id === c.player_id)) continue;
+    const desiredSide = c.market === 'nrfi' ? (c.side === 'NRFI' ? 'Under' : 'Over') : c.side;
+    const available = quotes.filter(q => q.game_pk === c.game_pk && q.market === marketKey[c.market]
+      && normalize(q.side) === normalize(desiredSide) && (c.market === 'nrfi' || normalize(q.selection) === normalize(c.selection))
+      && (q.line == null || c.line == null || Number(q.line) === Number(c.line)));
+    if (!available.length) continue;
+    const best = available.reduce((a, b) => b.price > a.price ? b : a);
+    const oppositeSide = desiredSide === 'Over' ? 'Under' : 'Over';
+    const opposite = quotes.find(q => q.event_id === best.event_id && q.book === best.book && q.market === best.market
+      && normalize(q.selection) === normalize(best.selection) && normalize(q.side) === normalize(oppositeSide)
+      && (q.line == null || best.line == null || Number(q.line) === Number(best.line)));
+    const pa = implied(best.price), pb = implied(opposite?.price);
+    const marketP = pa != null && pb != null && pa + pb > 0 ? pa / (pa + pb) : null;
+    if (marketP == null) continue;
+    out.push({ ...c, american_price: best.price, implied_probability: r3(marketP),
+      probability_difference: r3(c.model_probability - marketP), book: best.book,
+      quote_at: best.captured_at, quote_event_id: best.event_id,
+      pregame_snapshot_at: snapshot.captured_at, lineup_status: snapshot.lineup_status,
+      model_version: 'mlb-projection-v2-cutoff' });
+  }
+  return out.filter(c => c.probability_difference >= 0.03)
+    .sort((a, b) => b.probability_difference - a.probability_difference);
 }
 
 function diversifiedTop(candidates, n = 5) {
@@ -134,7 +182,10 @@ export function ensurePicksFor(date, n = 5) {
   const existing = rows('SELECT * FROM mlb_first_party_picks WHERE pick_date = ? ORDER BY rank', date);
   if (existing.length) return existing;
 
-  const { candidates, date: actualDate } = candidatesFor(date);
+  const { candidates: rawCandidates, date: actualDate } = candidatesFor(date);
+  const today = appDate();
+  const forward = actualDate >= today;
+  const candidates = forward ? priceForwardCandidates(actualDate, rawCandidates ?? []) : rawCandidates;
   if (!candidates?.length) return [];
 
   // Spread the five across markets rather than letting one dominate — five
@@ -145,11 +196,15 @@ export function ensurePicksFor(date, n = 5) {
   picked.slice(0, n).forEach((c, i) => {
     run(`INSERT INTO mlb_first_party_picks
         (pick_date, rank, market, selection, player_id, matchup, game_pk, side, line,
-         model_probability, projection, selected_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         model_probability, projection, selected_at,american_price,implied_probability,probability_difference,
+         book,quote_at,quote_event_id,model_version,pregame_snapshot_at,lineup_status,tracking_mode)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(pick_date, rank) DO NOTHING`,
       actualDate, i + 1, c.market, c.selection, c.player_id ?? null, c.matchup ?? null,
-      c.game_pk ?? null, c.side, c.line, c.model_probability, c.projection, now);
+      c.game_pk ?? null, c.side, c.line, c.model_probability, c.projection, now,
+      c.american_price ?? null,c.implied_probability ?? null,c.probability_difference ?? null,
+      c.book ?? null,c.quote_at ?? null,c.quote_event_id ?? null,c.model_version ?? 'mlb-projection-v2-cutoff',
+      c.pregame_snapshot_at ?? null,c.lineup_status ?? null,forward ? 'forward' : 'retrospective');
   });
   return rows('SELECT * FROM mlb_first_party_picks WHERE pick_date = ? ORDER BY rank', actualDate);
 }
@@ -223,45 +278,53 @@ function gameIsFinal(p) {
   return false;
 }
 
-/**
- * Every pick ever made, graded. Units assume a flat 1-unit stake at -110, the
- * standard price for these markets — there is no stored price to use instead.
- */
+/** Every pick ever made, graded. Economics stay null unless a real quote exists. */
 export function allPicks() {
   return rows('SELECT * FROM mlb_first_party_picks ORDER BY pick_date DESC, rank ASC')
     .map(p => {
       const g = gradePick(p);
-      const units = g.status === 'Won' ? 100 / 110 : g.status === 'Lost' ? -1 : 0;
       const selectedDate = String(p.selected_at ?? '').slice(0, 10);
+      const forward = (p.tracking_mode ?? (selectedDate && selectedDate > p.pick_date ? 'retrospective' : 'forward')) === 'forward';
+      const priced = forward && p.american_price != null;
+      const units = !priced ? null : g.status === 'Won'
+        ? (p.american_price > 0 ? p.american_price / 100 : 100 / Math.abs(p.american_price))
+        : g.status === 'Lost' ? -1 : 0;
       return {
-        ...p, ...g, units: +units.toFixed(3),
-        tracking_mode: selectedDate && selectedDate > p.pick_date ? 'retrospective' : 'forward'
+        ...p, ...g, units: units == null ? null : +units.toFixed(3),
+        tracking_mode: forward ? 'forward' : 'retrospective',
+        evidence_eligible: forward
+          ? Boolean(p.american_price && p.pregame_snapshot_at)
+          : p.market === 'nrfi' && p.model_version === 'mlb-projection-v2-cutoff'
       };
     });
 }
 
 export function standing(throughDate = null) {
   const graded = allPicks().filter(g => throughDate == null || g.pick_date <= throughDate);
-  const settled = graded.filter(g => g.status === 'Won' || g.status === 'Lost');
+  const eligible = graded.filter(g => g.evidence_eligible);
+  const settled = eligible.filter(g => g.status === 'Won' || g.status === 'Lost');
   const wins = settled.filter(g => g.status === 'Won').length;
   const losses = settled.filter(g => g.status === 'Lost').length;
-  const units = graded.reduce((s, g) => s + g.units, 0);
+  const pricedSettled = settled.filter(g => g.tracking_mode === 'forward' && g.american_price != null && g.units != null);
+  const pricedUnits = pricedSettled.reduce((sum, g) => sum + g.units, 0);
   return {
     wins, losses,
     pushes: graded.filter(g => g.status === 'Push').length,
     voids: graded.filter(g => g.status === 'Void').length,
     pending: graded.filter(g => g.status === 'Pending').length,
+    quarantined: graded.filter(g => !g.evidence_eligible).length,
     win_rate: settled.length ? +(wins / settled.length).toFixed(4) : null,
-    units: +units.toFixed(2),
+    priced_settled: pricedSettled.length,
+    units: pricedSettled.length ? +pricedUnits.toFixed(2) : null,
+    roi: pricedSettled.length ? +(pricedUnits / pricedSettled.length).toFixed(4) : null,
     days_tracked: new Set(graded.map(g => g.pick_date)).size,
     by_market: ['nrfi', 'batter_total_bases', 'pitcher_strikeouts'].map(m => {
-      const sub = graded.filter(g => g.market === m);
+      const sub = eligible.filter(g => g.market === m);
       const s = sub.filter(g => g.status === 'Won' || g.status === 'Lost');
       const w = s.filter(g => g.status === 'Won').length;
       return {
         market: m, picks: sub.length, wins: w, losses: s.length - w,
-        win_rate: s.length ? +(w / s.length).toFixed(4) : null,
-        units: +sub.reduce((a, g) => a + g.units, 0).toFixed(2)
+        win_rate: s.length ? +(w / s.length).toFixed(4) : null
       };
     }).filter(x => x.picks > 0)
   };
@@ -272,14 +335,15 @@ export function standing(throughDate = null) {
  * sampled at a fixed cadence to keep the endpoint responsive; each prediction
  * still uses only information strictly before its slate date.
  */
-export function modelAudit(season, throughDate, { lookbackDays = 120, cadenceDays = 7 } = {}) {
-  const key = `${season}|${throughDate}|${lookbackDays}|${cadenceDays}`;
+export function modelAudit(season, throughDate, { lookbackDays = 120, cadenceDays = 7, fromDate = null } = {}) {
+  const key = `${season}|${throughDate}|${lookbackDays}|${cadenceDays}|${fromDate ?? ''}`;
   if (auditCache.has(key)) return auditCache.get(key);
   const start = new Date(`${throughDate}T12:00:00Z`);
   start.setUTCDate(start.getUTCDate() - lookbackDays);
+  const lowerBound = fromDate ?? start.toISOString().slice(0, 10);
   const eligible = rows(`SELECT DISTINCT date FROM mlb_games
                          WHERE season=? AND date>=? AND date<? AND yrfi IS NOT NULL ORDER BY date`,
-                        season, start.toISOString().slice(0, 10), throughDate).map(x => x.date);
+                        season, lowerBound, throughDate).map(x => x.date);
   const sampled = [];
   let last = 0;
   for (const date of eligible) {
@@ -308,16 +372,23 @@ export function modelAudit(season, throughDate, { lookbackDays = 120, cadenceDay
     const center = (phat + z * z / (2 * n)) / den;
     const half = z * Math.sqrt((phat * (1 - phat) + z * z / (4 * n)) / n) / den;
     const lo = Math.max(0, center - half), hi = Math.min(1, center + half);
+    const reliability = Array.from({ length: 5 }, (_, i) => {
+      const bucket = list.filter(x => Math.min(4, Math.floor(x.model_probability * 5)) === i);
+      return { range: `${i * 20}-${(i + 1) * 20}%`, n: bucket.length,
+        predicted: bucket.length ? r3(mean(bucket.map(x => x.model_probability))) : null,
+        actual: bucket.length ? r3(mean(bucket.map(x => x.outcome))) : null };
+    });
     return {
       n, wins, losses: n - wins, win_rate: r3(phat), brier: r3(brier), log_loss: r3(logLoss),
       win_rate_95: [r3(lo), r3(hi)],
+      reliability,
       status: n < 30 ? 'insufficient' : lo > 0.5 ? 'validated' : 'provisional'
     };
   };
   const byMarket = Object.fromEntries(['nrfi', 'batter_total_bases', 'pitcher_strikeouts']
     .map(m => [m, score(graded.filter(x => x.market === m))]));
   const out = {
-    season, through_date: throughDate, sampled_dates: sampled.length,
+    season, from_date: lowerBound, through_date: throughDate, sampled_dates: sampled.length,
     overall: score(graded), by_market: byMarket,
     note: 'Fixed-cadence walk-forward audit. Every slate is predicted from earlier games only; status requires sample size and a Wilson interval above chance.'
   };
@@ -326,7 +397,7 @@ export function modelAudit(season, throughDate, { lookbackDays = 120, cadenceDay
 }
 
 /** Backfills picks for past dates so the record is not empty on day one. */
-export function backfill(days = 14, endDate = new Date().toISOString().slice(0, 10)) {
+export function backfill(days = 14, endDate = appDate()) {
   const dates = rows(`SELECT DISTINCT date FROM mlb_games
                       WHERE date <= ? ORDER BY date DESC LIMIT ?`, endDate, days)
     .map(r => r.date).reverse();

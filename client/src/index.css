@@ -2,8 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+html { background: #f5f5f7; }
 body {
-  @apply bg-white text-slate-900 antialiased;
+  @apply text-slate-900 antialiased;
+  margin: 0;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: -0.012em;
+}
+button, input, select { font: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #0071e3;
+  outline-offset: 2px;
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -11,20 +22,62 @@ body {
 ::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded; }
 
 .card {
-  @apply bg-white border border-slate-200 rounded-xl shadow-sm;
+  @apply bg-white border border-black/[0.07];
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .02);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
+a.card:hover { border-color: rgb(0 0 0 / .16); box-shadow: 0 8px 28px rgb(0 0 0 / .06); transform: translateY(-1px); }
 .btn {
   @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors;
 }
 .btn-primary {
-  @apply btn bg-slate-900 hover:bg-slate-800 text-white;
+  @apply btn text-white;
+  background: #0071e3;
+  border-radius: 999px;
 }
+.btn-primary:hover { background: #0077ed; }
 .btn-ghost {
-  @apply btn bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200;
+  @apply btn bg-white hover:bg-slate-50 text-slate-700 border border-black/10;
+  border-radius: 999px;
 }
 .input {
-  @apply bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-900
-         focus:outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-100;
+  @apply bg-white border border-black/10 px-3 py-1.5 text-sm text-slate-900
+         focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100;
+  border-radius: 10px;
+}
+::selection { background: #cce7ff; color: #1d1d1f; }
+
+/* Platform visual system: one restrained language across legacy and new pages. */
+main > div { width: 100%; max-width: 1440px; margin-inline: auto; }
+main h1 {
+  font-size: clamp(2rem, 3vw, 2.75rem) !important;
+  line-height: 1.08 !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.04em !important;
+  color: #1d1d1f;
+}
+main h2 { font-weight: 600 !important; letter-spacing: -0.025em; color: #1d1d1f; }
+main h3 { font-weight: 600 !important; letter-spacing: -0.015em; }
+main table { font-variant-numeric: tabular-nums; }
+main thead { color: #6e6e73; }
+main tbody tr { transition: background-color 140ms ease; }
+main tbody tr:hover { background: rgb(0 0 0 / .025); }
+
+/* Retire the old green brand wash while preserving red/amber warning semantics. */
+.text-emerald-600, .text-emerald-700, .text-emerald-800 { color: #0071e3 !important; }
+.bg-emerald-500, .bg-emerald-600 { background-color: #0071e3 !important; }
+.bg-emerald-50, .bg-emerald-100 { background-color: #f0f7ff !important; }
+.border-emerald-200, .border-emerald-300, .border-emerald-400, .border-emerald-500 { border-color: #b9dcff !important; }
+.hover\:bg-emerald-50:hover { background-color: #f0f7ff !important; }
+.hover\:border-emerald-400:hover, .hover\:border-emerald-500:hover, .hover\:border-emerald-700:hover { border-color: #0071e3 !important; }
+
+@media (max-width: 767px) {
+  main h1 { font-size: 2rem !important; }
+  .card { border-radius: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
 .pos-QB { @apply text-rose-600; }
 .pos-RB { @apply text-emerald-600; }

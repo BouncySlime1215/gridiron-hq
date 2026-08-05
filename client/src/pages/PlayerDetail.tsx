@@ -103,7 +103,7 @@ export default function PlayerDetail() {
             <div key={n.id} className="py-2 border-b border-slate-200/60 last:border-0">
               <div className="text-xs text-slate-500">{n.date} {n.team_abbr && `· ${n.team_abbr}`}</div>
               <div className="text-sm font-medium">{n.headline}</div>
-              {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">🎯 {n.fantasy_impact}</div>}
+              {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">{n.fantasy_impact}</div>}
             </div>
           ))}
         </div>

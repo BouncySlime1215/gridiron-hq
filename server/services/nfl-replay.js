@@ -157,6 +157,7 @@ export function replaySeason(season, {
           side: backHome ? `${g.home} ${fmtLine(g.home_spread)}` : `${g.away} ${fmtLine(-g.home_spread)}`,
           line: backHome ? g.home_spread : -g.home_spread,
           american_price: backHome ? g.home_spread_odds : g.away_spread_odds,
+          opposite_price: backHome ? g.away_spread_odds : g.home_spread_odds,
           model_margin: e.projected_margin, market_margin: marketMargin,
           edge: r2(edge), edge_points: Math.abs(edge), disagreement: e.model_disagreement_margin,
           actual_margin: actualMargin, actual_total: actualTotal,
@@ -410,6 +411,15 @@ export function trainingIteration(seasons, config = {}) {
   const wins = allBets.filter(b => b.result === 'Won').length;
   const losses = allBets.filter(b => b.result === 'Lost').length;
   const units = allBets.reduce((s, b) => s + b.units, 0);
+  let cumulative = 0;
+  const byWeek = new Map();
+  for (const b of allBets) {
+    const key = `${b.season}-${String(b.week).padStart(2, '0')}`;
+    byWeek.set(key, (byWeek.get(key) ?? 0) + b.units);
+  }
+  const equityCurve = [...byWeek].sort(([a], [b]) => a.localeCompare(b)).map(([week, weekUnits]) => ({
+    week, week_units: r2(weekUnits), cumulative_units: r2(cumulative += weekUnits)
+  }));
 
   return {
     seasons, config,
@@ -425,6 +435,7 @@ export function trainingIteration(seasons, config = {}) {
       beat_vig: allBets.length ? units > 0 : null,
       uncertainty: uncertainty(allBets)
     },
+    equity_curve: equityCurve,
     per_season: perSeason,
     analysis
   };

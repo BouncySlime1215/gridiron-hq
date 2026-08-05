@@ -153,7 +153,7 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
                 <button key={t} onClick={() => setTab(t)}
                   className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg border-b-2 -mb-px transition-colors ${
                     tab === t ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-                  {t === 'overview' ? 'Overview' : t === 'gamelog' ? 'Game log' : '🧠 Scout report'}
+                  {t === 'overview' ? 'Overview' : t === 'gamelog' ? 'Game log' : 'Scout report'}
                 </button>
               ))}
             </div>
@@ -229,7 +229,7 @@ function Card({ id, onClose }: { id: number; onClose: () => void }) {
                       <div key={n.id} className="border-l-2 border-slate-200 pl-3">
                         <div className="text-[11px] text-slate-400">{n.date}{n.source && ` · ${n.source}`}</div>
                         <div className="text-sm text-slate-700">{n.headline}</div>
-                        {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">🎯 {n.fantasy_impact}</div>}
+                        {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">{n.fantasy_impact}</div>}
                       </div>
                     ))}
                   </div>

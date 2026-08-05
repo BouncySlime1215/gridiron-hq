@@ -35,26 +35,26 @@ import MlbAutoPicks from './pages/betting/MlbAutoPicks';
 // separate sections rather than one long mixed list. Edge Tools and the
 // Prediction Engine are now one hub (see FantasyLab) instead of two entries.
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: '🏠' },
-  { to: '/my-team', label: 'My Team', icon: '⭐' },
-  { to: '/players', label: 'Players', icon: '📋' },
-  { to: '/drafts', label: 'Draft Room', icon: '🎯' },
-  { to: '/teams', label: '32 Teams', icon: '🏈' },
-  { to: '/lab', label: 'Fantasy Lab', icon: '🧠' },
-  { to: '/trade-lab', label: 'Trade Lab', icon: '🤝' },
-  { to: '/news', label: 'Camp News', icon: '📰' },
-  { to: '/leagues', label: 'My Leagues', icon: '🔗' },
-  { to: '/settings', label: 'ESPN Settings', icon: '⚙️' }
+  { to: '/', label: 'Dashboard', icon: 'D' },
+  { to: '/my-team', label: 'My Team', icon: 'M' },
+  { to: '/players', label: 'Players', icon: 'P' },
+  { to: '/drafts', label: 'Draft Room', icon: 'R' },
+  { to: '/teams', label: '32 Teams', icon: 'T' },
+  { to: '/lab', label: 'Fantasy Lab', icon: 'F' },
+  { to: '/trade-lab', label: 'Trade Lab', icon: 'X' },
+  { to: '/news', label: 'Camp News', icon: 'N' },
+  { to: '/leagues', label: 'My Leagues', icon: 'L' },
+  { to: '/settings', label: 'ESPN Settings', icon: 'S' }
 ];
 
 const BETTING_NAV = [
-  { to: '/betting/nfl/picks', label: 'NFL Auto Picks', icon: '🤖', end: true },
-  { to: '/betting/nfl/props', label: 'NFL Props', icon: '🎯', end: true },
-  { to: '/betting/mlb/auto', label: 'MLB Auto Picks', icon: '⚾', end: true }
+  { to: '/betting/nfl/picks', label: 'NFL Auto Picks', icon: 'N', end: true },
+  { to: '/betting/nfl/props', label: 'NFL Props', icon: 'P', end: true },
+  { to: '/betting/mlb/auto', label: 'MLB Auto Picks', icon: 'M', end: true }
 ];
 
 export default function App() {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('gh:sidebar') === 'collapsed');
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('gh:sidebar') === 'collapsed' || window.innerWidth < 900);
   useEffect(() => {
     localStorage.setItem('gh:sidebar', collapsed ? 'collapsed' : 'open');
   }, [collapsed]);
@@ -68,8 +68,8 @@ export default function App() {
     <PlayerCardProvider>
     <div className="flex min-h-screen">
       <aside
-        style={{ width: collapsed ? 62 : 224 }}
-        className={`shrink-0 border-r border-slate-200 bg-slate-50 py-4 flex flex-col gap-1 sticky top-0 h-screen
+        style={{ width: collapsed ? 64 : 236 }}
+        className={`shrink-0 border-r border-black/[0.07] bg-white/80 backdrop-blur-xl py-4 flex flex-col gap-1 sticky top-0 h-screen
           transition-[width] duration-300 ease-in-out overflow-hidden ${collapsed ? 'px-2' : 'px-4'}`}>
         <div className={`mb-4 ${collapsed ? 'px-0 text-center' : 'px-2'}`}>
           {collapsed ? (
@@ -90,10 +90,10 @@ export default function App() {
             className={({ isActive }) =>
               `py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
                 collapsed ? 'px-0 justify-center' : 'px-3'
-              } ${isActive ? 'bg-emerald-100 text-emerald-700' : 'text-slate-700 hover:bg-slate-100'}`
+              } ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-black/[0.04]'}`
             }
           >
-            <span className="shrink-0">{n.icon}</span>
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-black/[0.045] text-[10px] font-bold">{n.icon}</span>
             <span className={`transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'}`}>
               {n.label}
             </span>
@@ -125,7 +125,7 @@ export default function App() {
               } ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`
             }
           >
-            <span className="shrink-0">{n.icon}</span>
+            <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md text-[10px] font-bold ${inBetting ? 'bg-white/10' : 'bg-black/[0.045]'}`}>{n.icon}</span>
             <span className={`transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'}`}>
               {n.label}
             </span>
@@ -139,7 +139,7 @@ export default function App() {
         )}
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="flex items-center gap-3 px-6 py-3 border-b border-slate-200 bg-white sticky top-0 z-30">
+        <header className="flex h-12 items-center gap-3 border-b border-black/[0.07] bg-white/80 px-4 backdrop-blur-xl sticky top-0 z-30 sm:px-6">
           <button
             onClick={() => setCollapsed(c => !c)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -157,7 +157,7 @@ export default function App() {
             <DevHub />
           </div>
         </header>
-        <main className={`flex-1 min-w-0 p-4 sm:p-6 ${inBetting ? 'bg-slate-50/50' : ''}`}>
+        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/teams" element={<Teams />} />

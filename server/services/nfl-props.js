@@ -82,10 +82,9 @@ function projectPlayer(season, week, playerId, { useGameScript = true } = {}) {
 /**
  * Walk-forward point and probability accuracy for the prop engine.
  *
- * Each player-week is projected only from earlier weeks in that season. The
- * game-script multiplier is deliberately disabled here until its regression is
- * itself cutoff-fitted; mixing a globally fitted coefficient into this report
- * would reintroduce the exact leakage the report is meant to detect.
+ * Each player-week is projected only from earlier games. The same cutoff-fitted
+ * game-script adjustment is used in replay and production so the audit measures
+ * the policy that will actually run on Sunday.
  */
 export function propAccuracy(seasons) {
   const metric = () => ({ n: 0, abs: 0, sq: 0, signed: 0 });
@@ -102,7 +101,7 @@ export function propAccuracy(seasons) {
 
   for (const season of seasons) {
     for (const actual of playerWeeks(season).filter(p => p.week >= 2)) {
-      const p = projectPlayer(season, actual.week, actual.player_id, { useGameScript: false });
+      const p = projectPlayer(season, actual.week, actual.player_id);
       if (!p) continue;
       const f = actual.features;
       if (p.volume.attempts > 2) add('pass_yds', p.volume.attempts * p.eff.ypa, f.passing_yards);
@@ -202,7 +201,7 @@ function noVig(a, b) {
 /** Every projectable player for a week, with distribution percentiles. */
 export function projectWeek(season, week, { minVolume = 2 } = {}) {
   const ids = [...new Set(
-    playerWeeks(season).filter(p => p.week < week).map(p => p.player_id)
+    playerWeeks().filter(p => p.season === season ? p.week < week : p.season === season - 1).map(p => p.player_id)
   )];
   const out = [];
   for (const id of ids) {

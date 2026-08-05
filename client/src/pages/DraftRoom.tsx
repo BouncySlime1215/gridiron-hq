@@ -131,7 +131,7 @@ export default function DraftRoom() {
             }}>⏭ Sim to end</button>
           )}
           {draft.picks.length > 0 && (
-            <button className="btn-ghost" onClick={() => setRecapOpen(true)}>📋 Recap</button>
+            <button className="btn-ghost" onClick={() => setRecapOpen(true)}>Recap</button>
           )}
           <button className="btn-ghost" onClick={undo} disabled={draft.picks.length === 0}>↩ Undo</button>
         </div>

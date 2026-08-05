@@ -139,8 +139,14 @@ function teamAggregates(hist) {
 }
 
 /** Per-team play-by-play feature averages before a given point. */
+const _featureAggregateCache = new Map();
 function featureAggregates(season, week) {
-  const all = teamWeeks(season).filter(t => t.week < week);
+  const cacheKey = `${season}|${week}`;
+  if (_featureAggregateCache.has(cacheKey)) return _featureAggregateCache.get(cacheKey);
+  // Early-season forecasts borrow the immediately previous season with a
+  // measured recency decay. Week 1 can no longer turn every efficiency model
+  // off, while older seasons never leak through the cutoff.
+  const all = teamWeeks().filter(t => t.season === season ? t.week < week : t.season === season - 1);
   const byTeam = new Map();
   for (const t of all) {
     const e = byTeam.get(t.team) ?? [];
@@ -149,7 +155,12 @@ function featureAggregates(season, week) {
   }
   const out = new Map();
   for (const [team, list] of byTeam) {
-    const pick = k => avg(list.map(f => f[k]).filter(v => v != null));
+    const pick = k => {
+      const vals = list.map((f, i) => ({ value: f[k], weight: 0.5 ** ((list.length - 1 - i) / 12) }))
+        .filter(x => x.value != null);
+      const weight = vals.reduce((s, x) => s + x.weight, 0);
+      return weight ? vals.reduce((s, x) => s + x.value * x.weight, 0) / weight : null;
+    };
     out.set(team, {
       net_epa: pick('net_epa_per_play'),
       off_epa: pick('off_epa_per_play'), def_epa: pick('def_epa_per_play'),
@@ -166,6 +177,7 @@ function featureAggregates(season, week) {
       off_proe: pick('off_proe')
     });
   }
+  _featureAggregateCache.set(cacheKey, out);
   return out;
 }
 
@@ -538,7 +550,7 @@ function rawDifferentials(feat, home, away) {
 }
 
 const _cache = new Map();
-export function clearEnsembleCache() { _cache.clear(); }
+export function clearEnsembleCache() { _cache.clear(); _featureAggregateCache.clear(); }
 
 /**
  * Grades all twenty models walk-forward and derives their weights.
@@ -600,8 +612,8 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     }
   }
 
-  // Inverse-MSE weights within each quantity, so a model that predicts badly
-  // fades on its own rather than by argument.
+  // Score every component on cutoff-safe held-out predictions before assigning
+  // performance weights.
   const scored = MODELS.map(m => {
     const mm = errs[m.id].margin, tt = errs[m.id].total;
     return {

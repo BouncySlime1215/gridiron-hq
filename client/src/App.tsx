@@ -28,11 +28,7 @@ import NflMarketBoard from './pages/NflMarketBoard';
 import FantasyLab from './pages/FantasyLab';
 import BettingHome from './pages/betting/BettingHome';
 import NflProps from './pages/betting/NflProps';
-import VariableCatalog from './pages/betting/VariableCatalog';
-import EnsemblePage from './pages/betting/Ensemble';
-import Training from './pages/betting/Training';
 import MlbBoard from './pages/betting/MlbBoard';
-import LineShop from './pages/betting/LineShop';
 import MlbAutoPicks from './pages/betting/MlbAutoPicks';
 
 // Fantasy and betting answer different questions off different data, so they get
@@ -52,19 +48,9 @@ const NAV = [
 ];
 
 const BETTING_NAV = [
-  { to: '/betting', label: 'Betting Home', icon: '🎰', end: true },
-  { to: '/betting/nfl', label: 'NFL Board', icon: '🏈' },
-  { to: '/betting/nfl/props', label: 'NFL Props', icon: '🎯' },
-  { to: '/betting/nfl/ensemble', label: 'Ensemble Line', icon: '🧮' },
-  { to: '/betting/nfl/picks', label: 'NFL Auto Picks', icon: '🤖' },
-  { to: '/betting/lines', label: 'Line Shopping', icon: '💰' },
-  { to: '/betting/training', label: 'Training', icon: '🔬' },
-  { to: '/betting/mlb', label: 'MLB Board', icon: '⚾' },
-  { to: '/betting/mlb/legacy', label: 'MLB (proxied)', icon: '🔗' },
-  { to: '/betting/mlb/auto', label: 'MLB Auto Picks', icon: '🤖' },
-  { to: '/betting/mlb/picks', label: 'MLB My Picks', icon: '🎫' },
-  { to: '/betting/catalog', label: 'Variables', icon: '📚' },
-  { to: '/betting/mlb/model', label: 'Model Info', icon: 'ℹ️' }
+  { to: '/betting/nfl/picks', label: 'NFL Auto Picks', icon: '🤖', end: true },
+  { to: '/betting/nfl/props', label: 'NFL Props', icon: '🎯', end: true },
+  { to: '/betting/mlb/auto', label: 'MLB Auto Picks', icon: '⚾', end: true }
 ];
 
 export default function App() {
@@ -189,13 +175,13 @@ export default function App() {
 
           {/* Betting section */}
           <Route path="/betting" element={<BettingHome />} />
-          <Route path="/betting/nfl" element={<NflMarketBoard />} />
+          <Route path="/betting/nfl" element={<NflMarketBoard initialTool="board" />} />
           <Route path="/betting/nfl/props" element={<NflProps />} />
           <Route path="/betting/nfl/picks" element={<NflMarketBoard />} />
-          <Route path="/betting/nfl/ensemble" element={<EnsemblePage />} />
-          <Route path="/betting/lines" element={<LineShop />} />
-          <Route path="/betting/training" element={<Training />} />
-          <Route path="/betting/catalog" element={<VariableCatalog />} />
+          <Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} />
+          <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} />
+          <Route path="/betting/training" element={<NflMarketBoard initialTool="training" />} />
+          <Route path="/betting/catalog" element={<NflMarketBoard initialTool="variables" />} />
           <Route path="/betting/mlb" element={<MlbBoard />} />
           <Route path="/betting/mlb/legacy" element={<PropsBoard />} />
           <Route path="/betting/mlb/auto" element={<MlbAutoPicks />} />

@@ -19,7 +19,7 @@
  * regression coefficients are fit rather than guessed.
  */
 import { rows } from '../db/index.js';
-import { normalCdf, mean, stdev } from './stats-util.js';
+import { normalCdf, mean, stdev, random } from './stats-util.js';
 
 const LEAGUE_MIN_SEASON = 1999;
 
@@ -138,7 +138,7 @@ export function fitModel() {
 function bootstrapProb(predicted, threshold, residuals, trials) {
   let hits = 0;
   for (let i = 0; i < trials; i++) {
-    const draw = residuals[(Math.random() * residuals.length) | 0];
+    const draw = residuals[(random() * residuals.length) | 0];
     if (predicted + draw > threshold) hits++;
   }
   return hits / trials;
@@ -274,27 +274,70 @@ function predToScoreline(pred) {
 
 /** Walk-forward accuracy, same reporting bar as the fantasy engine's backtest. */
 export function accuracy() {
-  const m = fitModel();
-  if (m.error) return m;
-  const usable = m.results.filter(r => r.g.season >= LEAGUE_MIN_SEASON + 5);
+  const games = historicalGames();
+  if (games.length < 500) return { error: `only ${games.length} completed games with scores — sync game lines first` };
+
+  // Outer rolling holdout: every reported season gets hyperparameters, HFA,
+  // league scoring level and probability scale fitted only on earlier seasons.
+  // The previous report walked ratings forward but selected alpha/carryover and
+  // calibrated residuals on the same games it graded.
+  const seasons = [...new Set(games.map(g => g.season))].sort((a, b) => a - b);
+  const evalSeasons = seasons.slice(-4);
+  const evaluated = [];
+  const perSeason = [];
+
+  for (const season of evalSeasons) {
+    const train = games.filter(g => g.season < season);
+    const test = games.filter(g => g.season === season);
+    if (train.length < 500 || !test.length) continue;
+    const hfa = mean(train.map(g => g.home_score - g.away_score));
+    const leagueAvg = mean(train.flatMap(g => [g.home_score, g.away_score]));
+    let best = null;
+    for (const alpha of [0.05, 0.08, 0.1, 0.13, 0.16, 0.2]) {
+      for (const carryover of [0.5, 0.65, 0.75, 0.85, 1.0]) {
+        const result = simulate(train, { alpha, carryover, hfa, leagueAvg });
+        const score = gridScore(result.results, 5);
+        if (!best || score < best.score) best = { alpha, carryover, score };
+      }
+    }
+    const trainFit = simulate(train, { ...best, hfa, leagueAvg });
+    const warmTrain = trainFit.results.filter(r => r.g.season >= LEAGUE_MIN_SEASON + 5);
+    const marginStd = stdev(warmTrain.map(r => r.actualMargin - r.predMargin)) || 14;
+    const combined = simulate([...train, ...test], { ...best, hfa, leagueAvg });
+    const held = combined.results.filter(r => r.g.season === season)
+      .map(r => ({ ...r, marginStd }));
+    evaluated.push(...held);
+    perSeason.push(scoreAccuracy(held, season, best));
+  }
+
+  const total = scoreAccuracy(evaluated, null, null);
+  return {
+    ...total,
+    evaluation_seasons: evalSeasons,
+    per_season: perSeason,
+    note: 'Nested rolling holdout: each season is graded with hyperparameters, HFA and probability calibration fitted only on prior seasons.'
+  };
+}
+
+function scoreAccuracy(usable, season = null, params = null) {
   let correct = 0, brierSum = 0;
   const marginErrs = [], totalErrs = [];
   for (const r of usable) {
-    const p = normalCdf(r.predMargin / m.marginStd);
+    const p = normalCdf(r.predMargin / r.marginStd);
     const actualWin = r.actualMargin > 0 ? 1 : 0;
     if ((p > 0.5 ? 1 : 0) === actualWin) correct++;
     brierSum += (p - actualWin) ** 2;
     marginErrs.push(Math.abs(r.actualMargin - r.predMargin));
     totalErrs.push(Math.abs(r.actualTotal - r.predTotal));
   }
-  return {
+  const out = {
     games_graded: usable.length,
-    win_accuracy: +(correct / usable.length).toFixed(4),
-    brier_score: +(brierSum / usable.length).toFixed(4),
+    win_accuracy: usable.length ? +(correct / usable.length).toFixed(4) : null,
+    brier_score: usable.length ? +(brierSum / usable.length).toFixed(4) : null,
     margin_mae: +mean(marginErrs).toFixed(2),
-    total_mae: +mean(totalErrs).toFixed(2),
-    margin_std: +m.marginStd.toFixed(2), total_std: +m.totalStd.toFixed(2),
-    fitted_alpha: m.alpha, fitted_carryover: m.carryover, fitted_hfa: +m.hfa.toFixed(2),
-    note: 'Walk-forward: every prediction used only games that happened before it. First 5 seasons are warm-up and excluded from grading.'
+    total_mae: +mean(totalErrs).toFixed(2)
   };
+  if (season != null) out.season = season;
+  if (params) { out.fitted_alpha = params.alpha; out.fitted_carryover = params.carryover; }
+  return out;
 }

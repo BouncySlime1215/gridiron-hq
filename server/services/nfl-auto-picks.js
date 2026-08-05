@@ -6,6 +6,8 @@
  * final score straight out of game_lines once ESPN reports the game final.
  */
 import { db, rows, run } from '../db/index.js';
+import { ensembleWeek } from './nfl-ensemble.js';
+import { normalCdf } from './stats-util.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_auto_picks (
@@ -37,6 +39,42 @@ export function ensurePicksFor(season, week, board, count = 5) {
       b.model_probability, b.implied_probability, b.probability_difference, b.detail, now);
   });
   return rows('SELECT * FROM nfl_auto_picks WHERE season = ? AND week = ? ORDER BY rank', season, week);
+}
+
+/**
+ * The production auto-pick slate uses the same frozen policy as the blind
+ * replay. This closes the old gap where the Training page graded the ensemble
+ * but the Auto Picks button silently used a separate single-ratings board.
+ */
+export function autoPickCandidates(season, week, { minEdge = 3, maxDisagreement = 4.5 } = {}) {
+  const prices = new Map(rows(`SELECT team, opponent, spread, spread_odds
+                               FROM game_lines WHERE season=? AND week=?`, season, week)
+    .map(x => [x.team, x]));
+  const out = [];
+  for (const game of ensembleWeek(season, week)) {
+    const e = game.ensemble;
+    const edge = e.spread_edge;
+    if (edge == null || Math.abs(edge) < minEdge) continue;
+    if (e.model_disagreement_margin == null || e.model_disagreement_margin > maxDisagreement) continue;
+    const home = edge > 0;
+    const selection = home ? game.home : game.away;
+    const quote = prices.get(selection);
+    if (!quote || quote.spread == null) continue;
+    out.push({
+      market: 'spread', home_team: game.home, away_team: game.away,
+      matchup: `${game.away} at ${game.home}`, selection,
+      side: `${quote.spread > 0 ? '+' : ''}${quote.spread}`, line: quote.spread,
+      american_price: quote.spread_odds ?? -110,
+      // Probability is calibrated conservatively from the incremental edge,
+      // not the full predicted margin; the market remains the prior.
+      model_probability: normalCdf(Math.abs(edge) / 13.5),
+      implied_probability: 0.5,
+      probability_difference: normalCdf(Math.abs(edge) / 13.5) - 0.5,
+      detail: `Ensemble edge ${edge > 0 ? '+' : ''}${edge} · disagreement ${e.model_disagreement_margin}`,
+      edge_points: Math.abs(edge), disagreement: e.model_disagreement_margin
+    });
+  }
+  return out.sort((a, b) => b.edge_points - a.edge_points);
 }
 
 const americanToDecimal = odds => (odds > 0 ? 1 + odds / 100 : 1 + 100 / Math.abs(odds));

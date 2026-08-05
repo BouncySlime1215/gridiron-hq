@@ -147,6 +147,53 @@ Add `--quick` for one season of boxscores instead of three.
 
 ## How the analytics work
 
+### Model integrity
+
+Historical predictions are evaluated with a strict information cutoff. NFL
+ensemble weights are re-fit at each replay week using only games already final;
+the market model uses nested rolling-season holdouts, including refitting its
+hyperparameters and probability scale inside each training window. MLB player
+and league priors use only games before the projected date.
+
+NFL Auto Picks and Blind Replay share one production policy: at least a
+3-point ensemble edge and no more than 4.5 points of component disagreement.
+Those limits were frozen on 2018–2020 before the 2021–2025 holdout was opened.
+The sealed replay produced 157 bets, an 82–72 settled record, +2.55 units and
++1.6% ROI. Its 95% ROI interval still crosses zero, so this is promising rather
+than proof of a durable edge. Advanced components abstain when their source
+data is missing, and performance weighting prevents a crowd of correlated weak
+forecasts from overruling the strongest prior.
+
+The fantasy season simulator also preserves decision timing: managers choose a
+lineup from pre-kickoff projections and only then are outcomes sampled. A bench
+player cannot be inserted because the simulation already knows he scored 30,
+and simulations started midseason carry in real wins and points.
+
+Run the integrity regression suite with:
+
+```bash
+npm test
+```
+
+These tests specifically guard the time-cutoff, lineup-hindsight and standings
+rules that can otherwise make a model appear much stronger than it is.
+
+Simulation endpoints accept `?seed=NUMBER` when an exact replay is needed. The
+fantasy accuracy report includes weekly start/sit regret by position, not only
+season-total error. NFL prop diagnostics are available at
+`/api/nfl-betting/props/accuracy`; they report walk-forward MAE, RMSE and bias by
+stat plus Brier score, log loss and a touchdown reliability curve. Betting
+replays include 95% win-rate and ROI intervals so a profitable-looking run with
+too little evidence is visibly provisional.
+
+Game-script regressions are fitted as of each prediction week, so historical
+spread/total-to-volume adjustments cannot use later workloads. Weekly fantasy
+distributions combine durability with that week's official injury and practice
+designation. Out, doubtful, questionable, limited-practice and DNP statuses
+change the probability of an active score instead of appearing as decorative
+labels. Inspect that board at
+`/api/model/availability?season=2026&week=1`.
+
 **Defense vs position** is computed from `player_gamelog` — every weekly boxscore for the top 400
 players across the last several seasons. For each defense and position it takes the weighted mean
 fantasy points allowed, expressed as a multiplier of league average. Recent seasons count more.

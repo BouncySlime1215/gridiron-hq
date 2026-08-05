@@ -183,8 +183,19 @@ let timer = null;
  */
 export function startScheduler({ intervalMinutes = 30, bootDelayMs = 20000 } = {}) {
   if (timer) return { already_running: true };
-  setTimeout(() => { runAllStale().catch(() => {}); }, bootDelayMs);
-  timer = setInterval(() => { runAllStale().catch(() => {}); }, intervalMinutes * 60000);
+  // Keep launch interactive. MLB player-log ingestion can process thousands of
+  // responses and tomorrow-pick generation runs large simulations; doing either
+  // on the main thread twenty seconds after boot made every API request hang.
+  // The boot pass is restricted to light network jobs. Heavy jobs still run on
+  // the interval and through explicit refresh controls.
+  const bootJobs = ['mlb_schedule', 'mlb_probables', 'nfl_lines'];
+  setTimeout(() => {
+    (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
+  }, bootDelayMs);
+  const scheduledJobs = process.env.AUTO_HEAVY_SYNC === '1' ? Object.keys(JOBS) : bootJobs;
+  timer = setInterval(() => {
+    (async () => { for (const j of scheduledJobs) await runIfStale(j); })().catch(() => {});
+  }, intervalMinutes * 60000);
   timer.unref?.();  // never hold the process open just for this
   return { started: true, interval_minutes: intervalMinutes };
 }

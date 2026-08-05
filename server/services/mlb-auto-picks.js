@@ -173,7 +173,9 @@ function gradePick(p) {
   if (p.market === 'batter_total_bases') {
     const b = rows(`SELECT total_bases FROM mlb_batter_games
                     WHERE player_id = ? AND date = ?`, p.player_id, p.pick_date)[0];
-    if (!b) return { status: 'Pending', detail: 'No box score yet (or did not play)' };
+    if (!b) return gameIsFinal(p)
+      ? { status: 'Void', detail: 'Player did not appear — excluded from settled record' }
+      : { status: 'Pending', detail: 'Awaiting box score' };
     if (b.total_bases === p.line) return { status: 'Push', detail: `Exactly ${b.total_bases} TB` };
     const won = p.side === 'Over' ? b.total_bases > p.line : b.total_bases < p.line;
     return { status: won ? 'Won' : 'Lost', detail: `${b.total_bases} total bases` };
@@ -182,13 +184,38 @@ function gradePick(p) {
   if (p.market === 'pitcher_strikeouts') {
     const s = rows(`SELECT strikeouts FROM mlb_pitcher_games
                     WHERE player_id = ? AND date = ?`, p.player_id, p.pick_date)[0];
-    if (!s) return { status: 'Pending', detail: 'No box score yet (or did not start)' };
+    if (!s) return gameIsFinal(p)
+      ? { status: 'Void', detail: 'Pitcher did not start — excluded from settled record' }
+      : { status: 'Pending', detail: 'Awaiting box score' };
     if (s.strikeouts === p.line) return { status: 'Push', detail: `Exactly ${s.strikeouts} K` };
     const won = p.side === 'Over' ? s.strikeouts > p.line : s.strikeouts < p.line;
     return { status: won ? 'Won' : 'Lost', detail: `${s.strikeouts} strikeouts` };
   }
 
   return { status: 'Pending', detail: 'Unknown market' };
+}
+
+function gameIsFinal(p) {
+  if (p.game_pk != null) {
+    const g = rows(`SELECT status FROM mlb_games WHERE game_pk = ?`, p.game_pk)[0];
+    if (g) return /final|completed|game over/i.test(String(g.status ?? ''));
+  }
+  // Player props currently do not persist a game id. A completed game involving
+  // the player's team on the pick date is sufficient to distinguish a void from
+  // data that has not arrived yet.
+  if (p.player_id != null) {
+    const table = p.market === 'pitcher_strikeouts' ? 'mlb_pitcher_games' : 'mlb_batter_games';
+    const lastTeam = rows(`SELECT team_id FROM ${table}
+                           WHERE player_id = ? AND date < ? ORDER BY date DESC LIMIT 1`,
+                          p.player_id, p.pick_date)[0]?.team_id;
+    if (lastTeam != null) {
+      const g = rows(`SELECT status FROM mlb_games
+                      WHERE date = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1`,
+                     p.pick_date, lastTeam, lastTeam)[0];
+      return !!g && /final|completed|game over/i.test(String(g.status ?? ''));
+    }
+  }
+  return false;
 }
 
 /**
@@ -213,6 +240,7 @@ export function standing() {
   return {
     wins, losses,
     pushes: graded.filter(g => g.status === 'Push').length,
+    voids: graded.filter(g => g.status === 'Void').length,
     pending: graded.filter(g => g.status === 'Pending').length,
     win_rate: settled.length ? +(wins / settled.length).toFixed(4) : null,
     units: +units.toFixed(2),

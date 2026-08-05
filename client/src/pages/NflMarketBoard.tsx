@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { api, useApi } from '../api';
 import { pct, americanFmt } from './props/lib';
 import PickReasoning, { type Reasoning } from '../components/PickReasoning';
+import EnsemblePage from './betting/Ensemble';
+import Training from './betting/Training';
+import LineShop from './betting/LineShop';
+import VariableCatalog from './betting/VariableCatalog';
 
 interface BoardRow {
   market: 'moneyline' | 'spread' | 'total';
@@ -15,6 +19,8 @@ interface Accuracy {
   games_graded: number; win_accuracy: number; brier_score: number;
   margin_mae: number; total_mae: number; margin_std: number; total_std: number;
   fitted_alpha: number; fitted_carryover: number; fitted_hfa: number; note: string;
+  evaluation_seasons?: number[];
+  per_season?: { season: number; games_graded: number; win_accuracy: number; margin_mae: number; total_mae: number }[];
 }
 interface AutoPick {
   season: number; week: number; rank: number; home_team: string; away_team: string; matchup: string;
@@ -45,7 +51,18 @@ const STATUS_STYLE: Record<string, string> = {
  * instead of a proxied feed, since a football engine already lives here. Every
  * price shown is real (DraftKings, via ESPN's scoreboard), not assumed vig.
  */
-export default function NflMarketBoard() {
+type HubTool = 'board' | 'ensemble' | 'training' | 'lines' | 'variables' | 'info';
+const HUB_TOOLS: { id: HubTool; label: string; note: string }[] = [
+  { id: 'board', label: 'Auto Picks + Board', note: 'Weekly decisions' },
+  { id: 'ensemble', label: 'Ensemble Line', note: 'Model votes' },
+  { id: 'training', label: 'Blind Replay', note: 'Five-year audit' },
+  { id: 'lines', label: 'Line Shopping', note: 'Best prices' },
+  { id: 'variables', label: 'Variables', note: 'Feature catalog' },
+  { id: 'info', label: 'Model Info', note: 'Method + guardrails' }
+];
+
+export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?: HubTool }) {
+  const [tool, setTool] = useState<HubTool>(initialTool);
   const [week, setWeek] = useState(1);
   const [marketFilter, setMarketFilter] = useState<string>('all');
   // The explained endpoint returns the same board with a computed rationale on
@@ -92,8 +109,37 @@ export default function NflMarketBoard() {
 
   return (
     <div>
+      <div className="mb-5">
+        <div className="flex items-center gap-3 mb-1">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-600">NFL Auto Picks Hub</div>
+            <div className="text-sm text-slate-500">One decision surface. Research tools stay attached to the picks they govern.</div>
+          </div>
+          <span className="ml-auto text-[10px] font-bold rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 px-2.5 py-1">
+            Blind walk-forward · 2021–2025
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2 mt-3">
+          {HUB_TOOLS.map(t => (
+            <button key={t.id} onClick={() => setTool(t.id)}
+              className={`text-left rounded-xl border p-2.5 transition-colors ${tool === t.id
+                ? 'border-emerald-400 bg-emerald-50 text-emerald-900 shadow-sm'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'}`}>
+              <div className="text-xs font-bold">{t.label}</div>
+              <div className="text-[10px] opacity-60 mt-0.5">{t.note}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {tool === 'ensemble' && <EnsemblePage />}
+      {tool === 'training' && <Training />}
+      {tool === 'lines' && <LineShop />}
+      {tool === 'variables' && <VariableCatalog />}
+      {tool === 'info' && <ModelInfo accuracy={acc} />}
+      {tool !== 'board' ? null : <>
       <div className="flex items-center gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold">NFL Board</h1>
+        <h1 className="text-2xl font-bold">NFL Auto Picks + Board</h1>
         <div className="flex items-center gap-2 text-xs ml-auto">
           <span className="text-slate-500">Week</span>
           <select className="input py-1" value={week} onChange={e => setWeek(Number(e.target.value))}>
@@ -227,12 +273,33 @@ export default function NflMarketBoard() {
       )}
 
       <div className="card p-3 mt-4 text-xs text-slate-500">
-        The model is one pair of ratings per team (offense/defense, in points), updated after every game since
-        1999 — the same idea as Elo, just in points instead of an abstract scale, which is what lets one system
-        drive win, cover, and total probability together. Every prediction above only ever used games that
-        happened before it. This is a from-scratch model with no injury, weather, or QB-specific inputs yet —
-        treat it as a research signal, not a guarantee.
+        The market board shows the base score model against posted prices. Locked Auto Picks pass through the
+        broader walk-forward ensemble, the 3-point edge floor, and the 4.5-point disagreement guard. Weather,
+        rest, efficiency, pace and market priors participate only when their source data is present; missing
+        features abstain. Treat every output as a research signal, not a guarantee.
       </div>
+      </>}
+    </div>
+  );
+}
+
+function ModelInfo({ accuracy }: { accuracy: Accuracy | null }) {
+  return (
+    <div>
+      <h1 className="text-2xl font-bold mb-1">NFL Model Info</h1>
+      <p className="text-sm text-slate-500 mb-4">What the hub uses, what it refuses to use, and how a pick becomes eligible.</p>
+      <div className="grid md:grid-cols-3 gap-3 mb-4">
+        <Metric label="Decision threshold" value="3.0+ point edge" />
+        <Metric label="Agreement guard" value="≤ 4.5 point spread" />
+        <Metric label="Holdout protocol" value="2021–2025 blind" />
+      </div>
+      <div className="card p-4 space-y-3 text-sm text-slate-600">
+        <p><b className="text-slate-800">Forecast stack.</b> Independent rating, efficiency, context, weather, pace and market-prior models vote on margin and total. Models without the required data abstain instead of emitting a fake neutral forecast.</p>
+        <p><b className="text-slate-800">Weighting.</b> Component influence is learned only from games completed before the predicted week. Exponential error weighting prevents a large crowd of correlated weak models from drowning out a stronger prior.</p>
+        <p><b className="text-slate-800">Selection.</b> The 3-point edge and 4.5-point disagreement limits were frozen using 2018–2020. The later five seasons were opened once, chronologically, with no result-specific overrides.</p>
+        <p><b className="text-slate-800">Honest status.</b> The blind period improved to a positive point estimate, but its uncertainty interval still crosses zero. That is useful evidence, not proof of a durable betting edge.</p>
+      </div>
+      {accuracy && <div className="card p-3 mt-4 text-xs text-slate-600">Game prediction audit: {accuracy.games_graded?.toLocaleString()} graded games · {accuracy.margin_mae} margin MAE · {accuracy.total_mae} total MAE.</div>}
     </div>
   );
 }

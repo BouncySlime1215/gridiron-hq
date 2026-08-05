@@ -10,11 +10,18 @@ interface SeasonSummary {
   season: number; bets: number; wins: number; losses: number; pushes: number;
   win_rate: number | null; units: number; roi: number; beat_vig: boolean | null; error?: string;
 }
+interface Uncertainty {
+  win_rate_95: [number | null, number | null];
+  roi_95: [number | null, number | null];
+  probability_roi_above_zero: number | null;
+  sample_warning: string | null;
+}
 interface Training {
   seasons: number[];
   overall: {
     bets: number; wins: number; losses: number; win_rate: number | null;
     units: number; roi: number; break_even_needed: number; beat_vig: boolean | null;
+    uncertainty?: Uncertainty;
   };
   per_season: SeasonSummary[];
   analysis: { segments: Segment[]; weakest: Segment[]; strongest: Segment[]; note: string };
@@ -35,8 +42,8 @@ const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+'
  * losses is how a model ends up perfect on last season and useless on the next.
  */
 export default function Training() {
-  const [seasons, setSeasons] = useState('2022,2023,2024,2025');
-  const [minEdge, setMinEdge] = useState(1.5);
+  const [seasons, setSeasons] = useState('2021,2022,2023,2024,2025');
+  const [minEdge, setMinEdge] = useState(3);
   const [data, setData] = useState<Training | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -44,7 +51,7 @@ export default function Training() {
   const run = async () => {
     setBusy(true); setErr(null); setData(null);
     try {
-      setData(await api(`/nfl-betting/replay/train?seasons=${seasons}&min_edge=${minEdge}&min_bets=30`));
+      setData(await api(`/nfl-betting/replay/train?seasons=${seasons}&min_edge=${minEdge}&min_bets=25`));
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(false); }
   };
@@ -54,7 +61,7 @@ export default function Training() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold">Training</h1>
+        <h1 className="text-2xl font-bold">Blind Replay</h1>
         <div className="flex items-center gap-2 text-xs ml-auto">
           <input className="input py-1 w-44" value={seasons} onChange={e => setSeasons(e.target.value)} />
           <label className="text-slate-500">min edge</label>
@@ -67,7 +74,8 @@ export default function Training() {
       </div>
       <p className="text-sm text-slate-500 mb-4">
         Replays each season week by week, betting only on information available at the time, then
-        looks for where the model is systematically wrong.
+        looks for where the model is systematically wrong. The production policy was frozen on
+        2018–2020; do not turn holdout segments into new rules without a fresh future test.
       </p>
 
       {busy && (
@@ -100,6 +108,31 @@ export default function Training() {
             <Metric label="Units" value={u(o.units)} tone={o.units > 0 ? 'good' : 'bad'} />
             <Metric label="ROI" value={`${(o.roi * 100).toFixed(1)}%`} tone={o.roi > 0 ? 'good' : 'bad'} />
           </div>
+
+          {o.uncertainty && (
+            <div className={`card p-4 mb-5 border ${
+              (o.uncertainty.roi_95?.[0] ?? -1) > 0 ? 'border-emerald-300 bg-emerald-50/50' : 'border-indigo-200 bg-indigo-50/40'
+            }`}>
+              <div className="flex items-start gap-3 flex-wrap">
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-wide text-indigo-500">Uncertainty audit</div>
+                  <div className="text-sm font-bold text-slate-800 mt-0.5">
+                    ROI 95% interval: {pct(o.uncertainty.roi_95?.[0])} to {pct(o.uncertainty.roi_95?.[1])}
+                  </div>
+                  <div className="text-[11px] text-slate-600 mt-1">
+                    Win-rate interval {pct(o.uncertainty.win_rate_95?.[0])}–{pct(o.uncertainty.win_rate_95?.[1])}
+                    {' · '}estimated chance true ROI is positive {pct(o.uncertainty.probability_roi_above_zero)}
+                  </div>
+                </div>
+                <div className={`ml-auto text-xs font-bold rounded-full px-3 py-1 ${
+                  (o.uncertainty.roi_95?.[0] ?? -1) > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {(o.uncertainty.roi_95?.[0] ?? -1) > 0 ? 'Signal clears zero' : 'Not proven yet'}
+                </div>
+              </div>
+              {o.uncertainty.sample_warning && <p className="text-[11px] text-amber-800 mt-2">⚠ {o.uncertainty.sample_warning}</p>}
+            </div>
+          )}
 
           <h2 className="text-sm font-bold text-slate-700 mb-2">By season</h2>
           <div className="card overflow-hidden mb-5">

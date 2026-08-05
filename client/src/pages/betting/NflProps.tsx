@@ -14,6 +14,14 @@ interface BoardRow {
   probability_difference: number | null; projection: number;
 }
 interface Payload { season: number; week: number; market_status: string; board: BoardRow[]; projections: Proj[]; }
+interface AccuracyPayload {
+  seasons: number[];
+  point_metrics: Record<string, { n: number; mae: number | null; rmse: number | null; bias: number | null }>;
+  touchdown_probability: {
+    n: number; brier: number | null; log_loss: number | null;
+    reliability: { range: string; n: number; predicted: number | null; actual: number | null }[];
+  };
+}
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 const american = (v: number | null) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`);
@@ -37,6 +45,7 @@ export default function NflProps() {
   const [err, setErr] = useState<string | null>(null);
 
   const { data, loading } = useApi<Payload>(`/nfl-betting/props?season=${season}&week=${week}&limit=60`);
+  const { data: accuracy } = useApi<AccuracyPayload>('/nfl-betting/props/accuracy?seasons=2022,2023,2024,2025');
   const shown = live ?? data;
 
   const refreshOdds = async () => {
@@ -70,6 +79,8 @@ export default function NflProps() {
         Every prop is answered from a simulated distribution rather than a point estimate — the
         question is where the line falls, not what the average is.
       </p>
+
+      {accuracy && <PropAccuracy data={accuracy} />}
 
       <div className={`card p-2.5 mb-4 text-xs ${fetched ? 'text-slate-600' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
         {shown?.market_status ?? 'Loading…'}
@@ -139,6 +150,68 @@ export default function NflProps() {
         </div>
       )}
     </div>
+  );
+}
+
+function PropAccuracy({ data }: { data: AccuracyPayload }) {
+  const labels: Record<string, string> = {
+    pass_yds: 'Passing yards', rush_yds: 'Rushing yards',
+    rec_yds: 'Receiving yards', receptions: 'Receptions'
+  };
+  const buckets = data.touchdown_probability.reliability.filter(x => x.n > 0);
+  return (
+    <details className="card mb-4 overflow-hidden group">
+      <summary className="px-3 py-2.5 cursor-pointer list-none flex items-center gap-2 bg-slate-50">
+        <span className="text-xs font-bold text-slate-800">Model accuracy &amp; calibration</span>
+        <span className="text-[9px] uppercase font-black tracking-wide bg-emerald-100 text-emerald-700 rounded-full px-2 py-0.5">Walk-forward</span>
+        <span className="ml-auto text-[10px] text-slate-400 group-open:hidden">Open audit</span>
+      </summary>
+      <div className="border-t border-slate-200 p-3">
+        <p className="text-[10px] text-slate-500 mb-3">
+          Every player-week is projected from earlier weeks only. This grades the model by stat instead of hiding everything inside one record.
+        </p>
+        <div className="overflow-x-auto mb-4">
+          <table className="w-full text-xs">
+            <thead className="text-slate-400"><tr>
+              {['Stat', 'Samples', 'MAE', 'RMSE', 'Bias'].map(h => <th key={h} className="text-left font-semibold py-1.5 pr-4">{h}</th>)}
+            </tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {Object.entries(data.point_metrics).map(([key, m]) => <tr key={key}>
+                <td className="py-1.5 pr-4 font-semibold text-slate-700">{labels[key] ?? key}</td>
+                <td className="py-1.5 pr-4 tabular-nums">{m.n.toLocaleString()}</td>
+                <td className="py-1.5 pr-4 tabular-nums">{m.mae ?? '—'}</td>
+                <td className="py-1.5 pr-4 tabular-nums">{m.rmse ?? '—'}</td>
+                <td className={`py-1.5 pr-4 tabular-nums font-semibold ${(m.bias ?? 0) > 0 ? 'text-rose-600' : 'text-sky-700'}`}>
+                  {m.bias == null ? '—' : `${m.bias > 0 ? '+' : ''}${m.bias}`}
+                </td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+        <div className="grid md:grid-cols-[190px_1fr] gap-4 items-start">
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="text-[10px] uppercase tracking-wide font-bold text-slate-400">Touchdown probability</div>
+            <div className="grid grid-cols-2 gap-3 mt-2">
+              <div><div className="text-[9px] text-slate-400">Brier</div><div className="text-lg font-black tabular-nums">{data.touchdown_probability.brier ?? '—'}</div></div>
+              <div><div className="text-[9px] text-slate-400">Log loss</div><div className="text-lg font-black tabular-nums">{data.touchdown_probability.log_loss ?? '—'}</div></div>
+            </div>
+            <div className="text-[9px] text-slate-400 mt-1">{data.touchdown_probability.n.toLocaleString()} player-weeks · lower is better</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold text-slate-500 mb-1">Reliability: predicted versus actual TD rate</div>
+            <div className="space-y-1.5">
+              {buckets.map(b => <div key={b.range} className="grid grid-cols-[44px_1fr_45px_45px] items-center gap-2 text-[10px]">
+                <span className="text-slate-400">{b.range}</span>
+                <div className="h-2 bg-slate-100 rounded overflow-hidden"><div className="h-full bg-indigo-400" style={{ width: `${(b.actual ?? 0) * 100}%` }} /></div>
+                <span className="tabular-nums text-slate-500">P {pct(b.predicted)}</span>
+                <span className="tabular-nums font-semibold text-slate-700">A {pct(b.actual)}</span>
+              </div>)}
+              {!buckets.length && <p className="text-[10px] text-slate-400">Sync historical play-by-play to populate calibration.</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </details>
   );
 }
 

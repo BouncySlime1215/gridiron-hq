@@ -271,6 +271,7 @@ const MODELS = [
     id: 'opp_adjusted', name: 'Opponent-adjusted EPA', family: 'Efficiency',
     note: 'Efficiency corrected for the quality of defences and offences faced.',
     predict: (c) => {
+      if (!c.feat.has(c.home) || !c.feat.has(c.away)) return { margin: null, total: null };
       const league = avg([...c.feat.values()].map(f => f.off_epa).filter(v => v != null)) ?? 0;
       const adj = t => {
         const f = c.feat.get(t); if (!f) return 0;
@@ -311,6 +312,7 @@ const MODELS = [
     id: 'pace_total', name: 'Pace and possessions', family: 'Context',
     note: 'How many plays and drives these two generate, which sets the ceiling on a total.',
     predict: (c) => {
+      if (!c.feat.has(c.home) || !c.feat.has(c.away)) return { margin: null, total: null };
       const t = k => c.feat.get(k) ?? {};
       const h = t(c.home), a = t(c.away);
       const drives = ((h.off_drives ?? 11) + (a.off_drives ?? 11));
@@ -360,8 +362,14 @@ const MODELS = [
  * what carries the signal, and the conversion to points is fitted.
  */
 function diffModel(c, f, scale, id) {
-  const g = t => { const x = c.feat.get(t); return x ? (f(x) ?? 0) : 0; };
-  const raw = g(c.home) - g(c.away);
+  const home = c.feat.get(c.home), away = c.feat.get(c.away);
+  // Missing play-by-play is missing evidence, not a zero-valued signal. The old
+  // fallback emitted several duplicate "home field only" forecasts and gave
+  // them real ensemble weight, which manufactured confidence on thin data.
+  if (!home || !away) return { margin: null, total: null };
+  const hx = f(home), ax = f(away);
+  if (hx == null || ax == null) return { margin: null, total: null };
+  const raw = hx - ax;
   const cal = c.cal?.[id];
   if (cal) return { margin: cal.b0 + cal.b1 * raw, total: null };
   return { margin: raw * scale + c.hfa, total: null };
@@ -503,8 +511,8 @@ function rawDifferentials(feat, home, away) {
   };
 }
 
-let _cache = null;
-export function clearEnsembleCache() { _cache = null; }
+const _cache = new Map();
+export function clearEnsembleCache() { _cache.clear(); }
 
 /**
  * Grades all twenty models walk-forward and derives their weights.
@@ -513,15 +521,31 @@ export function clearEnsembleCache() { _cache = null; }
  * game in a week sees the same prior history — this is what keeps a full
  * evaluation to seconds instead of minutes.
  */
-export function fitEnsemble({ evalFrom = EVAL_FROM } = {}) {
-  if (_cache) return _cache;
+export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeWeek = null } = {}) {
+  const cutoffKey = beforeSeason == null ? 'live' : `${beforeSeason}|${beforeWeek ?? 1}`;
+  const cacheKey = `${evalFrom}|${cutoffKey}`;
+  if (_cache.has(cacheKey)) return _cache.get(cacheKey);
   const all = games();
   if (all.length < 200) return { error: `only ${all.length} games available — sync game lines first` };
   const restMap = awayRest();
 
-  const cal = calibrate(all, restMap, evalFrom);
+  // Calibration is part of the fitted model. For a historical prediction its
+  // training era must end before the prediction, just like ensemble weights.
+  // `evalFrom` normally provides that earlier boundary; min() also makes custom
+  // early replays incapable of borrowing later calibration outcomes.
+  const calibrationCutoff = beforeSeason == null ? evalFrom : Math.min(evalFrom, beforeSeason);
+  const cal = calibrate(all, restMap, calibrationCutoff);
   const errs = Object.fromEntries(MODELS.map(m => [m.id, { margin: [], total: [] }]));
-  const weeks = [...new Set(all.filter(g => g.season >= evalFrom).map(g => `${g.season}|${g.week}`))];
+  // Weight fitting is part of the model, not part of grading. A historical
+  // prediction must therefore derive its weights only from games that were final
+  // before that prediction. The old global fit used 2022-2025 outcomes even while
+  // replaying 2022, which made the component forecasts walk-forward but the
+  // ensemble itself look ahead.
+  const eligible = all.filter(g => g.season >= evalFrom && (
+    beforeSeason == null || g.season < beforeSeason ||
+    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
+  ));
+  const weeks = [...new Set(eligible.map(g => `${g.season}|${g.week}`))];
 
   for (const key of weeks) {
     const [season, week] = key.split('|').map(Number);
@@ -561,15 +585,25 @@ export function fitEnsemble({ evalFrom = EVAL_FROM } = {}) {
     };
   });
 
-  const wsum = (key) => scored.reduce((s, m) => s + (m[key] ? 1 / m[key] ** 2 : 0), 0);
+  // Exponential performance weighting gives meaningfully more influence to the
+  // best prior forecasts. Inverse-MSE made a weak model with 17 RMSE nearly as
+  // influential as the market near 14 RMSE, so a crowd of correlated mediocre
+  // models could overwhelm the strongest prior merely by being numerous.
+  const rawWeight = (m, key) => m[key] ? Math.exp(-0.7 * m[key]) : 0;
+  const wsum = key => scored.reduce((s, m) => s + rawWeight(m, key), 0);
   const mW = wsum('margin_rmse'), tW = wsum('total_rmse');
   for (const m of scored) {
-    m.margin_weight = m.margin_rmse ? +((1 / m.margin_rmse ** 2) / mW).toFixed(4) : 0;
-    m.total_weight = m.total_rmse ? +((1 / m.total_rmse ** 2) / tW).toFixed(4) : 0;
+    m.margin_weight = mW ? +(rawWeight(m, 'margin_rmse') / mW).toFixed(4) : 0;
+    m.total_weight = tW ? +(rawWeight(m, 'total_rmse') / tW).toFixed(4) : 0;
   }
 
-  _cache = { models: scored, evaluated_weeks: weeks.length, games: all.length, calibration: cal };
-  return _cache;
+  const result = {
+    models: scored, evaluated_weeks: weeks.length, games: all.length,
+    calibration: cal,
+    weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }
+  };
+  _cache.set(cacheKey, result);
+  return result;
 }
 
 /**
@@ -577,7 +611,10 @@ export function fitEnsemble({ evalFrom = EVAL_FROM } = {}) {
  * weighted consensus, and how much the models disagree.
  */
 export function ensembleLine(season, week, home, away) {
-  const fit = fitEnsemble();
+  // This cutoff is what makes season replay genuinely walk-forward. Live games
+  // naturally use every completed game before their kickoff; historical games
+  // can no longer borrow weights learned from themselves or the future.
+  const fit = fitEnsemble({ beforeSeason: season, beforeWeek: week });
   if (fit.error) return fit;
 
   const all = games();
@@ -605,9 +642,15 @@ export function ensembleLine(season, week, home, away) {
   }
 
   const blend = (key, wKey) => {
-    const usable = perModel.filter(m => m[key] != null && m[wKey] > 0);
+    const predicted = perModel.filter(m => m[key] != null);
+    const usable = predicted.filter(m => m[wKey] > 0);
     const wsum = usable.reduce((s, m) => s + m[wKey], 0);
-    return wsum > 0 ? usable.reduce((s, m) => s + m[key] * m[wKey], 0) / wsum : null;
+    // At the beginning of the first evaluation season there are not yet enough
+    // past errors to estimate weights. Equal weighting is an honest cold-start;
+    // returning null would silently skip the hardest early-season games.
+    return wsum > 0
+      ? usable.reduce((s, m) => s + m[key] * m[wKey], 0) / wsum
+      : (predicted.length ? mean(predicted.map(m => m[key])) : null);
   };
   const marginVals = perModel.filter(m => m.margin != null).map(m => m.margin);
   const totalVals = perModel.filter(m => m.total != null).map(m => m.total);

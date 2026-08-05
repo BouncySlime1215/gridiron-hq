@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { boardFor, accuracy, predictGame, clearNflMarketCache } from '../services/nfl-market.js';
 import { syncCurrentLines } from '../services/gamescript.js';
-import { ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
+import { autoPickCandidates, ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -59,14 +59,14 @@ r.post('/sync-and-pick', async (req, res, next) => {
     const lastWeek = week - 1;
     const lastWeekResults = lastWeek >= 1 ? pickResultsFor(season, lastWeek) : [];
 
-    const board = boardFor(season, week, trials);
-    if (board?.error) return res.status(409).json(board);
-    const newPicks = ensurePicksFor(season, week, board, 5);
+    const candidates = autoPickCandidates(season, week);
+    const newPicks = ensurePicksFor(season, week, candidates, 5);
 
     res.json({
       season, week, trials, synced,
       last_week: { week: lastWeek, results: lastWeekResults },
-      new_picks: newPicks,
+      policy: { model: 'walk-forward ensemble', min_edge: 3, max_disagreement: 4.5 },
+      eligible_candidates: candidates.length, new_picks: newPicks,
       standing: standing()
     });
   } catch (e) { next(e); }

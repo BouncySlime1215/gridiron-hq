@@ -12,7 +12,7 @@
  * "does he clear 1.5 total bases", which is a question about a distribution.
  */
 import { rows } from '../db/index.js';
-import { randPoisson, randBinomial, mean } from './stats-util.js';
+import { randPoisson, randBinomial, mean, random } from './stats-util.js';
 import { starterFor } from './mlb.js';
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -30,13 +30,15 @@ const shrink = (observed, prior, n, k) =>
 /* ------------------------------------------------------------- population */
 
 /** League-average rates from the seasons on hand, used as the shrink target. */
-function leagueRates(season) {
+function leagueRates(season, throughDate) {
   const b = rows(`SELECT SUM(at_bats) ab, SUM(hits) h, SUM(total_bases) tb,
                          SUM(home_runs) hr, COUNT(*) g
-                  FROM mlb_batter_games WHERE season = ? AND at_bats > 0`, season)[0];
+                  FROM mlb_batter_games
+                  WHERE season = ? AND date < ? AND at_bats > 0`, season, throughDate)[0];
   const p = rows(`SELECT SUM(strikeouts) k, SUM(innings_pitched) ip,
                          SUM(batters_faced) bf, COUNT(*) g
-                  FROM mlb_pitcher_games WHERE season = ? AND innings_pitched > 0`, season)[0];
+                  FROM mlb_pitcher_games
+                  WHERE season = ? AND date < ? AND innings_pitched > 0`, season, throughDate)[0];
   return {
     tb_per_ab: b?.ab ? b.tb / b.ab : 0.4,
     hit_per_ab: b?.ab ? b.h / b.ab : 0.25,
@@ -59,7 +61,10 @@ export function projectBatter(playerId, season, throughDate) {
                   ORDER BY date`, playerId, season, throughDate);
   if (g.length < 5) return null;
 
-  const lg = leagueRates(season);
+  // Population priors must obey the same cutoff as the player history. Using the
+  // completed season here made a July backtest borrow league rates from August
+  // and September even though the player's own query was correctly date-bounded.
+  const lg = leagueRates(season, throughDate);
   const ab = g.reduce((s, x) => s + x.at_bats, 0);
   const tb = g.reduce((s, x) => s + x.total_bases, 0);
   const hits = g.reduce((s, x) => s + x.hits, 0);
@@ -77,6 +82,16 @@ export function projectBatter(playerId, season, throughDate) {
 
   const expectedAb = shrink(ab / g.length, lg.ab_per_game, g.length, 10);
 
+  const hitRate = shrink(ab > 0 ? hits / ab : lg.hit_per_ab, lg.hit_per_ab, ab, 60);
+  const hrRate = shrink(ab > 0 ? hr / ab : lg.hr_per_ab, lg.hr_per_ab, ab, 120);
+  const hrPerHit = Math.min(0.9, hrRate / Math.max(0.01, hitRate));
+  const basesPerHit = tbRate / Math.max(0.01, hitRate);
+  // Preserve the projected TB/AB exactly in the simulation. After separating
+  // home runs, represent the remaining extra-base value as a mixture of adjacent
+  // integer outcomes instead of the old hard-coded 28% double rate.
+  const nonHrBases = Math.max(1, Math.min(3,
+    (basesPerHit - 4 * hrPerHit) / Math.max(0.01, 1 - hrPerHit)));
+
   return {
     player_id: playerId,
     name: g[g.length - 1].player_name,
@@ -84,8 +99,10 @@ export function projectBatter(playerId, season, throughDate) {
     games: g.length,
     expected_ab: r3(expectedAb),
     tb_per_ab: r3(tbRate),
-    hit_per_ab: r3(shrink(ab > 0 ? hits / ab : lg.hit_per_ab, lg.hit_per_ab, ab, 60)),
-    hr_per_ab: r3(shrink(ab > 0 ? hr / ab : lg.hr_per_ab, lg.hr_per_ab, ab, 120)),
+    hit_per_ab: r3(hitRate),
+    hr_per_ab: r3(hrRate),
+    hr_per_hit: r3(hrPerHit),
+    non_hr_bases: r3(nonHrBases),
     projected_tb: r3(expectedAb * tbRate)
   };
 }
@@ -100,9 +117,13 @@ export function batterTotalBases(proj, lines = [0.5, 1.5, 2.5]) {
     // extra-base value at the player's own rate rather than assuming singles.
     let tb = 0;
     for (let a = 0; a < ab; a++) {
-      if (Math.random() < proj.hit_per_ab) {
-        tb += Math.random() < (proj.hr_per_ab / Math.max(0.01, proj.hit_per_ab)) ? 4
-          : Math.random() < 0.28 ? 2 : 1;
+      if (random() < proj.hit_per_ab) {
+        if (random() < proj.hr_per_hit) {
+          tb += 4;
+        } else {
+          const lo = Math.floor(proj.non_hr_bases), hi = Math.ceil(proj.non_hr_bases);
+          tb += lo === hi ? lo : (random() < proj.non_hr_bases - lo ? hi : lo);
+        }
       }
     }
     out[i] = tb;
@@ -123,7 +144,7 @@ export function projectPitcher(playerId, season, throughDate) {
                   ORDER BY date`, playerId, season, throughDate);
   if (g.length < 3) return null;
 
-  const lg = leagueRates(season);
+  const lg = leagueRates(season, throughDate);
   const bf = g.reduce((s, x) => s + (x.batters_faced ?? 0), 0);
   const k = g.reduce((s, x) => s + x.strikeouts, 0);
   const ip = g.reduce((s, x) => s + (x.innings_pitched ?? 0), 0);
@@ -177,12 +198,22 @@ export function nrfiFor(season, homeTeamId, awayTeamId, throughDate) {
   };
   const h = teamFirst(homeTeamId), a = teamFirst(awayTeamId);
   if (!h || !a) return null;
+  // First-inning rates are noisy even over a full season. Shrink each offense
+  // toward the date-bounded league rate instead of treating a 10-game streak as
+  // true talent. Twelve games of prior weight keeps the estimate responsive.
+  const league = rows(`SELECT AVG(CASE WHEN first_inning_home_runs > 0 THEN 1.0 ELSE 0.0 END) home_rate,
+                              AVG(CASE WHEN first_inning_away_runs > 0 THEN 1.0 ELSE 0.0 END) away_rate
+                       FROM mlb_games
+                       WHERE season = ? AND date < ? AND yrfi IS NOT NULL`, season, throughDate)[0];
+  const prior = ((league?.home_rate ?? 0.27) + (league?.away_rate ?? 0.23)) / 2;
+  const hRate = shrink(h.first_inning_score_rate, prior, h.games, 12);
+  const aRate = shrink(a.first_inning_score_rate, prior, a.games, 12);
   // Independence is an approximation — the two halves of an inning are played
   // against different pitchers, so it is a reasonable one.
-  const pNoRun = (1 - h.first_inning_score_rate) * (1 - a.first_inning_score_rate);
+  const pNoRun = (1 - hRate) * (1 - aRate);
   return {
-    home_first_inning_rate: r3(h.first_inning_score_rate),
-    away_first_inning_rate: r3(a.first_inning_score_rate),
+    home_first_inning_rate: r3(hRate),
+    away_first_inning_rate: r3(aRate),
     games_sampled: h.games + a.games,
     nrfi_probability: r3(pNoRun),
     yrfi_probability: r3(1 - pNoRun)

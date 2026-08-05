@@ -21,7 +21,7 @@
  */
 import { db, rows, run } from '../db/index.js';
 import { fitEnsemble, ensembleLine } from './nfl-ensemble.js';
-import { mean } from './stats-util.js';
+import { mean, stdev, normalCdf } from './stats-util.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_replay_runs (
@@ -43,6 +43,31 @@ db.exec(`
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
 
+function uncertainty(bets) {
+  const settled = bets.filter(b => b.result === 'Won' || b.result === 'Lost');
+  const wins = settled.filter(b => b.result === 'Won').length;
+  const n = settled.length, z = 1.96;
+  let winRate95 = [null, null];
+  if (n) {
+    const p = wins / n, den = 1 + z * z / n;
+    const center = (p + z * z / (2 * n)) / den;
+    const half = z * Math.sqrt((p * (1 - p) + z * z / (4 * n)) / n) / den;
+    winRate95 = [r2(Math.max(0, center - half)), r2(Math.min(1, center + half))];
+  }
+  const units = bets.map(b => b.units);
+  const roi = mean(units), se = units.length > 1 ? stdev(units) / Math.sqrt(units.length) : null;
+  const roi95 = se == null ? [null, null] : [r2(roi - z * se), r2(roi + z * se)];
+  const pProfitable = se && se > 0 ? normalCdf(roi / se) : null;
+  return {
+    win_rate_95: winRate95,
+    roi_95: roi95,
+    probability_roi_above_zero: r2(pProfitable),
+    sample_warning: n < 100
+      ? 'Very small sample: results are dominated by variance.'
+      : n < 500 ? 'Moderate sample: treat profitability as provisional until the interval clears zero.' : null
+  };
+}
+
 /** Standard -110 juice unless a real price is known. */
 const unitsFor = (won, pushed, price = -110) => {
   if (pushed) return 0;
@@ -56,12 +81,10 @@ const unitsFor = (won, pushed, price = -110) => {
  * result is graded against what actually happened.
  */
 export function replaySeason(season, {
-  minEdge = 1.5,             // points of disagreement with the market required to bet
+  minEdge = 3,               // frozen on 2018-2020; 2021+ remains blind holdout
   // Skip games where the twenty models disagree with each other by more than
-  // this. Derived on 2022-2023 and validated on 2024-2025, where it moved the
-  // held-out result from -1.8% to +2.2% ROI — the only candidate correction
-  // that survived holdout. It is on by default for that reason; pass null to
-  // replay without it.
+  // this. The 4.5-point guard and 3-point edge floor were frozen using only
+  // 2018-2020 before the 2021-2025 evaluation window was opened.
   maxDisagreement = 4.5,
   markets = ['spread', 'total'],
   label = null
@@ -144,7 +167,8 @@ export function replaySeason(season, {
     // Breaking even against -110 needs 52.4%, so anything below that is a loss
     // no matter how good the win count looks in isolation.
     beat_vig: wins + losses ? wins / (wins + losses) > 0.524 : null,
-    config: { minEdge, maxDisagreement, markets }
+    config: { minEdge, maxDisagreement, markets },
+    uncertainty: uncertainty(bets)
   };
   return { summary, bets };
 }
@@ -292,7 +316,8 @@ export function validateAdjustment({ discoverySeasons, holdoutSeasons, adjust, c
     return {
       bets: list.length, wins: w, losses: l,
       win_rate: w + l ? r2(w / (w + l)) : null,
-      units: r2(u), roi: list.length ? r2(u / list.length) : null
+      units: r2(u), roi: list.length ? r2(u / list.length) : null,
+      uncertainty: uncertainty(list)
     };
   };
 
@@ -347,7 +372,8 @@ export function trainingIteration(seasons, config = {}) {
       win_rate: wins + losses ? r2(wins / (wins + losses)) : null,
       units: r2(units), roi: allBets.length ? r2(units / allBets.length) : null,
       break_even_needed: 0.524,
-      beat_vig: wins + losses ? wins / (wins + losses) > 0.524 : null
+      beat_vig: wins + losses ? wins / (wins + losses) > 0.524 : null,
+      uncertainty: uncertainty(allBets)
     },
     per_season: perSeason,
     analysis

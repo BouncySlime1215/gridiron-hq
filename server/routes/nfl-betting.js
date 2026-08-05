@@ -4,7 +4,7 @@
  */
 import { Router } from 'express';
 import { catalog, countVariables, teamFeatureVector, playerFeatureVector, bettingTrends } from '../services/nfl-features.js';
-import { propBoard, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
+import { propBoard, propAccuracy, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
@@ -22,6 +22,9 @@ const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const wk = req => Number(req.query.week) || 1;
 const ssn = req => Number(req.query.season) || SEASON;
+const disagreement = req => req.query.max_disagreement === 'none'
+  ? null
+  : (req.query.max_disagreement != null ? Number(req.query.max_disagreement) : 4.5);
 
 /* ---------------------------------------------------------------- catalog */
 
@@ -70,6 +73,14 @@ r.get('/props', async (req, res, next) => {
       limit: Number(req.query.limit) || 60,
       maxEvents: Math.min(Number(req.query.max_events) || 4, 16)
     }));
+  } catch (e) { next(e); }
+});
+
+/** Walk-forward error and probability calibration for every prop family. */
+r.get('/props/accuracy', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    res.json(propAccuracy(seasons));
   } catch (e) { next(e); }
 });
 
@@ -201,8 +212,8 @@ r.get('/ensemble/game', (req, res, next) => {
 r.get('/replay', (req, res, next) => {
   try {
     const out = replaySeason(ssn(req), {
-      minEdge: Number(req.query.min_edge) || 1.5,
-      maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null,
+      minEdge: Number(req.query.min_edge) || 3,
+      maxDisagreement: disagreement(req),
       markets: String(req.query.markets ?? 'spread,total').split(',')
     });
     if (out?.error) return res.status(409).json(out);
@@ -213,10 +224,10 @@ r.get('/replay', (req, res, next) => {
 /** Replay across seasons plus the systematic error analysis. */
 r.get('/replay/train', (req, res, next) => {
   try {
-    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
     res.json(trainingIteration(seasons, {
-      minEdge: Number(req.query.min_edge) || 1.5,
-      maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null,
+      minEdge: Number(req.query.min_edge) || 3,
+      maxDisagreement: disagreement(req),
       minBets: Number(req.query.min_bets) || 30
     }));
   } catch (e) { next(e); }
@@ -235,7 +246,9 @@ r.get('/replay/validate', (req, res, next) => {
     // the threshold, on the theory that internal disagreement means no edge.
     res.json(validateAdjustment({
       discoverySeasons: discovery, holdoutSeasons: holdout,
-      config: { minEdge: Number(req.query.min_edge) || 1.5 },
+      // The baseline must be unfiltered or applying maxDis below is a no-op.
+      // replaySeason defaults to 4.5, so pass null explicitly here.
+      config: { minEdge: Number(req.query.min_edge) || 3, maxDisagreement: null },
       adjust: b => ((b.disagreement ?? 0) <= maxDis ? b : null)
     }));
   } catch (e) { next(e); }
@@ -302,8 +315,8 @@ r.get('/stake/evaluate', (req, res, next) => {
     const bets = [];
     for (const s of seasons) {
       const rp = replaySeason(s, {
-        minEdge: Number(req.query.min_edge) || 1.5,
-        maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null
+        minEdge: Number(req.query.min_edge) || 3,
+        maxDisagreement: disagreement(req)
       });
       if (!rp.error) bets.push(...rp.bets.filter(b => b.result !== 'Push'));
     }

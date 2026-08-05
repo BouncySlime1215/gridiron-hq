@@ -10,15 +10,16 @@ import { Router } from 'express';
 import { db, row, rows, run } from '../db/index.js';
 import { scoringFor, PPR } from '../services/scoring.js';
 import { buildProjections, weeklyDistribution, seasonDistribution } from '../services/projections.js';
-import { compare, actuals, gradePoint, gradeDistribution, baselines } from '../services/backtest.js';
+import { compare, actuals, gradePoint, gradeDistribution, baselines, weeklyDecisionBacktest } from '../services/backtest.js';
 import { simulateSeason, tradeImpact } from '../services/season-sim.js';
 import { fitCorrelations, correlationTable, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, gameScriptFor, syncHistoricalLines, syncCurrentLines, linesFor, clearGameScriptCache } from '../services/gamescript.js';
-import { availability, cascades, handcuffValue } from '../services/contingency.js';
+import { availability, weeklyAvailability, cascades, handcuffValue } from '../services/contingency.js';
 import { syncAll as syncNflverse, usageSeasons, usageFor } from '../services/nflverse.js';
 import { clearMatchupCache } from '../services/matchups.js';
 import { resolvePlayer, assetUniverse, loadRosters } from '../services/trade-engine.js';
 import { deriveFormat } from '../services/format.js';
+import { withRandomSeed } from '../services/stats-util.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -83,16 +84,23 @@ r.get('/projections/:playerId', (req, res, next) => {
     const week = Number(req.query.week) || 1;
     const gs = p.team ? gameScriptFor(p.team, SEASON, week) : null;
     const mult = gs?.line ? { pass: gs.pass_mult, rush: gs.rush_mult } : 1;
+    const weeklyAvail = weeklyAvailability(SEASON, week).get(p.player_id) ?? null;
 
-    res.json({
+    const seed = req.query.seed ?? null;
+    res.json(withRandomSeed(seed, () => ({
       ...p,
       week,
+      seed: seed == null ? null : Number(seed),
       game_script: gs,
-      weekly: weeklyDistribution(p, { runs: 4000, scoring, mult }),
+      weekly: weeklyDistribution(p, {
+        runs: 4000, scoring, mult,
+        activeProbability: weeklyAvail?.active_probability ?? 1
+      }),
+      weekly_availability: weeklyAvail,
       season: (() => { const s = seasonDistribution(p, { runs: 800, scoring }); delete s.samples; return s; })(),
       availability: availability().get(p.player_id) ?? null,
       usage_history: usageFor(p.player_id).slice(0, 20)
-    });
+    })));
   } catch (e) { next(e); }
 });
 
@@ -137,6 +145,7 @@ r.get('/accuracy', (req, res, next) => {
       return {
         season, players_graded: ids.length, table,
         distribution: gradeDistribution(samples, t),
+        weekly_decisions: weeklyDecisionBacktest(proj, truth),
         note: 'Every source is graded on the same players. The model is rebuilt using only seasons before the one it predicts.'
       };
     });
@@ -152,9 +161,10 @@ r.get('/:leagueId/simulate', (req, res, next) => {
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
     const key = `sim:${lg.id}:${runs}:${req.query.from_week ?? 1}`;
-    res.json(memo(key, () => simulateSeason(lg, {
+    const seed = req.query.seed ?? null;
+    res.json(withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
       runs, fromWeek: Number(req.query.from_week) || 1, scoring: scoringFor(lg)
-    })));
+    }))));
   } catch (e) { next(e); }
 });
 
@@ -170,6 +180,8 @@ r.post('/:leagueId/trade-impact', (req, res, next) => {
       theirTeamId: their_team_id,
       iGive: i_give, iGet: i_get,
       runs: Math.min(3000, Number(req.body?.runs) || 1200),
+      fromWeek: Number(req.body?.from_week) || 1,
+      seed: req.body?.seed ?? null,
       scoring: scoringFor(lg)
     }));
   } catch (e) { next(e); }
@@ -205,6 +217,13 @@ r.get('/cascade/:playerId', (req, res, next) => {
 
 r.get('/availability', (req, res, next) => {
   try {
+    if (req.query.week) {
+      const season = Number(req.query.season) || SEASON;
+      const week = Number(req.query.week);
+      const a = weeklyAvailability(season, week);
+      return res.json({ season, week, players: [...a.values()]
+        .sort((x, y) => x.active_probability - y.active_probability).slice(0, 200) });
+    }
     const a = memo('avail', () => availability());
     const names = new Map(rows('SELECT id, name, position FROM players').map(p => [p.id, p]));
     res.json([...a.values()].map(x => ({ ...x, name: names.get(x.player_id)?.name }))

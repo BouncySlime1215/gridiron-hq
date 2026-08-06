@@ -7,6 +7,8 @@ import { closingLineValue } from '../services/line-shopping.js';
 import { latestTrainingAudit } from '../services/nfl-replay.js';
 import { nflOperations, runNflFeatureAblations, refreshNflResidualAudit } from '../services/nfl-research.js';
 import { promoteEligibleAudit } from '../services/model-governance.js';
+import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-daemon.js';
+import { nflIntelligence } from '../services/model-intelligence.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -27,6 +29,18 @@ r.get('/accuracy', (req, res, next) => {
 
 r.get('/operations', (_req, res, next) => {
   try { res.json(nflOperations()); } catch (e) { next(e); }
+});
+
+r.get('/intelligence', (_req, res, next) => {
+  try { res.json(nflIntelligence()); } catch (e) { next(e); }
+});
+
+r.get('/evidence/status', (_req, res, next) => {
+  try { res.json(evidenceDaemonStatus()); } catch (e) { next(e); }
+});
+
+r.post('/evidence/capture', async (req, res, next) => {
+  try { res.json(await runEvidenceDaemon({ force: req.query.force === '1' })); } catch (e) { next(e); }
 });
 
 r.post('/operations/audit', (_req, res, next) => {

@@ -7,6 +7,7 @@ import { pregameSnapshotCoverage } from './nfl-pregame.js';
 import { closingLineValue } from './line-shopping.js';
 import { allPickResults } from './nfl-auto-picks.js';
 import { featureContracts, registry, recordGateAudit, gateAudits, evidenceManifests, updateRegistry } from './model-governance.js';
+import { nflIntelligence } from './model-intelligence.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_feature_ablation_audits (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
@@ -160,6 +161,7 @@ export function nflOperations({ persist = false, refreshResidual = false } = {})
   return {
     sport: 'NFL', generated_at: new Date().toISOString(), verdict: gates.every(x => x.passed) ? 'promotion_eligible' : 'blocked',
     gates, evidence, registry: registry('NFL'), contracts: featureContracts('NFL'),
-    latest_ablation: latestNflFeatureAblations(), gate_history: gateAudits('NFL', 10), manifests: evidenceManifests('NFL', 10), persisted_audit: audit
+    latest_ablation: latestNflFeatureAblations(), gate_history: gateAudits('NFL', 10), manifests: evidenceManifests('NFL', 10),
+    intelligence: nflIntelligence(), persisted_audit: audit
   };
 }

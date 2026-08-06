@@ -19,8 +19,12 @@ export function capturePregameSnapshots(season, week) {
   const capturedAt = new Date().toISOString();
   let written = 0;
   for (const { team } of teams) {
-    const roster = rows(`SELECT rp.espn_id,rp.name,rp.position,rp.status,rp.depth_slot,rp.depth_order,rp.fetched_at
+    // A source row dated after this capture cannot be admissible evidence. Keep
+    // it out rather than allowing one malformed/future timestamp to poison the
+    // full weekly snapshot run.
+    const rawRoster = rows(`SELECT rp.espn_id,rp.name,rp.position,rp.status,rp.depth_slot,rp.depth_order,rp.fetched_at
       FROM roster_players rp JOIN nfl_teams t ON t.id=rp.team_id WHERE t.abbr=? ORDER BY rp.depth_order,rp.name`, team);
+    const roster = rawRoster.filter(p => !p.fetched_at || new Date(p.fetched_at).getTime() <= new Date(capturedAt).getTime());
     const injuries = rows(`SELECT gsis_id,full_name,position,report_status,practice_status,injury
       FROM nfl_injuries WHERE season=? AND week=? AND team=? ORDER BY full_name`, season, week, team);
     const coaching = rows('SELECT head_coach,oc_name,dc_name,off_scheme,def_scheme FROM nfl_teams WHERE abbr=?', team)[0] ?? {};
@@ -36,7 +40,7 @@ export function capturePregameSnapshots(season, week) {
       (r.season === season ? r.week < week : r.season === season - 1));
     const cutoffs = roster.map(r => r.fetched_at).filter(Boolean);
     const quote = rows('SELECT fetched_at FROM game_lines WHERE season=? AND week=? AND team=?', season, week, team)[0]?.fetched_at;
-    if (quote) cutoffs.push(quote);
+    if (quote && new Date(quote).getTime() <= new Date(capturedAt).getTime()) cutoffs.push(quote);
     const dataCutoff = cutoffs.sort().at(-1) ?? capturedAt;
     validateEvidenceCutoff({ data_cutoff: dataCutoff }, capturedAt, `NFL.${season}.${week}.${team}`);
     const rosterSummary = roster.map(p => ({ espn_id: p.espn_id, name: p.name, position: p.position,
@@ -51,6 +55,7 @@ export function capturePregameSnapshots(season, week) {
     const injuryBurden = injuries.reduce((sum, p) => sum + (unavailable(p) ? 1 : questionable(p) ? 0.5 : 0.15), 0);
     const coverage = {
       roster_rows: roster.length,
+      quarantined_future_source_rows: rawRoster.length - roster.length,
       injury_rows: injuries.length,
       prior_feature_games: features.length,
       roster_continuity: overlap == null ? null : +overlap.toFixed(4),

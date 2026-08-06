@@ -23,6 +23,8 @@ const { starterFor } = await import('../server/services/mlb.js');
 const { createMlbExperiment } = await import('../server/services/mlb-experiments.js');
 const { validateEvidenceCutoff, captureEvidenceManifest, featureContracts, recordGateAudit, promoteEligibleAudit } = await import('../server/services/model-governance.js');
 const { buildMlbCalibration } = await import('../server/services/mlb-calibration.js');
+const { nflMarketMovement } = await import('../server/services/market-movement.js');
+const { evidenceDaemonStatus } = await import('../server/services/evidence-daemon.js');
 
 test.after(() => {
   db.close();
@@ -285,4 +287,24 @@ test('champion registry cannot promote a blocked audit', () => {
   const audit = recordGateAudit({ sport: 'NFL', market: 'spread', modelVersion: 'unsafe-v1',
     gates: [{ id: 'holdout', label: 'Holdout', passed: false, actual: -0.1, target: '> 0' }], evidence: {} });
   assert.throws(() => promoteEligibleAudit(audit.id, 'NFL'), /cannot be promoted/);
+});
+
+test('market movement requires preserved multi-timepoint quotes and does not invent a close', () => {
+  const insert = db.prepare(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`);
+  insert.run('2026-09-01T10:00:00Z', 'test-event', '2026-09-08T17:00:00Z', 'AAA', 'BBB', 'book', 'spreads', 'AAA', -3, -110);
+  insert.run('2026-09-01T12:00:00Z', 'test-event', '2026-09-08T17:00:00Z', 'AAA', 'BBB', 'book', 'spreads', 'AAA', -3.5, -105);
+  const movement = nflMarketMovement();
+  const row = movement.moves.find(x => x.event_id === 'test-event');
+  assert.equal(movement.available, true);
+  assert.equal(row.line_change, -0.5);
+  assert.equal(typeof row.projected_close_line, 'number');
+  assert.match(row.label, /not a betting signal/);
+});
+
+test('evidence daemon status exposes feed gaps without faking price evidence', () => {
+  const status = evidenceDaemonStatus();
+  assert.equal(status.odds_feed, false);
+  assert.ok(status.alerts.some(x => x.code === 'odds_feed_missing'));
 });

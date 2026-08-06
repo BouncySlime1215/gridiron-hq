@@ -6,6 +6,7 @@ import { listMlbExperiments } from './mlb-experiments.js';
 import { usage as oddsUsage } from './odds-api.js';
 import { appDate } from './date-util.js';
 import { mlbCalibrations } from './mlb-calibration.js';
+import { mlbIntelligence } from './model-intelligence.js';
 import { featureContracts, registry, recordGateAudit, gateAudits, evidenceManifests, updateRegistry } from './model-governance.js';
 
 const MARKETS = ['nrfi', 'pitcher_strikeouts', 'batter_total_bases'];
@@ -68,6 +69,6 @@ export function mlbOperations({ throughDate = appDate(), persist = false } = {})
     registry: registry('MLB'), contracts: featureContracts('MLB'), experiments: listMlbExperiments(), calibrations: mlbCalibrations(throughDate),
     abstentions: rows(`SELECT COALESCE(abstention_reason,'eligible') reason,COUNT(*) decisions
       FROM mlb_pick_decisions GROUP BY COALESCE(abstention_reason,'eligible') ORDER BY decisions DESC`),
-    gate_history: gateAudits('MLB', 20), manifests: evidenceManifests('MLB', 10)
+    gate_history: gateAudits('MLB', 20), manifests: evidenceManifests('MLB', 10), intelligence: mlbIntelligence()
   };
 }

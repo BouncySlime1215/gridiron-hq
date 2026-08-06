@@ -11,6 +11,24 @@ Gridiron HQ treats the sportsbook market as the production baseline until a chal
 5. A one-time holdout can open only after validation passes.
 6. Champion/challenger promotion requires every gate in one immutable audit to pass.
 
+## Evidence daemon and research controls
+
+The evidence daemon plans immutable capture windows at first observation, T-24h,
+T-6h, T-60m, T-15m, and near close. It runs every five minutes, groups work by
+NFL week and MLB slate date, and records each window as `queued`, `captured`, or
+`partial`. A partial record is useful context evidence but not a real-price or
+CLV observation; it retries after the feed returns.
+
+The daemon never backfills a past event. It also rejects source rows timestamped
+after the capture cutoff, quarantining only that source row rather than silently
+admitting leakage or stopping every other capture.
+
+Advanced analytics are research controls, not production inputs: chronological
+conformal uncertainty intervals, partial-pooled season bias, regime drift,
+market-movement snapshots, red-team invariants, and a paper-only shadow ledger.
+None can change a selection, stake, or champion state until a preregistered
+experiment independently clears the promotion gates.
+
 ## NFL promotion gates
 
 - The nested market-residual challenger must improve unseen margin accuracy over the sportsbook line.
@@ -41,10 +59,16 @@ Missing confirmed lineups, probable starters, pregame snapshots, or real quotes 
 - `POST /api/nfl-market/operations/audit`
 - `POST /api/nfl-market/operations/ablations`
 - `POST /api/nfl-market/operations/promote/:auditId`
+- `GET /api/nfl-market/intelligence`
+- `GET /api/nfl-market/evidence/status`
+- `POST /api/nfl-market/evidence/capture`
 - `GET /api/mlb/operations`
 - `POST /api/mlb/operations/audit`
 - `GET /api/mlb/model/calibrations`
 - `POST /api/mlb/model/calibrations/:market`
 - `POST /api/mlb/operations/promote/:auditId`
+- `GET /api/mlb/intelligence`
+- `GET /api/mlb/evidence/status`
+- `POST /api/mlb/evidence/capture`
 
 Promotion endpoints reject blocked audits. This makes a UI or API mistake incapable of bypassing the evidence standard.

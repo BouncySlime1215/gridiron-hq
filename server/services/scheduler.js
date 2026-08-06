@@ -110,6 +110,15 @@ async function prepareTomorrowPicks() {
 }
 
 /**
+ * Multi-horizon, pre-event evidence captures. This stays light: it only runs
+ * windows that are due and groups requests by NFL week / MLB slate date.
+ */
+async function runEvidenceDaemon() {
+  const { runEvidenceDaemon: capture } = await import('./evidence-daemon.js');
+  return capture();
+}
+
+/**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
  * slate, box scores only settle after games end, and NFL lines move all week.
@@ -119,7 +128,8 @@ export const JOBS = {
   mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, label: 'MLB player game logs' },
   mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, label: 'MLB probable starters' },
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
-  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' }
+  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' },
+  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */
@@ -188,7 +198,7 @@ export function startScheduler({ intervalMinutes = 30, bootDelayMs = 20000 } = {
   // on the main thread twenty seconds after boot made every API request hang.
   // The boot pass is restricted to light network jobs. Heavy jobs still run on
   // the interval and through explicit refresh controls.
-  const bootJobs = ['mlb_schedule', 'mlb_probables', 'nfl_lines'];
+  const bootJobs = ['mlb_schedule', 'mlb_probables', 'nfl_lines', 'evidence_daemon'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

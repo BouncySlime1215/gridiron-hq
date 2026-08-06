@@ -10,6 +10,8 @@ import { appDate } from '../services/date-util.js';
 import { mlbOperations } from '../services/mlb-research.js';
 import { promoteEligibleAudit } from '../services/model-governance.js';
 import { buildMlbCalibration, mlbCalibrations } from '../services/mlb-calibration.js';
+import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-daemon.js';
+import { mlbIntelligence } from '../services/model-intelligence.js';
 
 const r = Router();
 
@@ -69,6 +71,18 @@ r.get('/model/accuracy', (req, res, next) => {
 
 r.get('/operations', (req, res, next) => {
   try { res.json(mlbOperations({ throughDate: String(req.query.through ?? appDate()) })); } catch (e) { next(e); }
+});
+
+r.get('/intelligence', (_req, res, next) => {
+  try { res.json(mlbIntelligence()); } catch (e) { next(e); }
+});
+
+r.get('/evidence/status', (_req, res, next) => {
+  try { res.json(evidenceDaemonStatus()); } catch (e) { next(e); }
+});
+
+r.post('/evidence/capture', async (req, res, next) => {
+  try { res.json(await runEvidenceDaemon({ force: req.query.force === '1' })); } catch (e) { next(e); }
 });
 
 r.get('/model/calibrations', (req, res, next) => {

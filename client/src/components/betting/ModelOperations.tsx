@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, useApi } from '../../api';
 import { Notice, SectionHeading, SignalCard, StatusPill } from './BettingUI';
+import { ModelLoadingSignature } from './ModelLoadingSignature';
 
 interface Gate { id: string; label: string; passed: boolean; actual: unknown; target: string; }
 interface RegistryRow { market: string; role: string; model_version: string; state: string; reason: string; }
@@ -49,7 +50,7 @@ export function NflModelOperations() {
     } catch (e: any) { setError(e.message); }
     finally { setBusy(null); }
   };
-  if (ops.loading) return <div className="card p-6 text-sm text-slate-500">Rebuilding nested NFL evidence and promotion gates…</div>;
+  if (ops.loading) return <ModelLoadingSignature sport="NFL" stages={['Loading immutable gate audit', 'Checking market residual evidence', 'Rendering champion controls']} />;
   if (ops.error || !ops.data) return <Notice title="NFL operations unavailable" tone="bad">{ops.error ?? 'No operations report returned.'}</Notice>;
   const d = ops.data, residual = d.evidence.residual.summary;
   return <div className="space-y-5">
@@ -83,7 +84,7 @@ export function NflModelOperations() {
 export function MlbModelOperations({ through }: { through: string }) {
   const ops = useApi<MlbOps>(`/mlb/operations?through=${through}`);
   const [busy, setBusy] = useState(false);
-  if (ops.loading) return <div className="card p-6 text-sm text-slate-500">Auditing all three MLB model families independently…</div>;
+  if (ops.loading) return <ModelLoadingSignature sport="MLB" stages={['Loading market-separated audits', 'Checking forward evidence', 'Rendering independent gates']} />;
   if (ops.error || !ops.data) return <Notice title="MLB operations unavailable" tone="bad">{ops.error ?? 'No operations report returned.'}</Notice>;
   const d = ops.data;
   const record = async () => { setBusy(true); try { await api(`/mlb/operations/audit?through=${through}`, { method: 'POST' }); await ops.refetch(); } finally { setBusy(false); } };

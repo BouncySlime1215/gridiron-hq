@@ -1,13 +1,17 @@
-import { type ReactNode, useMemo, useState } from 'react';
+import { lazy, Suspense, type ReactNode, useMemo, useState } from 'react';
 import { api, useApi } from '../api';
 import { americanFmt, pct } from './props/lib';
 import PickReasoning, { type Reasoning } from '../components/PickReasoning';
 import { BettingHero, EmptyState, Notice, SectionHeading, SignalCard, StatusPill } from '../components/betting/BettingUI';
-import EnsemblePage from './betting/Ensemble';
-import Training from './betting/Training';
-import LineShop from './betting/LineShop';
-import VariableCatalog from './betting/VariableCatalog';
 import { NflModelOperations } from '../components/betting/ModelOperations';
+import { ModelLoadingSignature } from '../components/betting/ModelLoadingSignature';
+
+// These panels are independent, data-heavy tools. Loading them only when the
+// tab opens substantially shortens the initial NFL board/model route payload.
+const EnsemblePage = lazy(() => import('./betting/Ensemble'));
+const Training = lazy(() => import('./betting/Training'));
+const LineShop = lazy(() => import('./betting/LineShop'));
+const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 
 interface BoardRow {
   market: 'moneyline' | 'spread' | 'total';
@@ -173,10 +177,10 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         ))}
       </nav>
 
-      {tool === 'ensemble' && <EnsemblePage />}
-      {tool === 'training' && <Training />}
-      {tool === 'lines' && <LineShop />}
-      {tool === 'variables' && <VariableCatalog />}
+      {tool === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
+      {tool === 'training' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading blind replay', 'Checking immutable audit', 'Rendering evidence']} />}><Training /></Suspense>}
+      {tool === 'lines' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading line shop', 'Checking quote cache', 'Rendering market view']} />}><LineShop /></Suspense>}
+      {tool === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}
       {tool === 'operations' && <NflModelOperations />}
       {tool === 'info' && <ModelInfo accuracy={acc} catalog={catalog} pbpRows={pbpRows} />}
 
@@ -197,7 +201,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
                 </div>
                 <StatusPill tone={candidates.length ? 'warn' : 'neutral'}>{candidateApi.loading ? 'Evaluating' : `${candidates.length} eligible`}</StatusPill>
               </div>
-              {candidateApi.loading ? <div className="p-6 text-sm text-slate-500">Running the ensemble against Week {week}…</div>
+              {candidateApi.loading ? <div className="p-4"><ModelLoadingSignature sport="NFL" compact stages={[`Scoring Week ${week} candidates`, 'Applying frozen policy', 'Publishing eligible decisions']} /></div>
                 : candidateApi.error ? <div className="p-6 text-sm text-rose-600">{candidateApi.error}</div>
                 : candidates.length ? <CandidateList rows={candidates} />
                 : <EmptyState title="The model is abstaining"

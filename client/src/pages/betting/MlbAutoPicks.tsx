@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { api, useApi } from '../../api';
 import { BettingHero, EmptyState, Notice, SectionHeading, SignalCard, StatusPill } from '../../components/betting/BettingUI';
 import { MlbModelOperations } from '../../components/betting/ModelOperations';
+import { ModelLoadingSignature } from '../../components/betting/ModelLoadingSignature';
 
 interface Pick {
   pick_date: string; rank: number; market: string; selection: string;
@@ -100,7 +101,7 @@ export default function MlbAutoPicks() {
     finally { setBusy(false); }
   };
 
-  if (pickApi.loading) return <div className="card p-6 text-sm text-slate-500">Building the current MLB slate…</div>;
+  if (pickApi.loading) return <ModelLoadingSignature sport="MLB" stages={['Loading current slate', 'Checking preserved starters & lineups', 'Building cutoff-safe candidates']} />;
   if (pickApi.error) return <Notice title="MLB slate unavailable" tone="bad">{pickApi.error}</Notice>;
 
   const data = pickApi.data;

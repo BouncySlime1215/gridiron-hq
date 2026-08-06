@@ -76,6 +76,17 @@ async function refreshMlbLogs() {
   return { pitchers: p.games, batters: b.games };
 }
 
+/**
+ * Settle the last completed slate cheaply. This is deliberately separate from
+ * season-wide player-log ingestion: fifteen boxscore requests beat thousands
+ * of player requests and make a missing result stay Pending, never falsely Void.
+ */
+async function refreshMlbBoxscores() {
+  const { syncFinalBoxscores } = await import('./mlb.js');
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  return syncFinalBoxscores(yesterday);
+}
+
 /** NFL lines for the current season, including scores as games go final. */
 async function refreshNflLines() {
   const { syncCurrentLines, clearGameScriptCache } = await import('./gamescript.js');
@@ -126,6 +137,7 @@ async function runEvidenceDaemon() {
 export const JOBS = {
   mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, label: 'MLB schedule and results' },
   mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, label: 'MLB player game logs' },
+  mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, label: 'MLB final boxscore settlement' },
   mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, label: 'MLB probable starters' },
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' },
@@ -198,7 +210,7 @@ export function startScheduler({ intervalMinutes = 30, bootDelayMs = 20000 } = {
   // on the main thread twenty seconds after boot made every API request hang.
   // The boot pass is restricted to light network jobs. Heavy jobs still run on
   // the interval and through explicit refresh controls.
-  const bootJobs = ['mlb_schedule', 'mlb_probables', 'nfl_lines', 'evidence_daemon'];
+  const bootJobs = ['mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'evidence_daemon'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

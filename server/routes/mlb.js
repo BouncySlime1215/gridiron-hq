@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { syncSeason, syncSeasonSchedule, syncPitcherGameLogs, syncBatterGameLogs, coverage } from '../services/mlb.js';
+import { syncSeason, syncSeasonSchedule, syncPitcherGameLogs, syncBatterGameLogs, syncFinalBoxscores, coverage } from '../services/mlb.js';
 import { boardFor as firstPartyBoard, coverage as projCoverage } from '../services/mlb-projections.js';
 import { ensurePicksFor, allPicks, standing as picksStanding, backfill, modelAudit, auditCandidateDecisions } from '../services/mlb-auto-picks.js';
 import { refreshInBackground, schedulerStatus, runIfStale } from '../services/scheduler.js';
@@ -32,6 +32,12 @@ r.post('/sync/pitchers', async (req, res, next) => {
 });
 r.post('/sync/batters', async (req, res, next) => {
   try { res.json(await syncBatterGameLogs(Number(req.query.season))); } catch (e) { next(e); }
+});
+r.post('/sync/boxscores', async (req, res, next) => {
+  try {
+    const date = String(req.query.date ?? appDate());
+    res.json(await syncFinalBoxscores(date));
+  } catch (e) { next(e); }
 });
 
 /** Row counts per season across all three tables — the honest "how much training data" check. */
@@ -107,6 +113,9 @@ r.post('/operations/promote/:auditId', (req, res, next) => {
  */
 r.get('/auto-picks', (req, res, next) => {
   try {
+    // Read path stays instant; the prior completed slate settles in the
+    // background so a missing player log cannot be misreported as a void.
+    refreshInBackground(['mlb_boxscores']);
     const date = String(req.query.date ?? appDate());
     const locked = ensurePicksFor(date, Number(req.query.n) || 5);
     const slateDate = locked[0]?.pick_date ?? null;

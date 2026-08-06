@@ -85,6 +85,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_mlb_bg_season ON mlb_batter_games(season);
   CREATE INDEX IF NOT EXISTS idx_mlb_bg_player ON mlb_batter_games(player_id);
+
+  -- A final game is only allowed to produce a "true void" after its own
+  -- boxscore was successfully hydrated. This prevents missing ingestion from
+  -- being mistaken for a player who did not appear.
+  CREATE TABLE IF NOT EXISTS mlb_boxscore_sync (
+    game_pk INTEGER PRIMARY KEY, fetched_at TEXT NOT NULL, status TEXT NOT NULL,
+    detail TEXT
+  );
 `);
 
 // Columns added after the first release; existing databases get them here
@@ -281,6 +289,73 @@ export async function syncBatterGameLogs(season, { concurrency = 8 } = {}) {
     }
   });
   return { season, players_ok: ok, players_failed: failed, games: rowsWritten };
+}
+
+/* ------------------------------------------------------- daily boxscore sync */
+
+/**
+ * Hydrate one finished game directly from its boxscore. Unlike season-wide
+ * player game-log ingestion this is one cheap request per final game, so a
+ * daily slate can settle promptly and missing data never becomes a fake void.
+ */
+export async function syncGameBoxscore(gamePk) {
+  const game = rows(`SELECT game_pk,season,date,home_team_id,away_team_id,status
+                     FROM mlb_games WHERE game_pk=?`, gamePk)[0];
+  if (!game) throw new Error(`unknown MLB game ${gamePk}`);
+  if (!/final|completed|game over/i.test(String(game.status ?? ''))) return { game_pk: gamePk, skipped: true, reason: 'not_final' };
+  const data = await getJson(`${BASE}/game/${gamePk}/boxscore`, 30000);
+  const pitcher = db.prepare(`INSERT INTO mlb_pitcher_games
+    (game_pk,player_id,player_name,season,date,team_id,opponent_id,is_home,games_started,strikeouts,innings_pitched,batters_faced,earned_runs)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(game_pk,player_id) DO UPDATE SET
+      games_started=excluded.games_started,strikeouts=excluded.strikeouts,innings_pitched=excluded.innings_pitched,
+      batters_faced=excluded.batters_faced,earned_runs=excluded.earned_runs`);
+  const batter = db.prepare(`INSERT INTO mlb_batter_games
+    (game_pk,player_id,player_name,season,date,team_id,opponent_id,is_home,at_bats,hits,doubles,triples,home_runs,total_bases)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(game_pk,player_id) DO UPDATE SET
+      at_bats=excluded.at_bats,hits=excluded.hits,doubles=excluded.doubles,triples=excluded.triples,
+      home_runs=excluded.home_runs,total_bases=excluded.total_bases`);
+  let pitchers = 0, batters = 0;
+  db.exec('BEGIN');
+  try {
+    for (const side of ['home', 'away']) {
+      const team = data.teams?.[side];
+      const teamId = team?.team?.id ?? (side === 'home' ? game.home_team_id : game.away_team_id);
+      const opponentId = side === 'home' ? game.away_team_id : game.home_team_id;
+      for (const p of Object.values(team?.players ?? {})) {
+        const person = p.person ?? {}; const pitching = p.stats?.pitching ?? {}; const batting = p.stats?.batting ?? {};
+        const ip = Number(pitching.inningsPitched);
+        const faced = Number(pitching.battersFaced);
+        // A pitcher with an innings entry appeared, even if he recorded zero K.
+        if (pitching.inningsPitched != null && Number.isFinite(ip)) {
+          pitcher.run(gamePk, person.id, person.fullName ?? null, game.season, game.date, teamId, opponentId, side === 'home' ? 1 : 0,
+            pitching.gamesStarted ?? (p.gameStatus?.isCurrentPitcher ? 1 : 0), pitching.strikeOuts ?? 0,
+            ip, Number.isFinite(faced) ? faced : null, pitching.earnedRuns ?? null);
+          pitchers++;
+        }
+        // Plate appearances, not at-bats, are the action condition. A walk-only
+        // player is still an actual participant with 0 total bases.
+        const pa = Number(batting.plateAppearances);
+        if (Number.isFinite(pa) && pa > 0) {
+          batter.run(gamePk, person.id, person.fullName ?? null, game.season, game.date, teamId, opponentId, side === 'home' ? 1 : 0,
+            batting.atBats ?? 0, batting.hits ?? 0, batting.doubles ?? 0, batting.triples ?? 0,
+            batting.homeRuns ?? 0, batting.totalBases ?? 0);
+          batters++;
+        }
+      }
+    }
+    run(`INSERT INTO mlb_boxscore_sync (game_pk,fetched_at,status,detail) VALUES (?,?,?,?)
+      ON CONFLICT(game_pk) DO UPDATE SET fetched_at=excluded.fetched_at,status=excluded.status,detail=excluded.detail`,
+    gamePk, new Date().toISOString(), 'hydrated', JSON.stringify({ pitchers, batters }));
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+  return { game_pk: gamePk, pitchers, batters, status: 'hydrated' };
+}
+
+/** Sync boxscores for a final slate without re-fetching every player in MLB. */
+export async function syncFinalBoxscores(date) {
+  const games = rows(`SELECT game_pk FROM mlb_games WHERE date=? AND status='Final' ORDER BY game_pk`, date);
+  const result = await pool(games, 6, g => syncGameBoxscore(g.game_pk));
+  return { date, games: games.length, hydrated: result.ok, failed: result.failed };
 }
 
 export async function syncSeason(season) {

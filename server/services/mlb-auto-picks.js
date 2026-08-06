@@ -272,9 +272,9 @@ function gradePick(p) {
   if (p.market === 'batter_total_bases') {
     const b = rows(`SELECT total_bases FROM mlb_batter_games
                     WHERE player_id = ? AND date = ?`, p.player_id, p.pick_date)[0];
-    if (!b) return gameIsFinal(p)
-      ? { status: 'Void', detail: 'Player did not appear — excluded from settled record' }
-      : { status: 'Pending', detail: 'Awaiting box score' };
+    if (!b) return canConfirmVoid(p)
+      ? { status: 'Void', detail: 'Confirmed no plate appearance — excluded from settled record' }
+      : { status: 'Pending', detail: 'Final box score has not been hydrated — outcome not assumed' };
     if (b.total_bases === p.line) return { status: 'Push', detail: `Exactly ${b.total_bases} TB` };
     const won = p.side === 'Over' ? b.total_bases > p.line : b.total_bases < p.line;
     return { status: won ? 'Won' : 'Lost', detail: `${b.total_bases} total bases` };
@@ -283,9 +283,9 @@ function gradePick(p) {
   if (p.market === 'pitcher_strikeouts') {
     const s = rows(`SELECT strikeouts FROM mlb_pitcher_games
                     WHERE player_id = ? AND date = ?`, p.player_id, p.pick_date)[0];
-    if (!s) return gameIsFinal(p)
-      ? { status: 'Void', detail: 'Pitcher did not start — excluded from settled record' }
-      : { status: 'Pending', detail: 'Awaiting box score' };
+    if (!s) return canConfirmVoid(p)
+      ? { status: 'Void', detail: 'Confirmed no pitching appearance — excluded from settled record' }
+      : { status: 'Pending', detail: 'Final box score has not been hydrated — outcome not assumed' };
     if (s.strikeouts === p.line) return { status: 'Push', detail: `Exactly ${s.strikeouts} K` };
     const won = p.side === 'Over' ? s.strikeouts > p.line : s.strikeouts < p.line;
     return { status: won ? 'Won' : 'Lost', detail: `${s.strikeouts} strikeouts` };
@@ -315,6 +315,19 @@ function gameIsFinal(p) {
     }
   }
   return false;
+}
+
+/** A void is only valid once the final game's participant list was hydrated. */
+function canConfirmVoid(p) {
+  if (!gameIsFinal(p)) return false;
+  if (p.game_pk != null) return rows(`SELECT status FROM mlb_boxscore_sync WHERE game_pk=?`, p.game_pk)[0]?.status === 'hydrated';
+  if (p.player_id == null) return false;
+  const tables = p.market === 'pitcher_strikeouts' ? ['mlb_pitcher_games', 'mlb_batter_games'] : ['mlb_batter_games', 'mlb_pitcher_games'];
+  const lastTeam = rows(`SELECT team_id FROM ${tables[0]} WHERE player_id=? AND date<? ORDER BY date DESC LIMIT 1`, p.player_id, p.pick_date)[0]?.team_id
+    ?? rows(`SELECT team_id FROM ${tables[1]} WHERE player_id=? AND date<? ORDER BY date DESC LIMIT 1`, p.player_id, p.pick_date)[0]?.team_id;
+  if (lastTeam == null) return false;
+  const games = rows(`SELECT game_pk FROM mlb_games WHERE date=? AND status='Final' AND (home_team_id=? OR away_team_id=?)`, p.pick_date, lastTeam, lastTeam);
+  return games.length > 0 && games.every(g => rows(`SELECT status FROM mlb_boxscore_sync WHERE game_pk=?`, g.game_pk)[0]?.status === 'hydrated');
 }
 
 /** Every pick ever made, graded. Economics stay null unless a real quote exists. */

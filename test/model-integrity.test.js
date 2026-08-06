@@ -25,6 +25,7 @@ const { validateEvidenceCutoff, captureEvidenceManifest, featureContracts, recor
 const { buildMlbCalibration } = await import('../server/services/mlb-calibration.js');
 const { nflMarketMovement } = await import('../server/services/market-movement.js');
 const { evidenceDaemonStatus } = await import('../server/services/evidence-daemon.js');
+const { allPicks } = await import('../server/services/mlb-auto-picks.js');
 
 test.after(() => {
   db.close();
@@ -307,4 +308,15 @@ test('evidence daemon status exposes feed gaps without faking price evidence', (
   const status = evidenceDaemonStatus();
   assert.equal(status.odds_feed, false);
   assert.ok(status.alerts.some(x => x.code === 'odds_feed_missing'));
+});
+
+test('missing MLB boxscore data stays pending until a final participant list confirms a void', () => {
+  db.prepare(`INSERT INTO mlb_games (game_pk,season,date,home_team,away_team,status)
+    VALUES (991001,2026,'2026-09-01','Home','Away','Final')`).run();
+  db.prepare(`INSERT INTO mlb_first_party_picks
+    (pick_date,rank,market,selection,player_id,game_pk,side,line,selected_at,tracking_mode)
+    VALUES ('2026-09-01',99,'batter_total_bases','Missing Boxscore Player',800001,991001,'Under',1.5,'2026-09-01T10:00:00Z','forward')`).run();
+  assert.equal(allPicks().find(x => x.rank === 99)?.status, 'Pending');
+  db.prepare(`INSERT INTO mlb_boxscore_sync (game_pk,fetched_at,status) VALUES (991001,'2026-09-02T00:00:00Z','hydrated')`).run();
+  assert.equal(allPicks().find(x => x.rank === 99)?.status, 'Void');
 });

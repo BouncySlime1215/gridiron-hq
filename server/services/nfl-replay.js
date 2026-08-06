@@ -106,9 +106,6 @@ export function replaySeason(season, {
   modelOptions = {},
   label = null
 } = {}) {
-  const fit = fitEnsemble(modelOptions);
-  if (fit.error) return fit;
-
   const slate = rows(`
     SELECT gl.season, gl.week, gl.team AS home, gl.opponent AS away,
            gl.team_score AS home_score, gl.opp_score AS away_score,
@@ -125,7 +122,11 @@ export function replaySeason(season, {
   if (!slate.length) return { error: `no completed games stored for ${season}` };
 
   const bets = [], decisions = [];
-  const policy = normalizeNflPolicy({ minEdge, maxDisagreement, markets, maxPicksPerWeek });
+  // Historical replay grades the policy that was actually live at the time.
+  // It intentionally does not apply today's calibration gate retroactively:
+  // that would turn a losing audit into an artificial zero-bet backtest.
+  const policy = normalizeNflPolicy({ minEdge, maxDisagreement, markets, maxPicksPerWeek,
+    requireCalibratedAdvantage: false });
   let currentWeek = null, weekly = [];
   const commitWeek = () => {
     if (!weekly.length) return;

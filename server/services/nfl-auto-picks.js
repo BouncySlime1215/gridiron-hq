@@ -88,6 +88,11 @@ export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLI
       edgePoints: edge == null ? null : Math.abs(edge) });
     const modelProbability = calibrated.probability;
     const incremental = modelProbability == null || implied == null ? null : modelProbability - implied;
+    // Do not let an uncalibrated forecast masquerade as a betting signal. A
+    // null probability is intentional: the walk-forward calibration audit has
+    // not proven that the ensemble improves on the market, so this game is an
+    // auditable abstention rather than a lower-confidence recommendation.
+    const calibrationEligible = modelProbability != null && incremental != null && incremental > 0;
     const activeModels = game.models.filter(m => m.margin != null && m.margin_weight > 0);
     const pregame = pregameSnapshotFor(season, week, selection);
     out.push({
@@ -100,6 +105,7 @@ export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLI
       model_probability: modelProbability,
       implied_probability: implied,
       probability_difference: incremental,
+      calibration_eligible: calibrationEligible,
       detail: `Ensemble edge ${edge > 0 ? '+' : ''}${edge} · disagreement ${e.model_disagreement_margin}`,
       edge_points: edge == null ? null : Math.abs(edge), disagreement: e.model_disagreement_margin,
       book: quote?.source ?? null, quote_source: quote?.source ?? null, quote_at: quote?.fetched_at ?? null,

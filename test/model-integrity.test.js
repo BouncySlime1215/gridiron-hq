@@ -58,11 +58,19 @@ test('live and replay policy enforces the same eligibility rules and weekly cap'
   }));
   candidates.push({ market: 'spread', matchup: 'low at edge', selection: 'low', line: 2,
     american_price: -110, edge_points: 2.9, disagreement: 2 });
-  const result = applyNflPolicy(candidates, NFL_PRODUCTION_POLICY);
+  // This test isolates the shared edge/ranking/cap mechanics. Calibration is
+  // separately gated in production and needs real walk-forward evidence.
+  const result = applyNflPolicy(candidates, { ...NFL_PRODUCTION_POLICY, requireCalibratedAdvantage: false });
   assert.equal(result.selected.length, 5);
   assert.deepEqual(result.selected.map(x => x.edge_points), [8, 7.5, 7, 6.5, 6]);
   assert.equal(result.decisions.filter(x => x.abstention_reason === 'weekly_capacity').length, 3);
   assert.equal(result.decisions.find(x => x.selection === 'low').abstention_reason, 'edge_below_threshold');
+
+  const unproven = applyNflPolicy([candidates[0]], NFL_PRODUCTION_POLICY);
+  assert.equal(unproven.selected.length, 0);
+  assert.equal(unproven.decisions[0].abstention_reason, 'calibration_not_proven');
+  const proven = applyNflPolicy([{ ...candidates[0], calibration_eligible: true }], NFL_PRODUCTION_POLICY);
+  assert.equal(proven.selected.length, 1);
 });
 
 test('NFL replay uncertainty resamples weekly clusters deterministically', () => {
@@ -173,7 +181,7 @@ test('NFL experiments pin code, data snapshot, feature coverage, and model versi
   assert.match(x.spec.provenance.git_commit, /^(unavailable|[a-f0-9]{40})$/);
   assert.match(x.spec.provenance.data_snapshot_hash, /^[a-f0-9]{64}$/);
   assert.equal(typeof x.spec.provenance.feature_coverage.team_week_rows, 'number');
-  assert.equal(x.spec.provenance.model_version, 'nfl-spread-v1@1.0.0');
+  assert.equal(x.spec.provenance.model_version, `${NFL_PRODUCTION_POLICY.id}@${NFL_PRODUCTION_POLICY.version}`);
 });
 
 test('historical ensemble weights exclude the season being predicted and all future seasons', () => {

@@ -7,13 +7,17 @@
  */
 export const NFL_PRODUCTION_POLICY = Object.freeze({
   id: 'nfl-spread-v1',
-  version: '1.0.0',
+  version: '1.1.0',
   markets: Object.freeze(['spread']),
   minEdge: 3,
   maxDisagreement: 4.5,
   maxPicksPerWeek: 5,
   ranking: 'absolute_edge_desc',
-  priceRequirement: 'stored_quote_required'
+  priceRequirement: 'stored_quote_required',
+  // A large forecast-to-market gap is not evidence by itself.  The current
+  // NFL calibration has to demonstrate an out-of-sample improvement over the
+  // no-vig market before a live candidate can be published as a pick.
+  requireCalibratedAdvantage: true
 });
 
 export function normalizeNflPolicy(raw = {}) {
@@ -25,6 +29,9 @@ export function normalizeNflPolicy(raw = {}) {
   const maxPicksPerWeek = Math.max(1, Math.floor(Number(
     raw.maxPicksPerWeek ?? NFL_PRODUCTION_POLICY.maxPicksPerWeek
   )));
+  const requireCalibratedAdvantage = raw.requireCalibratedAdvantage == null
+    ? NFL_PRODUCTION_POLICY.requireCalibratedAdvantage
+    : Boolean(raw.requireCalibratedAdvantage);
   if (!markets.length) throw new Error('NFL policy requires a supported market');
   if (!Number.isFinite(minEdge) || minEdge < 0 || minEdge > 14) throw new Error('NFL policy minEdge outside safe range');
   if (maxDisagreement != null && (!Number.isFinite(maxDisagreement) || maxDisagreement < 0 || maxDisagreement > 20)) {
@@ -33,7 +40,7 @@ export function normalizeNflPolicy(raw = {}) {
   if (!Number.isFinite(maxPicksPerWeek) || maxPicksPerWeek > 20) throw new Error('NFL policy weekly cap outside safe range');
   return {
     ...NFL_PRODUCTION_POLICY, ...raw, markets: [...new Set(markets)],
-    minEdge, maxDisagreement, maxPicksPerWeek
+    minEdge, maxDisagreement, maxPicksPerWeek, requireCalibratedAdvantage
   };
 }
 /**
@@ -48,6 +55,9 @@ export function applyNflPolicy(rawCandidates, rawPolicy = NFL_PRODUCTION_POLICY)
     else if (candidate.line == null) abstentionReason = 'missing_line';
     else if (candidate.american_price == null) abstentionReason = 'missing_price';
     else if (!Number.isFinite(candidate.edge_points)) abstentionReason = 'missing_model_edge';
+    else if (policy.requireCalibratedAdvantage && candidate.calibration_eligible !== true) {
+      abstentionReason = 'calibration_not_proven';
+    }
     else if (candidate.edge_points < policy.minEdge) abstentionReason = 'edge_below_threshold';
     else if (candidate.disagreement == null) abstentionReason = 'missing_disagreement';
     else if (policy.maxDisagreement != null && candidate.disagreement > policy.maxDisagreement) {

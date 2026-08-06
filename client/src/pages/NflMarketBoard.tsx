@@ -162,10 +162,10 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
       <nav aria-label="NFL Auto Picks tools" className="card grid grid-cols-2 gap-1 p-1.5 sm:grid-cols-3 xl:grid-cols-6">
         {HUB_TOOLS.map(t => (
           <button key={t.id} role="tab" aria-selected={tool === t.id} onClick={() => setTool(t.id)}
-            className={`rounded-lg px-3 py-2.5 text-left transition-colors ${tool === t.id
-              ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+            className={`rounded-xl px-3 py-2.5 text-left transition-colors ${tool === t.id
+              ? 'bg-sky-100 text-sky-900 ring-1 ring-sky-200' : 'text-slate-600 hover:bg-sky-50 hover:text-slate-900'}`}>
             <div className="text-sm font-black">{t.label}</div>
-            <div className={`mt-0.5 text-xs ${tool === t.id ? 'text-slate-400' : 'text-slate-400'}`}>{t.note}</div>
+            <div className={`mt-0.5 text-xs ${tool === t.id ? 'text-sky-700/70' : 'text-slate-400'}`}>{t.note}</div>
           </button>
         ))}
       </nav>
@@ -264,7 +264,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
               {['all', 'moneyline', 'spread', 'total'].map(v => (
                 <button key={v} onClick={() => { setMarketFilter(v); setBoardLimit(8); }}
                   className={`rounded-full border px-3 py-1.5 text-xs font-bold ${marketFilter === v
-                    ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400'}`}>
+                    ? 'border-sky-200 bg-sky-100 text-sky-900' : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300'}`}>
                   {v === 'all' ? 'All markets' : MARKET_LABEL[v]}
                 </button>
               ))}
@@ -295,7 +295,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
 function CandidateList({ rows }: { rows: AutoPick[] }) {
   return <div className="divide-y divide-slate-100">{rows.slice(0, 5).map((p, i) => (
     <div key={`${p.matchup}-${p.selection}`} className="grid gap-3 px-4 py-4 sm:grid-cols-[32px_minmax(0,1fr)_auto] sm:items-center">
-      <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-900 text-sm font-black text-white">{i + 1}</div>
+      <div className="grid h-8 w-8 place-items-center rounded-full bg-sky-100 text-sm font-bold text-sky-900 ring-1 ring-sky-200">{i + 1}</div>
       <div>
         <div className="flex flex-wrap items-center gap-2"><span className="text-base font-black text-slate-900">{p.selection} {p.side}</span><StatusPill tone="warn">Research grade</StatusPill></div>
         <div className="mt-0.5 text-sm text-slate-500">{p.matchup} · {p.detail}</div>

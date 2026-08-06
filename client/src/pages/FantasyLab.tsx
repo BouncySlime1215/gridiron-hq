@@ -70,7 +70,7 @@ export default function FantasyLab() {
             <button key={g.id} onClick={() => switchGroup(g.id)}
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
                 group === g.id
-                  ? 'bg-slate-800 text-white border-slate-800'
+                  ? 'bg-sky-100 text-sky-900 border-sky-200'
                   : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
               }`}>{g.label}</button>
           ))}

@@ -30,6 +30,7 @@ import BettingHome from './pages/betting/BettingHome';
 import NflProps from './pages/betting/NflProps';
 import MlbBoard from './pages/betting/MlbBoard';
 import MlbAutoPicks from './pages/betting/MlbAutoPicks';
+import QuickJump, { destinationLabel } from './components/QuickJump';
 
 // Fantasy and betting answer different questions off different data, so they get
 // separate sections rather than one long mixed list. Edge Tools and the
@@ -62,6 +63,7 @@ export default function App() {
   // The league switcher is fantasy-only context; betting pages have no league.
   const inBetting = location.pathname.startsWith('/betting') || location.pathname.startsWith('/props')
     || location.pathname.startsWith('/nfl-board');
+  const pageLabel = destinationLabel(location.pathname);
 
   return (
     <LeagueProvider>
@@ -69,7 +71,7 @@ export default function App() {
     <div className="flex min-h-screen">
       <aside
         style={{ width: collapsed ? 64 : 236 }}
-        className={`shrink-0 border-r border-black/[0.07] bg-white/80 backdrop-blur-xl py-4 flex flex-col gap-1 sticky top-0 h-screen
+        className={`shrink-0 border-r border-sky-100 bg-[#f4f9fd]/90 backdrop-blur-xl py-4 flex flex-col gap-1 sticky top-0 h-screen
           transition-[width] duration-300 ease-in-out overflow-hidden ${collapsed ? 'px-2' : 'px-4'}`}>
         <div className={`mb-4 ${collapsed ? 'px-0 text-center' : 'px-2'}`}>
           {collapsed ? (
@@ -90,10 +92,10 @@ export default function App() {
             className={({ isActive }) =>
               `py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
                 collapsed ? 'px-0 justify-center' : 'px-3'
-              } ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-black/[0.04]'}`
+              } ${isActive ? 'bg-sky-100 text-sky-900' : 'text-slate-600 hover:bg-sky-50'}`
             }
           >
-            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-black/[0.045] text-[10px] font-bold">{n.icon}</span>
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/80 text-[10px] font-bold text-sky-800 ring-1 ring-sky-100">{n.icon}</span>
             <span className={`transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'}`}>
               {n.label}
             </span>
@@ -122,10 +124,10 @@ export default function App() {
             className={({ isActive }) =>
               `py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap ${
                 collapsed ? 'px-0 justify-center' : 'px-3'
-              } ${isActive ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}`
+              } ${isActive ? 'bg-sky-100 text-sky-900' : 'text-slate-600 hover:bg-sky-50'}`
             }
           >
-            <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md text-[10px] font-bold ${inBetting ? 'bg-white/10' : 'bg-black/[0.045]'}`}>{n.icon}</span>
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/80 text-[10px] font-bold text-sky-800 ring-1 ring-sky-100">{n.icon}</span>
             <span className={`transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'}`}>
               {n.label}
             </span>
@@ -139,7 +141,7 @@ export default function App() {
         )}
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="flex h-12 items-center gap-3 border-b border-black/[0.07] bg-white/80 px-4 backdrop-blur-xl sticky top-0 z-30 sm:px-6">
+        <header className="flex h-12 items-center gap-3 border-b border-sky-100 bg-[#f8fcff]/85 px-4 backdrop-blur-xl sticky top-0 z-30 sm:px-6">
           <button
             onClick={() => setCollapsed(c => !c)}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -150,9 +152,10 @@ export default function App() {
               <line x1={collapsed ? '5.5' : '5.5'} y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" />
             </svg>
           </button>
-          <span className="text-sm font-semibold text-slate-500">{inBetting ? 'Betting Intelligence' : 'Gridiron HQ'}</span>
+          <span className="hidden text-sm font-semibold text-slate-500 sm:inline">{inBetting ? 'Betting' : 'Fantasy'} <span className="mx-1 text-slate-300">/</span> <span className="text-slate-700">{pageLabel}</span></span>
           {!inBetting && <LeagueSwitcher />}
           <div className="ml-auto flex items-center gap-2">
+            <QuickJump />
             <RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} />
             <DevHub />
           </div>

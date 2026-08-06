@@ -204,7 +204,7 @@ export default function MlbAutoPicks() {
 
 function PickCard({ pick: p }: { pick: Pick }) {
   return <div className="card p-4">
-    <div className="flex items-center justify-between gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-slate-900 text-xs font-black text-white">{p.rank}</span><StatusPill tone={!p.evidence_eligible || p.tracking_mode === 'retrospective' ? 'warn' : 'good'}>{!p.evidence_eligible ? 'quarantined' : p.tracking_mode}</StatusPill></div>
+    <div className="flex items-center justify-between gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-sky-100 text-xs font-bold text-sky-900 ring-1 ring-sky-200">{p.rank}</span><StatusPill tone={!p.evidence_eligible || p.tracking_mode === 'retrospective' ? 'warn' : 'good'}>{!p.evidence_eligible ? 'quarantined' : p.tracking_mode}</StatusPill></div>
     <div className="mt-4 min-h-11"><div className="font-black leading-5 text-slate-900">{p.selection}</div><div className="mt-0.5 text-xs text-slate-500">{MARKET_LABEL[p.market] ?? p.market}</div></div>
     <div className="mt-3 text-lg font-black text-slate-800">{p.side}{p.line != null ? ` ${p.line}` : ''}</div>
     <div className="mt-1 text-2xl font-black text-slate-950">{p.american_price == null ? pct(p.model_probability) : `${p.american_price > 0 ? '+' : ''}${p.american_price}`}</div>
@@ -228,7 +228,7 @@ function AuditPanel({ audit }: { audit: Audit }) {
 
 function Reliability({ label, bins }: { label: string; bins: NonNullable<AuditMetric['reliability']> }) {
   return <div className="card p-4"><div className="text-sm font-semibold text-slate-900">{label} reliability</div>
-    <div className="mt-4 flex h-24 items-end gap-2">{bins.map(b => <div key={b.range} className="flex h-full flex-1 items-end gap-px border-b border-slate-200" title={`${b.range}: n=${b.n}`}><span className="w-1/2 rounded-t bg-blue-500" style={{ height: `${(b.predicted ?? 0) * 100}%` }} /><span className="w-1/2 rounded-t bg-slate-900" style={{ height: `${(b.actual ?? 0) * 100}%` }} /></div>)}</div>
+    <div className="mt-4 flex h-24 items-end gap-2">{bins.map(b => <div key={b.range} className="flex h-full flex-1 items-end gap-px border-b border-slate-200" title={`${b.range}: n=${b.n}`}><span className="w-1/2 rounded-t bg-cyan-200" style={{ height: `${(b.predicted ?? 0) * 100}%` }} /><span className="w-1/2 rounded-t bg-sky-500" style={{ height: `${(b.actual ?? 0) * 100}%` }} /></div>)}</div>
     <div className="mt-2 text-[10px] text-slate-500">Blue predicted · black observed</div>
   </div>;
 }

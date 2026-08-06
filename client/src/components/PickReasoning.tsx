@@ -127,7 +127,7 @@ function FactorList({ title, tone, factors }: { title: string; tone: 'good' | 'b
         {factors.map(f => (
           <div key={f.key} className="flex items-center gap-2">
             <div className="w-12 h-1.5 bg-slate-100 rounded overflow-hidden shrink-0">
-              <div className={`h-full rounded ${tone === 'good' ? 'bg-slate-700' : 'bg-rose-400'}`}
+              <div className={`h-full rounded ${tone === 'good' ? 'bg-sky-500' : 'bg-rose-400'}`}
                 style={{ width: `${Math.max(6, (f.strength / max) * 100)}%` }} />
             </div>
             <div className="text-[11px] text-slate-600 min-w-0 flex-1">

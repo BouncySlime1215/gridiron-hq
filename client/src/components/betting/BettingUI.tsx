@@ -19,7 +19,7 @@ export function BettingHero({ eyebrow, title, description, status, actions, chil
   actions?: ReactNode; children?: ReactNode;
 }) {
   return (
-    <section className="rounded-[24px] border border-black/[0.07] bg-white px-5 py-6 text-slate-950 sm:px-7 sm:py-7">
+    <section className="rounded-[24px] border border-sky-100 bg-[#fafdff]/90 px-5 py-6 text-slate-900 shadow-[0_12px_36px_rgba(70,120,150,.06)] sm:px-7 sm:py-7">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">
           <div className="text-xs font-semibold tracking-wide text-slate-500">{eyebrow}</div>

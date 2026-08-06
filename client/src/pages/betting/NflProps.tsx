@@ -81,7 +81,7 @@ export default function NflProps() {
               {Array.from({ length: 18 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{w}</option>)}
             </select>
           </label>
-          <button className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-black text-white hover:bg-slate-800 disabled:opacity-50"
+          <button className="rounded-lg border border-sky-200 bg-sky-100 px-3 py-2 text-sm font-black text-sky-900 hover:bg-sky-200 disabled:opacity-50"
             onClick={refreshOdds} disabled={busy || !operational}>{busy ? 'Fetching…' : 'Fetch market prices'}</button>
         </>}
       >
@@ -187,7 +187,7 @@ function Stat({ label, value, band }: { label: string; value: string; band?: num
   return <div className="rounded-lg bg-slate-50 p-2.5"><div className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</div><div className="text-lg font-black text-slate-900">{value}</div>{band?.length === 3 && <div className="text-xs text-slate-500">80% range {band[0]?.toFixed(0)}–{band[2]?.toFixed(0)}</div>}</div>;
 }
 
-function Step({ n }: { n: string }) { return <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-black text-white">{n}</span>; }
+function Step({ n }: { n: string }) { return <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-sky-200 bg-sky-100 text-xs font-black text-sky-900">{n}</span>; }
 
 function Avatar({ name, position }: { name: string; position: string | null }) {
   const initials = String(name ?? '?').replace(/[^A-Za-z. ]/g, '').split(/[. ]+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase();

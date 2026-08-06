@@ -310,7 +310,7 @@ function CalibrationPanel({ calibration: c }: { calibration: Calibration }) {
         <div className="text-[10px] font-semibold text-slate-500">{b.range} · n={b.n}</div>
         <div className="mt-2 h-20 rounded-md bg-white p-1 flex items-end gap-1">
           <div title="Predicted" className="w-1/2 rounded-sm bg-blue-500" style={{ height: `${(b.predicted ?? 0) * 100}%` }} />
-          <div title="Actual" className="w-1/2 rounded-sm bg-slate-900" style={{ height: `${(b.actual ?? 0) * 100}%` }} />
+          <div title="Actual" className="w-1/2 rounded-sm bg-sky-500" style={{ height: `${(b.actual ?? 0) * 100}%` }} />
         </div>
         <div className="mt-1 text-[10px] text-slate-500">P {pct(b.predicted)} · A {pct(b.actual)}</div>
       </div>)}

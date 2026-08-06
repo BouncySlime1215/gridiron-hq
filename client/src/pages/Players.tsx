@@ -212,7 +212,7 @@ export default function Players() {
       <div className="flex gap-1.5 mb-3 flex-wrap">
         {Object.entries(VIEWS).map(([k, v]) => (
           <button key={k} onClick={() => setView(k as any)}
-            className={`btn ${view === k ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            className={`btn ${view === k ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white text-slate-600 hover:bg-sky-50'}`}>
             {v.label}
           </button>
         ))}
@@ -256,7 +256,7 @@ export default function Players() {
           {teams.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <button onClick={() => setDense(d => !d)}
-          className={`btn text-xs ${dense ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-500'}`}>
+          className={`btn text-xs ${dense ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white border border-slate-200 text-slate-500'}`}>
           {dense ? 'Compact' : 'Comfortable'}
         </button>
         <button

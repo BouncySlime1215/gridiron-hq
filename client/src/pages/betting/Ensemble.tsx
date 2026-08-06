@@ -141,7 +141,7 @@ export default function EnsemblePage() {
                               <td className="px-2 py-1 tabular-nums">
                                 <div className="flex items-center gap-1">
                                   <div className="w-8 h-1 bg-slate-200 rounded overflow-hidden">
-                                    <div className="h-full bg-slate-700"
+                                    <div className="h-full bg-sky-500"
                                       style={{ width: `${Math.min(100, (m.margin_weight || m.total_weight) * 900)}%` }} />
                                   </div>
                                   <span className="text-slate-500">{((m.margin_weight || m.total_weight) * 100).toFixed(1)}%</span>

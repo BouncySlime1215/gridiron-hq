@@ -87,7 +87,8 @@ function gridScore(results, warmupSeasons) {
 }
 
 let _cache = null;
-export function clearNflMarketCache() { _cache = null; }
+let _nestedCache = null;
+export function clearNflMarketCache() { _cache = null; _nestedCache = null; }
 
 /**
  * Fits alpha/carryover by grid search, computes home-field advantage and the two
@@ -301,6 +302,24 @@ function predToScoreline(pred) {
 
 /** Walk-forward accuracy, same reporting bar as the fantasy engine's backtest. */
 export function accuracy() {
+  const nested = nestedEvaluationRows();
+  if (nested.error) return nested;
+  const total = scoreAccuracy(nested.rows, null, null);
+  return {
+    ...total,
+    evaluation_seasons: nested.evaluation_seasons,
+    per_season: nested.per_season,
+    note: 'Nested rolling holdout: each season is graded with hyperparameters, HFA and probability calibration fitted only on prior seasons.'
+  };
+}
+
+/**
+ * Exact outer-fold predictions used by both the public accuracy card and every
+ * downstream residual/challenger audit. Keeping one canonical row set prevents
+ * a diagnostic from quietly using a weaker or leakier evaluation path.
+ */
+export function nestedEvaluationRows() {
+  if (_nestedCache) return _nestedCache;
   const games = historicalGames();
   if (games.length < 500) return { error: `only ${games.length} completed games with scores — sync game lines first` };
 
@@ -342,13 +361,12 @@ export function accuracy() {
     perSeason.push(scoreAccuracy(held, season, best));
   }
 
-  const total = scoreAccuracy(evaluated, null, null);
-  return {
-    ...total,
+  _nestedCache = {
+    rows: evaluated,
     evaluation_seasons: evalSeasons,
-    per_season: perSeason,
-    note: 'Nested rolling holdout: each season is graded with hyperparameters, HFA and probability calibration fitted only on prior seasons.'
+    per_season: perSeason
   };
+  return _nestedCache;
 }
 
 function scoreAccuracy(usable, season = null, params = null) {

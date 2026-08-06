@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { api, useApi } from '../../api';
 import { BettingHero, EmptyState, Notice, SectionHeading, SignalCard, StatusPill } from '../../components/betting/BettingUI';
+import { MlbModelOperations } from '../../components/betting/ModelOperations';
 
 interface Pick {
   pick_date: string; rank: number; market: string; selection: string;
@@ -64,6 +65,7 @@ export default function MlbAutoPicks() {
   const [audit, setAudit] = useState<Audit | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [visibleDays, setVisibleDays] = useState(5);
+  const [showOperations, setShowOperations] = useState(false);
   const pickApi = useApi<Payload>(`/mlb/auto-picks?date=${localDate}`);
   const pregameApi = useApi<PregameStatus>('/mlb/pregame/status');
   const { data: experimentData } = useApi<{ experiments: MlbExperiment[] }>('/mlb/experiments');
@@ -116,7 +118,7 @@ export default function MlbAutoPicks() {
       <BettingHero eyebrow="MLB projection lab" title="Daily Picks Tracker"
         description="Pregame-only selections with preserved starters, lineups and real book quotes. Anything reconstructed or missing cutoff evidence is visibly quarantined."
         status={<StatusPill tone={data?.economics.available ? 'good' : 'warn'}>{data?.economics.available ? 'Priced forward ledger' : 'Forward evidence pending'}</StatusPill>}
-        actions={<><button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture pregame slate'}</button><button className="btn-primary text-sm"
+        actions={<><button className="btn-ghost text-sm" onClick={() => setShowOperations(v => !v)}>{showOperations ? 'Hide model operations' : 'Model operations'}</button><button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture pregame slate'}</button><button className="btn-primary text-sm"
           onClick={runAudit} disabled={auditBusy}>{auditBusy ? 'Auditing…' : 'Run calibration audit'}</button></>}
       >
         <StatusPill tone="neutral">Local slate · {fmtDate(localDate)}</StatusPill>
@@ -124,6 +126,8 @@ export default function MlbAutoPicks() {
         <StatusPill tone={latestCapture ? 'info' : 'warn'}>{latestCapture ? `Fresh ${new Date(latestCapture).toLocaleString()}` : 'No pregame snapshot'}</StatusPill>
         <StatusPill tone={audit && audit.overall.n >= 30 ? 'info' : 'warn'}>{marketStatus}</StatusPill>
       </BettingHero>
+
+      {showOperations && <MlbModelOperations through={localDate} />}
 
       {actionError && <Notice title="Action failed" tone="bad">{actionError}</Notice>}
       <Notice title="Economics intentionally hidden" tone="warn">

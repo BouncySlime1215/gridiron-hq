@@ -16,6 +16,7 @@ export const DESTINATIONS = [
   ['NFL Auto Picks', '/betting/nfl/picks', 'Decision desk and model hub'],
   ['NFL Props', '/betting/nfl/props', 'Player prop projections'],
   ['NFL Blind Replay', '/betting/training', 'Equity and validation evidence'],
+  ['NFL Model Operations', '/betting/nfl/operations', 'Promotion gates and challenger state'],
   ['NFL Line Shop', '/betting/lines', 'Price and CLV comparison'],
   ['NFL Variables', '/betting/catalog', 'Feature contracts'],
   ['MLB Auto Picks', '/betting/mlb/auto', 'Forward and quarantined picks'],

@@ -30,6 +30,13 @@ db.exec(`
     selected_at TEXT NOT NULL,
     PRIMARY KEY (pick_date, rank)
   );
+  CREATE TABLE IF NOT EXISTS mlb_pick_decisions (
+    pick_date TEXT NOT NULL, market TEXT NOT NULL, selection TEXT NOT NULL,
+    game_pk INTEGER, side TEXT, line REAL, model_probability REAL,
+    eligible INTEGER NOT NULL, abstention_reason TEXT, recorded_at TEXT NOT NULL,
+    model_version TEXT NOT NULL, evidence_json TEXT NOT NULL,
+    PRIMARY KEY (pick_date,market,selection,side,line,model_version)
+  );
 `);
 
 for (const [name, type] of [
@@ -174,6 +181,38 @@ function diversifiedTop(candidates, n = 5) {
   return picked.slice(0, n);
 }
 
+const decisionKey = c => `${c.market}|${c.selection}|${c.side}|${c.line ?? ''}`;
+function recordCandidateDecisions(date, raw, eligible, forward) {
+  const accepted = new Set(eligible.map(decisionKey));
+  const now = new Date().toISOString();
+  for (const c of raw) {
+    const snapshot = latestMlbSnapshot(c.game_pk);
+    const ok = accepted.has(decisionKey(c));
+    const reason = ok ? null : !forward ? 'retrospective_quarantine'
+      : !snapshot ? 'missing_pregame_snapshot'
+      : snapshot.odds_status !== 'captured' ? 'missing_real_price'
+      : snapshot.lineup_status !== 'confirmed' && c.market !== 'pitcher_strikeouts' ? 'lineup_not_confirmed'
+      : 'price_edge_below_threshold_or_market_unmatched';
+    run(`INSERT INTO mlb_pick_decisions
+      (pick_date,market,selection,game_pk,side,line,model_probability,eligible,abstention_reason,
+       recorded_at,model_version,evidence_json)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, date, c.market, c.selection ?? '', c.game_pk ?? null,
+      c.side, c.line, c.model_probability, ok ? 1 : 0, reason, now, 'mlb-projection-v2-cutoff',
+      JSON.stringify({ snapshot_at: snapshot?.captured_at ?? null, lineup_status: snapshot?.lineup_status ?? null,
+        odds_status: snapshot?.odds_status ?? 'missing' }));
+  }
+}
+
+export function auditCandidateDecisions(date) {
+  const { candidates: rawCandidates, date: actualDate } = candidatesFor(date);
+  const forward = actualDate >= appDate();
+  const eligible = forward ? priceForwardCandidates(actualDate, rawCandidates ?? []) : rawCandidates ?? [];
+  recordCandidateDecisions(actualDate, rawCandidates ?? [], eligible, forward);
+  return { requested_date: date, slate_date: actualDate, candidates: rawCandidates?.length ?? 0,
+    eligible: eligible.length, abstained: Math.max(0, (rawCandidates?.length ?? 0) - eligible.length),
+    tracking_mode: forward ? 'forward' : 'retrospective' };
+}
+
 /**
  * Locks in the day's five picks. Idempotent per date, so revisiting the page
  * never reshuffles a slate that has already been committed to.
@@ -182,9 +221,9 @@ export function ensurePicksFor(date, n = 5) {
   const existing = rows('SELECT * FROM mlb_first_party_picks WHERE pick_date = ? ORDER BY rank', date);
   if (existing.length) return existing;
 
-  const { candidates: rawCandidates, date: actualDate } = candidatesFor(date);
-  const today = appDate();
-  const forward = actualDate >= today;
+  const audited = auditCandidateDecisions(date);
+  const { candidates: rawCandidates, date: actualDate } = candidatesFor(audited.slate_date);
+  const forward = audited.tracking_mode === 'forward';
   const candidates = forward ? priceForwardCandidates(actualDate, rawCandidates ?? []) : rawCandidates;
   if (!candidates?.length) return [];
 
@@ -378,11 +417,20 @@ export function modelAudit(season, throughDate, { lookbackDays = 120, cadenceDay
         predicted: bucket.length ? r3(mean(bucket.map(x => x.model_probability))) : null,
         actual: bucket.length ? r3(mean(bucket.map(x => x.outcome))) : null };
     });
+    const pMean = mean(list.map(x => x.model_probability));
+    const yMean = phat;
+    const variance = mean(list.map(x => (x.model_probability - pMean) ** 2));
+    const calibrationSlope = variance > 0
+      ? mean(list.map(x => (x.model_probability - pMean) * (x.outcome - yMean))) / variance : null;
+    const calibrationIntercept = calibrationSlope == null ? null : yMean - calibrationSlope * pMean;
+    const ece = reliability.reduce((sum, b) => sum + (b.n / n) * Math.abs((b.predicted ?? 0) - (b.actual ?? 0)), 0);
+    const calibrated = n >= 500 && brier < 0.25 && calibrationSlope >= 0.85 && calibrationSlope <= 1.15 && ece <= 0.03;
     return {
       n, wins, losses: n - wins, win_rate: r3(phat), brier: r3(brier), log_loss: r3(logLoss),
       win_rate_95: [r3(lo), r3(hi)],
-      reliability,
-      status: n < 30 ? 'insufficient' : lo > 0.5 ? 'validated' : 'provisional'
+      reliability, calibration_slope: r3(calibrationSlope), calibration_intercept: r3(calibrationIntercept),
+      expected_calibration_error: r3(ece), market_brier: null,
+      status: n < 30 ? 'insufficient' : calibrated ? 'validated' : 'provisional'
     };
   };
   const byMarket = Object.fromEntries(['nrfi', 'batter_total_bases', 'pitcher_strikeouts']
@@ -390,7 +438,7 @@ export function modelAudit(season, throughDate, { lookbackDays = 120, cadenceDay
   const out = {
     season, from_date: lowerBound, through_date: throughDate, sampled_dates: sampled.length,
     overall: score(graded), by_market: byMarket,
-    note: 'Fixed-cadence walk-forward audit. Every slate is predicted from earlier games only; status requires sample size and a Wilson interval above chance.'
+    note: 'Fixed-cadence walk-forward audit of the frozen selection policy. Every slate uses earlier games only. Validation requires 500 samples, Brier below 0.25, calibration slope 0.85–1.15, ECE at most 0.03, and separate real-price market evidence before promotion.'
   };
   auditCache.set(key, out);
   return out;

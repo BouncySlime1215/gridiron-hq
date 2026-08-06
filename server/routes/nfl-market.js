@@ -5,6 +5,8 @@ import { autoPickDecisionBoard, persistPickDecisions, ensurePicksFor, pickResult
 import { NFL_PRODUCTION_POLICY } from '../services/nfl-policy.js';
 import { closingLineValue } from '../services/line-shopping.js';
 import { latestTrainingAudit } from '../services/nfl-replay.js';
+import { nflOperations, runNflFeatureAblations, refreshNflResidualAudit } from '../services/nfl-research.js';
+import { promoteEligibleAudit } from '../services/model-governance.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -21,6 +23,29 @@ r.get('/board', (req, res, next) => {
 
 r.get('/accuracy', (req, res, next) => {
   try { res.json(accuracy()); } catch (e) { next(e); }
+});
+
+r.get('/operations', (_req, res, next) => {
+  try { res.json(nflOperations()); } catch (e) { next(e); }
+});
+
+r.post('/operations/audit', (_req, res, next) => {
+  try { res.json(nflOperations({ persist: true })); } catch (e) { next(e); }
+});
+
+r.post('/operations/residual', (_req, res, next) => {
+  try { res.json(refreshNflResidualAudit()); } catch (e) { next(e); }
+});
+
+r.post('/operations/ablations', (req, res, next) => {
+  try {
+    const seasons = Array.isArray(req.body?.seasons) ? req.body.seasons.map(Number) : [2021, 2022, 2023, 2024, 2025];
+    res.json(runNflFeatureAblations(seasons));
+  } catch (e) { next(e); }
+});
+
+r.post('/operations/promote/:auditId', (req, res, next) => {
+  try { res.json(promoteEligibleAudit(req.params.auditId, 'NFL')); } catch (e) { next(e); }
 });
 
 r.get('/predict', (req, res, next) => {

@@ -550,7 +550,8 @@ function rawDifferentials(feat, home, away) {
 }
 
 const _cache = new Map();
-export function clearEnsembleCache() { _cache.clear(); _featureAggregateCache.clear(); }
+const _lineCache = new Map();
+export function clearEnsembleCache() { _cache.clear(); _lineCache.clear(); _featureAggregateCache.clear(); }
 
 /**
  * Grades all twenty models walk-forward and derives their weights.
@@ -655,6 +656,37 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
  * weighted consensus, and how much the models disagree.
  */
 export function ensembleLine(season, week, home, away, { weighting = 'exponential', families = null } = {}) {
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}`;
+  // Family ablations are projections of the same frozen per-model line. Build
+  // that expensive context once, then re-blend only the requested families.
+  // This changes no prediction and makes a nine-cut audit minutes faster.
+  if (families?.length) {
+    const base = _lineCache.get(lineKey) ?? ensembleLine(season, week, home, away, { weighting, families: null });
+    if (base.error) return base;
+    const allowed = new Set(families);
+    const perModel = base.models.filter(m => allowed.has(m.family));
+    const blend = (key, wKey) => {
+      const predicted = perModel.filter(m => m[key] != null);
+      const usable = predicted.filter(m => m[wKey] > 0);
+      const weightSum = usable.reduce((s, m) => s + m[wKey], 0);
+      return weightSum > 0 ? usable.reduce((s, m) => s + m[key] * m[wKey], 0) / weightSum
+        : predicted.length ? mean(predicted.map(m => m[key])) : null;
+    };
+    const sd = values => values.length > 1 ? Math.sqrt(mean(values.map(v => (v - mean(values)) ** 2))) : null;
+    const marginValues = perModel.filter(m => m.margin != null).map(m => m.margin);
+    const totalValues = perModel.filter(m => m.total != null).map(m => m.total);
+    const margin = blend('margin', 'margin_weight'), total = blend('total', 'total_weight');
+    const marketMargin = base.ensemble.market_spread == null ? null : -base.ensemble.market_spread;
+    return { ...base, ensemble: { ...base.ensemble,
+      projected_spread: margin == null ? null : r2(-margin), projected_margin: r2(margin), projected_total: r2(total),
+      spread_edge: margin != null && marketMargin != null ? r2(margin - marketMargin) : null,
+      total_edge: total != null && base.ensemble.market_total != null ? r2(total - base.ensemble.market_total) : null,
+      model_disagreement_margin: r2(sd(marginValues)), model_disagreement_total: r2(sd(totalValues)),
+      models_contributing_margin: marginValues.length, models_contributing_total: totalValues.length,
+      confidence: confidenceFrom(sd(marginValues), margin, marketMargin)
+    }, models: perModel };
+  }
+  if (_lineCache.has(lineKey)) return _lineCache.get(lineKey);
   // This cutoff is what makes season replay genuinely walk-forward. Live games
   // naturally use every completed game before their kickoff; historical games
   // can no longer borrow weights learned from themselves or the future.
@@ -705,7 +737,7 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
   const total = blend('total', 'total_weight');
   const marketMargin = g.home_spread != null ? -g.home_spread : null;
 
-  return {
+  const result = {
     season, week, home, away,
     ensemble: {
       // A projected spread is quoted the way a book would: negative favours home.
@@ -724,6 +756,8 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
     },
     models: perModel.sort((a, b) => b.margin_weight - a.margin_weight)
   };
+  _lineCache.set(lineKey, result);
+  return result;
 }
 
 /**

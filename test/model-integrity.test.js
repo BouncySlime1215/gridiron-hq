@@ -10,7 +10,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { __test: sim } = await import('../server/services/season-sim.js');
 const { db } = await import('../server/db/index.js');
 const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../server/services/mlb-projections.js');
-const { fitEnsemble, clearEnsembleCache } = await import('../server/services/nfl-ensemble.js');
+const { fitEnsemble, clearEnsembleCache, ensembleLine } = await import('../server/services/nfl-ensemble.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
 const { weeklyDecisionBacktest } = await import('../server/services/backtest.js');
 await import('../server/services/nflverse.js');
@@ -21,6 +21,8 @@ const { applyNflPolicy, NFL_PRODUCTION_POLICY } = await import('../server/servic
 const { uncertainty } = await import('../server/services/nfl-replay.js');
 const { starterFor } = await import('../server/services/mlb.js');
 const { createMlbExperiment } = await import('../server/services/mlb-experiments.js');
+const { validateEvidenceCutoff, captureEvidenceManifest, featureContracts, recordGateAudit, promoteEligibleAudit } = await import('../server/services/model-governance.js');
+const { buildMlbCalibration } = await import('../server/services/mlb-calibration.js');
 
 test.after(() => {
   db.close();
@@ -199,6 +201,18 @@ test('historical ensemble weights exclude the season being predicted and all fut
     'future outcomes may affect live weights but not a historical prediction');
 });
 
+test('NFL feature-family ablations reblend the identical frozen model lines', () => {
+  const base = ensembleLine(2026, 1, 'AAA', 'BBB');
+  const family = ensembleLine(2026, 1, 'AAA', 'BBB', { families: ['Market'] });
+  const models = base.models.filter(x => x.family === 'Market' && x.margin != null);
+  const weight = models.reduce((s, x) => s + x.margin_weight, 0);
+  const expected = weight > 0
+    ? models.reduce((s, x) => s + x.margin * x.margin_weight, 0) / weight
+    : models.reduce((s, x) => s + x.margin, 0) / models.length;
+  assert.ok(Math.abs(family.ensemble.projected_margin - expected) < 0.002);
+  assert.deepEqual(family.models.map(x => x.id), models.map(x => x.id));
+});
+
 test('game-script coefficients and neutral baseline cannot see beyond the predicted week', () => {
   db.prepare(`INSERT INTO players (id,name,position,gsis_id) VALUES
     (501,'AAA Passer','QB','aaa-qb'),(502,'AAA Runner','RB','aaa-rb'),
@@ -236,4 +250,39 @@ test('weekly availability respects exact injury and practice designations', () =
   assert.equal(a.get(502).active_probability, 0.01);
   assert.ok(a.get(501).active_probability >= 0.39 && a.get(501).active_probability <= 0.57);
   assert.equal(a.get(501).source, 'weekly injury report + durability prior');
+});
+
+test('evidence manifests reject timestamps after their immutable cutoff', () => {
+  assert.equal(validateEvidenceCutoff({ quote_at: '2026-08-05T12:00:00Z' }, '2026-08-05T12:00:00Z'), true);
+  assert.throws(() => validateEvidenceCutoff({ nested: { fetched_at: '2026-08-05T12:00:01Z' } }, '2026-08-05T12:00:00Z'),
+    /occurs after the evidence cutoff/);
+});
+
+test('evidence manifests are content-addressed and cannot duplicate silently', () => {
+  const input = { sport: 'NFL', market: 'spread', modelVersion: 'test-v1', cutoffAt: '2026-08-05T12:00:00Z',
+    manifest: { quote_at: '2026-08-05T11:59:00Z', rows: 32 } };
+  const a = captureEvidenceManifest(input), b = captureEvidenceManifest(input);
+  assert.equal(a.manifest_hash, b.manifest_hash);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM model_evidence_manifests WHERE manifest_hash=?').get(a.manifest_hash).n, 1);
+});
+
+test('feature contracts make critical missing inputs abstain and gate audits stay blocked', () => {
+  const contracts = featureContracts('MLB');
+  assert.ok(contracts.some(x => x.feature_key === 'confirmed_lineup' && x.missing_behavior === 'abstain' && x.leakage_risk === 'critical'));
+  const audit = recordGateAudit({ sport: 'MLB', market: 'nrfi', modelVersion: 'test-v1',
+    gates: [{ id: 'prices', label: 'Real prices', passed: false, actual: 0, target: '>= 150' }], evidence: { priced: 0 } });
+  assert.equal(audit.verdict, 'blocked');
+});
+
+test('MLB calibration refuses to fit without forward real-price evidence', () => {
+  const result = buildMlbCalibration('pitcher_strikeouts', '2026-08-05');
+  assert.equal(result.status, 'insufficient');
+  assert.equal(result.gate_passed, false);
+  assert.equal(result.sample_size, 0);
+});
+
+test('champion registry cannot promote a blocked audit', () => {
+  const audit = recordGateAudit({ sport: 'NFL', market: 'spread', modelVersion: 'unsafe-v1',
+    gates: [{ id: 'holdout', label: 'Holdout', passed: false, actual: -0.1, target: '> 0' }], evidence: {} });
+  assert.throws(() => promoteEligibleAudit(audit.id, 'NFL'), /cannot be promoted/);
 });

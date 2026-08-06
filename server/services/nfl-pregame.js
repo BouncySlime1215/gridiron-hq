@@ -1,6 +1,7 @@
 /** Immutable pregame context snapshots for 2026 forward-shadow evaluation. */
 import { db, rows, run } from '../db/index.js';
 import { teamWeeks } from './nfl-pbp.js';
+import { captureEvidenceManifest, validateEvidenceCutoff } from './model-governance.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_pregame_snapshot_history (
   season INTEGER NOT NULL, week INTEGER NOT NULL, team TEXT NOT NULL,
@@ -37,13 +38,29 @@ export function capturePregameSnapshots(season, week) {
     const quote = rows('SELECT fetched_at FROM game_lines WHERE season=? AND week=? AND team=?', season, week, team)[0]?.fetched_at;
     if (quote) cutoffs.push(quote);
     const dataCutoff = cutoffs.sort().at(-1) ?? capturedAt;
+    validateEvidenceCutoff({ data_cutoff: dataCutoff }, capturedAt, `NFL.${season}.${week}.${team}`);
     const rosterSummary = roster.map(p => ({ espn_id: p.espn_id, name: p.name, position: p.position,
       status: p.status, depth_slot: p.depth_slot, depth_order: p.depth_order }));
+    const unavailable = p => /out|injured reserve|reserve\/|suspend|pup|inactive/i.test(`${p.status ?? ''} ${p.report_status ?? ''}`);
+    const questionable = p => /questionable|doubtful|limited|did not participate/i.test(
+      `${p.status ?? ''} ${p.report_status ?? ''} ${p.practice_status ?? ''}`);
+    const byPosition = Object.fromEntries(['QB', 'RB', 'WR', 'TE', 'OL'].map(pos => {
+      const group = roster.filter(p => p.position === pos || (pos === 'OL' && ['C', 'G', 'T', 'OT'].includes(p.position)));
+      return [pos, { rostered: group.length, available: group.filter(p => !unavailable(p)).length }];
+    }));
+    const injuryBurden = injuries.reduce((sum, p) => sum + (unavailable(p) ? 1 : questionable(p) ? 0.5 : 0.15), 0);
     const coverage = {
       roster_rows: roster.length,
       injury_rows: injuries.length,
       prior_feature_games: features.length,
       roster_continuity: overlap == null ? null : +overlap.toFixed(4),
+      shadow_features: {
+        quarterback: qb ? { espn_id: qb.espn_id, depth_order: qb.depth_order, status: qb.status,
+          available: !unavailable(qb) } : null,
+        position_availability: byPosition,
+        injury_burden: +injuryBurden.toFixed(2),
+        coaching_context_present: Boolean(coaching.head_coach || coaching.oc_name || coaching.dc_name)
+      },
       production_eligible: false,
       gate: 'Forward snapshots must accumulate before QB, roster, injury, or coaching adjustments can be promoted.'
     };
@@ -54,7 +71,10 @@ export function capturePregameSnapshots(season, week) {
       JSON.stringify(injuries), JSON.stringify(coaching), JSON.stringify(coverage));
     written++;
   }
-  return { season, week, captured_at: capturedAt, teams: written, mode: 'forward_shadow' };
+  const result = { season, week, captured_at: capturedAt, teams: written, mode: 'forward_shadow' };
+  captureEvidenceManifest({ sport: 'NFL', market: 'spread', modelVersion: 'nfl-ensemble-v1', cutoffAt: capturedAt,
+    manifest: { kind: 'pregame_snapshot', ...result } });
+  return result;
 }
 
 export function pregameSnapshotFor(season, week, team) {
@@ -68,6 +88,7 @@ export function pregameSnapshotFor(season, week, team) {
 }
 
 export function pregameSnapshotCoverage() {
-  return rows(`SELECT season,week,COUNT(*) teams,MIN(captured_at) first_capture,MAX(captured_at) last_capture
+  return rows(`SELECT season,week,COUNT(DISTINCT team) teams,COUNT(*) captures,
+                      MIN(captured_at) first_capture,MAX(captured_at) last_capture
                FROM nfl_pregame_snapshot_history GROUP BY season,week ORDER BY season DESC,week DESC`);
 }

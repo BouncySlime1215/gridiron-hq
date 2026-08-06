@@ -185,6 +185,7 @@ export default function App() {
           <Route path="/betting/nfl" element={<NflMarketBoard initialTool="board" />} />
           <Route path="/betting/nfl/props" element={<NflProps />} />
           <Route path="/betting/nfl/picks" element={<NflMarketBoard />} />
+          <Route path="/betting/nfl/operations" element={<NflMarketBoard initialTool="operations" />} />
           <Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} />
           <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} />
           <Route path="/betting/training" element={<NflMarketBoard initialTool="training" />} />

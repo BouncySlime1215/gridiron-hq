@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import { syncSeason, syncSeasonSchedule, syncPitcherGameLogs, syncBatterGameLogs, coverage } from '../services/mlb.js';
 import { boardFor as firstPartyBoard, coverage as projCoverage } from '../services/mlb-projections.js';
-import { ensurePicksFor, allPicks, standing as picksStanding, backfill, modelAudit } from '../services/mlb-auto-picks.js';
+import { ensurePicksFor, allPicks, standing as picksStanding, backfill, modelAudit, auditCandidateDecisions } from '../services/mlb-auto-picks.js';
 import { refreshInBackground, schedulerStatus, runIfStale } from '../services/scheduler.js';
 import { captureMlbPregame, mlbPregameCoverage } from '../services/mlb-pregame.js';
 import { usage as oddsUsage } from '../services/odds-api.js';
 import { createMlbExperiment, listMlbExperiments, getMlbExperiment, runMlbExperimentStage } from '../services/mlb-experiments.js';
 import { appDate } from '../services/date-util.js';
+import { mlbOperations } from '../services/mlb-research.js';
+import { promoteEligibleAudit } from '../services/model-governance.js';
+import { buildMlbCalibration, mlbCalibrations } from '../services/mlb-calibration.js';
 
 const r = Router();
 
@@ -64,6 +67,26 @@ r.get('/model/accuracy', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/operations', (req, res, next) => {
+  try { res.json(mlbOperations({ throughDate: String(req.query.through ?? appDate()) })); } catch (e) { next(e); }
+});
+
+r.get('/model/calibrations', (req, res, next) => {
+  try { res.json({ calibrations: mlbCalibrations(String(req.query.before ?? appDate())) }); } catch (e) { next(e); }
+});
+
+r.post('/model/calibrations/:market', (req, res, next) => {
+  try { res.json(buildMlbCalibration(String(req.params.market), String(req.query.through ?? appDate()))); } catch (e) { next(e); }
+});
+
+r.post('/operations/audit', (req, res, next) => {
+  try { res.json(mlbOperations({ throughDate: String(req.query.through ?? appDate()), persist: true })); } catch (e) { next(e); }
+});
+
+r.post('/operations/promote/:auditId', (req, res, next) => {
+  try { res.json(promoteEligibleAudit(req.params.auditId, 'MLB')); } catch (e) { next(e); }
+});
+
 /**
  * First-party auto-picks: generated from local projections, graded against
  * local box scores. Nothing here depends on an external pipeline.
@@ -94,6 +117,10 @@ r.get('/auto-picks', (req, res, next) => {
       }
     });
   } catch (e) { next(e); }
+});
+
+r.post('/auto-picks/audit-decisions', (req, res, next) => {
+  try { res.json(auditCandidateDecisions(String(req.query.date ?? appDate()))); } catch (e) { next(e); }
 });
 
 r.get('/pregame/status', (_req, res, next) => {

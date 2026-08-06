@@ -3,6 +3,7 @@ import { db, rows, run } from '../db/index.js';
 import { syncProbableStarters } from './mlb.js';
 import { hasKey, mlbEvents, mlbEventOdds, MLB_MARKETS } from './odds-api.js';
 import { appDate } from './date-util.js';
+import { captureEvidenceManifest, validateEvidenceCutoff } from './model-governance.js';
 
 const MLB_BASE = 'https://statsapi.mlb.com/api/v1';
 
@@ -52,7 +53,7 @@ export async function captureMlbPregame(date) {
   await syncProbableStarters(5);
   const games = rows('SELECT * FROM mlb_games WHERE date=? ORDER BY game_time', date);
   const events = hasKey() ? await mlbEvents({ ttlMs: 0 }) : [];
-  const capturedAt = new Date().toISOString();
+  let latestCapturedAt = new Date().toISOString();
   let quoteCount = 0;
   for (const g of games) {
     const starters = rows(`SELECT team_id,pitcher_id,pitcher_name,fetched_at FROM mlb_probable_starters
@@ -64,25 +65,34 @@ export async function captureMlbPregame(date) {
     if (event) {
       const payload = await mlbEventOdds(event.id, { markets: MLB_MARKETS, ttlMs: 0 });
       oddsStatus = payload?.bookmakers?.length ? 'captured' : 'no_markets_posted';
+      latestCapturedAt = new Date().toISOString();
       for (const book of payload?.bookmakers ?? []) for (const market of book.markets ?? []) {
         for (const o of market.outcomes ?? []) {
           run(`INSERT INTO mlb_market_quotes
             (captured_at,event_id,game_pk,commence_time,home_team,away_team,book,market,selection,side,line,price)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
-            capturedAt, event.id, g.game_pk, event.commence_time, event.home_team, event.away_team,
+            latestCapturedAt, event.id, g.game_pk, event.commence_time, event.home_team, event.away_team,
             book.key, market.key, o.description ?? (market.key === 'totals_1st_1_innings' ? g.home_team + ' vs ' + g.away_team : o.name),
             o.name, o.point ?? null, o.price ?? null);
           quoteCount++;
         }
       }
     }
+    latestCapturedAt = new Date().toISOString();
+    validateEvidenceCutoff({ probable_starters: starters }, latestCapturedAt, `MLB.${g.game_pk}`);
     run(`INSERT INTO mlb_pregame_snapshots
       (game_pk,captured_at,slate_date,game_time,probable_starters_json,lineups_json,scratches_json,lineup_status,odds_status)
-      VALUES (?,?,?,?,?,?,?,?,?)`, g.game_pk, capturedAt, date, g.game_time,
+      VALUES (?,?,?,?,?,?,?,?,?)`, g.game_pk, latestCapturedAt, date, g.game_time,
       JSON.stringify(starters), JSON.stringify(lineup.lineups), JSON.stringify(lineup.scratches), lineup.status, oddsStatus);
   }
-  return { date, captured_at: capturedAt, games: games.length, quotes: quoteCount,
+  const result = { date, captured_at: latestCapturedAt, games: games.length, quotes: quoteCount,
     odds_available: hasKey(), mode: 'pregame_forward_only' };
+  const versions = { nrfi: 'mlb-nrfi-v2-cutoff', pitcher_strikeouts: 'mlb-k-v2-cutoff', batter_total_bases: 'mlb-tb-v2-cutoff' };
+  for (const market of Object.keys(versions)) {
+    captureEvidenceManifest({ sport: 'MLB', market, modelVersion: versions[market], cutoffAt: latestCapturedAt,
+      manifest: { kind: 'pregame_snapshot', ...result } });
+  }
+  return result;
 }
 
 export function mlbPregameCoverage() {

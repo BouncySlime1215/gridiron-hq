@@ -7,6 +7,7 @@ import EnsemblePage from './betting/Ensemble';
 import Training from './betting/Training';
 import LineShop from './betting/LineShop';
 import VariableCatalog from './betting/VariableCatalog';
+import { NflModelOperations } from '../components/betting/ModelOperations';
 
 interface BoardRow {
   market: 'moneyline' | 'spread' | 'total';
@@ -66,13 +67,14 @@ const STATUS_STYLE: Record<string, string> = {
   Pending: 'bg-white text-slate-600 border-slate-300'
 };
 
-type HubTool = 'board' | 'ensemble' | 'training' | 'lines' | 'variables' | 'info';
+type HubTool = 'board' | 'ensemble' | 'training' | 'lines' | 'variables' | 'operations' | 'info';
 const HUB_TOOLS: { id: HubTool; label: string; note: string }[] = [
   { id: 'board', label: 'Decision desk', note: 'Eligible picks' },
   { id: 'ensemble', label: 'Model room', note: 'Votes + lines' },
   { id: 'training', label: 'Blind replay', note: 'Evidence audit' },
   { id: 'lines', label: 'Line shop', note: 'Best price' },
   { id: 'variables', label: 'Variables', note: 'Data catalog' },
+  { id: 'operations', label: 'Operations', note: 'Promotion gates' },
   { id: 'info', label: 'Method', note: 'Rules + limits' }
 ];
 
@@ -92,12 +94,13 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const { data: system, loading: systemLoading } = useApi<SystemStatus>('/nfl-betting/status');
   const { data: calibrationPayload, loading: calibrationLoading } = useApi<{ calibration: CoverCalibration | null }>('/nfl-betting/calibration/cover');
   const { data: pregamePayload, loading: pregameLoading } = useApi<{ coverage: PregameCoverage[] }>('/nfl-betting/pregame/snapshots');
-  const { data: acc } = useApi<Accuracy>('/nfl-market/accuracy');
-  const historyApi = useApi<{ results: Graded[]; standing: Standing }>('/nfl-market/picks/history');
+  const boardVisible = tool === 'board';
+  const { data: acc } = useApi<Accuracy>(boardVisible || tool === 'info' ? '/nfl-market/accuracy' : null);
+  const historyApi = useApi<{ results: Graded[]; standing: Standing }>(boardVisible ? '/nfl-market/picks/history' : null);
   const boardApi = useApi<{ season: number; week: number; board: BoardRow[] }>(
-    `/nfl-betting/board/explained?week=${week}&limit=60`);
-  const candidateApi = useApi<CandidatePayload>(`/nfl-market/picks/candidates?season=2026&week=${week}`);
-  const { data: catalog, loading: catalogLoading } = useApi<EnsembleCatalog>('/nfl-betting/ensemble/models');
+    boardVisible ? `/nfl-betting/board/explained?week=${week}&limit=60` : null);
+  const candidateApi = useApi<CandidatePayload>(boardVisible ? `/nfl-market/picks/candidates?season=2026&week=${week}` : null);
+  const { data: catalog, loading: catalogLoading } = useApi<EnsembleCatalog>(boardVisible || tool === 'info' ? '/nfl-betting/ensemble/models' : null);
 
   const refreshLines = async () => {
     setRefreshing(true); setRefreshMsg(null);
@@ -159,7 +162,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         <StatusPill tone={calibrationLoading ? 'neutral' : calibration?.metrics.forward_gate_passed ? 'good' : 'warn'}>{calibrationLoading ? 'Checking calibration…' : calibration?.metrics.forward_gate_passed ? 'Cover calibration passed' : 'Probability edge suppressed'}</StatusPill>
       </BettingHero>
 
-      <nav aria-label="NFL Auto Picks tools" className="card grid grid-cols-2 gap-1 p-1.5 sm:grid-cols-3 xl:grid-cols-6">
+      <nav aria-label="NFL Auto Picks tools" className="card grid grid-cols-2 gap-1 p-1.5 sm:grid-cols-4 xl:grid-cols-7">
         {HUB_TOOLS.map(t => (
           <button key={t.id} role="tab" aria-selected={tool === t.id} onClick={() => setTool(t.id)}
             className={`rounded-xl px-3 py-2.5 text-left transition-colors ${tool === t.id
@@ -174,6 +177,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
       {tool === 'training' && <Training />}
       {tool === 'lines' && <LineShop />}
       {tool === 'variables' && <VariableCatalog />}
+      {tool === 'operations' && <NflModelOperations />}
       {tool === 'info' && <ModelInfo accuracy={acc} catalog={catalog} pbpRows={pbpRows} />}
 
       {tool === 'board' && <>

@@ -62,6 +62,7 @@ const localIsoDate = () => {
 export default function MlbAutoPicks() {
   const [localDate] = useState(localIsoDate);
   const [busy, setBusy] = useState(false);
+  const [settling, setSettling] = useState(false);
   const [auditBusy, setAuditBusy] = useState(false);
   const [audit, setAudit] = useState<Audit | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -101,6 +102,18 @@ export default function MlbAutoPicks() {
     finally { setBusy(false); }
   };
 
+  const updateResults = async () => {
+    setSettling(true); setActionError(null);
+    try {
+      // Prefer the slate actually displayed: when local schedule data lags the
+      // requested date, this still settles the results the user is looking at.
+      const date = pickApi.data?.slate_date ?? localDate;
+      await api(`/mlb/sync/boxscores?date=${date}`, { method: 'POST' });
+      await Promise.all([pickApi.refetch(), pregameApi.refetch()]);
+    } catch (e: any) { setActionError(e.message); }
+    finally { setSettling(false); }
+  };
+
   if (pickApi.loading) return <ModelLoadingSignature sport="MLB" stages={['Loading current slate', 'Checking preserved starters & lineups', 'Building cutoff-safe candidates']} />;
   if (pickApi.error) return <Notice title="MLB slate unavailable" tone="bad">{pickApi.error}</Notice>;
 
@@ -119,7 +132,7 @@ export default function MlbAutoPicks() {
       <BettingHero eyebrow="MLB projection lab" title="Daily Picks Tracker"
         description="Pregame-only selections with preserved starters, lineups and real book quotes. Anything reconstructed or missing cutoff evidence is visibly quarantined."
         status={<StatusPill tone={data?.economics.available ? 'good' : 'warn'}>{data?.economics.available ? 'Priced forward ledger' : 'Forward evidence pending'}</StatusPill>}
-        actions={<><button className="btn-ghost text-sm" onClick={() => setShowOperations(v => !v)}>{showOperations ? 'Hide model operations' : 'Model operations'}</button><button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture pregame slate'}</button><button className="btn-primary text-sm"
+        actions={<><button className="btn-ghost text-sm" onClick={() => setShowOperations(v => !v)}>{showOperations ? 'Hide model operations' : 'Model operations'}</button><button className="btn-ghost text-sm" onClick={updateResults} disabled={settling}>{settling ? 'Updating results…' : 'Update results now'}</button><button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture pregame slate'}</button><button className="btn-primary text-sm"
           onClick={runAudit} disabled={auditBusy}>{auditBusy ? 'Auditing…' : 'Run calibration audit'}</button></>}
       >
         <StatusPill tone="neutral">Local slate · {fmtDate(localDate)}</StatusPill>

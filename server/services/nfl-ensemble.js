@@ -576,6 +576,11 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   const calibrationCutoff = beforeSeason == null ? evalFrom : Math.min(evalFrom, beforeSeason);
   const cal = calibrate(all, restMap, calibrationCutoff);
   const errs = Object.fromEntries(MODELS.map(m => [m.id, { margin: [], total: [] }]));
+  // Spread betting is not a raw-margin contest.  For every component we also
+  // keep the only error that matters after a market quote exists: did its
+  // departure from the market explain the eventual market residual?  These are
+  // still walk-forward predictions, and are cut off at the requested game.
+  const residuals = Object.fromEntries(MODELS.map(m => [m.id, { signal: [], actual: [] }]));
   // Weight fitting is part of the model, not part of grading. A historical
   // prediction must therefore derive its weights only from games that were final
   // before that prediction. The old global fit used 2022-2025 outcomes even while
@@ -585,13 +590,23 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     beforeSeason == null || g.season < beforeSeason ||
     (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
   ));
-  const weeks = [...new Set(eligible.map(g => `${g.season}|${g.week}`))];
+  // Residual skill can be evaluated before the newer raw-margin weighting
+  // window.  Restrict it to prior games at the same cutoff, but do not throw
+  // away the 2015–2021 observations when replaying an early evaluation season.
+  const residualEligible = all.filter(g => g.season >= MIN_SEASON + 2 && (
+    beforeSeason == null || g.season < beforeSeason ||
+    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
+  ));
+  const rawWeightKeys = new Set(eligible.map(g => `${g.season}|${g.week}|${g.home}`));
+  const scoreGames = [...new Map([...eligible, ...residualEligible]
+    .map(g => [`${g.season}|${g.week}|${g.home}`, g])).values()];
+  const weeks = [...new Set(scoreGames.map(g => `${g.season}|${g.week}`))];
 
   for (const key of weeks) {
     const [season, week] = key.split('|').map(Number);
     const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
     if (hist.length < 100) continue;
-    const slate = all.filter(g => g.season === season && g.week === week);
+    const slate = scoreGames.filter(g => g.season === season && g.week === week);
     if (!slate.length) continue;
 
     // One context per week; only the two team names differ between its games.
@@ -607,8 +622,17 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
       const actualTotal = g.home_score + g.away_score;
       for (const m of MODELS) {
         let p; try { p = m.predict(ctx); } catch { continue; }
-        if (p?.margin != null && Number.isFinite(p.margin)) errs[m.id].margin.push((p.margin - actualMargin) ** 2);
-        if (p?.total != null && Number.isFinite(p.total)) errs[m.id].total.push((p.total - actualTotal) ** 2);
+        if (rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`) && p?.margin != null && Number.isFinite(p.margin)) {
+          errs[m.id].margin.push((p.margin - actualMargin) ** 2);
+        }
+        const marketMargin = g.home_spread == null ? null : -g.home_spread;
+        if (p?.margin != null && marketMargin != null && Number.isFinite(p.margin)) {
+          residuals[m.id].signal.push(p.margin - marketMargin);
+          residuals[m.id].actual.push(actualMargin - marketMargin);
+        }
+        if (rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`) && p?.total != null && Number.isFinite(p.total)) {
+          errs[m.id].total.push((p.total - actualTotal) ** 2);
+        }
       }
     }
   }
@@ -617,11 +641,21 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // performance weights.
   const scored = MODELS.map(m => {
     const mm = errs[m.id].margin, tt = errs[m.id].total;
+    const rs = residuals[m.id];
+    const denominator = rs.signal.reduce((s, x) => s + x * x, 0);
+    // No intercept: zero incremental signal must remain exactly the market.
+    const slope = denominator > 0 ? rs.signal.reduce((s, x, i) => s + x * rs.actual[i], 0) / denominator : 0;
+    const baselineMse = rs.actual.length ? mean(rs.actual.map(x => x ** 2)) : null;
+    const residualMse = rs.actual.length ? mean(rs.actual.map((x, i) => (x - slope * rs.signal[i]) ** 2)) : null;
     return {
       id: m.id, name: m.name, family: m.family, note: m.note,
       margin_rmse: mm.length ? +Math.sqrt(mean(mm)).toFixed(3) : null,
       total_rmse: tt.length ? +Math.sqrt(mean(tt)).toFixed(3) : null,
-      margin_n: mm.length, total_n: tt.length
+      margin_n: mm.length, total_n: tt.length,
+      residual_slope: rs.actual.length >= 100 ? r2(slope) : null,
+      residual_rmse: residualMse == null ? null : r2(Math.sqrt(residualMse)),
+      market_residual_rmse: baselineMse == null ? null : r2(Math.sqrt(baselineMse)),
+      residual_n: rs.actual.length
     };
   });
 
@@ -640,10 +674,22 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   for (const m of scored) {
     m.margin_weight = mW ? +(rawWeight(m, 'margin_rmse') / mW).toFixed(4) : 0;
     m.total_weight = tW ? +(rawWeight(m, 'total_rmse') / tW).toFixed(4) : 0;
+    // A component earns residual weight only if its own historical,
+    // walk-forward signal has lower error than simply staying at the market.
+    m.residual_weight = m.residual_n >= 100 && m.residual_rmse < m.market_residual_rmse
+      ? Math.exp(-0.7 * m.residual_rmse) : 0;
   }
+  const residualWeightSum = scored.reduce((s, m) => s + m.residual_weight, 0);
+  for (const m of scored) m.residual_weight = residualWeightSum
+    ? +(m.residual_weight / residualWeightSum).toFixed(4) : 0;
 
   const result = {
-    models: scored, evaluated_weeks: weeks.length, games: all.length,
+    models: scored,
+    // Preserve the raw-model weighting audit separately from the longer
+    // residual-only history used to establish market incremental value.
+    evaluated_weeks: new Set(eligible.map(g => `${g.season}|${g.week}`)).size,
+    residual_evaluated_weeks: weeks.length,
+    games: all.length,
     calibration: cal, weighting,
     weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }
   };
@@ -655,13 +701,13 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
  * The ensemble's line for one upcoming game: every model's own number, the
  * weighted consensus, and how much the models disagree.
  */
-export function ensembleLine(season, week, home, away, { weighting = 'exponential', families = null } = {}) {
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}`;
+export function ensembleLine(season, week, home, away, { weighting = 'exponential', families = null, blendMode = 'raw' } = {}) {
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}`;
   // Family ablations are projections of the same frozen per-model line. Build
   // that expensive context once, then re-blend only the requested families.
   // This changes no prediction and makes a nine-cut audit minutes faster.
   if (families?.length) {
-    const base = _lineCache.get(lineKey) ?? ensembleLine(season, week, home, away, { weighting, families: null });
+    const base = _lineCache.get(lineKey) ?? ensembleLine(season, week, home, away, { weighting, families: null, blendMode });
     if (base.error) return base;
     const allowed = new Set(families);
     const perModel = base.models.filter(m => allowed.has(m.family));
@@ -690,6 +736,7 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
   // This cutoff is what makes season replay genuinely walk-forward. Live games
   // naturally use every completed game before their kickoff; historical games
   // can no longer borrow weights learned from themselves or the future.
+  if (!['raw', 'market_residual'].includes(blendMode)) return { error: 'unsupported ensemble blend mode' };
   const fit = fitEnsemble({ beforeSeason: season, beforeWeek: week, weighting });
   if (fit.error) return fit;
 
@@ -714,6 +761,7 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
       id: m.id, name: m.name, family: m.family, note: m.note,
       margin: r2(p?.margin), total: r2(p?.total),
       margin_weight: w.margin_weight ?? 0, total_weight: w.total_weight ?? 0,
+      residual_slope: w.residual_slope ?? null, residual_weight: w.residual_weight ?? 0,
       margin_rmse: w.margin_rmse ?? null, total_rmse: w.total_rmse ?? null
     });
   }
@@ -733,9 +781,17 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
   const totalVals = perModel.filter(m => m.total != null).map(m => m.total);
   const sd = a => (a.length > 1 ? Math.sqrt(mean(a.map(v => (v - mean(a)) ** 2))) : null);
 
-  const margin = blend('margin', 'margin_weight');
+  const rawMargin = blend('margin', 'margin_weight');
   const total = blend('total', 'total_weight');
   const marketMargin = g.home_spread != null ? -g.home_spread : null;
+  const residualModels = perModel.filter(m => m.margin != null && m.residual_weight > 0 && m.residual_slope != null);
+  const residualWeight = residualModels.reduce((s, m) => s + m.residual_weight, 0);
+  const residualMargin = marketMargin != null && residualWeight > 0
+    ? marketMargin + residualModels.reduce((s, m) => s + m.residual_weight * m.residual_slope * (m.margin - marketMargin), 0) / residualWeight
+    : marketMargin;
+  // The residual mode can only move away from the market with independently
+  // earned residual skill.  Its no-signal fallback is precisely the spread.
+  const margin = blendMode === 'market_residual' ? residualMargin : rawMargin;
 
   const result = {
     season, week, home, away,
@@ -752,7 +808,9 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
       model_disagreement_total: r2(sd(totalVals)),
       models_contributing_margin: marginVals.length,
       models_contributing_total: totalVals.length,
-      confidence: confidenceFrom(sd(marginVals), margin, marketMargin)
+      confidence: confidenceFrom(sd(marginVals), margin, marketMargin),
+      blend_mode: blendMode,
+      residual_models_contributing: residualModels.length
     },
     models: perModel.sort((a, b) => b.margin_weight - a.margin_weight)
   };

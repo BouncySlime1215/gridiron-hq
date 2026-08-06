@@ -26,6 +26,7 @@ const PRODUCTION = {
 };
 const FAMILIES = new Set(['Rating systems', 'Efficiency', 'Context', 'Market']);
 const WEIGHTINGS = new Set(['exponential', 'inverse_mse', 'equal']);
+const BLEND_MODES = new Set(['raw', 'market_residual']);
 
 function normalizeSeasons(value, field) {
   const out = [...new Set((value ?? []).map(Number))].sort((a, b) => a - b);
@@ -40,6 +41,7 @@ function normalizeConfig(raw = {}) {
   const maxDisagreement = raw.maxDisagreement == null ? null : Number(raw.maxDisagreement);
   const markets = (raw.markets ?? PRODUCTION.markets).filter(x => x === 'spread' || x === 'total');
   const weighting = raw.modelOptions?.weighting ?? 'exponential';
+  const blendMode = raw.modelOptions?.blendMode ?? 'raw';
   const maxPicksPerWeek = Math.max(1, Math.floor(Number(raw.maxPicksPerWeek ?? PRODUCTION.maxPicksPerWeek)));
   const families = raw.modelOptions?.families == null ? null
     : [...new Set(raw.modelOptions.families)].filter(x => FAMILIES.has(x));
@@ -49,9 +51,10 @@ function normalizeConfig(raw = {}) {
   }
   if (!markets.length) throw new Error('at least one supported market is required');
   if (!WEIGHTINGS.has(weighting)) throw new Error('unsupported weighting method');
+  if (!BLEND_MODES.has(blendMode)) throw new Error('unsupported ensemble blend mode');
   if (!Number.isFinite(maxPicksPerWeek) || maxPicksPerWeek > 20) throw new Error('weekly cap outside safe range');
   if (raw.modelOptions?.families != null && !families.length) throw new Error('no supported model families selected');
-  return { minEdge, maxDisagreement, maxPicksPerWeek, markets, modelOptions: { weighting, families } };
+  return { minEdge, maxDisagreement, maxPicksPerWeek, markets, modelOptions: { weighting, families, blendMode } };
 }
 
 function normalizedSpec(input) {
@@ -167,7 +170,7 @@ export function listExperiments() { return rows('SELECT * FROM nfl_model_experim
 export function experimentProtocol() {
   return {
     production_baseline: PRODUCTION,
-    supported_weightings: [...WEIGHTINGS], supported_families: [...FAMILIES],
+    supported_weightings: [...WEIGHTINGS], supported_blend_modes: [...BLEND_MODES], supported_families: [...FAMILIES],
     rules: [
       'Write a falsifiable hypothesis and lock all parameters before seeing validation.',
       'Discovery, validation and holdout seasons must be chronological and non-overlapping.',

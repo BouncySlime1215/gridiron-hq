@@ -22,12 +22,18 @@ CREATE TABLE IF NOT EXISTS nfl_ai_replay_reviews (
   run_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL,
   home TEXT NOT NULL, away TEXT NOT NULL, selection TEXT NOT NULL, packet_json TEXT NOT NULL,
   review_json TEXT, outcome TEXT, units REAL, PRIMARY KEY(run_id, ordinal)
+);
+CREATE TABLE IF NOT EXISTS nfl_ai_replay_candidate_cache (
+  season INTEGER NOT NULL, cache_version TEXT NOT NULL, created_at TEXT NOT NULL,
+  candidates_json TEXT NOT NULL, PRIMARY KEY(season, cache_version)
 );`);
 
 const parse = v => { try { return JSON.parse(v); } catch { return null; } };
 const r3 = v => v == null || !Number.isFinite(v) ? null : +v.toFixed(3);
 const MODEL = 'claude-haiku-4-5-20251001';
 const INPUT_TOKENS = 850, OUTPUT_TOKENS = 120;
+const CACHE_VERSION = 'nfl-ai-candidates-v1';
+const REVIEW_CONCURRENCY = 3;
 const perReviewCost = () => costOf(MODEL, INPUT_TOKENS, OUTPUT_TOKENS);
 
 function packetFor(bet) {
@@ -111,6 +117,16 @@ function reportRun(id) {
 
 const yieldToServer = () => new Promise(resolve => setImmediate(resolve));
 
+function cachedCandidates(season) {
+  const hit = rows(`SELECT candidates_json FROM nfl_ai_replay_candidate_cache WHERE season=? AND cache_version=?`, season, CACHE_VERSION)[0];
+  if (hit) return { bets: parse(hit.candidates_json), cache: 'hit' };
+  const replay = replaySeason(season);
+  if (replay.error) throw new Error(replay.error);
+  run(`INSERT INTO nfl_ai_replay_candidate_cache (season,cache_version,created_at,candidates_json)
+       VALUES (?,?,datetime('now'),?)`, season, CACHE_VERSION, JSON.stringify(replay.bets));
+  return { bets: replay.bets, cache: 'miss' };
+}
+
 async function execute(id, seasons, maxReviews) {
   try {
     const candidates = [];
@@ -120,26 +136,31 @@ async function execute(id, seasons, maxReviews) {
       // Let requests such as Dev Hub key saves and progress polls run between
       // seasons instead of holding the event loop through a five-year replay.
       await yieldToServer();
-      const replay = replaySeason(season);
-      if (replay.error) throw new Error(replay.error);
-      candidates.push(...replay.bets);
+      const built = cachedCandidates(season);
+      candidates.push(...built.bets);
+      update(id, { current: 0, total: 0, season, week: null, game: null,
+        state: built.cache === 'hit' ? `reused cached ${season} candidates` : `built and cached ${season} candidates` });
       await yieldToServer();
     }
     const bets = candidates.slice(0, maxReviews);
     update(id, { current: 0, total: bets.length, state: 'pregame packets locked; starting AI review' });
-    for (let i = 0; i < bets.length; i++) {
-      const bet = bets[i], packet = packetFor(bet);
-      run(`INSERT INTO nfl_ai_replay_reviews (run_id,ordinal,season,week,home,away,selection,packet_json)
-        VALUES (?,?,?,?,?,?,?,?)`, id, i + 1, bet.season, bet.week, bet.home, bet.away, bet.side, JSON.stringify(packet));
-      update(id, { current: i + 1, total: bets.length, season: bet.season, week: bet.week,
-        game: `${bet.away} at ${bet.home}`, state: 'asking AI pregame risk gate' });
-      const msg = await callClaude({ feature: 'nfl_blind_replay_gate', model: MODEL, maxTokens: OUTPUT_TOKENS, prompt: promptFor(packet) });
-      const review = parseReview(msg);
-      if (!['approve', 'reduce', 'abstain'].includes(review.action) || !['low', 'medium', 'high'].includes(review.risk)) {
-        throw new Error('AI returned an invalid structured review');
+    for (let start = 0; start < bets.length; start += REVIEW_CONCURRENCY) {
+      const batch = bets.slice(start, start + REVIEW_CONCURRENCY);
+      update(id, { current: start + 1, total: bets.length, season: batch[0].season, week: batch[0].week,
+        game: `${batch[0].away} at ${batch[0].home}`, state: `asking AI pregame risk gate (${batch.length} parallel reviews)` });
+      const prepared = batch.map((bet, offset) => ({ bet, ordinal: start + offset + 1, packet: packetFor(bet) }));
+      for (const x of prepared) run(`INSERT INTO nfl_ai_replay_reviews (run_id,ordinal,season,week,home,away,selection,packet_json)
+        VALUES (?,?,?,?,?,?,?,?)`, id, x.ordinal, x.bet.season, x.bet.week, x.bet.home, x.bet.away, x.bet.side, JSON.stringify(x.packet));
+      const completed = await Promise.all(prepared.map(async x => {
+        const msg = await callClaude({ feature: 'nfl_blind_replay_gate', model: MODEL, maxTokens: OUTPUT_TOKENS, prompt: promptFor(x.packet) });
+        return { ...x, review: parseReview(msg) };
+      }));
+      for (const x of completed) {
+        if (!['approve', 'reduce', 'abstain'].includes(x.review.action) || !['low', 'medium', 'high'].includes(x.review.risk)) throw new Error('AI returned an invalid structured review');
+        run(`UPDATE nfl_ai_replay_reviews SET review_json=?,outcome=?,units=? WHERE run_id=? AND ordinal=?`, JSON.stringify(x.review), x.bet.result, x.bet.units, id, x.ordinal);
       }
-      run(`UPDATE nfl_ai_replay_reviews SET review_json=?,outcome=?,units=? WHERE run_id=? AND ordinal=?`,
-        JSON.stringify(review), bet.result, bet.units, id, i + 1);
+      update(id, { current: start + completed.length, total: bets.length, season: batch.at(-1).season, week: batch.at(-1).week,
+        game: `${batch.at(-1).away} at ${batch.at(-1).home}`, state: 'AI reviews saved' });
     }
     const graded = rows('SELECT review_json,outcome,units FROM nfl_ai_replay_reviews WHERE run_id=?', id);
     const kept = graded.filter(x => parse(x.review_json)?.action !== 'abstain');

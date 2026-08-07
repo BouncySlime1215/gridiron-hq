@@ -45,12 +45,15 @@ interface AiReplay {
   error?: string | null;
   progress: { current: number; total: number; season?: number; week?: number; game?: string; state?: string; max_cost_usd?: number };
   result?: { gate_version?: string; candidates: number; reviewed: number; kept: number; abstained: number; wins: number; losses: number; pushes?: number; win_rate: number | null; total_units_staked?: number; units: number; roi: number | null;
+    sizing?: { press_2u: number; full_1u: number; half_05u: number; passed_0u: number };
     weekly_coverage?: { weeks: number; average_kept: number; weeks_with_3_plus: number; zero_kept_weeks: number }; evidence_status: string } | null;
 }
 interface AiReplayLog {
   ordinal: number; season: number; week: number; home: string; away: string; selection: string;
-  review: { action: 'approve' | 'reduce' | 'abstain'; risk: 'low' | 'medium' | 'high'; risk_score?: number;
+  review: { action: 'press' | 'approve' | 'reduce' | 'abstain'; risk: 'low' | 'medium' | 'high'; risk_score?: number;
     stake_multiplier?: number; flags?: string[]; parser_fallback?: boolean; reasons: string[] } | null;
+  learning?: { sample_size: number; press_eligible: boolean; cutoff: string } | null;
+  evidence_coverage?: { home_feature_fields: number; away_feature_fields: number; context_fields_present: number; context_fields_total: number } | null;
   outcome: string | null; units: number | null;
 }
 
@@ -161,7 +164,7 @@ export default function Training() {
           <div className="flex-1 min-w-[16rem]">
             <div className="text-xs font-black uppercase tracking-wide text-slate-600">Claude pregame risk-gate replay</div>
             <div className="text-sm font-semibold text-slate-900 mt-1">Blind agent review · hard $1 maximum</div>
-            <p className="text-xs leading-5 text-slate-600 mt-1">The agent sees a locked pregame packet only: prior stats, archived injuries/QB reports when present, line, rest, weather and venue. It can approve, reduce, or abstain—never see the result.</p>
+            <p className="text-xs leading-5 text-slate-600 mt-1">The agent sees a locked pregame packet plus aggregate learning from strictly earlier weeks. It can press to 2u, approve 1u, reduce to 0.5u, or abstain—never see the target, same-week, or future result.</p>
           </div>
           {activeAiPayload?.run?.status === 'running' && aiRun?.id !== activeAiPayload.run.id && <button className="btn-secondary text-xs" onClick={reattachAi} disabled={aiBusy}>Reattach live run</button>}
           <button className="btn-primary text-xs" onClick={runAi} disabled={aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running'}>
@@ -353,6 +356,7 @@ function AiReplayPanel({ run, logs }: { run: AiReplay; logs: AiReplayLog[] }) {
     </> : run.status === 'complete' && run.result ? <>
       <div className="text-xs font-black uppercase tracking-wide text-slate-500">AI replay complete{run.result.gate_version ? ` · ${run.result.gate_version}` : ''}</div>
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 mt-2"><Metric label="Reviewed" value={String(run.result.reviewed)} /><Metric label="Kept" value={String(run.result.kept)} /><Metric label="Record" value={`${run.result.wins}-${run.result.losses}${run.result.pushes ? `-${run.result.pushes}` : ''}`} /><Metric label="Staked" value={run.result.total_units_staked != null ? `${run.result.total_units_staked.toFixed(1)}u` : '—'} /><Metric label="Win rate" value={pct(run.result.win_rate)} /><Metric label="ROI on stake" value={pct(run.result.roi)} tone={(run.result.roi ?? 0) > 0 ? 'good' : 'bad'} /></div>
+      {run.result.sizing && <div className="mt-2 text-[11px] text-slate-600">Sizing: {run.result.sizing.press_2u} pressed at 2u · {run.result.sizing.full_1u} full · {run.result.sizing.half_05u} half · {run.result.sizing.passed_0u} passed</div>}
       {run.result.weekly_coverage && <div className="mt-2 text-[11px] text-slate-600">Weekly coverage: {run.result.weekly_coverage.average_kept.toFixed(2)} kept per active week · {run.result.weekly_coverage.weeks_with_3_plus}/{run.result.weekly_coverage.weeks} weeks reached 3+ · {run.result.weekly_coverage.zero_kept_weeks} zero-play weeks</div>}
       <p className="mt-3 text-[11px] text-amber-700">{run.result.evidence_status}</p>
     </> : <div className="text-xs text-rose-700">Agent replay failed: {run.error ?? 'Unknown error'}</div>}
@@ -360,8 +364,10 @@ function AiReplayPanel({ run, logs }: { run: AiReplay; logs: AiReplayLog[] }) {
       <div className="mb-2 flex items-center justify-between"><div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Live agent trace</div><div className="text-[10px] text-slate-400">Latest {Math.min(logs.length, 80)} reviews</div></div>
       <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
         {logs.map(log => <div key={log.ordinal} className="rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
-          <div className="flex flex-wrap items-center gap-2"><b>#{log.ordinal} · {log.season} W{log.week}</b><span>{log.away} at {log.home}</span><span className="text-slate-500">{log.selection}</span>{log.review && <StatusPill tone={log.review.action === 'approve' ? 'good' : log.review.action === 'abstain' ? 'warn' : 'neutral'}>{log.review.action} · {log.review.risk_score != null ? `${log.review.risk_score}/100` : log.review.risk} · {log.review.stake_multiplier != null ? `${log.review.stake_multiplier}u` : log.review.action === 'reduce' ? '0.5u' : log.review.action === 'abstain' ? '0u' : '1u'}</StatusPill>}{log.outcome && <span className="ml-auto font-semibold text-slate-700">{log.outcome}</span>}</div>
+          <div className="flex flex-wrap items-center gap-2"><b>#{log.ordinal} · {log.season} W{log.week}</b><span>{log.away} at {log.home}</span><span className="text-slate-500">{log.selection}</span>{log.review && <StatusPill tone={log.review.action === 'press' || log.review.action === 'approve' ? 'good' : log.review.action === 'abstain' ? 'warn' : 'neutral'}>{log.review.action} · {log.review.risk_score != null ? `${log.review.risk_score}/100` : log.review.risk} · {log.review.stake_multiplier != null ? `${log.review.stake_multiplier}u` : log.review.action === 'reduce' ? '0.5u' : log.review.action === 'abstain' ? '0u' : '1u'}</StatusPill>}{log.outcome && <span className="ml-auto font-semibold text-slate-700">{log.outcome}</span>}</div>
           {!!log.review?.flags?.length && <div className="mt-1 flex flex-wrap gap-1">{log.review.flags.map(flag => <span key={flag} className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-500 ring-1 ring-slate-200">{flag.replaceAll('_', ' ')}</span>)}</div>}
+          {log.learning && <div className="mt-1 text-[10px] text-blue-700">Blind learning memory: {log.learning.sample_size} strictly-prior reviews · 2u press {log.learning.press_eligible ? 'unlocked' : 'locked'}</div>}
+          {log.evidence_coverage && <div className="mt-0.5 text-[10px] text-slate-400">Evidence: {log.evidence_coverage.home_feature_fields}+{log.evidence_coverage.away_feature_fields} team fields · {log.evidence_coverage.context_fields_present}/{log.evidence_coverage.context_fields_total} context fields</div>}
           {log.review?.reasons?.length ? <ul className="mt-1 list-disc pl-4 text-[11px] leading-4 text-slate-600">{log.review.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul> : <div className="mt-1 text-[11px] text-slate-400 animate-pulse">Pregame packet locked; waiting for structured review…</div>}
         </div>)}
       </div>

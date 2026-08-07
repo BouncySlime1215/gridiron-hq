@@ -26,7 +26,7 @@ const { buildMlbCalibration } = await import('../server/services/mlb-calibration
 const { nflMarketMovement } = await import('../server/services/market-movement.js');
 const { evidenceDaemonStatus } = await import('../server/services/evidence-daemon.js');
 const { allPicks } = await import('../server/services/mlb-auto-picks.js');
-const { startAiBlindReplay, normalizeReview } = await import('../server/services/nfl-ai-replay.js');
+const { startAiBlindReplay, normalizeReview, agentLearningMemory } = await import('../server/services/nfl-ai-replay.js');
 
 test.after(() => {
   db.close();
@@ -67,6 +67,34 @@ test('AI gate v2 enforces one internally consistent stake decision', () => {
   assert.equal(inconsistent.action, 'abstain');
   assert.equal(inconsistent.stake_multiplier, 0);
   assert.equal(inconsistent.parser_fallback, true);
+  const lockedPress = normalizeReview({ action: 'press', risk_score: 10, stake_multiplier: 2,
+    flags: [], reasons: ['Strong strictly-prior evidence.'] });
+  assert.equal(lockedPress.action, 'abstain');
+  const allowedPress = normalizeReview({ action: 'press', risk_score: 10, stake_multiplier: 2,
+    flags: [], reasons: ['Strong strictly-prior evidence.'] }, { pressEligible: true, evidenceStrong: true });
+  assert.equal(allowedPress.action, 'press');
+  assert.equal(allowedPress.stake_multiplier, 2);
+});
+
+test('AI learning memory cannot see same-week or future outcomes', () => {
+  const insert = db.prepare(`INSERT INTO nfl_ai_replay_reviews
+    (run_id,ordinal,season,week,home,away,selection,packet_json,review_json,outcome,units)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+  const review = action => JSON.stringify({ action, risk: action === 'reduce' ? 'medium' : 'low',
+    risk_score: action === 'reduce' ? 50 : 25, stake_multiplier: action === 'reduce' ? 0.5 : 1,
+    flags: [], reasons: ['test'] });
+  [
+    [99, 1, 2023, 18, 'A', 'B', 'A +3', '{}', review('approve'), 'Won', 0.91],
+    [99, 2, 2024, 1, 'C', 'D', 'D +3', '{}', review('reduce'), 'Lost', -1],
+    [99, 3, 2024, 9, 'E', 'F', 'E +3', '{}', review('approve'), 'Won', 0.91],
+    [99, 4, 2024, 10, 'G', 'H', 'H +3', '{}', review('approve'), 'Won', 0.91],
+    [99, 5, 2025, 1, 'I', 'J', 'I +3', '{}', review('approve'), 'Won', 0.91]
+  ].forEach(args => insert.run(...args));
+  const memory = agentLearningMemory(99, 2024, 10);
+  assert.equal(memory.sample_size, 3);
+  assert.equal(memory.action_performance.approve.n, 2);
+  assert.equal(memory.action_performance.reduce.n, 1);
+  assert.match(memory.cutoff, /same-week and future outcomes excluded/);
 });
 
 test('live and replay policy enforces the same eligibility rules and weekly cap', () => {

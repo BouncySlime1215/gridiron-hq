@@ -11,7 +11,7 @@ import { fork } from 'node:child_process';
 import { replaySeason } from './nfl-replay.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { teamFeatureVector } from './nfl-features.js';
-import { getApiKey, callClaude, parseJson, costOf, PRICING } from './claude.js';
+import { getApiKey, callClaude, costOf } from './claude.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_ai_replay_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, status TEXT NOT NULL,
@@ -74,7 +74,27 @@ function packetFor(bet) {
   };
 }
 
-const promptFor = packet => `You are a bounded NFL pregame risk reviewer. Use ONLY this JSON packet.\nDo not infer missing injuries, news, weather, or outcomes. Do not change the selection.\nReturn JSON only: {"action":"approve"|"reduce"|"abstain","risk":"low"|"medium"|"high","adjustment":number,"reasons":[string]}.\nRules: adjustment must be -0.15, -0.05, or 0; choose abstain if material evidence is missing or the model/market conflict is not well supported.\nPACKET:\n${JSON.stringify(packet)}`;
+const promptFor = packet => `You are a bounded NFL pregame risk reviewer. Use ONLY this JSON packet.\nDo not infer missing injuries, news, weather, or outcomes. Do not change the selection.\nReturn EXACTLY one line of valid JSON, with no Markdown and no extra text: {"action":"approve"|"reduce"|"abstain","risk":"low"|"medium"|"high","adjustment":number,"reasons":[string]}.\nRules: adjustment must be -0.15, -0.05, or 0. Reasons must be 120 characters or fewer, contain no quotation marks, and contain no line breaks. Choose abstain if material evidence is missing or the model/market conflict is not well supported.\nPACKET:\n${JSON.stringify(packet)}`;
+
+function parseReview(msg) {
+  const raw = String(msg?.content?.[0]?.text ?? '').trim().replace(/^```json?\s*|\s*```$/g, '');
+  const candidate = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+  try { return JSON.parse(candidate); }
+  catch {
+    // A model occasionally emits an unescaped character inside an otherwise
+    // valid reason. Recover only the constrained fields we asked for; never
+    // infer a side, probability, or unavailable fact from malformed prose.
+    const action = candidate.match(/"action"\s*:\s*"(approve|reduce|abstain)"/)?.[1];
+    const risk = candidate.match(/"risk"\s*:\s*"(low|medium|high)"/)?.[1];
+    const adjustment = Number(candidate.match(/"adjustment"\s*:\s*(-?0(?:\.\d+)?)/)?.[1]);
+    const reasonBlock = candidate.match(/"reasons"\s*:\s*\[([\s\S]*?)\]/)?.[1] ?? '';
+    const reasons = [...reasonBlock.matchAll(/"([^"\n]{1,160})"/g)].map(x => x[1]);
+    if (action && risk && [-0.15, -0.05, 0].includes(adjustment) && reasons.length) {
+      return { action, risk, adjustment, reasons };
+    }
+    throw new Error('AI returned malformed structured review');
+  }
+}
 
 function update(id, patch) {
   const prior = rows('SELECT progress_json FROM nfl_ai_replay_runs WHERE id=?', id)[0];
@@ -114,7 +134,7 @@ async function execute(id, seasons, maxReviews) {
       update(id, { current: i + 1, total: bets.length, season: bet.season, week: bet.week,
         game: `${bet.away} at ${bet.home}`, state: 'asking AI pregame risk gate' });
       const msg = await callClaude({ feature: 'nfl_blind_replay_gate', model: MODEL, maxTokens: OUTPUT_TOKENS, prompt: promptFor(packet) });
-      const review = parseJson(msg);
+      const review = parseReview(msg);
       if (!['approve', 'reduce', 'abstain'].includes(review.action) || !['low', 'medium', 'high'].includes(review.risk)) {
         throw new Error('AI returned an invalid structured review');
       }

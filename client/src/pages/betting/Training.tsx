@@ -79,8 +79,12 @@ export default function Training() {
   const { data: registry } = useApi<{ experiments: Experiment[] }>('/nfl-betting/experiments');
   const { data: calibrationPayload } = useApi<{ calibration: Calibration | null }>('/nfl-betting/calibration/cover');
   const { data: latestAudit } = useApi<{ audit: { result: Training } | null }>('/nfl-betting/replay/latest');
+  const { data: activeAiPayload } = useApi<{ run: AiReplay | null }>('/nfl-betting/ai-replay/active');
   const calibration = calibrationPayload?.calibration;
   useEffect(() => { if (!data && latestAudit?.audit?.result) setData(latestAudit.audit.result); }, [latestAudit, data]);
+  // A dev-server refresh should never make an already-running, budgeted job
+  // disappear from the UI. Reattach to the persisted local run automatically.
+  useEffect(() => { if (!aiRun && activeAiPayload?.run) setAiRun(activeAiPayload.run); }, [activeAiPayload, aiRun]);
   useEffect(() => {
     if (!aiRun || aiRun.status !== 'running') return;
     const tick = () => {

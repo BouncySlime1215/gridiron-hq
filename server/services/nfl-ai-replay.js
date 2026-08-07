@@ -34,9 +34,9 @@ const MODEL = 'claude-haiku-4-5-20251001';
 // this still fits a normal five-year slate while leaving headroom over observed
 // token usage rather than pretending every review costs the same tiny amount.
 const INPUT_TOKENS = 3500, OUTPUT_TOKENS = 180;
-const CACHE_VERSION = 'nfl-ai-candidates-v1';
+const CACHE_VERSION = 'nfl-ai-candidates-v2-distribution';
 const REVIEW_CONCURRENCY = 3;
-const GATE_VERSION = 'nfl-ai-gate-v3';
+const GATE_VERSION = 'nfl-ai-gate-v4';
 const FEATURE_KEYS = [
   'feature_games', 'prior_season_games', 'off_epa_neutral_wp', 'def_epa_neutral_wp',
   'off_pass_epa_per_play', 'def_pass_epa_per_play', 'off_rush_epa_per_play', 'def_rush_epa_per_play',
@@ -178,7 +178,15 @@ function packetFor(bet) {
       // can needlessly contend with candidate construction.
       projected_margin: bet.model_margin ?? null, market_spread: bet.market_margin ?? null,
       models_contributing: bet.feature_snapshot?.margin_models_active ?? null,
-      edge_to_disagreement: bet.disagreement > 0 ? r3(bet.edge_points / bet.disagreement) : null },
+      edge_to_disagreement: bet.disagreement > 0 ? r3(bet.edge_points / bet.disagreement) : null,
+      uncertainty: bet.feature_snapshot?.predictive_distribution ? {
+        method: bet.feature_snapshot.predictive_distribution.method,
+        prior_sample_size: bet.feature_snapshot.predictive_distribution.sample_size,
+        margin_interval_80: bet.feature_snapshot.predictive_distribution.margin_interval_80,
+        interval_width_80: bet.feature_snapshot.predictive_distribution.uncertainty_width_80,
+        calibration_state: bet.feature_snapshot.predictive_distribution.calibration_state,
+        production_eligible: false
+      } : null },
     prior_features: { [bet.home]: homeFeatures, [bet.away]: awayFeatures },
     evidence_coverage: { home_feature_fields: Object.keys(homeFeatures).length, away_feature_fields: Object.keys(awayFeatures).length,
       injury_rows: injuryRows.length, quarterback_reports: qbs[bet.home].length + qbs[bet.away].length,

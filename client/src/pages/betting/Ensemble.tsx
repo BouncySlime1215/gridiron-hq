@@ -15,6 +15,23 @@ interface Ensemble {
   model_disagreement_margin: number | null; model_disagreement_total: number | null;
   models_contributing_margin: number; models_contributing_total: number;
   confidence: string;
+  distribution?: {
+    sample_size: number; conditional_cohort: boolean;
+    margin_quantiles: { p10: number; p25: number; p50: number; p75: number; p90: number };
+    home_cover_probability: number | null; away_cover_probability: number | null; push_probability: number | null;
+    margin_interval_80: [number, number]; uncertainty_width_80: number;
+    calibration_state: string; production_eligible: boolean;
+  } | null;
+  player_availability?: {
+    shadow_margin_adjustment: number; uncertainty: string; production_eligible: boolean; note: string;
+    home: AvailabilityTeam; away: AvailabilityTeam;
+  } | null;
+}
+interface AvailabilityTeam {
+  team: string; estimated_points_lost: number; evidence_state: string;
+  coverage: { injury_rows: number; prior_snap_match_rate: number | null; depth_match_rate: number | null };
+  material_players: { player: string; position: string; report_status: string | null; practice_status: string | null;
+    estimated_point_impact: number; uncertainty: string }[];
 }
 interface Game { season: number; week: number; home: string; away: string; ensemble: Ensemble; models: ModelRow[]; }
 interface Catalog {
@@ -28,6 +45,7 @@ const num = (v: number | null | undefined, d = 1) =>
   v == null || !Number.isFinite(v) ? '—' : v.toFixed(d);
 const signed = (v: number | null | undefined, d = 1) =>
   v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(d)}`;
+const pct = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
 
 const confTone = (c: string) =>
   c.startsWith('strong') ? 'bg-slate-100 text-slate-900 border-slate-300'
@@ -36,11 +54,11 @@ const confTone = (c: string) =>
   : 'bg-white text-slate-700 border-slate-300';
 
 /**
- * Twenty models, one line.
+ * A multi-model ensemble, one line.
  *
  * The number that matters most on this page is not the projected spread — it is
  * how much the models disagree with each other. A two-point edge means very
- * little when the twenty models scatter by five, and the confidence label says
+ * little when the component models scatter by five, and the confidence label says
  * so rather than dressing it up.
  */
 export default function EnsemblePage() {
@@ -111,7 +129,8 @@ export default function EnsemblePage() {
                     <Cell label="Total" value={num(e.projected_total)} />
                     <Cell label="Mkt total" value={num(e.market_total)} />
                     <Cell label="Disagreement" value={`±${num(e.model_disagreement_margin)}`} />
-                    <StatusPill tone={eligible ? 'good' : 'neutral'}>{eligible ? 'Eligible' : 'Abstain'}</StatusPill>
+                    <Cell label="80% range" value={e.distribution ? `${signed(e.distribution.margin_interval_80[0], 0)} to ${signed(e.distribution.margin_interval_80[1], 0)}` : '—'} />
+                    <StatusPill tone={eligible ? 'info' : 'neutral'}>{eligible ? 'Edge guard' : 'Abstain'}</StatusPill>
                     <span className={`text-xs font-bold px-2 py-1 rounded-full border ${confTone(e.confidence)}`}>
                       {e.confidence.split('—')[0].trim()}
                     </span>
@@ -121,6 +140,10 @@ export default function EnsemblePage() {
                 {open && (
                   <div className="border-t border-slate-100 p-3 bg-slate-50/50">
                     <p className="text-sm text-slate-600 mb-3">{e.confidence}</p>
+                    <div className="mb-4 grid gap-3 lg:grid-cols-2">
+                      <DistributionPanel distribution={e.distribution} home={g.home} away={g.away} />
+                      <AvailabilityPanel availability={e.player_availability} />
+                    </div>
                     <div className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-1.5">
                       What each model says ({e.models_contributing_margin} with a margin opinion)
                     </div>
@@ -168,6 +191,42 @@ export default function EnsemblePage() {
       </div>
     </div>
   );
+}
+
+function DistributionPanel({ distribution: d, home, away }: { distribution: Ensemble['distribution']; home: string; away: string }) {
+  if (!d) return <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Predictive distribution unavailable.</div>;
+  const q = d.margin_quantiles;
+  return <div className="rounded-xl border border-sky-200 bg-white p-4">
+    <div className="flex items-center gap-2"><div className="text-sm font-black text-slate-900">Margin distribution</div><StatusPill tone="warn">research only</StatusPill></div>
+    <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+      <Small label={`${home} cover`} value={pct(d.home_cover_probability)} />
+      <Small label="Push" value={pct(d.push_probability)} />
+      <Small label={`${away} cover`} value={pct(d.away_cover_probability)} />
+    </div>
+    <div className="mt-4">
+      <div className="flex justify-between text-[10px] font-semibold text-slate-400"><span>P10 {signed(q.p10, 0)}</span><span>Median {signed(q.p50, 0)}</span><span>P90 {signed(q.p90, 0)}</span></div>
+      <div className="relative mt-2 h-2 rounded-full bg-sky-100"><div className="absolute left-[18%] right-[18%] h-2 rounded-full bg-sky-300"/><div className="absolute left-1/2 top-[-3px] h-4 w-0.5 bg-sky-800"/></div>
+    </div>
+    <p className="mt-3 text-[11px] leading-4 text-slate-500">{d.sample_size.toLocaleString()} prior cutoff-safe games · {d.conditional_cohort ? 'similar spread/total cohort' : 'pooled residual cohort'} · raw probabilities cannot size a bet until calibration passes.</p>
+  </div>;
+}
+
+function AvailabilityPanel({ availability: a }: { availability: Ensemble['player_availability'] }) {
+  if (!a) return <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Player availability unavailable.</div>;
+  const players = [...a.home.material_players.map(x => ({ ...x, team: a.home.team })),
+    ...a.away.material_players.map(x => ({ ...x, team: a.away.team }))]
+    .sort((x, y) => y.estimated_point_impact - x.estimated_point_impact).slice(0, 5);
+  return <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <div className="flex items-center gap-2"><div className="text-sm font-black text-slate-900">Replacement-value shadow</div><StatusPill tone="warn">not in production</StatusPill></div>
+    <div className="mt-2 flex items-center gap-4 text-xs text-slate-600"><span>Shadow adjustment <b className="text-slate-900">{signed(a.shadow_margin_adjustment)} home</b></span><span>Uncertainty <b>{a.uncertainty}</b></span></div>
+    {players.length ? <div className="mt-3 space-y-2">{players.map((p, i) => <div key={`${p.team}-${p.player}-${i}`} className="flex items-center gap-2 text-xs"><span className="w-8 font-black text-slate-400">{p.team}</span><span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{p.player} · {p.position}</span><span className="text-slate-500">{p.report_status ?? p.practice_status ?? 'reported'}</span><span className="tabular-nums font-bold text-slate-700">{p.estimated_point_impact.toFixed(2)} pts</span></div>)}</div>
+      : <p className="mt-3 text-xs text-slate-500">No material report rows are available. That means unknown—not automatically healthy.</p>}
+    <p className="mt-3 text-[11px] leading-4 text-slate-500">{a.note}</p>
+  </div>;
+}
+
+function Small({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-lg bg-sky-50 p-2"><div className="text-sm font-black text-slate-900">{value}</div><div className="text-[9px] uppercase tracking-wide text-slate-500">{label}</div></div>;
 }
 
 function Cell({ label, value, strong, tone }: {

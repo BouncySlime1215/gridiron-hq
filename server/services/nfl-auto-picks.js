@@ -116,6 +116,8 @@ export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLI
         unavailable_model_ids: game.models.filter(m => m.margin == null || !(m.margin_weight > 0)).map(m => m.id),
         cover_calibration: calibrated.calibration
           ? `${calibrated.calibration.model_version}:${calibrated.calibration.trained_from}-${calibrated.calibration.trained_through}` : null,
+        predictive_distribution: e.distribution ?? null,
+        player_availability_shadow: e.player_availability ?? null,
         pregame_snapshot_at: pregame?.captured_at ?? null,
         pregame_context: pregame?.feature_coverage ?? null
       }

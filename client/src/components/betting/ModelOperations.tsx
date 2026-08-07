@@ -10,9 +10,23 @@ interface NflOps {
   verdict: string; generated_at: string; gates: Gate[]; registry: RegistryRow[]; contracts: Contract[];
   evidence: { residual: { summary: Record<string, number>; verdict: string }; ensemble: { active_margin: number; active_total: number; count: number };
     exact_policy: { bets: number; roi: number; units: number } | null; forward_settled: number;
-    error_analysis?: { weakest?: { dimension: string; segment: string; bets: number; roi: number; z: number }[]; note?: string } | null; };
+    error_analysis?: { weakest?: { dimension: string; segment: string; bets: number; roi: number; z: number }[]; note?: string } | null;
+    data_provenance?: EvidenceCoverage; };
   latest_ablation: null | { created_at: string; results: { id: string; overall: { bets: number; roi: number; units: number; uncertainty?: { probability_roi_above_zero?: number } } }[] };
   intelligence?: Intelligence;
+}
+interface EvidenceCoverage {
+  status: string;
+  seasons: { season: number; games: number; completed_games: number; priced_games: number; opening_line_games: number;
+    multi_book_games: number; preserved_line_events: number; injury_rows: number; depth_rows: number; snap_rows: number;
+    ngs_rows: number; quote_provenance: string; replay_status: string }[];
+  gaps: { id: string; priority: number; severity: string; title: string; actual: string; requirement: string; effect: string }[];
+  sources: { source_id: string; label: string; evidence_kind: string; status: string; available_from: string | null;
+    live_cadence: string; cutoff_rule: string; missing_behavior: string; detail: string }[];
+  firewall: { canonical_label: string; total_recorded_trials: number; untouched_gate_passed: boolean;
+    forward: { decisions: number; settled: number; target: number }; multiple_testing: { note: string };
+    windows: { window_id: string; seasons: string; state: string; purpose: string; reason: string }[] };
+  rules: string[];
 }
 interface MlbMarketOps { model_version: string; verdict: string; gates: Gate[]; evidence: { metric: { n: number; brier: number | null; calibration_slope?: number | null; expected_calibration_error?: number | null }; forward: number; settled: number; priced: number } }
 interface MlbOps { verdict: string; generated_at: string; markets: Record<string, MlbMarketOps>; registry: RegistryRow[]; contracts: Contract[];
@@ -62,6 +76,7 @@ export function NflModelOperations() {
     {error && <Notice title="Operations action failed" tone="bad">{error}</Notice>}
     <Registry rows={d.registry} />
     <GateGrid gates={d.gates} />
+    {d.evidence.data_provenance && <EvidenceWarehouse evidence={d.evidence.data_provenance} />}
     <section><SectionHeading eyebrow="Market residual" title="Does football information improve the market?"
       description={d.evidence.residual.verdict} />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -79,6 +94,31 @@ export function NflModelOperations() {
     {d.intelligence && <ResearchControl intelligence={d.intelligence} onCapture={() => act('capture')} busy={busy === 'capture'} />}
     <Contracts rows={d.contracts} />
   </div>;
+}
+
+function EvidenceWarehouse({ evidence: e }: { evidence: EvidenceCoverage }) {
+  const f = e.firewall;
+  return <section className="space-y-4">
+    <SectionHeading eyebrow="Evidence warehouse" title="What the model actually knew before kickoff"
+      description="Import coverage, source availability and validation status are separated so a complete final-score table cannot masquerade as complete pregame evidence." />
+    <Notice title={f.canonical_label} tone="warn">
+      2021–25 is open development data after {f.total_recorded_trials} recorded replay, experiment, AI and gate-audit trials. The untouched promotion ledger is 2026 forward: {f.forward.settled}/{f.forward.target} settled frozen decisions. {f.multiple_testing.note}
+    </Notice>
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{e.gaps.map(g => <div key={g.id} className="card p-4">
+      <div className="flex items-center gap-2"><StatusPill tone={g.severity === 'critical' ? 'bad' : 'warn'}>P{g.priority} · {g.severity}</StatusPill></div>
+      <div className="mt-3 font-black text-slate-900">{g.title}</div>
+      <div className="mt-2 text-sm font-semibold text-slate-700">{g.actual}</div>
+      <p className="mt-2 text-xs leading-5 text-slate-500">Need: {g.requirement}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">{g.effect}</p>
+    </div>)}</div>
+    <div className="card overflow-hidden">
+      <div className="border-b border-slate-200 bg-sky-50/60 px-4 py-3"><div className="font-black text-slate-900">Season-by-season cutoff evidence</div><div className="text-xs text-slate-500">A row can have every score and still have zero preserved opening or multi-book prices.</div></div>
+      <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-50 text-slate-400"><tr>{['Season','State','Games','Priced','Opening','Multi-book','Snapshots','Injuries','Depth','Snaps','NGS'].map(h => <th key={h} className="whitespace-nowrap px-3 py-2 text-left">{h}</th>)}</tr></thead>
+        <tbody className="divide-y divide-slate-100">{e.seasons.map(s => <tr key={s.season}><td className="px-3 py-2 font-black text-slate-900">{s.season}</td><td className="px-3 py-2"><StatusPill tone={s.replay_status === 'forward_holdout' ? 'info' : 'warn'}>{s.replay_status.replaceAll('_',' ')}</StatusPill></td><td className="px-3 py-2">{s.games}</td><td className="px-3 py-2">{s.priced_games}</td><td className={`px-3 py-2 font-bold ${s.opening_line_games ? 'text-slate-800' : 'text-rose-600'}`}>{s.opening_line_games}</td><td className={`px-3 py-2 font-bold ${s.multi_book_games ? 'text-slate-800' : 'text-rose-600'}`}>{s.multi_book_games}</td><td className="px-3 py-2">{s.preserved_line_events}</td><td className="px-3 py-2">{s.injury_rows.toLocaleString()}</td><td className="px-3 py-2">{s.depth_rows.toLocaleString()}</td><td className="px-3 py-2">{s.snap_rows.toLocaleString()}</td><td className="px-3 py-2">{s.ngs_rows.toLocaleString()}</td></tr>)}</tbody>
+      </table></div>
+    </div>
+    <details className="card overflow-hidden"><summary className="cursor-pointer px-4 py-4 font-semibold text-slate-900">Source registry · {e.sources.length}</summary><div className="grid gap-3 border-t border-slate-200 p-4 md:grid-cols-2">{e.sources.map(s => <div key={s.source_id} className="rounded-xl border border-slate-200 bg-white/70 p-3"><div className="flex items-center gap-2"><div className="min-w-0 flex-1 font-semibold text-slate-900">{s.label}</div><StatusPill tone={s.status === 'connected' ? 'good' : s.status === 'partial' ? 'warn' : 'bad'}>{s.status.replaceAll('_',' ')}</StatusPill></div><div className="mt-1 text-xs text-slate-400">{s.evidence_kind} · from {s.available_from ?? 'not configured'} · {s.live_cadence}</div><p className="mt-2 text-xs leading-5 text-slate-600">{s.detail}</p><p className="mt-2 text-[11px] leading-4 text-slate-500"><b>Cutoff:</b> {s.cutoff_rule}<br/><b>If missing:</b> {s.missing_behavior}</p></div>)}</div></details>
+  </section>;
 }
 
 export function MlbModelOperations({ through }: { through: string }) {

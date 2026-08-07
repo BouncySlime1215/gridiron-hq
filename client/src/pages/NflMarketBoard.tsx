@@ -75,7 +75,7 @@ type HubTool = 'board' | 'ensemble' | 'training' | 'lines' | 'variables' | 'oper
 const HUB_TOOLS: { id: HubTool; label: string; note: string }[] = [
   { id: 'board', label: 'Decision desk', note: 'Eligible picks' },
   { id: 'ensemble', label: 'Model room', note: 'Votes + lines' },
-  { id: 'training', label: 'Blind replay', note: 'Evidence audit' },
+  { id: 'training', label: 'Dev replay', note: 'Outcome-blind audit' },
   { id: 'lines', label: 'Line shop', note: 'Best price' },
   { id: 'variables', label: 'Variables', note: 'Data catalog' },
   { id: 'operations', label: 'Operations', note: 'Promotion gates' },
@@ -212,8 +212,8 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
               <SignalCard label="Active ensemble" value={catalogLoading ? 'Evaluating…' : `${activeMargin}/${catalog?.count ?? 20} margin`}
                 detail={`${activeTotal}/${catalog?.count ?? 20} models currently carry a total forecast. Missing sources abstain.`}
                 tone={activeMargin >= 15 ? 'good' : 'warn'} />
-              <SignalCard label="Evidence status" value="Not proven"
-                detail={evidence ? `${evidence.wins}-${evidence.losses} · ${evidence.units >= 0 ? '+' : ''}${evidence.units.toFixed(2)}u · ${(evidence.roi * 100).toFixed(1)}% exact-policy ROI; interval ${((evidence.uncertainty?.roi_95?.[0] ?? 0) * 100).toFixed(1)}% to ${((evidence.uncertainty?.roi_95?.[1] ?? 0) * 100).toFixed(1)}%.` : 'The old non-parity ROI is retired. Exact-policy replay is required.'}
+              <SignalCard label="Development evidence" value="Not forward proof"
+                detail={evidence ? `${evidence.wins}-${evidence.losses} · ${evidence.units >= 0 ? '+' : ''}${evidence.units.toFixed(2)}u · ${(evidence.roi * 100).toFixed(1)}% outcome-blind development ROI; interval ${((evidence.uncertainty?.roi_95?.[0] ?? 0) * 100).toFixed(1)}% to ${((evidence.uncertainty?.roi_95?.[1] ?? 0) * 100).toFixed(1)}%.` : '2021–25 is opened development data. Frozen 2026 decisions supply forward proof.'}
                 tone="warn" />
               <SignalCard label="Abstentions" value={`${candidateApi.data?.abstentions?.length ?? 0} games`}
                 detail="Every rejected candidate keeps an explicit reason in the decision audit." />
@@ -345,7 +345,7 @@ function ModelInfo({ accuracy, catalog, pbpRows }: { accuracy: Accuracy | null; 
   const activeMargin = catalog?.models.filter(m => m.margin_n > 0 && m.margin_weight > 0).length ?? 0;
   return <div className="space-y-5">
     <SectionHeading eyebrow="Method" title="What the model knows—and what it does not"
-      description="Every production rule is explicit. Missing evidence abstains, and the five-year result remains provisional." />
+      description="Every production rule is explicit. Missing evidence abstains, and the five-year development replay is never presented as untouched proof." />
     <div className="grid gap-3 md:grid-cols-4">
       <SignalCard label="Decision floor" value="3.0 points" detail="Minimum ensemble-to-market margin gap" />
       <SignalCard label="Scatter ceiling" value="4.5 points" detail="Maximum model disagreement" />

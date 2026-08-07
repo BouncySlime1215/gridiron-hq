@@ -8,6 +8,7 @@ import { closingLineValue } from './line-shopping.js';
 import { allPickResults } from './nfl-auto-picks.js';
 import { featureContracts, registry, recordGateAudit, gateAudits, evidenceManifests, updateRegistry } from './model-governance.js';
 import { nflIntelligence } from './model-intelligence.js';
+import { nflEvidenceCoverage } from './nfl-evidence.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_feature_ablation_audits (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
@@ -137,6 +138,9 @@ export function nflOperations({ persist = false, refreshResidual = false } = {})
   const picks = allPickResults();
   const forwardSettled = picks.filter(x => ['Won', 'Lost'].includes(x.status) && x.quote_at && x.selected_at);
   const overall = replay?.result?.overall ?? null;
+  const dataEvidence = nflEvidenceCoverage();
+  const historicalSeasons = dataEvidence.seasons.filter(x => x.season <= 2025);
+  const preservedHistoricalQuotes = historicalSeasons.reduce((n, x) => n + x.preserved_line_events, 0);
   const gates = [
     { id: 'market_residual_margin', label: 'Adds unseen value beyond market margin', passed: residual?.summary?.residual_margin_mae < residual?.summary?.market_margin_mae,
       actual: residual?.summary?.residual_margin_mae, target: `< ${residual?.summary?.market_margin_mae ?? 'market'}` },
@@ -145,6 +149,10 @@ export function nflOperations({ persist = false, refreshResidual = false } = {})
     { id: 'exact_policy', label: 'Frozen exact policy has credible positive ROI', passed: !!overall && overall.roi > 0 && (overall.uncertainty?.probability_roi_above_zero ?? 0) >= 0.75,
       actual: overall?.roi ?? null, target: 'ROI > 0 and P(ROI>0) ≥ 75%' },
     { id: 'forward_sample', label: 'Forward evidence sample', passed: forwardSettled.length >= 250, actual: forwardSettled.length, target: '≥ 250 settled decisions' },
+    { id: 'quote_provenance', label: 'Decision-time quote provenance is preserved', passed: preservedHistoricalQuotes >= 1000,
+      actual: preservedHistoricalQuotes, target: '≥ 1,000 historical events with immutable quote snapshots' },
+    { id: 'untouched_holdout', label: 'Untouched forward holdout is mature', passed: dataEvidence.firewall.untouched_gate_passed,
+      actual: dataEvidence.firewall.forward.settled, target: `≥ ${dataEvidence.firewall.forward.target} settled frozen decisions` },
     { id: 'clv', label: 'Closing-line value available and positive', passed: clv.available === true && (clv.average_clv ?? null) > 0,
       actual: clv.available ? clv.average_clv ?? 'capturing; not scored' : 'unavailable', target: '> 0 average CLV' },
     { id: 'pregame_coverage', label: 'Current team snapshot coverage', passed: (pregame[0]?.teams ?? 0) >= 32,
@@ -153,7 +161,7 @@ export function nflOperations({ persist = false, refreshResidual = false } = {})
   const evidence = { accuracy: acc, residual, calibration, exact_policy: overall,
     error_analysis: replay?.result?.analysis ?? null, pregame: pregame[0] ?? null,
     clv, ensemble: { source: 'Model room', note: 'Component fitting is intentionally excluded from the operations request; the immutable replay and residual audits are the promotion evidence.' },
-    forward_settled: forwardSettled.length };
+    forward_settled: forwardSettled.length, data_provenance: dataEvidence };
   const audit = persist ? recordGateAudit({ sport: 'NFL', market: 'spread', modelVersion: 'nfl-ensemble-v1', gates, evidence }) : null;
   if (persist) updateRegistry({ sport: 'NFL', market: 'spread', role: 'challenger', modelVersion: 'nfl-ensemble-v1',
     state: gates.every(x => x.passed) ? 'promotion_eligible' : 'blocked',

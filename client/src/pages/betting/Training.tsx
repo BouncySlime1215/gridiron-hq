@@ -37,8 +37,17 @@ interface Experiment { id: number; name: string; hypothesis: string; created_at:
 interface Calibration {
   model_version: string; trained_from: number; trained_through: number; created_at: string; sample_size: number;
   edge_slope: number; metrics: { walk_forward_n: number; walk_forward_calibrated_brier: number | null;
-    walk_forward_market_brier: number | null; forward_gate_passed: boolean };
+    walk_forward_market_brier: number | null; walk_forward_calibrated_log_loss?: number | null;
+    walk_forward_market_log_loss?: number | null; walk_forward_expected_calibration_error?: number | null;
+    walk_forward_calibration_intercept?: number | null; walk_forward_calibration_slope?: number | null;
+    forward_gate_passed: boolean };
   reliability: { range: string; n: number; predicted: number | null; actual: number | null }[];
+}
+interface ValidationFirewall {
+  canonical_label: string; total_recorded_trials: number; untouched_gate_passed: boolean;
+  forward: { decisions: number; settled: number; target: number };
+  multiple_testing: { required: boolean; note: string };
+  windows: { window_id: string; seasons: string; state: string; purpose: string; reason: string }[];
 }
 interface AiReplay {
   id: number; status: 'running' | 'complete' | 'failed'; budget_usd: number; estimated_cost_usd: number;
@@ -83,6 +92,7 @@ export default function Training() {
   const { data: protocol } = useApi<Protocol>('/nfl-betting/experiments/protocol');
   const { data: registry } = useApi<{ experiments: Experiment[] }>('/nfl-betting/experiments');
   const { data: calibrationPayload } = useApi<{ calibration: Calibration | null }>('/nfl-betting/calibration/cover');
+  const { data: firewall } = useApi<ValidationFirewall>('/nfl-betting/validation/firewall');
   const { data: latestAudit } = useApi<{ audit: { result: Training } | null }>('/nfl-betting/replay/latest');
   const { data: activeAiPayload } = useApi<{ run: AiReplay | null }>('/nfl-betting/ai-replay/active');
   const { data: latestAiPayload } = useApi<{ run: AiReplay | null }>('/nfl-betting/ai-replay/latest');
@@ -144,8 +154,8 @@ export default function Training() {
   return (
     <div>
       <div className="flex items-end gap-3 mb-4 flex-wrap">
-        <SectionHeading eyebrow="Evidence lab" title="Blind replay"
-          description="Replay frozen policies chronologically and inspect uncertainty before any candidate reaches a holdout." />
+        <SectionHeading eyebrow="Evidence lab" title="Outcome-blind development replay"
+          description="Replay frozen policies chronologically without releasing game outcomes to the predictor. These opened seasons diagnose the model; they are not untouched profitability proof." />
         <div className="flex items-end gap-2 text-sm ml-auto flex-wrap">
           <label className="text-slate-500"><span className="block text-xs font-bold mb-1">Research seasons</span>
             <input aria-label="Replay seasons" className="input py-2 w-52" value={seasons} onChange={e => setSeasons(e.target.value)} />
@@ -155,16 +165,23 @@ export default function Training() {
           </button>
         </div>
       </div>
-      <Notice title="Exact production-policy replay" tone="info">
-        This audit uses the same versioned spread-only policy, three-point edge floor, disagreement guard, weekly five-pick cap, ranking rule, and stored prices as the live decision desk.
+      <Notice title={firewall?.canonical_label ?? 'Development replay — not an untouched profitability test'} tone="warn">
+        This audit uses the same versioned spread-only policy, edge floor, disagreement guard, weekly cap and ranking rule as the live desk. It is mechanically outcome-blind, but 2021–25 has already informed development. Only frozen, pre-kickoff 2026 decisions can become untouched forward evidence.
       </Notice>
+
+      {firewall && <div className="my-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Recorded research trials" value={firewall.total_recorded_trials.toLocaleString()} />
+        <Metric label="Forward decisions" value={firewall.forward.decisions.toLocaleString()} />
+        <Metric label="Forward settled" value={`${firewall.forward.settled}/${firewall.forward.target}`} />
+        <Metric label="Untouched gate" value={firewall.untouched_gate_passed ? 'Passed' : 'Blocked'} tone={firewall.untouched_gate_passed ? 'good' : 'bad'} />
+      </div>}
 
       <div className="card my-5 border-slate-300 bg-slate-50 p-4">
         <div className="flex flex-wrap gap-3 items-start">
           <div className="flex-1 min-w-[16rem]">
             <div className="text-xs font-black uppercase tracking-wide text-slate-600">Claude pregame risk-gate replay</div>
-            <div className="text-sm font-semibold text-slate-900 mt-1">Blind agent review · hard $1 maximum</div>
-            <p className="text-xs leading-5 text-slate-600 mt-1">The agent sees a locked pregame packet plus aggregate learning from strictly earlier weeks. It can press to 2u, approve 1u, reduce to 0.5u, or abstain—never see the target, same-week, or future result.</p>
+            <div className="text-sm font-semibold text-slate-900 mt-1">Outcome-blind agent review · hard $1 maximum</div>
+            <p className="text-xs leading-5 text-slate-600 mt-1">The agent sees a locked pregame packet plus aggregate learning from strictly earlier weeks. It can press to 2u, approve 1u, reduce to 0.5u, or abstain—never see the target, same-week, or future result. Because the seasons are opened development data, this tests workflow behavior rather than proving future profit.</p>
           </div>
           {activeAiPayload?.run?.status === 'running' && aiRun?.id !== activeAiPayload.run.id && <button className="btn-secondary text-xs" onClick={reattachAi} disabled={aiBusy}>Reattach live run</button>}
           <button className="btn-primary text-xs" onClick={runAi} disabled={aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running'}>
@@ -410,12 +427,19 @@ function CalibrationPanel({ calibration: c }: { calibration: Calibration }) {
   const m = c.metrics;
   return <section className="card mb-5 p-4 sm:p-5">
     <SectionHeading eyebrow="Probability integrity" title="Market-anchored cover calibration"
-      description={`Fit on ${c.trained_from}–${c.trained_through}; promotion is decided only by chronological walk-forward Brier score.`} />
+      description={`Fit on ${c.trained_from}–${c.trained_through}; promotion requires chronological Brier, log-loss, calibration and forward-evidence gates.`} />
     <div className="grid gap-3 sm:grid-cols-4">
       <Metric label="Walk-forward sample" value={m.walk_forward_n?.toLocaleString() ?? '—'} />
       <Metric label="Calibrated Brier" value={m.walk_forward_calibrated_brier?.toFixed(4) ?? '—'} />
       <Metric label="Market Brier" value={m.walk_forward_market_brier?.toFixed(4) ?? '—'} />
       <Metric label="Production gate" value={m.forward_gate_passed ? 'Passed' : 'Blocked'} tone={m.forward_gate_passed ? 'good' : 'bad'} />
+    </div>
+    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <Metric label="Model log loss" value={m.walk_forward_calibrated_log_loss?.toFixed(4) ?? '—'} />
+      <Metric label="Market log loss" value={m.walk_forward_market_log_loss?.toFixed(4) ?? '—'} />
+      <Metric label="Calibration ECE" value={m.walk_forward_expected_calibration_error == null ? '—' : pct(m.walk_forward_expected_calibration_error)} />
+      <Metric label="Calibration intercept" value={m.walk_forward_calibration_intercept?.toFixed(3) ?? '—'} />
+      <Metric label="Calibration slope" value={m.walk_forward_calibration_slope?.toFixed(3) ?? '—'} />
     </div>
     <div className="mt-5 grid grid-cols-5 gap-2">
       {c.reliability.filter(b => b.n > 0).map(b => <div key={b.range} className="rounded-xl bg-slate-50 p-3">
@@ -427,6 +451,6 @@ function CalibrationPanel({ calibration: c }: { calibration: Calibration }) {
         <div className="mt-1 text-[10px] text-slate-500">P {pct(b.predicted)} · A {pct(b.actual)}</div>
       </div>)}
     </div>
-    <p className="mt-3 text-xs leading-5 text-slate-500">Blue is predicted cover frequency; black is observed. If calibration cannot beat the no-vig market baseline out of sample, the UI suppresses model probability edge.</p>
+    <p className="mt-3 text-xs leading-5 text-slate-500">Dark blue is predicted cover frequency; light blue is observed. The probability edge stays suppressed unless the model beats the no-vig market on Brier and log loss, stays well calibrated, and later clears the forward-sample gate.</p>
   </section>;
 }

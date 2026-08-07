@@ -12,15 +12,17 @@ import { boardFor, accuracy, clearNflMarketCache } from '../services/nfl-market.
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
-import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsembleCache } from '../services/nfl-ensemble.js';
+import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsembleCache, clearEnsembleLineCache } from '../services/nfl-ensemble.js';
 import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
 import { runIfStale } from '../services/scheduler.js';
-import { stakeFor, evaluateSizing } from '../services/staking.js';
+import { stakeFor, safeStakeFor, evaluateSizing } from '../services/staking.js';
 import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
 import { buildCoverCalibration, latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 import { capturePregameSnapshots, pregameSnapshotCoverage } from '../services/nfl-pregame.js';
 import { startAiBlindReplay, aiReplayRun, aiReplayLogs, activeAiReplayRun, latestAiReplayRun } from '../services/nfl-ai-replay.js';
+import { nflEvidenceCoverage, validationFirewall } from '../services/nfl-evidence.js';
+import { gamePlayerAvailability, teamPlayerAvailability } from '../services/nfl-player-value.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -382,6 +384,22 @@ r.get('/stake', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/stake/safe', (req, res, next) => {
+  try {
+    const winProb = Number(req.query.prob), odds = Number(req.query.odds);
+    if (!Number.isFinite(winProb) || !Number.isFinite(odds)) {
+      return res.status(400).json({ error: 'prob and odds query params required' });
+    }
+    res.json(safeStakeFor({
+      winProb, americanOdds: odds, bankroll: Number(req.query.bankroll) || 100,
+      calibrationPassed: req.query.calibrated === '1',
+      forwardSettled: Number(req.query.forward_settled) || 0,
+      uncertaintyWidth: req.query.interval_width == null ? null : Number(req.query.interval_width),
+      openPortfolioFraction: Number(req.query.open_exposure) || 0
+    }));
+  } catch (e) { next(e); }
+});
+
 /** Does confidence-tiered sizing actually beat flat staking on past bets? */
 r.get('/stake/evaluate', (req, res, next) => {
   try {
@@ -436,6 +454,31 @@ r.get('/status', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/evidence/coverage', (_req, res, next) => {
+  try { res.json(nflEvidenceCoverage()); } catch (e) { next(e); }
+});
+
+r.get('/validation/firewall', (_req, res, next) => {
+  try { res.json(validationFirewall()); } catch (e) { next(e); }
+});
+
+r.get('/availability/team', (req, res, next) => {
+  try {
+    const team = String(req.query.team ?? '').toUpperCase();
+    if (!team) return res.status(400).json({ error: 'team query param required' });
+    res.json(teamPlayerAvailability(ssn(req), wk(req), team));
+  } catch (e) { next(e); }
+});
+
+r.get('/availability/game', (req, res, next) => {
+  try {
+    const home = String(req.query.home ?? '').toUpperCase();
+    const away = String(req.query.away ?? '').toUpperCase();
+    if (!home || !away) return res.status(400).json({ error: 'home and away query params required' });
+    res.json(gamePlayerAvailability(ssn(req), wk(req), home, away));
+  } catch (e) { next(e); }
+});
+
 r.post('/sync', async (req, res, next) => {
   try {
     const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
@@ -455,7 +498,11 @@ r.post('/sync', async (req, res, next) => {
  * takes minutes and would make a refresh button feel broken.
  */
 r.post('/lines/sync-now', async (req, res, next) => {
-  try { res.json(await runIfStale('nfl_lines', { force: true })); }
+  try {
+    const result = await runIfStale('nfl_lines', { force: true });
+    clearEnsembleLineCache();
+    res.json(result);
+  }
   catch (e) { next(e); }
 });
 

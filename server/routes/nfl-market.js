@@ -9,6 +9,7 @@ import { nflOperations, runNflFeatureAblations, refreshNflResidualAudit } from '
 import { promoteEligibleAudit } from '../services/model-governance.js';
 import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-daemon.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
+import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -37,6 +38,10 @@ r.get('/intelligence', (_req, res, next) => {
 
 r.get('/evidence/status', (_req, res, next) => {
   try { res.json(evidenceDaemonStatus()); } catch (e) { next(e); }
+});
+
+r.get('/evidence/coverage', (_req, res, next) => {
+  try { res.json(nflEvidenceCoverage()); } catch (e) { next(e); }
 });
 
 r.post('/evidence/capture', async (req, res, next) => {

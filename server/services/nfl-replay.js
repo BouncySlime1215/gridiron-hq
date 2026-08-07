@@ -97,7 +97,7 @@ const unitsFor = (won, pushed, price) => {
  */
 export function replaySeason(season, {
   minEdge = NFL_PRODUCTION_POLICY.minEdge,
-  // Skip games where the twenty models disagree with each other by more than
+  // Skip games where the component models disagree with each other by more than
   // this. The 4.5-point guard and 3-point edge floor were frozen using only
   // 2018-2020 before the 2021-2025 evaluation window was opened.
   maxDisagreement = NFL_PRODUCTION_POLICY.maxDisagreement,
@@ -138,7 +138,7 @@ export function replaySeason(season, {
   for (const g of slate) {
     if (currentWeek != null && g.week !== currentWeek) commitWeek();
     currentWeek = g.week;
-    const line = ensembleLine(season, g.week, g.home, g.away, modelOptions);
+    const line = ensembleLine(season, g.week, g.home, g.away, { includeEvidence: false, ...modelOptions });
     if (line.error) continue;
     const e = line.ensemble;
 
@@ -164,7 +164,10 @@ export function replaySeason(season, {
           actual_margin: actualMargin, actual_total: actualTotal,
           result: pushed ? 'Push' : covered ? 'Won' : 'Lost',
           won: covered, pushed, book: g.source ?? null, quote_source: g.source ?? null, quote_at: g.fetched_at ?? null,
-          feature_snapshot: { margin_models_active: e.models_contributing_margin ?? null }
+          feature_snapshot: {
+            margin_models_active: e.models_contributing_margin ?? null,
+            predictive_distribution: e.distribution ?? null
+          }
         });
     }
 

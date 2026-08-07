@@ -227,7 +227,7 @@ const ADJUSTED_VARS = [
   ['opp_adj_def_epa', 'Defensive EPA allowed adjusted for offences faced'],
   ['sos_played', 'Average opponent net EPA faced so far'],
   ['sos_remaining', 'Average opponent net EPA still to be played'],
-  ['pace_seconds_per_play', 'Situation-neutral seconds per play'],
+  ['pace_seconds_per_play', 'Possession pace proxy: seconds per drive divided by plays per drive'],
   ['opp_adj_net_epa', 'Opponent-adjusted net EPA per play']
 ];
 
@@ -432,6 +432,11 @@ export function adjustedFeatures(season, week, team) {
   const oppDefFaced = avg(me.opps.map(o => defStrength.get(o) ?? leagueOff));
   const oppOffFaced = avg(me.opps.map(o => offStrength.get(o) ?? leagueOff));
   const rawOff = avg(me.off), rawDef = avg(me.def);
+  const pace = avg(all.filter(x => x.team === team).map(x => {
+    const seconds = x.features.off_seconds_per_drive;
+    const plays = x.features.off_avg_drive_plays ?? x.features.off_plays_per_drive;
+    return seconds != null && plays > 0 ? seconds / plays : null;
+  }).filter(v => v != null));
 
   const remaining = rows(`SELECT opponent FROM game_lines
                           WHERE season=? AND week>=? AND team=? AND opponent IS NOT NULL`,
@@ -445,7 +450,10 @@ export function adjustedFeatures(season, week, team) {
     opp_adj_def_epa: r3(adjDef),
     sos_played: r3(avg(me.opps.map(netOf))),
     sos_remaining: remaining.length ? r3(avg(remaining.map(netOf))) : null,
-    pace_seconds_per_play: null, // reserved: needs drive clock deltas, not yet ingested
+    // This is deliberately labelled a proxy rather than "neutral pace": the
+    // public feed has drive duration and plays, but not a trustworthy snap-to-
+    // snap play-clock series for every historical game.
+    pace_seconds_per_play: r3(pace),
     opp_adj_net_epa: adjOff != null && adjDef != null ? r3(adjOff - adjDef) : null
   };
 }

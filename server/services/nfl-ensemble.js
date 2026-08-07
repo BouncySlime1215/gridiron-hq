@@ -1,8 +1,8 @@
 /**
- * Twenty independent NFL models, aggregated into one projected line.
+ * Independent NFL models, aggregated into one projected line.
  *
  * The single ratings model in nfl-market.js is good but it is one opinion with
- * one blind spot. This runs twenty deliberately different ones — some see only
+ * one blind spot. This runs deliberately different ones — some see only
  * wins, some only margins, some only play-level efficiency, some only the
  * market — and combines them by how well each has actually predicted, measured
  * walk-forward.
@@ -10,7 +10,7 @@
  * Diversity is the point. Colley ignores margin entirely, so it disagrees with
  * Massey exactly when a team's record and point differential tell different
  * stories. Turnover-regressed margin fades the luckiest results. The market
- * anchor starts from the number the books set. When twenty models built on
+ * anchor starts from the number the books set. When many models built on
  * different premises agree, that is real signal; when they scatter, the honest
  * output is low confidence, and the spread between them is reported as exactly
  * that.
@@ -21,15 +21,29 @@
  * ratings, Pythagenport expectation, margin-dependent Elo — implemented here
  * rather than imported.
  */
-import { rows } from '../db/index.js';
+import { db, rows, run } from '../db/index.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { mean } from './stats-util.js';
+import { gamePlayerAvailability } from './nfl-player-value.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
 const EVAL_FROM = 2022;    // seasons graded out-of-sample (also where play-by-play features exist)
+const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v2-dynamic-state';
+
+db.exec(`CREATE TABLE IF NOT EXISTS nfl_ensemble_fit_artifacts (
+  artifact_key TEXT PRIMARY KEY, model_version TEXT NOT NULL,
+  data_fingerprint TEXT NOT NULL, cutoff TEXT NOT NULL,
+  weighting TEXT NOT NULL, created_at TEXT NOT NULL, result_json TEXT NOT NULL
+)`);
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
+const quantile = (values, p) => {
+  if (!values.length) return null;
+  const a = [...values].sort((x, y) => x - y);
+  const i = (a.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+  return a[lo] + (a[hi] - a[lo]) * (i - lo);
+};
 
 /* --------------------------------------------------------------- game data */
 
@@ -138,6 +152,92 @@ function teamAggregates(hist) {
   return t;
 }
 
+/**
+ * Lightweight dynamic offense/defense state. Every update occurs after the
+ * corresponding game and the state is regressed between seasons, so a target
+ * week can never borrow its own score or a future result.
+ */
+function dynamicStrength(hist) {
+  const state = new Map();
+  const get = team => {
+    if (!state.has(team)) state.set(team, { offense: 0, defense_allowed: 0, games: 0, error2: 196 });
+    return state.get(team);
+  };
+  let season = null;
+  let leaguePoints = 22.5;
+  let observedPoints = 0, observedTeams = 0;
+  for (const g of hist) {
+    if (season != null && g.season !== season) {
+      for (const s of state.values()) {
+        s.offense *= 0.72;
+        s.defense_allowed *= 0.72;
+        s.error2 = 0.72 * s.error2 + 0.28 * 196;
+      }
+    }
+    season = g.season;
+    const h = get(g.home), a = get(g.away);
+    const hfaHalf = 0.65;
+    const predHome = leaguePoints + h.offense + a.defense_allowed + hfaHalf;
+    const predAway = leaguePoints + a.offense + h.defense_allowed - hfaHalf;
+    const homeError = g.home_score - predHome, awayError = g.away_score - predAway;
+    const gain = 0.075;
+    h.offense += gain * homeError;
+    a.defense_allowed += gain * homeError;
+    a.offense += gain * awayError;
+    h.defense_allowed += gain * awayError;
+    h.error2 = 0.9 * h.error2 + 0.1 * awayError ** 2;
+    a.error2 = 0.9 * a.error2 + 0.1 * homeError ** 2;
+    h.games++; a.games++;
+    observedPoints += g.home_score + g.away_score; observedTeams += 2;
+    leaguePoints = 0.995 * leaguePoints + 0.005 * (observedPoints / observedTeams);
+  }
+  return { state, league_points: leaguePoints };
+}
+
+/**
+ * Empirical predictive distribution around the point forecast. Residual shape
+ * comes only from games completed before the target week. Similar spread/total
+ * environments are preferred when at least 120 prior games exist.
+ */
+function predictiveDistribution(hist, { margin, total, homeSpread, marketTotal, disagreement }) {
+  if (margin == null) return null;
+  const all = hist.filter(x => x.home_spread != null).map(x => ({
+    spread: x.home_spread, total: x.total,
+    margin_residual: (x.home_score - x.away_score) - (-x.home_spread),
+    total_residual: x.total == null ? null : (x.home_score + x.away_score) - x.total
+  }));
+  let conditional = all.filter(x => homeSpread != null && Math.abs(Math.abs(x.spread) - Math.abs(homeSpread)) <= 2.5 &&
+    (marketTotal == null || x.total == null || Math.abs(x.total - marketTotal) <= 6));
+  const cohort = conditional.length >= 120 ? conditional : all;
+  if (cohort.length < 100) return null;
+  const marginResiduals = cohort.map(x => x.margin_residual);
+  const residualMedian = quantile(marginResiduals, 0.5) ?? 0;
+  const inflation = 1 + Math.min(0.25, Math.max(0, disagreement ?? 0) / 30);
+  const marginSamples = marginResiduals.map(x => Math.round(margin + (x - residualMedian) * inflation));
+  const grade = marginSamples.map(x => homeSpread == null ? null : Math.sign(x + homeSpread));
+  const totalResiduals = cohort.map(x => x.total_residual).filter(Number.isFinite);
+  const totalMedian = quantile(totalResiduals, 0.5) ?? 0;
+  const totalSamples = total == null ? [] : totalResiduals.map(x => Math.round(total + (x - totalMedian)));
+  const q = values => ({
+    p10: r2(quantile(values, 0.10)), p25: r2(quantile(values, 0.25)),
+    p50: r2(quantile(values, 0.50)), p75: r2(quantile(values, 0.75)), p90: r2(quantile(values, 0.90))
+  });
+  return {
+    method: 'cutoff-safe empirical market-residual distribution with disagreement inflation',
+    sample_size: cohort.length, conditional_cohort: conditional.length >= 120,
+    margin_quantiles: q(marginSamples), total_quantiles: totalSamples.length ? q(totalSamples) : null,
+    home_cover_probability: homeSpread == null ? null : r2(grade.filter(x => x > 0).length / grade.length),
+    away_cover_probability: homeSpread == null ? null : r2(grade.filter(x => x < 0).length / grade.length),
+    push_probability: homeSpread == null ? null : r2(grade.filter(x => x === 0).length / grade.length),
+    margin_interval_80: [r2(quantile(marginSamples, 0.1)), r2(quantile(marginSamples, 0.9))],
+    margin_interval_50: [r2(quantile(marginSamples, 0.25)), r2(quantile(marginSamples, 0.75))],
+    uncertainty_width_80: r2(quantile(marginSamples, 0.9) - quantile(marginSamples, 0.1)),
+    positive_ev_threshold_at_minus_110: 0.5238,
+    calibration_state: 'research_distribution_only',
+    production_eligible: false
+  };
+}
+
 /** Per-team play-by-play feature averages before a given point. */
 const _featureAggregateCache = new Map();
 function featureAggregates(season, week) {
@@ -181,7 +281,7 @@ function featureAggregates(season, week) {
   return out;
 }
 
-/* ----------------------------------------------------------- the 20 models */
+/* ------------------------------------------------------- component models */
 
 /**
  * Every model is a function of (context) -> { margin, total } from the home
@@ -225,6 +325,17 @@ const MODELS = [
     id: 'melo', name: 'Margin-dependent Elo', family: 'Rating systems',
     note: 'Elo where a blowout moves the rating more than a one-score win.',
     predict: (c) => ({ margin: ((c.melo.get(c.home) ?? 0) - (c.melo.get(c.away) ?? 0)) / 25 + c.hfa, total: null })
+  },
+  {
+    id: 'dynamic_state', name: 'Dynamic offense / defense state', family: 'Rating systems',
+    note: 'A chronological latent scoring state that adapts weekly, regresses between seasons and reports matchup-specific offense/defense strength.',
+    predict: (c) => {
+      const h = c.dynamic.state.get(c.home), a = c.dynamic.state.get(c.away);
+      if (!h || !a) return { margin: null, total: null };
+      const homePoints = c.dynamic.league_points + h.offense + a.defense_allowed + c.hfa / 2;
+      const awayPoints = c.dynamic.league_points + a.offense + h.defense_allowed - c.hfa / 2;
+      return { margin: homePoints - awayPoints, total: homePoints + awayPoints };
+    }
   },
 
   /* ---- play-level efficiency ---- */
@@ -444,21 +555,32 @@ function marketRegression(hist) {
 }
 
 /** Builds the context object every model reads, from games strictly earlier. */
-function buildContext(g, hist, restMap) {
+const _sharedContextCache = new Map();
+function sharedContext(g, hist) {
+  const key = `${g.season}|${g.week}|${hist.length}`;
+  if (_sharedContextCache.has(key)) return _sharedContextCache.get(key);
   const agg = teamAggregates(hist);
   const recent = new Map();
   for (const [t, a] of agg) recent.set(t, a.margins);
-  return {
-    home: g.home, away: g.away,
+  const shared = {
     hfa: 2 * (avg(hist.map(x => (x.home_score - x.away_score) / 2)) ?? 1.1),
+    agg, recent,
+    massey: massey(hist), colley: colley(hist), melo: meloRatings(hist), dynamic: dynamicStrength(hist),
+    feat: featureAggregates(g.season, g.week),
+    reg: marketRegression(hist)
+  };
+  _sharedContextCache.set(key, shared);
+  return shared;
+}
+
+function buildContext(g, hist, restMap) {
+  return {
+    ...sharedContext(g, hist),
+    home: g.home, away: g.away,
     spread: g.home_spread, total: g.total,
     openSpread: g.open_spread, openTotal: g.open_total,
     temp: g.temp, wind: g.wind, roof: g.roof, div: g.div_game,
-    homeRest: g.home_rest, awayRest: restMap.get(`${g.season}|${g.week}|${g.away}`),
-    agg, recent,
-    massey: massey(hist), colley: colley(hist), melo: meloRatings(hist),
-    feat: featureAggregates(g.season, g.week),
-    reg: marketRegression(hist)
+    homeRest: g.home_rest, awayRest: restMap.get(`${g.season}|${g.week}|${g.away}`)
   };
 }
 
@@ -550,11 +672,30 @@ function rawDifferentials(feat, home, away) {
 }
 
 const _cache = new Map();
+const _calibrationCache = new Map();
 const _lineCache = new Map();
-export function clearEnsembleCache() { _cache.clear(); _lineCache.clear(); _featureAggregateCache.clear(); }
+export function clearEnsembleLineCache() { _lineCache.clear(); }
+export function clearEnsembleCache() {
+  _cache.clear(); _calibrationCache.clear(); _lineCache.clear();
+  _featureAggregateCache.clear(); _sharedContextCache.clear();
+  run('DELETE FROM nfl_ensemble_fit_artifacts');
+}
+
+function fitDataFingerprint() {
+  const g = rows(`SELECT COUNT(*) games,COALESCE(SUM(team_score+opp_score),0) score_sum,
+      COALESCE(MAX(season*100+week),0) latest_week FROM game_lines
+      WHERE home=1 AND season>=? AND team_score IS NOT NULL AND opp_score IS NOT NULL AND spread IS NOT NULL`, MIN_SEASON)[0];
+  const f = rows(`SELECT COUNT(*) feature_rows,COALESCE(MAX(season*100+week),0) latest_feature_week,
+      COALESCE(SUM(LENGTH(features)),0) feature_bytes FROM nfl_team_week_features`)[0];
+  return `${g.games}:${g.score_sum}:${g.latest_week}:${f.feature_rows}:${f.latest_feature_week}:${f.feature_bytes}`;
+}
+
+function fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint) {
+  return `${FIT_ARTIFACT_VERSION}|${evalFrom}|${cutoffKey}|${weighting}|${fingerprint}`;
+}
 
 /**
- * Grades all twenty models walk-forward and derives their weights.
+ * Grades every model walk-forward and derives its weight.
  *
  * Context is rebuilt once per (season, week) rather than per game, since every
  * game in a week sees the same prior history — this is what keeps a full
@@ -565,6 +706,16 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   const cutoffKey = beforeSeason == null ? 'live' : `${beforeSeason}|${beforeWeek ?? 1}`;
   const cacheKey = `${evalFrom}|${cutoffKey}|${weighting}`;
   if (_cache.has(cacheKey)) return _cache.get(cacheKey);
+  const fingerprint = fitDataFingerprint();
+  const artifactKey = fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint);
+  const artifact = rows('SELECT result_json FROM nfl_ensemble_fit_artifacts WHERE artifact_key=?', artifactKey)[0];
+  if (artifact?.result_json) {
+    try {
+      const saved = JSON.parse(artifact.result_json);
+      _cache.set(cacheKey, saved);
+      return saved;
+    } catch { /* corrupt artifacts are ignored and rebuilt below */ }
+  }
   const all = games();
   if (all.length < 200) return { error: `only ${all.length} games available — sync game lines first` };
   const restMap = awayRest();
@@ -574,7 +725,9 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // `evalFrom` normally provides that earlier boundary; min() also makes custom
   // early replays incapable of borrowing later calibration outcomes.
   const calibrationCutoff = beforeSeason == null ? evalFrom : Math.min(evalFrom, beforeSeason);
-  const cal = calibrate(all, restMap, calibrationCutoff);
+  const calibrationKey = `${calibrationCutoff}|${all.length}`;
+  const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
+  _calibrationCache.set(calibrationKey, cal);
   const errs = Object.fromEntries(MODELS.map(m => [m.id, { margin: [], total: [] }]));
   // Spread betting is not a raw-margin contest.  For every component we also
   // keep the only error that matters after a market quote exists: did its
@@ -694,6 +847,11 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }
   };
   _cache.set(cacheKey, result);
+  run(`INSERT INTO nfl_ensemble_fit_artifacts
+    (artifact_key,model_version,data_fingerprint,cutoff,weighting,created_at,result_json)
+    VALUES (?,?,?,?,?,datetime('now'),?)
+    ON CONFLICT(artifact_key) DO UPDATE SET created_at=excluded.created_at,result_json=excluded.result_json`,
+  artifactKey, FIT_ARTIFACT_VERSION, fingerprint, cutoffKey, weighting, JSON.stringify(result));
   return result;
 }
 
@@ -701,13 +859,17 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
  * The ensemble's line for one upcoming game: every model's own number, the
  * weighted consensus, and how much the models disagree.
  */
-export function ensembleLine(season, week, home, away, { weighting = 'exponential', families = null, blendMode = 'raw' } = {}) {
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}`;
+export function ensembleLine(season, week, home, away, {
+  weighting = 'exponential', families = null, blendMode = 'raw', includeEvidence = true
+} = {}) {
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${includeEvidence ? 'evidence' : 'forecast'}`;
   // Family ablations are projections of the same frozen per-model line. Build
   // that expensive context once, then re-blend only the requested families.
   // This changes no prediction and makes a nine-cut audit minutes faster.
   if (families?.length) {
-    const base = _lineCache.get(lineKey) ?? ensembleLine(season, week, home, away, { weighting, families: null, blendMode });
+    const base = _lineCache.get(lineKey) ?? ensembleLine(season, week, home, away, {
+      weighting, families: null, blendMode, includeEvidence
+    });
     if (base.error) return base;
     const allowed = new Set(families);
     const perModel = base.models.filter(m => allowed.has(m.family));
@@ -792,6 +954,13 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
   // The residual mode can only move away from the market with independently
   // earned residual skill.  Its no-signal fallback is precisely the spread.
   const margin = blendMode === 'market_residual' ? residualMargin : rawMargin;
+  const disagreementMargin = sd(marginVals);
+  const distribution = predictiveDistribution(hist, { margin, total, homeSpread: g.home_spread,
+    marketTotal: g.total, disagreement: disagreementMargin });
+  // Historical scoring does not need the shadow replacement-value packet.
+  // Keeping it lazy avoids thousands of irrelevant DB lookups during replay;
+  // the live Model Room still requests and displays it by default.
+  const playerAvailability = includeEvidence ? gamePlayerAvailability(season, week, home, away) : null;
 
   const result = {
     season, week, home, away,
@@ -804,13 +973,15 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
       market_total: g.total ?? null,
       spread_edge: margin != null && marketMargin != null ? r2(margin - marketMargin) : null,
       total_edge: total != null && g.total != null ? r2(total - g.total) : null,
-      model_disagreement_margin: r2(sd(marginVals)),
+      model_disagreement_margin: r2(disagreementMargin),
       model_disagreement_total: r2(sd(totalVals)),
       models_contributing_margin: marginVals.length,
       models_contributing_total: totalVals.length,
       confidence: confidenceFrom(sd(marginVals), margin, marketMargin),
       blend_mode: blendMode,
-      residual_models_contributing: residualModels.length
+      residual_models_contributing: residualModels.length,
+      distribution,
+      player_availability: playerAvailability
     },
     models: perModel.sort((a, b) => b.margin_weight - a.margin_weight)
   };
@@ -820,7 +991,7 @@ export function ensembleLine(season, week, home, away, { weighting = 'exponentia
 
 /**
  * Confidence is about agreement, not edge size. A four-point disagreement with
- * the market means little if the twenty models are themselves scattered by six.
+ * the market means little if the component models are themselves scattered by six.
  */
 function confidenceFrom(disagreement, margin, marketMargin) {
   if (disagreement == null || margin == null || marketMargin == null) return 'unknown';

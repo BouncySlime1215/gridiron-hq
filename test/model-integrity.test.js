@@ -27,6 +27,9 @@ const { nflMarketMovement } = await import('../server/services/market-movement.j
 const { evidenceDaemonStatus } = await import('../server/services/evidence-daemon.js');
 const { allPicks } = await import('../server/services/mlb-auto-picks.js');
 const { startAiBlindReplay, normalizeReview, agentLearningMemory } = await import('../server/services/nfl-ai-replay.js');
+const { validationFirewall } = await import('../server/services/nfl-evidence.js');
+const { teamPlayerAvailability } = await import('../server/services/nfl-player-value.js');
+const { safeStakeFor } = await import('../server/services/staking.js');
 
 test.after(() => {
   db.close();
@@ -307,6 +310,50 @@ test('weekly availability respects exact injury and practice designations', () =
   assert.equal(a.get(502).active_probability, 0.01);
   assert.ok(a.get(501).active_probability >= 0.39 && a.get(501).active_probability <= 0.57);
   assert.equal(a.get(501).source, 'weekly injury report + durability prior');
+});
+
+test('NFL validation firewall never relabels opened seasons as untouched', () => {
+  const firewall = validationFirewall();
+  const development = firewall.windows.find(x => x.window_id === 'nfl-dev-2021-2025');
+  const forward = firewall.windows.find(x => x.window_id === 'nfl-forward-2026');
+  assert.equal(development.state, 'development_opened');
+  assert.equal(forward.state, 'forward_holdout');
+  assert.match(firewall.canonical_label, /not an untouched profitability test/);
+  assert.equal(firewall.untouched_gate_passed, false);
+});
+
+test('replacement-value availability is cutoff-safe and remains shadow-only', () => {
+  db.prepare(`INSERT INTO nfl_snaps
+    (season,week,player,position,team,offense_snaps,offense_pct)
+    VALUES (2026,2,'AAA Passer','QB','AAA',60,0.95),
+           (2026,5,'AAA Passer','QB','AAA',1,0.01)`).run();
+  db.prepare(`INSERT INTO nfl_injuries
+    (season,week,gsis_id,team,full_name,position,report_status,practice_status,injury)
+    VALUES (2026,4,'shadow-qb','AAA','AAA Passer','QB','Questionable','Did Not Participate','Hamstring'),
+           (2026,4,'shadow-rest','AAA','Resting Lineman','T',NULL,'Did Not Participate','Not injury related — resting player')`).run();
+  const a = teamPlayerAvailability(2026, 4, 'AAA');
+  const qb = a.material_players.find(x => x.player === 'AAA Passer');
+  assert.equal(qb.prior_snap_games, 1, 'the target and future weeks must not enter prior participation');
+  assert.equal(qb.prior_snap_share, 0.95);
+  assert.equal(a.production_eligible, false);
+  assert.equal(a.material_players.some(x => x.player === 'Resting Lineman'), false,
+    'non-injury rest should not be treated as a material injury shock');
+});
+
+test('safe stake sizing stays at zero until every evidence gate passes', () => {
+  const blocked = safeStakeFor({ winProb: 0.62, americanOdds: -110, bankroll: 1000,
+    calibrationPassed: false, forwardSettled: 20, uncertaintyWidth: 18 });
+  assert.equal(blocked.execution_eligible, false);
+  assert.equal(blocked.stake, 0);
+  assert.ok(blocked.blockers.length >= 2);
+  const malformed = safeStakeFor({ winProb: 0.62, americanOdds: -110, bankroll: 1000,
+    calibrationPassed: true, forwardSettled: 250, uncertaintyWidth: Number.NaN });
+  assert.equal(malformed.execution_eligible, false, 'invalid uncertainty cannot bypass the interval gate');
+  const eligible = safeStakeFor({ winProb: 0.62, americanOdds: -110, bankroll: 1000,
+    calibrationPassed: true, forwardSettled: 250, uncertaintyWidth: 18, openPortfolioFraction: 0.07 });
+  assert.equal(eligible.execution_eligible, true);
+  assert.ok(eligible.stake_fraction <= 0.01, 'remaining weekly exposure must cap the stake');
+  assert.ok(eligible.portfolio_fraction_after <= 0.08);
 });
 
 test('evidence manifests reject timestamps after their immutable cutoff', () => {

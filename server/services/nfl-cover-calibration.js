@@ -11,7 +11,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS nfl_cover_calibrations (
   UNIQUE(model_version, trained_from, trained_through)
 )`);
 
-const VERSION = 'cover-logit-v1';
+const VERSION = 'cover-logit-v2';
 const r4 = v => v == null || !Number.isFinite(v) ? null : +v.toFixed(4);
 const sigmoid = x => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x))));
 const logit = p => Math.log(Math.max(1e-5, Math.min(1 - 1e-5, p)) / Math.max(1e-5, 1 - Math.min(1 - 1e-5, p)));
@@ -59,7 +59,39 @@ function summarize(predicted) {
       actual: list.length ? r4(list.reduce((a, s) => a + s.outcome, 0) / list.length) : null
     };
   });
-  return { predicted, metrics: { calibrated_brier: r4(brier('calibrated')), market_brier: r4(brier('market_probability')) }, buckets };
+  const logLoss = key => predicted.length ? -predicted.reduce((sum, s) => {
+    const p = Math.max(1e-6, Math.min(1 - 1e-6, s[key]));
+    return sum + s.outcome * Math.log(p) + (1 - s.outcome) * Math.log(1 - p);
+  }, 0) / predicted.length : null;
+  const ece = predicted.length ? buckets.reduce((sum, b) => sum + b.n * Math.abs((b.predicted ?? 0) - (b.actual ?? 0)), 0) / predicted.length : null;
+  const calibration = fitProbabilityCalibration(predicted, 'calibrated');
+  return { predicted, metrics: {
+    calibrated_brier: r4(brier('calibrated')), market_brier: r4(brier('market_probability')),
+    calibrated_log_loss: r4(logLoss('calibrated')), market_log_loss: r4(logLoss('market_probability')),
+    expected_calibration_error: r4(ece), calibration_intercept: r4(calibration.intercept),
+    calibration_slope: r4(calibration.slope), base_rate: predicted.length ? r4(predicted.reduce((s, x) => s + x.outcome, 0) / predicted.length) : null
+  }, buckets };
+}
+
+function fitProbabilityCalibration(samples, key) {
+  if (samples.length < 30) return { intercept: null, slope: null };
+  let b0 = 0, b1 = 1;
+  for (let iter = 0; iter < 50; iter++) {
+    let g0 = 0, g1 = 0, h00 = 1e-4, h01 = 0, h11 = 1e-4;
+    for (const s of samples) {
+      const x = logit(s[key]);
+      const p = sigmoid(b0 + b1 * x), w = Math.max(1e-7, p * (1 - p));
+      g0 += s.outcome - p; g1 += x * (s.outcome - p);
+      h00 += w; h01 += w * x; h11 += w * x * x;
+    }
+    const det = h00 * h11 - h01 * h01;
+    if (Math.abs(det) < 1e-10) break;
+    const d0 = (g0 * h11 - g1 * h01) / det;
+    const d1 = (g1 * h00 - g0 * h01) / det;
+    b0 += d0; b1 += d1;
+    if (Math.abs(d0) + Math.abs(d1) < 1e-7) break;
+  }
+  return { intercept: b0, slope: b1 };
 }
 
 export function buildCoverCalibration({ fromSeason = 2021, throughSeason = 2025 } = {}) {
@@ -92,7 +124,17 @@ export function buildCoverCalibration({ fromSeason = 2021, throughSeason = 2025 
     walk_forward_n: walkForward.length,
     walk_forward_calibrated_brier: wf.metrics.calibrated_brier,
     walk_forward_market_brier: wf.metrics.market_brier,
-    forward_gate_passed: walkForward.length >= 200 && wf.metrics.calibrated_brier < wf.metrics.market_brier
+    walk_forward_calibrated_log_loss: wf.metrics.calibrated_log_loss,
+    walk_forward_market_log_loss: wf.metrics.market_log_loss,
+    walk_forward_expected_calibration_error: wf.metrics.expected_calibration_error,
+    walk_forward_calibration_intercept: wf.metrics.calibration_intercept,
+    walk_forward_calibration_slope: wf.metrics.calibration_slope,
+    forward_gate_passed: walkForward.length >= 200 &&
+      wf.metrics.calibrated_brier < wf.metrics.market_brier &&
+      wf.metrics.calibrated_log_loss <= wf.metrics.market_log_loss &&
+      Math.abs(wf.metrics.calibration_intercept ?? Infinity) <= 0.2 &&
+      (wf.metrics.calibration_slope ?? 0) >= 0.7 && (wf.metrics.calibration_slope ?? Infinity) <= 1.3 &&
+      (wf.metrics.expected_calibration_error ?? Infinity) <= 0.05
   };
   run(`INSERT INTO nfl_cover_calibrations
     (model_version,trained_from,trained_through,created_at,sample_size,intercept,edge_slope,metrics_json,reliability_json)

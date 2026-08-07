@@ -84,16 +84,32 @@ function update(id, patch) {
 function reportRun(id) {
   const r = rows('SELECT * FROM nfl_ai_replay_runs WHERE id=?', id)[0];
   if (!r) return null;
-  const reviews = rows('SELECT * FROM nfl_ai_replay_reviews WHERE run_id=? ORDER BY ordinal', id);
   return { ...r, seasons: parse(r.seasons_json), progress: parse(r.progress_json), result: parse(r.result_json),
-    seasons_json: undefined, progress_json: undefined, result_json: undefined,
-    reviews: reviews.map(x => ({ ...x, packet: parse(x.packet_json), review: parse(x.review_json), packet_json: undefined, review_json: undefined })) };
+    seasons_json: undefined, progress_json: undefined, result_json: undefined };
 }
 
-async function execute(id, bets) {
+const yieldToServer = () => new Promise(resolve => setImmediate(resolve));
+
+async function execute(id, seasons, maxReviews) {
   try {
+    const candidates = [];
+    for (const season of seasons) {
+      update(id, { current: 0, total: 0, season, week: null, game: null,
+        state: `building cutoff-safe ${season} candidates` });
+      // Let requests such as Dev Hub key saves and progress polls run between
+      // seasons instead of holding the event loop through a five-year replay.
+      await yieldToServer();
+      const replay = replaySeason(season);
+      if (replay.error) throw new Error(replay.error);
+      candidates.push(...replay.bets);
+      await yieldToServer();
+    }
+    const bets = candidates.slice(0, maxReviews);
+    update(id, { current: 0, total: bets.length, state: 'pregame packets locked; starting AI review' });
     for (let i = 0; i < bets.length; i++) {
       const bet = bets[i], packet = packetFor(bet);
+      run(`INSERT INTO nfl_ai_replay_reviews (run_id,ordinal,season,week,home,away,selection,packet_json)
+        VALUES (?,?,?,?,?,?,?,?)`, id, i + 1, bet.season, bet.week, bet.home, bet.away, bet.side, JSON.stringify(packet));
       update(id, { current: i + 1, total: bets.length, season: bet.season, week: bet.week,
         game: `${bet.away} at ${bet.home}`, state: 'asking AI pregame risk gate' });
       const msg = await callClaude({ feature: 'nfl_blind_replay_gate', model: MODEL, maxTokens: OUTPUT_TOKENS, prompt: promptFor(packet) });
@@ -125,20 +141,13 @@ export function startAiBlindReplay({ seasons = [2021, 2022, 2023, 2024, 2025], b
     throw error;
   }
   const cap = Math.min(Math.max(Number(budgetUsd) || 1, 0.05), 1);
-  const candidates = seasons.flatMap(season => replaySeason(season).bets);
-  const allowed = Math.min(candidates.length, Math.floor(cap / perReviewCost()));
+  const allowed = Math.floor(cap / perReviewCost());
   if (!allowed) throw new Error('Budget is too small for one bounded AI review.');
-  const selected = candidates.slice(0, allowed);
   run(`INSERT INTO nfl_ai_replay_runs (created_at,status,seasons_json,budget_usd,estimated_cost_usd,progress_json)
-    VALUES (datetime('now'),'running',?,?,?,?)`, JSON.stringify(seasons), cap, r3(selected.length * perReviewCost()),
-    JSON.stringify({ current: 0, total: selected.length, state: 'queued', max_cost_usd: cap, model: MODEL }));
+    VALUES (datetime('now'),'running',?,?,?,?)`, JSON.stringify(seasons), cap, r3(allowed * perReviewCost()),
+    JSON.stringify({ current: 0, total: 0, state: 'queued', max_cost_usd: cap, model: MODEL }));
   const id = rows('SELECT last_insert_rowid() id')[0].id;
-  for (let i = 0; i < selected.length; i++) {
-    const b = selected[i];
-    run(`INSERT INTO nfl_ai_replay_reviews (run_id,ordinal,season,week,home,away,selection,packet_json)
-      VALUES (?,?,?,?,?,?,?,?)`, id, i + 1, b.season, b.week, b.home, b.away, b.side, JSON.stringify(packetFor(b)));
-  }
-  setTimeout(() => execute(id, selected), 0);
+  setTimeout(() => execute(id, seasons, allowed), 0);
   return reportRun(id);
 }
 

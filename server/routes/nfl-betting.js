@@ -20,7 +20,7 @@ import { stakeFor, evaluateSizing } from '../services/staking.js';
 import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
 import { buildCoverCalibration, latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 import { capturePregameSnapshots, pregameSnapshotCoverage } from '../services/nfl-pregame.js';
-import { startAiBlindReplay, aiReplayRun } from '../services/nfl-ai-replay.js';
+import { startAiBlindReplay, aiReplayRun, aiReplayLogs } from '../services/nfl-ai-replay.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -271,6 +271,13 @@ r.get('/ai-replay/:id', (req, res, next) => {
     const out = aiReplayRun(req.params.id);
     if (!out) return res.status(404).json({ error: 'AI replay run not found' });
     res.json(out);
+  } catch (e) { next(e); }
+});
+r.get('/ai-replay/:id/logs', (req, res, next) => {
+  try {
+    const logs = aiReplayLogs(req.params.id);
+    if (!logs) return res.status(404).json({ error: 'AI replay run not found' });
+    res.json({ logs });
   } catch (e) { next(e); }
 });
 

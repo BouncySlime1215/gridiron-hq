@@ -160,6 +160,17 @@ export function startAiBlindReplay({ seasons = [2021, 2022, 2023, 2024, 2025], b
 
 export function aiReplayRun(id) { return reportRun(Number(id)); }
 
+/** Compact audit feed for the UI; final outcomes stay hidden while running. */
+export function aiReplayLogs(id) {
+  const job = rows('SELECT status FROM nfl_ai_replay_runs WHERE id=?', Number(id))[0];
+  if (!job) return null;
+  return rows(`SELECT ordinal,season,week,home,away,selection,review_json,outcome,units
+               FROM nfl_ai_replay_reviews WHERE run_id=? ORDER BY ordinal DESC LIMIT 80`, Number(id))
+    .map(x => ({ ...x, review: parse(x.review_json), review_json: undefined,
+      outcome: job.status === 'complete' ? x.outcome : null,
+      units: job.status === 'complete' ? x.units : null }));
+}
+
 /** Entry point used only by the detached local worker. */
 export async function runAiReplayWorker(id) {
   const job = rows('SELECT seasons_json,budget_usd FROM nfl_ai_replay_runs WHERE id=?', Number(id))[0];

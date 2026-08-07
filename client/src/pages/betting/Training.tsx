@@ -46,6 +46,11 @@ interface AiReplay {
   progress: { current: number; total: number; season?: number; week?: number; game?: string; state?: string; max_cost_usd?: number };
   result?: { candidates: number; reviewed: number; kept: number; abstained: number; wins: number; losses: number; win_rate: number | null; units: number; roi: number | null; evidence_status: string } | null;
 }
+interface AiReplayLog {
+  ordinal: number; season: number; week: number; home: string; away: string; selection: string;
+  review: { action: 'approve' | 'reduce' | 'abstain'; risk: 'low' | 'medium' | 'high'; adjustment: number; reasons: string[] } | null;
+  outcome: string | null; units: number | null;
+}
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}u`);
@@ -69,6 +74,7 @@ export default function Training() {
   const [aiRun, setAiRun] = useState<AiReplay | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiErr, setAiErr] = useState<string | null>(null);
+  const [aiLogs, setAiLogs] = useState<AiReplayLog[]>([]);
   const { data: protocol } = useApi<Protocol>('/nfl-betting/experiments/protocol');
   const { data: registry } = useApi<{ experiments: Experiment[] }>('/nfl-betting/experiments');
   const { data: calibrationPayload } = useApi<{ calibration: Calibration | null }>('/nfl-betting/calibration/cover');
@@ -77,7 +83,12 @@ export default function Training() {
   useEffect(() => { if (!data && latestAudit?.audit?.result) setData(latestAudit.audit.result); }, [latestAudit, data]);
   useEffect(() => {
     if (!aiRun || aiRun.status !== 'running') return;
-    const timer = window.setInterval(() => api<AiReplay>(`/nfl-betting/ai-replay/${aiRun.id}`).then(setAiRun).catch(e => setAiErr(e.message)), 800);
+    const tick = () => {
+      api<AiReplay>(`/nfl-betting/ai-replay/${aiRun.id}`).then(setAiRun).catch(e => setAiErr(e.message));
+      api<{ logs: AiReplayLog[] }>(`/nfl-betting/ai-replay/${aiRun.id}/logs`).then(x => setAiLogs(x.logs)).catch(() => {});
+    };
+    tick();
+    const timer = window.setInterval(tick, 800);
     return () => window.clearInterval(timer);
   }, [aiRun?.id, aiRun?.status]);
 
@@ -90,7 +101,7 @@ export default function Training() {
     finally { setBusy(false); }
   };
   const runAi = async () => {
-    setAiBusy(true); setAiErr(null); setAiRun(null);
+    setAiBusy(true); setAiErr(null); setAiRun(null); setAiLogs([]);
     try {
       const started = await api<AiReplay>('/nfl-betting/ai-replay', { method: 'POST', body: JSON.stringify({ seasons: seasons.split(',').map(Number), budgetUsd: 1 }) });
       setAiRun(started);
@@ -130,7 +141,7 @@ export default function Training() {
           </button>
         </div>
         {aiErr && <div className="mt-3 text-xs text-rose-700">{aiErr}</div>}
-        {aiRun && <AiReplayPanel run={aiRun} />}
+        {aiRun && <AiReplayPanel run={aiRun} logs={aiLogs} />}
       </div>
 
       {protocol && (
@@ -300,20 +311,29 @@ export default function Training() {
   );
 }
 
-function AiReplayPanel({ run }: { run: AiReplay }) {
+function AiReplayPanel({ run, logs }: { run: AiReplay; logs: AiReplayLog[] }) {
   const p = run.progress;
   const percent = p.total ? Math.min(100, Math.round((p.current / p.total) * 100)) : 0;
   return <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
     {run.status === 'running' ? <>
-      <div className="flex items-center justify-between gap-3 text-xs"><span className="font-bold text-slate-800 animate-pulse">{p.state ?? 'Preparing replay'}</span><span className="tabular-nums text-slate-500">{p.current}/{p.total} · ${run.estimated_cost_usd.toFixed(2)} estimated / ${run.budget_usd.toFixed(2)} cap</span></div>
+      <div className="flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-2 font-bold text-slate-800"><span className="relative flex h-3 w-3"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60"/><span className="relative inline-flex h-3 w-3 rounded-full bg-blue-600"/></span>{p.state ?? 'Preparing replay'}</span><span className="tabular-nums text-slate-500">{p.current}/{p.total} · ${run.estimated_cost_usd.toFixed(2)} estimated / ${run.budget_usd.toFixed(2)} cap</span></div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${percent}%` }} /></div>
       <div className="mt-2 text-sm font-semibold text-slate-900">Week {p.week ?? '—'} · {p.game ?? 'locking packet…'}</div>
-      <div className="text-[11px] text-slate-500">No outcomes are released to the agent while this status is running.</div>
+      <div className="flex items-center gap-1 text-[11px] text-slate-500"><span>No outcomes are released to the agent while this status is running.</span><span className="inline-flex gap-1 ml-1"><i className="h-1 w-1 rounded-full bg-blue-500 animate-bounce"/><i className="h-1 w-1 rounded-full bg-blue-500 animate-bounce [animation-delay:120ms]"/><i className="h-1 w-1 rounded-full bg-blue-500 animate-bounce [animation-delay:240ms]"/></span></div>
     </> : run.status === 'complete' && run.result ? <>
       <div className="text-xs font-black uppercase tracking-wide text-slate-500">AI replay complete</div>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2"><Metric label="Reviewed" value={String(run.result.reviewed)} /><Metric label="Kept" value={String(run.result.kept)} /><Metric label="Record" value={`${run.result.wins}-${run.result.losses}`} /><Metric label="Win rate" value={pct(run.result.win_rate)} /><Metric label="ROI" value={pct(run.result.roi)} tone={(run.result.roi ?? 0) > 0 ? 'good' : 'bad'} /></div>
       <p className="mt-3 text-[11px] text-amber-700">{run.result.evidence_status}</p>
     </> : <div className="text-xs text-rose-700">Agent replay failed: {run.error ?? 'Unknown error'}</div>}
+    {logs.length > 0 && <div className="mt-4 border-t border-slate-100 pt-3">
+      <div className="mb-2 flex items-center justify-between"><div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Live agent trace</div><div className="text-[10px] text-slate-400">Latest {Math.min(logs.length, 80)} reviews</div></div>
+      <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+        {logs.map(log => <div key={log.ordinal} className="rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2"><b>#{log.ordinal} · {log.season} W{log.week}</b><span>{log.away} at {log.home}</span><span className="text-slate-500">{log.selection}</span>{log.review && <StatusPill tone={log.review.action === 'approve' ? 'good' : log.review.action === 'abstain' ? 'warn' : 'neutral'}>{log.review.action} · {log.review.risk} risk</StatusPill>}{log.outcome && <span className="ml-auto font-semibold text-slate-700">{log.outcome}</span>}</div>
+          {log.review?.reasons?.length ? <ul className="mt-1 list-disc pl-4 text-[11px] leading-4 text-slate-600">{log.review.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul> : <div className="mt-1 text-[11px] text-slate-400 animate-pulse">Pregame packet locked; waiting for structured review…</div>}
+        </div>)}
+      </div>
+    </div>}
   </div>;
 }
 

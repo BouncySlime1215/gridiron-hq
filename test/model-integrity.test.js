@@ -26,7 +26,7 @@ const { buildMlbCalibration } = await import('../server/services/mlb-calibration
 const { nflMarketMovement } = await import('../server/services/market-movement.js');
 const { evidenceDaemonStatus } = await import('../server/services/evidence-daemon.js');
 const { allPicks } = await import('../server/services/mlb-auto-picks.js');
-const { startAiBlindReplay } = await import('../server/services/nfl-ai-replay.js');
+const { startAiBlindReplay, normalizeReview } = await import('../server/services/nfl-ai-replay.js');
 
 test.after(() => {
   db.close();
@@ -54,6 +54,19 @@ test('seeded simulations are exactly reproducible', () => {
 
 test('AI replay refuses to spend before a Claude key is configured', () => {
   assert.throws(() => startAiBlindReplay(), /No Claude API key configured/);
+});
+
+test('AI gate v2 enforces one internally consistent stake decision', () => {
+  assert.deepEqual(normalizeReview({ action: 'approve', risk_score: 24, stake_multiplier: 1,
+    flags: [], reasons: ['Pregame evidence is coherent.'] }), {
+    action: 'approve', risk: 'low', risk_score: 24, stake_multiplier: 1,
+    flags: [], reasons: ['Pregame evidence is coherent.']
+  });
+  const inconsistent = normalizeReview({ action: 'approve', risk_score: 62, stake_multiplier: 0.5,
+    flags: [], reasons: ['Contradictory fields.'] });
+  assert.equal(inconsistent.action, 'abstain');
+  assert.equal(inconsistent.stake_multiplier, 0);
+  assert.equal(inconsistent.parser_fallback, true);
 });
 
 test('live and replay policy enforces the same eligibility rules and weekly cap', () => {

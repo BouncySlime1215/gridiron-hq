@@ -30,10 +30,31 @@ CREATE TABLE IF NOT EXISTS nfl_ai_replay_candidate_cache (
 const parse = v => { try { return JSON.parse(v); } catch { return null; } };
 const r3 = v => v == null || !Number.isFinite(v) ? null : +v.toFixed(3);
 const MODEL = 'claude-haiku-4-5-20251001';
-const INPUT_TOKENS = 850, OUTPUT_TOKENS = 120;
+const INPUT_TOKENS = 1800, OUTPUT_TOKENS = 180;
 const CACHE_VERSION = 'nfl-ai-candidates-v1';
 const REVIEW_CONCURRENCY = 3;
+const GATE_VERSION = 'nfl-ai-gate-v2';
+const REVIEW_TOOL = {
+  name: 'submit_pregame_review',
+  description: 'Submit the single bounded pregame risk decision for the locked NFL selection.',
+  input_schema: {
+    type: 'object', additionalProperties: false,
+    properties: {
+      action: { type: 'string', enum: ['approve', 'reduce', 'abstain'] },
+      risk_score: { type: 'integer', minimum: 0, maximum: 100 },
+      stake_multiplier: { type: 'number', enum: [0, 0.5, 1] },
+      flags: { type: 'array', maxItems: 5, uniqueItems: true, items: { type: 'string', enum: [
+        'availability_uncertain', 'quarterback_uncertain', 'weather_variance', 'model_disagreement',
+        'price_unverified', 'feature_gap', 'late_season_volatility', 'explicit_contradiction'
+      ] } },
+      reasons: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string', maxLength: 160 } }
+    },
+    required: ['action', 'risk_score', 'stake_multiplier', 'flags', 'reasons']
+  }
+};
 const perReviewCost = () => costOf(MODEL, INPUT_TOKENS, OUTPUT_TOKENS);
+const reviewMultiplier = review => review?.stake_multiplier
+  ?? (review?.action === 'reduce' ? 0.5 : review?.action === 'abstain' ? 0 : 1);
 
 function packetFor(bet) {
   const slim = team => {
@@ -59,12 +80,19 @@ function packetFor(bet) {
     weather_rest_venue: 'historical game record present; source capture timestamp unavailable',
     price: 'historical line present; quote capture timestamp unavailable'
   };
+  const homeFeatures = slim(bet.home), awayFeatures = slim(bet.away);
+  const contextValues = [game.open_spread, game.spread, game.total, game.temp, game.wind, game.roof, game.rest_days, game.div_game];
+  const selectedTeam = String(bet.side ?? '').split(' ')[0];
+  const selectedIsHome = selectedTeam === bet.home;
+  const selectedRole = `${selectedIsHome ? 'home' : 'away'}_${Number(bet.line) > 0 ? 'underdog' : Number(bet.line) < 0 ? 'favorite' : 'pickem'}`;
   return {
-    protocol: 'nfl-ai-gate-v1', mode: 'retrospective_reconstruction_research_only',
+    protocol: GATE_VERSION, mode: 'retrospective_reconstruction_research_only',
     cutoff_rule: 'team features are strictly prior to target week; final score/result excluded from prompt',
-    game: { season: bet.season, week: bet.week, away: bet.away, home: bet.home },
+    game: { season: bet.season, week: bet.week, phase: bet.week <= 6 ? 'early' : bet.week >= 14 ? 'late' : 'mid',
+      away: bet.away, home: bet.home },
     market: { selection: bet.selection ?? bet.side, spread: bet.line, american_price: bet.american_price,
-      source: bet.quote_source ?? null, quote_timestamp_status: 'historical quote timestamp not preserved' },
+      selected_team: selectedTeam, selected_role: selectedRole, source: bet.quote_source ?? null,
+      quote_timestamp_status: 'historical quote timestamp not preserved' },
     pregame_context: { opening_spread: game.open_spread ?? null, current_spread: game.spread ?? null,
       total: game.total ?? null, temperature_f: game.temp ?? null, wind_mph: game.wind ?? null,
       roof: game.roof ?? null, home_rest_days: game.rest_days ?? null, divisional_game: game.div_game ?? null },
@@ -74,19 +102,26 @@ function packetFor(bet) {
       // packet is built. Re-running the ensemble here is redundant, slow, and
       // can needlessly contend with candidate construction.
       projected_margin: bet.model_margin ?? null, market_spread: bet.market_margin ?? null,
-      models_contributing: bet.feature_snapshot?.margin_models_active ?? null },
-    prior_features: { [bet.home]: slim(bet.home), [bet.away]: slim(bet.away) },
+      models_contributing: bet.feature_snapshot?.margin_models_active ?? null,
+      edge_to_disagreement: bet.disagreement > 0 ? r3(bet.edge_points / bet.disagreement) : null },
+    prior_features: { [bet.home]: homeFeatures, [bet.away]: awayFeatures },
+    evidence_coverage: { home_feature_fields: Object.keys(homeFeatures).length, away_feature_fields: Object.keys(awayFeatures).length,
+      injury_rows: injuryRows.length, quarterback_reports: qbs[bet.home].length + qbs[bet.away].length,
+      context_fields_present: contextValues.filter(x => x != null).length, context_fields_total: contextValues.length,
+      preserved_quote_timestamp: false },
     source_notes: sourceNotes,
     admissibility: 'research_only — source timestamps are incomplete; never eligible for production promotion'
   };
 }
 
-const promptFor = packet => `You are a bounded NFL pregame risk reviewer. Use ONLY this JSON packet.\nDo not infer missing injuries, news, weather, or outcomes. Do not change the selection.\nReturn EXACTLY one line of valid JSON, with no Markdown and no extra text: {"action":"approve"|"reduce"|"abstain","risk":"low"|"medium"|"high","adjustment":number,"reasons":[string]}.\nRules: adjustment must be -0.15, -0.05, or 0. Reasons must be 120 characters or fewer, contain no quotation marks, and contain no line breaks.\nThis is a historical RESEARCH replay. The packet's research-only label, missing original quote timestamp, missing old injury report, or missing weather field are REPORT LIMITATIONS, not game-specific abstention triggers. Treat those as a reason to reduce, never abstain.\nChoose abstain ONLY for an explicit contradiction inside the packet (for example an impossible/missing selected price, conflicting team/game identifiers, or an invalid model edge). If no explicit contradiction exists, choose approve or reduce.\nPACKET:\n${JSON.stringify(packet)}`;
+const promptFor = packet => `You are a bounded NFL pregame risk reviewer. Use ONLY this JSON packet.\nDo not infer missing injuries, news, weather, or outcomes. Do not change the selection or estimate a win probability.\nSubmit exactly one submit_pregame_review tool call. The action and stake multiplier MUST agree:\n- approve = 1 unit and risk_score 0-35\n- reduce = 0.5 units and risk_score 36-69\n- abstain = 0 units and risk_score 70-100\nMissing historical quote timestamps are a research limitation, not by themselves an abstention. Use abstain for an explicit packet contradiction, severe feature gap, or unresolved QB/availability uncertainty.\nLate-season timing is not automatically bad; flag late_season_volatility only when the packet also lacks availability evidence or shows a concrete availability concern.\nPACKET:\n${JSON.stringify(packet)}`;
 
 function parseReview(msg) {
+  const toolInput = msg?.content?.find?.(block => block.type === 'tool_use' && block.name === REVIEW_TOOL.name)?.input;
+  if (toolInput) return normalizeReview(toolInput);
   const raw = String(msg?.content?.[0]?.text ?? '').trim().replace(/^```json?\s*|\s*```$/g, '');
   const candidate = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
-  try { return JSON.parse(candidate); }
+  try { return normalizeReview(JSON.parse(candidate)); }
   catch {
     // A model occasionally emits an unescaped character inside an otherwise
     // valid reason. Recover only the constrained fields we asked for; never
@@ -97,14 +132,30 @@ function parseReview(msg) {
     const reasonBlock = candidate.match(/"reasons"\s*:\s*\[([\s\S]*?)\]/)?.[1] ?? '';
     const reasons = [...reasonBlock.matchAll(/"([^"\n]{1,160})"/g)].map(x => x[1]);
     if (action && risk && [-0.15, -0.05, 0].includes(adjustment) && reasons.length) {
-      return { action, risk, adjustment, reasons };
+      return normalizeReview({ action, risk_score: risk === 'low' ? 25 : risk === 'medium' ? 50 : 80,
+        stake_multiplier: action === 'approve' ? 1 : action === 'reduce' ? 0.5 : 0, flags: [], reasons });
     }
     // A formatting miss must never kill a paid, otherwise-valid blind replay.
     // Treat it as the conservative decision and leave an explicit audit trail.
     // This is a parser fallback, not an invented football opinion.
-    return { action: 'abstain', risk: 'high', adjustment: -0.15,
-      reasons: ['Structured response could not be validated; conservatively excluded.'], parser_fallback: true };
+    return { action: 'abstain', risk: 'high', risk_score: 100, stake_multiplier: 0,
+      flags: ['explicit_contradiction'], reasons: ['Structured response could not be validated; conservatively excluded.'], parser_fallback: true };
   }
+}
+
+export function normalizeReview(input) {
+  const score = Math.max(0, Math.min(100, Math.round(Number(input?.risk_score))));
+  const action = input?.action;
+  const expected = action === 'approve' ? 1 : action === 'reduce' ? 0.5 : action === 'abstain' ? 0 : null;
+  const reasons = Array.isArray(input?.reasons) ? input.reasons.map(String).filter(Boolean).slice(0, 4) : [];
+  const flags = Array.isArray(input?.flags) ? [...new Set(input.flags.map(String))].slice(0, 5) : [];
+  const scoreMatches = action === 'approve' ? score <= 35 : action === 'reduce' ? score >= 36 && score <= 69 : score >= 70;
+  if (expected == null || !Number.isFinite(score) || reasons.length === 0 || Number(input?.stake_multiplier) !== expected || !scoreMatches) {
+    return { action: 'abstain', risk: 'high', risk_score: 100, stake_multiplier: 0,
+      flags: ['explicit_contradiction'], reasons: ['Structured review was internally inconsistent; conservatively excluded.'], parser_fallback: true };
+  }
+  return { action, risk: score <= 35 ? 'low' : score <= 69 ? 'medium' : 'high', risk_score: score,
+    stake_multiplier: expected, flags, reasons };
 }
 
 function update(id, patch) {
@@ -116,7 +167,27 @@ function update(id, patch) {
 function reportRun(id) {
   const r = rows('SELECT * FROM nfl_ai_replay_runs WHERE id=?', id)[0];
   if (!r) return null;
-  return { ...r, seasons: parse(r.seasons_json), progress: parse(r.progress_json), result: parse(r.result_json),
+  let result = parse(r.result_json);
+  if (r.status === 'complete' && result) {
+    const graded = rows('SELECT season,week,review_json,outcome,units FROM nfl_ai_replay_reviews WHERE run_id=?', id);
+    const kept = graded.filter(x => reviewMultiplier(parse(x.review_json)) > 0);
+    const totalStaked = kept.reduce((s, x) => s + reviewMultiplier(parse(x.review_json)), 0);
+    const weightedUnits = kept.reduce((s, x) => s + x.units * reviewMultiplier(parse(x.review_json)), 0);
+    const weeks = new Map();
+    for (const x of graded) {
+      const key = `${x.season}-${x.week}`;
+      weeks.set(key, (weeks.get(key) ?? 0) + (reviewMultiplier(parse(x.review_json)) > 0 ? 1 : 0));
+    }
+    result = { ...result, total_units_staked: r3(totalStaked), roi_per_kept: kept.length ? r3(weightedUnits / kept.length) : null,
+      units: r3(weightedUnits), roi: totalStaked ? r3(weightedUnits / totalStaked) : null,
+      pushes: kept.filter(x => x.outcome === 'Push').length, calculation_version: 'stake-normalized-v2',
+      weekly_coverage: result.weekly_coverage ?? { weeks: weeks.size,
+        average_kept: r3([...weeks.values()].reduce((s, n) => s + n, 0) / Math.max(1, weeks.size)),
+        weeks_with_3_plus: [...weeks.values()].filter(n => n >= 3).length,
+        zero_kept_weeks: [...weeks.values()].filter(n => n === 0).length }
+    };
+  }
+  return { ...r, seasons: parse(r.seasons_json), progress: parse(r.progress_json), result,
     seasons_json: undefined, progress_json: undefined, result_json: undefined };
 }
 
@@ -157,7 +228,9 @@ async function execute(id, seasons, maxReviews) {
       for (const x of prepared) run(`INSERT INTO nfl_ai_replay_reviews (run_id,ordinal,season,week,home,away,selection,packet_json)
         VALUES (?,?,?,?,?,?,?,?)`, id, x.ordinal, x.bet.season, x.bet.week, x.bet.home, x.bet.away, x.bet.side, JSON.stringify(x.packet));
       const completed = await Promise.all(prepared.map(async x => {
-        const msg = await callClaude({ feature: 'nfl_blind_replay_gate', model: MODEL, maxTokens: OUTPUT_TOKENS, prompt: promptFor(x.packet) });
+        const msg = await callClaude({ feature: 'nfl_blind_replay_gate', model: MODEL, maxTokens: OUTPUT_TOKENS,
+          prompt: promptFor(x.packet), tools: [REVIEW_TOOL], toolChoice: { type: 'tool', name: REVIEW_TOOL.name,
+            disable_parallel_tool_use: true } });
         return { ...x, review: parseReview(msg) };
       }));
       for (const x of completed) {
@@ -168,11 +241,19 @@ async function execute(id, seasons, maxReviews) {
         game: `${batch.at(-1).away} at ${batch.at(-1).home}`, state: 'AI reviews saved' });
     }
     const graded = rows('SELECT review_json,outcome,units FROM nfl_ai_replay_reviews WHERE run_id=?', id);
-    const kept = graded.filter(x => parse(x.review_json)?.action !== 'abstain');
-    const units = kept.reduce((s, x) => s + x.units * (parse(x.review_json)?.action === 'reduce' ? 0.5 : 1), 0);
+    const kept = graded.filter(x => reviewMultiplier(parse(x.review_json)) > 0);
+    const totalStaked = kept.reduce((s, x) => s + reviewMultiplier(parse(x.review_json)), 0);
+    const units = kept.reduce((s, x) => s + x.units * reviewMultiplier(parse(x.review_json)), 0);
     const wins = kept.filter(x => x.outcome === 'Won').length, losses = kept.filter(x => x.outcome === 'Lost').length;
-    const result = { candidates: graded.length, reviewed: graded.length, kept: kept.length, abstained: graded.length - kept.length,
-      wins, losses, win_rate: wins + losses ? r3(wins / (wins + losses)) : null, units: r3(units), roi: kept.length ? r3(units / kept.length) : null,
+    const weekly = rows(`SELECT season,week,COUNT(*) reviewed,
+      SUM(CASE WHEN COALESCE(json_extract(review_json,'$.stake_multiplier'),CASE json_extract(review_json,'$.action') WHEN 'reduce' THEN .5 WHEN 'abstain' THEN 0 ELSE 1 END)>0 THEN 1 ELSE 0 END) kept
+      FROM nfl_ai_replay_reviews WHERE run_id=? GROUP BY season,week`, id);
+    const result = { gate_version: GATE_VERSION, candidates: graded.length, reviewed: graded.length, kept: kept.length, abstained: graded.length - kept.length,
+      wins, losses, pushes: kept.filter(x => x.outcome === 'Push').length,
+      win_rate: wins + losses ? r3(wins / (wins + losses)) : null, total_units_staked: r3(totalStaked),
+      units: r3(units), roi: totalStaked ? r3(units / totalStaked) : null, calculation_version: 'stake-normalized-v2',
+      weekly_coverage: { weeks: weekly.length, average_kept: r3(weekly.reduce((s, x) => s + x.kept, 0) / Math.max(1, weekly.length)),
+        weeks_with_3_plus: weekly.filter(x => x.kept >= 3).length, zero_kept_weeks: weekly.filter(x => x.kept === 0).length },
       evidence_status: 'research_only — historical quote/snapshot timestamps were not preserved; no promotion decision may use this report' };
     run(`UPDATE nfl_ai_replay_runs SET status='complete',progress_json=?,result_json=? WHERE id=?`,
       JSON.stringify({ current: bets.length, total: bets.length, state: 'complete' }), JSON.stringify(result), id);

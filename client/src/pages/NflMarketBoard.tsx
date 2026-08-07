@@ -178,7 +178,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
       </nav>
 
       {tool === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
-      {tool === 'training' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading blind replay', 'Checking immutable audit', 'Rendering evidence']} />}><Training /></Suspense>}
+      {tool === 'training' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact title="Opening saved blind replay audit" stages={['Loading replay interface', 'Reading saved audit', 'Rendering evidence']} />}><Training /></Suspense>}
       {tool === 'lines' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading line shop', 'Checking quote cache', 'Rendering market view']} />}><LineShop /></Suspense>}
       {tool === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}
       {tool === 'operations' && <NflModelOperations />}

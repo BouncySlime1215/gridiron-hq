@@ -216,6 +216,10 @@ export function startAiBlindReplay({ seasons = [2021, 2022, 2023, 2024, 2025], b
 }
 
 export function aiReplayRun(id) { return reportRun(Number(id)); }
+export function latestAiReplayRun() {
+  const r = rows(`SELECT id FROM nfl_ai_replay_runs ORDER BY id DESC LIMIT 1`)[0];
+  return r ? reportRun(r.id) : null;
+}
 export function activeAiReplayRun() {
   const r = rows(`SELECT id FROM nfl_ai_replay_runs WHERE status='running' ORDER BY id DESC LIMIT 1`)[0];
   return r ? reportRun(r.id) : null;

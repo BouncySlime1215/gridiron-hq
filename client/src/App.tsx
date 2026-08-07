@@ -31,6 +31,7 @@ import NflProps from './pages/betting/NflProps';
 import MlbBoard from './pages/betting/MlbBoard';
 import MlbAutoPicks from './pages/betting/MlbAutoPicks';
 import QuickJump, { destinationLabel } from './components/QuickJump';
+import AiReplayDock from './components/AiReplayDock';
 
 // Fantasy and betting answer different questions off different data, so they get
 // separate sections rather than one long mixed list. Edge Tools and the
@@ -207,6 +208,7 @@ export default function App() {
           <Route path="/props/model" element={<PropsModel />} />
         </Routes>
         </main>
+        <AiReplayDock />
       </div>
     </div>
     </PlayerCardProvider>

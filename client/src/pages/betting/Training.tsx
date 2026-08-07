@@ -80,11 +80,19 @@ export default function Training() {
   const { data: calibrationPayload } = useApi<{ calibration: Calibration | null }>('/nfl-betting/calibration/cover');
   const { data: latestAudit } = useApi<{ audit: { result: Training } | null }>('/nfl-betting/replay/latest');
   const { data: activeAiPayload } = useApi<{ run: AiReplay | null }>('/nfl-betting/ai-replay/active');
+  const { data: latestAiPayload } = useApi<{ run: AiReplay | null }>('/nfl-betting/ai-replay/latest');
   const calibration = calibrationPayload?.calibration;
   useEffect(() => { if (!data && latestAudit?.audit?.result) setData(latestAudit.audit.result); }, [latestAudit, data]);
   // A dev-server refresh should never make an already-running, budgeted job
   // disappear from the UI. Reattach to the persisted local run automatically.
   useEffect(() => { if (!aiRun && activeAiPayload?.run) setAiRun(activeAiPayload.run); }, [activeAiPayload, aiRun]);
+  useEffect(() => {
+    const latest = latestAiPayload?.run;
+    if (aiRun || !latest) return;
+    setAiRun(latest);
+    api<{ logs: AiReplayLog[] }>(`/nfl-betting/ai-replay/${latest.id}/logs`)
+      .then(x => setAiLogs(x.logs)).catch(() => {});
+  }, [latestAiPayload, aiRun]);
   useEffect(() => {
     if (!aiRun || aiRun.status !== 'running') return;
     const tick = () => {
@@ -160,6 +168,7 @@ export default function Training() {
         </div>
         {aiErr && <div className="mt-3 text-xs text-rose-700">{aiErr}</div>}
         {activeAiPayload?.run?.status === 'running' && <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">A paid replay is active. Every replay control is locked until it completes or fails; use <b>Reattach live run</b> to reopen its trace after a reload.</div>}
+        {aiRun && <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500"><span>Showing saved run <b className="text-slate-800">#{aiRun.id}</b> · {aiRun.status}</span><span>{aiLogs.length} trace rows loaded</span></div>}
         {aiRun && <AiReplayPanel run={aiRun} logs={aiLogs} />}
       </div>
 

@@ -26,6 +26,7 @@ const { buildMlbCalibration } = await import('../server/services/mlb-calibration
 const { nflMarketMovement } = await import('../server/services/market-movement.js');
 const { evidenceDaemonStatus } = await import('../server/services/evidence-daemon.js');
 const { allPicks } = await import('../server/services/mlb-auto-picks.js');
+const { startAiBlindReplay } = await import('../server/services/nfl-ai-replay.js');
 
 test.after(() => {
   db.close();
@@ -49,6 +50,10 @@ test('seeded simulations are exactly reproducible', () => {
   const c = withRandomSeed(42, () => Array.from({ length: 8 }, random));
   assert.deepEqual(a, b);
   assert.notDeepEqual(a, c);
+});
+
+test('AI replay refuses to spend before a Claude key is configured', () => {
+  assert.throws(() => startAiBlindReplay(), /No Claude API key configured/);
 });
 
 test('live and replay policy enforces the same eligibility rules and weekly cap', () => {

@@ -20,6 +20,7 @@ import { stakeFor, evaluateSizing } from '../services/staking.js';
 import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
 import { buildCoverCalibration, latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 import { capturePregameSnapshots, pregameSnapshotCoverage } from '../services/nfl-pregame.js';
+import { startAiBlindReplay, aiReplayRun } from '../services/nfl-ai-replay.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -255,6 +256,22 @@ r.post('/replay/train', (req, res, next) => {
 
 r.get('/replay/latest', (_req, res, next) => {
   try { res.json({ audit: latestTrainingAudit() }); } catch (e) { next(e); }
+});
+
+/** Starts a bounded-cost, outcome-blind AI risk-gate replay. */
+r.post('/ai-replay', (req, res, next) => {
+  try { res.status(202).json(startAiBlindReplay(req.body ?? {})); }
+  catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+r.get('/ai-replay/:id', (req, res, next) => {
+  try {
+    const out = aiReplayRun(req.params.id);
+    if (!out) return res.status(404).json({ error: 'AI replay run not found' });
+    res.json(out);
+  } catch (e) { next(e); }
 });
 
 r.get('/calibration/cover', (req, res, next) => {

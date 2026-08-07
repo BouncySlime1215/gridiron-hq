@@ -40,6 +40,12 @@ interface Calibration {
     walk_forward_market_brier: number | null; forward_gate_passed: boolean };
   reliability: { range: string; n: number; predicted: number | null; actual: number | null }[];
 }
+interface AiReplay {
+  id: number; status: 'running' | 'complete' | 'failed'; budget_usd: number; estimated_cost_usd: number;
+  error?: string | null;
+  progress: { current: number; total: number; season?: number; week?: number; game?: string; state?: string; max_cost_usd?: number };
+  result?: { candidates: number; reviewed: number; kept: number; abstained: number; wins: number; losses: number; win_rate: number | null; units: number; roi: number | null; evidence_status: string } | null;
+}
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}u`);
@@ -60,12 +66,20 @@ export default function Training() {
   const [data, setData] = useState<Training | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [aiRun, setAiRun] = useState<AiReplay | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiErr, setAiErr] = useState<string | null>(null);
   const { data: protocol } = useApi<Protocol>('/nfl-betting/experiments/protocol');
   const { data: registry } = useApi<{ experiments: Experiment[] }>('/nfl-betting/experiments');
   const { data: calibrationPayload } = useApi<{ calibration: Calibration | null }>('/nfl-betting/calibration/cover');
   const { data: latestAudit } = useApi<{ audit: { result: Training } | null }>('/nfl-betting/replay/latest');
   const calibration = calibrationPayload?.calibration;
   useEffect(() => { if (!data && latestAudit?.audit?.result) setData(latestAudit.audit.result); }, [latestAudit, data]);
+  useEffect(() => {
+    if (!aiRun || aiRun.status !== 'running') return;
+    const timer = window.setInterval(() => api<AiReplay>(`/nfl-betting/ai-replay/${aiRun.id}`).then(setAiRun).catch(e => setAiErr(e.message)), 800);
+    return () => window.clearInterval(timer);
+  }, [aiRun?.id, aiRun?.status]);
 
   const run = async () => {
     setBusy(true); setErr(null); setData(null);
@@ -74,6 +88,14 @@ export default function Training() {
       setData(saved.result);
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(false); }
+  };
+  const runAi = async () => {
+    setAiBusy(true); setAiErr(null); setAiRun(null);
+    try {
+      const started = await api<AiReplay>('/nfl-betting/ai-replay', { method: 'POST', body: JSON.stringify({ seasons: seasons.split(',').map(Number), budgetUsd: 1 }) });
+      setAiRun(started);
+    } catch (e: any) { setAiErr(e.message); }
+    finally { setAiBusy(false); }
   };
 
   const o = data?.overall;
@@ -95,6 +117,21 @@ export default function Training() {
       <Notice title="Exact production-policy replay" tone="info">
         This audit uses the same versioned spread-only policy, three-point edge floor, disagreement guard, weekly five-pick cap, ranking rule, and stored prices as the live decision desk.
       </Notice>
+
+      <div className="card my-5 border-slate-300 bg-slate-50 p-4">
+        <div className="flex flex-wrap gap-3 items-start">
+          <div className="flex-1 min-w-[16rem]">
+            <div className="text-xs font-black uppercase tracking-wide text-slate-600">Claude pregame risk-gate replay</div>
+            <div className="text-sm font-semibold text-slate-900 mt-1">Blind agent review · hard $1 maximum</div>
+            <p className="text-xs leading-5 text-slate-600 mt-1">The agent sees a locked pregame packet only: prior stats, archived injuries/QB reports when present, line, rest, weather and venue. It can approve, reduce, or abstain—never see the result.</p>
+          </div>
+          <button className="btn-primary text-xs" onClick={runAi} disabled={aiBusy || aiRun?.status === 'running'}>
+            {aiBusy || aiRun?.status === 'running' ? 'Agent replay running…' : '✦ Run 5-year AI report ($1 max)'}
+          </button>
+        </div>
+        {aiErr && <div className="mt-3 text-xs text-rose-700">{aiErr}</div>}
+        {aiRun && <AiReplayPanel run={aiRun} />}
+      </div>
 
       {protocol && (
         <div className="card my-5 border-slate-300 bg-slate-50 p-4">
@@ -261,6 +298,23 @@ export default function Training() {
       )}
     </div>
   );
+}
+
+function AiReplayPanel({ run }: { run: AiReplay }) {
+  const p = run.progress;
+  const percent = p.total ? Math.min(100, Math.round((p.current / p.total) * 100)) : 0;
+  return <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+    {run.status === 'running' ? <>
+      <div className="flex items-center justify-between gap-3 text-xs"><span className="font-bold text-slate-800 animate-pulse">{p.state ?? 'Preparing replay'}</span><span className="tabular-nums text-slate-500">{p.current}/{p.total} · ${run.estimated_cost_usd.toFixed(2)} estimated / ${run.budget_usd.toFixed(2)} cap</span></div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{ width: `${percent}%` }} /></div>
+      <div className="mt-2 text-sm font-semibold text-slate-900">Week {p.week ?? '—'} · {p.game ?? 'locking packet…'}</div>
+      <div className="text-[11px] text-slate-500">No outcomes are released to the agent while this status is running.</div>
+    </> : run.status === 'complete' && run.result ? <>
+      <div className="text-xs font-black uppercase tracking-wide text-slate-500">AI replay complete</div>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2"><Metric label="Reviewed" value={String(run.result.reviewed)} /><Metric label="Kept" value={String(run.result.kept)} /><Metric label="Record" value={`${run.result.wins}-${run.result.losses}`} /><Metric label="Win rate" value={pct(run.result.win_rate)} /><Metric label="ROI" value={pct(run.result.roi)} tone={(run.result.roi ?? 0) > 0 ? 'good' : 'bad'} /></div>
+      <p className="mt-3 text-[11px] text-amber-700">{run.result.evidence_status}</p>
+    </> : <div className="text-xs text-rose-700">Agent replay failed: {run.error ?? 'Unknown error'}</div>}
+  </div>;
 }
 
 const Metric = ({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'bad' }) => (

@@ -9,7 +9,6 @@
 import { db, rows, run } from '../db/index.js';
 import { fork } from 'node:child_process';
 import { replaySeason } from './nfl-replay.js';
-import { ensembleLine } from './nfl-ensemble.js';
 import { teamFeatureVector } from './nfl-features.js';
 import { getApiKey, callClaude, costOf } from './claude.js';
 
@@ -37,7 +36,6 @@ const REVIEW_CONCURRENCY = 3;
 const perReviewCost = () => costOf(MODEL, INPUT_TOKENS, OUTPUT_TOKENS);
 
 function packetFor(bet) {
-  const line = ensembleLine(bet.season, bet.week, bet.home, bet.away);
   const slim = team => {
     const f = teamFeatureVector(bet.season, bet.week, team) ?? {};
     return Object.fromEntries(['off_epa_neutral_wp', 'def_epa_neutral_wp', 'opp_adj_net_epa',
@@ -72,8 +70,11 @@ function packetFor(bet) {
       roof: game.roof ?? null, home_rest_days: game.rest_days ?? null, divisional_game: game.div_game ?? null },
     availability: { injuries, quarterback_reports: qbs },
     model: { edge_points: bet.edge_points, disagreement: bet.disagreement,
-      projected_margin: line.ensemble?.projected_margin ?? null, market_spread: line.ensemble?.market_spread ?? null,
-      models_contributing: line.ensemble?.models_contributing_margin ?? null },
+      // These values were locked by the deterministic replay before the AI
+      // packet is built. Re-running the ensemble here is redundant, slow, and
+      // can needlessly contend with candidate construction.
+      projected_margin: bet.model_margin ?? null, market_spread: bet.market_margin ?? null,
+      models_contributing: bet.feature_snapshot?.margin_models_active ?? null },
     prior_features: { [bet.home]: slim(bet.home), [bet.away]: slim(bet.away) },
     source_notes: sourceNotes,
     admissibility: 'research_only — source timestamps are incomplete; never eligible for production promotion'
@@ -198,16 +199,15 @@ export function startAiBlindReplay({ seasons = [2021, 2022, 2023, 2024, 2025], b
   // Historical ensemble reconstruction is CPU-heavy.  Run it in a separate
   // Node process so the app can immediately save keys and serve live polling.
   // The worker shares only the local SQLite job record; it has no HTTP surface.
+  // Do not inherit `node --watch` from the interactive dev server. A detached,
+  // plain-node worker owns its own durable SQLite status and remains alive
+  // through UI reloads or a server hot restart.
   const child = fork(new URL('../scripts/run-nfl-ai-replay.js', import.meta.url), [String(id)], {
-    stdio: ['ignore', 'ignore', 'ignore', 'ipc']
+    detached: true,
+    stdio: 'ignore',
+    execArgv: []
   });
-  // If a child exits unexpectedly, never leave the UI claiming that it is
-  // still running. The durable row is the source of truth after a reload.
-  child.once('exit', (code, signal) => {
-    const job = rows('SELECT status FROM nfl_ai_replay_runs WHERE id=?', id)[0];
-    if (job?.status === 'running') run(`UPDATE nfl_ai_replay_runs SET status='failed',error=? WHERE id=?`,
-      `Worker exited unexpectedly (${signal ?? `code ${code ?? 'unknown'}`}) before completing the replay.`, id);
-  });
+  child.unref();
   return reportRun(id);
 }
 

@@ -156,6 +156,12 @@ async function execute(id, seasons, maxReviews) {
 }
 
 export function startAiBlindReplay({ seasons = [2021, 2022, 2023, 2024, 2025], budgetUsd = 1 } = {}) {
+  const active = rows(`SELECT id FROM nfl_ai_replay_runs WHERE status='running' ORDER BY id DESC LIMIT 1`)[0];
+  if (active) {
+    const error = new Error(`AI replay #${active.id} is already running. Reattach to its live trace instead of starting another charged run.`);
+    error.status = 409;
+    throw error;
+  }
   if (!getApiKey()) {
     const error = new Error('No Claude API key configured. Add one in Dev Hub before starting an AI replay.');
     error.status = 400;
@@ -172,9 +178,15 @@ export function startAiBlindReplay({ seasons = [2021, 2022, 2023, 2024, 2025], b
   // Node process so the app can immediately save keys and serve live polling.
   // The worker shares only the local SQLite job record; it has no HTTP surface.
   const child = fork(new URL('../scripts/run-nfl-ai-replay.js', import.meta.url), [String(id)], {
-    detached: true, stdio: 'ignore'
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc']
   });
-  child.unref();
+  // If a child exits unexpectedly, never leave the UI claiming that it is
+  // still running. The durable row is the source of truth after a reload.
+  child.once('exit', (code, signal) => {
+    const job = rows('SELECT status FROM nfl_ai_replay_runs WHERE id=?', id)[0];
+    if (job?.status === 'running') run(`UPDATE nfl_ai_replay_runs SET status='failed',error=? WHERE id=?`,
+      `Worker exited unexpectedly (${signal ?? `code ${code ?? 'unknown'}`}) before completing the replay.`, id);
+  });
   return reportRun(id);
 }
 

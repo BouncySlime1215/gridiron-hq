@@ -60,7 +60,7 @@ const localIsoDate = () => {
 };
 
 export default function MlbAutoPicks() {
-  const [localDate] = useState(localIsoDate);
+  const [localDate, setLocalDate] = useState(localIsoDate);
   const [busy, setBusy] = useState(false);
   const [settling, setSettling] = useState(false);
   const [auditBusy, setAuditBusy] = useState(false);
@@ -101,6 +101,19 @@ export default function MlbAutoPicks() {
     } catch (e: any) { setActionError(e.message); }
     finally { setBusy(false); }
   };
+  const tomorrow = (() => { const d = new Date(`${localIsoDate()}T12:00:00`); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+  const prepareTomorrow = async () => {
+    setBusy(true); setActionError(null);
+    try {
+      // Snapshot first, then generate exactly the stored picks for tomorrow.
+      // No backfill or made-up price is involved in this forward workflow.
+      await api(`/mlb/pregame/snapshot?date=${tomorrow}`, { method: 'POST' });
+      await api(`/mlb/auto-picks?date=${tomorrow}`);
+      setLocalDate(tomorrow);
+      await pregameApi.refetch();
+    } catch (e: any) { setActionError(e.message); }
+    finally { setBusy(false); }
+  };
 
   const updateResults = async () => {
     setSettling(true); setActionError(null);
@@ -132,7 +145,7 @@ export default function MlbAutoPicks() {
       <BettingHero eyebrow="MLB projection lab" title="Daily Picks Tracker"
         description="Pregame-only selections with preserved starters, lineups and real book quotes. Anything reconstructed or missing cutoff evidence is visibly quarantined."
         status={<StatusPill tone={data?.economics.available ? 'good' : 'warn'}>{data?.economics.available ? 'Priced forward ledger' : 'Forward evidence pending'}</StatusPill>}
-        actions={<><button className="btn-ghost text-sm" onClick={() => setShowOperations(v => !v)}>{showOperations ? 'Hide model operations' : 'Model operations'}</button><button className="btn-ghost text-sm" onClick={updateResults} disabled={settling}>{settling ? 'Updating results…' : 'Update results now'}</button><button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture pregame slate'}</button><button className="btn-primary text-sm"
+        actions={<><button className="btn-ghost text-sm" onClick={() => setShowOperations(v => !v)}>{showOperations ? 'Hide model operations' : 'Model operations'}</button><button className="btn-ghost text-sm" onClick={updateResults} disabled={settling}>{settling ? 'Updating results…' : 'Update results now'}</button><button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture pregame slate'}</button><button className="btn-primary text-sm" onClick={prepareTomorrow} disabled={busy}>{busy ? 'Preparing…' : 'Prepare tomorrow’s slate'}</button><button className="btn-primary text-sm"
           onClick={runAudit} disabled={auditBusy}>{auditBusy ? 'Auditing…' : 'Run calibration audit'}</button></>}
       >
         <StatusPill tone="neutral">Local slate · {fmtDate(localDate)}</StatusPill>
@@ -170,9 +183,10 @@ export default function MlbAutoPicks() {
       <section>
         <SectionHeading eyebrow="Evidence ledger" title="What has actually been measured"
           description="Retrospective backfills and forward selections are counted separately so historical reconstruction cannot masquerade as a live record." />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
           <SignalCard label="Graded predictions" value={settled.toLocaleString()} detail={`${s?.wins ?? 0} correct · ${s?.losses ?? 0} incorrect`} />
           <SignalCard label="Directional hit rate" value={pct(s?.win_rate)} detail="Does not include price or break-even" tone="info" />
+          <SignalCard label="All-time priced units" value={s?.units == null ? '—' : `${s.units >= 0 ? '+' : ''}${s.units.toFixed(2)}u`} detail={s?.priced_settled ? `${s.priced_settled} settled forward picks only` : 'No settled forward real-price picks'} tone={(s?.units ?? 0) > 0 ? 'good' : s?.units == null ? 'info' : 'bad'} />
           <SignalCard label="Retrospective rows" value={retrospective.toLocaleString()} detail="Generated after the historical slate date" tone={retrospective ? 'warn' : 'good'} />
           <SignalCard label="Forward rows" value={forward.toLocaleString()} detail="Selected on or before the slate date" />
           <SignalCard label="Pending" value={(s?.pending ?? 0).toLocaleString()} detail={`${s?.voids ?? 0} void · ${s?.pushes ?? 0} push`} />

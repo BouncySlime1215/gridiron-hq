@@ -140,8 +140,8 @@ export default function Training() {
             <div className="text-sm font-semibold text-slate-900 mt-1">Blind agent review · hard $1 maximum</div>
             <p className="text-xs leading-5 text-slate-600 mt-1">The agent sees a locked pregame packet only: prior stats, archived injuries/QB reports when present, line, rest, weather and venue. It can approve, reduce, or abstain—never see the result.</p>
           </div>
-          <button className="btn-primary text-xs" onClick={runAi} disabled={aiBusy || aiRun?.status === 'running'}>
-            {aiBusy || aiRun?.status === 'running' ? 'Agent replay running…' : '✦ Run 5-year AI report ($1 max)'}
+          <button className="btn-primary text-xs" onClick={runAi} disabled={aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running'}>
+            {aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running' ? 'Agent replay running…' : '✦ Run 5-year AI report ($1 max)'}
           </button>
         </div>
         {aiErr && <div className="mt-3 text-xs text-rose-700">{aiErr}</div>}

@@ -136,6 +136,8 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const activeTotal = catalog?.models.filter(m => m.total_n > 0 && m.total_weight > 0).length ?? 0;
   const pbpRows = system?.pbp.team.reduce((n, s) => n + s.rows, 0) ?? 0;
   const calibration = calibrationPayload?.calibration;
+  const { data: activeAiPayload } = useApi<{ run: { id: number; status: string; progress: { season?: number; week?: number; game?: string; state?: string } } | null }>('/nfl-betting/ai-replay/active');
+  const activeAi = activeAiPayload?.run;
   const pregame = pregamePayload?.coverage.find(x => x.season === 2026 && x.week === week);
   const latestQuote = system?.odds_cache?.[0]?.fetched_at ?? null;
 
@@ -176,6 +178,12 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
           </button>
         ))}
       </nav>
+
+      {activeAi?.status === 'running' && <button onClick={() => setTool('training')} className="fixed bottom-5 right-5 z-40 max-w-xs rounded-2xl border border-blue-200 bg-white px-4 py-3 text-left shadow-xl transition hover:border-blue-400">
+        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-blue-700"><span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-70"/><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"/></span>AI replay active · open trace</div>
+        <div className="mt-1 text-sm font-bold text-slate-900">{activeAi.progress.state ?? 'Preparing blind replay'}</div>
+        <div className="mt-0.5 text-xs text-slate-500">{activeAi.progress.season ? `${activeAi.progress.season}${activeAi.progress.week ? ` · Week ${activeAi.progress.week}` : ''}` : 'Setting up'}{activeAi.progress.game ? ` · ${activeAi.progress.game}` : ''}</div>
+      </button>}
 
       {tool === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
       {tool === 'training' && <Training />}

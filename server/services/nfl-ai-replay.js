@@ -7,6 +7,7 @@
  * deliberately capped by an estimated dollar budget before any API call.
  */
 import { db, rows, run } from '../db/index.js';
+import { fork } from 'node:child_process';
 import { replaySeason } from './nfl-replay.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { teamFeatureVector } from './nfl-features.js';
@@ -147,8 +148,21 @@ export function startAiBlindReplay({ seasons = [2021, 2022, 2023, 2024, 2025], b
     VALUES (datetime('now'),'running',?,?,?,?)`, JSON.stringify(seasons), cap, r3(allowed * perReviewCost()),
     JSON.stringify({ current: 0, total: 0, state: 'queued', max_cost_usd: cap, model: MODEL }));
   const id = rows('SELECT last_insert_rowid() id')[0].id;
-  setTimeout(() => execute(id, seasons, allowed), 0);
+  // Historical ensemble reconstruction is CPU-heavy.  Run it in a separate
+  // Node process so the app can immediately save keys and serve live polling.
+  // The worker shares only the local SQLite job record; it has no HTTP surface.
+  const child = fork(new URL('../scripts/run-nfl-ai-replay.js', import.meta.url), [String(id)], {
+    detached: true, stdio: 'ignore'
+  });
+  child.unref();
   return reportRun(id);
 }
 
 export function aiReplayRun(id) { return reportRun(Number(id)); }
+
+/** Entry point used only by the detached local worker. */
+export async function runAiReplayWorker(id) {
+  const job = rows('SELECT seasons_json,budget_usd FROM nfl_ai_replay_runs WHERE id=?', Number(id))[0];
+  if (!job) throw new Error(`AI replay run ${id} not found`);
+  await execute(Number(id), parse(job.seasons_json), Math.floor(job.budget_usd / perReviewCost()));
+}

@@ -99,7 +99,11 @@ function parseReview(msg) {
     if (action && risk && [-0.15, -0.05, 0].includes(adjustment) && reasons.length) {
       return { action, risk, adjustment, reasons };
     }
-    throw new Error('AI returned malformed structured review');
+    // A formatting miss must never kill a paid, otherwise-valid blind replay.
+    // Treat it as the conservative decision and leave an explicit audit trail.
+    // This is a parser fallback, not an invented football opinion.
+    return { action: 'abstain', risk: 'high', adjustment: -0.15,
+      reasons: ['Structured response could not be validated; conservatively excluded.'], parser_fallback: true };
   }
 }
 

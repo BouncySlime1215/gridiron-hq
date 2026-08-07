@@ -104,6 +104,19 @@ export default function Training() {
     } catch (e: any) { setErr(e.message); }
     finally { setBusy(false); }
   };
+  const reattachAi = async () => {
+    const active = activeAiPayload?.run;
+    if (!active) return;
+    setAiErr(null); setAiBusy(true);
+    try {
+      const [saved, trace] = await Promise.all([
+        api<AiReplay>(`/nfl-betting/ai-replay/${active.id}`),
+        api<{ logs: AiReplayLog[] }>(`/nfl-betting/ai-replay/${active.id}/logs`)
+      ]);
+      setAiRun(saved); setAiLogs(trace.logs);
+    } catch (e: any) { setAiErr(`Could not reattach: ${e.message}`); }
+    finally { setAiBusy(false); }
+  };
   const runAi = async () => {
     setAiBusy(true); setAiErr(null); setAiRun(null); setAiLogs([]);
     try {
@@ -124,7 +137,7 @@ export default function Training() {
           <label className="text-slate-500"><span className="block text-xs font-bold mb-1">Research seasons</span>
             <input aria-label="Replay seasons" className="input py-2 w-52" value={seasons} onChange={e => setSeasons(e.target.value)} />
           </label>
-          <button className="btn-primary text-xs" onClick={run} disabled={busy}>
+          <button className="btn-primary text-xs" onClick={run} disabled={busy || activeAiPayload?.run?.status === 'running'}>
             {busy ? 'Replaying…' : '▶ Replay & analyze'}
           </button>
         </div>
@@ -140,11 +153,13 @@ export default function Training() {
             <div className="text-sm font-semibold text-slate-900 mt-1">Blind agent review · hard $1 maximum</div>
             <p className="text-xs leading-5 text-slate-600 mt-1">The agent sees a locked pregame packet only: prior stats, archived injuries/QB reports when present, line, rest, weather and venue. It can approve, reduce, or abstain—never see the result.</p>
           </div>
+          {activeAiPayload?.run?.status === 'running' && aiRun?.id !== activeAiPayload.run.id && <button className="btn-secondary text-xs" onClick={reattachAi} disabled={aiBusy}>Reattach live run</button>}
           <button className="btn-primary text-xs" onClick={runAi} disabled={aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running'}>
             {aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running' ? 'Agent replay running…' : '✦ Run 5-year AI report ($1 max)'}
           </button>
         </div>
         {aiErr && <div className="mt-3 text-xs text-rose-700">{aiErr}</div>}
+        {activeAiPayload?.run?.status === 'running' && <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">A paid replay is active. Every replay control is locked until it completes or fails; use <b>Reattach live run</b> to reopen its trace after a reload.</div>}
         {aiRun && <AiReplayPanel run={aiRun} logs={aiLogs} />}
       </div>
 

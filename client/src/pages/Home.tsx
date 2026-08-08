@@ -35,9 +35,9 @@ export default function Home() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-1">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <h1 className="text-3xl font-semibold tracking-[-0.035em]">Dashboard</h1>
         <button className="btn-primary ml-auto" onClick={refreshAll} disabled={refreshing}>
-          {refreshing ? '⏳ Refreshing…' : '↻ Refresh everything'}
+          {refreshing ? 'Refreshing…' : 'Refresh everything'}
         </button>
       </div>
       <p className="text-sm text-slate-600 mb-2">Training camp, July 2026 — draft season is here.</p>
@@ -45,23 +45,23 @@ export default function Home() {
       {!status && <div className="mb-4" />}
 
       <div className="grid md:grid-cols-3 gap-4 mb-6">
-        <Link to={active ? `/drafts/${active.id}` : '/drafts'} className="card p-5 hover:border-emerald-700 transition-colors">
-          <div className="text-3xl mb-2">🎯</div>
-          <div className="font-bold">{active ? `Continue: ${active.name}` : 'Start a draft'}</div>
+        <Link to={active ? `/drafts/${active.id}` : '/drafts'} className="card p-5 hover:border-slate-400 transition-colors">
+          <div className="mb-5 text-xs font-semibold text-slate-400">01</div>
+          <div className="text-lg font-semibold tracking-tight">{active ? `Continue: ${active.name}` : 'Start a draft'}</div>
           <div className="text-xs text-slate-500 mt-1">
             {active ? `${active.picks_made} picks made` : 'Mock it or track your live draft'}
           </div>
         </Link>
-        <Link to="/rankings" className="card p-5 hover:border-emerald-700 transition-colors">
-          <div className="text-3xl mb-2">📋</div>
-          <div className="font-bold">My Rankings</div>
+        <Link to="/rankings" className="card p-5 hover:border-slate-400 transition-colors">
+          <div className="mb-5 text-xs font-semibold text-slate-400">02</div>
+          <div className="text-lg font-semibold tracking-tight">My Rankings</div>
           <div className="text-xs text-slate-500 mt-1">
             {sets?.length ?? 0} board{sets?.length === 1 ? '' : 's'} · seeded with July consensus top 100
           </div>
         </Link>
-        <Link to={leagues.length ? '/my-team' : '/leagues'} className="card p-5 hover:border-emerald-700 transition-colors">
-          <div className="text-3xl mb-2">⭐</div>
-          <div className="font-bold">{leagues.length ? 'My Team' : 'Connect a league'}</div>
+        <Link to={leagues.length ? '/my-team' : '/leagues'} className="card p-5 hover:border-slate-400 transition-colors">
+          <div className="mb-5 text-xs font-semibold text-slate-400">03</div>
+          <div className="text-lg font-semibold tracking-tight">{leagues.length ? 'My Team' : 'Connect a league'}</div>
           <div className="text-xs text-slate-500 mt-1">
             {leagues.length
               ? `${activeLeague?.name ?? 'League'}${leagues.length > 1 ? ` +${leagues.length - 1} more` : ''}`

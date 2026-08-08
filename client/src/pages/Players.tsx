@@ -109,21 +109,21 @@ const GLOSSARY: [string, string][] = [
 
 /** One-click filter + sort combinations that answer a real draft question. */
 const PRESETS: { label: string; hint: string; apply: (s: any) => void }[] = [
-  { label: '💎 Best values', hint: 'Biggest positive gap between ADP and VOR rank',
+  { label: 'Best values', hint: 'Biggest positive gap between ADP and VOR rank',
     apply: s => { s.setSort({ key: 'adp_edge', dir: -1 }); s.setOnlyBoard(false); s.setView('value'); } },
-  { label: '🛡 Safe floors', hint: 'Highest floor with low bust rate — set-and-forget starters',
+  { label: 'Safe floors', hint: 'Highest floor with low bust rate — set-and-forget starters',
     apply: s => { s.setSort({ key: 'floor', dir: -1 }); s.setView('weekly'); } },
-  { label: '🚀 Highest ceilings', hint: 'Best 80th-percentile weeks — tournament and upside plays',
+  { label: 'Highest ceilings', hint: 'Best 80th-percentile weeks — tournament and upside plays',
     apply: s => { s.setSort({ key: 'ceiling', dir: -1 }); s.setView('weekly'); } },
-  { label: '📈 Market rising', hint: 'Trade value climbing fastest in the last 30 days',
+  { label: 'Market rising', hint: 'Trade value climbing fastest in the last 30 days',
     apply: s => { s.setSort({ key: 'market_trend_pct', dir: -1 }); s.setView('value'); } },
-  { label: '📉 Market falling', hint: 'Value dropping — either a buy-low or a warning',
+  { label: 'Market falling', hint: 'Value dropping — either a buy-low or a warning',
     apply: s => { s.setSort({ key: 'market_trend_pct', dir: 1 }); s.setView('value'); } },
-  { label: '🗓 Easy playoffs', hint: 'Softest weeks 15-17 schedule',
+  { label: 'Easy playoffs', hint: 'Softest weeks 15-17 schedule',
     apply: s => { s.setSort({ key: 'playoff_rank', dir: 1 }); s.setView('weekly'); } },
-  { label: '⭐ Proven stars', hint: 'Pro Bowl, All-Pro or NFL Top 100 only',
+  { label: 'Proven stars', hint: 'Pro Bowl, All-Pro or NFL Top 100 only',
     apply: s => { s.setOnlyBadged(true); s.setSort({ key: 'vor', dir: -1 }); s.setView('board'); } },
-  { label: '🔮 Biggest risers', hint: 'Projection furthest above last season',
+  { label: 'Biggest risers', hint: 'Projection furthest above last season',
     apply: s => { s.setSort({ key: 'delta', dir: -1 }); s.setView('board'); } }
 ];
 
@@ -212,7 +212,7 @@ export default function Players() {
       <div className="flex gap-1.5 mb-3 flex-wrap">
         {Object.entries(VIEWS).map(([k, v]) => (
           <button key={k} onClick={() => setView(k as any)}
-            className={`btn ${view === k ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            className={`btn ${view === k ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white text-slate-600 hover:bg-sky-50'}`}>
             {v.label}
           </button>
         ))}
@@ -256,7 +256,7 @@ export default function Players() {
           {teams.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <button onClick={() => setDense(d => !d)}
-          className={`btn text-xs ${dense ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-500'}`}>
+          className={`btn text-xs ${dense ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white border border-slate-200 text-slate-500'}`}>
           {dense ? 'Compact' : 'Comfortable'}
         </button>
         <button

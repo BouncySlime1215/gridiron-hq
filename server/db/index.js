@@ -3,7 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, '..', 'data.sqlite');
+// Tests and offline diagnostics can point at an isolated database instead of
+// mutating the user's league file. Production keeps the original local path.
+const DB_PATH = process.env.GRIDIRON_DB_PATH || path.join(__dirname, '..', 'data.sqlite');
 
 export const db = new DatabaseSync(DB_PATH);
 
@@ -124,6 +126,7 @@ if (!teamCols.includes('analysis_updated_at')) {
 const playerCols = db.prepare(`PRAGMA table_info(players)`).all().map(c => c.name);
 if (!playerCols.includes('espn_id')) db.exec(`ALTER TABLE players ADD COLUMN espn_id INTEGER`);
 if (!playerCols.includes('sleeper_id')) db.exec(`ALTER TABLE players ADD COLUMN sleeper_id TEXT`);
+if (!playerCols.includes('gsis_id')) db.exec(`ALTER TABLE players ADD COLUMN gsis_id TEXT`);
 
 const dpCols = db.prepare(`PRAGMA table_info(draft_picks)`).all().map(c => c.name);
 if (!dpCols.includes('reason')) db.exec(`ALTER TABLE draft_picks ADD COLUMN reason TEXT`);

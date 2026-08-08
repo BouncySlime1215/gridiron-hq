@@ -44,11 +44,34 @@ export const percentiles = (a, qs = [0.05, 0.25, 0.5, 0.75, 0.95]) =>
 
 /* --------------------------------------------------------------- samplers */
 
+let rng = Math.random;
+
+/** Deterministic PRNG for reproducible replays and regression tests. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+export const random = () => rng();
+
+/** Runs one synchronous simulation with a seed, then restores normal randomness. */
+export function withRandomSeed(seed, fn) {
+  if (seed == null || seed === '') return fn();
+  const prior = rng;
+  rng = mulberry32(Number(seed) || 1);
+  try { return fn(); } finally { rng = prior; }
+}
+
 /** Box-Muller standard normal. */
 export function randn() {
   let u = 0;
-  while (u === 0) u = Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random());
+  while (u === 0) u = random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * random());
 }
 
 /** Marsaglia-Tsang gamma sampler; the workhorse behind both Gamma and NegBinomial. */
@@ -56,7 +79,7 @@ export function randGamma(shape, scale = 1) {
   if (shape <= 0) return 0;
   if (shape < 1) {
     // Boost a sub-1 shape into the valid range and correct for it.
-    return randGamma(shape + 1, scale) * Math.pow(Math.random(), 1 / shape);
+    return randGamma(shape + 1, scale) * Math.pow(random(), 1 / shape);
   }
   const d = shape - 1 / 3;
   const c = 1 / Math.sqrt(9 * d);
@@ -64,7 +87,7 @@ export function randGamma(shape, scale = 1) {
     let x, v;
     do { x = randn(); v = 1 + c * x; } while (v <= 0);
     v = v * v * v;
-    const u = Math.random();
+    const u = random();
     if (u < 1 - 0.0331 * x ** 4) return d * v * scale;
     if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v * scale;
   }
@@ -76,7 +99,7 @@ export function randPoisson(lambda) {
   if (lambda > 30) return Math.max(0, Math.round(lambda + Math.sqrt(lambda) * randn()));
   const L = Math.exp(-lambda);
   let k = 0, p = 1;
-  do { k++; p *= Math.random(); } while (p > L);
+  do { k++; p *= random(); } while (p > L);
   return k - 1;
 }
 
@@ -108,7 +131,7 @@ export function randBinomial(n, p) {
   if (p >= 1) return n;
   if (n > 30) return Math.max(0, Math.min(n, Math.round(n * p + Math.sqrt(n * p * (1 - p)) * randn())));
   let k = 0;
-  for (let i = 0; i < n; i++) if (Math.random() < p) k++;
+  for (let i = 0; i < n; i++) if (random() < p) k++;
   return k;
 }
 

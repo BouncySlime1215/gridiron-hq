@@ -266,7 +266,7 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
                   {offer.offers.map((o: any) => (
                     <div key={o.rank}>
                       <div className="flex items-baseline gap-2 mb-1">
-                        <span className="text-[10px] font-black text-white bg-slate-700 rounded-full w-4 h-4 inline-flex items-center justify-center">{o.rank}</span>
+                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-sky-200 bg-sky-100 text-[10px] font-black text-sky-900">{o.rank}</span>
                         <h4 className="text-xs font-bold text-slate-700">{o.label}</h4>
                         <span className="text-[11px] text-slate-400">{(o.ratio * 100).toFixed(0)}% of his market price</span>
                       </div>

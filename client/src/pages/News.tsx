@@ -89,10 +89,10 @@ export default function News() {
           {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr} — {t.name}</option>)}
         </select>
         <button className="btn-ghost ml-auto" onClick={pullNews} disabled={pulling}>
-          {pulling ? 'Pulling…' : '↻ Pull ESPN news'}
+          {pulling ? 'Pulling…' : 'Pull ESPN news'}
         </button>
         <button className="btn-primary" onClick={roundupNow} disabled={roundupBusy}>
-          {roundupBusy ? 'Reading the day…' : '📋 Camp roundup'}
+          {roundupBusy ? 'Reading the day…' : 'Camp roundup'}
         </button>
         <button className="btn-ghost" onClick={() => setShowAdd(v => !v)}>{showAdd ? 'Close' : '+ Add'}</button>
       </div>

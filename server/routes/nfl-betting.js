@@ -4,24 +4,33 @@
  */
 import { Router } from 'express';
 import { catalog, countVariables, teamFeatureVector, playerFeatureVector, bettingTrends } from '../services/nfl-features.js';
-import { propBoard, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
+import { propBoard, propAccuracy, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
-import { accuracy } from '../services/nfl-market.js';
+import { boardFor, accuracy, clearNflMarketCache } from '../services/nfl-market.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
-import { modelCatalog, ensembleWeek, ensembleLine, ensembleBoardFor } from '../services/nfl-ensemble.js';
-import { replaySeason, trainingIteration, validateAdjustment } from '../services/nfl-replay.js';
+import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsembleCache, clearEnsembleLineCache } from '../services/nfl-ensemble.js';
+import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
 import { runIfStale } from '../services/scheduler.js';
-import { stakeFor, evaluateSizing } from '../services/staking.js';
+import { stakeFor, safeStakeFor, evaluateSizing } from '../services/staking.js';
+import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
+import { buildCoverCalibration, latestCoverCalibration } from '../services/nfl-cover-calibration.js';
+import { capturePregameSnapshots, pregameSnapshotCoverage } from '../services/nfl-pregame.js';
+import { startAiBlindReplay, aiReplayRun, aiReplayLogs, activeAiReplayRun, latestAiReplayRun } from '../services/nfl-ai-replay.js';
+import { nflEvidenceCoverage, validationFirewall } from '../services/nfl-evidence.js';
+import { gamePlayerAvailability, teamPlayerAvailability } from '../services/nfl-player-value.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const wk = req => Number(req.query.week) || 1;
 const ssn = req => Number(req.query.season) || SEASON;
+const disagreement = req => req.query.max_disagreement === 'none'
+  ? null
+  : (req.query.max_disagreement != null ? Number(req.query.max_disagreement) : 4.5);
 
 /* ---------------------------------------------------------------- catalog */
 
@@ -73,6 +82,14 @@ r.get('/props', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/** Walk-forward error and probability calibration for every prop family. */
+r.get('/props/accuracy', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    res.json(propAccuracy(seasons));
+  } catch (e) { next(e); }
+});
+
 /* ----------------------------------------------------------------- totals */
 
 r.get('/totals', async (req, res, next) => {
@@ -103,16 +120,10 @@ r.get('/totals/results', (req, res, next) => {
 
 /* -------------------------------------------------------------- reasoning */
 
-/**
- * The full board with a computed rationale attached to every row.
- *
- * Built from the 20-model ensemble — the same engine nfl-replay.js backtests —
- * rather than the older single-rating model, so what's shown here is what the
- * "Model training record" card actually measured.
- */
+/** The full board with a computed rationale attached to every row. */
 r.get('/board/explained', (req, res, next) => {
   try {
-    const board = ensembleBoardFor(ssn(req), wk(req));
+    const board = boardFor(ssn(req), wk(req));
     if (board?.error) return res.status(409).json(board);
     const filtered = req.query.market ? board.filter(b => b.market === req.query.market) : board;
     res.json({
@@ -185,6 +196,10 @@ r.get('/ensemble/models', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/ensemble/contracts', (req, res, next) => {
+  try { res.json({ contracts: featureContracts() }); } catch (e) { next(e); }
+});
+
 r.get('/ensemble/week', (req, res, next) => {
   try {
     res.json({ season: ssn(req), week: wk(req), games: ensembleWeek(ssn(req), wk(req)) });
@@ -206,48 +221,92 @@ r.get('/ensemble/game', (req, res, next) => {
 /** Replays a season betting the ensemble, walk-forward, and grades every pick. */
 r.get('/replay', (req, res, next) => {
   try {
-    const out = replaySeason(ssn(req), {
-      minEdge: Number(req.query.min_edge) || 1.5,
-      maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null,
-      markets: String(req.query.markets ?? 'spread,total').split(',')
-    });
+    const research = req.query.research === '1';
+    const out = replaySeason(ssn(req), research ? {
+      minEdge: Number(req.query.min_edge) || 3,
+      maxDisagreement: disagreement(req),
+      markets: String(req.query.markets ?? 'spread').split(','),
+      maxPicksPerWeek: Number(req.query.max_picks) || 5
+    } : {});
     if (out?.error) return res.status(409).json(out);
     res.json(out);
   } catch (e) { next(e); }
 });
 
-/**
- * Replay across seasons plus the systematic error analysis.
- *
- * A four-season replay takes ~40 seconds of synchronous, single-threaded work
- * — fine for an occasional manual click, not fine now that the NFL Auto Picks
- * and Props pages both auto-run it on mount. Without a cache, two pages open
- * back to back (or React's dev-mode double-effect) serialize into 80+ seconds
- * where the whole server can't answer anything else. Past seasons don't
- * change, so the same query is safe to serve from cache for a while.
- */
-const trainCache = new Map();
-const TRAIN_CACHE_MS = 15 * 60 * 1000;
+/** Replay across seasons plus the systematic error analysis. */
 r.get('/replay/train', (req, res, next) => {
   try {
-    // Five full seasons (2021-2025) — the actual "last five years" window now
-    // that ensemble weights are fit on 2015-2020 only, not on the eval games
-    // themselves. maxDisagreement defaults to the one correction that survived
-    // holdout re-validation after the weight-leakage fix (see /replay/validate),
-    // so this reports the same configuration live picks actually use.
     const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
-    const opts = {
-      minEdge: Number(req.query.min_edge) || 1.5,
-      maxDisagreement: req.query.max_disagreement != null ? Number(req.query.max_disagreement) : 4.5,
+    const research = req.query.research === '1';
+    res.json(trainingIteration(seasons, research ? {
+      minEdge: Number(req.query.min_edge) || 3,
+      maxDisagreement: disagreement(req),
+      maxPicksPerWeek: Number(req.query.max_picks) || 5,
+      markets: String(req.query.markets ?? 'spread').split(','),
       minBets: Number(req.query.min_bets) || 30
-    };
-    const key = JSON.stringify([seasons, opts]);
-    const cached = trainCache.get(key);
-    if (cached && Date.now() - cached.at < TRAIN_CACHE_MS) return res.json(cached.result);
-    const result = trainingIteration(seasons, opts);
-    trainCache.set(key, { at: Date.now(), result });
-    res.json(result);
+    } : { minBets: Number(req.query.min_bets) || 30 }));
   } catch (e) { next(e); }
+});
+
+/** Runs and stores the canonical exact-policy audit used by the decision desk. */
+r.post('/replay/train', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
+    res.json(saveTrainingAudit(trainingIteration(seasons, { minBets: Number(req.query.min_bets) || 30 })));
+  } catch (e) { next(e); }
+});
+
+r.get('/replay/latest', (_req, res, next) => {
+  try { res.json({ audit: latestTrainingAudit() }); } catch (e) { next(e); }
+});
+
+/** Starts a bounded-cost, outcome-blind AI risk-gate replay. */
+r.post('/ai-replay', (req, res, next) => {
+  try { res.status(202).json(startAiBlindReplay(req.body ?? {})); }
+  catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+r.get('/ai-replay/active', (_req, res, next) => {
+  try { res.json({ run: activeAiReplayRun() }); } catch (e) { next(e); }
+});
+r.get('/ai-replay/latest', (_req, res, next) => {
+  try { res.json({ run: latestAiReplayRun() }); } catch (e) { next(e); }
+});
+r.get('/ai-replay/:id', (req, res, next) => {
+  try {
+    const out = aiReplayRun(req.params.id);
+    if (!out) return res.status(404).json({ error: 'AI replay run not found' });
+    res.json(out);
+  } catch (e) { next(e); }
+});
+r.get('/ai-replay/:id/logs', (req, res, next) => {
+  try {
+    const logs = aiReplayLogs(req.params.id);
+    if (!logs) return res.status(404).json({ error: 'AI replay run not found' });
+    res.json({ logs });
+  } catch (e) { next(e); }
+});
+
+r.get('/calibration/cover', (req, res, next) => {
+  try { res.json({ calibration: latestCoverCalibration(Number(req.query.before_season) || SEASON) }); }
+  catch (e) { next(e); }
+});
+
+r.post('/calibration/cover', (req, res, next) => {
+  try { res.json(buildCoverCalibration({
+    fromSeason: Number(req.query.from) || 2021,
+    throughSeason: Number(req.query.through) || SEASON - 1
+  })); } catch (e) { next(e); }
+});
+
+r.get('/pregame/snapshots', (_req, res, next) => {
+  try { res.json({ coverage: pregameSnapshotCoverage() }); } catch (e) { next(e); }
+});
+
+r.post('/pregame/snapshots', (req, res, next) => {
+  try { res.json(capturePregameSnapshots(ssn(req), wk(req))); } catch (e) { next(e); }
 });
 
 /**
@@ -263,7 +322,9 @@ r.get('/replay/validate', (req, res, next) => {
     // the threshold, on the theory that internal disagreement means no edge.
     res.json(validateAdjustment({
       discoverySeasons: discovery, holdoutSeasons: holdout,
-      config: { minEdge: Number(req.query.min_edge) || 1.5 },
+      // The baseline must be unfiltered or applying maxDis below is a no-op.
+      // replaySeason defaults to 4.5, so pass null explicitly here.
+      config: { minEdge: Number(req.query.min_edge) || 3, maxDisagreement: null },
       adjust: b => ((b.disagreement ?? 0) <= maxDis ? b : null)
     }));
   } catch (e) { next(e); }
@@ -323,6 +384,22 @@ r.get('/stake', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/stake/safe', (req, res, next) => {
+  try {
+    const winProb = Number(req.query.prob), odds = Number(req.query.odds);
+    if (!Number.isFinite(winProb) || !Number.isFinite(odds)) {
+      return res.status(400).json({ error: 'prob and odds query params required' });
+    }
+    res.json(safeStakeFor({
+      winProb, americanOdds: odds, bankroll: Number(req.query.bankroll) || 100,
+      calibrationPassed: req.query.calibrated === '1',
+      forwardSettled: Number(req.query.forward_settled) || 0,
+      uncertaintyWidth: req.query.interval_width == null ? null : Number(req.query.interval_width),
+      openPortfolioFraction: Number(req.query.open_exposure) || 0
+    }));
+  } catch (e) { next(e); }
+});
+
 /** Does confidence-tiered sizing actually beat flat staking on past bets? */
 r.get('/stake/evaluate', (req, res, next) => {
   try {
@@ -330,8 +407,8 @@ r.get('/stake/evaluate', (req, res, next) => {
     const bets = [];
     for (const s of seasons) {
       const rp = replaySeason(s, {
-        minEdge: Number(req.query.min_edge) || 1.5,
-        maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null
+        minEdge: Number(req.query.min_edge) || 3,
+        maxDisagreement: disagreement(req)
       });
       if (!rp.error) bets.push(...rp.bets.filter(b => b.result !== 'Push'));
     }
@@ -340,6 +417,30 @@ r.get('/stake/evaluate', (req, res, next) => {
 });
 
 /* ------------------------------------------------------------------ admin */
+
+r.get('/experiments/protocol', (req, res, next) => {
+  try { res.json(experimentProtocol()); } catch (e) { next(e); }
+});
+
+r.get('/experiments', (req, res, next) => {
+  try { res.json({ experiments: listExperiments() }); } catch (e) { next(e); }
+});
+
+r.get('/experiments/:id', (req, res, next) => {
+  try {
+    const out = getExperiment(req.params.id);
+    if (!out) return res.status(404).json({ error: 'experiment not found' });
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+r.post('/experiments', (req, res, next) => {
+  try { res.status(201).json(createExperiment(req.body ?? {})); } catch (e) { next(e); }
+});
+
+r.post('/experiments/:id/:stage', (req, res, next) => {
+  try { res.json(runExperimentStage(req.params.id, req.params.stage)); } catch (e) { next(e); }
+});
 
 r.get('/status', (req, res, next) => {
   try {
@@ -353,12 +454,40 @@ r.get('/status', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/evidence/coverage', (_req, res, next) => {
+  try { res.json(nflEvidenceCoverage()); } catch (e) { next(e); }
+});
+
+r.get('/validation/firewall', (_req, res, next) => {
+  try { res.json(validationFirewall()); } catch (e) { next(e); }
+});
+
+r.get('/availability/team', (req, res, next) => {
+  try {
+    const team = String(req.query.team ?? '').toUpperCase();
+    if (!team) return res.status(400).json({ error: 'team query param required' });
+    res.json(teamPlayerAvailability(ssn(req), wk(req), team));
+  } catch (e) { next(e); }
+});
+
+r.get('/availability/game', (req, res, next) => {
+  try {
+    const home = String(req.query.home ?? '').toUpperCase();
+    const away = String(req.query.away ?? '').toUpperCase();
+    if (!home || !away) return res.status(400).json({ error: 'home and away query params required' });
+    res.json(gamePlayerAvailability(ssn(req), wk(req), home, away));
+  } catch (e) { next(e); }
+});
+
 r.post('/sync', async (req, res, next) => {
   try {
     const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
     const out = { pbp: [] };
     for (const s of seasons) out.pbp.push(await syncPbpSeason(s));
     out.advanced = await syncAllAdvanced(seasons);
+    clearEnsembleCache();
+    clearNflMarketCache();
+    out.cache_invalidated = true;
     res.json(out);
   } catch (e) { next(e); }
 });
@@ -369,7 +498,11 @@ r.post('/sync', async (req, res, next) => {
  * takes minutes and would make a refresh button feel broken.
  */
 r.post('/lines/sync-now', async (req, res, next) => {
-  try { res.json(await runIfStale('nfl_lines', { force: true })); }
+  try {
+    const result = await runIfStale('nfl_lines', { force: true });
+    clearEnsembleLineCache();
+    res.json(result);
+  }
   catch (e) { next(e); }
 });
 

@@ -95,7 +95,7 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
       <div className="flex gap-1.5 mb-4 flex-wrap">
         {!embedded && TABS.map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
-            className={`btn ${tab === k ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            className={`btn ${tab === k ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white text-slate-600 hover:bg-sky-50'}`}>
             {label}
           </button>
         ))}
@@ -347,7 +347,7 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
               <div className="mt-3 h-3 rounded-full bg-slate-100 relative overflow-hidden">
                 <div className="absolute h-full bg-emerald-200"
                   style={{ left: `${(sim.p25 / sim.ceiling_week) * 100}%`, width: `${((sim.p75 - sim.p25) / sim.ceiling_week) * 100}%` }} />
-                <div className="absolute h-full w-0.5 bg-slate-800" style={{ left: `${(sim.median_week / sim.ceiling_week) * 100}%` }} />
+                <div className="absolute h-full w-0.5 bg-sky-500" style={{ left: `${(sim.median_week / sim.ceiling_week) * 100}%` }} />
               </div>
               <p className="text-[11px] text-slate-500 mt-2">
                 Middle 50% of weeks lands between <strong>{sim.p25}</strong> and <strong>{sim.p75}</strong> points, from {sim.runs.toLocaleString()} simulations

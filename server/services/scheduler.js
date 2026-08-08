@@ -52,28 +52,6 @@ export function minutesSince(job) {
   return (Date.now() - new Date(l.last_run_at).getTime()) / 60000;
 }
 
-/**
- * Are there games marked Final in the last two days whose box scores have not
- * actually been pulled yet?
- *
- * A flat timer is the wrong test for player logs: it does not know a game just
- * ended. mlb_logs was set to a 6-hour window, so a sync at 2pm left every game
- * that finished afterward ungraded until the timer came back around — hours
- * after the result already existed. This checks the real condition instead.
- */
-function mlbLogsBehindFinals() {
-  const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
-  const row = rows(`
-    SELECT COUNT(*) AS n FROM mlb_games g
-    WHERE g.date >= ? AND g.status = 'Final'
-      AND NOT EXISTS (
-        SELECT 1 FROM mlb_pitcher_games p WHERE p.date = g.date AND p.team_id = g.home_team_id
-        UNION SELECT 1 FROM mlb_batter_games b WHERE b.date = g.date AND b.team_id = g.home_team_id
-      )
-  `, since)[0];
-  return (row?.n ?? 0) > 0;
-}
-
 /* -------------------------------------------------------------------- jobs */
 
 /**
@@ -96,6 +74,17 @@ async function refreshMlbLogs() {
   const p = await syncPitcherGameLogs(season);
   const b = await syncBatterGameLogs(season);
   return { pitchers: p.games, batters: b.games };
+}
+
+/**
+ * Settle the last completed slate cheaply. This is deliberately separate from
+ * season-wide player-log ingestion: fifteen boxscore requests beat thousands
+ * of player requests and make a missing result stay Pending, never falsely Void.
+ */
+async function refreshMlbBoxscores() {
+  const { syncFinalBoxscores } = await import('./mlb.js');
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  return syncFinalBoxscores(yesterday);
 }
 
 /** NFL lines for the current season, including scores as games go final. */
@@ -132,19 +121,27 @@ async function prepareTomorrowPicks() {
 }
 
 /**
+ * Multi-horizon, pre-event evidence captures. This stays light: it only runs
+ * windows that are due and groups requests by NFL week / MLB slate date.
+ */
+async function runEvidenceDaemon() {
+  const { runEvidenceDaemon: capture } = await import('./evidence-daemon.js');
+  return capture();
+}
+
+/**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
  * slate, box scores only settle after games end, and NFL lines move all week.
  */
 export const JOBS = {
   mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, label: 'MLB schedule and results' },
-  // 45 minutes is the baseline, but `extraStale` below overrides it the moment a
-  // game goes Final without its box score pulled yet — the actual condition
-  // that matters, since a flat timer left finished games ungraded for hours.
-  mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 45, extraStale: mlbLogsBehindFinals, label: 'MLB player game logs' },
+  mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, label: 'MLB player game logs' },
+  mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, label: 'MLB final boxscore settlement' },
   mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, label: 'MLB probable starters' },
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
-  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' }
+  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' },
+  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */
@@ -152,8 +149,7 @@ export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
   const age = minutesSince(name);
-  const stale = age >= job.maxAgeMinutes || Boolean(job.extraStale?.());
-  if (!force && !stale) {
+  if (!force && age < job.maxAgeMinutes) {
     return { job: name, skipped: true, age_minutes: Math.round(age), max_age_minutes: job.maxAgeMinutes };
   }
   try {
@@ -209,8 +205,19 @@ let timer = null;
  */
 export function startScheduler({ intervalMinutes = 30, bootDelayMs = 20000 } = {}) {
   if (timer) return { already_running: true };
-  setTimeout(() => { runAllStale().catch(() => {}); }, bootDelayMs);
-  timer = setInterval(() => { runAllStale().catch(() => {}); }, intervalMinutes * 60000);
+  // Keep launch interactive. MLB player-log ingestion can process thousands of
+  // responses and tomorrow-pick generation runs large simulations; doing either
+  // on the main thread twenty seconds after boot made every API request hang.
+  // The boot pass is restricted to light network jobs. Heavy jobs still run on
+  // the interval and through explicit refresh controls.
+  const bootJobs = ['mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'evidence_daemon'];
+  setTimeout(() => {
+    (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
+  }, bootDelayMs);
+  const scheduledJobs = process.env.AUTO_HEAVY_SYNC === '1' ? Object.keys(JOBS) : bootJobs;
+  timer = setInterval(() => {
+    (async () => { for (const j of scheduledJobs) await runIfStale(j); })().catch(() => {});
+  }, intervalMinutes * 60000);
   timer.unref?.();  // never hold the process open just for this
   return { started: true, interval_minutes: intervalMinutes };
 }
@@ -232,7 +239,7 @@ export function schedulerStatus() {
         max_age_minutes: j.maxAgeMinutes,
         last_run_at: l?.last_run_at ?? null,
         age_minutes: Number.isFinite(age) ? Math.round(age) : null,
-        stale: age >= j.maxAgeMinutes || Boolean(j.extraStale?.()),
+        stale: age >= j.maxAgeMinutes,
         last_status: l?.last_status ?? 'never run',
         last_detail: l?.last_detail ?? null,
         runs: l?.runs ?? 0

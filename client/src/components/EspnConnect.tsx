@@ -123,7 +123,7 @@ export default function EspnConnect() {
                 draggable
                 title="Drag me to your bookmarks bar"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-semibold cursor-grab active:cursor-grabbing select-none">
-                🔗 Connect Gridiron HQ
+                Connect Gridiron HQ
               </a>
             )}
             <span className="text-[11px] text-slate-400">← drag this up to your bookmarks bar</span>

@@ -205,7 +205,7 @@ export default function TeamDetail() {
             <div key={n.id} className="py-2 border-b border-slate-100 last:border-0">
               <div className="text-[11px] text-slate-500">{n.date}{n.source && ` · ${n.source}`}</div>
               <div className="text-sm font-medium">{n.headline}</div>
-              {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">🎯 {n.fantasy_impact}</div>}
+              {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">{n.fantasy_impact}</div>}
             </div>
           ))}
         </div>

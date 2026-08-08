@@ -266,14 +266,19 @@ function ols(x1, x2, y) {
  * a bigger underdog (positive spread) should throw more and run less, and a higher
  * total should raise both.
  */
-export function fitGameScript() {
-  const obs = rows(`SELECT g.spread, g.total, t.att, t.car FROM game_lines g
+function observations(beforeSeason = null, beforeWeek = null) {
+  return rows(`SELECT g.spread, g.total, t.att, t.car FROM game_lines g
                     JOIN (SELECT season, week, team,
                                  SUM(COALESCE(attempts,0)) AS att,
                                  SUM(COALESCE(carries,0))  AS car
                           FROM player_week_usage GROUP BY season, week, team) t
                       ON t.season = g.season AND t.week = g.week AND t.team = g.team
-                    WHERE g.spread IS NOT NULL AND g.total IS NOT NULL AND t.att > 5`);
+                    WHERE g.spread IS NOT NULL AND g.total IS NOT NULL AND t.att > 5
+                      AND (? IS NULL OR g.season < ? OR (g.season = ? AND g.week < ?))`,
+                    beforeSeason, beforeSeason, beforeSeason, beforeWeek ?? 1);
+}
+
+function fitObservations(obs) {
   if (obs.length < 100) return { error: `only ${obs.length} matched team-games — sync lines and usage first` };
 
   const spread = obs.map(o => o.spread), total = obs.map(o => o.total);
@@ -281,6 +286,13 @@ export function fitGameScript() {
     pass_att: ols(spread, total, obs.map(o => o.att)),
     rush_att: ols(spread, total, obs.map(o => o.car))
   };
+  return { fits, n: obs.length };
+}
+
+export function fitGameScript() {
+  const fitted = fitObservations(observations());
+  if (fitted.error) return fitted;
+  const { fits } = fitted;
   const stmt = db.prepare(`INSERT INTO gamescript_model (target, b0, b_spread, b_total, r2, n, fitted_at)
     VALUES (?,?,?,?,?,?,datetime('now'))
     ON CONFLICT(target) DO UPDATE SET b0=excluded.b0, b_spread=excluded.b_spread,
@@ -303,7 +315,8 @@ export function fitGameScript() {
 /* ---------------------------------------------------------------- apply */
 
 let _cache = null;
-export function clearGameScriptCache() { _cache = null; }
+const _cutoffCache = new Map();
+export function clearGameScriptCache() { _cache = null; _cutoffCache.clear(); }
 
 function model() {
   if (_cache) return _cache;
@@ -314,12 +327,28 @@ function model() {
   return _cache;
 }
 
+function modelAt(season, week) {
+  const key = `${season}|${week}`;
+  if (_cutoffCache.has(key)) return _cutoffCache.get(key);
+  const obs = observations(season, week);
+  const fitted = fitObservations(obs);
+  if (fitted.error) return model();
+  const m = new Map(Object.entries(fitted.fits).filter(([, v]) => v));
+  const priorLines = rows(`SELECT total FROM game_lines
+                           WHERE total IS NOT NULL
+                             AND (season < ? OR (season = ? AND week < ?))`, season, season, week);
+  const avgTotal = priorLines.length ? mean(priorLines.map(x => x.total)) : 44.5;
+  const out = { m, avgTotal, cutoff: { season, week }, observations: fitted.n };
+  _cutoffCache.set(key, out);
+  return out;
+}
+
 /**
  * Volume multipliers for one team in one week, relative to a neutral game script.
  * Returns 1/1 when no line exists, so out-of-season behaviour is simply "no adjustment".
  */
 export function gameScriptFor(team, season, week) {
-  const { m, avgTotal } = model();
+  const { m, avgTotal, cutoff = null, observations: n = null } = modelAt(season, week);
   const line = row('SELECT * FROM game_lines WHERE season=? AND week=? AND team=?', season, week, team);
   if (!line || !m.size) return { pass_mult: 1, rush_mult: 1, line: null };
 
@@ -336,9 +365,11 @@ export function gameScriptFor(team, season, week) {
     rush_mult: +clamp(predict('rush_att')).toFixed(3),
     line: {
       spread: line.spread, total: line.total,
-      implied_points: +line.implied_points.toFixed(1),
+      implied_points: line.implied_points == null ? null : +line.implied_points.toFixed(1),
       opponent: line.opponent, home: !!line.home, source: line.source
-    }
+    },
+    fitted_through: cutoff,
+    training_observations: n
   };
 }
 

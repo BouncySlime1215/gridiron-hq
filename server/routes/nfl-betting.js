@@ -8,11 +8,11 @@ import { propBoard, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStan
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
-import { boardFor, accuracy } from '../services/nfl-market.js';
+import { accuracy } from '../services/nfl-market.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
-import { modelCatalog, ensembleWeek, ensembleLine } from '../services/nfl-ensemble.js';
+import { modelCatalog, ensembleWeek, ensembleLine, ensembleBoardFor } from '../services/nfl-ensemble.js';
 import { replaySeason, trainingIteration, validateAdjustment } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
 import { runIfStale } from '../services/scheduler.js';
@@ -103,10 +103,16 @@ r.get('/totals/results', (req, res, next) => {
 
 /* -------------------------------------------------------------- reasoning */
 
-/** The full board with a computed rationale attached to every row. */
+/**
+ * The full board with a computed rationale attached to every row.
+ *
+ * Built from the 20-model ensemble — the same engine nfl-replay.js backtests —
+ * rather than the older single-rating model, so what's shown here is what the
+ * "Model training record" card actually measured.
+ */
 r.get('/board/explained', (req, res, next) => {
   try {
-    const board = boardFor(ssn(req), wk(req));
+    const board = ensembleBoardFor(ssn(req), wk(req));
     if (board?.error) return res.status(409).json(board);
     const filtered = req.query.market ? board.filter(b => b.market === req.query.market) : board;
     res.json({
@@ -210,15 +216,37 @@ r.get('/replay', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Replay across seasons plus the systematic error analysis. */
+/**
+ * Replay across seasons plus the systematic error analysis.
+ *
+ * A four-season replay takes ~40 seconds of synchronous, single-threaded work
+ * — fine for an occasional manual click, not fine now that the NFL Auto Picks
+ * and Props pages both auto-run it on mount. Without a cache, two pages open
+ * back to back (or React's dev-mode double-effect) serialize into 80+ seconds
+ * where the whole server can't answer anything else. Past seasons don't
+ * change, so the same query is safe to serve from cache for a while.
+ */
+const trainCache = new Map();
+const TRAIN_CACHE_MS = 15 * 60 * 1000;
 r.get('/replay/train', (req, res, next) => {
   try {
-    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
-    res.json(trainingIteration(seasons, {
+    // Five full seasons (2021-2025) — the actual "last five years" window now
+    // that ensemble weights are fit on 2015-2020 only, not on the eval games
+    // themselves. maxDisagreement defaults to the one correction that survived
+    // holdout re-validation after the weight-leakage fix (see /replay/validate),
+    // so this reports the same configuration live picks actually use.
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
+    const opts = {
       minEdge: Number(req.query.min_edge) || 1.5,
-      maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null,
+      maxDisagreement: req.query.max_disagreement != null ? Number(req.query.max_disagreement) : 4.5,
       minBets: Number(req.query.min_bets) || 30
-    }));
+    };
+    const key = JSON.stringify([seasons, opts]);
+    const cached = trainCache.get(key);
+    if (cached && Date.now() - cached.at < TRAIN_CACHE_MS) return res.json(cached.result);
+    const result = trainingIteration(seasons, opts);
+    trainCache.set(key, { at: Date.now(), result });
+    res.json(result);
   } catch (e) { next(e); }
 });
 

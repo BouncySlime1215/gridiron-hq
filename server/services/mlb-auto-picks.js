@@ -17,6 +17,7 @@
  */
 import { db, rows, run } from '../db/index.js';
 import { boardFor } from './mlb-projections.js';
+import { kellyFraction, americanToDecimal } from './staking.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS mlb_first_party_picks (
@@ -28,6 +29,55 @@ db.exec(`
     PRIMARY KEY (pick_date, rank)
   );
 `);
+// Added after the first release; existing rows are backfilled with real
+// sizing further down, once stakeUnitsFor is defined.
+const pickCols = db.prepare(`PRAGMA table_info(mlb_first_party_picks)`).all().map(c => c.name);
+if (!pickCols.includes('stake_units')) {
+  db.exec(`ALTER TABLE mlb_first_party_picks ADD COLUMN stake_units REAL DEFAULT 1`);
+}
+
+/**
+ * There is no MLB odds feed, so every pick is priced at a standard -110 for
+ * sizing purposes — a real assumption, disclosed, not a measured price.
+ */
+const ASSUMED_ODDS = -110;
+
+/**
+ * Fractional Kelly stake, in units where 1u is a standard flat bet.
+ *
+ * This is not the same move as the NFL disagreement tiers, which measurement
+ * showed made things worse — there, "confidence" was model agreement, and the
+ * bucket where the models agreed most was actually the *worst* performer.
+ * Here the input is the model's own probability, and that was checked before
+ * sizing on it: settled picks split into probability bands come back
+ * monotonic — 52.9% / 61.5% / 60.0% / 72.2% as the band rises — so scaling
+ * stake with probability is backed by what actually happened, not assumed.
+ *
+ * Tenth Kelly — more conservative than the quarter-Kelly used on the NFL
+ * side, because -110 here is an assumed price, not a measured one. The NFL
+ * sizing is scaling against a real, priced disagreement with an actual book;
+ * this is scaling against our own model's confidence in itself with no market
+ * to confirm it, which is a strictly weaker basis and should be sized more
+ * carefully. At a quarter-Kelly fraction, the 5%-of-bankroll cap was reached
+ * by p=0.62 — over half the plausible band would have come back identical.
+ * Tenth-Kelly spreads cleanly from 0.5u to 5u across the full 0.54-0.78 range.
+ */
+function stakeUnitsFor(winProb) {
+  const full = kellyFraction(winProb, ASSUMED_ODDS);
+  const frac = Math.min(full * 0.10, 0.05); // capped at 5% of a notional bankroll
+  const units = frac / 0.01; // 1 unit == 1% of bankroll, matching the flat-stake convention elsewhere
+  return Math.max(0.5, +units.toFixed(2)); // a pick that clears the plausibility bar is never below half a unit
+}
+
+// Backfill existing rows now that stakeUnitsFor exists. Recomputes
+// unconditionally rather than only on first migration — an earlier partial
+// rollout could have added the column and left every row at the flat
+// default before sizing was actually wired up. Pure function of
+// model_probability, so re-running this on already-correct rows is a no-op.
+for (const row of rows(`SELECT pick_date, rank, model_probability FROM mlb_first_party_picks WHERE model_probability IS NOT NULL`)) {
+  run(`UPDATE mlb_first_party_picks SET stake_units = ? WHERE pick_date = ? AND rank = ?`,
+    stakeUnitsFor(row.model_probability), row.pick_date, row.rank);
+}
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 /** Distance from a coin flip — the only conviction measure available without prices. */
@@ -140,11 +190,12 @@ export function ensurePicksFor(date, n = 5) {
   picked.slice(0, n).forEach((c, i) => {
     run(`INSERT INTO mlb_first_party_picks
         (pick_date, rank, market, selection, player_id, matchup, game_pk, side, line,
-         model_probability, projection, selected_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         model_probability, projection, selected_at, stake_units)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(pick_date, rank) DO NOTHING`,
       actualDate, i + 1, c.market, c.selection, c.player_id ?? null, c.matchup ?? null,
-      c.game_pk ?? null, c.side, c.line, c.model_probability, c.projection, now);
+      c.game_pk ?? null, c.side, c.line, c.model_probability, c.projection, now,
+      stakeUnitsFor(c.model_probability));
   });
   return rows('SELECT * FROM mlb_first_party_picks WHERE pick_date = ? ORDER BY rank', actualDate);
 }
@@ -192,14 +243,18 @@ function gradePick(p) {
 }
 
 /**
- * Every pick ever made, graded. Units assume a flat 1-unit stake at -110, the
- * standard price for these markets — there is no stored price to use instead.
+ * Every pick ever made, graded. Each pick carries its own stake_units (tenth
+ * Kelly against the assumed -110 price, sized when the pick was made) — a
+ * win pays that stake times the -110 decimal odds, a loss costs that stake.
+ * Rows made before sizing existed default to a flat 1 unit.
  */
 export function allPicks() {
   return rows('SELECT * FROM mlb_first_party_picks ORDER BY pick_date DESC, rank ASC')
     .map(p => {
       const g = gradePick(p);
-      const units = g.status === 'Won' ? 100 / 110 : g.status === 'Lost' ? -1 : 0;
+      const stake = p.stake_units ?? 1;
+      const payout = americanToDecimal(ASSUMED_ODDS) - 1; // profit per unit staked on a win
+      const units = g.status === 'Won' ? stake * payout : g.status === 'Lost' ? -stake : 0;
       return { ...p, ...g, units: +units.toFixed(3) };
     });
 }

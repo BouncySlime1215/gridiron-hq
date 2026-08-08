@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, useApi } from '../api';
 import { pct, americanFmt } from './props/lib';
 import PickReasoning, { type Reasoning } from '../components/PickReasoning';
+import { TrainingSummaryCard, useEnsembleWeek, findEnsembleGame, EnsembleDetail } from '../components/NflModelInsight';
 
 interface BoardRow {
   market: 'moneyline' | 'spread' | 'total';
@@ -54,6 +55,11 @@ export default function NflMarketBoard() {
     `/nfl-betting/board/explained?week=${week}&limit=60`);
   const { data: acc } = useApi<Accuracy>('/nfl-market/accuracy');
   const { data: history, refetch: refetchHistory } = useApi<{ results: Graded[]; standing: Standing }>('/nfl-market/picks/history');
+  // Same 20-model ensemble that used to live on its own page, matched to each
+  // board row by team so "why this pick" can show real per-model disagreement
+  // instead of just a market-vs-model edge number.
+  const { data: ensemble } = useEnsembleWeek(week);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -93,7 +99,7 @@ export default function NflMarketBoard() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold">NFL Board</h1>
+        <h1 className="text-2xl font-bold">NFL Auto Picks</h1>
         <div className="flex items-center gap-2 text-xs ml-auto">
           <span className="text-slate-500">Week</span>
           <select className="input py-1" value={week} onChange={e => setWeek(Number(e.target.value))}>
@@ -109,7 +115,9 @@ export default function NflMarketBoard() {
       </div>
       <p className="text-sm text-slate-500 mb-4">
         Model win/cover/total probability against the no-vig market price, on real DraftKings lines. Ranked by
-        the size of the disagreement — a big gap is a reason to look closer, not a guarantee.
+        the size of the disagreement — a big gap is a reason to look closer, not a guarantee. Click a row with a
+        "20 models" tag to see exactly which of the twenty independent models are driving that number and how
+        much they disagree.
       </p>
 
       {running && (
@@ -170,6 +178,8 @@ export default function NflMarketBoard() {
         </div>
       )}
 
+      <TrainingSummaryCard />
+
       <div className="flex gap-1 mb-3">
         {['all', 'moneyline', 'spread', 'total'].map(v => (
           <button key={v} onClick={() => setMarketFilter(v)}
@@ -191,9 +201,15 @@ export default function NflMarketBoard() {
         <div className="space-y-2">
           {board.map((b, i) => {
             const strong = Math.abs(b.probability_difference) >= 0.08;
+            const rowKey = `${b.matchup}-${b.market}-${b.side}`;
+            const eGame = findEnsembleGame(ensemble?.games, b.home_team, b.away_team);
+            const open = expandedRow === rowKey;
             return (
-              <div key={i} className="card p-3">
-                <div className="flex items-center gap-3 flex-wrap">
+              <div key={i} className="card overflow-hidden">
+                <button
+                  onClick={() => eGame && setExpandedRow(open ? null : rowKey)}
+                  className={`w-full text-left p-3 flex items-center gap-3 flex-wrap ${eGame ? 'hover:bg-slate-50 transition-colors' : ''}`}
+                >
                   <div className="font-semibold text-slate-800 w-28 shrink-0">{b.matchup}</div>
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                     {MARKET_LABEL[b.market]}
@@ -209,8 +225,14 @@ export default function NflMarketBoard() {
                     </div>
                   </div>
                   <div className="text-[10px] text-slate-400 ml-auto whitespace-nowrap">{b.detail}</div>
+                  {eGame && <span className="text-[10px] text-sky-600 font-semibold whitespace-nowrap">
+                    {open ? '20 models ▲' : '20 models ▼'}
+                  </span>}
+                </button>
+                <div className="px-3 pb-3">
+                  <PickReasoning reasoning={b.reasoning} />
                 </div>
-                <PickReasoning reasoning={b.reasoning} />
+                {open && eGame && <EnsembleDetail game={eGame} />}
               </div>
             );
           })}

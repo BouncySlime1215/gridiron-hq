@@ -52,6 +52,28 @@ export function minutesSince(job) {
   return (Date.now() - new Date(l.last_run_at).getTime()) / 60000;
 }
 
+/**
+ * Are there games marked Final in the last two days whose box scores have not
+ * actually been pulled yet?
+ *
+ * A flat timer is the wrong test for player logs: it does not know a game just
+ * ended. mlb_logs was set to a 6-hour window, so a sync at 2pm left every game
+ * that finished afterward ungraded until the timer came back around — hours
+ * after the result already existed. This checks the real condition instead.
+ */
+function mlbLogsBehindFinals() {
+  const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  const row = rows(`
+    SELECT COUNT(*) AS n FROM mlb_games g
+    WHERE g.date >= ? AND g.status = 'Final'
+      AND NOT EXISTS (
+        SELECT 1 FROM mlb_pitcher_games p WHERE p.date = g.date AND p.team_id = g.home_team_id
+        UNION SELECT 1 FROM mlb_batter_games b WHERE b.date = g.date AND b.team_id = g.home_team_id
+      )
+  `, since)[0];
+  return (row?.n ?? 0) > 0;
+}
+
 /* -------------------------------------------------------------------- jobs */
 
 /**
@@ -116,7 +138,10 @@ async function prepareTomorrowPicks() {
  */
 export const JOBS = {
   mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, label: 'MLB schedule and results' },
-  mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, label: 'MLB player game logs' },
+  // 45 minutes is the baseline, but `extraStale` below overrides it the moment a
+  // game goes Final without its box score pulled yet — the actual condition
+  // that matters, since a flat timer left finished games ungraded for hours.
+  mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 45, extraStale: mlbLogsBehindFinals, label: 'MLB player game logs' },
   mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, label: 'MLB probable starters' },
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' }
@@ -127,7 +152,8 @@ export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
   const age = minutesSince(name);
-  if (!force && age < job.maxAgeMinutes) {
+  const stale = age >= job.maxAgeMinutes || Boolean(job.extraStale?.());
+  if (!force && !stale) {
     return { job: name, skipped: true, age_minutes: Math.round(age), max_age_minutes: job.maxAgeMinutes };
   }
   try {
@@ -206,7 +232,7 @@ export function schedulerStatus() {
         max_age_minutes: j.maxAgeMinutes,
         last_run_at: l?.last_run_at ?? null,
         age_minutes: Number.isFinite(age) ? Math.round(age) : null,
-        stale: age >= j.maxAgeMinutes,
+        stale: age >= j.maxAgeMinutes || Boolean(j.extraStale?.()),
         last_status: l?.last_status ?? 'never run',
         last_detail: l?.last_detail ?? null,
         runs: l?.runs ?? 0

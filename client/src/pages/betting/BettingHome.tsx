@@ -60,7 +60,7 @@ export default function BettingHome() {
             ['Total picks', `${nfl?.by_market.total.wins ?? 0}-${nfl?.by_market.total.losses ?? 0} · ${units(nfl?.by_market.total.units)}`],
             ['Weeks tracked', String(nfl?.by_market.spread.weeks_tracked ?? 0)]
           ]}
-          links={[['/betting/nfl', 'Board'], ['/betting/nfl/props', 'Props'], ['/betting/nfl/picks', 'Auto Picks']]}
+          links={[['/betting/nfl/picks', 'Auto Picks'], ['/betting/nfl/props', 'Props']]}
         />
         <SportCard
           sport="MLB" accent="sky" icon="⚾"

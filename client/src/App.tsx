@@ -51,20 +51,16 @@ const NAV = [
   { to: '/settings', label: 'ESPN Settings', icon: '⚙️' }
 ];
 
+// Trimmed to the three pages actually used day to day. Ensemble and Training
+// used to be separate entries here — that analysis now lives directly inside
+// NFL Auto Picks and NFL Props (see NflModelInsight.tsx), so the standalone
+// pages no longer need their own nav slot. Everything else (NFL/MLB boards,
+// line shopping, variable catalog, model info) is still reachable from the
+// Betting Hub's own links, just not pinned in the sidebar.
 const BETTING_NAV = [
-  { to: '/betting', label: 'Betting Home', icon: '🎰', end: true },
-  { to: '/betting/nfl', label: 'NFL Board', icon: '🏈' },
-  { to: '/betting/nfl/props', label: 'NFL Props', icon: '🎯' },
-  { to: '/betting/nfl/ensemble', label: 'Ensemble Line', icon: '🧮' },
-  { to: '/betting/nfl/picks', label: 'NFL Auto Picks', icon: '🤖' },
-  { to: '/betting/lines', label: 'Line Shopping', icon: '💰' },
-  { to: '/betting/training', label: 'Training', icon: '🔬' },
-  { to: '/betting/mlb', label: 'MLB Board', icon: '⚾' },
-  { to: '/betting/mlb/legacy', label: 'MLB (proxied)', icon: '🔗' },
-  { to: '/betting/mlb/auto', label: 'MLB Auto Picks', icon: '🤖' },
-  { to: '/betting/mlb/picks', label: 'MLB My Picks', icon: '🎫' },
-  { to: '/betting/catalog', label: 'Variables', icon: '📚' },
-  { to: '/betting/mlb/model', label: 'Model Info', icon: 'ℹ️' }
+  { to: '/betting', label: 'Betting Hub', icon: '🎰', end: true },
+  { to: '/betting/mlb/auto', label: 'MLB Auto', icon: '⚾' },
+  { to: '/betting/nfl/picks', label: 'NFL Auto', icon: '🏈' }
 ];
 
 export default function App() {

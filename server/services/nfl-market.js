@@ -135,7 +135,7 @@ export function fitModel() {
  * more than a bell curve predicts), and this way the tails come from games
  * that actually happened rather than an assumed shape.
  */
-function bootstrapProb(predicted, threshold, residuals, trials) {
+export function bootstrapProb(predicted, threshold, residuals, trials) {
   let hits = 0;
   for (let i = 0; i < trials; i++) {
     const draw = residuals[(Math.random() * residuals.length) | 0];
@@ -163,7 +163,7 @@ export function predictGame(homeTeam, awayTeam) {
 
 const americanToProb = odds => (odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100));
 /** No-vig probability of side A, from both sides' real American prices. */
-function noVigProb(oddsA, oddsB) {
+export function noVigProb(oddsA, oddsB) {
   if (oddsA == null || oddsB == null) return null;
   const a = americanToProb(oddsA), b = americanToProb(oddsB);
   return a + b > 0 ? a / (a + b) : null;

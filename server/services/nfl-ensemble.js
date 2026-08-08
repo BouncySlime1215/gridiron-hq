@@ -24,9 +24,16 @@
 import { rows } from '../db/index.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { mean } from './stats-util.js';
+// Reused only for their residual-bootstrap machinery (a shared, already-tested
+// way to turn a point projection into a cover probability) — nfl-market.js's
+// own point predictions are not used here.
+import { fitModel as fitMarketModel, bootstrapProb, noVigProb } from './nfl-market.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
-const EVAL_FROM = 2022;    // seasons graded out-of-sample (also where play-by-play features exist)
+// 2015-2020 trains calibration and weights; 2021 onward (5 full seasons as of
+// 2026) is graded out-of-sample — "the last five years," per the ask to re-run
+// blind over that exact window rather than the previous 2022+ cut.
+const EVAL_FROM = 2021;
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
@@ -521,7 +528,15 @@ export function fitEnsemble({ evalFrom = EVAL_FROM } = {}) {
 
   const cal = calibrate(all, restMap, evalFrom);
   const errs = Object.fromEntries(MODELS.map(m => [m.id, { margin: [], total: [] }]));
-  const weeks = [...new Set(all.filter(g => g.season >= evalFrom).map(g => `${g.season}|${g.week}`))];
+  // Weights are fit on the same pre-evaluation era as calibration, not on the
+  // eval-window games themselves. Fitting them on 2022+ errors and then using
+  // those weights to grade bets placed *within* 2022+ is look-ahead bias: a
+  // week-3-2022 bet would silently be informed by knowing how each model did
+  // all the way through 2025. Every individual model's prediction is honestly
+  // walk-forward already (context only ever sees strictly earlier games) — this
+  // was the one place that guarantee didn't hold, because the combination
+  // weights were tuned on the very games being graded.
+  const weeks = [...new Set(all.filter(g => g.season < evalFrom).map(g => `${g.season}|${g.week}`))];
 
   for (const key of weeks) {
     const [season, week] = key.split('|').map(Number);
@@ -657,6 +672,118 @@ export function ensembleWeek(season, week) {
   const slate = rows(`SELECT team AS home, opponent AS away FROM game_lines
                       WHERE season=? AND week=? AND home=1`, season, week);
   return slate.map(g => ensembleLine(season, week, g.home, g.away)).filter(x => !x.error);
+}
+
+const fmtLine = v => (v > 0 ? `+${v}` : `${v}`);
+
+/**
+ * The live board and auto-pick source, built from this ensemble instead of the
+ * separate single-rating model in nfl-market.js.
+ *
+ * Before this, the two were disconnected: nfl-replay.js backtested this
+ * ensemble and reported its walk-forward record, but the actual "Run Weekly
+ * Analysis" button locked picks from a different model that had never been
+ * through that same replay harness. Whatever the replay said about win rate or
+ * ROI was true of a system nobody was actually betting. This makes the tested
+ * system the one generating real picks.
+ *
+ * Spread rows also apply the same minEdge/maxDisagreement gate used in
+ * replaySeason — the one correction that survived discovery/holdout validation
+ * (see /replay/validate) — so a live pick is never looser than what was proven
+ * to help. Moneyline and total rows are shown for context at any edge size,
+ * matching how the old board worked, since only spread is what's tracked and
+ * staked as an auto-pick.
+ */
+export function ensembleBoardFor(season, week, { trials = 20000, minEdge = 1.5, maxDisagreement = 4.5 } = {}) {
+  const lines = ensembleWeek(season, week);
+  if (!lines.length) return [];
+
+  const mkt = fitMarketModel();
+  if (mkt.error) return mkt;
+
+  const priceByHome = new Map(rows(`
+    SELECT team AS home, moneyline AS home_ml, spread_odds AS home_spread_odds,
+           total_over_odds, total_under_odds
+    FROM game_lines WHERE season = ? AND week = ? AND home = 1
+  `, season, week).map(r => [r.home, r]));
+  const awayPrices = new Map(rows(`
+    SELECT team, moneyline, spread_odds FROM game_lines WHERE season = ? AND week = ? AND home = 0
+  `, season, week).map(r => [r.team, r]));
+
+  const out = [];
+  for (const line of lines) {
+    const e = line.ensemble;
+    const p = priceByHome.get(line.home);
+    const away = p ? awayPrices.get(line.away) : null;
+    if (!p || !away) continue;
+    const matchup = `${line.away} at ${line.home}`;
+    const disagreementOk = (e.model_disagreement_margin ?? 0) <= maxDisagreement;
+
+    if (p.home_ml != null && away.moneyline != null && e.projected_margin != null) {
+      const homeModelP = bootstrapProb(e.projected_margin, 0, mkt.marginResiduals, trials);
+      const homeMarketP = noVigProb(p.home_ml, away.moneyline);
+      if (homeMarketP != null) {
+        const homeEdge = homeModelP - homeMarketP;
+        const pickHome = homeEdge >= 0;
+        out.push({
+          market: 'moneyline', home_team: line.home, away_team: line.away, matchup,
+          selection: pickHome ? line.home : line.away, side: pickHome ? line.home : line.away, line: null,
+          american_price: pickHome ? p.home_ml : away.moneyline,
+          model_probability: pickHome ? homeModelP : 1 - homeModelP,
+          implied_probability: pickHome ? homeMarketP : 1 - homeMarketP,
+          probability_difference: Math.abs(homeEdge),
+          disagreement: e.model_disagreement_margin,
+          detail: `Ensemble margin ${e.projected_margin > 0 ? '+' : ''}${e.projected_margin} (${e.confidence.split('—')[0].trim()})`
+        });
+      }
+    }
+
+    if (disagreementOk && Math.abs(e.spread_edge ?? 0) >= minEdge
+      && p.home_spread_odds != null && away.spread_odds != null
+      && e.projected_margin != null && e.market_spread != null) {
+      const homeModelP = bootstrapProb(e.projected_margin, -e.market_spread, mkt.marginResiduals, trials);
+      const homeMarketP = noVigProb(p.home_spread_odds, away.spread_odds);
+      if (homeMarketP != null) {
+        const homeEdge = homeModelP - homeMarketP;
+        const pickHome = homeEdge >= 0;
+        const awaySpread = -e.market_spread;
+        out.push({
+          market: 'spread', home_team: line.home, away_team: line.away, matchup,
+          selection: pickHome ? line.home : line.away,
+          side: pickHome ? fmtLine(e.market_spread) : fmtLine(awaySpread),
+          line: pickHome ? e.market_spread : awaySpread,
+          american_price: pickHome ? p.home_spread_odds : away.spread_odds,
+          model_probability: pickHome ? homeModelP : 1 - homeModelP,
+          implied_probability: pickHome ? homeMarketP : 1 - homeMarketP,
+          probability_difference: Math.abs(homeEdge),
+          disagreement: e.model_disagreement_margin,
+          detail: `Ensemble margin ${e.projected_margin > 0 ? '+' : ''}${e.projected_margin} vs market ${fmtLine(e.market_spread)} (edge ${e.spread_edge > 0 ? '+' : ''}${e.spread_edge})`
+        });
+      }
+    }
+
+    if (Math.abs(e.total_edge ?? 0) >= minEdge
+      && p.total_over_odds != null && p.total_under_odds != null
+      && e.projected_total != null && e.market_total != null) {
+      const overModelP = bootstrapProb(e.projected_total, e.market_total, mkt.totalResiduals, trials);
+      const overMarketP = noVigProb(p.total_over_odds, p.total_under_odds);
+      if (overMarketP != null) {
+        const overEdge = overModelP - overMarketP;
+        const pickOver = overEdge >= 0;
+        out.push({
+          market: 'total', home_team: line.home, away_team: line.away, matchup,
+          selection: matchup, side: `${pickOver ? 'Over' : 'Under'} ${e.market_total}`, line: e.market_total,
+          american_price: pickOver ? p.total_over_odds : p.total_under_odds,
+          model_probability: pickOver ? overModelP : 1 - overModelP,
+          implied_probability: pickOver ? overMarketP : 1 - overMarketP,
+          probability_difference: Math.abs(overEdge),
+          disagreement: e.model_disagreement_total,
+          detail: `Ensemble total ${e.projected_total} vs market ${e.market_total}`
+        });
+      }
+    }
+  }
+  return out.sort((a, b) => b.probability_difference - a.probability_difference);
 }
 
 export function modelCatalog() {

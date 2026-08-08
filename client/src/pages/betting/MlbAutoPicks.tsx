@@ -5,7 +5,7 @@ interface Pick {
   pick_date: string; rank: number; market: string; selection: string;
   player_id: number | null; matchup: string | null; game_pk: number | null;
   side: string; line: number | null; model_probability: number | null;
-  projection: number | null;
+  projection: number | null; stake_units: number;
   status: 'Won' | 'Lost' | 'Push' | 'Pending'; detail: string; units: number;
 }
 interface MarketRow {
@@ -106,7 +106,7 @@ export default function MlbAutoPicks() {
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
         <Metric label="Record" value={`${s?.wins ?? 0}-${s?.losses ?? 0}${s?.pushes ? `-${s.pushes}` : ''}`} />
         <Metric label="Win rate" value={pct(s?.win_rate)} />
-        <Metric label="Units (flat)" value={u(s?.units)}
+        <Metric label="Units" value={u(s?.units)}
           tone={(s?.units ?? 0) > 0 ? 'good' : (s?.units ?? 0) < 0 ? 'bad' : undefined} />
         <Metric label="Pending" value={String(s?.pending ?? 0)} />
         <Metric label="Days tracked" value={String(s?.days_tracked ?? 0)} />
@@ -190,6 +190,13 @@ export default function MlbAutoPicks() {
         would actually price: a projection more certain than about 78% means the line would not be
         offered, and including those would inflate the win rate while testing nothing.
       </div>
+      <div className="card p-3 mt-2 text-[11px] text-slate-500">
+        Each pick's stake size (0.5u–5.0u) comes from tenth-Kelly against an assumed -110 price —
+        this scales up or down with how far the model's own probability sits from a coin flip, so a
+        bigger stake means a bigger swing both ways, not a safer bet. Checked before using it: settled
+        picks split into probability bands do show a real, roughly monotonic rise in win rate, unlike a
+        similar NFL "model agreement" signal that turned out to be backwards.
+      </div>
     </div>
   );
 }
@@ -213,6 +220,12 @@ function PickTable({ picks }: { picks: Pick[] }) {
                 {p.side}{p.line != null ? ` ${p.line}` : ''}
               </td>
               <td className="px-3 py-2 tabular-nums text-slate-600">{pct(p.model_probability)}</td>
+              <td className="px-3 py-2">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200"
+                  title="Stake size — tenth-Kelly against an assumed -110 price, scaled by model conviction">
+                  {(p.stake_units ?? 1).toFixed(1)}u stake
+                </span>
+              </td>
               <td className="px-3 py-2">
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${STATUS_STYLE[p.status]}`}>
                   {p.status}

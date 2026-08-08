@@ -39,7 +39,7 @@ r.get('/board', (req, res, next) => {
   try {
     // Kick a refresh if the schedule is stale. Fire-and-forget, so this request
     // still answers immediately from what is already stored.
-    refreshInBackground(['mlb_schedule']);
+    refreshInBackground(['mlb_schedule', 'mlb_logs']);
     const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
     res.json(firstPartyBoard(date, { limit: Number(req.query.limit) || 40 }));
   } catch (e) { next(e); }
@@ -55,6 +55,9 @@ r.get('/coverage', (req, res, next) => {
  */
 r.get('/auto-picks', (req, res, next) => {
   try {
+    // mlb_logs now checks for un-graded Finals rather than a flat timer, so this
+    // is cheap on every load and only actually fetches when a result is missing.
+    refreshInBackground(['mlb_schedule', 'mlb_logs']);
     const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
     const locked = ensurePicksFor(date, Number(req.query.n) || 5);
     const slateDate = locked[0]?.pick_date ?? null;

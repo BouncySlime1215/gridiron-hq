@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { boardFor, accuracy, predictGame, clearNflMarketCache } from '../services/nfl-market.js';
+import { accuracy, predictGame, clearNflMarketCache } from '../services/nfl-market.js';
+import { ensembleBoardFor, clearEnsembleCache } from '../services/nfl-ensemble.js';
 import { syncCurrentLines } from '../services/gamescript.js';
 import { ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
 
@@ -10,7 +11,7 @@ r.get('/board', (req, res, next) => {
   try {
     const season = Number(req.query.season) || SEASON;
     const week = Number(req.query.week) || 1;
-    const out = boardFor(season, week);
+    const out = ensembleBoardFor(season, week);
     if (out?.error) return res.status(409).json(out);
     res.json({ season, week, board: out });
   } catch (e) { next(e); }
@@ -46,6 +47,12 @@ r.get('/picks', (req, res, next) => {
  * this week's 5 most confident spread edges as new straight bets. Simulation
  * trial count is generous (default 20k per bet) since "how many scenarios were
  * actually run" is the honesty check on this button, not a number to shortcut.
+ *
+ * Picks come from the 20-model ensemble (nfl-ensemble.js) gated by the same
+ * minEdge/maxDisagreement filter nfl-replay.js validated on holdout seasons —
+ * previously this locked picks from a separate, never-backtested model, so the
+ * tracked record and the analysis explaining it were about two different
+ * systems.
  */
 r.post('/sync-and-pick', async (req, res, next) => {
   try {
@@ -55,11 +62,12 @@ r.post('/sync-and-pick', async (req, res, next) => {
 
     const synced = await syncCurrentLines(season, 18);
     clearNflMarketCache();
+    clearEnsembleCache();
 
     const lastWeek = week - 1;
     const lastWeekResults = lastWeek >= 1 ? pickResultsFor(season, lastWeek) : [];
 
-    const board = boardFor(season, week, trials);
+    const board = ensembleBoardFor(season, week, { trials });
     if (board?.error) return res.status(409).json(board);
     const newPicks = ensurePicksFor(season, week, board, 5);
 

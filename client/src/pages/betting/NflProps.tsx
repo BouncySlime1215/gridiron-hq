@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApi, api } from '../../api';
+import { TrainingSummaryCard, useEnsembleWeek, findEnsembleGameByTeams, EnsembleBadge, EnsembleDetail } from '../../components/NflModelInsight';
 
 interface Proj {
   player: string; team: string; position: string | null; opponent: string | null;
@@ -38,6 +39,11 @@ export default function NflProps() {
 
   const { data, loading } = useApi<Payload>(`/nfl-betting/props?season=${season}&week=${week}&limit=60`);
   const shown = live ?? data;
+  // The game script (spread/total) behind every projection below comes from
+  // the same 20-model ensemble used on the NFL Auto Picks board — surfacing it
+  // here answers "how much should I trust the total driving this projection."
+  const { data: ensemble } = useEnsembleWeek(week, season);
+  const [expandedGame, setExpandedGame] = useState<string | null>(null);
 
   const refreshOdds = async () => {
     setBusy(true); setErr(null);
@@ -75,6 +81,8 @@ export default function NflProps() {
         {shown?.market_status ?? 'Loading…'}
       </div>
       {err && <div className="card p-3 mb-4 text-xs text-rose-600">{err}</div>}
+
+      <TrainingSummaryCard />
 
       {top5.length > 0 && (
         <>
@@ -115,7 +123,11 @@ export default function NflProps() {
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {shown.projections.map((p, i) => (
+          {shown.projections.map((p, i) => {
+            const eGame = findEnsembleGameByTeams(ensemble?.games, p.team, p.opponent);
+            const gameKey = eGame ? `${eGame.home}-${eGame.away}` : null;
+            const open = gameKey != null && expandedGame === gameKey;
+            return (
             <div key={i} className="card p-3">
               <div className="flex items-center gap-2 mb-2">
                 <Avatar name={p.player} position={p.position} />
@@ -127,15 +139,30 @@ export default function NflProps() {
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] mb-2">
                 {p.pass_yds > 20 && <Stat label="Pass yds" value={p.pass_yds.toFixed(0)} band={p.percentiles.pass_yds} />}
                 {p.rush_yds > 5 && <Stat label="Rush yds" value={p.rush_yds.toFixed(0)} band={p.percentiles.rush_yds} />}
                 {p.rec_yds > 5 && <Stat label="Rec yds" value={p.rec_yds.toFixed(0)} band={p.percentiles.rec_yds} />}
                 {p.receptions > 0.5 && <Stat label="Receptions" value={p.receptions.toFixed(1)} />}
                 <Stat label="Any TD" value={pct(p.any_td_prob)} />
               </div>
+              {eGame && (
+                <button
+                  onClick={() => setExpandedGame(open ? null : gameKey)}
+                  className="text-left"
+                  title="How confident the game script behind this projection actually is"
+                >
+                  <EnsembleBadge game={eGame} />
+                </button>
+              )}
+              {open && eGame && (
+                <div className="-mx-3 -mb-3 mt-2 border-t border-slate-100">
+                  <EnsembleDetail game={eGame} />
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

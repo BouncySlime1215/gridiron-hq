@@ -95,10 +95,18 @@ export function sportEvents(sport, { ttlMs = 6 * 3600e3 } = {}) {
   return get(`/sports/${sport}/events/`, {}, { cacheKey: `events:${sport}`, ttlMs });
 }
 
-/** Game-level markets for the whole slate. One credit per market per region. */
-export function gameOdds({ markets = 'h2h,spreads,totals', ttlMs = 3 * 3600e3 } = {}) {
-  return get(`/sports/${SPORT}/odds/`, { regions: 'us', markets, oddsFormat: 'american' },
-    { cacheKey: `game:${markets}`, ttlMs });
+/**
+ * Game-level markets for the whole slate. One credit per market *per region*,
+ * so adding a region multiplies the cost of a call.
+ *
+ * The eu region is worth its credit despite that: it is the only way to reach
+ * Pinnacle, whose number is the closest thing to a true price in this sport.
+ * Every US book in the default region is a price-taker by comparison, which is
+ * exactly what nfl-sharp.js exploits.
+ */
+export function gameOdds({ markets = 'h2h,spreads,totals', regions = 'us', ttlMs = 3 * 3600e3 } = {}) {
+  return get(`/sports/${SPORT}/odds/`, { regions, markets, oddsFormat: 'american' },
+    { cacheKey: `game:${regions}:${markets}`, ttlMs });
 }
 
 /**

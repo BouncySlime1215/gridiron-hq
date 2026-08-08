@@ -16,6 +16,7 @@ import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsemb
 import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
 import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/nfl-clv.js';
+import { sharpBoard, sharpDivergence, steamMoves, sharpScorecard } from '../services/nfl-sharp.js';
 import { runIfStale } from '../services/scheduler.js';
 import { stakeFor, safeStakeFor, evaluateSizing } from '../services/staking.js';
 import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
@@ -379,6 +380,47 @@ r.get('/lines/clv', (req, res, next) => {
       by_source: clvBySource()
     });
   } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------ sharp money */
+
+/** The sharp consensus price for every game, and who is quoting it. */
+r.get('/sharp/board', async (req, res, next) => {
+  try {
+    const out = await sharpBoard({ markets: req.query.markets ?? 'spreads,totals' });
+    if (out?.error) return res.status(409).json(out);
+    // The internal book lists are for divergence scoring, not for the wire.
+    for (const g of out.games) for (const m of Object.values(g.markets)) {
+      delete m._sharp; delete m._rec; delete m._ref;
+    }
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/** Recreational books that have not caught up to the sharp number. */
+r.get('/sharp/divergence', async (req, res, next) => {
+  try {
+    const out = await sharpDivergence({
+      minEdgePct: req.query.min_edge != null ? Number(req.query.min_edge) : 0.01
+    });
+    if (out?.error) return res.status(409).json(out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/** Synchronised multi-book moves — the visible trace of syndicate money. */
+r.get('/sharp/steam', (req, res, next) => {
+  try {
+    res.json(steamMoves({
+      minBooks: Number(req.query.min_books) || 3,
+      minPoints: req.query.min_points != null ? Number(req.query.min_points) : 0.5
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Whether sharp-sourced picks are actually beating the close. */
+r.get('/sharp/scorecard', (req, res, next) => {
+  try { res.json(sharpScorecard()); } catch (e) { next(e); }
 });
 
 /** Logs a bet as taken. Without the price and time, CLV cannot be computed. */

@@ -421,3 +421,97 @@ test('missing MLB boxscore data stays pending until a final participant list con
   db.prepare(`INSERT INTO mlb_boxscore_sync (game_pk,fetched_at,status) VALUES (991001,'2026-09-02T00:00:00Z','hydrated')`).run();
   assert.equal(allPicks().find(x => x.rank === 99)?.status, 'Void');
 });
+
+/* ------------------------------------------------------------------- CLV */
+
+const { recordBet, gradeClosingLineValue, listBets, clvReport, noVigProbability, fairProbabilityOfOurBet } =
+  await import('../server/services/nfl-clv.js');
+
+const KICKOFF = '2020-01-01T00:00:00Z';
+function stageClose(eventId, market, side, other, line, otherLine, price = -110, otherPrice = -110) {
+  const ins = db.prepare(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price)
+    VALUES (?,?,?,'HOME','AWAY','dk',?,?,?,?)`);
+  ins.run('2019-12-31T23:00:00Z', eventId, KICKOFF, market, side, line, price);
+  ins.run('2019-12-31T23:00:00Z', eventId, KICKOFF, market, other, otherLine, otherPrice);
+}
+function clvFor(eventId, bet) {
+  recordBet({ event_id: eventId, commence_time: KICKOFF, home_team: 'HOME', away_team: 'AWAY', ...bet });
+  gradeClosingLineValue();
+  return listBets({ limit: 500 }).find(b => b.event_id === eventId);
+}
+
+test('de-vigging removes the margin and leaves a fair pair of probabilities', () => {
+  assert.equal(noVigProbability(-110, -110), 0.5);
+  const a = noVigProbability(-200, +170), b = noVigProbability(+170, -200);
+  assert.ok(Math.abs(a + b - 1) < 1e-9, 'de-vigged two-way probabilities must sum to exactly one');
+});
+
+test('closing line value prices the number taken, not the number the market closed on', () => {
+  stageClose('CLV_BEAT', 'spreads', 'HOME', 'AWAY', 1.5, -1.5);
+  const beat = clvFor('CLV_BEAT', { market: 'spreads', side: 'HOME', line: 3, price: -110, source: 'unit' });
+  assert.equal(beat.clv_points, 1.5);
+  assert.ok(beat.clv_pct > 0, 'taking +3 into a +1.5 close is positive value, not negative');
+
+  stageClose('CLV_WORSE', 'spreads', 'HOME', 'AWAY', 3, -3);
+  const worse = clvFor('CLV_WORSE', { market: 'spreads', side: 'HOME', line: 1.5, price: -110, source: 'unit' });
+  assert.equal(worse.clv_points, -1.5);
+  assert.ok(worse.clv_pct < 0);
+});
+
+test('betting the closing number at standard juice costs exactly the vig', () => {
+  stageClose('CLV_FLAT', 'spreads', 'HOME', 'AWAY', 3, -3);
+  const flat = clvFor('CLV_FLAT', { market: 'spreads', side: 'HOME', line: 3, price: -110, source: 'unit' });
+  assert.equal(flat.clv_points, 0);
+  assert.ok(Math.abs(flat.clv_pct - (-0.0455)) < 0.002,
+    `no line value at -110 should score about -4.55%, got ${flat.clv_pct}`);
+});
+
+test('a better price on the same number is worth exactly the price difference', () => {
+  stageClose('CLV_PRICE', 'spreads', 'HOME', 'AWAY', 3, -3);
+  const better = clvFor('CLV_PRICE', { market: 'spreads', side: 'HOME', line: 3, price: -105, source: 'unit' });
+  assert.equal(better.clv_points, 0);
+  assert.ok(better.clv_pct > -0.03 && better.clv_pct < 0,
+    'shopping -110 to -105 recovers part of the vig but does not by itself create edge');
+});
+
+test('totals value is symmetric: the over wants a lower number and the under a higher one', () => {
+  stageClose('CLV_OVER', 'totals', 'Over', 'Under', 47, 47);
+  const over = clvFor('CLV_OVER', { market: 'totals', side: 'Over', line: 44, price: -110, source: 'unit' });
+  stageClose('CLV_UNDER', 'totals', 'Under', 'Over', 44, 44);
+  const under = clvFor('CLV_UNDER', { market: 'totals', side: 'Under', line: 47, price: -110, source: 'unit' });
+  assert.equal(over.clv_points, 3);
+  assert.equal(under.clv_points, 3);
+  assert.ok(Math.abs(over.clv_pct - under.clv_pct) < 1e-6,
+    'three points of the same value must price identically on either side');
+});
+
+test('CLV refuses to report a verdict on too few bets', () => {
+  const r = clvReport({ source: 'unit' });
+  assert.equal(r.available, true);
+  assert.match(r.verdict, /Too few graded bets/);
+  assert.ok(r.significant === false);
+});
+
+test('a bet without a real price is rejected rather than logged unpriceable', () => {
+  assert.ok(recordBet({ event_id: 'X', market: 'spreads', side: 'HOME', line: 3 }).error);
+  assert.ok(recordBet({ event_id: 'X', market: 'spreads', side: 'HOME', line: 3, price: null }).error);
+});
+
+test('the close is the last capture before kickoff, never one taken after it', () => {
+  db.prepare(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price)
+    VALUES (?,?,?,'HOME','AWAY','dk','spreads',?,?,?)`)
+    .run('2019-12-31T23:00:00Z', 'CLV_AFTER', KICKOFF, 'HOME', 6, -110);
+  db.prepare(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price)
+    VALUES (?,?,?,'HOME','AWAY','dk','spreads',?,?,?)`)
+    .run('2019-12-31T23:00:00Z', 'CLV_AFTER', KICKOFF, 'AWAY', -6, -110);
+  // An in-game number, which must never be treated as the close.
+  db.prepare(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price)
+    VALUES (?,?,?,'HOME','AWAY','dk','spreads',?,?,?)`)
+    .run('2020-01-01T01:00:00Z', 'CLV_AFTER', KICKOFF, 'HOME', 20, -110);
+  const b = clvFor('CLV_AFTER', { market: 'spreads', side: 'HOME', line: 6, price: -110, source: 'unit' });
+  assert.equal(b.closing_line, 6, 'a line captured after kickoff must not be used as the close');
+});

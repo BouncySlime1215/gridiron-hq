@@ -15,6 +15,7 @@ import { standouts, reconcile } from '../services/betting-fantasy-link.js';
 import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsembleCache, clearEnsembleLineCache } from '../services/nfl-ensemble.js';
 import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
+import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/nfl-clv.js';
 import { runIfStale } from '../services/scheduler.js';
 import { stakeFor, safeStakeFor, evaluateSizing } from '../services/staking.js';
 import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
@@ -362,8 +363,40 @@ r.post('/lines/snapshot', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-r.get('/lines/clv', (req, res, next) => {
+/** Snapshot coverage — whether a close exists to measure anything against. */
+r.get('/lines/clv/coverage', (req, res, next) => {
   try { res.json(closingLineValue()); } catch (e) { next(e); }
+});
+
+/**
+ * The CLV verdict on recorded bets. This is the number to read weekly — it
+ * settles whether a strategy has edge far sooner than the win/loss record does.
+ */
+r.get('/lines/clv', (req, res, next) => {
+  try {
+    res.json({
+      overall: clvReport({ source: req.query.source ?? null, since: req.query.since ?? null }),
+      by_source: clvBySource()
+    });
+  } catch (e) { next(e); }
+});
+
+/** Logs a bet as taken. Without the price and time, CLV cannot be computed. */
+r.post('/bets', (req, res, next) => {
+  try {
+    const out = recordBet(req.body ?? {});
+    if (out?.error) return res.status(400).json(out);
+    res.status(201).json(out);
+  } catch (e) { next(e); }
+});
+
+r.get('/bets', (req, res, next) => {
+  try { res.json(listBets({ limit: Number(req.query.limit) || 200 })); } catch (e) { next(e); }
+});
+
+/** Grades any bet whose game has kicked off against the market's close. */
+r.post('/bets/grade', (req, res, next) => {
+  try { res.json(gradeClosingLineValue()); } catch (e) { next(e); }
 });
 
 /* ---------------------------------------------------------------- staking */

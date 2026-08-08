@@ -299,6 +299,69 @@ than an absence of signal: the ordering is monotonic, so a Platt or isotonic
 recalibration fitted walk-forward should correct most of it. That is the first
 thing to do before any prop is bet.
 
+## Retrospective prop replay — the first real signal
+
+`nfl-props-replay.js` grades every prop walk-forward, 2021–25. With no historical
+prop lines, the bet has to be placed against something, and that choice decides
+whether the answer means anything. The proxy is deliberately strong: a
+recency-weighted trailing average of the player's own production, shrunk and
+rounded to the half point. It was then checked for fairness — a biased proxy
+would hand out a fake edge:
+
+| Market | n | Under win% (50% = fair line) |
+|---|---|---|
+| Passing yards | 2,040 | 49.0% |
+| Rushing yards | 4,350 | **43.7%** |
+| Receiving yards | 12,255 | 49.5% |
+| Receptions | 12,265 | **50.1%** |
+
+Receptions is essentially a perfectly fair line; rushing yards is not, so its
+result is discounted accordingly.
+
+Graded at **−115** (typical prop juice, break-even 53.49%, not 52.38%):
+
+| Market | Bets | Win% | Units | ROI | z vs break-even |
+|---|---|---|---|---|---|
+| Passing yards | 176 | 38.6% | −48.9 | −27.8% | −3.94 |
+| Rushing yards | 1,491 | 45.5% | −223.4 | −15.0% | −6.19 |
+| Receiving yards | 6,105 | 49.3% | −477.6 | −7.8% | −6.54 |
+| **Receptions** | **6,973** | **54.2%** | **+94.0** | **+1.3%** | **+1.20** |
+| Overall | 14,745 | 51.1% | −656.0 | −4.4% | −5.78 |
+
+Props as a whole lose badly. Receptions is the exception, and it is the first
+genuine signal found anywhere in this project:
+
+- **z = 7.03 against a fair coin.** The model predicts receptions better than
+  chance by seven standard errors. That is skill, not noise.
+- **z = 1.20 against the −115 break-even.** The juice eats almost all of it.
+- Positive in four of five seasons (+25, +9, +89, +12, −41).
+
+There is a mechanism, which matters — this is not a black box result. The proxy
+averages past receptions; the model projects targets separately from catch rate.
+Targets are markedly more predictable than receptions, and catch rate is stable,
+so decomposing the two genuinely forecasts better.
+
+**Price is almost the whole story here:**
+
+| Price | ROI |
+|---|---|
+| −115 | +1.30% |
+| −110 | +3.49% |
+| −105 | +5.84% |
+
+Getting −110 instead of −115 nearly triples the return. This is where line
+shopping stops being a rounding error and becomes the difference between a
+strategy and a hobby.
+
+**The caveat that prevents this from being a green light:** the proxy is not a
+real book. DraftKings also prices targets times catch rate — it is not hanging a
+naive trailing average. The edge measured here is over a weaker opponent than
+the one you would actually face, and 2025, the most recent season, was negative.
+
+The correct next step is not to bet it. It is to capture live receptions lines
+from week 1, compare them to the proxy to see how much sharper a real book is,
+and let the CLV ledger judge it.
+
 ## Rules for changing this model
 
 1. Judge changes by **out-of-sample R² against the market residual**, not by

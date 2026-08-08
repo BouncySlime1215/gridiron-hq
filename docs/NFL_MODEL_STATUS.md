@@ -171,6 +171,69 @@ QB-adjusted team strength; injury data exists only for 2023–2025 (17,595 rows)
 which is a thin base for fitting. Worth attempting, but the market prices all of
 this, and the four tests above are what a failed attempt looks like.
 
+## Three strategies that do not rescue a zero edge
+
+All three are ways to bet a signal more efficiently. None of them create one,
+and each was tested rather than assumed.
+
+### Betting only a few games a week
+
+Taking the model's highest-conviction picks each week, out of sample:
+
+| Picks/week | Bets | Win% | Units | z vs 52.4% |
+|---|---|---|---|---|
+| 1 | 94 | 47.9% | −8.1 | −0.88 |
+| 2 | 186 | 47.8% | −16.1 | −1.24 |
+| 3 | 275 | **45.1%** | **−38.3** | −2.42 |
+| 5 | 441 | 50.1% | −19.1 | −0.96 |
+| all | 1152 | 51.0% | −31.4 | −0.98 |
+
+The conviction picks are the *worst* ones. Top-3 at 45.1% is significantly below
+break-even. Selectivity is not a filter on a signal that does not exist — it
+concentrates whatever the model is most wrong about.
+
+### Sizing by model confidence
+
+Win rate by conviction bucket: 51.7%, 48.9%, 54.7%, 50.0%, 46.6%, 56.0%. No
+trend. Confidence does not predict accuracy, so staking more on confident picks
+raises variance without raising expected value — strictly worse risk-adjusted.
+
+### Parlays
+
+The usual claim that parlays carry a worse edge is not quite right at standard
+payouts. Break-even win rate *per leg*:
+
+| Legs | Payout | Break-even per leg |
+|---|---|---|
+| 1 | +191 | 52.38% |
+| 2 | +260 | 52.70% |
+| 3 | +600 | 52.28% |
+| 4 | +1200 | 52.66% |
+| 6 | +4600 | 52.64% |
+
+Roughly the same threshold regardless of size. Parlays are neither a trick nor a
+trap — they are **pure leverage on the edge you already have**:
+
+| Per-leg win% | 1-leg EV | 2-leg EV | 3-leg EV | 4-leg EV |
+|---|---|---|---|---|
+| 50.0% | −4.54% | −10.00% | −12.50% | −18.75% |
+| 52.4% | +0.04% | −1.15% | +0.71% | −1.99% |
+| 54.0% | +3.09% | +4.98% | +10.22% | +10.54% |
+| 57.0% | +8.82% | +16.96% | +29.64% | +37.23% |
+
+At the model's actual 50%, three-leg parlays lose **12.5%** instead of 4.5% —
+they triple the bleed. At a real 54% edge they would roughly triple the return,
+but at much higher variance: simulated over a season at 54% legs, three-leggers
+returned 8.6u against 8.0u for singles while the 10th-percentile outcome fell
+from −12.3u to −20.0u.
+
+Two caveats that make real parlays worse than this table: same-game parlays have
+correlated legs that books price with far higher hold, and many books pay less
+than the standard ladder above.
+
+The conclusion is the ordering, not the arithmetic. Parlays are worth revisiting
+*after* an edge is demonstrated, never as a way to manufacture one.
+
 ## Rules for changing this model
 
 1. Judge changes by **out-of-sample R² against the market residual**, not by

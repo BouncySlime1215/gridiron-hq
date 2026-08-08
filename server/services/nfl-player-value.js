@@ -7,6 +7,11 @@
  * source timestamps and forward calibration clear the promotion gates.
  */
 import './nfl-advanced.js';
+// Owns nfl_pregame_snapshot_history, which teamPlayerAvailability reads below.
+// Imported for that table's creation: reaching this module through the ensemble
+// rather than through a route (a detached replay worker, a script) would
+// otherwise hit a missing table.
+import './nfl-pregame.js';
 import { rows } from '../db/index.js';
 
 const r3 = n => n == null || !Number.isFinite(n) ? null : +n.toFixed(3);

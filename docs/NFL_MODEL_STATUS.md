@@ -234,6 +234,71 @@ than the standard ladder above.
 The conclusion is the ordering, not the arithmetic. Parlays are worth revisiting
 *after* an edge is demonstrated, never as a way to manufacture one.
 
+## Following the sharp money
+
+The one approach that does not require out-forecasting anyone, and the most
+promising thing in this document.
+
+"The market" is not one number. A few books price for accuracy because they take
+size from winning players; the rest price for volume, shade toward public
+sentiment, and move late. That gap is free to observe.
+
+Pinnacle — the reference price in this sport — was missing entirely, because
+`gameOdds` could only request the `us` region and Pinnacle lives in `eu`. With
+`us,eu` the board sees **pinnacle, lowvig and betonlineag**, and a first live run
+found **19 recreational numbers stale against the sharp consensus** across 272
+games, the largest worth ~4.2%.
+
+`nfl-sharp.js` implements three reads:
+
+- **`sharpDivergence`** — recreational books offering a number the sharp
+  consensus has already moved off, priced with the same distribution CLV uses.
+- **`steamMoves`** — several books moving the same direction at once, which is
+  money arriving rather than a bookmaker adjusting.
+- **`sharpScorecard`** — whether bets sourced this way actually closed better.
+
+The last one is the point. Every divergence is a falsifiable claim that a book is
+stale; if the claim is false, those bets will not beat the close, and the ledger
+will say so within about fifty bets instead of two seasons.
+
+## Player props
+
+Correcting an earlier assumption: prop *results* are not missing. 
+`nfl_player_week_features` holds 52,231 player-weeks for 2016–2025 including
+`passing_yards`, `rushing_yards`, `receiving_yards`, `receptions` and touchdowns.
+Only historical prop *lines* are absent — and live props work on the current API
+tier (HTTP 200; yardage markets are simply unposted a month out, while anytime-TD
+is already quoted). Recording lines from Week 1 builds the dataset for free.
+
+Walk-forward projection accuracy, 2021–25:
+
+| Market | n | MAE | RMSE | Bias |
+|---|---|---|---|---|
+| Passing yards | 2,928 | **70.4** | 90.4 | +2.6 |
+| Rushing yards | 10,742 | 17.0 | 25.1 | +0.0 |
+| Receiving yards | 21,009 | 18.9 | 26.3 | +1.2 |
+| Receptions | 21,009 | 1.43 | 1.90 | +0.08 |
+
+Passing yards at 70 MAE against a ~240-yard mean is not close to bettable.
+
+The touchdown model has a larger and more specific problem — it is systematically
+over-confident:
+
+| Predicted | Actual | n |
+|---|---|---|
+| 34.7% | 28.3% | 2,899 |
+| 44.6% | 36.2% | 1,968 |
+| 54.7% | **41.9%** | 1,211 |
+| 64.8% | **52.5%** | 904 |
+| 75.0% | 71.1% | 765 |
+| 84.9% | 80.3% | 854 |
+
+Ten to thirteen points of over-prediction through the middle of the range.
+Betting these overs would lose badly. This is a concrete, fixable defect rather
+than an absence of signal: the ordering is monotonic, so a Platt or isotonic
+recalibration fitted walk-forward should correct most of it. That is the first
+thing to do before any prop is bet.
+
 ## Rules for changing this model
 
 1. Judge changes by **out-of-sample R² against the market residual**, not by

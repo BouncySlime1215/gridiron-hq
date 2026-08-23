@@ -186,6 +186,8 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
 }) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<any>(null);
+  // A targeted player only means something within the league he was picked in.
+  useEffect(() => { setQuery(''); setPicked(null); }, [leagueId]);
   const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
   const { data: offer, loading } = useApi<any>(
     picked && teamId ? `/trades/${leagueId}/offer?team_id=${teamId}&player_id=${picked.id}${exclude}` : null);
@@ -377,6 +379,8 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
   const [result, setResult] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // A mocked trade's rosters/result only mean something within the league it was built in.
+  useEffect(() => { setTheirId(null); setGive([]); setGet([]); setResult(null); setErr(null); }, [leagueId]);
 
   const mine = rosters?.teams?.find((t: any) => t.roster_id === teamId);
   const others = rosters?.teams?.filter((t: any) => t.roster_id !== teamId) ?? [];

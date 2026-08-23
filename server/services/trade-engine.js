@@ -21,6 +21,7 @@ import { rows } from '../db/index.js';
 import { vorBoard, volatility } from '../routes/edge.js';
 import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
+import { analyzeLeague } from '../routes/tradelab.js';
 import { scheduleOutlook, relevantSplits, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -34,6 +35,28 @@ const SCORED = new Set(SKILL);
 
 const norm = s => (s ?? '').toLowerCase().replace(/[.'’-]/g, '')
   .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Real roster context per team: which positions are a genuine need (starter value
+ * well below league average) vs. genuine surplus, and each team's contention window
+ * (win-now/rebuild/etc). Without this, the finder only knows "does the lineup-points
+ * math improve" — it has no idea whether a package would actually gut a team at a
+ * spot they can't afford to lose, which is exactly what makes an auto-suggested
+ * trade read as fake to someone who knows the league.
+ */
+function rosterContext(lg) {
+  const byRoster = new Map();
+  try {
+    for (const t of analyzeLeague(lg).teams) {
+      byRoster.set(String(t.roster_id), {
+        needs: new Set(t.needs.map(n => n.position)),
+        surplus: new Set(t.surplus.map(s => s.position)),
+        window: t.window
+      });
+    }
+  } catch { /* analyzeLeague needs the same synced payload findTrades already checked for */ }
+  return byRoster;
+}
 
 /* ------------------------------------------------------------------ assets */
 
@@ -211,8 +234,11 @@ const verdictFor = (ppgDelta, valueDelta) => {
  * Score one concrete package from both sides.
  *
  * @param a {{team, gives: asset[]}}  @param b {{team, gives: asset[]}}
+ * @param ctx {{theirNeeds?: Set<string>, theirWindow?: object}} real roster context
+ *   for team b, from rosterContext() — lets the plausibility check see whether this
+ *   package actually makes sense for them, not just whether the numbers pencil out.
  */
-export function evaluate(a, b, slots) {
+export function evaluate(a, b, slots, ctx = {}) {
   const side = (team, gives, gets) => {
     const after = team.players.filter(p => !gives.some(g => g.id === p.id)).concat(gets);
     const before = bestLineup(team.players, slots);
@@ -259,10 +285,32 @@ export function evaluate(a, b, slots) {
   // gut the other side's lineup, even if it doesn't strictly improve it. Demanding
   // bothImprove for every suggestion left exactly those teams with zero offers.
   const fairEnough = B.ppg_delta > -1.25 && theirValuePct >= -8;
+
+  // Real roster-fit check: does this package actually make sense for THEM, not just
+  // pencil out on lineup points? Pure value/ppg math has no idea a team has zero
+  // bench at a position, or that the piece leaving is the one thing holding down a
+  // spot they already can't fill — a real GM declines both instantly.
+  const redFlags = [];
+  const leavesHole = B.new_holes.length > 0;
+  if (leavesHole) redFlags.push(`leaves them with no startable ${B.new_holes.join('/')}`);
+  const bGivesPos = b.gives.map(p => p.position);
+  const aGivesPos = new Set(a.gives.map(p => p.position));
+  const hurtsNeed = ctx.theirNeeds
+    ? [...new Set(bGivesPos.filter(pos => ctx.theirNeeds.has(pos) && !aGivesPos.has(pos)))]
+    : [];
+  if (hurtsNeed.length) redFlags.push(`digs into their already-thin ${hurtsNeed.join('/')}`);
+  // A need-position piece can still move if it clearly helps their lineup overall
+  // (real teams do sell from a weak spot for a bigger upgrade elsewhere) — it's only
+  // disqualifying when it ALSO doesn't net them anything, which is exactly the
+  // "why would they ever do this" shape a value-only optimizer can't see.
+  const brokenForThem = leavesHole || (hurtsNeed.length > 0 && !bothImprove);
+
   return {
     me: A, them: B, joint_ppg: joint,
     mutual: bothImprove,
-    plausible: bothImprove || fairEnough,
+    plausible: !brokenForThem && (bothImprove || fairEnough),
+    red_flags: redFlags,
+    their_window: ctx.theirWindow ?? null,
     their_value_pct: +theirValuePct.toFixed(1),
     fairness: fairnessLabel(A.value_delta, A.value_out + A.value_in)
   };
@@ -333,12 +381,14 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your team not found in this league' };
   const target = targetId ? resolvePlayer(targetId, assets, teams)?.id ?? null : null;
+  const context = rosterContext(lg);
 
   const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
 
   for (const them of teams) {
     if (them.roster_id === me.roster_id) continue;
+    const theirCtx = context.get(String(them.roster_id));
     let theirPool = candidates(them, slots);
     if (target) {
       // Target mode: every package must contain the player we're after.
@@ -362,8 +412,12 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
         const skew = (giveValue - getValue) / total;
         if (skew < -0.16 || skew > 0.30) continue;
 
-        const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots);
+        const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
+          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window });
         if (ev.me.ppg_delta <= 0.15) continue;
+        // Never even a "closest fit" fallback candidate — no real GM accepts leaving
+        // a starting slot empty, whatever the value math says.
+        if (ev.them.new_holes.length > 0) continue;
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
           i_give: give.map(slim), i_get: get.map(slim),
@@ -446,6 +500,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
   const owner = teams.find(t => t.players.some(p => p.id === target.id));
   if (!owner) return { error: 'that player is not on a roster in this league' };
   if (owner.roster_id === me.roster_id) return { error: 'you already own him' };
+  const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
 
   // How motivated is the seller? A team with surplus at his position and a hole
   // elsewhere is a much cheaper negotiation than one starting him with no cover.
@@ -494,7 +549,8 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
     const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
     const ratio = target.value ? giveValue / target.value : 0;
     if (ratio < 0.70 || ratio > 1.65) continue;
-    const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots);
+    const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window });
     if (ev.me.ppg_delta <= 0) continue;
     priced.push({
       i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,

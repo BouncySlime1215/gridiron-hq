@@ -156,7 +156,23 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
             joint {num(deal.joint_ppg)}
           </span>
         )}
+        {deal.their_window && (
+          <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full"
+            title={deal.their_window.stance}>
+            their window: {deal.their_window.label}
+          </span>
+        )}
       </div>
+
+      {deal.red_flags?.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {deal.red_flags.map((f: string, i: number) => (
+            <span key={i} className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+              ⚠ {f}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-1.5 mb-3">
         <div className="flex items-start gap-2 flex-wrap">

@@ -79,7 +79,7 @@ function leagueRosters(lg, formatKey) {
  * the league average at that position), not body-count based. Contention window
  * then classifies each team on a capital x core-age grid.
  */
-function analyzeLeague(lg) {
+export function analyzeLeague(lg) {
   const rp = lg.roster_positions ? JSON.parse(lg.roster_positions) : ['QB','RB','RB','WR','WR','TE','FLEX'];
   const perTeam = Object.fromEntries(SKILL.map(p => [p, rp.filter(x => x === p).length]));
   const flex = rp.filter(x => ['FLEX', 'REC_FLEX', 'WRRB_FLEX'].includes(x)).length;

@@ -4,9 +4,12 @@ import { api, headshotUrl, useApi } from '../api';
 
 /* --------------------------------------------------------------- primitives */
 
+// RB uses the good/crit CSS vars directly, not bg/text-emerald-* — those classes
+// are remapped to the brand accent globally (see index.css), and a position's
+// identity color must not follow the brand. Every other position here is untouched.
 const POS_COLOR: Record<string, string> = {
   QB: 'bg-rose-100 text-rose-700 border-rose-200',
-  RB: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  RB: 'bg-[var(--good-tint)] text-[var(--good)] border-[var(--good)]',
   WR: 'bg-sky-100 text-sky-700 border-sky-200',
   TE: 'bg-amber-100 text-amber-700 border-amber-200',
   K: 'bg-violet-100 text-violet-700 border-violet-200',
@@ -15,20 +18,22 @@ const POS_COLOR: Record<string, string> = {
 };
 
 const POS_TINT: Record<string, string> = {
-  QB: 'bg-rose-50/70 border-rose-200', RB: 'bg-emerald-50/70 border-emerald-200',
+  QB: 'bg-rose-50/70 border-rose-200', RB: 'bg-[var(--good-tint)]/70 border-[var(--good)]',
   WR: 'bg-sky-50/70 border-sky-200', TE: 'bg-amber-50/70 border-amber-200',
   K: 'bg-violet-50/70 border-violet-200', DEF: 'bg-slate-50 border-slate-200'
 };
 
+// "take"/"healthy" are real semantic states (good outcome, no injury) — they use
+// the good/crit tokens directly rather than the brand-remapped emerald classes.
 const VERDICT_TINT: Record<string, string> = {
-  'take': 'bg-emerald-50 border-emerald-300',
+  'take': 'bg-good-tint border-good',
   'fine here': 'bg-white border-slate-200',
-  'let him go': 'bg-rose-50/50 border-rose-200'
+  'let him go': 'bg-crit-tint border-crit'
 };
 
 const STATUS_TINT: Record<string, string> = {
-  healthy: 'bg-emerald-100 text-emerald-700',
-  'injury risk': 'bg-rose-100 text-rose-700',
+  healthy: 'bg-good-tint text-good',
+  'injury risk': 'bg-crit-tint text-crit',
   rookie: 'bg-sky-100 text-sky-700',
   'bounce-back': 'bg-amber-100 text-amber-700',
   ageing: 'bg-slate-200 text-slate-700'

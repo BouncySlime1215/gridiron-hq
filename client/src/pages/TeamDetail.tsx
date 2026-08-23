@@ -120,11 +120,11 @@ export default function TeamDetail() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">
             {Object.entries((team as any).grades.units).map(([unit, g]: any) => (
               <div key={unit} className={`rounded-lg border p-2 ${
-                g.grade === 'strength' ? 'border-emerald-300 bg-emerald-50'
-                : g.grade === 'weakness' ? 'border-rose-300 bg-rose-50' : 'border-slate-200 bg-white'}`}>
+                g.grade === 'strength' ? 'border-good bg-good-tint'
+                : g.grade === 'weakness' ? 'border-crit bg-crit-tint' : 'border-slate-200 bg-white'}`}>
                 <div className="text-[10px] font-bold text-slate-500">{unit}</div>
                 <div className={`text-xs font-bold ${
-                  g.grade === 'strength' ? 'text-emerald-700' : g.grade === 'weakness' ? 'text-rose-700' : 'text-slate-600'}`}>
+                  g.grade === 'strength' ? 'text-good' : g.grade === 'weakness' ? 'text-crit' : 'text-slate-600'}`}>
                   {g.grade === 'ok' ? 'average' : g.grade}
                 </div>
                 <div className="text-[10px] text-slate-500 truncate">

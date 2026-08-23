@@ -137,7 +137,7 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
                   <td className="text-right px-2 py-1.5 tabular-nums font-bold text-slate-800">{p.vor}</td>
                   <td className="text-right px-2 py-1.5 tabular-nums text-slate-500">{p.adp?.toFixed(1) ?? '—'}</td>
                   <td className={`text-right px-3 py-1.5 tabular-nums font-semibold ${
-                    p.adp_edge == null ? 'text-slate-300' : p.adp_edge > 3 ? 'text-emerald-600' : p.adp_edge < -3 ? 'text-rose-600' : 'text-slate-400'}`}>
+                    p.adp_edge == null ? 'text-slate-300' : p.adp_edge > 3 ? 'text-good' : p.adp_edge < -3 ? 'text-crit' : 'text-slate-400'}`}>
                     {p.adp_edge == null ? '—' : `${p.adp_edge > 0 ? '+' : ''}${p.adp_edge.toFixed(0)}`}
                   </td>
                 </tr>
@@ -150,10 +150,10 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
       {/* ---------- movers ---------- */}
       {tab === 'movers' && (
         <div className="grid lg:grid-cols-2 gap-4">
-          {([['breakouts', 'Projected to break out', 'emerald'], ['regressions', 'Projected to regress', 'rose']] as const).map(([key, title, tone]) => (
+          {([['breakouts', 'Projected to break out', true], ['regressions', 'Projected to regress', false]] as const).map(([key, title, isGood]) => (
             <div key={key} className="card overflow-hidden">
-              <div className={`px-4 py-2 border-b border-slate-200 bg-${tone}-50`}>
-                <h3 className={`text-sm font-bold text-${tone}-700`}>{title}</h3>
+              <div className={`px-4 py-2 border-b border-slate-200 ${isGood ? 'bg-good-tint' : 'bg-crit-tint'}`}>
+                <h3 className={`text-sm font-bold ${isGood ? 'text-good' : 'text-crit'}`}>{title}</h3>
               </div>
               <div className="divide-y divide-slate-100 max-h-[65vh] overflow-y-auto">
                 {filt(movers?.[key]).slice(0, 18).map((p: any) => (
@@ -162,7 +162,7 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
                       <Headshot src={headshotUrl(p)} pos={p.position} size={26} />
                       <Name id={p.id} name={p.name} pos={p.position} />
                       <span className="text-[10px] text-slate-400">{p.team_abbr}</span>
-                      <span className={`ml-auto text-xs font-bold tabular-nums ${p.pct_delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      <span className={`ml-auto text-xs font-bold tabular-nums ${p.pct_delta >= 0 ? 'text-good' : 'text-crit'}`}>
                         {p.pct_delta >= 0 ? '+' : ''}{p.pct_delta.toFixed(0)}%
                       </span>
                     </div>
@@ -197,8 +197,8 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
                   <td className="text-right px-2 py-1.5 tabular-nums font-semibold">{p.avg}</td>
                   <td className="text-right px-2 py-1.5 tabular-nums text-slate-500">{p.floor}</td>
                   <td className="text-right px-2 py-1.5 tabular-nums text-slate-700">{p.ceiling}</td>
-                  <td className="text-right px-2 py-1.5 tabular-nums text-emerald-600">{(p.boom_rate * 100).toFixed(0)}%</td>
-                  <td className="text-right px-2 py-1.5 tabular-nums text-rose-600">{(p.bust_rate * 100).toFixed(0)}%</td>
+                  <td className="text-right px-2 py-1.5 tabular-nums text-good">{(p.boom_rate * 100).toFixed(0)}%</td>
+                  <td className="text-right px-2 py-1.5 tabular-nums text-crit">{(p.bust_rate * 100).toFixed(0)}%</td>
                   <td className="text-right px-3 py-1.5">
                     <div className="flex items-center gap-1.5 justify-end">
                       <div className="w-14 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -251,7 +251,7 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
                     <td className="text-right px-2 py-1.5 tabular-nums text-slate-600">{p.yds_per_touch ?? '—'}</td>
                     <td className={`text-right px-2 py-1.5 tabular-nums font-semibold ${
                       p.td_rate_vs_pos == null ? 'text-slate-400'
-                      : p.td_rate_vs_pos > 2 ? 'text-rose-600' : p.td_rate_vs_pos < -2 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                      : p.td_rate_vs_pos > 2 ? 'text-crit' : p.td_rate_vs_pos < -2 ? 'text-good' : 'text-slate-600'}`}>
                       {p.td_rate ?? '—'}
                     </td>
                     <td className="px-3 py-1.5 text-[11px] text-slate-500">{p.regression_flag ?? ''}</td>
@@ -276,11 +276,11 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(sched ?? []).map(t => (
-                <tr key={t.abbr} className={t.playoff_rank <= 8 ? 'bg-emerald-50/40' : t.playoff_rank >= 25 ? 'bg-rose-50/40' : ''}>
+                <tr key={t.abbr} className={t.playoff_rank <= 8 ? 'bg-good-tint' : t.playoff_rank >= 25 ? 'bg-crit-tint' : ''}>
                   <td className="text-right px-3 py-1.5 text-xs font-mono text-slate-400">{t.playoff_rank}</td>
                   <td className="px-2 py-1.5 font-semibold">{t.abbr}</td>
                   <td className="px-2 py-1.5 text-xs text-slate-500">{t.playoff_games.join('  ·  ')}</td>
-                  <td className={`text-right px-2 py-1.5 tabular-nums font-bold ${t.playoff_sos < 0.95 ? 'text-emerald-600' : t.playoff_sos > 1.05 ? 'text-rose-600' : 'text-slate-600'}`}>
+                  <td className={`text-right px-2 py-1.5 tabular-nums font-bold ${t.playoff_sos < 0.95 ? 'text-good' : t.playoff_sos > 1.05 ? 'text-crit' : 'text-slate-600'}`}>
                     {t.playoff_sos.toFixed(2)}
                   </td>
                   <td className="text-right px-3 py-1.5 tabular-nums text-slate-500">{t.season_sos.toFixed(2)}</td>
@@ -335,9 +335,9 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
           {sim && (
             <div className="mt-4">
               <div className="grid grid-cols-3 gap-3">
-                {[['Floor (10th)', sim.floor_week, 'text-rose-600'],
+                {[['Floor (10th)', sim.floor_week, 'text-crit'],
                   ['Median week', sim.median_week, 'text-slate-800'],
-                  ['Ceiling (90th)', sim.ceiling_week, 'text-emerald-600']].map(([l, v, c]: any) => (
+                  ['Ceiling (90th)', sim.ceiling_week, 'text-good']].map(([l, v, c]: any) => (
                   <div key={l} className="rounded-lg border border-slate-200 p-3 text-center">
                     <div className="text-[10px] uppercase tracking-wide text-slate-400">{l}</div>
                     <div className={`text-2xl font-black ${c}`}>{v}</div>

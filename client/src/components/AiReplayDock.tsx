@@ -16,9 +16,9 @@ export default function AiReplayDock() {
   const failed = run.status === 'failed';
   const p = run.progress;
   return <Link to="/betting/training" aria-label={`Open AI replay run ${run.id}`}
-    className={`fixed bottom-5 right-5 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border bg-white p-4 text-left shadow-2xl transition hover:-translate-y-0.5 ${active ? 'border-blue-300' : failed ? 'border-rose-300' : 'border-emerald-300'}`}>
-    <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wide ${active ? 'text-blue-700' : failed ? 'text-rose-700' : 'text-emerald-700'}`}>
-      <span className={`h-2.5 w-2.5 rounded-full ${active ? 'animate-pulse bg-blue-600' : failed ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+    className={`fixed bottom-5 right-5 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border bg-white p-4 text-left shadow-2xl transition hover:-translate-y-0.5 ${active ? 'border-blue-300' : failed ? 'border-crit' : 'border-good'}`}>
+    <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-wide ${active ? 'text-blue-700' : failed ? 'text-crit' : 'text-good'}`}>
+      <span className={`h-2.5 w-2.5 rounded-full ${active ? 'animate-pulse bg-blue-600' : failed ? 'bg-[var(--crit)]' : 'bg-[var(--good)]'}`} />
       AI replay #{run.id} · {active ? 'running' : failed ? 'needs attention' : 'complete'}
     </div>
     <div className="mt-1 truncate text-sm font-bold text-slate-900">{active ? (p.state ?? 'Preparing replay') : failed ? (run.error ?? 'Run failed') : 'Report ready'}</div>

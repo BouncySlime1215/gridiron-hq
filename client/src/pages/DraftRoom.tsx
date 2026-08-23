@@ -5,8 +5,10 @@ import PlayerRow, { Headshot, PosBadge } from '../components/PlayerRow';
 import { PlayerName } from '../components/PlayerCard';
 import DraftRecap from '../components/DraftRecap';
 
+// RB uses the good CSS var directly — bg/border-emerald-* are remapped to the
+// brand accent globally (see index.css), and a position's identity color must not.
 const POS_TINT: Record<string, string> = {
-  QB: 'bg-rose-50 border-rose-200', RB: 'bg-emerald-50 border-emerald-200',
+  QB: 'bg-rose-50 border-rose-200', RB: 'bg-[var(--good-tint)] border-[var(--good)]',
   WR: 'bg-sky-50 border-sky-200', TE: 'bg-amber-50 border-amber-200',
   K: 'bg-violet-50 border-violet-200'
 };

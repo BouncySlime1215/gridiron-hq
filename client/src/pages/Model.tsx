@@ -288,13 +288,13 @@ function Correlation() {
             <span className="w-24 text-slate-500">{c.relationship}</span>
             <div className="flex-1 h-2 bg-slate-100 rounded relative overflow-hidden">
               <div className="absolute top-0 bottom-0 w-px bg-slate-300" style={{ left: '50%' }} />
-              <div className={`absolute top-0 bottom-0 ${c.correlation >= 0 ? 'bg-emerald-500' : 'bg-rose-400'}`}
+              <div className={`absolute top-0 bottom-0 ${c.correlation >= 0 ? 'bg-[var(--good)]' : 'bg-[var(--crit)]'}`}
                 style={{
                   left: c.correlation >= 0 ? '50%' : `${50 + c.correlation * 100}%`,
                   width: `${Math.abs(c.correlation) * 100}%`
                 }} />
             </div>
-            <span className={`w-14 text-right tabular-nums font-semibold ${c.correlation >= 0.1 ? 'text-emerald-700' : c.correlation < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+            <span className={`w-14 text-right tabular-nums font-semibold ${c.correlation >= 0.1 ? 'text-good' : c.correlation < 0 ? 'text-crit' : 'text-slate-500'}`}>
               {c.correlation >= 0 ? '+' : ''}{c.correlation.toFixed(3)}
             </span>
             <span className="w-16 text-right text-[10px] text-slate-400">{c.pairs.toLocaleString()}</span>
@@ -334,8 +334,8 @@ function GameScript() {
                 {m.target === 'pass_att' ? 'Pass attempts' : 'Rush attempts'}
               </div>
               <div className="text-[11px] text-slate-600 space-y-0.5 tabular-nums">
-                <div>Per point of spread: <b className={m.b_spread > 0 ? 'text-emerald-700' : 'text-rose-600'}>{m.b_spread > 0 ? '+' : ''}{m.b_spread.toFixed(3)}</b></div>
-                <div>Per point of total: <b className={m.b_total > 0 ? 'text-emerald-700' : 'text-rose-600'}>{m.b_total > 0 ? '+' : ''}{m.b_total.toFixed(3)}</b></div>
+                <div>Per point of spread: <b className={m.b_spread > 0 ? 'text-good' : 'text-crit'}>{m.b_spread > 0 ? '+' : ''}{m.b_spread.toFixed(3)}</b></div>
+                <div>Per point of total: <b className={m.b_total > 0 ? 'text-good' : 'text-crit'}>{m.b_total > 0 ? '+' : ''}{m.b_total.toFixed(3)}</b></div>
                 <div className="text-slate-400">R² {m.r2.toFixed(4)} over {m.n.toLocaleString()} team-games</div>
               </div>
             </div>
@@ -411,10 +411,10 @@ function Availability() {
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {shown.map((p: any) => (
-                  <tr key={p.player_id} className={p.active_probability < 0.5 ? 'bg-rose-50/50' : p.active_probability < 0.85 ? 'bg-amber-50/40' : ''}>
+                  <tr key={p.player_id} className={p.active_probability < 0.5 ? 'bg-crit-tint' : p.active_probability < 0.85 ? 'bg-amber-50/40' : ''}>
                     <td className="px-3 py-2 font-semibold text-slate-800">{p.name}</td>
                     <td className="px-3 py-2"><span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span></td>
-                    <td className={`px-3 py-2 tabular-nums font-black ${p.active_probability < 0.5 ? 'text-rose-700' : p.active_probability < 0.85 ? 'text-amber-700' : 'text-emerald-700'}`}>{(p.active_probability * 100).toFixed(1)}%</td>
+                    <td className={`px-3 py-2 tabular-nums font-black ${p.active_probability < 0.5 ? 'text-crit' : p.active_probability < 0.85 ? 'text-amber-700' : 'text-good'}`}>{(p.active_probability * 100).toFixed(1)}%</td>
                     <td className="px-3 py-2 tabular-nums text-slate-500">{(p.durability_prior * 100).toFixed(1)}%</td>
                     <td className="px-3 py-2">{p.report_status ?? '—'}</td>
                     <td className="px-3 py-2">{p.practice_status ?? '—'}</td>

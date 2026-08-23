@@ -2,19 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-html { background: #eef6fb; }
+:root {
+  /* One token system for the whole app. Position identity colors (.pos-*, below)
+     are semantic, not brand, and are never touched by this. */
+  --ink: #1c1e1a;
+  --muted: #74766a;
+  --bg-0: #f6f4ec; --bg-1: #f8f7f1; --bg-2: #f3f1e7;
+  --card-bg: rgb(255 255 255 / .92);
+  --edge: #e6e2d3;
+  --accent: #1f3350;
+  --accent-strong: #16253c;
+  --accent-tint: #eaeef4;
+  --good: #2f7d4e;
+  --good-tint: #e9f3ec;
+  --crit: #a63a32;
+  --crit-tint: #f7ebe9;
+}
+html { background: var(--bg-0); }
 body {
-  @apply text-slate-900 antialiased;
+  @apply antialiased;
   margin: 0;
-  background: linear-gradient(135deg, #edf6fc 0%, #f6faff 48%, #eef7f5 100%);
+  background: linear-gradient(135deg, var(--bg-0) 0%, var(--bg-1) 48%, var(--bg-2) 100%);
   background-attachment: fixed;
-  color: #294458;
+  color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
   letter-spacing: -0.012em;
 }
 button, input, select { font: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
-  outline: 2px solid #0071e3;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -23,10 +39,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 ::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded; }
 
 .card {
-  background: rgb(251 253 255 / .9);
-  border: 1px solid #d9e8f2;
-  border-radius: 18px;
-  box-shadow: 0 8px 30px rgb(66 112 143 / .055);
+  background: var(--card-bg);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgb(30 28 20 / .04);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 a.card:hover { border-color: rgb(0 0 0 / .16); box-shadow: 0 8px 28px rgb(0 0 0 / .06); transform: translateY(-1px); }
@@ -35,26 +51,28 @@ a.card:hover { border-color: rgb(0 0 0 / .16); box-shadow: 0 8px 28px rgb(0 0 0 
 }
 .btn-primary {
   @apply btn;
-  color: #245678;
-  background: #d8ecfa;
-  border: 1px solid #beddf2;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
   border-radius: 999px;
 }
-.btn-primary:hover { background: #c9e5f7; border-color: #9dcced; }
+.btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn-ghost {
-  @apply btn text-slate-700;
+  @apply btn;
+  color: var(--ink);
   background: rgb(255 255 255 / .72);
-  border: 1px solid #d5e5ef;
+  border: 1px solid var(--edge);
   border-radius: 999px;
 }
 .input {
-  @apply px-3 py-1.5 text-sm text-slate-900
-         focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100;
+  @apply px-3 py-1.5 text-sm;
+  color: var(--ink);
   background: rgb(255 255 255 / .82);
-  border: 1px solid #cfdfeb;
+  border: 1px solid var(--edge);
   border-radius: 10px;
 }
-::selection { background: #cce7ff; color: #1d1d1f; }
+.input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+::selection { background: var(--accent-tint); color: var(--ink); }
 
 /* Platform visual system: one restrained language across legacy and new pages. */
 main > div { width: 100%; max-width: 1440px; margin-inline: auto; }
@@ -63,35 +81,42 @@ main h1 {
   line-height: 1.08 !important;
   font-weight: 600 !important;
   letter-spacing: -0.04em !important;
-  color: #203f55;
+  color: var(--ink);
 }
-main h2 { font-weight: 600 !important; letter-spacing: -0.025em; color: #26495f; }
+main h2 { font-weight: 600 !important; letter-spacing: -0.025em; color: var(--ink); }
 main h3 { font-weight: 600 !important; letter-spacing: -0.015em; }
 main table { font-variant-numeric: tabular-nums; }
-main thead { color: #6e6e73; }
+main thead { color: var(--muted); }
 main tbody tr { transition: background-color 140ms ease; }
 main tbody tr:hover { background: rgb(0 0 0 / .025); }
 
-/* Retire the old green brand wash while preserving red/amber warning semantics. */
-.text-emerald-600, .text-emerald-700, .text-emerald-800 { color: #4384a9 !important; }
-.bg-emerald-500, .bg-emerald-600 { background-color: #d3ebf6 !important; color: #24546f !important; }
-.bg-emerald-50, .bg-emerald-100 { background-color: #edf8fc !important; }
-.border-emerald-200, .border-emerald-300, .border-emerald-400, .border-emerald-500 { border-color: #c1dfed !important; }
-.hover\:bg-emerald-50:hover { background-color: #f0f7ff !important; }
-.hover\:border-emerald-400:hover, .hover\:border-emerald-500:hover, .hover\:border-emerald-700:hover { border-color: #0071e3 !important; }
+/* One real accent everywhere, mapped from the Tailwind classes components already
+   use rather than a token they don't reference. Solid/dark variants (a primary CTA,
+   a selected pill) stay solid and high-contrast — the previous version of this
+   mapping washed every dark/solid state down to a pale tint, which is exactly what
+   made "selected" and "primary action" stop reading as prominent anywhere in the
+   app. Pale tint classes (-50/-100) stay pale; that part was already right. */
+.text-emerald-600, .text-emerald-700, .text-emerald-800 { color: var(--accent) !important; }
+.bg-emerald-500, .bg-emerald-600 { background-color: var(--accent) !important; color: #fff !important; }
+.bg-emerald-500 *, .bg-emerald-600 * { color: inherit; }
+.bg-emerald-50, .bg-emerald-100 { background-color: var(--accent-tint) !important; color: var(--accent) !important; }
+.border-emerald-200, .border-emerald-300, .border-emerald-400, .border-emerald-500 { border-color: var(--edge) !important; }
+.hover\:bg-emerald-50:hover { background-color: var(--accent-tint) !important; }
+.hover\:border-emerald-400:hover, .hover\:border-emerald-500:hover, .hover\:border-emerald-700:hover { border-color: var(--accent) !important; }
+.hover\:bg-emerald-500:hover, .hover\:bg-emerald-600:hover { background-color: var(--accent-strong) !important; }
 
-/* Eliminate legacy dark pills and selected states throughout every feature. */
+/* Selected/active pills and primary buttons: solid and dark, not washed out. */
 .bg-slate-700, .bg-slate-800, .bg-slate-900, .bg-slate-950 {
-  background-color: #dcecf6 !important;
-  color: #244f6b !important;
-  border-color: #c5dfea !important;
+  background-color: var(--accent) !important;
+  color: #fff !important;
+  border-color: var(--accent) !important;
 }
-.bg-slate-700 .text-white, .bg-slate-800 .text-white, .bg-slate-900 .text-white, .bg-slate-950 .text-white,
-.bg-slate-700.text-white, .bg-slate-800.text-white, .bg-slate-900.text-white, .bg-slate-950.text-white { color: #244f6b !important; }
-.border-slate-800, .border-slate-900 { border-color: #bdd9e8 !important; }
-.hover\:bg-slate-800:hover, .hover\:bg-slate-900:hover, .hover\:bg-slate-950:hover { background-color: #cee5f2 !important; }
-.bg-sky-600, .bg-blue-500 { background-color: #8fc7e6 !important; color: #173f58 !important; }
-.border-sky-600 { border-color: #8fc7e6 !important; }
+.bg-slate-700 *, .bg-slate-800 *, .bg-slate-900 *, .bg-slate-950 * { color: inherit; }
+.border-slate-800, .border-slate-900 { border-color: var(--accent) !important; }
+.hover\:bg-slate-800:hover, .hover\:bg-slate-900:hover, .hover\:bg-slate-950:hover { background-color: var(--accent-strong) !important; }
+.bg-sky-600, .bg-blue-500 { background-color: var(--accent) !important; color: #fff !important; }
+.bg-sky-600 *, .bg-blue-500 * { color: inherit; }
+.border-sky-600 { border-color: var(--accent) !important; }
 
 .quick-jump-button {
   display: inline-flex; align-items: center; gap: .55rem; border: 1px solid #d2e3ed;
@@ -120,8 +145,22 @@ main tbody tr:hover { background: rgb(0 0 0 / .025); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }
+/* Real semantic colors for "this number is good/bad" — kept separate from the
+   brand accent above on purpose. Numeric up/down indicators throughout the app
+   used text-emerald-600/text-rose-600 for this (a green-for-positive convention),
+   which the brand remapping above would otherwise turn into navy-for-positive and
+   lose the distinction entirely. Use these classes for that meaning specifically. */
+.text-good { color: var(--good) !important; }
+.bg-good-tint { background-color: var(--good-tint) !important; }
+.border-good { border-color: var(--good) !important; }
+.text-crit { color: var(--crit) !important; }
+.bg-crit-tint { background-color: var(--crit-tint) !important; }
+.border-crit { border-color: var(--crit) !important; }
+
+/* Direct hex, not @apply text-emerald-600 — that class name is one of the ones
+   remapped to the brand accent above, and RB's identity color must not follow it. */
 .pos-QB { @apply text-rose-600; }
-.pos-RB { @apply text-emerald-600; }
+.pos-RB { color: #2f7d4e; }
 .pos-WR { @apply text-sky-600; }
 .pos-TE { @apply text-amber-600; }
 .pos-K  { @apply text-violet-600; }

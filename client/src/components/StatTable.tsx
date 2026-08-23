@@ -70,7 +70,7 @@ export function StatRow({ e, mode, cols, children }: {
       <td className="px-1 py-1.5 text-right text-sm font-bold text-slate-800 tabular-nums">{n0(pts)}</td>
       <td className="px-1 py-1.5 text-right text-xs tabular-nums">
         {mode === 'projected' && st.delta != null
-          ? <span className={st.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
+          ? <span className={st.delta >= 0 ? 'text-good' : 'text-crit'}>
               {st.delta >= 0 ? '+' : ''}{Math.round(st.delta)}
             </span>
           : <span className="text-slate-300">—</span>}

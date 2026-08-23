@@ -201,7 +201,7 @@ function SportCard({ sport, accent, icon, record, winRate, unitsValue, pending, 
 const Metric = ({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'bad' }) => (
   <div>
     <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
-    <div className={`text-lg font-bold ${tone === 'good' ? 'text-emerald-700' : tone === 'bad' ? 'text-rose-600' : 'text-slate-800'}`}>
+    <div className={`text-lg font-bold ${tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-crit' : 'text-slate-800'}`}>
       {value}
     </div>
   </div>

@@ -211,7 +211,7 @@ export function TrainingSummaryCard({ defaultOpen = false }: { defaultOpen?: boo
                     <td className="px-3 py-1.5 tabular-nums">{s.bets ?? '—'}</td>
                     <td className="px-3 py-1.5 tabular-nums">{s.error ? '—' : `${s.wins}-${s.losses}`}</td>
                     <td className="px-3 py-1.5 tabular-nums">{pct(s.win_rate)}</td>
-                    <td className={`px-3 py-1.5 tabular-nums font-semibold ${(s.units ?? 0) > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{u(s.units)}</td>
+                    <td className={`px-3 py-1.5 tabular-nums font-semibold ${(s.units ?? 0) > 0 ? 'text-good' : 'text-crit'}`}>{u(s.units)}</td>
                     <td className="px-3 py-1.5">{s.beat_vig ? '✓' : '—'}</td>
                   </tr>
                 ))}
@@ -239,7 +239,7 @@ export function TrainingSummaryCard({ defaultOpen = false }: { defaultOpen?: boo
                         <span className="font-semibold text-slate-800">{s.segment}</span>
                       </td>
                       <td className="px-3 py-1.5 tabular-nums">{s.bets}</td>
-                      <td className={`px-3 py-1.5 tabular-nums font-semibold ${(s.win_rate ?? 0) >= 0.524 ? 'text-emerald-700' : 'text-rose-600'}`}>{pct(s.win_rate)}</td>
+                      <td className={`px-3 py-1.5 tabular-nums font-semibold ${(s.win_rate ?? 0) >= 0.524 ? 'text-good' : 'text-crit'}`}>{pct(s.win_rate)}</td>
                       <td className="px-3 py-1.5 tabular-nums">{(s.roi * 100).toFixed(1)}%</td>
                       <td className={`px-3 py-1.5 tabular-nums ${real ? 'font-bold text-slate-800' : 'text-slate-400'}`}>{s.z > 0 ? '+' : ''}{s.z.toFixed(2)}</td>
                     </tr>
@@ -260,7 +260,7 @@ export function TrainingSummaryCard({ defaultOpen = false }: { defaultOpen?: boo
 const Metric = ({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'bad' }) => (
   <div className="card p-3">
     <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
-    <div className={`text-lg font-bold ${tone === 'good' ? 'text-emerald-700' : tone === 'bad' ? 'text-rose-600' : 'text-slate-800'}`}>{value}</div>
+    <div className={`text-lg font-bold ${tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-crit' : 'text-slate-800'}`}>{value}</div>
   </div>
 );
 

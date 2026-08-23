@@ -141,14 +141,24 @@ function Room({ id }: { id: string }) {
   const adviceFor = useRef<number | null>(null);
   const targetIds = useRef<Map<number, string>>(new Map());
   const [snipes, setSnipes] = useState<{ key: number; name: string; team: string }[]>([]);
+  const [desynced, setDesynced] = useState(false);
+  // ESPN can be slower to answer during a live draft than the 4s poll interval — without
+  // this, a slow request and the next timer tick can race through the same sync/resolve
+  // path and duplicate or drop a pick.
+  const syncing = useRef(false);
 
   const tick = useCallback(async () => {
+    if (syncing.current) return;
+    syncing.current = true;
     try {
       const s = await api(`/drafts/${id}/sync`, { method: 'POST' });
       if (s.new_picks?.length) setSyncNote(`+${s.new_picks.length} pick${s.new_picks.length > 1 ? 's' : ''} from ESPN`);
+      setDesynced(!!s.desynced);
       setErr(null);
     } catch (e: any) {
       setErr(e.message);   // a sync failure must never blank the board
+    } finally {
+      syncing.current = false;
     }
     try {
       const s = await api(`/drafts/${id}/assist`);
@@ -245,6 +255,12 @@ function Room({ id }: { id: string }) {
           {live ? '● syncing every 4s' : '‖ paused'}
         </button>
         {syncNote && <span className="text-[11px] text-slate-500">{syncNote}</span>}
+        {desynced && (
+          <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-300 px-2 py-0.5 rounded-full"
+            title="ESPN has more picks than this board has mirrored — a pick failed to sync. Check the real draft board and reconnect if this doesn't clear on its own.">
+            ⚠ OUT OF SYNC WITH ESPN
+          </span>
+        )}
         {err && <span className="text-[11px] text-rose-600">{err}</span>}
       </div>
 

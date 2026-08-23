@@ -195,7 +195,7 @@ export async function ensureLiveDraft(leagueRowId) {
  * Cheap enough to call every couple of seconds: it only writes when a new pick has
  * actually landed, and returns just the deltas so the UI can announce them.
  */
-export async function syncLiveDraft(draftId) {
+async function syncLiveDraftImpl(draftId) {
   const draft = row('SELECT * FROM drafts WHERE id = ?', draftId);
   if (!draft) throw Object.assign(new Error('draft not found'), { status: 404 });
   if (draft.type !== 'live' || !draft.espn_league_id) {
@@ -208,9 +208,13 @@ export async function syncLiveDraft(draftId) {
   const pickOrder = ds.pickOrder ?? JSON.parse(draft.pick_order ?? '{}').order ?? [];
   const slotOf = new Map(pickOrder.map((teamId, i) => [teamId, i + 1]));
 
-  // Only slots that have actually been used. ESPN keeps unfilled slots at playerId -1.
+  // Only slots that have actually been used. ESPN's own sentinel for "not filled yet"
+  // is exactly -1 (see the file comment) — every real pick, including D/ST (whose ids
+  // can be positive or negative depending on league/season), is anything else. An
+  // earlier version of this guessed at a numeric range for D/ST ids and silently
+  // dropped any pick that fell outside it; trust ESPN's actual sentinel instead.
   const made = (detail.picks ?? [])
-    .filter(p => p.playerId > 0 || p.playerId < -1000)   // D/ST ids are large negatives
+    .filter(p => p.playerId != null && p.playerId !== -1)
     .sort((a, b) => a.overallPickNumber - b.overallPickNumber);
 
   const have = new Set(rows('SELECT pick_number FROM draft_picks WHERE draft_id = ?', draftId)
@@ -218,20 +222,34 @@ export async function syncLiveDraft(draftId) {
   const fresh = made.filter(p => !have.has(p.overallPickNumber));
 
   let added = [];
+  const failures = [];
   if (fresh.length) {
     const idMap = await resolveEspnPlayers([...new Set(fresh.map(p => p.playerId))], draft.season);
     for (const p of fresh) {
       const playerId = idMap.get(p.playerId);
-      if (!playerId) continue;
+      if (!playerId) { failures.push({ pick: p.overallPickNumber, reason: 'player could not be resolved' }); continue; }
+      // pickOrder is re-derived fresh from this same ESPN response every call, so a
+      // missing slot means the team genuinely isn't in the current draft order (a real
+      // ESPN data inconsistency) rather than stale cached data. Skip rather than write
+      // a made-up team_slot — team_slot drives "is this my pick" everywhere downstream,
+      // and a wrong number there is worse than retrying this pick on the next poll.
+      const slot = slotOf.get(p.teamId);
+      if (slot == null) { failures.push({ pick: p.overallPickNumber, reason: `team ${p.teamId} not in pick order` }); continue; }
       try {
         run(`INSERT INTO draft_picks (draft_id, pick_number, team_slot, player_id, espn_team_id, keeper)
              VALUES (?,?,?,?,?,?)`,
-          draftId, p.overallPickNumber, slotOf.get(p.teamId) ?? p.teamId, playerId,
-          p.teamId, p.keeper ? 1 : 0);
+          draftId, p.overallPickNumber, slot, playerId, p.teamId, p.keeper ? 1 : 0);
         added.push(p.overallPickNumber);
-      } catch {
-        // UNIQUE(draft_id, player_id): the same player already mirrored under another
-        // pick number, which happens if ESPN renumbers after a trade. Leave ours alone.
+      } catch (e) {
+        // UNIQUE(draft_id, player_id) is the one expected failure here: the same player
+        // already mirrored under another pick number, which happens if ESPN renumbers
+        // after a trade. Anything else is a real bug and must not vanish silently —
+        // it's exactly the kind of thing that quietly desyncs the board for the rest
+        // of the draft with no visible error.
+        if (!String(e.message).includes('UNIQUE') || !String(e.message).includes('player_id')) {
+          console.error(`[live-draft] failed to mirror pick ${p.overallPickNumber} for draft ${draftId}:`, e.message);
+          failures.push({ pick: p.overallPickNumber, reason: e.message });
+        }
       }
     }
   }
@@ -242,6 +260,11 @@ export async function syncLiveDraft(draftId) {
   const total = draft.team_count * draft.rounds;
   const count = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
   const nextPick = count + 1;
+  // Reconcile against ESPN's own count rather than trust that "we added N rows" means
+  // "we have everything ESPN has" — a pick that failed for a reason not caught above
+  // (or on a prior sync, before this fix existed) would otherwise desync silently for
+  // the rest of the draft with every downstream "on the clock" computation just wrong.
+  const desynced = count < made.length;
 
   return {
     ok: true,
@@ -250,11 +273,26 @@ export async function syncLiveDraft(draftId) {
     picks_on_espn: made.length,
     picks_mirrored: count,
     new_picks: added,
+    failures,
+    desynced,
     next_pick: nextPick <= total ? nextPick : null,
     on_the_clock_slot: nextPick <= total ? slotForPick(nextPick, draft.team_count) : null,
     my_slot: draft.my_slot,
     my_turn: nextPick <= total && slotForPick(nextPick, draft.team_count) === draft.my_slot
   };
+}
+
+// One sync in flight per draft at a time. The client polls on a plain 4s interval with
+// no overlap guard, and ESPN's API is often slower during a live draft than off it — an
+// overlapping second sync racing the first through resolveEspnPlayers() is exactly how
+// the same new player ends up inserted twice under different local ids, or a pick
+// silently lost to the UNIQUE(draft_id, pick_number) race between two inserts.
+const inFlight = new Map();
+export function syncLiveDraft(draftId) {
+  if (inFlight.has(draftId)) return inFlight.get(draftId);
+  const p = syncLiveDraftImpl(draftId).finally(() => inFlight.delete(draftId));
+  inFlight.set(draftId, p);
+  return p;
 }
 
 /** Snake order: odd rounds run 1..N, even rounds run back N..1. */

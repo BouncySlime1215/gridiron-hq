@@ -158,6 +158,80 @@ r.get('/splits/:playerId', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* -------------------------------------------------------------- AI sense check */
+/**
+ * An independent read on a deal the deterministic engine already scored — not a
+ * pitch, a second opinion. The lineup/value math is real, but it can't see things
+ * like "three of these five guys are all hurt" or "the reason their VOR is thin at
+ * this spot is he's on a bye the same week two of my other guys are" — the kind of
+ * thing a person actually trading would notice on sight. Claude is told the full
+ * deal (every field the engine computed, not just a summary) and instructed to
+ * work only from that data, so this can disagree with the engine's own verdict
+ * when the numbers miss something real, but can't invent a fact that isn't there.
+ */
+r.post('/:leagueId/sense-check', async (req, res, next) => {
+  try {
+    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
+    const lg = league(req, res); if (!lg) return;
+    const d = req.body?.deal;
+    if (!d?.me || !d?.them) return res.status(400).json({ error: 'deal required' });
+
+    const fmtPlayer = p => `${p.name} (${p.position}${p.team_abbr ? ` ${p.team_abbr}` : ''}) — ` +
+      `proj ${p.proj ?? '?'} pts, ${p.adj_ppg ?? '?'} adj ppg, market value ${p.value ?? '?'}` +
+      `${p.age != null ? `, age ${p.age}` : ''}${p.bye ? `, bye week ${p.bye}` : ''}` +
+      `${p.injury ? ', INJURY FLAG' : ''}${p.floor != null ? `, floor/ceiling ${p.floor}/${p.ceiling}` : ''}` +
+      `${p.consistency != null ? `, consistency ${p.consistency}` : ''}` +
+      `${p.playoff_sos != null ? `, weeks 15-17 matchup mult ${p.playoff_sos}` : ''}`;
+
+    const fmtSide = (label, s) => `${label} (${s.owner}):
+  Sends: ${s.gives.length ? s.gives.map(fmtPlayer).join('\n    ') : 'nothing'}
+  Receives: ${s.gets.length ? s.gets.map(fmtPlayer).join('\n    ') : 'nothing'}
+  Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} over the season)
+  Weeks 15-17 lineup: ${s.playoff_ppg_delta > 0 ? '+' : ''}${s.playoff_ppg_delta ?? '?'} ppg
+  Market value: ${s.value_delta > 0 ? '+' : ''}${s.value_delta}
+  Weekly floor/ceiling shift: ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
+  ${s.new_holes?.length ? `Leaves an unfilled starting slot at: ${s.new_holes.join(', ')}` : 'Fills every starting slot'}`;
+
+    const msg = await callClaude({
+      feature: 'trade-sense-check',
+      maxTokens: 1100,
+      prompt: `You are an experienced fantasy football manager giving a second opinion on a trade someone is
+considering. A deterministic engine already scored it on lineup points and market value — your job is
+to sanity-check that math against things a person would actually notice, not to re-derive the numbers.
+
+THE DEAL
+
+${fmtSide('MY SIDE', d.me)}
+
+${fmtSide('THEIR SIDE', d.them)}
+
+Engine's read: fairness "${d.fairness}", both lineups improve: ${d.mutual ? 'yes' : 'no'}, deal considered plausible: ${d.plausible ? 'yes' : 'no'}.
+${d.red_flags?.length ? `Engine already flagged: ${d.red_flags.join('; ')}.` : 'Engine raised no roster-fit flags.'}
+${d.their_window ? `Their team's situation: ${d.their_window.label} — ${d.their_window.stance}` : ''}
+
+Look specifically for things the lineup/value math cannot see on its own:
+- Bye-week collisions between the players changing hands and each other (not the rest of either
+  roster — you don't have that).
+- Injury-flagged players stacked on one side, or an injury flag on the single biggest piece of a deal.
+- Age or workload concerns severe enough to matter beyond what "market value" already prices in.
+- Whether this trade actually matches the "their team's situation" framing above, or contradicts it
+  (e.g. a supposed rebuilder taking on an older proven vet instead of youth).
+- Anything about the engine's own verdict that doesn't hold up once you look at who's actually moving.
+
+Work ONLY from the data given above — never invent a stat, injury, or fact not listed. If you have
+nothing real to flag in a category, say so plainly rather than manufacturing a concern.
+
+Respond with ONLY JSON:
+{"verdict":"one of: sound / worth a second look / risky / lopsided",
+ "headline":"one sentence — your overall take, independent of the engine's verdict",
+ "concerns":["0-4 short, specific, concrete concerns grounded in the data above — omit entirely if none"],
+ "agrees_with_engine": true or false,
+ "why": "2-3 sentences on why you agree or disagree with the engine's plausibility call"}`
+    });
+    res.json(parseJson(msg));
+  } catch (e) { next(e); }
+});
+
 /* --------------------------------------------------------- AI negotiation copy */
 /**
  * Turn a scored deal into something you can actually send. The maths is done and

@@ -16,6 +16,20 @@ const VERDICT_TONE: Record<string, string> = {
   'clear loss': 'bg-rose-100 text-rose-800 border-rose-300'
 };
 
+const SENSE_TONE: Record<string, string> = {
+  sound: 'border-emerald-300 bg-emerald-50/40',
+  'worth a second look': 'border-sky-300 bg-sky-50/40',
+  risky: 'border-amber-300 bg-amber-50/40',
+  lopsided: 'border-rose-300 bg-rose-50/40'
+};
+
+const SENSE_BADGE: Record<string, string> = {
+  sound: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  'worth a second look': 'bg-sky-100 text-sky-800 border-sky-300',
+  risky: 'bg-amber-100 text-amber-800 border-amber-300',
+  lopsided: 'bg-rose-100 text-rose-800 border-rose-300'
+};
+
 const FAIRNESS_TONE: Record<string, string> = {
   'lopsided my way': 'text-emerald-700',
   'slightly my way': 'text-emerald-600',
@@ -101,6 +115,15 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
   const [err, setErr] = useState<string | null>(null);
   const [impact, setImpact] = useState<any>(null);
   const [oddsBusy, setOddsBusy] = useState(false);
+  const [sense, setSense] = useState<any>(null);
+  const [senseBusy, setSenseBusy] = useState(false);
+
+  const senseCheck = async () => {
+    setSenseBusy(true); setErr(null);
+    try { setSense(await api(`/trades/${leagueId}/sense-check`, { method: 'POST', body: JSON.stringify({ deal }) })); }
+    catch (e: any) { setErr(e.message); }
+    finally { setSenseBusy(false); }
+  };
 
   /**
    * The number the engine exists to produce. Simulating twice takes a few seconds, so
@@ -199,8 +222,36 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <button className="btn-ghost text-xs" onClick={explain} disabled={busy}>
           {busy ? 'Writing…' : '✨ Write the pitch'}
         </button>
+        <button className="btn-ghost text-xs" onClick={senseCheck} disabled={senseBusy}>
+          {senseBusy ? 'Checking…' : '🔍 AI sense check'}
+        </button>
         {err && <span className="text-[11px] text-rose-600">{err}</span>}
       </div>
+
+      {sense && !sense.error && (
+        <div className={`mt-3 rounded-xl border p-3 ${SENSE_TONE[sense.verdict] ?? 'border-slate-200 bg-slate-50/60'}`}>
+          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+            <span className={`text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full border ${SENSE_BADGE[sense.verdict] ?? 'bg-slate-100 text-slate-600 border-slate-300'}`}>
+              {sense.verdict ?? 'checked'}
+            </span>
+            <span className="text-[10px] text-slate-500">
+              {sense.agrees_with_engine ? 'agrees with the engine' : 'disagrees with the engine'}
+            </span>
+          </div>
+          <p className="text-sm text-slate-800 font-medium">{sense.headline}</p>
+          {sense.concerns?.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {sense.concerns.map((c: string, i: number) => (
+                <li key={i} className="text-xs text-slate-700 flex gap-1.5">
+                  <span className="text-amber-600 shrink-0">⚠</span><span>{c}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {sense.why && <p className="text-xs text-slate-500 mt-2 italic">{sense.why}</p>}
+        </div>
+      )}
+      {sense?.error && <p className="text-[11px] text-rose-600 mt-2">{sense.error}</p>}
 
       {impact && !impact.error && (
         <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">

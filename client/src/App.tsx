@@ -6,6 +6,7 @@ import TeamDetail from './pages/TeamDetail';
 import Rankings from './pages/Rankings';
 import Drafts from './pages/Drafts';
 import DraftRoom from './pages/DraftRoom';
+import LiveDraft from './pages/LiveDraft';
 import MyTeam from './pages/MyTeam';
 import PlayerDetail from './pages/PlayerDetail';
 import Players from './pages/Players';
@@ -40,6 +41,7 @@ const NAV = [
   { to: '/', label: 'Dashboard', icon: 'D' },
   { to: '/my-team', label: 'My Team', icon: 'M' },
   { to: '/players', label: 'Players', icon: 'P' },
+  { to: '/live-draft', label: 'Live Draft Hub', icon: '●', live: true },
   { to: '/drafts', label: 'Draft Room', icon: 'R' },
   { to: '/teams', label: '32 Teams', icon: 'T' },
   { to: '/lab', label: 'Fantasy Lab', icon: 'F' },
@@ -96,8 +98,13 @@ export default function App() {
               } ${isActive ? 'bg-sky-100 text-sky-900' : 'text-slate-600 hover:bg-sky-50'}`
             }
           >
-            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-white/80 text-[10px] font-bold text-sky-800 ring-1 ring-sky-100">{n.icon}</span>
-            <span className={`transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'}`}>
+            {/* The live draft hub is the one page that is time-critical during a
+                draft, so it reads as live rather than as another list entry. */}
+            <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md text-[10px] font-bold ring-1 ${
+              n.live ? 'bg-emerald-500 text-white ring-emerald-300 animate-pulse' : 'bg-white/80 text-sky-800 ring-sky-100'}`}>
+              {n.icon}
+            </span>
+            <span className={`transition-opacity duration-200 ${collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100'} ${n.live ? 'font-bold text-emerald-700' : ''}`}>
               {n.label}
             </span>
           </NavLink>
@@ -173,6 +180,8 @@ export default function App() {
           <Route path="/model" element={<Model />} />
           <Route path="/rankings" element={<Rankings />} />
           <Route path="/projections" element={<Players />} />
+          <Route path="/live-draft" element={<LiveDraft />} />
+          <Route path="/live-draft/:id" element={<LiveDraft />} />
           <Route path="/drafts" element={<Drafts />} />
           <Route path="/drafts/:id" element={<DraftRoom />} />
           <Route path="/my-team" element={<MyTeam />} />

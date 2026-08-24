@@ -108,6 +108,52 @@ Summary of what's landed there so far, roughly newest-first:
   (it's inline SVG, invisible to the class-based color remap, so it was the
   one surface still on the old palette).
 
+## Full platform audit — Phase 0, first 3 items done (2026-08-24)
+
+All on `feat/model-honest-rebuild` (pushed), commits `874440c`, `ca8e9f5`,
+`5789ecf`, in that order:
+
+1. **Complete draftable pool.** Real bug in the seed: every depth-chart
+   player, including all 32 kickers, was seeded with `fantasy_relevant`
+   hardcoded to 0 — only the ~96 players in the curated consensus board got
+   `fantasy_relevant=1`, so ~128 real offensive depth players and every
+   kicker were invisible to the draft pool, with zero team DEF entities
+   existing at all. Fixed at the seed (offensive skill slots + K now
+   correctly relevant; DEF unit added per team, named to match what ESPN
+   sync already produces so a later sync updates rather than duplicates).
+   Verified against a scratch DB (`GRIDIRON_DB_PATH` override, real
+   `data.sqlite` never touched): fresh seed now produces 288
+   `fantasy_relevant` players, safely above the 192 a 12-team/16-round draft
+   needs. Second layer: `computeConsensus()` (the main pool source) only
+   returns players with synced market data, so extended the existing
+   K/DEF-only tail-injection fallback to cover every position in all three
+   places a draft pool gets built, so the pool can't run dry regardless of
+   sync state. Also closed a gap flagged in `CODEX_REVIEW.md`: the K/DEF fix
+   from earlier this session had only landed in `buildMarketPool`, not in
+   `GET /:id`'s available-list (the one the older Draft Room UI reads) —
+   fixed now too.
+2. **`/betting/nfl/picks`.** Less severe in practice than it first sounded:
+   only one nav entry exists for this feature, already correctly labeled
+   "NFL Auto Picks," and the underlying "board" tool is already framed as an
+   "Auto Picks Command Center" with production candidates explicitly
+   separated from the research-only board. The real bug was route hygiene —
+   it silently relied on `NflMarketBoard`'s default tool instead of passing
+   `initialTool` explicitly like every sibling route. Fixed for
+   consistency/robustness rather than building new page architecture the
+   actual UX didn't need.
+3. **Shared page states.** New `PageLoading`/`PageError` (with retry)/
+   `EmptyState` in `client/src/components/PageState.tsx`. Applied to the
+   four pages named first: Dashboard, My Team, Draft Room, My Leagues.
+   Found the actual root cause was one level up from where the audit
+   pointed — `useLeague()`'s shared context never exposed `error` at all, so
+   a failed `/leagues` fetch looked identical to "genuinely zero leagues
+   connected" on every page reading it, not just My Leagues. Fixed at the
+   source.
+
+`npm run build` clean after each commit; manual `curl` verification against
+the live server each time (no test suite exists yet — that's the migrations/
+test-DB item, next).
+
 ## Full platform audit — response
 
 Read `CODEX_SUGGESTIONS.md` in full. Given the scope (this is explicitly not

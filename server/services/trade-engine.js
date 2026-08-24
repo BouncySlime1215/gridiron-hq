@@ -23,6 +23,7 @@ import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 import { scheduleOutlook, relevantSplits, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
+import { SLOT_NAME } from './espn-draft.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -751,4 +752,58 @@ export function playerOutlook(lg, playerId) {
                      WHERE headline LIKE ? OR body LIKE ? ORDER BY date DESC LIMIT 5`,
     `%${a.name}%`, `%${a.name}%`);
   return { ...a, owner: owner?.owner ?? 'free agent', owner_id: owner?.roster_id ?? null, splits, news };
+}
+
+/* ---------------------------------------------- submitted vs. recommended lineup */
+
+// ESPN lineupSlotId -> our slot label, minus BENCH(20)/IR(21) — a "starter" is
+// anything else. Sleeper's payload has a `starters` array instead of a per-player
+// slot id; a real Sleeper version needs its own read of that shape, not this one.
+const STARTER_SLOT_IDS = new Set(
+  Object.entries(SLOT_NAME).filter(([, name]) => name !== 'BENCH' && name !== 'IR').map(([id]) => Number(id)));
+
+/**
+ * What's actually set on the platform right now vs. what the engine's own
+ * optimal-lineup solver would start — the "what should I change before kickoff"
+ * question My Team never answered before, despite already computing the optimal
+ * side of it via selfScout/bestLineup.
+ */
+export function lineupDiff(lg, myTeamId) {
+  if (lg.platform !== 'espn') return { error: 'Submitted-lineup comparison is ESPN-only for now — Sleeper stores starters in a different shape this doesn\'t read yet.' };
+  const { formatKey } = deriveFormat(lg);
+  const assets = assetUniverse(lg, formatKey);
+  const teams = loadRosters(lg, assets);
+  const slots = lineupSlots(lg);
+  const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
+  if (!me) return { error: 'your team not found in this league' };
+
+  const payload = JSON.parse(lg.payload);
+  const espnTeam = payload.teams?.find(t => String(t.id) === me.roster_id);
+  const byEspnId = new Map([...assets.values()].filter(a => a.espn_id).map(a => [String(a.espn_id), a]));
+  const submittedIds = new Set();
+  for (const e of espnTeam?.roster?.entries ?? []) {
+    if (!STARTER_SLOT_IDS.has(e.lineupSlotId)) continue;
+    const p = byEspnId.get(String(e.playerPoolEntry?.player?.id));
+    // K/DEF are outside SCORED — bestLineup()/lineupSlots() never touch them (see
+    // this file's header: near-random week to week, deliberately unmodeled), so
+    // comparing them here would flag every started K/DEF as a "should bench" false
+    // positive purely because the optimizer was never going to consider them.
+    if (p && SCORED.has(p.position)) submittedIds.add(p.id);
+  }
+  if (!espnTeam || submittedIds.size === 0) return { error: 'could not read a submitted lineup for this team — try syncing the league again' };
+
+  const optimal = bestLineup(me.players, slots);
+  const optimalIds = new Set(optimal.slots.map(s => s.player?.id).filter(Boolean));
+
+  const submittedLineup = bestLineup(me.players.filter(p => submittedIds.has(p.id)), slots);
+  const swapIn = optimal.slots.filter(s => s.player && !submittedIds.has(s.player.id)).map(s => ({ slot: s.slot, player: slim(s.player) }));
+  const swapOut = [...submittedIds].filter(id => !optimalIds.has(id)).map(id => slim(me.players.find(p => p.id === id)));
+
+  return {
+    matches: swapIn.length === 0,
+    submitted_points: submittedLineup.points,
+    optimal_points: optimal.points,
+    gain: +(optimal.points - submittedLineup.points).toFixed(2),
+    swap_in: swapIn, swap_out: swapOut
+  };
 }

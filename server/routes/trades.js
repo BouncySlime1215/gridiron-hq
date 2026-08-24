@@ -10,7 +10,7 @@ import { row, rows } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
   findTrades, offerFor, selfScout, playerOutlook, evaluate,
-  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer
+  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff
 } from '../services/trade-engine.js';
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
 import { deriveFormat } from '../services/format.js';
@@ -104,6 +104,14 @@ r.get('/:leagueId/inbox', (req, res, next) => {
     const rank = { high: 0, medium: 1, low: 2 };
     items.sort((a, b) => (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2));
     res.json({ items: items.slice(0, 6) });
+  } catch (e) { next(e); }
+});
+
+/* --------------------------------------------------- submitted vs. recommended */
+r.get('/:leagueId/lineup-diff', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(lineupDiff(lg, req.query.team_id));
   } catch (e) { next(e); }
 });
 

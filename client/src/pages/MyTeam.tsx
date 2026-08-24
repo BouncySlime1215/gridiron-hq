@@ -52,6 +52,8 @@ export default function MyTeam() {
 
   const scoutUrl = active && synced ? `/trades/${active.id}/scout${myTeamId ? `?team_id=${myTeamId}` : ''}` : null;
   const { data: scout } = useApi<any>(scoutUrl);
+  const diffUrl = active && synced && myTeamId ? `/trades/${active.id}/lineup-diff?team_id=${myTeamId}` : null;
+  const { data: lineupDiff } = useApi<any>(diffUrl);
 
   // Once the engine resolves a default team (from the league's saved my_team_id, or
   // its own first-team fallback), reflect that in the picker — without this the
@@ -156,6 +158,39 @@ export default function MyTeam() {
           This league hasn't been synced yet — hit{' '}
           <button className="text-emerald-600 underline" onClick={sync}>Sync</button> to pull rosters from{' '}
           {active.platform === 'espn' ? 'ESPN' : 'Sleeper'}.
+        </div>
+      )}
+
+      {synced && lineupDiff && !lineupDiff.error && !lineupDiff.matches && (
+        <div className="card p-4 mb-4 border-amber-300 bg-amber-50/50">
+          <div className="flex items-center gap-2 mb-2">
+            <h3 className="text-sm font-bold text-slate-800">Your submitted lineup isn't optimal</h3>
+            <span className="text-xs text-amber-700 font-semibold">+{lineupDiff.gain} ppg available</span>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3 text-sm">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-good mb-1">Start</div>
+              {lineupDiff.swap_in.map((s: any) => (
+                <div key={s.player.id} className="flex items-center gap-2 py-0.5">
+                  <span className={`text-[10px] font-black pos-${s.player.position}`}>{s.player.position}</span>
+                  <span className="font-medium">{s.player.name}</span>
+                  <span className="text-xs text-slate-400 ml-auto">{s.slot}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-crit mb-1">Bench</div>
+              {lineupDiff.swap_out.map((p: any) => (
+                <div key={p.id} className="flex items-center gap-2 py-0.5">
+                  <span className={`text-[10px] font-black pos-${p.position}`}>{p.position}</span>
+                  <span className="font-medium">{p.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2">
+            Compares what's actually set on {active?.platform === 'espn' ? 'ESPN' : 'Sleeper'} against the engine's optimal lineup — make this swap on the platform itself before kickoff.
+          </p>
         </div>
       )}
 

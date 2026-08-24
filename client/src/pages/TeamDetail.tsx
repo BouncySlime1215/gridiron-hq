@@ -109,11 +109,11 @@ export default function TeamDetail() {
 
         <div className="flex items-center gap-4 mt-2 mb-1 text-[11px] text-slate-500 flex-wrap">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(16,185,129,0.25)', border: '1.5px solid #10b981' }} />
+            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(47,125,78,0.2)', border: '1.5px solid #2f7d4e' }} />
             strength
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(244,63,94,0.25)', border: '1.5px solid #f43f5e' }} />
+            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(166,58,50,0.2)', border: '1.5px solid #a63a32' }} />
             weak spot (pulsing)
           </span>
           <span className="text-slate-400">green = Pro Bowl / All-Pro / 1st-round / top-50 market · red = AI stat review</span>

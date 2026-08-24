@@ -32,8 +32,13 @@ const r = Router();
 // A training grant must not authorize spending API/AI resources, locking picks,
 // or writing/grading bets.
 const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/sync$)/;
+const resourceSpendingGet = /^(\/lines\/(?:shop|disagreement)|\/sharp\/(?:board|divergence))$/;
 r.use((req, res, next) => {
-  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    const spendsExternalResources = resourceSpendingGet.test(req.path)
+      || (req.path === '/props' && req.query.market === '1');
+    return spendsExternalResources ? requireModelPermission('model:execute')(req, res, next) : next();
+  }
   const permission = trainingMutation.test(req.path) ? 'model:train' : 'model:execute';
   return requireModelPermission(permission)(req, res, next);
 });

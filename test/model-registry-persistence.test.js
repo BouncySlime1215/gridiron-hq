@@ -9,6 +9,7 @@ import { ServerResponse } from 'node:http';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-registry-test-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
+delete process.env.ODDS_API_KEY;
 const { db, row, run } = await import('../server/db/index.js');
 const { runMigrations, rollbackMigration } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
@@ -147,6 +148,28 @@ test('persisted wildcard grant authorizes exact HTTP permissions', async () => {
   }
   assert.notEqual((await nflRequest('/replay/train', { method: 'GET', token: 'wildcard-token' })).status, 401);
   assert.notEqual((await nflRequest('/replay/train', { method: 'GET', token: 'wildcard-token' })).status, 403);
+});
+
+test('NFL resource-spending GET routes require execute or wildcard permission', async () => {
+  assert.notEqual((await nflRequest('/props', { method: 'GET' })).status, 401);
+
+  const spendingRoutes = [
+    '/props?market=1',
+    '/lines/shop',
+    '/lines/disagreement',
+    '/sharp/board',
+    '/sharp/divergence'
+  ];
+  for (const url of spendingRoutes) {
+    assert.equal((await nflRequest(url, { method: 'GET' })).status, 401, url);
+    assert.equal((await nflRequest(url, { method: 'GET', token: 'real-model-token' })).status, 403, url);
+  }
+
+  for (const token of ['execute-token', 'wildcard-token']) {
+    const response = await nflRequest('/props?market=1', { method: 'GET', token });
+    assert.notEqual(response.status, 401, token);
+    assert.notEqual(response.status, 403, token);
+  }
 });
 
 test('server-run backtest persists verified metrics and gates promotion', async () => {

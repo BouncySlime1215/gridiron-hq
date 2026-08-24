@@ -25,21 +25,36 @@ const trainerUserId = row(`SELECT id FROM users WHERE subject='model:trainer'`).
 run(`INSERT INTO auth_sessions (user_id,token_hash,expires_at) VALUES (?,?,datetime('now','+1 day'))`, trainerUserId, hashSessionToken('real-model-token'));
 run(`INSERT INTO model_permissions (user_id,permission) VALUES (?, 'model:train'), (?, 'model:promote')`, trainerUserId, trainerUserId);
 
-const trainer = { id: 'trainer-1', permissions: ['model:train', 'model:promote'] };
+const trainer = { id: trainerUserId, permissions: ['model:train', 'model:promote'] };
 const gates = { schema: true, leakage: true, data_quality: true, baseline_improvement: true, tests: true };
 const { default: modelRouter } = await import('../server/routes/model.js');
+const { default: nflBettingRouter } = await import('../server/routes/nfl-betting.js');
 const app = express();
 app.use(express.json());
 app.use('/api/model', modelRouter);
+app.use('/api/nfl/betting', nflBettingRouter);
 app.use((err, req, res, next) => res.status(err.status ?? 500).json({ error: err.message }));
-async function request(url, { token, roleHeader, body } = {}) {
+async function request(url, { token, roleHeader, body, method = 'POST' } = {}) {
   const encoded = body === undefined ? '' : JSON.stringify(body);
   const headers = { ...(encoded ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(encoded)) } : {}) };
   if (token) headers.authorization = `Bearer ${token}`;
   if (roleHeader) headers['x-gridiron-role'] = roleHeader;
   const req = new Readable({ read() { this.push(encoded || null); if (encoded) this.push(null); } });
-  req.url = `/api/model${url}`; req.method = 'POST'; req.headers = headers;
+  req.url = `/api/model${url}`; req.method = method; req.headers = headers;
   req.socket = new PassThrough(); req.connection = req.socket;
+  return new Promise((resolve, reject) => {
+    const res = new ServerResponse(req); const chunks = [];
+    res.write = chunk => { chunks.push(Buffer.from(chunk)); return true; };
+    res.end = chunk => { if (chunk) chunks.push(Buffer.from(chunk)); const text = Buffer.concat(chunks).toString('utf8'); resolve({ status: res.statusCode, payload: text ? JSON.parse(text) : null }); };
+    app.handle(req, res, reject);
+  });
+}
+async function nflRequest(url, { token, roleHeader, body = {} } = {}) {
+  const encoded = JSON.stringify(body); const headers = { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(encoded)) };
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (roleHeader) headers['x-gridiron-role'] = roleHeader;
+  const req = new Readable({ read() { this.push(encoded); this.push(null); } });
+  req.url = `/api/nfl/betting${url}`; req.method = 'POST'; req.headers = headers; req.socket = new PassThrough(); req.connection = req.socket;
   return new Promise((resolve, reject) => {
     const res = new ServerResponse(req); const chunks = [];
     res.write = chunk => { chunks.push(Buffer.from(chunk)); return true; };
@@ -78,6 +93,33 @@ test('deployed HTTP route rejects spoofing and caller-supplied experiment outcom
   const fabricated = await request(`/registry/experiments/${experiment.id}/result`, { token: 'real-model-token', body: { result: { gates } } });
   assert.equal(fabricated.status, 410);
   assert.equal(new SqliteModelStore(db).get(experiment.id).status, 'queued');
+});
+
+test('registry snapshot requires an authenticated persisted grant', async () => {
+  assert.equal((await request('/registry', { method: 'GET' })).status, 401);
+  assert.equal((await request('/registry', { method: 'GET', roleHeader: 'admin' })).status, 401);
+  assert.equal((await request('/registry', { method: 'GET', token: 'real-model-token' })).status, 200);
+});
+
+test('NFL operational mutations require execute rather than training permission', async () => {
+  run(`INSERT INTO users (subject) VALUES ('model:executor')`);
+  const executorId = row(`SELECT id FROM users WHERE subject='model:executor'`).id;
+  run(`INSERT INTO auth_sessions (user_id,token_hash,expires_at) VALUES (?,?,datetime('now','+1 day'))`, executorId, hashSessionToken('execute-token'));
+  run(`INSERT INTO model_permissions (user_id,permission) VALUES (?, 'model:execute')`, executorId);
+  assert.equal((await nflRequest('/ai-replay', { roleHeader: 'admin' })).status, 401);
+  assert.equal((await nflRequest('/ai-replay', { token: 'real-model-token' })).status, 403);
+  assert.equal((await nflRequest('/bets', { token: 'real-model-token' })).status, 403);
+  assert.notEqual((await nflRequest('/ai-replay', { token: 'execute-token' })).status, 403);
+  assert.notEqual((await nflRequest('/bets', { token: 'execute-token' })).status, 403);
+  assert.equal((await nflRequest('/replay/train', { token: 'execute-token' })).status, 403);
+});
+
+test('model wildcard grant works at middleware and registry service layers', () => {
+  const wildcard = { id: trainerUserId, permissions: ['model:*'] };
+  const registry = new ModelRegistry(new SqliteModelStore(db));
+  const experiment = registry.create({ model: 'wildcard', nonce: 100 }, wildcard);
+  registry.transition(experiment.id, 'completed', { result: { gates } });
+  assert.equal(registry.promote(experiment.id, wildcard).active, experiment.id);
 });
 
 test('server-run backtest persists verified metrics and gates promotion', async () => {
@@ -164,6 +206,12 @@ test('fresh install applies model registry migration and enforces foreign keys a
   assert.ok(row(`SELECT name FROM schema_migrations WHERE name='005_model_registry_integrity'`));
   assert.equal(row('PRAGMA foreign_keys').foreign_keys, 1);
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  for (const [table, column] of [['model_experiments', 'created_by_user_id'], ['model_dataset_versions', 'created_by_user_id'],
+    ['model_feature_versions', 'created_by_user_id'], ['model_promotion_history', 'actor_user_id'], ['model_audit_log', 'actor_user_id']]) {
+    assert.ok(db.prepare(`PRAGMA foreign_key_list(${table})`).all().some(fk => fk.from === column && fk.table === 'users'));
+  }
+  assert.throws(() => run(`INSERT INTO model_audit_log
+    (actor_id,actor_user_id,action,entity_type,details_json,created_at) VALUES ('missing',999999,'x','x','{}','now')`), /FOREIGN KEY/);
   assert.throws(() => run(`INSERT INTO model_metrics
     (experiment_id,split,metric,value,sample_size,recorded_at) VALUES ('missing','validation','mae',1,-1,'now')`));
 });
@@ -192,7 +240,7 @@ test('rollback is gated, persisted, and audit entries require authenticated acto
   assert.equal(row(`SELECT action FROM model_promotion_history ORDER BY id DESC LIMIT 1`).action, 'rollback');
   assert.throws(() => recordModelAudit(db, null, 'x', 'experiment'));
   recordModelAudit(db, trainer, 'experiment.test', 'experiment', older.id);
-  assert.equal(registrySnapshot(db).audit_log[0].actor_id, trainer.id);
+  assert.equal(registrySnapshot(db).audit_log[0].actor_user_id, trainer.id);
 });
 
 test('partial seed reconciliation is transactional and independently idempotent', () => {
@@ -210,10 +258,11 @@ test('partial seed reconciliation is transactional and independently idempotent'
 });
 
 test('latest migration down and re-up are transactional and reproducible', async () => {
+  assert.equal(await rollbackMigration('008_model_actor_foreign_keys'), '008_model_actor_foreign_keys');
   assert.equal(await rollbackMigration('007_model_permissions_and_upgrade_guard'), '007_model_permissions_and_upgrade_guard');
   assert.equal(await rollbackMigration('006_identity_and_draft_authorization'), '006_identity_and_draft_authorization');
   assert.equal(await rollbackMigration('005_model_registry_integrity'), '005_model_registry_integrity');
   assert.equal(row(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_dataset_versions'`).n, 0);
-  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard']);
+  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys']);
   assert.ok(row(`SELECT name FROM schema_migrations WHERE name='005_model_registry_integrity'`));
 });

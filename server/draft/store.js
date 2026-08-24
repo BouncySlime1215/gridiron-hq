@@ -136,8 +136,10 @@ export function makePick({ draftId, playerId, expectedRevision = null, idempoten
     // Enforce paused state: no user picks while paused.
     if (draft.paused) throw new DraftValidationError('draft is paused');
 
-    // Enforce that non-privileged users may only pick when it's their slot.
-    if (source === 'user' && actorRole !== 'commissioner' && !ownsDraftTeam(actorId, draftId, teamSlot)) {
+    // Ordinary pick submission is always an owner action. Commissioners have
+    // explicit correction/undo/simulation capabilities, but their league role
+    // must never silently confer ownership of every team.
+    if (source === 'user' && !ownsDraftTeam(actorId, draftId, teamSlot)) {
       throw new AuthorizationError('team ownership required for the team on the clock');
     }
 

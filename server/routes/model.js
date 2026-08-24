@@ -100,7 +100,7 @@ export function clearModelCache() { cache.clear(); }
 
 /* ------------------------------------------------ persisted model registry */
 
-r.get('/registry', (_req, res, next) => {
+r.get('/registry', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(registrySnapshot()); } catch (e) { next(e); }
 });
 
@@ -120,9 +120,9 @@ r.post('/registry/datasets', requireModelPermission('model:train'), (req, res, n
     }
     const id = x.id ?? configurationHash({ name: x.name, content_hash: x.content_hash });
     db.prepare(`INSERT INTO model_dataset_versions
-      (id,name,content_hash,source_uri,row_count,cutoff_at,metadata_json,created_at,created_by)
-      VALUES (?,?,?,?,?,?,?,?,?)`).run(id, x.name, x.content_hash, x.source_uri ?? null, x.row_count, x.cutoff_at,
-        JSON.stringify(x.metadata ?? {}), new Date().toISOString(), String(req.modelPrincipal.id));
+      (id,name,content_hash,source_uri,row_count,cutoff_at,metadata_json,created_at,created_by,created_by_user_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, x.name, x.content_hash, x.source_uri ?? null, x.row_count, x.cutoff_at,
+        JSON.stringify(x.metadata ?? {}), new Date().toISOString(), String(req.modelPrincipal.id), Number(req.modelPrincipal.id));
     recordModelAudit(db, req.modelPrincipal, 'dataset.create', 'dataset', id, { content_hash: x.content_hash });
     res.status(201).json(db.prepare('SELECT * FROM model_dataset_versions WHERE id=?').get(id));
   } catch (e) { next(e); }
@@ -140,8 +140,8 @@ r.post('/registry/features', requireModelPermission('model:train'), (req, res, n
     }
     const id = x.id ?? configurationHash({ name: x.name, version: x.version, content_hash: x.content_hash });
     db.prepare(`INSERT INTO model_feature_versions
-      (id,name,version,contract_json,content_hash,created_at,created_by) VALUES (?,?,?,?,?,?,?)`)
-      .run(id, x.name, x.version, JSON.stringify(x.contract), x.content_hash, new Date().toISOString(), String(req.modelPrincipal.id));
+      (id,name,version,contract_json,content_hash,created_at,created_by,created_by_user_id) VALUES (?,?,?,?,?,?,?,?)`)
+      .run(id, x.name, x.version, JSON.stringify(x.contract), x.content_hash, new Date().toISOString(), String(req.modelPrincipal.id), Number(req.modelPrincipal.id));
     recordModelAudit(db, req.modelPrincipal, 'feature.create', 'feature', id, { version: x.version });
     res.status(201).json(db.prepare('SELECT * FROM model_feature_versions WHERE id=?').get(id));
   } catch (e) { next(e); }

@@ -28,11 +28,15 @@ import { nflEvidenceCoverage, validationFirewall } from '../services/nfl-evidenc
 import { gamePlayerAvailability, teamPlayerAvailability } from '../services/nfl-player-value.js';
 
 const r = Router();
-// This router's non-GET endpoints mutate training data, experiments, evidence,
-// or betting records. Fail closed with a persisted model grant.
-r.use((req, res, next) => req.method === 'GET' || req.method === 'HEAD'
-  ? next()
-  : requireModelPermission('model:train')(req, res, next));
+// Mutations are split between research/training and live operational execution.
+// A training grant must not authorize spending API/AI resources, locking picks,
+// or writing/grading bets.
+const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/sync$)/;
+r.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  const permission = trainingMutation.test(req.path) ? 'model:train' : 'model:execute';
+  return requireModelPermission(permission)(req, res, next);
+});
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const wk = req => Number(req.query.week) || 1;
 const ssn = req => Number(req.query.season) || SEASON;

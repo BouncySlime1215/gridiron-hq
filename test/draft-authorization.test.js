@@ -120,6 +120,14 @@ test('queues are owner-scoped while commissioners can correct draft state', asyn
   assert.equal((await request(`/${draftId}/picks/last`, { method: 'DELETE', token: commissioner.token })).status, 200);
 });
 
+test('commissioner privileges do not bypass ordinary team ownership', async () => {
+  const player = row(`SELECT id FROM players WHERE fantasy_relevant = 1
+    AND id NOT IN (SELECT player_id FROM draft_picks WHERE draft_id = ?) LIMIT 1`, draftId);
+  assert.equal((await request(`/${draftId}/picks`, {
+    method: 'POST', token: commissioner.token, body: { player_id: player.id }
+  })).status, 403);
+});
+
 test('main draft response derives my slot and queue from authenticated ownership', async () => {
   const one = await request(`/${draftId}`, { token: ownerOne.token });
   const two = await request(`/${draftId}`, { token: ownerTwo.token });

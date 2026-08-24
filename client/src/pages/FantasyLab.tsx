@@ -144,9 +144,34 @@ function Registry() {
       <RegistryEvidence title="Metrics" items={data?.metrics} render={(x: any) => `${x.split} ${x.metric}: ${x.value} · n=${x.sample_size}`} />
       <RegistryEvidence title="Promotion history" items={data?.promotions} render={(x: any) => `${x.action} ${String(x.experiment_id).slice(0, 12)} · ${new Date(x.created_at).toLocaleString()}`} />
     </div>
+    <details className="card p-4"><summary className="font-semibold cursor-pointer">Register persisted model inputs</summary>
+      <p className="text-xs text-slate-500 my-3">Authenticated trainers can register content-addressed datasets and feature contracts, then pin both to an experiment. The server validates hashes, timestamps, schemas, and promotion gates.</p>
+      <div className="grid lg:grid-cols-3 gap-3">
+        <RegistryCreate title="Dataset version" endpoint="datasets" example={{ name: 'observations-v1', content_hash: 'configuration hash of metadata.observations', cutoff_at: '2026-01-01T00:00:00.000Z', row_count: 0, metadata: { observations: [] } }} onCreated={refetch} />
+        <RegistryCreate title="Feature version" endpoint="features" example={{ name: 'core', version: '1', content_hash: 'configuration hash of contract', contract: { features: {} } }} onCreated={refetch} />
+        <RegistryCreate title="Experiment" endpoint="experiments" example={{ dataset_version_id: 'dataset id', feature_version_id: 'feature id', spec: { candidate: 'mean_baseline', holdout_season: 2025, min_validation_rows: 1 } }} onCreated={refetch} />
+      </div>
+    </details>
     <details className="card p-4"><summary className="font-semibold cursor-pointer">Audit log ({data?.audit_log?.length ?? 0})</summary>
       <pre className="mt-3 max-h-72 overflow-auto text-[11px] whitespace-pre-wrap">{json(data?.audit_log)}</pre></details>
     <p className="text-xs text-slate-400">Promotion and rollback require authenticated model privileges and are recorded in the immutable audit history.</p>
+  </div>;
+}
+
+function RegistryCreate({ title, endpoint, example, onCreated }: { title: string; endpoint: string; example: unknown; onCreated: () => unknown }) {
+  const [value, setValue] = useState(JSON.stringify(example, null, 2));
+  const [message, setMessage] = useState<string | null>(null);
+  const submit = async () => {
+    setMessage(null);
+    try {
+      await api(`/model/registry/${endpoint}`, { method: 'POST', body: JSON.stringify(JSON.parse(value)) });
+      setMessage('Persisted successfully.'); await onCreated();
+    } catch (e: any) { setMessage(e.message); }
+  };
+  return <div><h4 className="text-sm font-semibold mb-2">{title}</h4>
+    <textarea aria-label={`${title} JSON`} className="w-full h-44 p-2 border rounded-lg font-mono text-[11px]" value={value} onChange={e => setValue(e.target.value)} />
+    <button className="btn-ghost mt-2" onClick={submit}>Register</button>
+    {message && <p className="text-xs mt-2 text-slate-600">{message}</p>}
   </div>;
 }
 

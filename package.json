@@ -12,7 +12,7 @@
     "build": "vite build --config client/vite.config.ts",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "typecheck": "tsc --noEmit",
-    "lint": "node --check server/modeling/authz.js && node --check server/routes/model.js && node --check server/routes/drafts.js && node --check server/routes/nfl-betting.js && node --check server/platform/provision-auth.js",
+    "lint": "node scripts/lint.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "node --watch --env-file-if-exists=.env server/index.js",

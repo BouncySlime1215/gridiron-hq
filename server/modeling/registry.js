@@ -2,6 +2,7 @@ import { configurationHash } from './contracts.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'archived']);
 const REQUIRED_GATES = ['schema', 'leakage', 'data_quality', 'baseline_improvement', 'tests'];
+const can = (actor, permission) => actor?.permissions?.includes(permission) || actor?.permissions?.includes('model:*');
 
 // Shared by promote() and rollback(): a rollback target is itself a promotion
 // (to a possibly-earlier version), so it must clear the exact same gates —
@@ -19,10 +20,10 @@ export class ModelRegistry {
   constructor(store) { this.store = store; }
 
   create(spec, actor) {
-    if (!actor?.permissions?.includes('model:train')) throw new Error('forbidden: model:train required');
+    if (!can(actor, 'model:train')) throw new Error('forbidden: model:train required');
     const now = new Date().toISOString();
     const experiment = { id: configurationHash(spec), spec, status: 'queued', created_at: now,
-      updated_at: now, cancellation_requested: false, logs: [], result: null };
+      updated_at: now, cancellation_requested: false, logs: [], result: null, created_by_user_id: Number(actor.id) };
     return this.store.insert(experiment);
   }
 
@@ -34,14 +35,14 @@ export class ModelRegistry {
   }
 
   cancel(id, actor) {
-    if (!actor?.permissions?.includes('model:cancel')) throw new Error('forbidden: model:cancel required');
+    if (!can(actor, 'model:cancel')) throw new Error('forbidden: model:cancel required');
     return this.transition(id, 'cancelling', { cancellation_requested: true });
   }
 
   compare(ids) { return ids.map(id => this.store.get(id)).filter(Boolean); }
 
   promote(id, actor) {
-    if (!actor?.permissions?.includes('model:promote')) throw new Error('forbidden: model:promote required');
+    if (!can(actor, 'model:promote')) throw new Error('forbidden: model:promote required');
     const candidate = this.store.get(id);
     assertPromotable(candidate);
     return this.store.atomicPromote(id, { action: 'promote', gates: candidate.result.gates,
@@ -49,7 +50,7 @@ export class ModelRegistry {
   }
 
   rollback(versionId, actor) {
-    if (!actor?.permissions?.includes('model:promote')) throw new Error('forbidden: model:promote required');
+    if (!can(actor, 'model:promote')) throw new Error('forbidden: model:promote required');
     const candidate = this.store.get(versionId);
     if (!candidate) throw new Error('rollback target not found');
     assertPromotable(candidate);

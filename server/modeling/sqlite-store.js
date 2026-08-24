@@ -8,7 +8,7 @@ import { db, row, rows, run } from '../db/index.js';
 const decode = value => value == null ? null : JSON.parse(value);
 const hydrate = item => item && ({ id: item.id, spec: decode(item.spec_json), status: item.status,
   created_at: item.created_at, updated_at: item.updated_at, cancellation_requested: Boolean(item.cancellation_requested),
-  logs: decode(item.logs_json) ?? [], result: decode(item.result_json) });
+  logs: decode(item.logs_json) ?? [], result: decode(item.result_json), created_by_user_id: item.created_by_user_id ?? null });
 
 export class SqliteModelStore {
   constructor(database = db) { this.db = database; }
@@ -20,9 +20,10 @@ export class SqliteModelStore {
   }
   insert(item) {
     this.db.prepare(`INSERT INTO model_experiments
-      (id,spec_json,status,created_at,updated_at,cancellation_requested,logs_json,result_json)
-      VALUES (?,?,?,?,?,?,?,?)`).run(item.id, JSON.stringify(item.spec), item.status, item.created_at, item.updated_at,
-        Number(item.cancellation_requested), JSON.stringify(item.logs ?? []), item.result ? JSON.stringify(item.result) : null);
+      (id,spec_json,status,created_at,updated_at,cancellation_requested,logs_json,result_json,created_by_user_id)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(item.id, JSON.stringify(item.spec), item.status, item.created_at, item.updated_at,
+        Number(item.cancellation_requested), JSON.stringify(item.logs ?? []), item.result ? JSON.stringify(item.result) : null,
+        item.created_by_user_id);
     return this.get(item.id);
   }
   update(id, patch) {
@@ -40,15 +41,17 @@ export class SqliteModelStore {
         VALUES (1,?,?,?,?) ON CONFLICT(singleton) DO UPDATE SET experiment_id=excluded.experiment_id,
         previous_experiment_id=excluded.previous_experiment_id,audit_json=excluded.audit_json,updated_at=excluded.updated_at`)
         .run(id, previous, JSON.stringify(audit), audit.promoted_at);
-      this.db.prepare('UPDATE model_experiments SET promoted_at=?,promoted_by=? WHERE id=?').run(audit.promoted_at, audit.promoted_by ?? audit.rolled_back_by, id);
+      this.db.prepare('UPDATE model_experiments SET promoted_at=?,promoted_by=?,promoted_by_user_id=? WHERE id=?')
+        .run(audit.promoted_at, audit.promoted_by ?? audit.rolled_back_by, Number(audit.promoted_by ?? audit.rolled_back_by), id);
       this.db.prepare(`INSERT INTO model_promotion_history
-        (experiment_id,previous_experiment_id,action,actor_id,gate_audit_json,created_at)
-        VALUES (?,?,?,?,?,?)`).run(id, previous, audit.action ?? 'promote', audit.promoted_by ?? audit.rolled_back_by,
-          JSON.stringify(audit.gates ?? {}), audit.promoted_at);
+        (experiment_id,previous_experiment_id,action,actor_id,gate_audit_json,created_at,actor_user_id)
+        VALUES (?,?,?,?,?,?,?)`).run(id, previous, audit.action ?? 'promote', audit.promoted_by ?? audit.rolled_back_by,
+          JSON.stringify(audit.gates ?? {}), audit.promoted_at, Number(audit.promoted_by ?? audit.rolled_back_by));
       this.db.prepare(`INSERT INTO model_audit_log
-        (actor_id,action,entity_type,entity_id,details_json,created_at) VALUES (?,?,?,?,?,?)`)
+        (actor_id,action,entity_type,entity_id,details_json,created_at,actor_user_id) VALUES (?,?,?,?,?,?,?)`)
         .run(String(audit.promoted_by ?? audit.rolled_back_by), `experiment.${audit.action ?? 'promote'}`,
-          'experiment', id, JSON.stringify({ previous, gates: audit.gates ?? {} }), audit.promoted_at);
+          'experiment', id, JSON.stringify({ previous, gates: audit.gates ?? {} }), audit.promoted_at,
+          Number(audit.promoted_by ?? audit.rolled_back_by));
       this.db.exec('COMMIT'); return { active: id, previous, audit };
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -57,8 +60,8 @@ export class SqliteModelStore {
 export function recordModelAudit(database, actor, action, entityType, entityId = null, details = {}) {
   if (!actor?.id) throw new Error('authenticated actor required for model audit');
   database.prepare(`INSERT INTO model_audit_log
-    (actor_id,action,entity_type,entity_id,details_json,created_at) VALUES (?,?,?,?,?,?)`)
-    .run(String(actor.id), action, entityType, entityId == null ? null : String(entityId), JSON.stringify(details), new Date().toISOString());
+    (actor_id,action,entity_type,entity_id,details_json,created_at,actor_user_id) VALUES (?,?,?,?,?,?,?)`)
+    .run(String(actor.id), action, entityType, entityId == null ? null : String(entityId), JSON.stringify(details), new Date().toISOString(), Number(actor.id));
 }
 
 export function registrySnapshot(database = db) {

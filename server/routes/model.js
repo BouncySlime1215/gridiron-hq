@@ -21,7 +21,7 @@ import { resolvePlayer, assetUniverse, loadRosters } from '../services/trade-eng
 import { deriveFormat } from '../services/format.js';
 import { withRandomSeed } from '../services/stats-util.js';
 import { requireLeagueId } from '../modeling/league-context.js';
-import { configurationHash } from '../modeling/contracts.js';
+import { assertTimestampedObservation, configurationHash } from '../modeling/contracts.js';
 import { ModelRegistry } from '../modeling/registry.js';
 import { SqliteModelStore, recordModelAudit, registrySnapshot } from '../modeling/sqlite-store.js';
 import { requireModelPermission } from '../modeling/authz.js';
@@ -30,6 +30,65 @@ import { runWalkForward } from '../modeling/walk-forward.js';
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const registry = new ModelRegistry(new SqliteModelStore(db));
+
+function featureDefinitions(contract) {
+  if (!contract || Array.isArray(contract) || typeof contract !== 'object') throw new Error('feature contract must be an object');
+  const definitions = contract.features ?? contract;
+  if (!definitions || Array.isArray(definitions) || typeof definitions !== 'object') throw new Error('feature contract features must be an object');
+  return definitions;
+}
+
+const VALUE_TYPES = new Set(['number', 'integer', 'string', 'boolean', 'object', 'array']);
+function validateContractDefinition(definition, path) {
+  if (!definition || Array.isArray(definition) || typeof definition !== 'object') throw new Error(`${path} definition must be an object`);
+  if (definition.type != null && !VALUE_TYPES.has(definition.type)) throw new Error(`${path} has unsupported type`);
+  if (definition.enum != null && (!Array.isArray(definition.enum) || !definition.enum.length)) throw new Error(`${path} enum must be a non-empty array`);
+  if (definition.properties != null) {
+    if (!definition.properties || Array.isArray(definition.properties) || typeof definition.properties !== 'object') throw new Error(`${path} properties must be an object`);
+    for (const [name, child] of Object.entries(definition.properties)) validateContractDefinition(child, `${path}.${name}`);
+  }
+  if (definition.items != null) validateContractDefinition(definition.items, `${path}[]`);
+  if (Array.isArray(definition.required) && definition.required.some(x => typeof x !== 'string')) throw new Error(`${path} required must contain property names`);
+}
+
+function featureValueMatches(value, definition) {
+  if (definition.enum && !definition.enum.some(x => configurationHash(x) === configurationHash(value))) return false;
+  const type = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
+  if (definition.type === 'integer' && !Number.isInteger(value)) return false;
+  if (definition.type && definition.type !== 'integer' && type !== definition.type) return false;
+  const minimum = definition.minimum ?? definition.min;
+  const maximum = definition.maximum ?? definition.max;
+  if (minimum != null && (!(typeof value === 'number') || value < minimum)) return false;
+  if (maximum != null && (!(typeof value === 'number') || value > maximum)) return false;
+  if (definition.properties) {
+    if (!value || Array.isArray(value) || typeof value !== 'object') return false;
+    const required = new Set(Array.isArray(definition.required) ? definition.required : []);
+    for (const name of required) if (value[name] == null) return false;
+    for (const [name, child] of Object.entries(definition.properties)) {
+      if (value[name] != null && !featureValueMatches(value[name], child)) return false;
+    }
+    if (definition.additionalProperties === false && Object.keys(value).some(name => !Object.hasOwn(definition.properties, name))) return false;
+  }
+  if (definition.items && (!Array.isArray(value) || value.some(item => !featureValueMatches(item, definition.items)))) return false;
+  return true;
+}
+
+function validateFeatureSchema(observations, contract) {
+  const definitions = featureDefinitions(contract);
+  const names = Object.keys(definitions);
+  for (const observation of observations) {
+    const values = observation.features ?? {};
+    if (!values || Array.isArray(values) || typeof values !== 'object') return false;
+    for (const name of names) {
+      const definition = definitions[name];
+      const required = typeof definition === 'object' && definition !== null ? definition.required !== false : true;
+      if (required && values[name] == null) return false;
+      if (values[name] != null && !featureValueMatches(values[name], definition)) return false;
+    }
+    if (Object.keys(values).some(name => !Object.hasOwn(definitions, name))) return false;
+  }
+  return true;
+}
 
 /* ------------------------------------------------------------------ cache */
 const cache = new Map();
@@ -75,6 +134,10 @@ r.post('/registry/features', requireModelPermission('model:train'), (req, res, n
     if (!x.name || !x.version || !x.content_hash || !x.contract) {
       return res.status(400).json({ error: 'name, version, content_hash and contract required' });
     }
+    for (const [name, definition] of Object.entries(featureDefinitions(x.contract))) validateContractDefinition(definition, name);
+    if (configurationHash(x.contract) !== x.content_hash) {
+      return res.status(400).json({ error: 'content_hash must match contract' });
+    }
     const id = x.id ?? configurationHash({ name: x.name, version: x.version, content_hash: x.content_hash });
     db.prepare(`INSERT INTO model_feature_versions
       (id,name,version,contract_json,content_hash,created_at,created_by) VALUES (?,?,?,?,?,?,?)`)
@@ -88,6 +151,9 @@ r.post('/registry/experiments', requireModelPermission('model:train'), (req, res
   try {
     const { spec, dataset_version_id: datasetId, feature_version_id: featureId } = req.body ?? {};
     if (!spec || !datasetId || !featureId) return res.status(400).json({ error: 'spec, dataset_version_id and feature_version_id required' });
+    if (spec.min_validation_rows != null && (!Number.isInteger(spec.min_validation_rows) || spec.min_validation_rows < 1)) {
+      return res.status(400).json({ error: 'min_validation_rows must be a positive integer' });
+    }
     db.exec('BEGIN IMMEDIATE');
     try {
       const experiment = registry.create(spec, req.modelPrincipal);
@@ -109,11 +175,20 @@ r.post('/registry/experiments/:id/backtests', requireModelPermission('model:trai
     const experiment = registry.store.get(req.params.id);
     if (!experiment) return res.status(404).json({ error: 'experiment not found' });
     if (experiment.status !== 'queued') return res.status(409).json({ error: 'only queued experiments can be backtested' });
-    const input = db.prepare(`SELECT i.*, d.metadata_json FROM model_experiment_inputs i
-      JOIN model_dataset_versions d ON d.id=i.dataset_version_id WHERE i.experiment_id=?`).get(req.params.id);
+    const input = db.prepare(`SELECT i.*, d.metadata_json, f.contract_json, f.content_hash AS feature_content_hash
+      FROM model_experiment_inputs i
+      JOIN model_dataset_versions d ON d.id=i.dataset_version_id
+      JOIN model_feature_versions f ON f.id=i.feature_version_id WHERE i.experiment_id=?`).get(req.params.id);
     if (!input) return res.status(409).json({ error: 'pinned dataset and feature versions required' });
     const observations = JSON.parse(input.metadata_json).observations;
     if (!Array.isArray(observations)) return res.status(409).json({ error: 'persisted dataset has no observations' });
+    const contract = JSON.parse(input.contract_json);
+    if (configurationHash(contract) !== input.feature_content_hash) {
+      return res.status(409).json({ error: 'pinned feature contract failed content verification' });
+    }
+    const schemaValid = validateFeatureSchema(observations, contract);
+    let leakageValid = true;
+    try { observations.forEach(assertTimestampedObservation); } catch { leakageValid = false; }
     if (experiment.spec?.candidate !== 'mean_baseline') return res.status(400).json({ error: 'unsupported candidate; supported: mean_baseline' });
     const candidate = { name: 'mean_baseline', version: '1', fit(training) {
       const values = training.map(x => Number(x.outcome)).filter(Number.isFinite);
@@ -127,14 +202,14 @@ r.post('/registry/experiments/:id/backtests', requireModelPermission('model:trai
     });
     const predictions = audit.folds.flatMap(f => f.predictions).filter(p => p.status === 'predicted' && Number.isFinite(p.actual));
     const mae = predictions.length ? predictions.reduce((sum, p) => sum + Math.abs(p.prediction - p.actual), 0) / predictions.length : null;
-    const minRows = Number(experiment.spec.min_validation_rows ?? 1);
+    const minRows = experiment.spec.min_validation_rows ?? 1;
     // The comparison baseline is fixed and recomputed from the same frozen
     // validation rows; trainers cannot choose or report its score.
     const baselineMae = predictions.length
       ? predictions.reduce((sum, p) => sum + Math.abs(p.actual), 0) / predictions.length
       : null;
     const gates = {
-      schema: true, leakage: true,
+      schema: schemaValid, leakage: leakageValid,
       data_quality: audit.missing_prediction_rate === 0,
       baseline_improvement: Number.isFinite(mae) && Number.isFinite(baselineMae) && mae < baselineMae,
       tests: predictions.length >= minRows

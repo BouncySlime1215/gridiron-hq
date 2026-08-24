@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import EspnConnect from '../components/EspnConnect';
-import { api } from '../api';
+import { api, setAuthToken } from '../api';
 
 /**
  * This page used to also carry a manual "League ID / season / espn_s2 / SWID" form
@@ -14,9 +14,20 @@ import { api } from '../api';
 export default function Settings() {
   const [msg, setMsg] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [token, setToken] = useState(() => localStorage.getItem('gridiron_session_token') ?? '');
 
   return (
     <div className="max-w-2xl">
+      <div className="card p-5 mb-4 space-y-3">
+        <h1 className="text-xl font-bold">Application sign-in</h1>
+        <p className="text-xs text-slate-600">Paste the bearer token printed by the administrator provisioning command. It is stored only in this browser and authenticates draft and Model Lab actions.</p>
+        <input className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs" type="password"
+          autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder="Provisioned bearer token" />
+        <div className="flex gap-2">
+          <button className="btn-primary" onClick={() => { setAuthToken(token.trim() || null); setMsg(token.trim() ? 'Authentication token saved.' : 'Authentication token removed.'); }}>Save token</button>
+          <button className="btn-ghost" onClick={() => { setToken(''); setAuthToken(null); setMsg('Authentication token removed.'); }}>Sign out</button>
+        </div>
+      </div>
       <EspnConnect />
       <h1 className="text-2xl font-bold mb-1">ESPN Settings</h1>
       <p className="text-sm text-slate-600 mb-6">

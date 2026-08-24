@@ -46,7 +46,7 @@ const NAV = [
   { to: '/trade-lab', label: 'Trade Lab', icon: 'X' },
   { to: '/news', label: 'Camp News', icon: 'N' },
   { to: '/leagues', label: 'My Leagues', icon: 'L' },
-  { to: '/settings', label: 'ESPN Settings', icon: 'S' }
+  { to: '/settings', label: 'Settings & Sign-in', icon: 'S' }
 ];
 
 const BETTING_NAV = [

@@ -113,6 +113,42 @@ test('server-run backtest persists verified metrics and gates promotion', async 
   assert.equal(promoted.status, 200);
 });
 
+test('feature provenance, validation thresholds, and schema gates cannot be forged', async () => {
+  const contract = { features: { usage: { required: true, type: 'number', minimum: 0, maximum: 1 } } };
+  const forged = await request('/registry/features', { token: 'real-model-token', body: {
+    name: 'forged', version: '1', content_hash: configurationHash({}), contract
+  } });
+  assert.equal(forged.status, 400);
+
+  const observations = [2023, 2024, 2025].map((season, index) => ({
+    player_id: 'schema-player', season, week: 1, as_of: `${season}-09-01T00:00:00.000Z`,
+    outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: index + 1,
+    features: { usage: index === 0 ? 'banana' : 2 }
+  }));
+  const dataset = await request('/registry/datasets', { token: 'real-model-token', body: {
+    name: 'schema-observations', content_hash: configurationHash(observations), cutoff_at: '2025-09-03T00:00:00.000Z',
+    row_count: observations.length, metadata: { observations }
+  } });
+  const feature = await request('/registry/features', { token: 'real-model-token', body: {
+    name: 'required-usage', version: '1', content_hash: configurationHash(contract), contract
+  } });
+  assert.equal(feature.status, 201);
+  const invalidThreshold = await request('/registry/experiments', { token: 'real-model-token', body: {
+    dataset_version_id: dataset.payload.id, feature_version_id: feature.payload.id,
+    spec: { candidate: 'mean_baseline', holdout_season: 2025, min_validation_rows: 0, nonce: 'invalid-threshold' }
+  } });
+  assert.equal(invalidThreshold.status, 400);
+  const experiment = await request('/registry/experiments', { token: 'real-model-token', body: {
+    dataset_version_id: dataset.payload.id, feature_version_id: feature.payload.id,
+    spec: { candidate: 'mean_baseline', holdout_season: 2025, min_validation_rows: 1, nonce: 'schema-gate' }
+  } });
+  const backtest = await request(`/registry/experiments/${experiment.payload.id}/backtests`, { token: 'real-model-token' });
+  assert.equal(backtest.status, 201, JSON.stringify(backtest.payload));
+  assert.equal(backtest.payload.result.gates.schema, false);
+  const promotion = await request(`/registry/experiments/${experiment.payload.id}/promote`, { token: 'real-model-token' });
+  assert.notEqual(promotion.status, 200);
+});
+
 test('persisted bearer session without a grant is forbidden', () => {
   run(`INSERT INTO users (subject) VALUES ('model:unprivileged')`);
   const userId = row(`SELECT id FROM users WHERE subject='model:unprivileged'`).id;

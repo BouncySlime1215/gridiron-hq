@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Edge from './Edge';
 import Model from './Model';
-import { useApi } from '../api';
+import { api, useApi } from '../api';
 
 /**
  * Edge Tools and the Prediction Engine, merged into one hub.
@@ -104,10 +104,19 @@ export default function FantasyLab() {
 }
 
 function Registry() {
-  const { data, loading, error } = useApi<any>('/model/registry');
+  const { data, loading, error, refetch } = useApi<any>('/model/registry');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   if (loading) return <div className="text-sm text-slate-500">Loading persisted registry…</div>;
   if (error) return <div className="text-sm text-red-600">Registry unavailable: {String(error)}</div>;
   const experiments = data?.experiments ?? [];
+  const act = async (id: string, action: 'backtests' | 'promote' | 'rollback') => {
+    setBusy(`${id}:${action}`); setActionError(null);
+    try { await api(`/model/registry/experiments/${id}/${action}`, { method: 'POST' }); await refetch(); }
+    catch (e: any) { setActionError(e.message); }
+    finally { setBusy(null); }
+  };
+  const json = (value: unknown) => JSON.stringify(value ?? {}, null, 2);
   return <div className="space-y-4">
     <div className="grid sm:grid-cols-4 gap-3">
       {[['Production', data?.production?.experiment_id?.slice(0, 12) ?? 'None'], ['Experiments', experiments.length],
@@ -116,12 +125,34 @@ function Registry() {
     </div>
     {!experiments.length ? <div className="card p-4 text-sm text-slate-500">No persisted experiments yet. Research analytics are not production models until registered and promoted through every gate.</div> :
       <div className="card overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-slate-500 border-b">
-        <th className="p-3">Experiment</th><th className="p-3">Status</th><th className="p-3">Updated</th><th className="p-3">Gates</th>
+        <th className="p-3">Experiment</th><th className="p-3">Status</th><th className="p-3">Pinned inputs</th><th className="p-3">Gates</th><th className="p-3">Actions</th>
       </tr></thead><tbody>{experiments.map((x: any) => <tr key={x.id} className="border-b last:border-0">
         <td className="p-3 font-mono text-xs">{x.id.slice(0, 16)}</td><td className="p-3">{x.status}</td>
-        <td className="p-3">{new Date(x.updated_at).toLocaleString()}</td>
+        <td className="p-3 text-[11px] font-mono">{(() => { const input = data?.experiment_inputs?.find((i: any) => i.experiment_id === x.id); return input ? `${String(input.dataset_version_id).slice(0, 8)} / ${String(input.feature_version_id).slice(0, 8)}` : 'Missing'; })()}</td>
         <td className="p-3">{x.result?.gates ? Object.values(x.result.gates).filter(Boolean).length + '/' + Object.keys(x.result.gates).length : '—'}</td>
+        <td className="p-3 whitespace-nowrap space-x-1">
+          {x.status === 'queued' && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'backtests')}>Run backtest</button>}
+          {x.status === 'completed' && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'promote')}>Promote</button>}
+          {x.status === 'completed' && data?.production?.experiment_id !== x.id && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'rollback')}>Rollback to</button>}
+        </td>
       </tr>)}</tbody></table></div>}
+    {actionError && <p className="text-sm text-red-600">Action failed: {actionError}</p>}
+    <div className="grid lg:grid-cols-2 gap-4">
+      <RegistryEvidence title="Dataset versions" items={data?.datasets} render={(x: any) => `${x.name} · ${x.row_count} rows · cutoff ${x.cutoff_at} · ${x.content_hash?.slice(0, 12)}`} />
+      <RegistryEvidence title="Feature versions" items={data?.features} render={(x: any) => `${x.name}@${x.version} · ${x.content_hash?.slice(0, 12)} · ${Object.keys(x.contract?.features ?? x.contract ?? {}).length} features`} />
+      <RegistryEvidence title="Backtests" items={data?.backtests} render={(x: any) => `${x.protocol} · ${x.status} · ${x.result?.sample_size ?? 0} rows · MAE ${x.result?.mae ?? '—'}`} />
+      <RegistryEvidence title="Metrics" items={data?.metrics} render={(x: any) => `${x.split} ${x.metric}: ${x.value} · n=${x.sample_size}`} />
+      <RegistryEvidence title="Promotion history" items={data?.promotions} render={(x: any) => `${x.action} ${String(x.experiment_id).slice(0, 12)} · ${new Date(x.created_at).toLocaleString()}`} />
+    </div>
+    <details className="card p-4"><summary className="font-semibold cursor-pointer">Audit log ({data?.audit_log?.length ?? 0})</summary>
+      <pre className="mt-3 max-h-72 overflow-auto text-[11px] whitespace-pre-wrap">{json(data?.audit_log)}</pre></details>
     <p className="text-xs text-slate-400">Promotion and rollback require authenticated model privileges and are recorded in the immutable audit history.</p>
+  </div>;
+}
+
+function RegistryEvidence({ title, items, render }: { title: string; items: any[]; render: (item: any) => string }) {
+  return <div className="card p-4"><h3 className="font-semibold mb-2">{title}</h3>
+    {!items?.length ? <p className="text-xs text-slate-500">No persisted records.</p> :
+      <ul className="space-y-2 text-xs">{items.slice(0, 20).map((x: any, i: number) => <li key={x.id ?? i} className="border-b border-slate-100 pb-2 last:border-0">{render(x)}</li>)}</ul>}
   </div>;
 }

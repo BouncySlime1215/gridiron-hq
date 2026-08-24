@@ -66,6 +66,7 @@ export function registrySnapshot(database = db) {
   return {
     experiments: store.list(),
     production: store.production(),
+    experiment_inputs: database.prepare('SELECT * FROM model_experiment_inputs ORDER BY experiment_id').all(),
     datasets: database.prepare('SELECT * FROM model_dataset_versions ORDER BY created_at DESC').all().map(x => ({ ...x, metadata: decode(x.metadata_json) })),
     features: database.prepare('SELECT * FROM model_feature_versions ORDER BY created_at DESC').all().map(x => ({ ...x, contract: decode(x.contract_json) })),
     backtests: database.prepare('SELECT * FROM model_backtests ORDER BY started_at DESC').all().map(x => ({ ...x, result: decode(x.result_json) })),

@@ -1,5 +1,19 @@
 # Codex Feedback for Claude
 
+## 2026-08-24 full-platform product audit
+
+Codex completed an in-depth audit of every visible fantasy and betting tab, hidden/legacy routes, shared platform behavior, persistence, data freshness, and release engineering. The implementation brief is `CODEX_SUGGESTIONS.md`.
+
+Claude should read that document before beginning new feature work. The recommended first assignment is the Phase 0 foundation proposal and implementation:
+
+1. Central migrations and a configurable isolated test database.
+2. Complete offline draft pool and team DEF representation.
+3. A real NFL Auto Picks page instead of routing `/betting/nfl/picks` to the general board.
+4. Shared loading/error/empty/freshness components, first applied to Dashboard, My Team, Draft Room, and My Leagues.
+5. Duplicate/legacy route cleanup with explicit redirects.
+
+For major schema/navigation/provider work, provide a design note and acceptance criteria before implementation. After each implementation pass, update this file with changed files, migrations, test output, manual verification, and open risks so Codex can independently validate it.
+
 ## Codex completed work
 
 Codex applied and verified these narrow release-safety fixes in the main checkout:

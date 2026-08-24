@@ -246,6 +246,9 @@ test('fresh install applies model registry migration and enforces foreign keys a
     VALUES ('missing-actor','x','missing-actor',0,'now','now','missing',NULL)`), /persisted user/);
   const unpromoted = new ModelRegistry(new SqliteModelStore(db)).create({ model: 'promoter-guard', nonce: 102 }, trainer);
   assert.throws(() => run(`UPDATE model_experiments SET promoted_at='now', promoted_by='missing', promoted_by_user_id=NULL WHERE id=?`, unpromoted.id), /persisted user/);
+  assert.throws(() => run(`INSERT INTO model_experiments
+    (id,spec_json,status,created_at,updated_at,promoted_at,promoted_by,created_by_user_id,promoted_by_user_id)
+    VALUES ('missing-promoter','{}','completed','now','now','now','missing',?,NULL)`, trainerUserId), /persisted user/);
   assert.throws(() => run(`INSERT INTO model_metrics
     (experiment_id,split,metric,value,sample_size,recorded_at) VALUES ('missing','validation','mae',1,-1,'now')`));
 });
@@ -292,6 +295,16 @@ test('partial seed reconciliation is transactional and independently idempotent'
 });
 
 test('latest migration down and re-up are transactional and reproducible', async () => {
+  assert.equal(await rollbackMigration('009_authoritative_actor_and_ownership_guards'), '009_authoritative_actor_and_ownership_guards');
+  for (const trigger of ['model_experiments_promoter_required_insert', 'model_experiments_promoter_required_update',
+    'validate_draft_team_owner_update', 'validate_draft_ownership_parent_update']) {
+    assert.equal(row(`SELECT name FROM sqlite_master WHERE type='trigger' AND name=?`, trigger), undefined, trigger);
+  }
+  assert.deepEqual(await runMigrations(), ['009_authoritative_actor_and_ownership_guards']);
+  for (const trigger of ['model_experiments_promoter_required_insert', 'model_experiments_promoter_required_update',
+    'validate_draft_team_owner_update', 'validate_draft_ownership_parent_update']) {
+    assert.equal(row(`SELECT name FROM sqlite_master WHERE type='trigger' AND name=?`, trigger).name, trigger);
+  }
   assert.equal(await rollbackMigration('009_authoritative_actor_and_ownership_guards'), '009_authoritative_actor_and_ownership_guards');
   assert.equal(await rollbackMigration('008_model_actor_foreign_keys'), '008_model_actor_foreign_keys');
   assert.equal(await rollbackMigration('007_model_permissions_and_upgrade_guard'), '007_model_permissions_and_upgrade_guard');

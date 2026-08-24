@@ -49,6 +49,11 @@ export function up(db) {
       (source_table, source_key, actor_value, reason)
       SELECT 'model_experiments.promoted_by', id, promoted_by, 'persisted promotion user identity required'
       FROM model_experiments WHERE promoted_at IS NOT NULL AND promoted_by_user_id IS NULL;
+    CREATE TRIGGER IF NOT EXISTS model_experiments_promoter_required_insert
+    BEFORE INSERT ON model_experiments
+    WHEN NEW.promoted_at IS NOT NULL AND (NEW.promoted_by_user_id IS NULL
+      OR NOT EXISTS (SELECT 1 FROM users WHERE id=NEW.promoted_by_user_id))
+    BEGIN SELECT RAISE(ABORT, 'model_experiments.promoted_by_user_id must reference a persisted user'); END;
     CREATE TRIGGER IF NOT EXISTS model_experiments_promoter_required_update
     BEFORE UPDATE OF promoted_at, promoted_by_user_id ON model_experiments
     WHEN NEW.promoted_at IS NOT NULL AND (NEW.promoted_by_user_id IS NULL
@@ -104,8 +109,10 @@ export function down(db) {
       DROP TRIGGER IF EXISTS ${table}_${column}_required_insert;`);
   }
   db.exec(`DROP TRIGGER IF EXISTS model_experiments_promoter_required_update;
+    DROP TRIGGER IF EXISTS model_experiments_promoter_required_insert;
     DROP TRIGGER IF EXISTS validate_draft_ownership_parent_update;
     DROP TRIGGER IF EXISTS validate_draft_ownership_membership_update;
     DROP TRIGGER IF EXISTS cascade_draft_ownership_membership_delete;
+    DROP TRIGGER IF EXISTS validate_draft_team_owner_update;
     DROP TABLE IF EXISTS model_actor_provenance_quarantine;`);
 }

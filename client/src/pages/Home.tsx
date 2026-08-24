@@ -4,6 +4,14 @@ import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { PageError } from '../components/PageState';
 
+const PRIORITY_TONE: Record<string, string> = {
+  high: 'border-crit bg-crit-tint',
+  medium: 'border-amber-300 bg-amber-50',
+  low: 'border-slate-200 bg-slate-50'
+};
+const PRIORITY_DOT: Record<string, string> = { high: 'bg-crit', medium: 'bg-amber-500', low: 'bg-slate-400' };
+interface InboxItem { type: string; priority: string; title: string; action: string; link: string; }
+
 export default function Home() {
   // None of these three had error handling at all before — a failed fetch just left
   // the section quietly showing its empty-state copy ("No stories yet" etc.) forever,
@@ -12,6 +20,11 @@ export default function Home() {
   const { data: sets, error: setsError, refetch: refetchSets } = useApi<any[]>('/rankings');
   const { data: news, error: newsError, refetch: refetchNews } = useApi<any[]>('/news');
   const { leagues, active: activeLeague } = useLeague();
+  // Merges signals the app already computes elsewhere (roster fixes, real trade
+  // opportunities, major news about your own players) into one ranked queue —
+  // the Dashboard used to be pure navigation with no synthesis at all.
+  const inboxUrl = activeLeague ? `/trades/${activeLeague.id}/inbox${activeLeague.my_team_id ? `?team_id=${activeLeague.my_team_id}` : ''}` : null;
+  const { data: inbox, loading: inboxLoading } = useApi<{ items: InboxItem[] }>(inboxUrl);
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -54,6 +67,33 @@ export default function Home() {
             draftsError && 'drafts', setsError && 'rankings', newsError && 'news'
           ].filter(Boolean).join(', ') + ' failed to load.'}
           onRetry={() => { refetchDrafts(); refetchSets(); refetchNews(); }} />
+      )}
+
+      {activeLeague && (
+        <div className="card p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="font-bold text-sm text-slate-700">Today's priorities</h2>
+            <span className="text-xs text-slate-400">{activeLeague.name}</span>
+          </div>
+          {inboxLoading && !inbox && <p className="text-xs text-slate-500">Reading your roster, news, and the trade market…</p>}
+          {inbox && inbox.items.length === 0 && (
+            <p className="text-xs text-slate-500">Nothing urgent right now — your roster looks clean, no major news, no trade worth a look.</p>
+          )}
+          {inbox && inbox.items.length > 0 && (
+            <div className="space-y-2">
+              {inbox.items.map((it, i) => (
+                <Link key={i} to={it.link}
+                  className={`flex items-start gap-2.5 rounded-lg border p-2.5 hover:border-slate-400 transition-colors ${PRIORITY_TONE[it.priority] ?? 'border-slate-200 bg-slate-50'}`}>
+                  <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${PRIORITY_DOT[it.priority] ?? 'bg-slate-400'}`} />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-800">{it.title}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{it.action}</div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="grid md:grid-cols-3 gap-4 mb-6">

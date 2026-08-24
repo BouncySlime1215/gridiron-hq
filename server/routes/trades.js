@@ -41,6 +41,72 @@ r.get('/:leagueId/scout', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------------------ decision inbox */
+/**
+ * "What should I actually do today" — the Dashboard's Phase 1 flagship item
+ * from the platform audit. Deliberately not a new analysis engine: every
+ * signal here is something the app already computes (selfScout's prioritized
+ * fixes, findTrades' real mutual-win deals, news_items' importance flag) —
+ * this just merges them into one ranked queue instead of leaving them
+ * scattered across three separate pages the user has to remember to check.
+ */
+r.get('/:leagueId/inbox', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const teamId = req.query.team_id;
+    const items = [];
+
+    const scout = selfScout(lg, teamId);
+    if (!scout.error) {
+      for (const f of scout.fixes.slice(0, 3)) {
+        items.push({
+          type: 'roster', priority: f.priority, title: f.issue, action: f.action,
+          link: '/my-team'
+        });
+      }
+
+      // MAJOR news about a team any of my rostered players actually plays for —
+      // not a global news skim, scoped to what could move my own lineup.
+      const myTeamAbbrs = [...new Set(scout.lineup.slots.map(s => s.player?.team_abbr).filter(Boolean)
+        .concat(scout.lineup.bench.map(p => p.team_abbr).filter(Boolean)))];
+      if (myTeamAbbrs.length) {
+        const placeholders = myTeamAbbrs.map(() => '?').join(',');
+        const news = rows(`SELECT n.headline, n.fantasy_impact, n.date, t.abbr AS team_abbr
+                           FROM news_items n JOIN nfl_teams t ON t.id = n.team_id
+                           WHERE n.importance = 3 AND t.abbr IN (${placeholders})
+                             AND n.date >= date('now', '-7 days')
+                           ORDER BY n.date DESC LIMIT 3`, ...myTeamAbbrs);
+        for (const n of news) {
+          items.push({
+            type: 'news', priority: 'high',
+            title: n.headline, action: n.fantasy_impact || `Major ${n.team_abbr} news this week — check the impact.`,
+            link: `/teams/${n.team_abbr}`
+          });
+        }
+      }
+    }
+
+    // One real, mutual-win trade if one exists — not the whole board, just
+    // "here's a deal actually worth looking at today."
+    if (teamId) {
+      const trades = findTrades(lg, { myTeamId: teamId, requireMutual: true, limit: 5 });
+      const best = (trades.deals ?? []).find(d => d.mutual);
+      if (best) {
+        items.push({
+          type: 'trade', priority: 'medium',
+          title: `${best.partner} would plausibly take a deal that helps both lineups`,
+          action: `${best.i_give.map(p => p.name).join(' + ')} for ${best.i_get.map(p => p.name).join(' + ')}`,
+          link: '/trade-lab'
+        });
+      }
+    }
+
+    const rank = { high: 0, medium: 1, low: 2 };
+    items.sort((a, b) => (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2));
+    res.json({ items: items.slice(0, 6) });
+  } catch (e) { next(e); }
+});
+
 /* ------------------------------------------------------------ trade finder */
 r.get('/:leagueId/find', (req, res, next) => {
   try {

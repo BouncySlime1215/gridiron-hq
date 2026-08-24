@@ -18,10 +18,19 @@ export function useApi<T = any>(path: string | null) {
   const [error, setError] = useState<string | null>(null);
 
   // `loading` only flips while we have nothing to show. Background refetches keep
-  // the previous data on screen so views never flash empty mid-update.
+  // the previous data on screen so views never flash empty mid-update — but only
+  // when it's the SAME resource refreshing. If `path` changed to a different
+  // resource (e.g. the user switched leagues), the old data belongs to something
+  // else now and must not linger under the new path's label.
   const hasData = useRef(false);
+  const prevPath = useRef<string | null>(null);
   const refetch = useCallback(() => {
     if (!path) return;
+    if (prevPath.current !== null && prevPath.current !== path) {
+      hasData.current = false;
+      setData(null);
+    }
+    prevPath.current = path;
     if (!hasData.current) setLoading(true);
     return api<T>(path)
       .then(d => { hasData.current = true; setData(d); setError(null); })
@@ -67,6 +76,15 @@ export interface Draft {
   my_slot: number; ranking_set_id: number | null; status: string;
   picks_made?: number; ranking_set_name?: string;
   picks: DraftPick[]; available: AvailableEntry[];
+  // Server-authoritative state machine fields — see server/draft/store.js.
+  revision: number;
+  order_type: 'snake' | 'linear' | 'third_round_reversal';
+  roster_positions: Record<string, number>;
+  turn_deadline: string | null;
+  paused: 0 | 1;
+  queue: { player_id: number; position: number }[];
+  total_picks: number;
+  on_the_clock: { pick_number: number; round: number; pos_in_round: number; team_slot: number } | null;
 }
 
 export interface DraftPick {

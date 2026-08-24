@@ -35,8 +35,8 @@ const unitsFor = (leg: Leg, grade: Grade): number => {
 };
 
 const GRADE_STYLE: Record<string, string> = {
-  Won: 'bg-emerald-100 text-emerald-700 border-emerald-300',
-  Lost: 'bg-rose-100 text-rose-700 border-rose-300',
+  Won: 'bg-good-tint text-good border-good',
+  Lost: 'bg-crit-tint text-crit border-crit',
   Push: 'bg-slate-100 text-slate-600 border-slate-300',
   Pending: 'bg-amber-50 text-amber-700 border-amber-200'
 };
@@ -184,7 +184,7 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: '
   return (
     <div className="card p-3">
       <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`text-lg font-bold mt-0.5 ${tone === 'good' ? 'text-emerald-700' : tone === 'bad' ? 'text-rose-600' : 'text-slate-800'}`}>
+      <div className={`text-lg font-bold mt-0.5 ${tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-crit' : 'text-slate-800'}`}>
         {value}
       </div>
     </div>

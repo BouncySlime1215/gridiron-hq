@@ -3,9 +3,12 @@ import { usePlayerCard } from './PlayerCard';
 
 export const TIER_COLORS = ['', '#f43f5e', '#f59e0b', '#10b981', '#38bdf8', '#a78bfa', '#94a3b8'];
 
+// RB uses direct var(--good) references, not bg/text-emerald-* — those classes are
+// remapped to the brand accent globally (see index.css), and a position's identity
+// color must not follow the brand.
 const POS_BG: Record<string, string> = {
   QB: 'bg-rose-50 text-rose-700 ring-rose-200',
-  RB: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  RB: 'bg-[var(--good-tint)] text-[var(--good)] ring-[var(--good)]/30',
   WR: 'bg-sky-50 text-sky-700 ring-sky-200',
   TE: 'bg-amber-50 text-amber-700 ring-amber-200',
   K: 'bg-violet-50 text-violet-700 ring-violet-200'
@@ -47,7 +50,7 @@ export function Trend({ v, raw, value, trend, className = '' }: {
   const up = pct > 0.5, down = pct < -0.5;
   return (
     <span title={points != null ? `${points > 0 ? '+' : ''}${Math.round(points)} pts` : undefined}
-      className={`tabular-nums ${up ? 'text-emerald-600' : down ? 'text-rose-600' : 'text-slate-400'} ${className}`}>
+      className={`tabular-nums ${up ? 'text-good' : down ? 'text-crit' : 'text-slate-400'} ${className}`}>
       {up ? '▲' : down ? '▼' : '·'}{Math.abs(pct).toFixed(1)}%
     </span>
   );

@@ -4,9 +4,14 @@ import { api, Draft, headshotUrl, useApi } from '../api';
 import PlayerRow, { Headshot, PosBadge } from '../components/PlayerRow';
 import { PlayerName } from '../components/PlayerCard';
 import DraftRecap from '../components/DraftRecap';
+import { PageError, PageLoading } from '../components/PageState';
+import DraftQueue from '../features/draft/DraftQueue';
+import { useDraftQueue } from '../features/draft/useDraftQueue';
 
+// RB uses the good CSS var directly — bg/border-emerald-* are remapped to the
+// brand accent globally (see index.css), and a position's identity color must not.
 const POS_TINT: Record<string, string> = {
-  QB: 'bg-rose-50 border-rose-200', RB: 'bg-emerald-50 border-emerald-200',
+  QB: 'bg-rose-50 border-rose-200', RB: 'bg-[var(--good-tint)] border-[var(--good)]',
   WR: 'bg-sky-50 border-sky-200', TE: 'bg-amber-50 border-amber-200',
   K: 'bg-violet-50 border-violet-200'
 };
@@ -18,11 +23,10 @@ const lastName = (n: string) => {
 
 export default function DraftRoom() {
   const { id } = useParams();
-  const { data: draft, refetch, error } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
+  const { data: draft, refetch, loading, error } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
   const [filter, setFilter] = useState('ALL');
   const [lastCpu, setLastCpu] = useState<any>(null);
   const [entering, setEntering] = useState(true);
-  const [paused, setPaused] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [rec, setRec] = useState<any>(null);
   const [zoom, setZoom] = useState(1);   // draft-board scale
@@ -32,14 +36,35 @@ export default function DraftRoom() {
   const [recapShown, setRecapShown] = useState(false);
   const busy = useRef(false);
 
-  const nextPick = (draft?.picks.length ?? 0) + 1;
-  const totalPicks = draft ? draft.team_count * draft.rounds : 0;
-  const round = draft ? Math.ceil(nextPick / draft.team_count) : 1;
-  const posInRound = draft ? ((nextPick - 1) % draft.team_count) + 1 : 1;
-  const onClockSlot = draft ? (round % 2 === 1 ? posInRound : draft.team_count - posInRound + 1) : 1;
-  const myTurn = !!draft && onClockSlot === draft.my_slot;
-  const draftOver = !!draft && draft.picks.length >= totalPicks;
+  // Whose turn it is depends on order_type (snake/linear/third_round_reversal),
+  // so the server computes on_the_clock rather than this page reimplementing
+  // that math — see the comment on GET /drafts/:id in server/routes/drafts.js.
+  const nextPick = draft?.on_the_clock?.pick_number ?? (draft ? draft.total_picks + 1 : 1);
+  const totalPicks = draft?.total_picks ?? 0;
+  const round = draft?.on_the_clock?.round ?? draft?.rounds ?? 1;
+  const posInRound = draft?.on_the_clock?.pos_in_round ?? 1;
+  const onClockSlot = draft?.on_the_clock?.team_slot ?? 1;
+  const myTurn = !!draft && !!draft.on_the_clock && onClockSlot === draft.my_slot;
+  const draftOver = !!draft && !draft.on_the_clock;
   const isMock = draft?.type === 'mock';
+  // Server-owned, not local React state: the draft clock job (server/draft/store.js)
+  // must honor the same pause a user sees, or "Pause" would stop the CPU
+  // animation locally while the server kept auto-picking on schedule underneath.
+  const paused = !!draft?.paused;
+  const setPausedRemote = async (next: boolean) => {
+    await api(`/drafts/${id}/pause`, { method: 'POST', body: JSON.stringify({ paused: next }) });
+    refetch();
+  };
+
+  const myQueue = useDraftQueue(id, draft?.my_slot ?? 1, draft?.queue.map(q => q.player_id) ?? []);
+  const takenIds = useMemo(() => new Set((draft?.picks ?? []).map(p => p.player_id)), [draft]);
+  useEffect(() => { myQueue.reconcile(takenIds); }, [takenIds]);
+  const playersById = useMemo(() => {
+    const m = new Map<number, { player_id: number; name: string; position: string; team_abbr?: string | null }>();
+    for (const a of draft?.available ?? []) m.set(a.player_id, a);
+    for (const p of draft?.picks ?? []) m.set(p.player_id, p);
+    return m;
+  }, [draft]);
 
   // one CPU pick at a time, with a flash on arrival
   const cpuStep = useCallback(async () => {
@@ -66,13 +91,17 @@ export default function DraftRoom() {
   }, [isMock, myTurn, draftOver, paused, draft?.picks.length, cpuStep]);
 
   useEffect(() => {
-    // Only mock drafts have a real clock. A live_tracking draft mirrors an
-    // external draft at its own pace — it must never auto-pick for the user.
-    if (!isMock || !myTurn || draftOver || paused) { setSecondsLeft(null); return; }
-    setSecondsLeft(draft?.pick_seconds ?? 90);
-    const iv = setInterval(() => setSecondsLeft(s => (s == null ? null : Math.max(0, s - 1))), 1000);
+    // Derived from the server-owned drafts.turn_deadline (not reset locally)
+    // so a reconnect or a second tab shows the actual remaining time instead
+    // of a fresh full countdown — and the server's own clock job (which
+    // auto-picks even if no browser tab is open) stays the source of truth.
+    if (!isMock || !myTurn || draftOver || paused || !draft?.turn_deadline) { setSecondsLeft(null); return; }
+    const deadline = new Date(draft.turn_deadline).getTime();
+    const tick = () => setSecondsLeft(Math.max(0, Math.round((deadline - Date.now()) / 1000)));
+    tick();
+    const iv = setInterval(tick, 1000);
     return () => clearInterval(iv);
-  }, [isMock, myTurn, draftOver, paused, draft?.pick_seconds, draft?.picks.length]);
+  }, [isMock, myTurn, draftOver, paused, draft?.turn_deadline]);
 
   useEffect(() => {
     if (!myTurn || draftOver) { setRec(null); return; }
@@ -80,7 +109,16 @@ export default function DraftRoom() {
   }, [myTurn, draftOver, id, draft?.picks.length]);
 
   const pick = async (playerId: number) => {
-    await api(`/drafts/${id}/picks`, { method: 'POST', body: JSON.stringify({ player_id: playerId }) });
+    try {
+      await api(`/drafts/${id}/picks`, {
+        method: 'POST',
+        body: JSON.stringify({ player_id: playerId, expected_revision: draft?.revision })
+      });
+    } catch {
+      // A 409 (someone/the server clock beat this request to the pick) or a
+      // 400 (already drafted) both just mean the board moved — the refetch
+      // below reconciles the UI with whatever actually happened.
+    }
     setLastCpu(null);
     refetch();
   };
@@ -103,10 +141,8 @@ export default function DraftRoom() {
 
   // Only blank the page on the very first load — refetching after each pick must
   // never tear down the board, or every CPU pick looks like a page reload.
-  if (!draft) {
-    if (error) return <p className="text-rose-600 font-medium">Couldn't load this draft: {error}. Try refreshing the page.</p>;
-    return <p className="text-slate-500">Loading draft…</p>;
-  }
+  if (!draft && error) return <PageError message={error} onRetry={refetch} />;
+  if (!draft) return <PageLoading label="Loading draft…" />;
 
   const lastPickNo = draft.picks.length;
   const roundsToShow = Math.min(draft.rounds, Math.ceil((lastPickNo + draft.team_count) / draft.team_count) + 1);
@@ -126,17 +162,16 @@ export default function DraftRoom() {
         <span className="text-xs text-slate-400">Pick {Math.min(nextPick, totalPicks)}/{totalPicks} · Rd {round}</span>
         <div className="ml-auto flex gap-2">
           {isMock && !draftOver && (
-            <button className="btn-ghost" onClick={() => setPaused(p => !p)}>{paused ? '▶ Resume' : '⏸ Pause'}</button>
+            <button className="btn-ghost" onClick={() => setPausedRemote(!paused)}>{paused ? '▶ Resume' : '⏸ Pause'}</button>
           )}
           {isMock && !draftOver && (
             <button className="btn-ghost" onClick={async () => {
-              setPaused(true);
               await api(`/drafts/${id}/sim-to-end`, { method: 'POST' });
               refetch();
             }}>⏭ Sim to end</button>
           )}
           {draft.picks.length > 0 && (
-            <button className="btn-ghost" onClick={() => setRecapOpen(true)}>📋 Recap</button>
+            <button className="btn-ghost" onClick={() => setRecapOpen(true)}>Recap</button>
           )}
           <button className="btn-ghost" onClick={undo} disabled={draft.picks.length === 0}>↩ Undo</button>
         </div>
@@ -225,7 +260,7 @@ export default function DraftRoom() {
             <h3 className="text-sm font-bold text-slate-700 mr-auto">Best Available</h3>
             {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
               <button key={p} onClick={() => setFilter(p)}
-                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${filter === p ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}>{p}</button>
+                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${filter === p ? 'bg-sky-100 text-sky-900' : 'bg-white text-slate-500 hover:bg-sky-50'}`}>{p}</button>
             ))}
           </div>
           <div className="overflow-y-auto divide-y divide-slate-100">
@@ -252,18 +287,30 @@ export default function DraftRoom() {
                   return bits.length ? bits.join(' · ') : undefined;
                 })()}
                 action={
-                  <button
-                    onClick={e => { e.stopPropagation(); pick(a.player_id); }}
-                    disabled={draftOver}
-                    title={myTurn ? 'Draft this player' : 'Mark as taken'}
-                    className={`shrink-0 text-[9px] font-black px-1.5 py-1 rounded-md transition-colors
-                      ${draftOver
-                        ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
-                        : myTurn
-                        ? 'bg-emerald-600 text-white hover:bg-emerald-500'
-                        : 'bg-slate-100 text-slate-400 hover:bg-slate-200 opacity-0 group-hover:opacity-100'}`}>
-                    {draftOver ? 'DONE' : myTurn ? 'DRAFT' : 'TAKEN'}
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={e => { e.stopPropagation(); myQueue.has(a.player_id) ? myQueue.remove(a.player_id) : myQueue.add(a.player_id); }}
+                      disabled={draftOver}
+                      title={myQueue.has(a.player_id) ? 'Remove from queue' : 'Add to queue'}
+                      className={`shrink-0 text-[9px] font-black w-5 h-5 rounded-md transition-colors
+                        ${myQueue.has(a.player_id)
+                          ? 'bg-sky-600 text-white hover:bg-sky-500'
+                          : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>
+                      {myQueue.has(a.player_id) ? '✓' : '+'}
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); pick(a.player_id); }}
+                      disabled={draftOver}
+                      title={myTurn ? 'Draft this player' : 'Mark as taken'}
+                      className={`shrink-0 text-[9px] font-black px-1.5 py-1 rounded-md transition-colors
+                        ${draftOver
+                          ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
+                          : myTurn
+                          ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                          : 'bg-slate-100 text-slate-400 hover:bg-slate-200 opacity-0 group-hover:opacity-100'}`}>
+                      {draftOver ? 'DONE' : myTurn ? 'DRAFT' : 'TAKEN'}
+                    </button>
+                  </div>
                 }
               />
             ))}
@@ -340,7 +387,7 @@ export default function DraftRoom() {
           <div className="px-3 py-2 border-b border-slate-200 bg-slate-50">
             <h3 className="text-sm font-bold text-slate-700">My Team ({myPicks.length})</h3>
           </div>
-          <div className="overflow-y-auto p-2 space-y-1">
+          <div className="overflow-y-auto p-2 space-y-1 flex-1 min-h-[8rem]">
             {myPicks.map(p => (
               <div key={p.pick_number} className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 overflow-hidden ${POS_TINT[p.position] ?? 'bg-slate-50 border-slate-200'}`}>
                 <span className="text-[10px] text-slate-400 font-mono w-5 shrink-0">{p.pick_number}</span>
@@ -349,6 +396,19 @@ export default function DraftRoom() {
               </div>
             ))}
             {myPicks.length === 0 && <p className="text-xs text-slate-500 p-2">Your picks land here.</p>}
+          </div>
+          <div className="border-t border-slate-200 mt-auto">
+            <div className="px-3 py-2 bg-slate-50 flex items-center">
+              <h3 className="text-sm font-bold text-slate-700">Queue ({myQueue.queue.length})</h3>
+            </div>
+            <div className="overflow-y-auto p-2 max-h-[24vh]">
+              <DraftQueue
+                queue={myQueue.queue}
+                players={playersById}
+                onReorder={myQueue.reorder}
+                onRemove={myQueue.remove}
+              />
+            </div>
           </div>
         </div>
       </div>

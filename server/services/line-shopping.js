@@ -42,9 +42,11 @@ const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
  * close becomes a fact rather than a guess. That matters because CLV tells you
  * whether you have edge in about fifty bets, where win rate needs a thousand.
  */
-export async function snapshotLines() {
+export async function snapshotLines({ markets = 'h2h,spreads,totals' } = {}) {
   if (!hasKey()) return { error: 'no ODDS_API_KEY configured' };
-  const data = await gameOdds({ markets: 'h2h,spreads,totals', ttlMs: 0 });
+  // Every market costs a credit per call, so a scheduled capture asks for only
+  // the two it needs. h2h is worth a credit on demand, not twice a day forever.
+  const data = await gameOdds({ markets, ttlMs: 0 });
   if (!data) return { error: 'odds fetch returned nothing (quota, or no slate posted)' };
 
   const at = new Date().toISOString();

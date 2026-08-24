@@ -49,7 +49,7 @@ export default function BettingHome() {
 
       <div className="grid md:grid-cols-2 gap-4 mb-6">
         <SportCard
-          sport="NFL" accent="emerald" icon="🏈"
+          sport="NFL" accent="emerald" icon="NFL"
           record={`${nfl?.wins ?? 0}-${nfl?.losses ?? 0}${nfl?.pushes ? `-${nfl.pushes}` : ''}`}
           winRate={pct(nfl?.win_rate)}
           unitsValue={nfl?.units ?? 0}
@@ -60,10 +60,10 @@ export default function BettingHome() {
             ['Total picks', `${nfl?.by_market.total.wins ?? 0}-${nfl?.by_market.total.losses ?? 0} · ${units(nfl?.by_market.total.units)}`],
             ['Weeks tracked', String(nfl?.by_market.spread.weeks_tracked ?? 0)]
           ]}
-          links={[['/betting/nfl', 'Board'], ['/betting/nfl/props', 'Props'], ['/betting/nfl/picks', 'Auto Picks']]}
+          links={[['/betting/nfl/picks', 'Auto Picks'], ['/betting/nfl/props', 'Props']]}
         />
         <SportCard
-          sport="MLB" accent="sky" icon="⚾"
+          sport="MLB" accent="sky" icon="MLB"
           record={mlb?.tracked_picks ? `${mlb.tracked_picks} picks` : '—'}
           winRate="see Auto Picks"
           unitsValue={null}
@@ -158,7 +158,7 @@ function SportCard({ sport, accent, icon, record, winRate, unitsValue, pending, 
   return (
     <div className={`card p-4 border ${ring}`}>
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-xl">{icon}</span>
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-[10px] font-semibold text-slate-700">{icon}</span>
         <h2 className="text-base font-bold text-slate-800">{sport}</h2>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${chip}`}>
           {settled > 0 ? `${settled} settled` : pending > 0 ? `${pending} pending` : 'no bets yet'}
@@ -201,7 +201,7 @@ function SportCard({ sport, accent, icon, record, winRate, unitsValue, pending, 
 const Metric = ({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'bad' }) => (
   <div>
     <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
-    <div className={`text-lg font-bold ${tone === 'good' ? 'text-emerald-700' : tone === 'bad' ? 'text-rose-600' : 'text-slate-800'}`}>
+    <div className={`text-lg font-bold ${tone === 'good' ? 'text-good' : tone === 'bad' ? 'text-crit' : 'text-slate-800'}`}>
       {value}
     </div>
   </div>

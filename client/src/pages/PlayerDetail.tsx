@@ -1,7 +1,8 @@
 
 import { Link, useParams } from 'react-router-dom';
-import { useApi } from '../api';
+import { headshotUrl, useApi } from '../api';
 import FormationView from '../components/FormationView';
+import { Headshot } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
 
 // Which unit analysis matters for this position
@@ -40,10 +41,7 @@ export default function PlayerDetail() {
         ? <Link to={`/teams/${p.team_abbr}`} className="text-xs text-slate-500 hover:text-slate-700">← {p.team_name}</Link>
         : <Link to="/rankings" className="text-xs text-slate-500 hover:text-slate-700">← rankings</Link>}
       <div className="flex items-center gap-3 mt-1 mb-4">
-        {p.team_abbr && (
-          <span className="w-12 h-12 rounded-full grid place-items-center text-sm font-black text-white"
-            style={{ background: p.primary_color ?? '#334155' }}>{p.team_abbr}</span>
-        )}
+        <Headshot src={headshotUrl(p)} pos={p.position} size={52} />
         <div>
           <h1 className="text-2xl font-bold leading-tight">
             {p.name} <span className={`text-lg pos-${p.position}`}>{p.position}</span>
@@ -103,7 +101,7 @@ export default function PlayerDetail() {
             <div key={n.id} className="py-2 border-b border-slate-200/60 last:border-0">
               <div className="text-xs text-slate-500">{n.date} {n.team_abbr && `· ${n.team_abbr}`}</div>
               <div className="text-sm font-medium">{n.headline}</div>
-              {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">🎯 {n.fantasy_impact}</div>}
+              {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">{n.fantasy_impact}</div>}
             </div>
           ))}
         </div>

@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from './db/index.js';
+import { runMigrations } from './db/migrate.js';
 import { seedIfEmpty } from './db/seed/index.js';
 import teamsRouter from './routes/teams.js';
 import playersRouter from './routes/players.js';
 import rankingsRouter from './routes/rankings.js';
-import draftsRouter from './routes/drafts.js';
+import draftsRouter, { startDraftClockJob } from './routes/drafts.js';
 import espnRouter from './routes/espn.js';
 import newsRouter from './routes/news.js';
 import aggregatesRouter from './routes/aggregates.js';
@@ -32,13 +33,22 @@ import { startScheduler } from './services/scheduler.js';
 const app = express();
 app.use(express.json());
 
+await runMigrations();
 seedIfEmpty();
 
 // Nothing in this project used to refresh on its own, which is how the MLB board
 // went sixteen days stale without failing. The timer keeps a long-running app
 // current; routes additionally trigger a background refresh when data is stale,
 // so an app that was closed all week catches up on the first page load.
-startScheduler({ intervalMinutes: 30 });
+// The evidence daemon has a T-15m horizon. Other jobs retain their own stale
+// thresholds, so a five-minute scheduler tick does not make heavy ingestion run
+// more often; it simply lets due capture windows fire on time.
+startScheduler({ intervalMinutes: 5 });
+// Server-owned draft pick clock: survives reconnects and server restarts,
+// since it's driven by drafts.turn_deadline in SQLite rather than any client's
+// setTimeout. Without this, a draft only advanced past the clock while a
+// browser tab with the Draft Room open was watching it count down.
+startDraftClockJob();
 
 app.use('/api/teams', teamsRouter);
 app.use('/api/players', playersRouter);

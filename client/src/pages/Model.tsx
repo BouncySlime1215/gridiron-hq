@@ -15,6 +15,7 @@ const TABS = [
   { id: 'odds', label: 'Championship odds' },
   { id: 'correlation', label: 'Correlation' },
   { id: 'gamescript', label: 'Game script' },
+  { id: 'availability', label: 'Availability' },
   { id: 'handcuffs', label: 'Handcuffs' }
 ] as const;
 type Tab = typeof TABS[number]['id'];
@@ -77,6 +78,7 @@ export default function Model({ tab: controlledTab, embedded }: { tab?: Tab; emb
       {tab === 'odds' && <Odds />}
       {tab === 'correlation' && <Correlation />}
       {tab === 'gamescript' && <GameScript />}
+      {tab === 'availability' && <Availability />}
       {tab === 'handcuffs' && <Handcuffs />}
     </div>
   );
@@ -175,6 +177,42 @@ function Accuracy() {
         </div>
       )}
 
+      {data?.weekly_decisions?.positions && (
+        <div className="card overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-slate-700">Weekly decision quality</h3>
+              <span className="text-[9px] font-black uppercase tracking-wide rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5">No hindsight</span>
+            </div>
+            <p className="text-[10px] text-slate-400">
+              Pregame rankings versus realized starts. Injuries and DNPs stay in the score instead of disappearing from the sample.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50/60 text-slate-400"><tr>
+                {['Pos', 'Players', 'Decisions', 'Starter hit', 'Pts/start', 'Oracle', 'Regret', 'Weekly MAE'].map(h =>
+                  <th key={h} className="text-left font-semibold px-3 py-1.5 whitespace-nowrap">{h}</th>)}
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {Object.entries(data.weekly_decisions.positions).map(([pos, x]: [string, any]) => (
+                  <tr key={pos}>
+                    <td className="px-3 py-2"><span className={`text-[9px] font-black pos-${pos}`}>{pos}</span></td>
+                    <td className="px-3 py-2 tabular-nums">{x.players}</td>
+                    <td className="px-3 py-2 tabular-nums">{x.decisions.toLocaleString()}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold">{(x.starter_hit_rate * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-2 tabular-nums">{x.realized_points_per_start}</td>
+                    <td className="px-3 py-2 tabular-nums text-slate-400">{x.oracle_points_per_start}</td>
+                    <td className="px-3 py-2 tabular-nums font-semibold text-amber-700">-{x.regret_per_start}</td>
+                    <td className="px-3 py-2 tabular-nums">{x.weekly_mae}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {best && (
         <p className="text-[11px] text-slate-500">
           Best source for {season} by rank correlation: <b className="text-slate-700">{best.source}</b>.
@@ -220,6 +258,9 @@ function Odds() {
               <div className="h-full bg-emerald-500 rounded" style={{ width: `${(t.title_odds / max) * 100}%` }} />
             </div>
             <span className="w-12 text-right tabular-nums font-bold text-emerald-700">{(t.title_odds * 100).toFixed(1)}%</span>
+            <span className="w-24 text-right tabular-nums text-[10px] text-slate-400" title="95% Monte Carlo interval">
+              {t.title_odds_95 ? `${(t.title_odds_95[0] * 100).toFixed(1)}–${(t.title_odds_95[1] * 100).toFixed(1)}%` : '—'}
+            </span>
             <span className="w-24 text-right tabular-nums text-slate-500">{(t.playoff_odds * 100).toFixed(0)}% playoffs</span>
             <span className="w-16 text-right tabular-nums text-slate-400">{t.expected_wins} W</span>
           </div>
@@ -247,13 +288,13 @@ function Correlation() {
             <span className="w-24 text-slate-500">{c.relationship}</span>
             <div className="flex-1 h-2 bg-slate-100 rounded relative overflow-hidden">
               <div className="absolute top-0 bottom-0 w-px bg-slate-300" style={{ left: '50%' }} />
-              <div className={`absolute top-0 bottom-0 ${c.correlation >= 0 ? 'bg-emerald-500' : 'bg-rose-400'}`}
+              <div className={`absolute top-0 bottom-0 ${c.correlation >= 0 ? 'bg-[var(--good)]' : 'bg-[var(--crit)]'}`}
                 style={{
                   left: c.correlation >= 0 ? '50%' : `${50 + c.correlation * 100}%`,
                   width: `${Math.abs(c.correlation) * 100}%`
                 }} />
             </div>
-            <span className={`w-14 text-right tabular-nums font-semibold ${c.correlation >= 0.1 ? 'text-emerald-700' : c.correlation < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+            <span className={`w-14 text-right tabular-nums font-semibold ${c.correlation >= 0.1 ? 'text-good' : c.correlation < 0 ? 'text-crit' : 'text-slate-500'}`}>
               {c.correlation >= 0 ? '+' : ''}{c.correlation.toFixed(3)}
             </span>
             <span className="w-16 text-right text-[10px] text-slate-400">{c.pairs.toLocaleString()}</span>
@@ -273,14 +314,19 @@ function GameScript() {
   const [week, setWeek] = useState(1);
   const { data } = useApi<any>(`/model/gamescript?season=2026&week=${week}`);
   const model = data?.model ?? [];
+  const fitted = (data?.lines ?? []).find((l: any) => l.home && l.fitted_through)?.fitted_through;
+  const observations = (data?.lines ?? []).find((l: any) => l.home)?.training_observations;
 
   return (
     <div className="space-y-4">
       <div className="card p-4">
         <h3 className="text-sm font-bold text-slate-700 mb-1">What the betting line predicts about volume</h3>
         <p className="text-[11px] text-slate-500 mb-3">
-          Fitted on four seasons of games. A favourite runs more; a high total means more passing.
+          Each displayed week is fitted only on workloads completed before that week. A favourite runs more; a high total means more passing.
         </p>
+        {fitted && <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[10px] text-emerald-800">
+          ✓ Walk-forward cutoff: before {fitted.season} Week {fitted.week} · {observations?.toLocaleString() ?? '—'} team-games
+        </div>}
         <div className="grid sm:grid-cols-2 gap-3">
           {model.map((m: any) => (
             <div key={m.target} className="rounded-lg border border-slate-200 p-3">
@@ -288,8 +334,8 @@ function GameScript() {
                 {m.target === 'pass_att' ? 'Pass attempts' : 'Rush attempts'}
               </div>
               <div className="text-[11px] text-slate-600 space-y-0.5 tabular-nums">
-                <div>Per point of spread: <b className={m.b_spread > 0 ? 'text-emerald-700' : 'text-rose-600'}>{m.b_spread > 0 ? '+' : ''}{m.b_spread.toFixed(3)}</b></div>
-                <div>Per point of total: <b className={m.b_total > 0 ? 'text-emerald-700' : 'text-rose-600'}>{m.b_total > 0 ? '+' : ''}{m.b_total.toFixed(3)}</b></div>
+                <div>Per point of spread: <b className={m.b_spread > 0 ? 'text-good' : 'text-crit'}>{m.b_spread > 0 ? '+' : ''}{m.b_spread.toFixed(3)}</b></div>
+                <div>Per point of total: <b className={m.b_total > 0 ? 'text-good' : 'text-crit'}>{m.b_total > 0 ? '+' : ''}{m.b_total.toFixed(3)}</b></div>
                 <div className="text-slate-400">R² {m.r2.toFixed(4)} over {m.n.toLocaleString()} team-games</div>
               </div>
             </div>
@@ -330,6 +376,58 @@ function GameScript() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- availability */
+function Availability() {
+  const [week, setWeek] = useState(1);
+  const { data, loading } = useApi<any>(`/model/availability?season=2026&week=${week}`);
+  const players = data?.players ?? [];
+  const reported = players.filter((p: any) => p.report_status || p.practice_status);
+  const shown = (reported.length ? reported : players).slice(0, 100);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-slate-500">2026 week</span>
+        <select className="input py-1" value={week} onChange={e => setWeek(Number(e.target.value))}>
+          {Array.from({ length: 18 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{w}</option>)}
+        </select>
+        <span className="ml-auto text-slate-400">{reported.length} players with a weekly designation</span>
+      </div>
+      <div className="card p-3 border-indigo-200 bg-indigo-50/40 text-[11px] text-slate-600">
+        <b className="text-slate-800">Availability is part of the forecast.</b> Historical durability supplies the prior;
+        the exact report status and practice participation available this week update it. An inactive simulation scores zero.
+      </div>
+      {loading ? <div className="card p-6 text-sm text-slate-500">Calculating weekly availability…</div> : (
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto max-h-[58vh] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-slate-400 sticky top-0"><tr>
+                {['Player', 'Pos', 'Active', 'Durability', 'Game status', 'Practice', 'Injury', 'Evidence'].map(h =>
+                  <th key={h} className="text-left font-semibold px-3 py-2 whitespace-nowrap">{h}</th>)}
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {shown.map((p: any) => (
+                  <tr key={p.player_id} className={p.active_probability < 0.5 ? 'bg-crit-tint' : p.active_probability < 0.85 ? 'bg-amber-50/40' : ''}>
+                    <td className="px-3 py-2 font-semibold text-slate-800">{p.name}</td>
+                    <td className="px-3 py-2"><span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span></td>
+                    <td className={`px-3 py-2 tabular-nums font-black ${p.active_probability < 0.5 ? 'text-crit' : p.active_probability < 0.85 ? 'text-amber-700' : 'text-good'}`}>{(p.active_probability * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-2 tabular-nums text-slate-500">{(p.durability_prior * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-2">{p.report_status ?? '—'}</td>
+                    <td className="px-3 py-2">{p.practice_status ?? '—'}</td>
+                    <td className="px-3 py-2 text-slate-500">{p.injury ?? '—'}</td>
+                    <td className="px-3 py-2 text-[10px] text-slate-400">{p.source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!shown.length && <p className="p-5 text-xs text-slate-500">No player history is loaded yet. Run Resync &amp; refit.</p>}
+        </div>
+      )}
     </div>
   );
 }

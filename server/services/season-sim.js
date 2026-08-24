@@ -24,6 +24,8 @@ import { dvpFor, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { deriveFormat } from './format.js';
 import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
+import { random, withRandomSeed } from './stats-util.js';
+import { weeklyAvailability } from './contingency.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -34,6 +36,14 @@ const FLEX_ELIGIBLE = {
 // Size of each player's pre-generated outcome pool. The copula indexes into it, so this
 // is the resolution of every marginal distribution in the simulation.
 const POOL = 600;
+
+const binomial95 = (hits, n) => {
+  if (!n) return [null, null];
+  const z = 1.96, p = hits / n, den = 1 + z * z / n;
+  const center = (p + z * z / (2 * n)) / den;
+  const half = z * Math.sqrt((p * (1 - p) + z * z / (4 * n)) / n) / den;
+  return [+(Math.max(0, center - half)).toFixed(4), +(Math.min(1, center + half)).toFixed(4)];
+};
 
 /* ------------------------------------------------------------ league shape */
 
@@ -60,12 +70,22 @@ function fixtures(lg) {
   return out;
 }
 
-/** Optimal lineup total from a map of player id -> drawn score. */
-function lineupPoints(roster, slots, drawn) {
+/**
+ * Lineup total with the decision made from pre-kickoff expectations.
+ *
+ * `expected` decides who starts; `drawn` decides what those starters score. The
+ * previous implementation sorted on `drawn`, which let every manager see the
+ * future and retroactively start the highest-scoring bench players each week.
+ */
+function lineupPoints(roster, slots, drawn, expected) {
   const pool = roster
     .filter(p => SCORED.has(p.position))
-    .map(p => ({ id: p.id, position: p.position, pts: drawn.get(p.id) ?? 0 }))
-    .sort((a, b) => b.pts - a.pts);
+    .map(p => ({
+      id: p.id, position: p.position,
+      expected: expected.get(p.id) ?? 0,
+      pts: drawn.get(p.id) ?? 0
+    }))
+    .sort((a, b) => b.expected - a.expected);
   const used = new Set();
   let total = 0;
   for (const slot of slots) {
@@ -81,6 +101,53 @@ function lineupPoints(roster, slots, drawn) {
   }
   return total;
 }
+
+/** Real record and points already earned before the simulated window. */
+function initialRecords(lg, teams, fromWeek) {
+  const out = new Map(teams.map(t => [t.roster_id, { w: 0, pf: 0 }]));
+  if (fromWeek <= 1) return out;
+  const payload = JSON.parse(lg.payload);
+
+  if (lg.platform === 'sleeper') {
+    for (const [week, list] of Object.entries(payload.matchups ?? {})) {
+      if (Number(week) >= fromWeek) continue;
+      const groups = new Map();
+      for (const m of list ?? []) {
+        if (m.matchup_id == null) continue;
+        const a = groups.get(m.matchup_id) ?? [];
+        a.push(m); groups.set(m.matchup_id, a);
+        const r = out.get(String(m.roster_id));
+        if (r) r.pf += Number(m.points) || 0;
+      }
+      for (const pair of groups.values()) {
+        if (pair.length !== 2) continue;
+        const a = out.get(String(pair[0].roster_id)), b = out.get(String(pair[1].roster_id));
+        if (!a || !b) continue;
+        const ap = Number(pair[0].points) || 0, bp = Number(pair[1].points) || 0;
+        if (ap > bp) a.w++; else if (bp > ap) b.w++; else { a.w += 0.5; b.w += 0.5; }
+      }
+    }
+    return out;
+  }
+
+  for (const m of payload.schedule ?? []) {
+    if (!m.matchupPeriodId || m.matchupPeriodId >= fromWeek) continue;
+    const hid = m.home?.teamId == null ? null : String(m.home.teamId);
+    const aid = m.away?.teamId == null ? null : String(m.away.teamId);
+    const h = out.get(hid), a = out.get(aid);
+    if (!h || !a) continue;
+    const hp = Number(m.home?.totalPoints ?? m.home?.cumulativeScore?.score);
+    const ap = Number(m.away?.totalPoints ?? m.away?.cumulativeScore?.score);
+    if (!Number.isFinite(hp) || !Number.isFinite(ap)) continue;
+    h.pf += hp; a.pf += ap;
+    if (hp > ap) h.w++; else if (ap > hp) a.w++; else { h.w += 0.5; a.w += 0.5; }
+  }
+  return out;
+}
+
+// Narrowly exposed for deterministic regression tests. These helpers contain
+// the decision-timing rules whose accidental reversal creates hindsight bias.
+export const __test = { lineupPoints, initialRecords };
 
 /* -------------------------------------------------------------- the sim */
 
@@ -128,6 +195,7 @@ export function simulateSeason(lg, {
   const weekData = new Map();
   for (const week of simWeeks) {
     const entries = [];
+    const activeChance = weeklyAvailability(SEASON, week);
     for (const p of roster) {
       const pr = proj.get(p.id);
       const nflWeek = nflSchedule.get(p.team_abbr)?.find(g => g.week === week);
@@ -139,32 +207,39 @@ export function simulateSeason(lg, {
       // who you play, and how the game is expected to unfold.
       const gs = gameScriptFor(p.team_abbr, SEASON, week);
       const mult = { pass: base * gs.pass_mult, rush: base * gs.rush_mult };
-      const s = sampleWeeks(pr.params, POOL, scoring, mult).sort((a, b) => a - b);
+      const activeProbability = activeChance.get(p.id)?.active_probability ?? 0.92;
+      const s = sampleWeeks(pr.params, POOL, scoring, mult, activeProbability).sort((a, b) => a - b);
       entries.push({
         p, samples: s,
         meta: {
           id: p.id, position: p.position,
           team: p.team_abbr, opponent: nflWeek.opponent_abbr,
-          target_share: pr.volume?.target_share ?? null
+          target_share: pr.volume?.target_share ?? null,
+          active_probability: activeProbability
         }
       });
     }
     const active = entries.filter(e => e.samples);
+    const expected = new Map(active.map(e => [
+      e.p.id,
+      e.samples.reduce((s, v) => s + v, 0) / e.samples.length
+    ]));
     weekData.set(week, {
       draw: correlatedSampler(active.map(e => e.meta), active.map(e => e.samples)),
-      ids: active.map(e => e.p.id)
+      ids: active.map(e => e.p.id), expected
     });
   }
 
   /* --- run the season ---------------------------------------------------- */
   const ids = teams.map(t => t.roster_id);
+  const startingRecords = initialRecords(lg, teams, fromWeek);
   const stats = new Map(ids.map(id => [id, {
     roster_id: id, owner: teams.find(t => t.roster_id === id).owner,
     playoffs: 0, title: 0, finals: 0, byes: 0, wins: 0, points: 0, best: 0, worst: Infinity
   }]));
 
   for (let run = 0; run < runs; run++) {
-    const record = new Map(ids.map(id => [id, { w: 0, pf: 0 }]));
+    const record = new Map(ids.map(id => [id, { ...(startingRecords.get(id) ?? { w: 0, pf: 0 }) }]));
 
     for (const week of weeks) {
       const wd = weekData.get(week);
@@ -173,7 +248,7 @@ export function simulateSeason(lg, {
       for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
 
       const weekScore = new Map();
-      for (const t of teams) weekScore.set(t.roster_id, lineupPoints(t.players, slots, drawn));
+      for (const t of teams) weekScore.set(t.roster_id, lineupPoints(t.players, slots, drawn, wd.expected));
       for (const [a, b] of sched.get(week) ?? []) {
         const sa = weekScore.get(a) ?? 0, sb = weekScore.get(b) ?? 0;
         if (sa > sb) record.get(a).w++;
@@ -226,7 +301,7 @@ export function simulateSeason(lg, {
       const drawn = new Map();
       const vals = wd.draw();
       for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
-      const score = id => lineupPoints(teams.find(t => t.roster_id === id).players, slots, drawn);
+      const score = id => lineupPoints(teams.find(t => t.roster_id === id).players, slots, drawn, wd.expected);
 
       const winners = pairHighLow(playing).map(([a, b]) => {
         if (b == null) return a;
@@ -245,13 +320,19 @@ export function simulateSeason(lg, {
   const out = [...stats.values()].map(s => ({
     roster_id: s.roster_id, owner: s.owner,
     playoff_odds: +(s.playoffs / runs).toFixed(4),
+    playoff_odds_95: binomial95(s.playoffs, runs),
     title_odds: +(s.title / runs).toFixed(4),
+    title_odds_95: binomial95(s.title, runs),
     finals_odds: +(s.finals / runs).toFixed(4),
     expected_wins: +(s.wins / runs).toFixed(2),
     expected_points: +(s.points / runs).toFixed(1)
   })).sort((a, b) => b.title_odds - a.title_odds);
 
-  return { runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams, teams: out };
+  return {
+    runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams,
+    standings_carried_in: fromWeek > 1,
+    teams: out
+  };
 }
 
 /**
@@ -260,7 +341,10 @@ export function simulateSeason(lg, {
  * Runs the league twice — as it is, and as it would be — with the same projection set,
  * so the difference is the trade and nothing else.
  */
-export function tradeImpact(lg, { myTeamId, theirTeamId, iGive = [], iGet = [], runs = 1200, scoring = PPR }) {
+export function tradeImpact(lg, {
+  myTeamId, theirTeamId, iGive = [], iGet = [], runs = 1200,
+  scoring = PPR, fromWeek = 1, seed = null
+}) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
@@ -277,8 +361,14 @@ export function tradeImpact(lg, { myTeamId, theirTeamId, iGive = [], iGet = [], 
   // One projection build shared by both runs — rebuilding would introduce noise that
   // has nothing to do with the trade.
   const projections = buildProjections({ through: SEASON - 1, scoring });
-  const before = simulateSeason(lg, { runs, scoring, projections });
-  const after = simulateSeason(lg, { runs, scoring, projections, overrides });
+  // Common random numbers make this a paired experiment: the same simulated
+  // football worlds are used before and after, so Monte Carlo noise cannot
+  // masquerade as trade impact.
+  const pairedSeed = seed == null ? Math.floor(random() * 0xFFFFFFFF) : Number(seed);
+  const before = withRandomSeed(pairedSeed,
+    () => simulateSeason(lg, { runs, fromWeek, scoring, projections }));
+  const after = withRandomSeed(pairedSeed,
+    () => simulateSeason(lg, { runs, fromWeek, scoring, projections, overrides }));
   if (before.error || after.error) return before.error ? before : after;
 
   const pick = (sim, id) => sim.teams.find(t => t.roster_id === id);
@@ -293,5 +383,6 @@ export function tradeImpact(lg, { myTeamId, theirTeamId, iGive = [], iGet = [], 
       wins_delta: +(a.expected_wins - b.expected_wins).toFixed(2)
     };
   };
-  return { runs, me: delta(me.roster_id), them: delta(them.roster_id) };
+  return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,
+    me: delta(me.roster_id), them: delta(them.roster_id) };
 }

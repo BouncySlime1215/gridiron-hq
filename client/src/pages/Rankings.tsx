@@ -91,12 +91,12 @@ export default function Rankings() {
         <div className="ml-auto flex gap-1.5 items-center">
           {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
             <button key={p} onClick={() => setFilter(p)}
-              className={`btn ${filter === p ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{p}</button>
+              className={`btn ${filter === p ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white text-slate-500 hover:bg-sky-50'}`}>{p}</button>
           ))}
           <div className="flex rounded-lg border border-slate-200 overflow-hidden">
             {(['projected', 'actual'] as StatMode[]).map(m => (
               <button key={m} onClick={() => setMode(m)}
-                className={`px-2.5 py-1.5 text-xs font-semibold ${mode === m ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}>
+                className={`px-2.5 py-1.5 text-xs font-semibold ${mode === m ? 'bg-sky-100 text-sky-900' : 'bg-white text-slate-500 hover:bg-sky-50'}`}>
                 {m === 'projected' ? '2026 proj' : '2025 actual'}
               </button>
             ))}

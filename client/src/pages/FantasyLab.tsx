@@ -16,16 +16,15 @@ import Model from './Model';
  */
 const GROUPS = [
   {
-    id: 'tools', label: 'Edge Tools', source: 'edge' as const,
+    id: 'tools', label: 'Edge Tools', blurb: 'Player-level research — who to draft, start, or watch', source: 'edge' as const,
     tabs: [
       ['vor', 'Value Board'], ['movers', 'Breakouts & Regression'],
       ['volatility', 'Boom / Bust'], ['efficiency', 'Efficiency'],
-      ['schedule', 'Playoff Schedule'], ['trade', 'Trade Analyzer'],
-      ['sim', 'Season Simulator']
+      ['schedule', 'Playoff Schedule'], ['sim', 'Season Simulator']
     ] as [string, string][]
   },
   {
-    id: 'engine', label: 'Prediction Engine', source: 'model' as const,
+    id: 'engine', label: 'Prediction Engine', blurb: 'How the underlying model itself is doing, and why', source: 'model' as const,
     tabs: [
       ['accuracy', 'Accuracy'], ['odds', 'Championship Odds'],
       ['correlation', 'Correlation'], ['gamescript', 'Game Script'],
@@ -40,7 +39,6 @@ const BLURB: Record<string, string> = {
   volatility: 'Weekly floor, ceiling and consistency from real games',
   efficiency: 'Rate stats — usage share, yards per opportunity, TD-rate regression',
   schedule: 'Weeks 15-17 strength, ranked easiest to hardest',
-  trade: 'Value both sides on VOR, not vibes',
   sim: 'Monte Carlo your lineup from real distributions',
   accuracy: 'How the model scores against the baselines it has to beat',
   odds: 'Championship odds from a correlated season simulation',
@@ -63,29 +61,38 @@ export default function FantasyLab() {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold">Fantasy Lab</h1>
-        <div className="flex gap-1 ml-auto">
-          {GROUPS.map(g => (
-            <button key={g.id} onClick={() => switchGroup(g.id)}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                group === g.id
-                  ? 'bg-slate-800 text-white border-slate-800'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-              }`}>{g.label}</button>
+      <h1 className="text-2xl font-bold mb-1">Research &amp; Model Lab</h1>
+      <p className="text-sm text-slate-500 mb-4">
+        Deep analytics that feed the rest of the app — not where you make trades or draft
+        (that's Trade Lab and Draft Room). Two workspaces: research on players, or a look under
+        the hood at the prediction model itself.
+      </p>
+
+      <div className="flex gap-2 mb-4">
+        {GROUPS.map(g => (
+          <button key={g.id} onClick={() => switchGroup(g.id)}
+            className={`text-left px-3.5 py-2 rounded-xl border transition-colors ${
+              group === g.id
+                ? 'bg-[var(--accent-tint)] border-[var(--accent)] text-[var(--accent)]'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+            }`}>
+            <div className="text-sm font-semibold">{g.label}</div>
+            <div className="text-[11px] opacity-80">{g.blurb}</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <div className="flex gap-1 border-b border-slate-200 flex-1 overflow-x-auto">
+          {active.tabs.map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
+                tab === id ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}>{label}</button>
           ))}
         </div>
       </div>
-      <p className="text-sm text-slate-500 mb-4">{BLURB[tab] ?? ''}</p>
-
-      <div className="flex gap-1 border-b border-slate-200 mb-4 overflow-x-auto">
-        {active.tabs.map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
-              tab === id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}>{label}</button>
-        ))}
-      </div>
+      <p className="text-xs text-slate-400 mb-4">{BLURB[tab] ?? ''}</p>
 
       {active.source === 'edge'
         ? <Edge tab={tab as any} embedded />

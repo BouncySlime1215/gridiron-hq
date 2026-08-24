@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApi } from '../api';
+import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
 import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
+import { Headshot } from '../components/PlayerRow';
+import { PageError } from '../components/PageState';
 
 /**
  * My Team, for whichever league is active in the header.
@@ -21,7 +23,7 @@ import TeamScout from '../components/TeamScout';
  */
 export default function MyTeam() {
   const { leagues, active, refetch: refetchLeagues } = useLeague();
-  const { data: lg, loading: lgLoading, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
+  const { data: lg, loading: lgLoading, error: lgError, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
   const [teamOverride, setTeamOverride] = useState<string | null>(null);
   const [tab, setTab] = useState<'scout' | 'roster'>('scout');
   const [syncing, setSyncing] = useState(false);
@@ -50,6 +52,15 @@ export default function MyTeam() {
 
   const scoutUrl = active && synced ? `/trades/${active.id}/scout${myTeamId ? `?team_id=${myTeamId}` : ''}` : null;
   const { data: scout } = useApi<any>(scoutUrl);
+  const diffUrl = active && synced && myTeamId ? `/trades/${active.id}/lineup-diff?team_id=${myTeamId}` : null;
+  const { data: lineupDiff } = useApi<any>(diffUrl);
+  // The season-sim engine (title/playoff odds) and selfScout (weekly floor/ceiling)
+  // already compute everything a "digital twin" needs — this was never assembled
+  // into one place before. Championship odds existed only buried in Fantasy Lab,
+  // for the whole league, with no way to jump straight to your own team's numbers.
+  const simUrl = active && synced ? `/model/${active.id}/simulate?runs=1500` : null;
+  const { data: sim } = useApi<any>(simUrl);
+  const myTwin = sim?.teams?.find((t: any) => String(t.roster_id) === String(myTeamId));
 
   // Once the engine resolves a default team (from the league's saved my_team_id, or
   // its own first-team fallback), reflect that in the picker — without this the
@@ -147,11 +158,84 @@ export default function MyTeam() {
         {leagues.length > 1 && <span className="text-slate-400"> — switch leagues from the picker up top</span>}
       </p>
 
+      {lgError && !lg && <PageError message={lgError} onRetry={refetchData} />}
+
+      {synced && myTwin && (
+        <div className="card p-4 mb-4">
+          <h3 className="text-sm font-bold text-slate-700 mb-3">Your title odds right now</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Championship</div>
+              <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.title_odds * 100).toFixed(1)}%</div>
+              {myTwin.title_odds_95 && (
+                <div className="text-[10px] text-slate-400 tabular-nums">
+                  {(myTwin.title_odds_95[0] * 100).toFixed(1)}–{(myTwin.title_odds_95[1] * 100).toFixed(1)}% range
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Make playoffs</div>
+              <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.playoff_odds * 100).toFixed(0)}%</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Expected record</div>
+              <div className="text-xl font-bold text-slate-800 tabular-nums">{myTwin.expected_wins}W</div>
+            </div>
+            {scout?.spread?.floor != null && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">Weekly range</div>
+                <div className="text-sm font-bold text-slate-800 tabular-nums">
+                  <span className="text-crit">{scout.spread.floor}</span>
+                  <span className="text-slate-300 mx-1">–</span>
+                  <span className="text-good">{scout.spread.ceiling}</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-2">
+            {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, real playoff bracket weeks 15–17.
+          </p>
+        </div>
+      )}
+
       {!lgLoading && active && !synced && (
         <div className="card p-6 text-sm text-slate-600 mb-4">
           This league hasn't been synced yet — hit{' '}
           <button className="text-emerald-600 underline" onClick={sync}>Sync</button> to pull rosters from{' '}
           {active.platform === 'espn' ? 'ESPN' : 'Sleeper'}.
+        </div>
+      )}
+
+      {synced && lineupDiff && !lineupDiff.error && !lineupDiff.matches && (
+        <div className="card p-4 mb-4 border-amber-300 bg-amber-50/50">
+          <div className="flex items-center gap-2 mb-2">
+            <h3 className="text-sm font-bold text-slate-800">Your submitted lineup isn't optimal</h3>
+            <span className="text-xs text-amber-700 font-semibold">+{lineupDiff.gain} ppg available</span>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3 text-sm">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-good mb-1">Start</div>
+              {lineupDiff.swap_in.map((s: any) => (
+                <div key={s.player.id} className="flex items-center gap-2 py-0.5">
+                  <span className={`text-[10px] font-black pos-${s.player.position}`}>{s.player.position}</span>
+                  <span className="font-medium">{s.player.name}</span>
+                  <span className="text-xs text-slate-400 ml-auto">{s.slot}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-crit mb-1">Bench</div>
+              {lineupDiff.swap_out.map((p: any) => (
+                <div key={p.id} className="flex items-center gap-2 py-0.5">
+                  <span className={`text-[10px] font-black pos-${p.position}`}>{p.position}</span>
+                  <span className="font-medium">{p.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2">
+            Compares what's actually set on {active?.platform === 'espn' ? 'ESPN' : 'Sleeper'} against the engine's optimal lineup — make this swap on the platform itself before kickoff.
+          </p>
         </div>
       )}
 
@@ -184,26 +268,32 @@ export default function MyTeam() {
                 <div className="grid md:grid-cols-2 gap-4 mt-4">
                   <div className="card p-4">
                     <h3 className="text-sm font-bold text-slate-700 mb-2">Starters</h3>
-                    {scout.lineup.slots.map((s: any, i: number) => (
-                      <div key={i} className="flex gap-2 text-sm py-0.5">
-                        <span className="text-slate-500 text-xs w-10">{s.slot}</span>
-                        {s.player ? (
-                          <>
-                            <span>{s.player.name}</span>
-                            <span className={`ml-auto text-xs pos-${s.player.position}`}>{s.player.position}</span>
-                          </>
-                        ) : <span className="text-rose-500 text-xs">— empty —</span>}
-                      </div>
-                    ))}
+                    <div className="space-y-1">
+                      {scout.lineup.slots.map((s: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2.5 py-1">
+                          <span className="text-[var(--muted)] text-[10px] font-semibold w-10 shrink-0 uppercase tracking-wide">{s.slot}</span>
+                          {s.player ? (
+                            <>
+                              <Headshot src={headshotUrl(s.player)} pos={s.player.position} size={30} />
+                              <span className="text-sm font-medium text-[var(--ink)] truncate">{s.player.name}</span>
+                              <span className={`ml-auto text-[10px] font-semibold pos-${s.player.position}`}>{s.player.position}</span>
+                            </>
+                          ) : <span className="text-crit text-xs">— empty —</span>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="card p-4">
                     <h3 className="text-sm font-bold text-slate-700 mb-2">Bench</h3>
-                    {scout.lineup.bench.map((p: any) => (
-                      <div key={p.id} className="flex gap-2 text-sm py-0.5 text-slate-600">
-                        <span className={`text-xs w-10 pos-${p.position}`}>{p.position}</span>
-                        <span>{p.name}</span>
-                      </div>
-                    ))}
+                    <div className="space-y-1">
+                      {scout.lineup.bench.map((p: any) => (
+                        <div key={p.id} className="flex items-center gap-2.5 py-1">
+                          <Headshot src={headshotUrl(p)} pos={p.position} size={28} />
+                          <span className="text-sm text-[var(--ink)]/85 truncate">{p.name}</span>
+                          <span className={`ml-auto text-[10px] font-semibold pos-${p.position}`}>{p.position}</span>
+                        </div>
+                      ))}
+                    </div>
                     {scout.lineup.bench.length === 0 && <p className="text-xs text-slate-400">No bench depth logged yet.</p>}
                   </div>
                 </div>

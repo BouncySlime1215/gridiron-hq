@@ -25,12 +25,12 @@ export interface Reasoning {
 }
 
 const CONF_STYLE: Record<string, string> = {
-  strong: 'bg-emerald-100 text-emerald-700 border-emerald-300',
-  moderate: 'bg-sky-100 text-sky-700 border-sky-300',
+  strong: 'bg-slate-100 text-slate-900 border-slate-300',
+  moderate: 'bg-blue-50 text-blue-800 border-blue-200',
   lean: 'bg-slate-100 text-slate-600 border-slate-300'
 };
 const confClass = (c: string) =>
-  CONF_STYLE[c] ?? (c.startsWith('contested') ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-slate-100 text-slate-600 border-slate-300');
+  CONF_STYLE[c] ?? (c.startsWith('contested') ? 'bg-white text-slate-700 border-slate-300' : 'bg-slate-100 text-slate-600 border-slate-300');
 
 /**
  * Why the model likes a pick.
@@ -46,27 +46,28 @@ export default function PickReasoning({ reasoning, defaultOpen = false }: {
   const [open, setOpen] = useState(defaultOpen);
   if (!reasoning) return null;
   const r = reasoning;
+  if (r.factors_considered === 0 && !r.market_sentiment?.movement) return null;
 
   return (
     <div className="border-t border-slate-100 mt-2 pt-2">
       <button onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 text-[11px] font-semibold text-slate-600 hover:text-slate-900 w-full text-left">
+        className="flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900 w-full text-left">
         <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
         <span>Why this pick</span>
-        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${confClass(r.confidence)}`}>
+        <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full border ${confClass(r.confidence)}`}>
           {r.confidence}
         </span>
-        <span className="text-[10px] text-slate-400 font-normal ml-auto">
+        <span className="text-xs text-slate-400 font-normal ml-auto">
           {r.factors_considered} factors compared
         </span>
       </button>
 
       {open && (
         <div className="mt-2 space-y-3">
-          <p className="text-[11px] text-slate-700 leading-relaxed">{r.headline}</p>
+          <p className="text-sm text-slate-700 leading-relaxed">{r.headline}</p>
 
           {r.no_history && r.no_history_note && (
-            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+            <p className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm text-slate-600">
               {r.no_history_note}
             </p>
           )}
@@ -102,7 +103,7 @@ export default function PickReasoning({ reasoning, defaultOpen = false }: {
               {r.market_agreement && (
                 <div className={`text-[10px] mt-1.5 rounded px-2 py-1 ${
                   /moved in the same direction/.test(r.market_agreement)
-                    ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'
+                    ? 'bg-slate-100 text-slate-800' : 'bg-white text-slate-600'
                 }`}>
                   {r.market_agreement}
                 </div>
@@ -121,12 +122,12 @@ function FactorList({ title, tone, factors }: { title: string; tone: 'good' | 'b
   return (
     <div>
       <div className={`text-[10px] font-bold uppercase tracking-wide mb-1 ${
-        tone === 'good' ? 'text-emerald-600' : 'text-rose-600'}`}>{title}</div>
+        tone === 'good' ? 'text-slate-900' : 'text-rose-600'}`}>{title}</div>
       <div className="space-y-1">
         {factors.map(f => (
           <div key={f.key} className="flex items-center gap-2">
             <div className="w-12 h-1.5 bg-slate-100 rounded overflow-hidden shrink-0">
-              <div className={`h-full rounded ${tone === 'good' ? 'bg-emerald-500' : 'bg-rose-400'}`}
+              <div className={`h-full rounded ${tone === 'good' ? 'bg-sky-500' : 'bg-rose-400'}`}
                 style={{ width: `${Math.max(6, (f.strength / max) * 100)}%` }} />
             </div>
             <div className="text-[11px] text-slate-600 min-w-0 flex-1">

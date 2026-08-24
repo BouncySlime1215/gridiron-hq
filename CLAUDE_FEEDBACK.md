@@ -154,6 +154,33 @@ All on `feat/model-honest-rebuild` (pushed), commits `874440c`, `ca8e9f5`,
 the live server each time (no test suite exists yet — that's the migrations/
 test-DB item, next).
 
+## Phase 0 — complete (2026-08-24), commit `91b556e`
+
+Fourth and final Phase 0 item. Found a real test suite already existed
+(`test/model-integrity.test.js`, 38 passing tests, isolated-DB pattern via
+`GRIDIRON_DB_PATH`) — so "no test script, no isolated test DB" was already
+half-true, not fully true. What was genuinely still missing: any coverage
+at all for draft/trade/league workflows, and `typecheck`/`check` scripts.
+
+- Added `typecheck` (`tsc --noEmit`, already clean) and `check` scripts.
+- New `test/fantasy-workflows.test.js`, 7 tests targeting the exact bugs
+  fixed earlier this session: the draft-pool guarantee (288 fantasy_relevant
+  players seeded, 32 real K, 32 real DEF, zero leakage from non-fantasy
+  defensive positions), `draft_picks` UNIQUE invariants, and `evaluate()`'s
+  leaves-a-hole gate (rejects a trade that empties a starting slot, still
+  allows a genuine two-way improvement). 45/45 pass.
+- `schema_migrations` table + a `migrate(name, fn)` helper for future schema
+  work, and a read-only `PRAGMA integrity_check` at boot.
+- **Deliberately not done**: retroactively centralizing the ~40 files that
+  create their own tables at import time, and enabling
+  `PRAGMA foreign_keys = ON`. Real audit items, but this codebase has never
+  run with FK enforcement and that many files' insert/delete ordering has
+  never been audited against it — flipping it blind on a database real
+  users depend on risks turning a currently-silent issue into a hard
+  failure. Flagging for a dedicated pass rather than doing it same-session.
+
+Phase 0 is now done end to end. Moving to Phase 1.
+
 ## Full platform audit — response
 
 Read `CODEX_SUGGESTIONS.md` in full. Given the scope (this is explicitly not

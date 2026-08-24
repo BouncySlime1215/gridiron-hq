@@ -25,6 +25,7 @@ import { configurationHash } from '../modeling/contracts.js';
 import { ModelRegistry } from '../modeling/registry.js';
 import { SqliteModelStore, recordModelAudit, registrySnapshot } from '../modeling/sqlite-store.js';
 import { requireModelPermission } from '../modeling/authz.js';
+import { runWalkForward } from '../modeling/walk-forward.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -49,6 +50,14 @@ r.post('/registry/datasets', requireModelPermission('model:train'), (req, res, n
     const x = req.body ?? {};
     if (!x.name || !x.content_hash || !x.cutoff_at || !Number.isInteger(x.row_count) || x.row_count < 0) {
       return res.status(400).json({ error: 'name, content_hash, cutoff_at and non-negative integer row_count required' });
+    }
+    if (!Array.isArray(x.metadata?.observations) || configurationHash(x.metadata.observations) !== x.content_hash) {
+      return res.status(400).json({ error: 'content_hash must match metadata.observations' });
+    }
+    if (x.row_count !== x.metadata.observations.length) return res.status(400).json({ error: 'row_count must match persisted observations' });
+    const cutoff = Date.parse(x.cutoff_at);
+    if (!Number.isFinite(cutoff) || x.metadata.observations.some(o => !Number.isFinite(Date.parse(o.as_of)) || Date.parse(o.as_of) > cutoff)) {
+      return res.status(400).json({ error: 'cutoff_at must be valid and cover every observation' });
     }
     const id = x.id ?? configurationHash({ name: x.name, content_hash: x.content_hash });
     db.prepare(`INSERT INTO model_dataset_versions
@@ -92,37 +101,64 @@ r.post('/registry/experiments', requireModelPermission('model:train'), (req, res
 });
 
 r.post('/registry/experiments/:id/result', requireModelPermission('model:train'), (req, res, next) => {
-  try {
-    const result = req.body?.result;
-    if (!result?.gates) return res.status(400).json({ error: 'result.gates required' });
-    const experiment = registry.transition(req.params.id, 'completed', { result });
-    for (const metric of req.body?.metrics ?? []) {
-      db.prepare(`INSERT INTO model_metrics
-        (experiment_id,backtest_id,split,metric,value,sample_size,recorded_at) VALUES (?,?,?,?,?,?,?)
-        ON CONFLICT(experiment_id,backtest_id,split,metric) DO UPDATE SET
-        value=excluded.value,sample_size=excluded.sample_size,recorded_at=excluded.recorded_at`)
-        .run(experiment.id, metric.backtest_id ?? null, metric.split, metric.metric, metric.value, metric.sample_size, new Date().toISOString());
-    }
-    recordModelAudit(db, req.modelPrincipal, 'experiment.complete', 'experiment', experiment.id, { metrics: req.body?.metrics?.length ?? 0 });
-    res.json(experiment);
-  } catch (e) { next(e); }
+  res.status(410).json({ error: 'caller-supplied results are unsupported; run the persisted backtest endpoint' });
 });
 
 r.post('/registry/experiments/:id/backtests', requireModelPermission('model:train'), (req, res, next) => {
   try {
-    if (!registry.store.get(req.params.id)) return res.status(404).json({ error: 'experiment not found' });
-    const x = req.body ?? {};
-    if (!['walk_forward', 'sealed_holdout'].includes(x.protocol)) return res.status(400).json({ error: 'supported protocol required' });
-    const id = x.id ?? configurationHash({ experiment: req.params.id, protocol: x.protocol });
+    const experiment = registry.store.get(req.params.id);
+    if (!experiment) return res.status(404).json({ error: 'experiment not found' });
+    if (experiment.status !== 'queued') return res.status(409).json({ error: 'only queued experiments can be backtested' });
+    const input = db.prepare(`SELECT i.*, d.metadata_json FROM model_experiment_inputs i
+      JOIN model_dataset_versions d ON d.id=i.dataset_version_id WHERE i.experiment_id=?`).get(req.params.id);
+    if (!input) return res.status(409).json({ error: 'pinned dataset and feature versions required' });
+    const observations = JSON.parse(input.metadata_json).observations;
+    if (!Array.isArray(observations)) return res.status(409).json({ error: 'persisted dataset has no observations' });
+    if (experiment.spec?.candidate !== 'mean_baseline') return res.status(400).json({ error: 'unsupported candidate; supported: mean_baseline' });
+    const candidate = { name: 'mean_baseline', version: '1', fit(training) {
+      const values = training.map(x => Number(x.outcome)).filter(Number.isFinite);
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      return { predict: () => ({ prediction: mean }) };
+    } };
+    const audit = runWalkForward(observations, candidate, {
+      holdoutSeason: experiment.spec.holdout_season,
+      minimumTrainingPeriods: experiment.spec.minimum_training_periods ?? 1,
+      datasetVersion: input.dataset_version_id
+    });
+    const predictions = audit.folds.flatMap(f => f.predictions).filter(p => p.status === 'predicted' && Number.isFinite(p.actual));
+    const mae = predictions.length ? predictions.reduce((sum, p) => sum + Math.abs(p.prediction - p.actual), 0) / predictions.length : null;
+    const minRows = Number(experiment.spec.min_validation_rows ?? 1);
+    // The comparison baseline is fixed and recomputed from the same frozen
+    // validation rows; trainers cannot choose or report its score.
+    const baselineMae = predictions.length
+      ? predictions.reduce((sum, p) => sum + Math.abs(p.actual), 0) / predictions.length
+      : null;
+    const gates = {
+      schema: true, leakage: true,
+      data_quality: audit.missing_prediction_rate === 0,
+      baseline_improvement: Number.isFinite(mae) && Number.isFinite(baselineMae) && mae < baselineMae,
+      tests: predictions.length >= minRows
+    };
+    const result = { verified_by: 'server:walk-forward:v1', run_id: audit.run_id, gates, mae, baseline_mae: baselineMae, sample_size: predictions.length };
+    const id = configurationHash({ experiment: req.params.id, protocol: 'walk_forward', run_id: audit.run_id });
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO model_backtests
-      (id,experiment_id,protocol,started_at,completed_at,status,result_json) VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(experiment_id,protocol) DO UPDATE SET completed_at=excluded.completed_at,
-      status=excluded.status,result_json=excluded.result_json`)
-      .run(id, req.params.id, x.protocol, x.started_at ?? now, x.completed_at ?? null, x.status ?? 'queued',
-        x.result == null ? null : JSON.stringify(x.result));
-    recordModelAudit(db, req.modelPrincipal, 'backtest.persist', 'backtest', id, { experiment_id: req.params.id, protocol: x.protocol });
-    res.status(201).json(db.prepare('SELECT * FROM model_backtests WHERE id=?').get(id));
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const insertPrediction = db.prepare(`INSERT INTO model_predictions
+        (run_id,player_id,season,week,as_of,status,prediction,lower,upper,active_probability,actual,error,fold_cutoff,is_holdout)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+      for (const fold of audit.folds) for (const p of fold.predictions) insertPrediction.run(audit.run_id, String(p.player_id), p.season, p.week,
+        p.as_of, p.status, p.prediction ?? null, p.lower ?? null, p.upper ?? null, p.active_probability ?? null, p.actual ?? null, p.error ?? null, fold.cutoff, 0);
+      db.prepare(`INSERT INTO model_backtests (id,experiment_id,protocol,started_at,completed_at,status,result_json)
+        VALUES (?,?,?,?,?,'completed',?)`).run(id, req.params.id, 'walk_forward', now, now, JSON.stringify(result));
+      if (mae != null) db.prepare(`INSERT INTO model_metrics
+        (experiment_id,backtest_id,split,metric,value,sample_size,recorded_at) VALUES (?,?, 'validation','mae',?,?,?)`)
+        .run(req.params.id, id, mae, predictions.length, now);
+      registry.transition(req.params.id, 'completed', { result });
+      recordModelAudit(db, req.modelPrincipal, 'backtest.complete', 'backtest', id, result);
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    res.status(201).json({ ...db.prepare('SELECT * FROM model_backtests WHERE id=?').get(id), result });
   } catch (e) { next(e); }
 });
 
@@ -130,18 +166,21 @@ r.post('/registry/experiments/:id/promote', requireModelPermission('model:promot
   try {
     const inputs = db.prepare('SELECT 1 FROM model_experiment_inputs WHERE experiment_id=?').get(req.params.id);
     const backtest = db.prepare(`SELECT 1 FROM model_backtests
-      WHERE experiment_id=? AND protocol='walk_forward' AND status='completed' AND result_json IS NOT NULL`).get(req.params.id);
+      WHERE experiment_id=? AND protocol='walk_forward' AND status='completed'
+      AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
     if (!inputs || !backtest) return res.status(409).json({ error: 'promotion requires pinned dataset/features and a completed persisted walk-forward backtest' });
     const out = registry.promote(req.params.id, req.modelPrincipal);
-    recordModelAudit(db, req.modelPrincipal, 'experiment.promote', 'experiment', req.params.id, out);
     res.json(out);
   } catch (e) { next(e); }
 });
 
 r.post('/registry/experiments/:id/rollback', requireModelPermission('model:promote'), (req, res, next) => {
   try {
+    const eligible = db.prepare(`SELECT 1 FROM model_experiment_inputs i JOIN model_backtests b ON b.experiment_id=i.experiment_id
+      WHERE i.experiment_id=? AND b.protocol='walk_forward' AND b.status='completed'
+      AND json_extract(b.result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
+    if (!eligible) return res.status(409).json({ error: 'rollback target lacks verified persisted evidence' });
     const out = registry.rollback(req.params.id, req.modelPrincipal);
-    recordModelAudit(db, req.modelPrincipal, 'experiment.rollback', 'experiment', req.params.id, out);
     res.json(out);
   } catch (e) { next(e); }
 });

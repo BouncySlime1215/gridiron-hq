@@ -148,8 +148,9 @@ function positionalRuns(allPicks, window = 10) {
  * top 3 will all be gone is one to take now, even if a different position is a bigger
  * hole on paper.
  */
-export function boardState(draftId) {
-  const draft = row('SELECT * FROM drafts WHERE id = ?', draftId);
+export function boardState(draftId, teamSlot = null) {
+  const persistedDraft = row('SELECT * FROM drafts WHERE id = ?', draftId);
+  const draft = persistedDraft && { ...persistedDraft, my_slot: teamSlot ?? persistedDraft.my_slot };
   if (!draft) throw Object.assign(new Error('draft not found'), { status: 404 });
 
   const slots = draft.roster_slots ? JSON.parse(draft.roster_slots)

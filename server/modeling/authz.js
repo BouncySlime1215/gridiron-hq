@@ -1,6 +1,17 @@
-// Consume only the verified principal installed by platform identity middleware.
-// Headers, request bodies and query strings are never identity sources.
-export const modelPrincipal = req => req.principal ?? req.auth?.principal ?? req.user ?? null;
+import { rows } from '../db/index.js';
+import { resolveAuthenticatedUser } from '../platform/auth.js';
+
+// Model identity is always reconstructed from the persisted bearer session and
+// persisted grants. Request properties and headers are deliberately not trusted.
+export function modelPrincipal(req) {
+  const auth = resolveAuthenticatedUser(req);
+  if (!auth) return null;
+  return {
+    id: auth.userId,
+    subject: auth.subject,
+    permissions: rows('SELECT permission FROM model_permissions WHERE user_id = ?', auth.userId).map(x => x.permission)
+  };
+}
 
 export const requireModelPermission = permission => (req, res, next) => {
   const principal = modelPrincipal(req);

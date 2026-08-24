@@ -45,6 +45,10 @@ export class SqliteModelStore {
         (experiment_id,previous_experiment_id,action,actor_id,gate_audit_json,created_at)
         VALUES (?,?,?,?,?,?)`).run(id, previous, audit.action ?? 'promote', audit.promoted_by ?? audit.rolled_back_by,
           JSON.stringify(audit.gates ?? {}), audit.promoted_at);
+      this.db.prepare(`INSERT INTO model_audit_log
+        (actor_id,action,entity_type,entity_id,details_json,created_at) VALUES (?,?,?,?,?,?)`)
+        .run(String(audit.promoted_by ?? audit.rolled_back_by), `experiment.${audit.action ?? 'promote'}`,
+          'experiment', id, JSON.stringify({ previous, gates: audit.gates ?? {} }), audit.promoted_at);
       this.db.exec('COMMIT'); return { active: id, previous, audit };
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }

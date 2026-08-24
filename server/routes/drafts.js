@@ -41,6 +41,12 @@ function draftAccess(req, draftId, commissioner = false) {
   return { draft, membership };
 }
 
+function ownedSlot(req, draft, { required = true } = {}) {
+  const ownership = row('SELECT team_slot FROM draft_team_ownership WHERE draft_id = ? AND user_id = ?', draft.id, req.auth.userId);
+  if (!ownership && required) throw new AuthorizationError('team ownership required');
+  return ownership?.team_slot ?? null;
+}
+
 function parseRosterPositions(json) {
   if (!json) return DEFAULT_ROSTER_POSITIONS;
   try { return JSON.parse(json); } catch { return DEFAULT_ROSTER_POSITIONS; }
@@ -329,7 +335,8 @@ r.get('/:id', (req, res) => {
                   last_season_points: st.last_season_points ?? null,
                   projected_pos_rank: st.projected_pos_rank ?? null } : p;
   };
-  const myQueue = getQueue(draft.id, draft.my_slot);
+  const userSlot = ownedSlot(req, draft, { required: false });
+  const myQueue = userSlot == null ? [] : getQueue(draft.id, userSlot);
   const total = draft.team_count * draft.rounds;
   const nextPickNumber = picks.length + 1;
   // Server-computed so the client never has to reimplement order_type math
@@ -341,7 +348,7 @@ r.get('/:id', (req, res) => {
     team_slot: engineSlotForPick(nextPickNumber, draft.team_count, draft.order_type)
   } : null;
   res.json({
-    ...withParsedDraft(draft),
+    ...withParsedDraft(draft), my_slot: userSlot,
     picks: picks.map(withStats),
     available: available.map(withStats),
     queue: myQueue,
@@ -374,6 +381,8 @@ r.post('/:id/picks', (req, res, next) => {
 r.post('/:id/cpu-pick', (req, res, next) => {
   let draft;
   try { ({ draft } = draftAccess(req, req.params.id, true)); } catch (e) { return handleDraftError(e, res, next); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, next); }
   if (draft.type !== 'mock') return res.status(400).json({ error: 'simulation is for mock drafts only' });
 
   const totalPicks = draft.team_count * draft.rounds;
@@ -384,7 +393,7 @@ r.post('/:id/cpu-pick', (req, res, next) => {
   if (nextPick > totalPicks) return res.json({ done: true, reason: 'draft complete' });
 
   const slot = snakeSlot(nextPick, draft.team_count, draft.order_type);
-  if (slot === draft.my_slot) return res.json({ done: true, on_the_clock: true, pick_number: nextPick });
+  if (slot === userSlot) return res.json({ done: true, on_the_clock: true, pick_number: nextPick });
 
   const pool = buildMarketPool(draft);
   const choice = cpuPick(draft, slot, pool, allPicks);
@@ -408,6 +417,8 @@ r.post('/:id/cpu-pick', (req, res, next) => {
 r.post('/:id/simulate', (req, res, next) => {
   let draft;
   try { ({ draft } = draftAccess(req, req.params.id, true)); } catch (e) { return handleDraftError(e, res, next); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, next); }
   if (draft.type !== 'mock') return res.status(400).json({ error: 'simulation is for mock drafts only' });
 
   const totalPicks = draft.team_count * draft.rounds;
@@ -422,7 +433,7 @@ r.post('/:id/simulate', (req, res, next) => {
       const nextPick = allPicks.length + 1;
       if (nextPick > totalPicks) break;
       const slot = snakeSlot(nextPick, draft.team_count, draft.order_type);
-      if (slot === draft.my_slot) break;
+      if (slot === userSlot) break;
       const choice = cpuPick(draft, slot, pool, allPicks);
       if (!choice) break;
       const outcome = makePick({ draftId: draft.id, playerId: choice.id, expectedRevision: draft.revision, actor: req.auth, source: 'cpu', reason: choice.reason ?? null });
@@ -439,6 +450,8 @@ r.post('/:id/simulate', (req, res, next) => {
 r.post('/:id/sim-to-end', (req, res, next) => {
   let draft;
   try { ({ draft } = draftAccess(req, req.params.id, true)); } catch (e) { return handleDraftError(e, res, next); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, next); }
   const total = draft.team_count * draft.rounds;
   let guard = 0;
   try {
@@ -455,8 +468,8 @@ r.post('/:id/sim-to-end', (req, res, next) => {
       const outcome = makePick({
         draftId: draft.id, playerId: choice.id, expectedRevision: draft.revision,
         actor: req.auth,
-        source: slot === draft.my_slot ? 'auto' : 'cpu',
-        reason: slot === draft.my_slot ? 'auto-picked to finish the draft' : (choice.reason ?? null)
+        source: slot === userSlot ? 'auto' : 'cpu',
+        reason: slot === userSlot ? 'auto-picked to finish the draft' : (choice.reason ?? null)
       });
       draft = outcome.draft;
     }
@@ -469,12 +482,14 @@ r.post('/:id/sim-to-end', (req, res, next) => {
 r.get('/:id/recommendation', (req, res) => {
   let draft;
   try { ({ draft } = draftAccess(req, req.params.id)); } catch (e) { return handleDraftError(e, res, () => {}); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, () => {}); }
   const allPicks = rows(`SELECT pick_number, team_slot, player_id,
                            (SELECT position FROM players WHERE id = player_id) AS position
                          FROM draft_picks WHERE draft_id = ? ORDER BY pick_number`, draft.id);
   const nextPick = allPicks.length + 1;
   const round = Math.ceil(nextPick / draft.team_count);
-  const mine = allPicks.filter(p => p.team_slot === draft.my_slot);
+  const mine = allPicks.filter(p => p.team_slot === userSlot);
   const myPos = {};
   for (const p of mine) myPos[p.position] = (myPos[p.position] ?? 0) + 1;
 
@@ -560,7 +575,7 @@ r.post('/:id/pause', (req, res, next) => {
 r.get('/:id/queue', (req, res, next) => {
   try {
     const { draft, membership } = draftAccess(req, req.params.id);
-    const teamSlot = Number(req.query.team_slot) || draft.my_slot;
+    const teamSlot = Number(req.query.team_slot) || ownedSlot(req, draft);
     if (!Number.isInteger(teamSlot) || teamSlot < 1 || teamSlot > draft.team_count) return res.status(400).json({ error: 'invalid team_slot' });
     if (membership.role !== 'commissioner' && !ownsDraftTeam(req.auth.userId, draft.id, teamSlot)) throw new AuthorizationError('team ownership required');
     res.json(getQueue(req.params.id, teamSlot));
@@ -577,7 +592,7 @@ r.get('/:id/queue', (req, res, next) => {
 r.put('/:id/queue', (req, res, next) => {
   try {
     const { draft } = draftAccess(req, req.params.id);
-    const teamSlot = Number(req.body?.team_slot) || draft.my_slot;
+    const teamSlot = Number(req.body?.team_slot) || ownedSlot(req, draft);
     if (!Number.isInteger(teamSlot) || teamSlot < 1 || teamSlot > draft.team_count) return res.status(400).json({ error: 'invalid team_slot' });
     const playerIds = req.body?.player_ids;
     if (!Array.isArray(playerIds) || !playerIds.every(Number.isInteger)) {
@@ -603,8 +618,12 @@ r.get('/:id/roster/:teamSlot', (req, res) => {
 
 /** Stored draft grade — generated once, viewable any time after. */
 r.get('/:id/grade', (req, res) => {
-  try { draftAccess(req, req.params.id); } catch (e) { return handleDraftError(e, res, () => {}); }
-  const g = row('SELECT grade, summary, strengths, weaknesses, best_pick, reach, generated_at FROM draft_grades WHERE draft_id = ?', req.params.id);
+  let draft;
+  try { ({ draft } = draftAccess(req, req.params.id)); } catch (e) { return handleDraftError(e, res, () => {}); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, () => {}); }
+  const g = row(`SELECT grade, summary, strengths, weaknesses, best_pick, reach, generated_at
+    FROM draft_team_grades WHERE draft_id = ? AND team_slot = ?`, req.params.id, userSlot);
   res.json(g ? {
     ...g,
     strengths: g.strengths ? JSON.parse(g.strengths) : [],
@@ -614,8 +633,8 @@ r.get('/:id/grade', (req, res) => {
 
 r.post('/:id/grade', async (req, res, next) => {
   try {
-    const { draft, membership } = draftAccess(req, req.params.id);
-    if (membership.role !== 'commissioner' && !ownsDraftTeam(req.auth.userId, draft.id, draft.my_slot)) throw new AuthorizationError('team ownership required');
+    const { draft } = draftAccess(req, req.params.id);
+    const userSlot = ownedSlot(req, draft);
     if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
 
     const sm = statsMap();
@@ -623,7 +642,7 @@ r.post('/:id/grade', async (req, res, next) => {
                        FROM draft_picks dp JOIN players p ON p.id = dp.player_id
                        LEFT JOIN nfl_teams t ON t.id = p.team_id
                        WHERE dp.draft_id = ? AND dp.team_slot = ? ORDER BY dp.pick_number`,
-      draft.id, draft.my_slot);
+      draft.id, userSlot);
     if (!mine.length) return res.status(400).json({ error: 'No picks on your team yet.' });
 
     const roster = mine.map(p => {
@@ -636,7 +655,7 @@ r.post('/:id/grade', async (req, res, next) => {
     const msg = await callClaude({
       feature: 'draft-grade',
       maxTokens: 1200,
-      prompt: `Grade this 2026 fantasy football draft roster. ${draft.team_count}-team ${draft.rounds}-round league, I picked from slot ${draft.my_slot}.
+      prompt: `Grade this 2026 fantasy football draft roster. ${draft.team_count}-team ${draft.rounds}-round league, I picked from slot ${userSlot}.
 
 MY ROSTER (in draft order, with ESPN season projections):
 ${roster}
@@ -652,12 +671,12 @@ Respond with ONLY JSON:
  "reach":"Player Name — one sentence why, or 'none' if every pick was defensible"}`
     });
     const out = parseJson(msg);
-    run(`INSERT INTO draft_grades (draft_id, grade, summary, strengths, weaknesses, best_pick, reach, generated_at)
-         VALUES (?,?,?,?,?,?,?,datetime('now'))
-         ON CONFLICT(draft_id) DO UPDATE SET grade=excluded.grade, summary=excluded.summary,
+    run(`INSERT INTO draft_team_grades (draft_id, team_slot, grade, summary, strengths, weaknesses, best_pick, reach, generated_at)
+         VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+         ON CONFLICT(draft_id,team_slot) DO UPDATE SET grade=excluded.grade, summary=excluded.summary,
            strengths=excluded.strengths, weaknesses=excluded.weaknesses, best_pick=excluded.best_pick,
            reach=excluded.reach, generated_at=excluded.generated_at`,
-      draft.id, out.grade, out.summary, JSON.stringify(out.strengths ?? []),
+      draft.id, userSlot, out.grade, out.summary, JSON.stringify(out.strengths ?? []),
       JSON.stringify(out.weaknesses ?? []), out.best_pick ?? null, out.reach ?? null);
     recordAudit({ actor: req.auth.userId, action: 'draft.grade', entityType: 'draft', entityId: draft.id });
     res.json(out);
@@ -709,8 +728,8 @@ r.post('/:id/sync', async (req, res, next) => {
  */
 r.get('/:id/assist', (req, res, next) => {
   try {
-    draftAccess(req, req.params.id);
-    const state = boardState(req.params.id);
+    const { draft } = draftAccess(req, req.params.id);
+    const state = boardState(req.params.id, ownedSlot(req, draft));
     res.json({ ...state, targets: rankTargets(state, Number(req.query.limit) || 8) });
   } catch (e) { next(e); }
 });
@@ -724,8 +743,8 @@ r.get('/:id/assist', (req, res, next) => {
  */
 r.get('/:id/advice', async (req, res, next) => {
   try {
-    draftAccess(req, req.params.id);
-    const state = boardState(req.params.id);
+    const { draft: accessedDraft } = draftAccess(req, req.params.id);
+    const state = boardState(req.params.id, ownedSlot(req, accessedDraft));
     const pickNo = state.on_the_clock.pick_number ?? 0;
     if (!req.query.refresh) {
       const hit = row('SELECT payload FROM draft_advice WHERE draft_id = ? AND pick_number = ?',

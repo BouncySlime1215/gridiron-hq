@@ -76,8 +76,8 @@ Promotion endpoints reject blocked audits. This makes a UI or API mistake incapa
 ## Persisted registry and release commands
 
 The production registry is `GET /api/model/registry`. Its mutation endpoints
-require an authenticated principal supplied by the platform identity middleware
-with `model:train`, `model:promote`, or `model:*`; client-supplied role headers
+require a persisted bearer session and a persisted `model_permissions` grant
+(`model:train`, `model:promote`, `model:execute`, or `model:*`); client-supplied role headers
 are never accepted. NFL/MLB research experiment tables remain supported analytics
 inputs but are not production pointers. Only `model_production_pointer` and
 `model_promotion_history` represent production state.
@@ -86,6 +86,9 @@ Use an explicit database path for reproducible release work:
 
 ```sh
 GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite npm run db:migrate
+GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite node server/platform/provision-auth.js --subject operator@example.com --league-id 1 --role commissioner --model-permissions model:train,model:promote --draft-team 7:1
+GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite npm run db:rollback -- 007_model_permissions_and_upgrade_guard
+GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite npm run db:rollback -- 006_identity_and_draft_authorization
 GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite npm run db:rollback -- 005_model_registry_integrity
 GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite npm run db:migrate
 ```
@@ -94,3 +97,13 @@ Rollback is deliberately one migration at a time, refuses an unexpected target,
 and runs the migration `down()` plus migration-record removal in one transaction.
 Back up the SQLite file (including `-wal` and `-shm` companions when present)
 before a production rollback. Migration verification runs `foreign_key_check`.
+
+Migration 007 explicitly records pre-authentication drafts in
+`legacy_draft_quarantine`. Assign each quarantined draft with the provisioning
+command's `--draft-team draftId:slot`; that command attaches its league, owner,
+and removes the quarantine record in one reproducible operation.
+
+The registry accepts only content-addressed observation datasets. The supported
+HTTP backtest runner is currently `mean_baseline`; unsupported candidate types
+are rejected clearly. It derives metrics and promotion gates server-side and
+does not accept caller-supplied completion status, results, or gates.

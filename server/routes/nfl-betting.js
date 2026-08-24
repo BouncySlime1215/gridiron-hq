@@ -3,6 +3,7 @@
  * pick reasoning, role tracking and the combined hub summary.
  */
 import { Router } from 'express';
+import { requireModelPermission } from '../modeling/authz.js';
 import { catalog, countVariables, teamFeatureVector, playerFeatureVector, bettingTrends } from '../services/nfl-features.js';
 import { propBoard, propAccuracy, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
@@ -27,6 +28,11 @@ import { nflEvidenceCoverage, validationFirewall } from '../services/nfl-evidenc
 import { gamePlayerAvailability, teamPlayerAvailability } from '../services/nfl-player-value.js';
 
 const r = Router();
+// This router's non-GET endpoints mutate training data, experiments, evidence,
+// or betting records. Fail closed with a persisted model grant.
+r.use((req, res, next) => req.method === 'GET' || req.method === 'HEAD'
+  ? next()
+  : requireModelPermission('model:train')(req, res, next));
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const wk = req => Number(req.query.week) || 1;
 const ssn = req => Number(req.query.season) || SEASON;

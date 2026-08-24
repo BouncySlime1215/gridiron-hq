@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import express from 'express';
+import { Readable, PassThrough } from 'node:stream';
+import { ServerResponse } from 'node:http';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-registry-test-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -12,17 +15,44 @@ const { seedIfEmpty } = await import('../server/db/seed/index.js');
 const { ModelRegistry } = await import('../server/modeling/registry.js');
 const { SqliteModelStore, recordModelAudit, registrySnapshot } = await import('../server/modeling/sqlite-store.js');
 const { requireModelPermission } = await import('../server/modeling/authz.js');
+const { hashSessionToken } = await import('../server/platform/auth.js');
+const { configurationHash } = await import('../server/modeling/contracts.js');
 
-test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 await runMigrations();
+
+run(`INSERT INTO users (subject) VALUES ('model:trainer')`);
+const trainerUserId = row(`SELECT id FROM users WHERE subject='model:trainer'`).id;
+run(`INSERT INTO auth_sessions (user_id,token_hash,expires_at) VALUES (?,?,datetime('now','+1 day'))`, trainerUserId, hashSessionToken('real-model-token'));
+run(`INSERT INTO model_permissions (user_id,permission) VALUES (?, 'model:train'), (?, 'model:promote')`, trainerUserId, trainerUserId);
 
 const trainer = { id: 'trainer-1', permissions: ['model:train', 'model:promote'] };
 const gates = { schema: true, leakage: true, data_quality: true, baseline_improvement: true, tests: true };
+const { default: modelRouter } = await import('../server/routes/model.js');
+const app = express();
+app.use(express.json());
+app.use('/api/model', modelRouter);
+app.use((err, req, res, next) => res.status(err.status ?? 500).json({ error: err.message }));
+async function request(url, { token, roleHeader, body } = {}) {
+  const encoded = body === undefined ? '' : JSON.stringify(body);
+  const headers = { ...(encoded ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(encoded)) } : {}) };
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (roleHeader) headers['x-gridiron-role'] = roleHeader;
+  const req = new Readable({ read() { this.push(encoded || null); if (encoded) this.push(null); } });
+  req.url = `/api/model${url}`; req.method = 'POST'; req.headers = headers;
+  req.socket = new PassThrough(); req.connection = req.socket;
+  return new Promise((resolve, reject) => {
+    const res = new ServerResponse(req); const chunks = [];
+    res.write = chunk => { chunks.push(Buffer.from(chunk)); return true; };
+    res.end = chunk => { if (chunk) chunks.push(Buffer.from(chunk)); const text = Buffer.concat(chunks).toString('utf8'); resolve({ status: res.statusCode, payload: text ? JSON.parse(text) : null }); };
+    app.handle(req, res, reject);
+  });
+}
+test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 test('spoofed role headers cannot authenticate model mutations', () => {
   const middleware = requireModelPermission('model:promote');
   let status = null, payload = null, advanced = false;
-  middleware({ headers: { 'x-gridiron-role': 'admin' }, get: () => 'admin' }, {
+  middleware({ headers: { 'x-gridiron-role': 'admin' }, get: name => name === 'authorization' ? null : 'admin' }, {
     status(code) { status = code; return this; }, json(body) { payload = body; }
   }, () => { advanced = true; });
   assert.equal(status, 401);
@@ -30,14 +60,68 @@ test('spoofed role headers cannot authenticate model mutations', () => {
   assert.equal(advanced, false);
 });
 
-test('authenticated principals still need the requested model permission', () => {
+test('persisted bearer session with the requested grant is authorized', () => {
   const middleware = requireModelPermission('model:promote');
   let status = null, advanced = false;
-  middleware({ principal: { id: 'member', permissions: ['model:train'] } }, {
+  middleware({ get: name => name === 'authorization' ? 'Bearer real-model-token' : null }, {
     status(code) { status = code; return this; }, json() {}
   }, () => { advanced = true; });
+  assert.equal(status, null);
+  assert.equal(advanced, true);
+});
+
+test('deployed HTTP route rejects spoofing and caller-supplied experiment outcomes', async () => {
+  const spoofed = await request('/registry/datasets', { roleHeader: 'admin', body: {} });
+  assert.equal(spoofed.status, 401);
+  const registry = new ModelRegistry(new SqliteModelStore(db));
+  const experiment = registry.create({ model: 'http-result-block', nonce: 99 }, trainer);
+  const fabricated = await request(`/registry/experiments/${experiment.id}/result`, { token: 'real-model-token', body: { result: { gates } } });
+  assert.equal(fabricated.status, 410);
+  assert.equal(new SqliteModelStore(db).get(experiment.id).status, 'queued');
+});
+
+test('server-run backtest persists verified metrics and gates promotion', async () => {
+  const observations = [2023, 2024, 2025].map((season, index) => ({
+    player_id: 'p1', season, week: 1, as_of: `${season}-09-01T00:00:00.000Z`,
+    outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: index + 1, features: {}
+  }));
+  const datasetResponse = await request('/registry/datasets', { token: 'real-model-token', body: {
+    name: 'verified-observations', content_hash: configurationHash(observations), cutoff_at: '2025-09-03T00:00:00.000Z',
+    row_count: observations.length, metadata: { observations }
+  } });
+  assert.equal(datasetResponse.status, 201);
+  const dataset = datasetResponse.payload;
+  const featureResponse = await request('/registry/features', { token: 'real-model-token', body: {
+    name: 'empty', version: '1', content_hash: configurationHash({}), contract: {}
+  } });
+  assert.equal(featureResponse.status, 201);
+  const feature = featureResponse.payload;
+  const experimentResponse = await request('/registry/experiments', { token: 'real-model-token', body: {
+    dataset_version_id: dataset.id, feature_version_id: feature.id,
+    spec: { candidate: 'mean_baseline', holdout_season: 2025, baseline_mae: 999999, min_validation_rows: 1 }
+  } });
+  assert.equal(experimentResponse.status, 201);
+  const experiment = experimentResponse.payload;
+  const backtestResponse = await request(`/registry/experiments/${experiment.id}/backtests`, { token: 'real-model-token', body: { status: 'completed', result: { gates } } });
+  assert.equal(backtestResponse.status, 201, JSON.stringify(backtestResponse.payload));
+  const backtest = backtestResponse.payload;
+  assert.equal(backtest.result.verified_by, 'server:walk-forward:v1');
+  assert.equal(backtest.result.mae, 1);
+  assert.equal(backtest.result.baseline_mae, 2);
+  assert.equal(row('SELECT value FROM model_metrics WHERE backtest_id=? AND metric=?', backtest.id, 'mae').value, 1);
+  const promoted = await request(`/registry/experiments/${experiment.id}/promote`, { token: 'real-model-token' });
+  assert.equal(promoted.status, 200);
+});
+
+test('persisted bearer session without a grant is forbidden', () => {
+  run(`INSERT INTO users (subject) VALUES ('model:unprivileged')`);
+  const userId = row(`SELECT id FROM users WHERE subject='model:unprivileged'`).id;
+  run(`INSERT INTO auth_sessions (user_id,token_hash,expires_at) VALUES (?,?,datetime('now','+1 day'))`, userId, hashSessionToken('unprivileged-token'));
+  let status = null;
+  requireModelPermission('model:promote')({ get: n => n === 'authorization' ? 'Bearer unprivileged-token' : null }, {
+    status(code) { status = code; return this; }, json() {}
+  }, () => assert.fail('must not advance'));
   assert.equal(status, 403);
-  assert.equal(advanced, false);
 });
 
 test('fresh install applies model registry migration and enforces foreign keys and constraints', () => {
@@ -60,7 +144,7 @@ test('registry persists across store reconstruction and blocks failed promotion 
   const restarted = new SqliteModelStore(db);
   assert.equal(restarted.get(eligible.id).status, 'completed');
   assert.equal(restarted.production().experiment_id, eligible.id);
-  assert.equal(row('SELECT COUNT(*) n FROM model_promotion_history').n, 1);
+  assert.equal(row('SELECT COUNT(*) n FROM model_promotion_history WHERE experiment_id=?', eligible.id).n, 1);
 });
 
 test('rollback is gated, persisted, and audit entries require authenticated actors', () => {
@@ -90,8 +174,10 @@ test('partial seed reconciliation is transactional and independently idempotent'
 });
 
 test('latest migration down and re-up are transactional and reproducible', async () => {
+  assert.equal(await rollbackMigration('007_model_permissions_and_upgrade_guard'), '007_model_permissions_and_upgrade_guard');
+  assert.equal(await rollbackMigration('006_identity_and_draft_authorization'), '006_identity_and_draft_authorization');
   assert.equal(await rollbackMigration('005_model_registry_integrity'), '005_model_registry_integrity');
   assert.equal(row(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_dataset_versions'`).n, 0);
-  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity']);
+  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard']);
   assert.ok(row(`SELECT name FROM schema_migrations WHERE name='005_model_registry_integrity'`));
 });

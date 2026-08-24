@@ -120,6 +120,15 @@ test('queues are owner-scoped while commissioners can correct draft state', asyn
   assert.equal((await request(`/${draftId}/picks/last`, { method: 'DELETE', token: commissioner.token })).status, 200);
 });
 
+test('main draft response derives my slot and queue from authenticated ownership', async () => {
+  const one = await request(`/${draftId}`, { token: ownerOne.token });
+  const two = await request(`/${draftId}`, { token: ownerTwo.token });
+  assert.equal(one.payload.my_slot, 1);
+  assert.equal(two.payload.my_slot, 2);
+  assert.equal(one.payload.queue.length, 1);
+  assert.equal(two.payload.queue.length, 0);
+});
+
 test('service layer fails closed without an authenticated actor', async () => {
   const { makePick, setQueue, setPaused } = await import('../server/draft/store.js');
   const [player] = rows(`SELECT id FROM players WHERE fantasy_relevant = 1

@@ -54,6 +54,13 @@ export default function MyTeam() {
   const { data: scout } = useApi<any>(scoutUrl);
   const diffUrl = active && synced && myTeamId ? `/trades/${active.id}/lineup-diff?team_id=${myTeamId}` : null;
   const { data: lineupDiff } = useApi<any>(diffUrl);
+  // The season-sim engine (title/playoff odds) and selfScout (weekly floor/ceiling)
+  // already compute everything a "digital twin" needs — this was never assembled
+  // into one place before. Championship odds existed only buried in Fantasy Lab,
+  // for the whole league, with no way to jump straight to your own team's numbers.
+  const simUrl = active && synced ? `/model/${active.id}/simulate?runs=1500` : null;
+  const { data: sim } = useApi<any>(simUrl);
+  const myTwin = sim?.teams?.find((t: any) => String(t.roster_id) === String(myTeamId));
 
   // Once the engine resolves a default team (from the league's saved my_team_id, or
   // its own first-team fallback), reflect that in the picker — without this the
@@ -152,6 +159,44 @@ export default function MyTeam() {
       </p>
 
       {lgError && !lg && <PageError message={lgError} onRetry={refetchData} />}
+
+      {synced && myTwin && (
+        <div className="card p-4 mb-4">
+          <h3 className="text-sm font-bold text-slate-700 mb-3">Your title odds right now</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Championship</div>
+              <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.title_odds * 100).toFixed(1)}%</div>
+              {myTwin.title_odds_95 && (
+                <div className="text-[10px] text-slate-400 tabular-nums">
+                  {(myTwin.title_odds_95[0] * 100).toFixed(1)}–{(myTwin.title_odds_95[1] * 100).toFixed(1)}% range
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Make playoffs</div>
+              <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.playoff_odds * 100).toFixed(0)}%</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">Expected record</div>
+              <div className="text-xl font-bold text-slate-800 tabular-nums">{myTwin.expected_wins}W</div>
+            </div>
+            {scout?.spread?.floor != null && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">Weekly range</div>
+                <div className="text-sm font-bold text-slate-800 tabular-nums">
+                  <span className="text-crit">{scout.spread.floor}</span>
+                  <span className="text-slate-300 mx-1">–</span>
+                  <span className="text-good">{scout.spread.ceiling}</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-2">
+            {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, real playoff bracket weeks 15–17.
+          </p>
+        </div>
+      )}
 
       {!lgLoading && active && !synced && (
         <div className="card p-6 text-sm text-slate-600 mb-4">

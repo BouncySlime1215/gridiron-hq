@@ -36,6 +36,8 @@ const commissioner = user('auth:commissioner', 'commissioner', 'commissioner-sec
 const ownerOne = user('auth:owner-one', 'member', 'owner-one-secret');
 const ownerTwo = user('auth:owner-two', 'member', 'owner-two-secret');
 const outsider = user('auth:outsider', 'member', 'outsider-secret');
+run(`INSERT INTO users (subject) VALUES ('auth:non-member')`);
+const nonMemberId = row(`SELECT id FROM users WHERE subject='auth:non-member'`).id;
 
 const app = express();
 app.use(express.json());
@@ -114,6 +116,8 @@ test('queues are owner-scoped while commissioners can correct draft state', asyn
   const [queued] = rows(`SELECT id FROM players WHERE fantasy_relevant = 1
                          AND id NOT IN (SELECT player_id FROM draft_picks WHERE draft_id = ?) LIMIT 1`, draftId);
   assert.equal((await request(`/${draftId}/queue`, { method: 'PUT', token: ownerOne.token, body: { team_slot: 2, player_ids: [queued.id] } })).status, 403);
+  assert.equal((await request(`/${draftId}/queue?team_slot=1`, { token: commissioner.token })).status, 403);
+  assert.equal((await request(`/${draftId}/queue`, { method: 'PUT', token: commissioner.token, body: { team_slot: 1, player_ids: [queued.id] } })).status, 403);
   assert.equal((await request(`/${draftId}/queue`, { method: 'PUT', token: ownerOne.token, body: { team_slot: 1, player_ids: [queued.id] } })).status, 200);
 
   assert.equal((await request(`/${draftId}/picks/last`, { method: 'DELETE', token: ownerOne.token })).status, 403);
@@ -151,6 +155,8 @@ test('identity migration has constraints, foreign keys, and a working rollback',
   const membershipFks = rows(`PRAGMA foreign_key_list(league_memberships)`);
   assert.deepEqual(new Set(membershipFks.map(fk => fk.table)), new Set(['leagues', 'users']));
   assert.throws(() => run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?, 'admin')`, leagueId, ownerOne.userId), /CHECK constraint/);
+  assert.throws(() => run(`UPDATE draft_team_ownership SET team_slot = 3 WHERE draft_id = ? AND user_id = ?`, draftId, ownerTwo.userId), /valid slot/);
+  assert.throws(() => run(`UPDATE draft_team_ownership SET user_id = ? WHERE draft_id = ? AND user_id = ?`, nonMemberId, draftId, ownerTwo.userId), /league member/);
 
   const rollbackDb = new DatabaseSync(':memory:');
   rollbackDb.exec(`CREATE TABLE leagues (id INTEGER PRIMARY KEY); CREATE TABLE drafts (id INTEGER PRIMARY KEY, team_count INTEGER, league_row_id INTEGER);`);

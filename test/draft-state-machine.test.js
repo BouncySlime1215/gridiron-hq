@@ -33,13 +33,21 @@ const leagueId = row('SELECT id FROM leagues WHERE league_id = ?', 'draft-state'
 run(`INSERT INTO users (subject, display_name) VALUES ('test:commissioner', 'Commissioner')`);
 const commissioner = { userId: row('SELECT id FROM users WHERE subject = ?', 'test:commissioner').id };
 run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,'commissioner')`, leagueId, commissioner.userId);
+run(`INSERT INTO users (subject, display_name) VALUES ('test:owner-two', 'Owner Two')`);
+const ownerTwo = { userId: row('SELECT id FROM users WHERE subject = ?', 'test:owner-two').id };
+run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,'member')`, leagueId, ownerTwo.userId);
 
-const makePick = args => securedMakePick({ ...args, actor: args.actor ?? commissioner });
+// State-machine tests exercise the commissioner's explicit mock-simulation
+// path. HTTP authorization tests separately cover ordinary owner submissions.
+const makePick = args => securedMakePick({ source: 'cpu', ...args, actor: args.actor ?? commissioner });
 const undoLastPick = args => securedUndoLastPick({ ...args, actor: args.actor ?? commissioner });
 const redoLastUndo = args => securedRedoLastUndo({ ...args, actor: args.actor ?? commissioner });
 const correctLastPick = args => securedCorrectLastPick({ ...args, actor: args.actor ?? commissioner });
 const setPaused = args => securedSetPaused({ ...args, actor: args.actor ?? commissioner });
-const setQueue = args => securedSetQueue({ ...args, actor: args.actor ?? commissioner });
+const setQueue = args => securedSetQueue({
+  ...args,
+  actor: args.actor ?? { userId: row('SELECT user_id FROM draft_team_ownership WHERE draft_id=? AND team_slot=?', args.draftId, args.teamSlot).user_id }
+});
 
 function makeDraft({ team_count = 4, rounds = 3, my_slot = 1, order_type = 'snake', roster_positions = null } = {}) {
   run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, pick_seconds, order_type, roster_positions, league_row_id)
@@ -47,6 +55,9 @@ function makeDraft({ team_count = 4, rounds = 3, my_slot = 1, order_type = 'snak
     team_count, rounds, my_slot, order_type, roster_positions ? JSON.stringify(roster_positions) : null, leagueId);
   const draft = row('SELECT * FROM drafts WHERE id = last_insert_rowid()');
   run('INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)', draft.id, my_slot, commissioner.userId);
+  if (team_count >= 2 && my_slot !== 2) {
+    run('INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)', draft.id, 2, ownerTwo.userId);
+  }
   return draft;
 }
 

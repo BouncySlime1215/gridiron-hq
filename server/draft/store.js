@@ -262,7 +262,7 @@ export function setQueue({ draftId, teamSlot, playerIds, actor = null }) {
   return withTransaction(() => {
     const draft = requireDraft(draftId);
     const access = memberActor(actor, draft);
-    if (access.role !== 'commissioner' && !ownsDraftTeam(access.userId, draftId, teamSlot)) {
+    if (!ownsDraftTeam(access.userId, draftId, teamSlot)) {
       throw new AuthorizationError('team ownership required');
     }
     run('DELETE FROM draft_queue WHERE draft_id = ? AND team_slot = ?', draftId, teamSlot);

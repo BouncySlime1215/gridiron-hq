@@ -40,6 +40,14 @@ export function up(db) {
         WHERE d.id = NEW.draft_id AND NEW.team_slot <= d.team_count
       ) THEN RAISE(ABORT, 'draft owner must be a league member with a valid slot') END;
     END;
+    CREATE TRIGGER IF NOT EXISTS validate_draft_team_owner_update
+    BEFORE UPDATE OF draft_id, team_slot, user_id ON draft_team_ownership BEGIN
+      SELECT CASE WHEN NOT EXISTS (
+        SELECT 1 FROM drafts d JOIN league_memberships lm
+          ON lm.league_id = d.league_row_id AND lm.user_id = NEW.user_id
+        WHERE d.id = NEW.draft_id AND NEW.team_slot > 0 AND NEW.team_slot <= d.team_count
+      ) THEN RAISE(ABORT, 'draft owner must be a league member with a valid slot') END;
+    END;
     -- The legacy database runner does not yet enable PRAGMA foreign_keys.
     -- These triggers make the owned identity relationships enforce and cascade
     -- today, while the REFERENCES clauses remain ready for the global FK audit.
@@ -71,6 +79,7 @@ export function down(db) {
     DROP TRIGGER IF EXISTS cascade_user_identity_delete;
     DROP TRIGGER IF EXISTS validate_league_membership_refs;
     DROP TRIGGER IF EXISTS validate_auth_session_user;
+    DROP TRIGGER IF EXISTS validate_draft_team_owner_update;
     DROP TRIGGER IF EXISTS validate_draft_team_owner_insert;
     DROP TABLE IF EXISTS draft_team_ownership; DROP TABLE IF EXISTS league_memberships;
     DROP TABLE IF EXISTS auth_sessions; DROP TABLE IF EXISTS users;

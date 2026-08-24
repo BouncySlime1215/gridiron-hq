@@ -120,6 +120,23 @@ test('model wildcard grant works at middleware and registry service layers', () 
   const experiment = registry.create({ model: 'wildcard', nonce: 100 }, wildcard);
   registry.transition(experiment.id, 'completed', { result: { gates } });
   assert.equal(registry.promote(experiment.id, wildcard).active, experiment.id);
+  const cancellable = registry.create({ model: 'wildcard-cancel', nonce: 101 }, wildcard);
+  assert.equal(registry.cancel(cancellable.id, wildcard).cancellation_requested, true);
+  assert.throws(() => registry.cancel(experiment.id, trainer), /model:cancel required/);
+});
+
+test('persisted wildcard grant authorizes exact HTTP permissions', () => {
+  run(`INSERT INTO users (subject) VALUES ('model:wildcard')`);
+  const wildcardId = row(`SELECT id FROM users WHERE subject='model:wildcard'`).id;
+  run(`INSERT INTO auth_sessions (user_id,token_hash,expires_at) VALUES (?,?,datetime('now','+1 day'))`, wildcardId, hashSessionToken('wildcard-token'));
+  run(`INSERT INTO model_permissions (user_id,permission) VALUES (?, 'model:*')`, wildcardId);
+  for (const permission of ['model:train', 'model:promote', 'model:execute', 'model:cancel']) {
+    let advanced = false;
+    requireModelPermission(permission)({ get: name => name === 'authorization' ? 'Bearer wildcard-token' : null }, {
+      status() { return this; }, json() {}
+    }, () => { advanced = true; });
+    assert.equal(advanced, true, permission);
+  }
 });
 
 test('server-run backtest persists verified metrics and gates promotion', async () => {
@@ -211,7 +228,14 @@ test('fresh install applies model registry migration and enforces foreign keys a
     assert.ok(db.prepare(`PRAGMA foreign_key_list(${table})`).all().some(fk => fk.from === column && fk.table === 'users'));
   }
   assert.throws(() => run(`INSERT INTO model_audit_log
-    (actor_id,actor_user_id,action,entity_type,details_json,created_at) VALUES ('missing',999999,'x','x','{}','now')`), /FOREIGN KEY/);
+    (actor_id,actor_user_id,action,entity_type,details_json,created_at) VALUES ('missing',999999,'x','x','{}','now')`), /persisted user|FOREIGN KEY/);
+  assert.throws(() => run(`INSERT INTO model_audit_log
+    (actor_id,actor_user_id,action,entity_type,details_json,created_at) VALUES ('missing',NULL,'x','x','{}','now')`), /persisted user/);
+  assert.throws(() => run(`INSERT INTO model_dataset_versions
+    (id,name,content_hash,row_count,cutoff_at,created_at,created_by,created_by_user_id)
+    VALUES ('missing-actor','x','missing-actor',0,'now','now','missing',NULL)`), /persisted user/);
+  const unpromoted = new ModelRegistry(new SqliteModelStore(db)).create({ model: 'promoter-guard', nonce: 102 }, trainer);
+  assert.throws(() => run(`UPDATE model_experiments SET promoted_at='now', promoted_by='missing', promoted_by_user_id=NULL WHERE id=?`, unpromoted.id), /persisted user/);
   assert.throws(() => run(`INSERT INTO model_metrics
     (experiment_id,split,metric,value,sample_size,recorded_at) VALUES ('missing','validation','mae',1,-1,'now')`));
 });
@@ -258,11 +282,35 @@ test('partial seed reconciliation is transactional and independently idempotent'
 });
 
 test('latest migration down and re-up are transactional and reproducible', async () => {
+  assert.equal(await rollbackMigration('009_authoritative_actor_and_ownership_guards'), '009_authoritative_actor_and_ownership_guards');
   assert.equal(await rollbackMigration('008_model_actor_foreign_keys'), '008_model_actor_foreign_keys');
   assert.equal(await rollbackMigration('007_model_permissions_and_upgrade_guard'), '007_model_permissions_and_upgrade_guard');
   assert.equal(await rollbackMigration('006_identity_and_draft_authorization'), '006_identity_and_draft_authorization');
   assert.equal(await rollbackMigration('005_model_registry_integrity'), '005_model_registry_integrity');
   assert.equal(row(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_dataset_versions'`).n, 0);
-  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys']);
+  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards']);
   assert.ok(row(`SELECT name FROM schema_migrations WHERE name='005_model_registry_integrity'`));
+});
+
+test('representative legacy provenance upgrade quarantines unmatched actors and enforces new writes', async () => {
+  const upgradeDb = new (await import('node:sqlite')).DatabaseSync(':memory:');
+  upgradeDb.exec(`PRAGMA foreign_keys=ON;
+    CREATE TABLE leagues (id INTEGER PRIMARY KEY);
+    CREATE TABLE drafts (id INTEGER PRIMARY KEY, team_count INTEGER, league_row_id INTEGER);`);
+  for (const file of ['004_model_lab', '005_model_registry_integrity', '006_identity_and_draft_authorization',
+    '007_model_permissions_and_upgrade_guard']) {
+    const migration = await import(`../server/migrations/${file}.js`);
+    migration.up(upgradeDb);
+  }
+  upgradeDb.exec(`INSERT INTO model_audit_log
+    (actor_id,action,entity_type,details_json,created_at) VALUES ('legacy-subject','legacy','experiment','{}','now')`);
+  (await import('../server/migrations/008_model_actor_foreign_keys.js')).up(upgradeDb);
+  (await import('../server/migrations/009_authoritative_actor_and_ownership_guards.js')).up(upgradeDb);
+  assert.equal(upgradeDb.prepare(`SELECT actor_value FROM model_actor_provenance_quarantine
+    WHERE source_table='model_audit_log'`).get().actor_value, 'legacy-subject');
+  assert.equal(upgradeDb.prepare(`SELECT actor_id FROM model_audit_log`).get().actor_id, 'legacy-subject');
+  assert.throws(() => upgradeDb.prepare(`INSERT INTO model_audit_log
+    (actor_id,actor_user_id,action,entity_type,details_json,created_at) VALUES ('new',NULL,'x','x','{}','now')`).run(), /persisted user/);
+  assert.deepEqual(upgradeDb.prepare('PRAGMA foreign_key_check').all(), []);
+  upgradeDb.close();
 });

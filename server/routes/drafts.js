@@ -574,10 +574,10 @@ r.post('/:id/pause', (req, res, next) => {
 /** A team's queue, in priority order. */
 r.get('/:id/queue', (req, res, next) => {
   try {
-    const { draft, membership } = draftAccess(req, req.params.id);
+    const { draft } = draftAccess(req, req.params.id);
     const teamSlot = Number(req.query.team_slot) || ownedSlot(req, draft);
     if (!Number.isInteger(teamSlot) || teamSlot < 1 || teamSlot > draft.team_count) return res.status(400).json({ error: 'invalid team_slot' });
-    if (membership.role !== 'commissioner' && !ownsDraftTeam(req.auth.userId, draft.id, teamSlot)) throw new AuthorizationError('team ownership required');
+    if (!ownsDraftTeam(req.auth.userId, draft.id, teamSlot)) throw new AuthorizationError('team ownership required');
     res.json(getQueue(req.params.id, teamSlot));
   } catch (e) { next(e); }
 });

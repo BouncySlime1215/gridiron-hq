@@ -100,7 +100,13 @@ main tbody tr:hover { background: rgb(0 0 0 / .025); }
 .bg-emerald-500, .bg-emerald-600 { background-color: var(--accent) !important; color: #fff !important; }
 .bg-emerald-500 *, .bg-emerald-600 * { color: inherit; }
 .bg-emerald-50, .bg-emerald-100 { background-color: var(--accent-tint) !important; color: var(--accent) !important; }
-.border-emerald-200, .border-emerald-300, .border-emerald-400, .border-emerald-500 { border-color: var(--edge) !important; }
+/* -200/-300 are almost always a pale decorative/hover border — stay neutral.
+   -500 is almost always a "selected tab" underline or an urgent/accent rule
+   (grep confirms this app-wide) — it needs to stay colored or "selected" stops
+   reading as selected once the underline goes the same neutral grey as everything
+   else's border. */
+.border-emerald-200, .border-emerald-300, .border-emerald-400 { border-color: var(--edge) !important; }
+.border-emerald-500 { border-color: var(--accent) !important; }
 .hover\:bg-emerald-50:hover { background-color: var(--accent-tint) !important; }
 .hover\:border-emerald-400:hover, .hover\:border-emerald-500:hover, .hover\:border-emerald-700:hover { border-color: var(--accent) !important; }
 .hover\:bg-emerald-500:hover, .hover\:bg-emerald-600:hover { background-color: var(--accent-strong) !important; }

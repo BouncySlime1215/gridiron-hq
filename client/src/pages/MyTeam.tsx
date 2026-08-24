@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, useApi } from '../api';
+import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
 import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
+import { Headshot } from '../components/PlayerRow';
 
 /**
  * My Team, for whichever league is active in the header.
@@ -184,26 +185,32 @@ export default function MyTeam() {
                 <div className="grid md:grid-cols-2 gap-4 mt-4">
                   <div className="card p-4">
                     <h3 className="text-sm font-bold text-slate-700 mb-2">Starters</h3>
-                    {scout.lineup.slots.map((s: any, i: number) => (
-                      <div key={i} className="flex gap-2 text-sm py-0.5">
-                        <span className="text-slate-500 text-xs w-10">{s.slot}</span>
-                        {s.player ? (
-                          <>
-                            <span>{s.player.name}</span>
-                            <span className={`ml-auto text-xs pos-${s.player.position}`}>{s.player.position}</span>
-                          </>
-                        ) : <span className="text-rose-500 text-xs">— empty —</span>}
-                      </div>
-                    ))}
+                    <div className="space-y-1">
+                      {scout.lineup.slots.map((s: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2.5 py-1">
+                          <span className="text-[var(--muted)] text-[10px] font-semibold w-10 shrink-0 uppercase tracking-wide">{s.slot}</span>
+                          {s.player ? (
+                            <>
+                              <Headshot src={headshotUrl(s.player)} pos={s.player.position} size={30} />
+                              <span className="text-sm font-medium text-[var(--ink)] truncate">{s.player.name}</span>
+                              <span className={`ml-auto text-[10px] font-semibold pos-${s.player.position}`}>{s.player.position}</span>
+                            </>
+                          ) : <span className="text-crit text-xs">— empty —</span>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="card p-4">
                     <h3 className="text-sm font-bold text-slate-700 mb-2">Bench</h3>
-                    {scout.lineup.bench.map((p: any) => (
-                      <div key={p.id} className="flex gap-2 text-sm py-0.5 text-slate-600">
-                        <span className={`text-xs w-10 pos-${p.position}`}>{p.position}</span>
-                        <span>{p.name}</span>
-                      </div>
-                    ))}
+                    <div className="space-y-1">
+                      {scout.lineup.bench.map((p: any) => (
+                        <div key={p.id} className="flex items-center gap-2.5 py-1">
+                          <Headshot src={headshotUrl(p)} pos={p.position} size={28} />
+                          <span className="text-sm text-[var(--ink)]/85 truncate">{p.name}</span>
+                          <span className={`ml-auto text-[10px] font-semibold pos-${p.position}`}>{p.position}</span>
+                        </div>
+                      ))}
+                    </div>
                     {scout.lineup.bench.length === 0 && <p className="text-xs text-slate-400">No bench depth logged yet.</p>}
                   </div>
                 </div>

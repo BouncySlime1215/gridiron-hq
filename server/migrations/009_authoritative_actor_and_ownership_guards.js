@@ -72,6 +72,17 @@ export function up(db) {
       WHERE user_id = OLD.user_id
         AND draft_id IN (SELECT id FROM drafts WHERE league_row_id = OLD.league_id);
     END;
+    CREATE TRIGGER IF NOT EXISTS validate_draft_ownership_membership_update
+    BEFORE UPDATE OF league_id, user_id ON league_memberships
+    WHEN (NEW.league_id != OLD.league_id OR NEW.user_id != OLD.user_id)
+      AND EXISTS (
+        SELECT 1 FROM draft_team_ownership dto
+        JOIN drafts d ON d.id = dto.draft_id
+        WHERE dto.user_id = OLD.user_id AND d.league_row_id = OLD.league_id
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'membership update would invalidate draft ownership');
+    END;
     CREATE TRIGGER IF NOT EXISTS validate_draft_ownership_parent_update
     BEFORE UPDATE OF team_count, league_row_id ON drafts
     WHEN EXISTS (
@@ -94,6 +105,7 @@ export function down(db) {
   }
   db.exec(`DROP TRIGGER IF EXISTS model_experiments_promoter_required_update;
     DROP TRIGGER IF EXISTS validate_draft_ownership_parent_update;
+    DROP TRIGGER IF EXISTS validate_draft_ownership_membership_update;
     DROP TRIGGER IF EXISTS cascade_draft_ownership_membership_delete;
     DROP TABLE IF EXISTS model_actor_provenance_quarantine;`);
 }

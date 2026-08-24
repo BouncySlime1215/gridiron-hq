@@ -181,6 +181,34 @@ at all for draft/trade/league workflows, and `typecheck`/`check` scripts.
 
 Phase 0 is now done end to end. Moving to Phase 1.
 
+## Phase 1 — two flagship items done (2026-08-24), commits `6efc224`, `7784414`
+
+Not attempting all six Phase 1 sub-items from the audit in one pass (draft
+queue, waiver prescription, and trade counteroffers are still open) — these
+two were the highest-value and most directly buildable off data the app
+already computes, so did them for real rather than partial-stubbing more:
+
+1. **Decision Inbox** (`GET /api/trades/:leagueId/inbox`, Dashboard "Today's
+   priorities" card). Deliberately not a new analysis engine — merges
+   selfScout's own prioritized fixes list, findTrades' real mutual-win
+   deals, and MAJOR news scoped to teams your actual rostered players play
+   for (not a global news skim) into one ranked queue. The Dashboard was
+   pure navigation before this; it now actually says what needs attention.
+2. **Submitted-vs-recommended lineup** (`GET /api/trades/:leagueId/
+   lineup-diff`, My Team card). ESPN's synced payload already carries a
+   real per-player `lineupSlotId` — reads that, compares against
+   bestLineup()'s optimal choice, surfaces the exact start/bench swap.
+   ESPN-only (Sleeper stores starters in a different shape not read yet,
+   consistent with other platform gaps already in the app). Found and fixed
+   a false positive while building it: K/DEF are deliberately outside the
+   lineup optimizer's scoring (near-random week to week, per this file's
+   own header) but the diff's naive comparison was flagging every started
+   K/DEF as "should bench" purely because the optimizer never touches them
+   — filtered them out of the comparison.
+
+`npm run check` clean (45/45 tests, typecheck, build) after each. Moving to
+Phase 2.
+
 ## Full platform audit — response
 
 Read `CODEX_SUGGESTIONS.md` in full. Given the scope (this is explicitly not

@@ -56,6 +56,63 @@ This needs a coherent data-model decision rather than a route-only patch:
 5. Return a terminal, visible error when a draft pool is exhausted; do not let the client repeatedly call `cpu-pick` without progress.
 6. Add a verification case that completes a 12-team x 16-round offline mock with 192 unique picks and the intended K/DEF roster behavior.
 
-## Integration handoff needed
+## Integration handoff — resolved 2026-08-24
 
-The user referenced new `LiveDraft.tsx`, `server/services/espn-draft.js`, `server/services/draft-assist.js`, and live-draft routes, but those files are not currently present in the main checkout or the registered `session/wary-thrush-6yba` worktree. Please land/save them in a registered worktree and update `CODEX_REVIEW.md` with the claimed K/DEF recommender diff and verification so Codex can perform the independent audit.
+Found the actual location: all of that work (LiveDraft.tsx, espn-draft.js,
+draft-assist.js, plus everything since) has been happening in a third checkout
+neither the main checkout nor `session/wary-thrush-6yba` — it's
+`/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard` on branch
+`feat/model-honest-rebuild`, which is the actual instance the user runs (port
+5177). That branch has now been **pushed to origin**:
+`git fetch && git log origin/feat/model-honest-rebuild` (or check it out) to
+review everything below. It was 50 commits ahead of `origin/main` before this
+push, so expect real divergence, not a small diff.
+
+Full change-by-change rationale for the draft/trade/color-system work lives in
+`CODEX_REVIEW.md` **on that branch** (not on `main` — it hasn't been merged).
+Summary of what's landed there so far, roughly newest-first:
+
+- Live-draft ESPN sync: fixed a bad D/ST-id detection heuristic that silently
+  dropped defense picks, a catch-all that swallowed real insert errors as if
+  they were the one expected case, a team-id-not-in-pick-order path that
+  corrupted `team_slot` instead of skipping/retrying, and added in-flight
+  guards (server per-draft, client per-tick) plus a `desynced` flag surfaced
+  in the UI. Explicitly flagged in that doc as untested against a real live
+  ESPN draft — worth Codex exercising directly if possible.
+- Trade Lab: wired the league needs/surplus/contention-window analysis
+  (`analyzeLeague()` in `tradelab.js` — was computed but never called from
+  anywhere the UI hits) into the actual `findTrades`/`offerFor` path, so
+  suggestions now hard-block packages that would leave a team with an empty
+  starting slot and flag ones that dig into a real need. Added an AI
+  "sense-check" endpoint that's explicitly allowed to disagree with the
+  engine's own verdict, grounded only in real per-player data handed to it.
+- Full color-system rebuild: the previous global reskin (`index.css`
+  `!important` class overrides) washed every solid/selected state to pale
+  blue, killing visual hierarchy app-wide; replaced with real tokens and then
+  hunted down every place that regressed a real green=good/red=bad meaning
+  across ~15 files, plus a couple of genuine bugs the rebuild surfaced
+  (`analyzeLeague` wasn't exported; `border-emerald-500` — the "selected tab"
+  class app-wide — had been mapped to a neutral color).
+- Removed a confirmed-dead code path: `Settings.tsx`'s manual ESPN league
+  form wrote to `espn_settings`, which nothing has read since My Team/Trade
+  Lab moved to the real `leagues` table — editing it silently did nothing
+  anywhere else in the app.
+- New `GET /api/nfl/:abbr/schedule`: merges `schedule_games` with
+  `game_lines` (spread/total/final score) and `scheduleOutlook()`'s
+  defense-vs-position multipliers (already used elsewhere in the app, never
+  surfaced on the team schedule itself) into a real week-by-week view with
+  tap-to-expand matchup detail, replacing a schedule grid that was just
+  WK#/opponent chips with zero matchup information.
+- Real headshots added everywhere they were missing (Trade Lab, My Team,
+  Player Detail); FormationView.tsx's X's-and-O's diagram retoned to match
+  (it's inline SVG, invisible to the class-based color remap, so it was the
+  one surface still on the old palette).
+
+## Full platform audit — response
+
+Read `CODEX_SUGGESTIONS.md` in full. Given the scope (this is explicitly not
+a one-pass request per the document's own framing), working through it in the
+order the document itself recommends rather than attempting everything at
+once — starting with the Phase 0 items, folded in alongside the 32
+Teams/Fantasy Lab work already in flight from the user's direct feedback this
+session. Will update this file again as that lands.

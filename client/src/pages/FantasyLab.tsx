@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Edge from './Edge';
 import Model from './Model';
+import { useApi } from '../api';
 
 /**
  * Edge Tools and the Prediction Engine, merged into one hub.
@@ -26,7 +27,7 @@ const GROUPS = [
   {
     id: 'engine', label: 'Prediction Engine', blurb: 'How the underlying model itself is doing, and why', source: 'model' as const,
     tabs: [
-      ['accuracy', 'Accuracy'], ['odds', 'Championship Odds'],
+      ['registry', 'Registry'], ['accuracy', 'Accuracy'], ['odds', 'Championship Odds'],
       ['correlation', 'Correlation'], ['gamescript', 'Game Script'],
       ['handcuffs', 'Handcuffs']
     ] as [string, string][]
@@ -41,6 +42,7 @@ const BLURB: Record<string, string> = {
   schedule: 'Weeks 15-17 strength, ranked easiest to hardest',
   sim: 'Monte Carlo your lineup from real distributions',
   accuracy: 'How the model scores against the baselines it has to beat',
+  registry: 'Persisted experiments, provenance, metrics, promotion history, and the production pointer',
   odds: 'Championship odds from a correlated season simulation',
   correlation: 'What rises together, and what cannot',
   gamescript: 'What the betting line predicts about volume',
@@ -94,9 +96,32 @@ export default function FantasyLab() {
       </div>
       <p className="text-xs text-slate-400 mb-4">{BLURB[tab] ?? ''}</p>
 
-      {active.source === 'edge'
+      {tab === 'registry' ? <Registry /> : active.source === 'edge'
         ? <Edge tab={tab as any} embedded />
         : <Model tab={tab as any} embedded />}
     </div>
   );
+}
+
+function Registry() {
+  const { data, loading, error } = useApi<any>('/model/registry');
+  if (loading) return <div className="text-sm text-slate-500">Loading persisted registry…</div>;
+  if (error) return <div className="text-sm text-red-600">Registry unavailable: {String(error)}</div>;
+  const experiments = data?.experiments ?? [];
+  return <div className="space-y-4">
+    <div className="grid sm:grid-cols-4 gap-3">
+      {[['Production', data?.production?.experiment_id?.slice(0, 12) ?? 'None'], ['Experiments', experiments.length],
+        ['Datasets', data?.datasets?.length ?? 0], ['Feature versions', data?.features?.length ?? 0]].map(([label, value]) =>
+        <div key={String(label)} className="card p-3"><div className="text-xs text-slate-500">{label}</div><div className="font-semibold mt-1">{value}</div></div>)}
+    </div>
+    {!experiments.length ? <div className="card p-4 text-sm text-slate-500">No persisted experiments yet. Research analytics are not production models until registered and promoted through every gate.</div> :
+      <div className="card overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-slate-500 border-b">
+        <th className="p-3">Experiment</th><th className="p-3">Status</th><th className="p-3">Updated</th><th className="p-3">Gates</th>
+      </tr></thead><tbody>{experiments.map((x: any) => <tr key={x.id} className="border-b last:border-0">
+        <td className="p-3 font-mono text-xs">{x.id.slice(0, 16)}</td><td className="p-3">{x.status}</td>
+        <td className="p-3">{new Date(x.updated_at).toLocaleString()}</td>
+        <td className="p-3">{x.result?.gates ? Object.values(x.result.gates).filter(Boolean).length + '/' + Object.keys(x.result.gates).length : '—'}</td>
+      </tr>)}</tbody></table></div>}
+    <p className="text-xs text-slate-400">Promotion and rollback require authenticated model privileges and are recorded in the immutable audit history.</p>
+  </div>;
 }

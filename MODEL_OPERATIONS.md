@@ -72,3 +72,25 @@ Missing confirmed lineups, probable starters, pregame snapshots, or real quotes 
 - `POST /api/mlb/evidence/capture`
 
 Promotion endpoints reject blocked audits. This makes a UI or API mistake incapable of bypassing the evidence standard.
+
+## Persisted registry and release commands
+
+The production registry is `GET /api/model/registry`. Its mutation endpoints
+require an authenticated principal supplied by the platform identity middleware
+with `model:train`, `model:promote`, or `model:*`; client-supplied role headers
+are never accepted. NFL/MLB research experiment tables remain supported analytics
+inputs but are not production pointers. Only `model_production_pointer` and
+`model_promotion_history` represent production state.
+
+Use an explicit database path for reproducible release work:
+
+```sh
+GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite npm run db:migrate
+GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite npm run db:rollback -- 005_model_registry_integrity
+GRIDIRON_DB_PATH=/absolute/path/gridiron.sqlite npm run db:migrate
+```
+
+Rollback is deliberately one migration at a time, refuses an unexpected target,
+and runs the migration `down()` plus migration-record removal in one transaction.
+Back up the SQLite file (including `-wal` and `-shm` companions when present)
+before a production rollback. Migration verification runs `foreign_key_check`.

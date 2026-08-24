@@ -21,9 +21,14 @@ import { resolvePlayer, assetUniverse, loadRosters } from '../services/trade-eng
 import { deriveFormat } from '../services/format.js';
 import { withRandomSeed } from '../services/stats-util.js';
 import { requireLeagueId } from '../modeling/league-context.js';
+import { configurationHash } from '../modeling/contracts.js';
+import { ModelRegistry } from '../modeling/registry.js';
+import { SqliteModelStore, recordModelAudit, registrySnapshot } from '../modeling/sqlite-store.js';
+import { requireModelPermission } from '../modeling/authz.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
+const registry = new ModelRegistry(new SqliteModelStore(db));
 
 /* ------------------------------------------------------------------ cache */
 const cache = new Map();
@@ -32,6 +37,114 @@ const memo = (key, fn) => {
   return cache.get(key);
 };
 export function clearModelCache() { cache.clear(); }
+
+/* ------------------------------------------------ persisted model registry */
+
+r.get('/registry', (_req, res, next) => {
+  try { res.json(registrySnapshot()); } catch (e) { next(e); }
+});
+
+r.post('/registry/datasets', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    const x = req.body ?? {};
+    if (!x.name || !x.content_hash || !x.cutoff_at || !Number.isInteger(x.row_count) || x.row_count < 0) {
+      return res.status(400).json({ error: 'name, content_hash, cutoff_at and non-negative integer row_count required' });
+    }
+    const id = x.id ?? configurationHash({ name: x.name, content_hash: x.content_hash });
+    db.prepare(`INSERT INTO model_dataset_versions
+      (id,name,content_hash,source_uri,row_count,cutoff_at,metadata_json,created_at,created_by)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(id, x.name, x.content_hash, x.source_uri ?? null, x.row_count, x.cutoff_at,
+        JSON.stringify(x.metadata ?? {}), new Date().toISOString(), String(req.modelPrincipal.id));
+    recordModelAudit(db, req.modelPrincipal, 'dataset.create', 'dataset', id, { content_hash: x.content_hash });
+    res.status(201).json(db.prepare('SELECT * FROM model_dataset_versions WHERE id=?').get(id));
+  } catch (e) { next(e); }
+});
+
+r.post('/registry/features', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    const x = req.body ?? {};
+    if (!x.name || !x.version || !x.content_hash || !x.contract) {
+      return res.status(400).json({ error: 'name, version, content_hash and contract required' });
+    }
+    const id = x.id ?? configurationHash({ name: x.name, version: x.version, content_hash: x.content_hash });
+    db.prepare(`INSERT INTO model_feature_versions
+      (id,name,version,contract_json,content_hash,created_at,created_by) VALUES (?,?,?,?,?,?,?)`)
+      .run(id, x.name, x.version, JSON.stringify(x.contract), x.content_hash, new Date().toISOString(), String(req.modelPrincipal.id));
+    recordModelAudit(db, req.modelPrincipal, 'feature.create', 'feature', id, { version: x.version });
+    res.status(201).json(db.prepare('SELECT * FROM model_feature_versions WHERE id=?').get(id));
+  } catch (e) { next(e); }
+});
+
+r.post('/registry/experiments', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    const { spec, dataset_version_id: datasetId, feature_version_id: featureId } = req.body ?? {};
+    if (!spec || !datasetId || !featureId) return res.status(400).json({ error: 'spec, dataset_version_id and feature_version_id required' });
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const experiment = registry.create(spec, req.modelPrincipal);
+      db.prepare(`INSERT INTO model_experiment_inputs (experiment_id,dataset_version_id,feature_version_id) VALUES (?,?,?)`)
+        .run(experiment.id, datasetId, featureId);
+      recordModelAudit(db, req.modelPrincipal, 'experiment.create', 'experiment', experiment.id, { datasetId, featureId });
+      db.exec('COMMIT');
+      res.status(201).json(experiment);
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  } catch (e) { next(e); }
+});
+
+r.post('/registry/experiments/:id/result', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    const result = req.body?.result;
+    if (!result?.gates) return res.status(400).json({ error: 'result.gates required' });
+    const experiment = registry.transition(req.params.id, 'completed', { result });
+    for (const metric of req.body?.metrics ?? []) {
+      db.prepare(`INSERT INTO model_metrics
+        (experiment_id,backtest_id,split,metric,value,sample_size,recorded_at) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(experiment_id,backtest_id,split,metric) DO UPDATE SET
+        value=excluded.value,sample_size=excluded.sample_size,recorded_at=excluded.recorded_at`)
+        .run(experiment.id, metric.backtest_id ?? null, metric.split, metric.metric, metric.value, metric.sample_size, new Date().toISOString());
+    }
+    recordModelAudit(db, req.modelPrincipal, 'experiment.complete', 'experiment', experiment.id, { metrics: req.body?.metrics?.length ?? 0 });
+    res.json(experiment);
+  } catch (e) { next(e); }
+});
+
+r.post('/registry/experiments/:id/backtests', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    if (!registry.store.get(req.params.id)) return res.status(404).json({ error: 'experiment not found' });
+    const x = req.body ?? {};
+    if (!['walk_forward', 'sealed_holdout'].includes(x.protocol)) return res.status(400).json({ error: 'supported protocol required' });
+    const id = x.id ?? configurationHash({ experiment: req.params.id, protocol: x.protocol });
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO model_backtests
+      (id,experiment_id,protocol,started_at,completed_at,status,result_json) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(experiment_id,protocol) DO UPDATE SET completed_at=excluded.completed_at,
+      status=excluded.status,result_json=excluded.result_json`)
+      .run(id, req.params.id, x.protocol, x.started_at ?? now, x.completed_at ?? null, x.status ?? 'queued',
+        x.result == null ? null : JSON.stringify(x.result));
+    recordModelAudit(db, req.modelPrincipal, 'backtest.persist', 'backtest', id, { experiment_id: req.params.id, protocol: x.protocol });
+    res.status(201).json(db.prepare('SELECT * FROM model_backtests WHERE id=?').get(id));
+  } catch (e) { next(e); }
+});
+
+r.post('/registry/experiments/:id/promote', requireModelPermission('model:promote'), (req, res, next) => {
+  try {
+    const inputs = db.prepare('SELECT 1 FROM model_experiment_inputs WHERE experiment_id=?').get(req.params.id);
+    const backtest = db.prepare(`SELECT 1 FROM model_backtests
+      WHERE experiment_id=? AND protocol='walk_forward' AND status='completed' AND result_json IS NOT NULL`).get(req.params.id);
+    if (!inputs || !backtest) return res.status(409).json({ error: 'promotion requires pinned dataset/features and a completed persisted walk-forward backtest' });
+    const out = registry.promote(req.params.id, req.modelPrincipal);
+    recordModelAudit(db, req.modelPrincipal, 'experiment.promote', 'experiment', req.params.id, out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+r.post('/registry/experiments/:id/rollback', requireModelPermission('model:promote'), (req, res, next) => {
+  try {
+    const out = registry.rollback(req.params.id, req.modelPrincipal);
+    recordModelAudit(db, req.modelPrincipal, 'experiment.rollback', 'experiment', req.params.id, out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
 
 const league = (req, res) => {
   const id = req.params.leagueId ?? req.query.league_id;
@@ -249,7 +362,7 @@ r.get('/status', (req, res) => {
 /* ------------------------------------------------------------------ sync */
 
 /** Pull everything the engine needs and refit every model. */
-r.post('/sync', async (req, res, next) => {
+r.post('/sync', requireModelPermission('model:train'), async (req, res, next) => {
   try {
     const seasons = (req.query.seasons ? String(req.query.seasons).split(',').map(Number)
       : [SEASON - 4, SEASON - 3, SEASON - 2, SEASON - 1]).filter(Boolean);

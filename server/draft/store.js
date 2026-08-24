@@ -1,5 +1,5 @@
 import { db, rows, row, run } from '../db/index.js';
-import { slotForPick, isDraftComplete } from './engine.js';
+import { slotForPick, isDraftComplete, assignRosterSlots, DEFAULT_ROSTER_POSITIONS } from './engine.js';
 
 export class DraftNotFoundError extends Error { constructor(msg) { super(msg); this.status = 404; } }
 export class DraftValidationError extends Error { constructor(msg) { super(msg); this.status = 400; } }
@@ -39,10 +39,21 @@ function logEvent(draftId, type, payload, actor, role) {
 }
 
 /** Bumps revision, recomputes the server-owned pick clock, and flips status to completed when done. */
+function toSqliteDatetime(ms) {
+  // Convert to SQLite's `YYYY-MM-DD HH:MM:SS` form so comparisons with
+  // datetime('now') work correctly inside SQL. Keep seconds precision.
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+function parseRosterPositions(json) {
+  if (!json) return DEFAULT_ROSTER_POSITIONS;
+  try { return JSON.parse(json); } catch { return DEFAULT_ROSTER_POSITIONS; }
+}
+
 function advanceDraftState(draft, picksMade) {
   const complete = isDraftComplete(draft, picksMade);
   const deadline = (!complete && draft.type === 'mock' && !draft.paused)
-    ? new Date(Date.now() + (draft.pick_seconds ?? 90) * 1000).toISOString()
+    ? toSqliteDatetime(Date.now() + (draft.pick_seconds ?? 90) * 1000)
     : null;
   run('UPDATE drafts SET revision = revision + 1, turn_deadline = ?, status = ? WHERE id = ?',
     deadline, complete ? 'completed' : 'active', draft.id);
@@ -80,7 +91,9 @@ export function makePick({ draftId, playerId, expectedRevision = null, idempoten
     const picksMade = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
     if (isDraftComplete(draft, picksMade)) throw new DraftValidationError('draft is complete');
 
-    if (!Number.isInteger(playerId) || !row('SELECT id FROM players WHERE id = ?', playerId)) {
+    // Validate player existence early so we can check position-related rules.
+    const playerRow = row('SELECT id, position FROM players WHERE id = ?', playerId);
+    if (!Number.isInteger(playerId) || !playerRow) {
       throw new DraftValidationError('player not found');
     }
     if (row('SELECT 1 FROM draft_picks WHERE draft_id = ? AND player_id = ?', draftId, playerId)) {
@@ -89,6 +102,24 @@ export function makePick({ draftId, playerId, expectedRevision = null, idempoten
 
     const pickNumber = picksMade + 1;
     const teamSlot = slotForPick(pickNumber, draft.team_count, draft.order_type);
+
+    // Enforce paused state: no user picks while paused.
+    if (draft.paused) throw new DraftValidationError('draft is paused');
+
+    // Enforce that non-privileged users may only pick when it's their slot.
+    if (role != null && (role !== 'commissioner' && role !== 'admin') && source === 'user') {
+      if (Number(draft.my_slot) !== Number(teamSlot)) throw new DraftValidationError('not on the clock');
+    }
+
+    // Basic roster/bench safety: disallow drafting if the team would exceed its bench cap.
+    const teamExisting = rows(`SELECT p.position FROM draft_picks dp JOIN players p ON p.id = dp.player_id WHERE dp.draft_id = ? AND dp.team_slot = ? ORDER BY dp.pick_number`, draftId, teamSlot)
+      .map(r => ({ position: r.position }));
+    const rosterPositions = parseRosterPositions(draft.roster_positions);
+    const afterAssign = assignRosterSlots([...teamExisting, { position: playerRow.position }], rosterPositions);
+    const benchCap = rosterPositions.BENCH ?? Infinity;
+    if ((afterAssign.bench?.length ?? 0) > benchCap && (role !== 'commissioner' && role !== 'admin')) {
+      throw new DraftValidationError('team bench is full');
+    }
 
     let pickRow;
     try {

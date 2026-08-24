@@ -1,12 +1,10 @@
 // This app has no login system yet — it's a single local user running their
 // own instance (npm start). Role is resolved from a request header rather
-// than a session, which is honest about the current reality while still
-// giving commissioner/developer/admin-gated actions a real enforcement point
-// to attach to now, instead of deferring authorization until a multi-user
-// auth system exists. When real accounts are added, resolveRole is the only
-// function that needs to change.
+// than a session. For safety, the default role is a non-privileged 'user'.
+// Set GRIDIRON_DEFAULT_ROLE=commissioner in a local dev environment to
+// preserve the old single-user full-control install behavior.
 export const ROLES = ['user', 'commissioner', 'developer', 'admin'];
-const DEFAULT_ROLE = 'commissioner'; // local single-user install: full control by default
+const DEFAULT_ROLE = process.env.GRIDIRON_DEFAULT_ROLE || 'user';
 
 export function resolveRole(req) {
   const header = req.get('x-gridiron-role');

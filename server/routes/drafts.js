@@ -498,19 +498,19 @@ r.get('/:id/recommendation', (req, res) => {
   });
 });
 
-r.delete('/:id/picks/last', (req, res, next) => {
+r.delete('/:id/picks/last', requireRole('commissioner', 'admin'), (req, res, next) => {
   try {
-    const { undone, draft } = undoLastPick({ draftId: req.params.id, actor: 'local', role: resolveRole(req) });
-    recordAudit({ actor: 'local', role: resolveRole(req), action: 'draft.undo', entityType: 'draft', entityId: draft.id, details: undone });
+    const { undone, draft } = undoLastPick({ draftId: req.params.id, actor: 'local', role: req.gridironRole });
+    recordAudit({ actor: 'local', role: req.gridironRole, action: 'draft.undo', entityType: 'draft', entityId: draft.id, details: undone });
     res.json({ ok: true, revision: draft.revision });
   } catch (e) { handleDraftError(e, res, next); }
 });
 
 /** Redo the most recent undo — only valid until a new pick supersedes it. */
-r.post('/:id/picks/redo', (req, res, next) => {
+r.post('/:id/picks/redo', requireRole('commissioner', 'admin'), (req, res, next) => {
   try {
-    const { redone, draft } = redoLastUndo({ draftId: req.params.id, actor: 'local', role: resolveRole(req) });
-    recordAudit({ actor: 'local', role: resolveRole(req), action: 'draft.redo', entityType: 'draft', entityId: draft.id, details: redone });
+    const { redone, draft } = redoLastUndo({ draftId: req.params.id, actor: 'local', role: req.gridironRole });
+    recordAudit({ actor: 'local', role: req.gridironRole, action: 'draft.redo', entityType: 'draft', entityId: draft.id, details: redone });
     res.json({ ok: true, revision: draft.revision });
   } catch (e) { handleDraftError(e, res, next); }
 });
@@ -541,6 +541,9 @@ r.get('/:id/queue', (req, res, next) => {
     const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
     if (!draft) return res.status(404).json({ error: 'draft not found' });
     const teamSlot = Number(req.query.team_slot) || draft.my_slot;
+    if (!Number.isInteger(teamSlot) || teamSlot < 1 || teamSlot > draft.team_count) return res.status(400).json({ error: 'invalid team_slot' });
+    const role = resolveRole(req);
+    if ((role !== 'commissioner' && role !== 'admin') && Number(teamSlot) !== Number(draft.my_slot)) return res.status(403).json({ error: 'forbidden: cannot read other teams\' queues' });
     res.json(getQueue(req.params.id, teamSlot));
   } catch (e) { next(e); }
 });
@@ -557,6 +560,9 @@ r.put('/:id/queue', (req, res, next) => {
     const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
     if (!draft) return res.status(404).json({ error: 'draft not found' });
     const teamSlot = Number(req.body?.team_slot) || draft.my_slot;
+    if (!Number.isInteger(teamSlot) || teamSlot < 1 || teamSlot > draft.team_count) return res.status(400).json({ error: 'invalid team_slot' });
+    const role = resolveRole(req);
+    if ((role !== 'commissioner' && role !== 'admin') && Number(teamSlot) !== Number(draft.my_slot)) return res.status(403).json({ error: 'forbidden: cannot modify other teams\' queues' });
     const playerIds = req.body?.player_ids;
     if (!Array.isArray(playerIds) || !playerIds.every(Number.isInteger)) {
       return res.status(400).json({ error: 'player_ids must be an array of integers' });

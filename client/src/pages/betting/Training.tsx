@@ -416,8 +416,8 @@ function EquityCurve({ points }: { points: Training['equity_curve'] }) {
       description="Cumulative units are ordered chronologically and grouped by NFL week, preserving clustered winning and losing runs." />
     <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Cumulative units by week">
       <line x1={pad} x2={width - pad} y1={zeroY} y2={zeroY} stroke="#d2d2d7" strokeDasharray="5 5" />
-      <path d={path} fill="none" stroke="#0071e3" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      {xy.length > 0 && <circle cx={xy.at(-1)!.x} cy={xy.at(-1)!.y} r="5" fill="#0071e3" />}
+      <path d={path} fill="none" stroke="#1f3350" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      {xy.length > 0 && <circle cx={xy.at(-1)!.x} cy={xy.at(-1)!.y} r="5" fill="#1f3350" />}
     </svg>
     <div className="mt-2 flex justify-between text-xs text-slate-500"><span>{points[0]?.week}</span><span className="font-semibold text-slate-800">Ends {u(values.at(-1))}</span><span>{points.at(-1)?.week}</span></div>
   </section>;

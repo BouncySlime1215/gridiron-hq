@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { api, headshotUrl } from '../api';
 
 export const DESTINATIONS = [
   ['Dashboard', '/', 'Overview and live workspace'],
@@ -33,8 +34,21 @@ export function destinationLabel(pathname: string) {
 export default function QuickJump() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [players, setPlayers] = useState<any[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Search actual players while typing, not just static feature pages — the
+  // command palette used to only navigate between the ~20 pages listed below,
+  // with no way to jump straight to "Mahomes" the way ⌘K implies it should.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setPlayers([]); return; }
+    const t = setTimeout(() => {
+      api<any[]>(`/players?q=${encodeURIComponent(q)}`).then(ps => setPlayers(ps.slice(0, 6))).catch(() => setPlayers([]));
+    }, 150);
+    return () => clearTimeout(t);
+  }, [query]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -70,12 +84,24 @@ export default function QuickJump() {
     </button>
     {open && createPortal(<div className="quick-jump-backdrop" onMouseDown={() => setOpen(false)}>
       <section className="quick-jump-panel" role="dialog" aria-modal="true" aria-label="Jump to a feature" onMouseDown={e => e.stopPropagation()}>
-        <div className="quick-jump-search"><span>⌕</span><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search every feature…" /></div>
+        <div className="quick-jump-search"><span>⌕</span><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search players, or jump to a feature…" /></div>
         <div className="quick-jump-results">
+          {players.length > 0 && (
+            <div className="quick-jump-group">
+              <div className="quick-jump-group-label">Players</div>
+              {players.map(p => (
+                <button key={p.id} onClick={() => go(`/players/${p.id}`)}>
+                  <img src={headshotUrl(p) ?? ''} alt="" className="quick-jump-avatar" onError={e => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }} />
+                  <span className="quick-jump-label"><b>{p.name}</b><small>{p.position} · {p.team_abbr ?? 'FA'}</small></span>
+                  <span className="arrow">→</span>
+                </button>
+              ))}
+            </div>
+          )}
           {rows.map(([name, path, note]) => <button key={path} onClick={() => go(path)}>
             <span><b>{name}</b><small>{note}</small></span><span className="arrow">→</span>
           </button>)}
-          {!rows.length && <div className="p-6 text-center text-sm text-slate-500">No matching feature.</div>}
+          {!rows.length && !players.length && <div className="p-6 text-center text-sm text-slate-500">No matching feature or player.</div>}
         </div>
         <footer><span>{rows.length} destinations</span><span>Esc to close</span></footer>
       </section>

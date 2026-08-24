@@ -6,8 +6,8 @@ import { PlayerName } from '../components/PlayerCard';
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
 function StatusPill({ status, ratio }: { status: string; ratio: number }) {
-  const style = status === 'need' ? 'bg-rose-100 text-rose-700'
-    : status === 'surplus' ? 'bg-emerald-100 text-emerald-700'
+  const style = status === 'need' ? 'bg-crit-tint text-crit'
+    : status === 'surplus' ? 'bg-good-tint text-good'
     : 'bg-slate-100 text-slate-500';
   return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${style}`}>
     {status === 'need' ? 'NEED' : status === 'surplus' ? 'SURPLUS' : 'OK'} {(ratio * 100).toFixed(0)}%
@@ -87,7 +87,7 @@ export default function Leagues() {
 
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
         {leagues?.map(lg => (
-          <div key={lg.id} className={`card p-4 cursor-pointer transition-colors ${sel === lg.id ? 'border-emerald-400' : 'hover:border-slate-400'}`}
+          <div key={lg.id} className={`card p-4 cursor-pointer transition-colors ${sel === lg.id ? 'border-[var(--accent)]' : 'hover:border-slate-400'}`}
             onClick={() => setSel(lg.id)}>
             <div className="flex items-center gap-2">
               <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${lg.platform === 'sleeper' ? 'bg-violet-100 text-violet-700' : 'bg-rose-100 text-rose-700'}`}>
@@ -146,8 +146,8 @@ export default function Leagues() {
                       </td>
                     ))}
                     <td className="px-4 py-2 text-xs">
-                      {ro.needs.length ? <span className="text-rose-600 font-medium">{ro.needs.join(', ')}</span> : <span className="text-slate-400">balanced</span>}
-                      {ro.surplus.length > 0 && <div className="text-emerald-600">has: {ro.surplus.join(', ')}</div>}
+                      {ro.needs.length ? <span className="text-crit font-medium">{ro.needs.join(', ')}</span> : <span className="text-slate-400">balanced</span>}
+                      {ro.surplus.length > 0 && <div className="text-good">has: {ro.surplus.join(', ')}</div>}
                     </td>
                   </tr>
                 ))}

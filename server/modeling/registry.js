@@ -1,0 +1,55 @@
+import { configurationHash } from './contracts.js';
+
+const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'archived']);
+
+export class ModelRegistry {
+  constructor(store) { this.store = store; }
+
+  create(spec, actor) {
+    if (!actor?.permissions?.includes('model:train')) throw new Error('forbidden: model:train required');
+    const now = new Date().toISOString();
+    const experiment = { id: configurationHash(spec), spec, status: 'queued', created_at: now,
+      updated_at: now, cancellation_requested: false, logs: [], result: null };
+    return this.store.insert(experiment);
+  }
+
+  transition(id, status, patch = {}) {
+    const current = this.store.get(id);
+    if (!current) throw new Error('experiment not found');
+    if (TERMINAL.has(current.status) && status !== 'archived') throw new Error(`cannot transition terminal experiment ${current.status}`);
+    return this.store.update(id, { ...patch, status, updated_at: new Date().toISOString() });
+  }
+
+  cancel(id, actor) {
+    if (!actor?.permissions?.includes('model:cancel')) throw new Error('forbidden: model:cancel required');
+    return this.transition(id, 'cancelling', { cancellation_requested: true });
+  }
+
+  compare(ids) { return ids.map(id => this.store.get(id)).filter(Boolean); }
+
+  promote(id, actor) {
+    if (!actor?.permissions?.includes('model:promote')) throw new Error('forbidden: model:promote required');
+    const candidate = this.store.get(id);
+    if (candidate?.status !== 'completed') throw new Error('only completed experiments can be promoted');
+    const gates = candidate.result?.gates ?? {};
+    for (const gate of ['schema', 'leakage', 'data_quality', 'baseline_improvement', 'tests']) {
+      if (gates[gate] !== true) throw new Error(`promotion blocked: ${gate} gate failed`);
+    }
+    return this.store.atomicPromote(id, { promoted_by: actor.id, promoted_at: new Date().toISOString() });
+  }
+
+  rollback(versionId, actor) {
+    if (!actor?.permissions?.includes('model:promote')) throw new Error('forbidden: model:promote required');
+    if (!this.store.get(versionId)) throw new Error('rollback target not found');
+    return this.store.atomicPromote(versionId, { rolled_back_by: actor.id, promoted_at: new Date().toISOString() });
+  }
+}
+
+export class MemoryModelStore {
+  constructor() { this.items = new Map(); this.production = null; }
+  insert(item) { if (this.items.has(item.id)) throw new Error('experiment configuration already exists'); this.items.set(item.id, structuredClone(item)); return this.get(item.id); }
+  get(id) { const x = this.items.get(id); return x ? structuredClone(x) : null; }
+  update(id, patch) { const next = { ...this.items.get(id), ...structuredClone(patch) }; this.items.set(id, next); return this.get(id); }
+  atomicPromote(id, audit) { const previous = this.production; this.production = id; return { active: id, previous, audit }; }
+}
+

@@ -192,7 +192,41 @@ db.exec(`
     fetched_at TEXT,
     PRIMARY KEY (format_key, pick_key)
   );
+
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT DEFAULT (datetime('now'))
+  );
 `);
+
+/**
+ * Run a one-time, named migration. Schema is still created ad-hoc across ~40
+ * route/service files at import time (each idempotent CREATE TABLE IF NOT
+ * EXISTS / ALTER TABLE ADD COLUMN) — retroactively centralizing all of that
+ * on a database people are actively using is a real but separate, higher-risk
+ * project. This is the mechanism new schema changes should use going forward,
+ * and what a future centralization would consolidate into.
+ */
+export function migrate(name, fn) {
+  if (db.prepare('SELECT 1 FROM schema_migrations WHERE name = ?').get(name)) return;
+  fn();
+  db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(name);
+}
+
+// Read-only corruption check, not a foreign-key enforcement toggle — safe to run
+// every boot. PRAGMA foreign_keys = ON is NOT enabled here: this codebase has
+// never run with FK enforcement across the ~40 files that declare REFERENCES
+// clauses, so flipping it now could turn a pre-existing, currently-silent
+// ordering issue in any one of them into a hard failure on a database real
+// users depend on. That needs its own audit pass before it's safe to turn on.
+try {
+  const result = db.prepare('PRAGMA integrity_check').get();
+  if (result?.integrity_check !== 'ok') {
+    console.error('[db] integrity_check reported a problem:', result);
+  }
+} catch (e) {
+  console.error('[db] integrity_check failed to run:', e.message);
+}
 
 const leagueCols = db.prepare(`PRAGMA table_info(leagues)`).all().map(c => c.name);
 // 'redraft' | 'keeper' | 'dynasty' — drives whether we price this league off

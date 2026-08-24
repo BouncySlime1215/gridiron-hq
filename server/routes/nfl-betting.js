@@ -246,7 +246,7 @@ r.get('/replay', (req, res, next) => {
 });
 
 /** Replay across seasons plus the systematic error analysis. */
-r.get('/replay/train', (req, res, next) => {
+r.get('/replay/train', requireModelPermission('model:train'), (req, res, next) => {
   try {
     const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
     const research = req.query.research === '1';

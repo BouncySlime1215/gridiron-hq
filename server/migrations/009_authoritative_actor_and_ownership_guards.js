@@ -65,6 +65,25 @@ export function up(db) {
           ON lm.league_id = d.league_row_id AND lm.user_id = NEW.user_id
         WHERE d.id = NEW.draft_id AND NEW.team_slot > 0 AND NEW.team_slot <= d.team_count
       ) THEN RAISE(ABORT, 'draft owner must be a league member with a valid slot') END;
+    END;
+    CREATE TRIGGER IF NOT EXISTS cascade_draft_ownership_membership_delete
+    AFTER DELETE ON league_memberships BEGIN
+      DELETE FROM draft_team_ownership
+      WHERE user_id = OLD.user_id
+        AND draft_id IN (SELECT id FROM drafts WHERE league_row_id = OLD.league_id);
+    END;
+    CREATE TRIGGER IF NOT EXISTS validate_draft_ownership_parent_update
+    BEFORE UPDATE OF team_count, league_row_id ON drafts
+    WHEN EXISTS (
+      SELECT 1 FROM draft_team_ownership dto
+      WHERE dto.draft_id = OLD.id AND (
+        dto.team_slot > NEW.team_count OR NOT EXISTS (
+          SELECT 1 FROM league_memberships lm
+          WHERE lm.league_id = NEW.league_row_id AND lm.user_id = dto.user_id
+        )
+      )
+    ) BEGIN
+      SELECT RAISE(ABORT, 'draft update would invalidate team ownership');
     END;`);
 }
 
@@ -74,6 +93,7 @@ export function down(db) {
       DROP TRIGGER IF EXISTS ${table}_${column}_required_insert;`);
   }
   db.exec(`DROP TRIGGER IF EXISTS model_experiments_promoter_required_update;
-    DROP TRIGGER IF EXISTS validate_draft_team_owner_update;
+    DROP TRIGGER IF EXISTS validate_draft_ownership_parent_update;
+    DROP TRIGGER IF EXISTS cascade_draft_ownership_membership_delete;
     DROP TABLE IF EXISTS model_actor_provenance_quarantine;`);
 }

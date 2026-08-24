@@ -157,6 +157,9 @@ test('identity migration has constraints, foreign keys, and a working rollback',
   assert.throws(() => run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?, 'admin')`, leagueId, ownerOne.userId), /CHECK constraint/);
   assert.throws(() => run(`UPDATE draft_team_ownership SET team_slot = 3 WHERE draft_id = ? AND user_id = ?`, draftId, ownerTwo.userId), /valid slot/);
   assert.throws(() => run(`UPDATE draft_team_ownership SET user_id = ? WHERE draft_id = ? AND user_id = ?`, nonMemberId, draftId, ownerTwo.userId), /league member/);
+  assert.throws(() => run(`UPDATE drafts SET team_count = 1 WHERE id = ?`, draftId), /invalidate team ownership/);
+  run(`DELETE FROM league_memberships WHERE league_id = ? AND user_id = ?`, leagueId, ownerTwo.userId);
+  assert.equal(row(`SELECT COUNT(*) AS n FROM draft_team_ownership WHERE draft_id = ? AND user_id = ?`, draftId, ownerTwo.userId).n, 0);
 
   const rollbackDb = new DatabaseSync(':memory:');
   rollbackDb.exec(`CREATE TABLE leagues (id INTEGER PRIMARY KEY); CREATE TABLE drafts (id INTEGER PRIMARY KEY, team_count INTEGER, league_row_id INTEGER);`);

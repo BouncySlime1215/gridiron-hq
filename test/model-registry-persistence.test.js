@@ -49,12 +49,13 @@ async function request(url, { token, roleHeader, body, method = 'POST' } = {}) {
     app.handle(req, res, reject);
   });
 }
-async function nflRequest(url, { token, roleHeader, body = {} } = {}) {
-  const encoded = JSON.stringify(body); const headers = { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(encoded)) };
+async function nflRequest(url, { token, roleHeader, body, method = 'POST' } = {}) {
+  const encoded = body === undefined ? '' : JSON.stringify(body);
+  const headers = { ...(encoded ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(encoded)) } : {}) };
   if (token) headers.authorization = `Bearer ${token}`;
   if (roleHeader) headers['x-gridiron-role'] = roleHeader;
-  const req = new Readable({ read() { this.push(encoded); this.push(null); } });
-  req.url = `/api/nfl/betting${url}`; req.method = 'POST'; req.headers = headers; req.socket = new PassThrough(); req.connection = req.socket;
+  const req = new Readable({ read() { this.push(encoded || null); if (encoded) this.push(null); } });
+  req.url = `/api/nfl/betting${url}`; req.method = method; req.headers = headers; req.socket = new PassThrough(); req.connection = req.socket;
   return new Promise((resolve, reject) => {
     const res = new ServerResponse(req); const chunks = [];
     res.write = chunk => { chunks.push(Buffer.from(chunk)); return true; };
@@ -114,6 +115,13 @@ test('NFL operational mutations require execute rather than training permission'
   assert.equal((await nflRequest('/replay/train', { token: 'execute-token' })).status, 403);
 });
 
+test('NFL training analysis GET requires a persisted training or wildcard grant', async () => {
+  assert.equal((await nflRequest('/replay/train', { method: 'GET' })).status, 401);
+  assert.equal((await nflRequest('/replay/train', { method: 'GET', token: 'execute-token' })).status, 403);
+  assert.notEqual((await nflRequest('/replay/train', { method: 'GET', token: 'real-model-token' })).status, 401);
+  assert.notEqual((await nflRequest('/replay/train', { method: 'GET', token: 'real-model-token' })).status, 403);
+});
+
 test('model wildcard grant works at middleware and registry service layers', () => {
   const wildcard = { id: trainerUserId, permissions: ['model:*'] };
   const registry = new ModelRegistry(new SqliteModelStore(db));
@@ -125,7 +133,7 @@ test('model wildcard grant works at middleware and registry service layers', () 
   assert.throws(() => registry.cancel(experiment.id, trainer), /model:cancel required/);
 });
 
-test('persisted wildcard grant authorizes exact HTTP permissions', () => {
+test('persisted wildcard grant authorizes exact HTTP permissions', async () => {
   run(`INSERT INTO users (subject) VALUES ('model:wildcard')`);
   const wildcardId = row(`SELECT id FROM users WHERE subject='model:wildcard'`).id;
   run(`INSERT INTO auth_sessions (user_id,token_hash,expires_at) VALUES (?,?,datetime('now','+1 day'))`, wildcardId, hashSessionToken('wildcard-token'));
@@ -137,6 +145,8 @@ test('persisted wildcard grant authorizes exact HTTP permissions', () => {
     }, () => { advanced = true; });
     assert.equal(advanced, true, permission);
   }
+  assert.notEqual((await nflRequest('/replay/train', { method: 'GET', token: 'wildcard-token' })).status, 401);
+  assert.notEqual((await nflRequest('/replay/train', { method: 'GET', token: 'wildcard-token' })).status, 403);
 });
 
 test('server-run backtest persists verified metrics and gates promotion', async () => {

@@ -10,9 +10,7 @@ import LiveDraft from './pages/LiveDraft';
 import MyTeam from './pages/MyTeam';
 import PlayerDetail from './pages/PlayerDetail';
 import Players from './pages/Players';
-import Edge from './pages/Edge';
 import TradeLab from './pages/TradeLab';
-import Model from './pages/Model';
 import Leagues from './pages/Leagues';
 import { PlayerCardProvider } from './components/PlayerCard';
 import { LeagueProvider } from './state/league';
@@ -44,7 +42,7 @@ const NAV = [
   { to: '/live-draft', label: 'Live Draft Hub', icon: '●', live: true },
   { to: '/drafts', label: 'Draft Room', icon: 'R' },
   { to: '/teams', label: '32 Teams', icon: 'T' },
-  { to: '/lab', label: 'Fantasy Lab', icon: 'F' },
+  { to: '/lab', label: 'Research Lab', icon: 'F' },
   { to: '/trade-lab', label: 'Trade Lab', icon: 'X' },
   { to: '/news', label: 'Camp News', icon: 'N' },
   { to: '/leagues', label: 'My Leagues', icon: 'L' },
@@ -175,9 +173,7 @@ export default function App() {
           <Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} />
           <Route path="/players" element={<Players />} />
-          <Route path="/edge" element={<Edge />} />
           <Route path="/trade-lab" element={<TradeLab />} />
-          <Route path="/model" element={<Model />} />
           <Route path="/rankings" element={<Rankings />} />
           <Route path="/projections" element={<Players />} />
           <Route path="/live-draft" element={<LiveDraft />} />

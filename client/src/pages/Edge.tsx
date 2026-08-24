@@ -3,14 +3,17 @@ import { api, headshotUrl, useApi } from '../api';
 import { Headshot } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
 
-type Tab = 'vor' | 'movers' | 'volatility' | 'efficiency' | 'schedule' | 'trade' | 'sim';
+// No "trade" tab here anymore — it was a leagueless, roster-blind VOR-diff
+// tool that duplicated (much worse than) the real Trade Lab, which knows
+// actual rosters, actual fairness, and actual roster fit. See Trade Lab
+// instead for anything trade-related.
+type Tab = 'vor' | 'movers' | 'volatility' | 'efficiency' | 'schedule' | 'sim';
 const TABS: [Tab, string, string][] = [
   ['vor', 'Value Board', 'Points over replacement — the real draft currency'],
   ['movers', 'Breakouts & Regression', 'Who the projections are moving on, and why'],
   ['volatility', 'Boom / Bust', 'Weekly floor, ceiling and consistency from real games'],
   ['efficiency', 'Efficiency', 'Rate stats — usage share, yards per opportunity, TD-rate regression'],
   ['schedule', 'Playoff Schedule', 'Weeks 15-17 strength, ranked easiest to hardest'],
-  ['trade', 'Trade Analyzer', 'Value both sides on VOR, not vibes'],
   ['sim', 'Season Simulator', 'Monte Carlo your lineup from real distributions']
 ];
 
@@ -74,9 +77,6 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
   const { data: sched } = useApi<any[]>('/edge/schedule-edge');
   const { data: eff } = useApi<any[]>(`/edge/efficiency${pos !== 'ALL' ? `?position=${pos}` : ''}`);
 
-  const [give, setGive] = useState<number[]>([]);
-  const [get, setGet] = useState<number[]>([]);
-  const [trade, setTrade] = useState<any>(null);
   const [simIds, setSimIds] = useState<number[]>([]);
   const [sim, setSim] = useState<any>(null);
 
@@ -288,39 +288,6 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* ---------- trade ---------- */}
-      {tab === 'trade' && (
-        <div className="card p-5">
-          <div className="flex gap-4 flex-wrap mb-4">
-            <PlayerPicker label="I give" ids={give} setIds={setGive} />
-            <PlayerPicker label="I get" ids={get} setIds={setGet} />
-          </div>
-          <button className="btn-primary" disabled={!give.length || !get.length}
-            onClick={async () => setTrade(await api('/edge/trade', { method: 'POST', body: JSON.stringify({ give, get }) }))}>
-            Analyze trade
-          </button>
-          {trade && (
-            <div className="mt-4 rounded-xl border-2 p-4"
-              style={{ borderColor: trade.vor_diff > 5 ? '#10b981' : trade.vor_diff < -5 ? '#f43f5e' : '#cbd5e1' }}>
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-black uppercase"
-                  style={{ color: trade.vor_diff > 5 ? '#059669' : trade.vor_diff < -5 ? '#e11d48' : '#475569' }}>
-                  {trade.verdict}
-                </span>
-                <span className="text-sm text-slate-600">
-                  VOR {trade.vor_diff > 0 ? '+' : ''}{trade.vor_diff} in your favour
-                </span>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3 mt-3 text-xs">
-                <div><span className="font-bold text-slate-500">You give</span> — {trade.give_total.vor} VOR / {trade.give_total.proj} pts</div>
-                <div><span className="font-bold text-slate-500">You get</span> — {trade.get_total.vor} VOR / {trade.get_total.proj} pts</div>
-              </div>
-              {trade.note && <p className="text-xs text-amber-600 mt-2">{trade.note}</p>}
-            </div>
-          )}
         </div>
       )}
 

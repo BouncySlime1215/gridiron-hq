@@ -45,6 +45,17 @@ function buildMarketPool(draft) {
     if (taken.has(p.id) || pool.has(p.id)) continue;
     pool.set(p.id, { id: p.id, position: p.position, market: tail });
   }
+  // Final safety net: computeConsensus() only returns players with synced FFC/Sleeper
+  // market data, so on a fresh install where that sync hasn't run yet (or failed),
+  // the pool above can come up short of what a real draft needs — a 12-team/16-round
+  // draft is 192 picks. Every fantasy_relevant player who still isn't in the pool
+  // goes in here, ordered by projected points where we have it, so the draft can
+  // never exhaust its player pool regardless of what's synced.
+  const sm = statsMap();
+  const leftover = rows(`SELECT id, position FROM players WHERE fantasy_relevant = 1`)
+    .filter(p => !taken.has(p.id) && !pool.has(p.id))
+    .sort((a, b) => (sm.get(b.id)?.projected_points ?? 0) - (sm.get(a.id)?.projected_points ?? 0));
+  leftover.forEach((p, i) => pool.set(p.id, { id: p.id, position: p.position, market: tail + 50 + i }));
   return [...pool.values()];
 }
 
@@ -219,6 +230,17 @@ r.get('/:id', (req, res) => {
     overflow++;
     available.push({ rank: boardMax + overflow, tier: 6, note: null, player_id: c.id,
       name: c.name, position: c.position, team_abbr: c.team_abbr, primary_color: c.primary_color });
+  }
+  // computeConsensus() only returns players with synced FFC/Sleeper market data —
+  // K/DEF never have any, and on a fresh/offline install nothing might yet. Anyone
+  // still fantasy_relevant and not yet listed goes in last, so this board (like
+  // buildMarketPool's CPU pool) can never come up short of what a real draft needs.
+  for (const p of rows(`SELECT p.id AS player_id, p.name, p.position, t.abbr AS team_abbr, t.primary_color
+                        FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id
+                        WHERE p.fantasy_relevant = 1`)) {
+    if (seen.has(p.player_id) || taken.has(p.player_id)) continue;
+    overflow++;
+    available.push({ rank: boardMax + overflow, tier: 6, note: null, ...p });
   }
   const sm = statsMap();
   const withStats = p => {

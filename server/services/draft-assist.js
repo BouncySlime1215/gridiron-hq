@@ -190,16 +190,18 @@ export function boardState(draftId) {
       };
     });
 
-  // Kickers and defenses have no ADP/market data, so computeConsensus() never
-  // includes them — without this, rankTargets/the AI advisor could never see or
-  // recommend a K or DEF for the entire draft. Tail-inject them at a late market
-  // rank, same idiom as the mock-draft CPU pool in routes/drafts.js.
+  // Kickers/defenses have no ADP/market data, so computeConsensus() never includes
+  // them — without this, rankTargets/the AI advisor could never see or recommend a
+  // K or DEF for the entire draft. Also covers the broader case: computeConsensus()
+  // needs a live FFC/Sleeper sync to return anything at all, so on a fresh/offline
+  // install this is what stops the pool from running dry regardless of position.
   const tailBase = available.length + 50;
   let tailN = 0;
+  const seenIds = new Set(available.map(p => p.player_id));
   for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id
-                        WHERE p.position IN ('K','DEF') AND p.fantasy_relevant = 1`)) {
-    if (taken.has(p.id)) continue;
+                        WHERE p.fantasy_relevant = 1`)) {
+    if (taken.has(p.id) || seenIds.has(p.id)) continue;
     tailN++;
     available.push({
       player_id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,

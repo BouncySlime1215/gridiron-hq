@@ -1,15 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
+  // Self-hosted authentication is provisioned with server/platform/provision-auth.js.
+  // Keep the opaque token out of source/config files; callers can persist it once
+  // with setAuthToken(), after which every API request authenticates consistently.
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('gridiron_session_token') : null;
   const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...opts?.headers
+    }
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `${res.status} ${res.statusText}`);
   }
   return res.json();
+}
+
+export function setAuthToken(token: string | null) {
+  if (typeof window === 'undefined') return;
+  if (token) window.localStorage.setItem('gridiron_session_token', token);
+  else window.localStorage.removeItem('gridiron_session_token');
 }
 
 export function useApi<T = any>(path: string | null) {

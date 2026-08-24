@@ -1,9 +1,14 @@
 import { db, rows, row, run } from '../db/index.js';
 import { slotForPick, isDraftComplete, assignRosterSlots, DEFAULT_ROSTER_POSITIONS } from './engine.js';
+import { AuthenticationError, AuthorizationError, assertCommissioner, assertLeagueMember, ownsDraftTeam } from '../platform/auth.js';
 
 export class DraftNotFoundError extends Error { constructor(msg) { super(msg); this.status = 404; } }
 export class DraftValidationError extends Error { constructor(msg) { super(msg); this.status = 400; } }
 export class DraftConflictError extends Error { constructor(msg) { super(msg); this.status = 409; } }
+
+// Module-private capability: unlike a boolean/object flag, external callers cannot
+// construct this identity to impersonate the durable clock.
+const SYSTEM_CLOCK_ACTOR = Symbol('draft-system-clock');
 
 // node:sqlite's DatabaseSync executes every statement synchronously and this
 // module never awaits mid-transaction, so within one Node process a single
@@ -29,6 +34,22 @@ function requireDraft(draftId) {
   const draft = row('SELECT * FROM drafts WHERE id = ?', draftId);
   if (!draft) throw new DraftNotFoundError('draft not found');
   return draft;
+}
+
+function authenticatedActor(actor) {
+  if (!actor || !Number.isInteger(Number(actor.userId))) throw new AuthenticationError();
+  return Number(actor.userId);
+}
+
+function memberActor(actor, draft) {
+  const userId = authenticatedActor(actor);
+  const membership = assertLeagueMember(userId, draft.league_row_id);
+  return { userId, role: membership.role };
+}
+
+function commissionerActor(actor, draft) {
+  const userId = authenticatedActor(actor);
+  return { userId, role: assertCommissioner(userId, draft.league_row_id).role };
 }
 
 function logEvent(draftId, type, payload, actor, role) {
@@ -75,9 +96,18 @@ export function getDraft(draftId) {
  *   original result instead of erroring — safe to retry on a timeout/network
  *   drop without risking a duplicate or a false "already drafted" error.
  */
-export function makePick({ draftId, playerId, expectedRevision = null, idempotencyKey = null, actor = null, role = null, source = 'user', reason = null }) {
+export function makePick({ draftId, playerId, expectedRevision = null, idempotencyKey = null, actor = null, source = 'user', reason = null }) {
   return withTransaction(() => {
     const draft = requireDraft(draftId);
+    let actorId = 'system', actorRole = 'system';
+    if (source === 'auto' && actor === SYSTEM_CLOCK_ACTOR) {
+      // The durable clock is the sole non-user mutation path.
+    } else {
+      const access = memberActor(actor, draft);
+      actorId = access.userId;
+      actorRole = access.role;
+      if (source !== 'user') assertCommissioner(actorId, draft.league_row_id);
+    }
 
     if (idempotencyKey) {
       const existing = row('SELECT * FROM draft_picks WHERE draft_id = ? AND idempotency_key = ?', draftId, idempotencyKey);
@@ -107,8 +137,8 @@ export function makePick({ draftId, playerId, expectedRevision = null, idempoten
     if (draft.paused) throw new DraftValidationError('draft is paused');
 
     // Enforce that non-privileged users may only pick when it's their slot.
-    if (role != null && (role !== 'commissioner' && role !== 'admin') && source === 'user') {
-      if (Number(draft.my_slot) !== Number(teamSlot)) throw new DraftValidationError('not on the clock');
+    if (source === 'user' && actorRole !== 'commissioner' && !ownsDraftTeam(actorId, draftId, teamSlot)) {
+      throw new AuthorizationError('team ownership required for the team on the clock');
     }
 
     // Basic roster/bench safety: disallow drafting if the team would exceed its bench cap.
@@ -117,7 +147,7 @@ export function makePick({ draftId, playerId, expectedRevision = null, idempoten
     const rosterPositions = parseRosterPositions(draft.roster_positions);
     const afterAssign = assignRosterSlots([...teamExisting, { position: playerRow.position }], rosterPositions);
     const benchCap = rosterPositions.BENCH ?? Infinity;
-    if ((afterAssign.bench?.length ?? 0) > benchCap && (role !== 'commissioner' && role !== 'admin')) {
+    if ((afterAssign.bench?.length ?? 0) > benchCap && actorRole !== 'commissioner') {
       throw new DraftValidationError('team bench is full');
     }
 
@@ -133,22 +163,23 @@ export function makePick({ draftId, playerId, expectedRevision = null, idempoten
     }
 
     run('DELETE FROM draft_queue WHERE draft_id = ? AND player_id = ?', draftId, playerId);
-    logEvent(draftId, 'pick', { pick_number: pickNumber, team_slot: teamSlot, player_id: playerId, source }, actor, role);
+    logEvent(draftId, 'pick', { pick_number: pickNumber, team_slot: teamSlot, player_id: playerId, source }, actorId, actorRole);
     const updated = advanceDraftState(draft, pickNumber);
     return { pick: pickRow, draft: updated, replayed: false };
   });
 }
 
-export function undoLastPick({ draftId, actor = null, role = null }) {
+export function undoLastPick({ draftId, actor = null }) {
   return withTransaction(() => {
     const draft = requireDraft(draftId);
+    const access = commissionerActor(actor, draft);
     const last = row('SELECT * FROM draft_picks WHERE draft_id = ? ORDER BY pick_number DESC LIMIT 1', draftId);
     if (!last) throw new DraftValidationError('no picks to undo');
     run('DELETE FROM draft_picks WHERE id = ?', last.id);
     logEvent(draftId, 'undo', {
       pick_number: last.pick_number, team_slot: last.team_slot, player_id: last.player_id,
       idempotency_key: last.idempotency_key, source: last.source
-    }, actor, role);
+    }, access.userId, access.role);
     const picksMade = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
     const updated = advanceDraftState(draft, picksMade);
     return { undone: last, draft: updated };
@@ -156,9 +187,10 @@ export function undoLastPick({ draftId, actor = null, role = null }) {
 }
 
 /** Redo is only available immediately after an undo, before any new pick is made — a fresh action clears it. */
-export function redoLastUndo({ draftId, actor = null, role = null }) {
+export function redoLastUndo({ draftId, actor = null }) {
   return withTransaction(() => {
     const draft = requireDraft(draftId);
+    const access = commissionerActor(actor, draft);
     const lastEvent = row('SELECT * FROM draft_events WHERE draft_id = ? ORDER BY seq DESC LIMIT 1', draftId);
     if (!lastEvent || lastEvent.type !== 'undo') throw new DraftValidationError('nothing to redo');
     const payload = JSON.parse(lastEvent.payload);
@@ -169,7 +201,7 @@ export function redoLastUndo({ draftId, actor = null, role = null }) {
     } catch {
       throw new DraftValidationError('cannot redo: current draft state conflicts with the undone pick');
     }
-    logEvent(draftId, 'redo', payload, actor, role);
+    logEvent(draftId, 'redo', payload, access.userId, access.role);
     const picksMade = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
     const updated = advanceDraftState(draft, picksMade);
     return { redone: payload, draft: updated };
@@ -182,9 +214,10 @@ export function redoLastUndo({ draftId, actor = null, role = null }) {
  * pick would ripple through every subsequent snake-slot assignment and roster,
  * which is a much larger, higher-risk feature this does not attempt.
  */
-export function correctLastPick({ draftId, playerId, actor = null, role = null }) {
+export function correctLastPick({ draftId, playerId, actor = null }) {
   return withTransaction(() => {
     const draft = requireDraft(draftId);
+    const access = commissionerActor(actor, draft);
     const last = row('SELECT * FROM draft_picks WHERE draft_id = ? ORDER BY pick_number DESC LIMIT 1', draftId);
     if (!last) throw new DraftValidationError('no picks to correct');
     if (!Number.isInteger(playerId) || !row('SELECT id FROM players WHERE id = ?', playerId)) {
@@ -198,19 +231,20 @@ export function correctLastPick({ draftId, playerId, actor = null, role = null }
     logEvent(draftId, 'correction', {
       pick_number: last.pick_number, team_slot: last.team_slot,
       from_player_id: last.player_id, to_player_id: playerId
-    }, actor, role);
+    }, access.userId, access.role);
     const picksMade = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
     const updated = advanceDraftState(draft, picksMade);
     return { corrected: { pick_number: last.pick_number, team_slot: last.team_slot, player_id: playerId }, draft: updated };
   });
 }
 
-export function setPaused({ draftId, paused, actor = null, role = null }) {
+export function setPaused({ draftId, paused, actor = null }) {
   return withTransaction(() => {
     const draft = requireDraft(draftId);
+    const access = commissionerActor(actor, draft);
     run('UPDATE drafts SET paused = ? WHERE id = ?', paused ? 1 : 0, draftId);
     const refreshed = row('SELECT * FROM drafts WHERE id = ?', draftId);
-    logEvent(draftId, paused ? 'pause' : 'resume', {}, actor, role);
+    logEvent(draftId, paused ? 'pause' : 'resume', {}, access.userId, access.role);
     const picksMade = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
     return advanceDraftState(refreshed, picksMade);
   });
@@ -222,13 +256,18 @@ export function getQueue(draftId, teamSlot) {
 }
 
 /** Replaces a team's entire queue with `playerIds`, in order — simplest robust model for drag-to-reorder. */
-export function setQueue({ draftId, teamSlot, playerIds }) {
+export function setQueue({ draftId, teamSlot, playerIds, actor = null }) {
   return withTransaction(() => {
-    requireDraft(draftId);
+    const draft = requireDraft(draftId);
+    const access = memberActor(actor, draft);
+    if (access.role !== 'commissioner' && !ownsDraftTeam(access.userId, draftId, teamSlot)) {
+      throw new AuthorizationError('team ownership required');
+    }
     run('DELETE FROM draft_queue WHERE draft_id = ? AND team_slot = ?', draftId, teamSlot);
     playerIds.forEach((pid, i) => {
       run('INSERT INTO draft_queue (draft_id, team_slot, player_id, position) VALUES (?,?,?,?)', draftId, teamSlot, pid, i);
     });
+    logEvent(draftId, 'queue', { team_slot: teamSlot, player_ids: playerIds }, access.userId, access.role);
     return getQueue(draftId, teamSlot);
   });
 }
@@ -262,7 +301,7 @@ export function autoPickOverdueDrafts({ chooseFallback }) {
     if (playerId == null) continue; // nothing pickable; leave the deadline for the next tick rather than spin
     try {
       results.push({ draftId: draft.id, ...makePick({
-        draftId: draft.id, playerId, expectedRevision: draft.revision, actor: 'system', role: 'system', source: 'auto'
+        draftId: draft.id, playerId, expectedRevision: draft.revision, actor: SYSTEM_CLOCK_ACTOR, source: 'auto'
       }) });
     } catch (e) {
       console.error(`[draft] auto-pick failed for draft ${draft.id}:`, e.message);

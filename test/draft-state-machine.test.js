@@ -13,8 +13,9 @@ const { db, rows, row, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 const {
-  makePick, undoLastPick, redoLastUndo, correctLastPick, setPaused,
-  getQueue, setQueue, firstAvailableFromQueue, autoPickOverdueDrafts,
+  makePick: securedMakePick, undoLastPick: securedUndoLastPick, redoLastUndo: securedRedoLastUndo,
+  correctLastPick: securedCorrectLastPick, setPaused: securedSetPaused,
+  getQueue, setQueue: securedSetQueue, firstAvailableFromQueue, autoPickOverdueDrafts,
   DraftValidationError, DraftConflictError
 } = await import('../server/draft/store.js');
 const { totalPicks } = await import('../server/draft/engine.js');
@@ -27,11 +28,26 @@ test.after(() => {
 await runMigrations();
 seedIfEmpty();
 
+run(`INSERT INTO leagues (platform, league_id, season, name) VALUES ('test', 'draft-state', 2026, 'Draft State')`);
+const leagueId = row('SELECT id FROM leagues WHERE league_id = ?', 'draft-state').id;
+run(`INSERT INTO users (subject, display_name) VALUES ('test:commissioner', 'Commissioner')`);
+const commissioner = { userId: row('SELECT id FROM users WHERE subject = ?', 'test:commissioner').id };
+run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,'commissioner')`, leagueId, commissioner.userId);
+
+const makePick = args => securedMakePick({ ...args, actor: args.actor ?? commissioner });
+const undoLastPick = args => securedUndoLastPick({ ...args, actor: args.actor ?? commissioner });
+const redoLastUndo = args => securedRedoLastUndo({ ...args, actor: args.actor ?? commissioner });
+const correctLastPick = args => securedCorrectLastPick({ ...args, actor: args.actor ?? commissioner });
+const setPaused = args => securedSetPaused({ ...args, actor: args.actor ?? commissioner });
+const setQueue = args => securedSetQueue({ ...args, actor: args.actor ?? commissioner });
+
 function makeDraft({ team_count = 4, rounds = 3, my_slot = 1, order_type = 'snake', roster_positions = null } = {}) {
-  run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, pick_seconds, order_type, roster_positions)
-       VALUES ('t', 'mock', ?, ?, ?, 90, ?, ?)`,
-    team_count, rounds, my_slot, order_type, roster_positions ? JSON.stringify(roster_positions) : null);
-  return row('SELECT * FROM drafts WHERE id = last_insert_rowid()');
+  run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, pick_seconds, order_type, roster_positions, league_row_id)
+       VALUES ('t', 'mock', ?, ?, ?, 90, ?, ?, ?)`,
+    team_count, rounds, my_slot, order_type, roster_positions ? JSON.stringify(roster_positions) : null, leagueId);
+  const draft = row('SELECT * FROM drafts WHERE id = last_insert_rowid()');
+  run('INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)', draft.id, my_slot, commissioner.userId);
+  return draft;
 }
 
 function draftablePlayers(n) {

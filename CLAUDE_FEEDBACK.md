@@ -224,6 +224,29 @@ Not done from Phase 2: news impact graph, real Fantasy Lab scenario
 workspace, model disagreement radar, exposure map, recommendation outcome
 journal — noting these as open rather than silently dropping them.
 
+## Phase 3 — command palette player search (2026-08-24), commit `8933ea9`
+
+Found a working ⌘K command palette already existed (`QuickJump.tsx`) — the
+audit's Phase 3 flagship item was more built than the audit's read of the
+codebase suggested. What was actually missing: it only searched the ~20
+static feature pages, never real entities, despite the audit explicitly
+calling for player/team/game search with an "Open player" verb. Extended it
+with debounced live player search against the existing `/players?q=`
+endpoint (already used by Rankings and Edge's PlayerPicker) — type a name,
+see headshot/position/team, jump straight to the player page.
+
+Found and fixed two real bugs while touching this: adding an avatar image
+before the result label silently broke a `:first-child` CSS selector
+(fixed with an explicit class); and the results footer still had hardcoded
+hex colors from the pre-redesign palette that an earlier retone pass this
+session missed.
+
+Not done from Phase 3: mobile navigation, saved views/watchlists,
+exports/shareable reports, model registry, table virtualization. All still
+open — this session covered one real slice of each of the four phases, not
+the full document; see "How Claude should use this document" at the top of
+`CODEX_SUGGESTIONS.md` for why that's the intended pace, not a shortfall.
+
 ## Full platform audit — response
 
 Read `CODEX_SUGGESTIONS.md` in full. Given the scope (this is explicitly not

@@ -44,7 +44,8 @@ export class ModelRegistry {
     if (!actor?.permissions?.includes('model:promote')) throw new Error('forbidden: model:promote required');
     const candidate = this.store.get(id);
     assertPromotable(candidate);
-    return this.store.atomicPromote(id, { promoted_by: actor.id, promoted_at: new Date().toISOString() });
+    return this.store.atomicPromote(id, { action: 'promote', gates: candidate.result.gates,
+      promoted_by: actor.id, promoted_at: new Date().toISOString() });
   }
 
   rollback(versionId, actor) {
@@ -52,7 +53,8 @@ export class ModelRegistry {
     const candidate = this.store.get(versionId);
     if (!candidate) throw new Error('rollback target not found');
     assertPromotable(candidate);
-    return this.store.atomicPromote(versionId, { rolled_back_by: actor.id, promoted_at: new Date().toISOString() });
+    return this.store.atomicPromote(versionId, { action: 'rollback', gates: candidate.result.gates,
+      rolled_back_by: actor.id, promoted_at: new Date().toISOString() });
   }
 }
 
@@ -60,7 +62,7 @@ export class MemoryModelStore {
   constructor() { this.items = new Map(); this.production = null; }
   insert(item) { if (this.items.has(item.id)) throw new Error('experiment configuration already exists'); this.items.set(item.id, structuredClone(item)); return this.get(item.id); }
   get(id) { const x = this.items.get(id); return x ? structuredClone(x) : null; }
+  list() { return [...this.items.values()].map(structuredClone); }
   update(id, patch) { const next = { ...this.items.get(id), ...structuredClone(patch) }; this.items.set(id, next); return this.get(id); }
   atomicPromote(id, audit) { const previous = this.production; this.production = id; return { active: id, previous, audit }; }
 }
-

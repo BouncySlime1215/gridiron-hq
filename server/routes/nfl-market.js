@@ -10,6 +10,9 @@ import { promoteEligibleAudit } from '../services/model-governance.js';
 import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-daemon.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
+import { requireModelPermission } from '../modeling/authz.js';
+import { recordModelAudit } from '../modeling/sqlite-store.js';
+import { db } from '../db/index.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -44,27 +47,31 @@ r.get('/evidence/coverage', (_req, res, next) => {
   try { res.json(nflEvidenceCoverage()); } catch (e) { next(e); }
 });
 
-r.post('/evidence/capture', async (req, res, next) => {
+r.post('/evidence/capture', requireModelPermission('model:train'), async (req, res, next) => {
   try { res.json(await runEvidenceDaemon({ force: req.query.force === '1' })); } catch (e) { next(e); }
 });
 
-r.post('/operations/audit', (_req, res, next) => {
+r.post('/operations/audit', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(nflOperations({ persist: true })); } catch (e) { next(e); }
 });
 
-r.post('/operations/residual', (_req, res, next) => {
+r.post('/operations/residual', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(refreshNflResidualAudit()); } catch (e) { next(e); }
 });
 
-r.post('/operations/ablations', (req, res, next) => {
+r.post('/operations/ablations', requireModelPermission('model:train'), (req, res, next) => {
   try {
     const seasons = Array.isArray(req.body?.seasons) ? req.body.seasons.map(Number) : [2021, 2022, 2023, 2024, 2025];
     res.json(runNflFeatureAblations(seasons));
   } catch (e) { next(e); }
 });
 
-r.post('/operations/promote/:auditId', (req, res, next) => {
-  try { res.json(promoteEligibleAudit(req.params.auditId, 'NFL')); } catch (e) { next(e); }
+r.post('/operations/promote/:auditId', requireModelPermission('model:promote'), (req, res, next) => {
+  try {
+    const out = promoteEligibleAudit(req.params.auditId, 'NFL');
+    recordModelAudit(db, req.modelPrincipal, 'legacy_audit.promote', 'nfl_gate_audit', req.params.auditId, out);
+    res.json(out);
+  } catch (e) { next(e); }
 });
 
 r.get('/predict', (req, res, next) => {
@@ -115,7 +122,7 @@ r.get('/picks/candidates', (req, res, next) => {
  * trial count is generous (default 20k per bet) since "how many scenarios were
  * actually run" is the honesty check on this button, not a number to shortcut.
  */
-r.post('/sync-and-pick', async (req, res, next) => {
+r.post('/sync-and-pick', requireModelPermission('model:execute'), async (req, res, next) => {
   try {
     const season = Number(req.query.season) || SEASON;
     const week = Number(req.query.week) || 1;

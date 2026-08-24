@@ -10,6 +10,7 @@ const DB_PATH = process.env.GRIDIRON_DB_PATH || path.join(__dirname, '..', 'data
 export const db = new DatabaseSync(DB_PATH);
 
 db.exec(`
+  PRAGMA foreign_keys = ON;
   PRAGMA journal_mode = WAL;
 
   CREATE TABLE IF NOT EXISTS nfl_teams (
@@ -209,16 +210,18 @@ db.exec(`
  */
 export function migrate(name, fn) {
   if (db.prepare('SELECT 1 FROM schema_migrations WHERE name = ?').get(name)) return;
-  fn();
-  db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(name);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    fn();
+    db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(name);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
-// Read-only corruption check, not a foreign-key enforcement toggle — safe to run
-// every boot. PRAGMA foreign_keys = ON is NOT enabled here: this codebase has
-// never run with FK enforcement across the ~40 files that declare REFERENCES
-// clauses, so flipping it now could turn a pre-existing, currently-silent
-// ordering issue in any one of them into a hard failure on a database real
-// users depend on. That needs its own audit pass before it's safe to turn on.
+// Read-only corruption check; foreign keys are enabled above for every connection.
 try {
   const result = db.prepare('PRAGMA integrity_check').get();
   if (result?.integrity_check !== 'ok') {

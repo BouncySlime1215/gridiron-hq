@@ -17,7 +17,9 @@
     "dev:server": "node --watch --env-file-if-exists=.env server/index.js",
     "dev:client": "vite --config client/vite.config.ts",
     "sync:data": "node scripts/bootstrap-data.mjs",
-    "sync:history": "node server/scripts/sync-history.js"
+    "sync:history": "node server/scripts/sync-history.js",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:rollback": "node scripts/rollback-migration.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

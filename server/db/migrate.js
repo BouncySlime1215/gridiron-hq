@@ -31,3 +31,25 @@ export async function runMigrations() {
   }
   return applied;
 }
+
+export async function rollbackMigration(expectedName = null) {
+  const applied = db.prepare('SELECT name FROM schema_migrations ORDER BY rowid DESC LIMIT 1').get();
+  if (!applied) return null;
+  if (expectedName && applied.name !== expectedName) {
+    throw new Error(`rollback refused: latest migration is ${applied.name}, not ${expectedName}`);
+  }
+  const file = fs.readdirSync(MIGRATIONS_DIR).find(f => f.replace(/\.js$/, '') === applied.name);
+  if (!file) throw new Error(`rollback module not found for ${applied.name}`);
+  const mod = await import(pathToFileURL(path.join(MIGRATIONS_DIR, file)).href);
+  if (typeof mod.down !== 'function') throw new Error(`migration ${applied.name} has no down(db) export`);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    mod.down(db);
+    db.prepare('DELETE FROM schema_migrations WHERE name=?').run(applied.name);
+    db.exec('COMMIT');
+    return applied.name;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}

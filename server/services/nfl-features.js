@@ -227,7 +227,7 @@ const ADJUSTED_VARS = [
   ['opp_adj_def_epa', 'Defensive EPA allowed adjusted for offences faced'],
   ['sos_played', 'Average opponent net EPA faced so far'],
   ['sos_remaining', 'Average opponent net EPA still to be played'],
-  ['pace_seconds_per_play', 'Situation-neutral seconds per play'],
+  ['pace_seconds_per_play', 'Possession pace proxy: seconds per drive divided by plays per drive'],
   ['opp_adj_net_epa', 'Opponent-adjusted net EPA per play']
 ];
 
@@ -432,6 +432,11 @@ export function adjustedFeatures(season, week, team) {
   const oppDefFaced = avg(me.opps.map(o => defStrength.get(o) ?? leagueOff));
   const oppOffFaced = avg(me.opps.map(o => offStrength.get(o) ?? leagueOff));
   const rawOff = avg(me.off), rawDef = avg(me.def);
+  const pace = avg(all.filter(x => x.team === team).map(x => {
+    const seconds = x.features.off_seconds_per_drive;
+    const plays = x.features.off_avg_drive_plays ?? x.features.off_plays_per_drive;
+    return seconds != null && plays > 0 ? seconds / plays : null;
+  }).filter(v => v != null));
 
   const remaining = rows(`SELECT opponent FROM game_lines
                           WHERE season=? AND week>=? AND team=? AND opponent IS NOT NULL`,
@@ -445,24 +450,32 @@ export function adjustedFeatures(season, week, team) {
     opp_adj_def_epa: r3(adjDef),
     sos_played: r3(avg(me.opps.map(netOf))),
     sos_remaining: remaining.length ? r3(avg(remaining.map(netOf))) : null,
-    pace_seconds_per_play: null, // reserved: needs drive clock deltas, not yet ingested
+    // This is deliberately labelled a proxy rather than "neutral pace": the
+    // public feed has drive duration and plays, but not a trustworthy snap-to-
+    // snap play-clock series for every historical game.
+    pace_seconds_per_play: r3(pace),
     opp_adj_net_epa: adjOff != null && adjDef != null ? r3(adjOff - adjDef) : null
   };
 }
 
 /** Everything for one team-week, in one object. */
 export function teamFeatureVector(season, week, team) {
-  const seasonToDate = teamWeeks(season, team).filter(t => t.week < week);
+  const seasonToDate = teamWeeks().filter(t => t.team === team &&
+    (t.season === season ? t.week < week : t.season === season - 1));
   const base = {};
   if (seasonToDate.length) {
     const keys = Object.keys(seasonToDate[0].features);
     for (const k of keys) {
-      const vals = seasonToDate.map(t => t.features[k]).filter(v => v != null);
-      base[k] = vals.length ? r3(avg(vals)) : null;
+      const vals = seasonToDate.map((t, i) => ({ value: t.features[k], weight: 0.5 ** ((seasonToDate.length - 1 - i) / 12) }))
+        .filter(x => x.value != null);
+      const weight = vals.reduce((s, x) => s + x.weight, 0);
+      base[k] = weight ? r3(vals.reduce((s, x) => s + x.value * x.weight, 0) / weight) : null;
     }
   }
   return {
     ...base,
+    feature_games: seasonToDate.length,
+    prior_season_games: seasonToDate.filter(t => t.season === season - 1).length,
     ...bettingTrends(season, week, team),
     ...gameContext(season, week, team),
     ...formFeatures(season, week, team),
@@ -472,13 +485,16 @@ export function teamFeatureVector(season, week, team) {
 
 /** Player rolling form on top of his per-week measurements. */
 export function playerFeatureVector(season, week, playerId) {
-  const hist = playerWeeks(season, playerId).filter(p => p.week < week);
+  const hist = playerWeeks(null, playerId).filter(p =>
+    (p.season === season ? p.week < week : p.season === season - 1));
   if (!hist.length) return null;
   const keys = Object.keys(hist[0].features);
   const out = {};
   for (const k of keys) {
-    const vals = hist.map(h => h.features[k]).filter(v => v != null);
-    out[k] = vals.length ? r3(avg(vals)) : null;
+    const vals = hist.map((h, i) => ({ value: h.features[k], weight: 0.5 ** ((hist.length - 1 - i) / 10) }))
+      .filter(x => x.value != null);
+    const weight = vals.reduce((s, x) => s + x.weight, 0);
+    out[k] = weight ? r3(vals.reduce((s, x) => s + x.value * x.weight, 0) / weight) : null;
   }
   for (const w of [3, 5]) {
     for (const k of ['targets', 'carries', 'target_share', 'carry_share', 'wopr', 'total_yards', 'total_touches']) {
@@ -487,5 +503,12 @@ export function playerFeatureVector(season, week, playerId) {
     }
   }
   const last = hist[hist.length - 1];
-  return { player_id: playerId, name: last.player_name, team: last.team, position: last.position, features: out };
+  const currentSeason = Number(process.env.NFL_SEASON) || 2026;
+  const rosterTeam = season === currentSeason ? rows(`SELECT t.abbr
+    FROM players p JOIN roster_players rp ON rp.espn_id=p.espn_id
+    JOIN nfl_teams t ON t.id=rp.team_id WHERE p.gsis_id=? LIMIT 1`, String(playerId))[0]?.abbr : null;
+  return {
+    player_id: playerId, name: last.player_name, team: rosterTeam ?? last.team, position: last.position,
+    features: { ...out, feature_games: hist.length, prior_season_games: hist.filter(h => h.season === season - 1).length }
+  };
 }

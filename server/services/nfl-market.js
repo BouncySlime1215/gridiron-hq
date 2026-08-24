@@ -87,7 +87,8 @@ function gridScore(results, warmupSeasons) {
 }
 
 let _cache = null;
-export function clearNflMarketCache() { _cache = null; }
+let _nestedCache = null;
+export function clearNflMarketCache() { _cache = null; _nestedCache = null; }
 
 /**
  * Fits alpha/carryover by grid search, computes home-field advantage and the two
@@ -115,14 +116,22 @@ export function fitModel() {
 
   const { off, def, results } = simulate(games, { alpha: best.alpha, carryover: best.carryover, hfa, leagueAvg });
   const warm = results.filter(r => r.g.season >= LEAGUE_MIN_SEASON + 5);
-  const marginResiduals = warm.map(r => r.actualMargin - r.predMargin);
-  const totalResiduals = warm.map(r => r.actualTotal - r.predTotal);
+  const rawMarginResiduals = warm.map(r => r.actualMargin - r.predMargin);
+  const rawTotalResiduals = warm.map(r => r.actualTotal - r.predTotal);
+  // The raw ratings forecast has an intercept miss, especially on totals. Apply
+  // that cutoff-safe bias to the displayed point estimate, then bootstrap only
+  // the centred uncertainty. Previously the board displayed an unadjusted total
+  // while its probability silently included a roughly four-point residual mean.
+  const marginBias = mean(rawMarginResiduals);
+  const totalBias = mean(rawTotalResiduals);
+  const marginResiduals = rawMarginResiduals.map(v => v - marginBias);
+  const totalResiduals = rawTotalResiduals.map(v => v - totalBias);
   const marginStd = stdev(marginResiduals);
   const totalStd = stdev(totalResiduals);
 
   _cache = {
     off, def, hfa, leagueAvg, alpha: best.alpha, carryover: best.carryover,
-    marginStd, totalStd, marginResiduals, totalResiduals, results,
+    marginStd, totalStd, marginBias, totalBias, marginResiduals, totalResiduals, results,
     warmGames: warm.length, totalGames: games.length
   };
   return _cache;
@@ -136,9 +145,24 @@ export function fitModel() {
  * that actually happened rather than an assumed shape.
  */
 function bootstrapProb(predicted, threshold, residuals, trials) {
+  // A board must not change merely because it was refreshed. Seed a tiny local
+  // generator from the exact question being asked rather than Math.random().
+  // Replays and UI checks are therefore reproducible without sharing RNG state.
+  const seedText = `${predicted}|${threshold}|${residuals.length}|${trials}`;
+  let seed = 2166136261;
+  for (let i = 0; i < seedText.length; i++) {
+    seed ^= seedText.charCodeAt(i);
+    seed = Math.imul(seed, 16777619);
+  }
+  const next = () => {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
   let hits = 0;
   for (let i = 0; i < trials; i++) {
-    const draw = residuals[(Math.random() * residuals.length) | 0];
+    const draw = residuals[(next() * residuals.length) | 0];
     if (predicted + draw > threshold) hits++;
   }
   return hits / trials;
@@ -149,11 +173,15 @@ export function predictGame(homeTeam, awayTeam) {
   const m = fitModel();
   if (m.error) return m;
   const off = r => m.off.get(r) ?? 0, def = r => m.def.get(r) ?? 0;
-  const predHome = m.leagueAvg / 2 + off(homeTeam) + def(awayTeam) + m.hfa / 2;
-  const predAway = m.leagueAvg / 2 + off(awayTeam) + def(homeTeam) - m.hfa / 2;
+  const rawHome = m.leagueAvg / 2 + off(homeTeam) + def(awayTeam) + m.hfa / 2;
+  const rawAway = m.leagueAvg / 2 + off(awayTeam) + def(homeTeam) - m.hfa / 2;
+  const margin = rawHome - rawAway + m.marginBias;
+  const total = rawHome + rawAway + m.totalBias;
+  const predHome = (total + margin) / 2;
+  const predAway = (total - margin) / 2;
   return {
     predicted_home_score: +predHome.toFixed(1), predicted_away_score: +predAway.toFixed(1),
-    predicted_margin: +(predHome - predAway).toFixed(1), predicted_total: +(predHome + predAway).toFixed(1),
+    predicted_margin: +margin.toFixed(1), predicted_total: +total.toFixed(1),
     home_off: +off(homeTeam).toFixed(2), home_def: +def(homeTeam).toFixed(2),
     away_off: +off(awayTeam).toFixed(2), away_def: +def(awayTeam).toFixed(2)
   };
@@ -274,27 +302,96 @@ function predToScoreline(pred) {
 
 /** Walk-forward accuracy, same reporting bar as the fantasy engine's backtest. */
 export function accuracy() {
-  const m = fitModel();
-  if (m.error) return m;
-  const usable = m.results.filter(r => r.g.season >= LEAGUE_MIN_SEASON + 5);
+  const nested = nestedEvaluationRows();
+  if (nested.error) return nested;
+  const total = scoreAccuracy(nested.rows, null, null);
+  return {
+    ...total,
+    evaluation_seasons: nested.evaluation_seasons,
+    per_season: nested.per_season,
+    note: 'Nested rolling holdout: each season is graded with hyperparameters, HFA and probability calibration fitted only on prior seasons.'
+  };
+}
+
+/**
+ * Exact outer-fold predictions used by both the public accuracy card and every
+ * downstream residual/challenger audit. Keeping one canonical row set prevents
+ * a diagnostic from quietly using a weaker or leakier evaluation path.
+ */
+export function nestedEvaluationRows() {
+  if (_nestedCache) return _nestedCache;
+  const games = historicalGames();
+  if (games.length < 500) return { error: `only ${games.length} completed games with scores — sync game lines first` };
+
+  // Outer rolling holdout: every reported season gets hyperparameters, HFA,
+  // league scoring level and probability scale fitted only on earlier seasons.
+  // The previous report walked ratings forward but selected alpha/carryover and
+  // calibrated residuals on the same games it graded.
+  const seasons = [...new Set(games.map(g => g.season))].sort((a, b) => a - b);
+  const evalSeasons = seasons.slice(-4);
+  const evaluated = [];
+  const perSeason = [];
+
+  for (const season of evalSeasons) {
+    const train = games.filter(g => g.season < season);
+    const test = games.filter(g => g.season === season);
+    if (train.length < 500 || !test.length) continue;
+    const hfa = mean(train.map(g => g.home_score - g.away_score));
+    const leagueAvg = mean(train.flatMap(g => [g.home_score, g.away_score]));
+    let best = null;
+    for (const alpha of [0.05, 0.08, 0.1, 0.13, 0.16, 0.2]) {
+      for (const carryover of [0.5, 0.65, 0.75, 0.85, 1.0]) {
+        const result = simulate(train, { alpha, carryover, hfa, leagueAvg });
+        const score = gridScore(result.results, 5);
+        if (!best || score < best.score) best = { alpha, carryover, score };
+      }
+    }
+    const trainFit = simulate(train, { ...best, hfa, leagueAvg });
+    const warmTrain = trainFit.results.filter(r => r.g.season >= LEAGUE_MIN_SEASON + 5);
+    const marginResiduals = warmTrain.map(r => r.actualMargin - r.predMargin);
+    const totalResiduals = warmTrain.map(r => r.actualTotal - r.predTotal);
+    const marginBias = mean(marginResiduals);
+    const totalBias = mean(totalResiduals);
+    const marginStd = stdev(marginResiduals.map(v => v - marginBias)) || 14;
+    const combined = simulate([...train, ...test], { ...best, hfa, leagueAvg });
+    const held = combined.results.filter(r => r.g.season === season)
+      .map(r => ({ ...r, predMargin: r.predMargin + marginBias,
+        predTotal: r.predTotal + totalBias, marginStd }));
+    evaluated.push(...held);
+    perSeason.push(scoreAccuracy(held, season, best));
+  }
+
+  _nestedCache = {
+    rows: evaluated,
+    evaluation_seasons: evalSeasons,
+    per_season: perSeason
+  };
+  return _nestedCache;
+}
+
+function scoreAccuracy(usable, season = null, params = null) {
   let correct = 0, brierSum = 0;
-  const marginErrs = [], totalErrs = [];
+  const marginErrs = [], totalErrs = [], marketMarginErrs = [], marketTotalErrs = [];
   for (const r of usable) {
-    const p = normalCdf(r.predMargin / m.marginStd);
+    const p = normalCdf(r.predMargin / r.marginStd);
     const actualWin = r.actualMargin > 0 ? 1 : 0;
     if ((p > 0.5 ? 1 : 0) === actualWin) correct++;
     brierSum += (p - actualWin) ** 2;
     marginErrs.push(Math.abs(r.actualMargin - r.predMargin));
     totalErrs.push(Math.abs(r.actualTotal - r.predTotal));
+    if (r.g?.home_spread != null) marketMarginErrs.push(Math.abs(r.actualMargin - (-r.g.home_spread)));
+    if (r.g?.total != null) marketTotalErrs.push(Math.abs(r.actualTotal - r.g.total));
   }
-  return {
+  const out = {
     games_graded: usable.length,
-    win_accuracy: +(correct / usable.length).toFixed(4),
-    brier_score: +(brierSum / usable.length).toFixed(4),
+    win_accuracy: usable.length ? +(correct / usable.length).toFixed(4) : null,
+    brier_score: usable.length ? +(brierSum / usable.length).toFixed(4) : null,
     margin_mae: +mean(marginErrs).toFixed(2),
     total_mae: +mean(totalErrs).toFixed(2),
-    margin_std: +m.marginStd.toFixed(2), total_std: +m.totalStd.toFixed(2),
-    fitted_alpha: m.alpha, fitted_carryover: m.carryover, fitted_hfa: +m.hfa.toFixed(2),
-    note: 'Walk-forward: every prediction used only games that happened before it. First 5 seasons are warm-up and excluded from grading.'
+    market_margin_mae: marketMarginErrs.length ? +mean(marketMarginErrs).toFixed(2) : null,
+    market_total_mae: marketTotalErrs.length ? +mean(marketTotalErrs).toFixed(2) : null
   };
+  if (season != null) out.season = season;
+  if (params) { out.fitted_alpha = params.alpha; out.fitted_carryover = params.carryover; }
+  return out;
 }

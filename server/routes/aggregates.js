@@ -173,7 +173,7 @@ export async function syncDynastyValues() {
 
 r.post('/sync', async (req, res, next) => {
   try {
-    const season = row('SELECT season FROM espn_settings WHERE id = 1')?.season ?? new Date().getFullYear();
+    const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
     const [ffc, sleeper, fc, dyn] = await Promise.allSettled([
       syncFFC(season), syncSleeper(), syncFantasyCalc(), syncDynastyValues()
     ]);
@@ -253,7 +253,7 @@ r.post('/refresh-all', async (req, res, next) => {
       const counts = await Promise.allSettled(batch.map(a => syncTeamNewsFeed(a)));
       result.news.teams += counts.reduce((s, c) => s + (c.status === 'fulfilled' ? c.value : 0), 0);
     }
-    const season = row('SELECT season FROM espn_settings WHERE id = 1')?.season ?? new Date().getFullYear();
+    const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
     const [ffc, sleeper] = await Promise.allSettled([syncFFC(season), syncSleeper()]);
     const fc = await syncFantasyCalc().catch(e => ({ error: e.message })); // after Sleeper so sleeper_ids exist
     const dyn = await syncDynastyValues().catch(e => ({ error: e.message }));

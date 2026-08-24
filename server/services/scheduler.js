@@ -76,6 +76,17 @@ async function refreshMlbLogs() {
   return { pitchers: p.games, batters: b.games };
 }
 
+/**
+ * Settle the last completed slate cheaply. This is deliberately separate from
+ * season-wide player-log ingestion: fifteen boxscore requests beat thousands
+ * of player requests and make a missing result stay Pending, never falsely Void.
+ */
+async function refreshMlbBoxscores() {
+  const { syncFinalBoxscores } = await import('./mlb.js');
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  return syncFinalBoxscores(yesterday);
+}
+
 /** NFL lines for the current season, including scores as games go final. */
 async function refreshNflLines() {
   const { syncCurrentLines, clearGameScriptCache } = await import('./gamescript.js');
@@ -110,6 +121,43 @@ async function prepareTomorrowPicks() {
 }
 
 /**
+ * Multi-book line snapshots — the raw material for closing line value.
+ *
+ * CLV needs a number captured when a bet was placed and another near kickoff.
+ * Nothing was capturing on a timer before this, which is why the snapshot table
+ * held exactly one timestamp and CLV was unmeasurable.
+ *
+ * The Odds API free tier is 500 credits a month and each market costs one per
+ * call, so this asks for spreads and totals only (2 credits) and runs twice a
+ * day: about 120 credits a month, leaving the rest for props and on-demand
+ * shopping. The reserve check matters more than the cadence — running out
+ * mid-season would silently stop the measurement rather than fail loudly.
+ */
+async function refreshNflLineSnapshots() {
+  const { snapshotLines } = await import('./line-shopping.js');
+  const { usage } = await import('./odds-api.js');
+  const left = usage().requests_remaining;
+  if (left != null && left < 60) {
+    return { skipped: true, reason: `holding ${left} API credits in reserve for on-demand pricing` };
+  }
+  const snap = await snapshotLines({ markets: 'spreads,totals' });
+  if (snap?.error) return snap;
+  const { gradeClosingLineValue } = await import('./nfl-clv.js');
+  // Grade as soon as a fresh capture exists: a bet becomes gradeable the moment
+  // its game kicks off, and the last capture before that is its close.
+  return { ...snap, clv: gradeClosingLineValue() };
+}
+
+/**
+ * Multi-horizon, pre-event evidence captures. This stays light: it only runs
+ * windows that are due and groups requests by NFL week / MLB slate date.
+ */
+async function runEvidenceDaemon() {
+  const { runEvidenceDaemon: capture } = await import('./evidence-daemon.js');
+  return capture();
+}
+
+/**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
  * slate, box scores only settle after games end, and NFL lines move all week.
@@ -117,9 +165,12 @@ async function prepareTomorrowPicks() {
 export const JOBS = {
   mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, label: 'MLB schedule and results' },
   mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, label: 'MLB player game logs' },
+  mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, label: 'MLB final boxscore settlement' },
   mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, label: 'MLB probable starters' },
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
-  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' }
+  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' },
+  nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, label: 'Multi-book line snapshots (CLV)' },
+  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */
@@ -183,8 +234,19 @@ let timer = null;
  */
 export function startScheduler({ intervalMinutes = 30, bootDelayMs = 20000 } = {}) {
   if (timer) return { already_running: true };
-  setTimeout(() => { runAllStale().catch(() => {}); }, bootDelayMs);
-  timer = setInterval(() => { runAllStale().catch(() => {}); }, intervalMinutes * 60000);
+  // Keep launch interactive. MLB player-log ingestion can process thousands of
+  // responses and tomorrow-pick generation runs large simulations; doing either
+  // on the main thread twenty seconds after boot made every API request hang.
+  // The boot pass is restricted to light network jobs. Heavy jobs still run on
+  // the interval and through explicit refresh controls.
+  const bootJobs = ['mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'evidence_daemon'];
+  setTimeout(() => {
+    (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
+  }, bootDelayMs);
+  const scheduledJobs = process.env.AUTO_HEAVY_SYNC === '1' ? Object.keys(JOBS) : bootJobs;
+  timer = setInterval(() => {
+    (async () => { for (const j of scheduledJobs) await runIfStale(j); })().catch(() => {});
+  }, intervalMinutes * 60000);
   timer.unref?.();  // never hold the process open just for this
   return { started: true, interval_minutes: intervalMinutes };
 }

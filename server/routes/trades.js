@@ -10,7 +10,7 @@ import { row, rows } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
   findTrades, offerFor, selfScout, playerOutlook, evaluate,
-  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer
+  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff
 } from '../services/trade-engine.js';
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
 import { deriveFormat } from '../services/format.js';
@@ -38,6 +38,80 @@ r.get('/:leagueId/scout', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     res.json(selfScout(lg, req.query.team_id));
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------ decision inbox */
+/**
+ * "What should I actually do today" — the Dashboard's Phase 1 flagship item
+ * from the platform audit. Deliberately not a new analysis engine: every
+ * signal here is something the app already computes (selfScout's prioritized
+ * fixes, findTrades' real mutual-win deals, news_items' importance flag) —
+ * this just merges them into one ranked queue instead of leaving them
+ * scattered across three separate pages the user has to remember to check.
+ */
+r.get('/:leagueId/inbox', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const teamId = req.query.team_id;
+    const items = [];
+
+    const scout = selfScout(lg, teamId);
+    if (!scout.error) {
+      for (const f of scout.fixes.slice(0, 3)) {
+        items.push({
+          type: 'roster', priority: f.priority, title: f.issue, action: f.action,
+          link: '/my-team'
+        });
+      }
+
+      // MAJOR news about a team any of my rostered players actually plays for —
+      // not a global news skim, scoped to what could move my own lineup.
+      const myTeamAbbrs = [...new Set(scout.lineup.slots.map(s => s.player?.team_abbr).filter(Boolean)
+        .concat(scout.lineup.bench.map(p => p.team_abbr).filter(Boolean)))];
+      if (myTeamAbbrs.length) {
+        const placeholders = myTeamAbbrs.map(() => '?').join(',');
+        const news = rows(`SELECT n.headline, n.fantasy_impact, n.date, t.abbr AS team_abbr
+                           FROM news_items n JOIN nfl_teams t ON t.id = n.team_id
+                           WHERE n.importance = 3 AND t.abbr IN (${placeholders})
+                             AND n.date >= date('now', '-7 days')
+                           ORDER BY n.date DESC LIMIT 3`, ...myTeamAbbrs);
+        for (const n of news) {
+          items.push({
+            type: 'news', priority: 'high',
+            title: n.headline, action: n.fantasy_impact || `Major ${n.team_abbr} news this week — check the impact.`,
+            link: `/teams/${n.team_abbr}`
+          });
+        }
+      }
+    }
+
+    // One real, mutual-win trade if one exists — not the whole board, just
+    // "here's a deal actually worth looking at today."
+    if (teamId) {
+      const trades = findTrades(lg, { myTeamId: teamId, requireMutual: true, limit: 5 });
+      const best = (trades.deals ?? []).find(d => d.mutual);
+      if (best) {
+        items.push({
+          type: 'trade', priority: 'medium',
+          title: `${best.partner} would plausibly take a deal that helps both lineups`,
+          action: `${best.i_give.map(p => p.name).join(' + ')} for ${best.i_get.map(p => p.name).join(' + ')}`,
+          link: '/trade-lab'
+        });
+      }
+    }
+
+    const rank = { high: 0, medium: 1, low: 2 };
+    items.sort((a, b) => (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2));
+    res.json({ items: items.slice(0, 6) });
+  } catch (e) { next(e); }
+});
+
+/* --------------------------------------------------- submitted vs. recommended */
+r.get('/:leagueId/lineup-diff', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(lineupDiff(lg, req.query.team_id));
   } catch (e) { next(e); }
 });
 
@@ -155,6 +229,80 @@ r.get('/splits/:playerId', (req, res, next) => {
                    LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE p.id = ?`, req.params.playerId);
     if (!p) return res.status(404).json({ error: 'player not found' });
     res.json({ ...p, ...relevantSplits(p.id, p.abbr, 5) });
+  } catch (e) { next(e); }
+});
+
+/* -------------------------------------------------------------- AI sense check */
+/**
+ * An independent read on a deal the deterministic engine already scored — not a
+ * pitch, a second opinion. The lineup/value math is real, but it can't see things
+ * like "three of these five guys are all hurt" or "the reason their VOR is thin at
+ * this spot is he's on a bye the same week two of my other guys are" — the kind of
+ * thing a person actually trading would notice on sight. Claude is told the full
+ * deal (every field the engine computed, not just a summary) and instructed to
+ * work only from that data, so this can disagree with the engine's own verdict
+ * when the numbers miss something real, but can't invent a fact that isn't there.
+ */
+r.post('/:leagueId/sense-check', async (req, res, next) => {
+  try {
+    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
+    const lg = league(req, res); if (!lg) return;
+    const d = req.body?.deal;
+    if (!d?.me || !d?.them) return res.status(400).json({ error: 'deal required' });
+
+    const fmtPlayer = p => `${p.name} (${p.position}${p.team_abbr ? ` ${p.team_abbr}` : ''}) — ` +
+      `proj ${p.proj ?? '?'} pts, ${p.adj_ppg ?? '?'} adj ppg, market value ${p.value ?? '?'}` +
+      `${p.age != null ? `, age ${p.age}` : ''}${p.bye ? `, bye week ${p.bye}` : ''}` +
+      `${p.injury ? ', INJURY FLAG' : ''}${p.floor != null ? `, floor/ceiling ${p.floor}/${p.ceiling}` : ''}` +
+      `${p.consistency != null ? `, consistency ${p.consistency}` : ''}` +
+      `${p.playoff_sos != null ? `, weeks 15-17 matchup mult ${p.playoff_sos}` : ''}`;
+
+    const fmtSide = (label, s) => `${label} (${s.owner}):
+  Sends: ${s.gives.length ? s.gives.map(fmtPlayer).join('\n    ') : 'nothing'}
+  Receives: ${s.gets.length ? s.gets.map(fmtPlayer).join('\n    ') : 'nothing'}
+  Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} over the season)
+  Weeks 15-17 lineup: ${s.playoff_ppg_delta > 0 ? '+' : ''}${s.playoff_ppg_delta ?? '?'} ppg
+  Market value: ${s.value_delta > 0 ? '+' : ''}${s.value_delta}
+  Weekly floor/ceiling shift: ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
+  ${s.new_holes?.length ? `Leaves an unfilled starting slot at: ${s.new_holes.join(', ')}` : 'Fills every starting slot'}`;
+
+    const msg = await callClaude({
+      feature: 'trade-sense-check',
+      maxTokens: 1100,
+      prompt: `You are an experienced fantasy football manager giving a second opinion on a trade someone is
+considering. A deterministic engine already scored it on lineup points and market value — your job is
+to sanity-check that math against things a person would actually notice, not to re-derive the numbers.
+
+THE DEAL
+
+${fmtSide('MY SIDE', d.me)}
+
+${fmtSide('THEIR SIDE', d.them)}
+
+Engine's read: fairness "${d.fairness}", both lineups improve: ${d.mutual ? 'yes' : 'no'}, deal considered plausible: ${d.plausible ? 'yes' : 'no'}.
+${d.red_flags?.length ? `Engine already flagged: ${d.red_flags.join('; ')}.` : 'Engine raised no roster-fit flags.'}
+${d.their_window ? `Their team's situation: ${d.their_window.label} — ${d.their_window.stance}` : ''}
+
+Look specifically for things the lineup/value math cannot see on its own:
+- Bye-week collisions between the players changing hands and each other (not the rest of either
+  roster — you don't have that).
+- Injury-flagged players stacked on one side, or an injury flag on the single biggest piece of a deal.
+- Age or workload concerns severe enough to matter beyond what "market value" already prices in.
+- Whether this trade actually matches the "their team's situation" framing above, or contradicts it
+  (e.g. a supposed rebuilder taking on an older proven vet instead of youth).
+- Anything about the engine's own verdict that doesn't hold up once you look at who's actually moving.
+
+Work ONLY from the data given above — never invent a stat, injury, or fact not listed. If you have
+nothing real to flag in a category, say so plainly rather than manufacturing a concern.
+
+Respond with ONLY JSON:
+{"verdict":"one of: sound / worth a second look / risky / lopsided",
+ "headline":"one sentence — your overall take, independent of the engine's verdict",
+ "concerns":["0-4 short, specific, concrete concerns grounded in the data above — omit entirely if none"],
+ "agrees_with_engine": true or false,
+ "why": "2-3 sentences on why you agree or disagree with the engine's plausibility call"}`
+    });
+    res.json(parseJson(msg));
   } catch (e) { next(e); }
 });
 

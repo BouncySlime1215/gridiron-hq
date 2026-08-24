@@ -10,6 +10,11 @@ const SLOT_POS = {
   QB: 'QB', RB1: 'RB', RB2: 'RB', WR1: 'WR', WR2: 'WR', WR3: 'WR', TE1: 'TE',
   EDGE: 'EDGE', DL: 'DL', LB: 'LB', CB: 'CB', S: 'S', K: 'K'
 };
+// Individual defensive players (EDGE/DL/LB/CB/S) are depth-chart/X's-and-O's data,
+// not standard fantasy draft slots — they stay fantasy_relevant=0. Every offensive
+// skill slot and the kicker are real draftable fantasy positions regardless of
+// whether they made the curated top-100 consensus board below.
+const FANTASY_SLOT = new Set(['QB', 'RB1', 'RB2', 'WR1', 'WR2', 'WR3', 'TE1', 'K']);
 
 export function seedIfEmpty() {
   const count = row('SELECT COUNT(*) AS n FROM nfl_teams').n;
@@ -38,9 +43,16 @@ export function seedIfEmpty() {
   for (const [abbr, slots] of Object.entries(DEPTH)) {
     for (const [slot, name] of Object.entries(slots)) {
       const depthRank = /2$/.test(slot) ? 2 : /3$/.test(slot) ? 3 : 1;
-      const r = insertPlayer.run(name, SLOT_POS[slot], teamIds[abbr], depthRank, slot, SLOT_PHASE[slot], 0);
+      const r = insertPlayer.run(name, SLOT_POS[slot], teamIds[abbr], depthRank, slot, SLOT_PHASE[slot],
+        FANTASY_SLOT.has(slot) ? 1 : 0);
       playerIdByName[name] = Number(r.lastInsertRowid);
     }
+    // Team defense/special-teams unit — drafted as one entity, same as every other
+    // fantasy platform. Named to match what ESPN sync produces for the same team
+    // ("{Nickname} D/ST"), so a later sync updates this row by name instead of
+    // creating a duplicate.
+    const nickname = TEAMS.find(t => t.abbr === abbr)?.name.split(' ').pop();
+    if (nickname) insertPlayer.run(`${nickname} D/ST`, 'DEF', teamIds[abbr], 1, 'DEF', 'defense', 1);
   }
 
   // Default ranking set from the consensus board; add any board players missing from depth charts.

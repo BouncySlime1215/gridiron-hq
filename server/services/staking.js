@@ -68,6 +68,36 @@ export function stakeFor({ winProb, americanOdds, bankroll = 100, multiplier = 0
 }
 
 /**
+ * Production-safe wrapper. A larger stake is never unlocked by an AI label or
+ * point edge alone: calibration, forward sample, uncertainty and portfolio
+ * exposure must all be known first.
+ */
+export function safeStakeFor({ winProb, americanOdds, bankroll = 100, calibrationPassed = false,
+  forwardSettled = 0, uncertaintyWidth = null, openPortfolioFraction = 0,
+  multiplier = 0.25, maxSingleFraction = 0.025, maxPortfolioFraction = 0.08 }) {
+  const blockers = [];
+  if (!Number.isFinite(winProb) || winProb <= 0 || winProb >= 1) blockers.push('model probability is invalid');
+  if (!Number.isFinite(americanOdds) || americanOdds === 0) blockers.push('market price is invalid');
+  if (!calibrationPassed) blockers.push('cover calibration has not beaten the market out of sample');
+  if (!Number.isFinite(forwardSettled) || forwardSettled < 250) blockers.push(`forward sample is ${Number.isFinite(forwardSettled) ? forwardSettled : 0}/250`);
+  if (!Number.isFinite(uncertaintyWidth)) blockers.push('predictive interval width is unavailable');
+  else if (uncertaintyWidth > 24) blockers.push(`80% margin interval is too wide (${uncertaintyWidth} points)`);
+  if (!Number.isFinite(openPortfolioFraction) || openPortfolioFraction < 0) blockers.push('weekly portfolio exposure is invalid');
+  else if (openPortfolioFraction >= maxPortfolioFraction) blockers.push('weekly portfolio exposure cap is already reached');
+  if (blockers.length) return {
+    units: 0, stake: 0, stake_fraction: 0, execution_eligible: false, blockers,
+    recommendation: 'shadow only — stake sizing cannot create an edge'
+  };
+  const remaining = Math.max(0, maxPortfolioFraction - openPortfolioFraction);
+  const sized = stakeFor({ winProb, americanOdds, bankroll, multiplier,
+    maxUnitFraction: Math.min(maxSingleFraction, remaining) });
+  return { ...sized, execution_eligible: sized.stake_fraction > 0, blockers: [],
+    portfolio_fraction_after: r3(openPortfolioFraction + sized.stake_fraction),
+    safeguards: { max_single_fraction: maxSingleFraction, max_portfolio_fraction: maxPortfolioFraction,
+      minimum_forward_settled: 250, maximum_margin_interval_80: 24 } };
+}
+
+/**
  * Confidence tiers — and a warning attached to them.
  *
  * The obvious design is "bet more when the models agree", and that is what this
@@ -78,7 +108,7 @@ export function stakeFor({ winProb, americanOdds, bankroll = 100, multiplier = 0
  *   models disagree 4-5 pts   276 bets   52.2%
  *   models disagree 5-6 pts   164 bets   47.0%
  *
- * The bucket where twenty models agree most tightly is the *worst* performer.
+ * The bucket where the component models agree most tightly is the *worst* performer.
  * That makes sense in hindsight: when every model agrees, they are all reading
  * the same obvious signal — which the market has also read and already priced.
  * The edge such a bet appears to have is usually the model being wrong in a

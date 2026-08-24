@@ -4,24 +4,35 @@
  */
 import { Router } from 'express';
 import { catalog, countVariables, teamFeatureVector, playerFeatureVector, bettingTrends } from '../services/nfl-features.js';
-import { propBoard, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
+import { propBoard, propAccuracy, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
-import { boardFor, accuracy } from '../services/nfl-market.js';
+import { boardFor, accuracy, clearNflMarketCache } from '../services/nfl-market.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
-import { modelCatalog, ensembleWeek, ensembleLine } from '../services/nfl-ensemble.js';
-import { replaySeason, trainingIteration, validateAdjustment } from '../services/nfl-replay.js';
+import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsembleCache, clearEnsembleLineCache } from '../services/nfl-ensemble.js';
+import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
+import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/nfl-clv.js';
+import { sharpBoard, sharpDivergence, steamMoves, sharpScorecard } from '../services/nfl-sharp.js';
 import { runIfStale } from '../services/scheduler.js';
-import { stakeFor, evaluateSizing } from '../services/staking.js';
+import { stakeFor, safeStakeFor, evaluateSizing } from '../services/staking.js';
+import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
+import { buildCoverCalibration, latestCoverCalibration } from '../services/nfl-cover-calibration.js';
+import { capturePregameSnapshots, pregameSnapshotCoverage } from '../services/nfl-pregame.js';
+import { startAiBlindReplay, aiReplayRun, aiReplayLogs, activeAiReplayRun, latestAiReplayRun } from '../services/nfl-ai-replay.js';
+import { nflEvidenceCoverage, validationFirewall } from '../services/nfl-evidence.js';
+import { gamePlayerAvailability, teamPlayerAvailability } from '../services/nfl-player-value.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const wk = req => Number(req.query.week) || 1;
 const ssn = req => Number(req.query.season) || SEASON;
+const disagreement = req => req.query.max_disagreement === 'none'
+  ? null
+  : (req.query.max_disagreement != null ? Number(req.query.max_disagreement) : 4.5);
 
 /* ---------------------------------------------------------------- catalog */
 
@@ -70,6 +81,14 @@ r.get('/props', async (req, res, next) => {
       limit: Number(req.query.limit) || 60,
       maxEvents: Math.min(Number(req.query.max_events) || 4, 16)
     }));
+  } catch (e) { next(e); }
+});
+
+/** Walk-forward error and probability calibration for every prop family. */
+r.get('/props/accuracy', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    res.json(propAccuracy(seasons));
   } catch (e) { next(e); }
 });
 
@@ -179,6 +198,10 @@ r.get('/ensemble/models', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/ensemble/contracts', (req, res, next) => {
+  try { res.json({ contracts: featureContracts() }); } catch (e) { next(e); }
+});
+
 r.get('/ensemble/week', (req, res, next) => {
   try {
     res.json({ season: ssn(req), week: wk(req), games: ensembleWeek(ssn(req), wk(req)) });
@@ -200,11 +223,13 @@ r.get('/ensemble/game', (req, res, next) => {
 /** Replays a season betting the ensemble, walk-forward, and grades every pick. */
 r.get('/replay', (req, res, next) => {
   try {
-    const out = replaySeason(ssn(req), {
-      minEdge: Number(req.query.min_edge) || 1.5,
-      maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null,
-      markets: String(req.query.markets ?? 'spread,total').split(',')
-    });
+    const research = req.query.research === '1';
+    const out = replaySeason(ssn(req), research ? {
+      minEdge: Number(req.query.min_edge) || 3,
+      maxDisagreement: disagreement(req),
+      markets: String(req.query.markets ?? 'spread').split(','),
+      maxPicksPerWeek: Number(req.query.max_picks) || 5
+    } : {});
     if (out?.error) return res.status(409).json(out);
     res.json(out);
   } catch (e) { next(e); }
@@ -213,13 +238,77 @@ r.get('/replay', (req, res, next) => {
 /** Replay across seasons plus the systematic error analysis. */
 r.get('/replay/train', (req, res, next) => {
   try {
-    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
-    res.json(trainingIteration(seasons, {
-      minEdge: Number(req.query.min_edge) || 1.5,
-      maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null,
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
+    const research = req.query.research === '1';
+    res.json(trainingIteration(seasons, research ? {
+      minEdge: Number(req.query.min_edge) || 3,
+      maxDisagreement: disagreement(req),
+      maxPicksPerWeek: Number(req.query.max_picks) || 5,
+      markets: String(req.query.markets ?? 'spread').split(','),
       minBets: Number(req.query.min_bets) || 30
-    }));
+    } : { minBets: Number(req.query.min_bets) || 30 }));
   } catch (e) { next(e); }
+});
+
+/** Runs and stores the canonical exact-policy audit used by the decision desk. */
+r.post('/replay/train', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
+    res.json(saveTrainingAudit(trainingIteration(seasons, { minBets: Number(req.query.min_bets) || 30 })));
+  } catch (e) { next(e); }
+});
+
+r.get('/replay/latest', (_req, res, next) => {
+  try { res.json({ audit: latestTrainingAudit() }); } catch (e) { next(e); }
+});
+
+/** Starts a bounded-cost, outcome-blind AI risk-gate replay. */
+r.post('/ai-replay', (req, res, next) => {
+  try { res.status(202).json(startAiBlindReplay(req.body ?? {})); }
+  catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+r.get('/ai-replay/active', (_req, res, next) => {
+  try { res.json({ run: activeAiReplayRun() }); } catch (e) { next(e); }
+});
+r.get('/ai-replay/latest', (_req, res, next) => {
+  try { res.json({ run: latestAiReplayRun() }); } catch (e) { next(e); }
+});
+r.get('/ai-replay/:id', (req, res, next) => {
+  try {
+    const out = aiReplayRun(req.params.id);
+    if (!out) return res.status(404).json({ error: 'AI replay run not found' });
+    res.json(out);
+  } catch (e) { next(e); }
+});
+r.get('/ai-replay/:id/logs', (req, res, next) => {
+  try {
+    const logs = aiReplayLogs(req.params.id);
+    if (!logs) return res.status(404).json({ error: 'AI replay run not found' });
+    res.json({ logs });
+  } catch (e) { next(e); }
+});
+
+r.get('/calibration/cover', (req, res, next) => {
+  try { res.json({ calibration: latestCoverCalibration(Number(req.query.before_season) || SEASON) }); }
+  catch (e) { next(e); }
+});
+
+r.post('/calibration/cover', (req, res, next) => {
+  try { res.json(buildCoverCalibration({
+    fromSeason: Number(req.query.from) || 2021,
+    throughSeason: Number(req.query.through) || SEASON - 1
+  })); } catch (e) { next(e); }
+});
+
+r.get('/pregame/snapshots', (_req, res, next) => {
+  try { res.json({ coverage: pregameSnapshotCoverage() }); } catch (e) { next(e); }
+});
+
+r.post('/pregame/snapshots', (req, res, next) => {
+  try { res.json(capturePregameSnapshots(ssn(req), wk(req))); } catch (e) { next(e); }
 });
 
 /**
@@ -235,7 +324,9 @@ r.get('/replay/validate', (req, res, next) => {
     // the threshold, on the theory that internal disagreement means no edge.
     res.json(validateAdjustment({
       discoverySeasons: discovery, holdoutSeasons: holdout,
-      config: { minEdge: Number(req.query.min_edge) || 1.5 },
+      // The baseline must be unfiltered or applying maxDis below is a no-op.
+      // replaySeason defaults to 4.5, so pass null explicitly here.
+      config: { minEdge: Number(req.query.min_edge) || 3, maxDisagreement: null },
       adjust: b => ((b.disagreement ?? 0) <= maxDis ? b : null)
     }));
   } catch (e) { next(e); }
@@ -273,8 +364,81 @@ r.post('/lines/snapshot', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-r.get('/lines/clv', (req, res, next) => {
+/** Snapshot coverage — whether a close exists to measure anything against. */
+r.get('/lines/clv/coverage', (req, res, next) => {
   try { res.json(closingLineValue()); } catch (e) { next(e); }
+});
+
+/**
+ * The CLV verdict on recorded bets. This is the number to read weekly — it
+ * settles whether a strategy has edge far sooner than the win/loss record does.
+ */
+r.get('/lines/clv', (req, res, next) => {
+  try {
+    res.json({
+      overall: clvReport({ source: req.query.source ?? null, since: req.query.since ?? null }),
+      by_source: clvBySource()
+    });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------ sharp money */
+
+/** The sharp consensus price for every game, and who is quoting it. */
+r.get('/sharp/board', async (req, res, next) => {
+  try {
+    const out = await sharpBoard({ markets: req.query.markets ?? 'spreads,totals' });
+    if (out?.error) return res.status(409).json(out);
+    // The internal book lists are for divergence scoring, not for the wire.
+    for (const g of out.games) for (const m of Object.values(g.markets)) {
+      delete m._sharp; delete m._rec; delete m._ref;
+    }
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/** Recreational books that have not caught up to the sharp number. */
+r.get('/sharp/divergence', async (req, res, next) => {
+  try {
+    const out = await sharpDivergence({
+      minEdgePct: req.query.min_edge != null ? Number(req.query.min_edge) : 0.01
+    });
+    if (out?.error) return res.status(409).json(out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+/** Synchronised multi-book moves — the visible trace of syndicate money. */
+r.get('/sharp/steam', (req, res, next) => {
+  try {
+    res.json(steamMoves({
+      minBooks: Number(req.query.min_books) || 3,
+      minPoints: req.query.min_points != null ? Number(req.query.min_points) : 0.5
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Whether sharp-sourced picks are actually beating the close. */
+r.get('/sharp/scorecard', (req, res, next) => {
+  try { res.json(sharpScorecard()); } catch (e) { next(e); }
+});
+
+/** Logs a bet as taken. Without the price and time, CLV cannot be computed. */
+r.post('/bets', (req, res, next) => {
+  try {
+    const out = recordBet(req.body ?? {});
+    if (out?.error) return res.status(400).json(out);
+    res.status(201).json(out);
+  } catch (e) { next(e); }
+});
+
+r.get('/bets', (req, res, next) => {
+  try { res.json(listBets({ limit: Number(req.query.limit) || 200 })); } catch (e) { next(e); }
+});
+
+/** Grades any bet whose game has kicked off against the market's close. */
+r.post('/bets/grade', (req, res, next) => {
+  try { res.json(gradeClosingLineValue()); } catch (e) { next(e); }
 });
 
 /* ---------------------------------------------------------------- staking */
@@ -295,6 +459,22 @@ r.get('/stake', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/stake/safe', (req, res, next) => {
+  try {
+    const winProb = Number(req.query.prob), odds = Number(req.query.odds);
+    if (!Number.isFinite(winProb) || !Number.isFinite(odds)) {
+      return res.status(400).json({ error: 'prob and odds query params required' });
+    }
+    res.json(safeStakeFor({
+      winProb, americanOdds: odds, bankroll: Number(req.query.bankroll) || 100,
+      calibrationPassed: req.query.calibrated === '1',
+      forwardSettled: Number(req.query.forward_settled) || 0,
+      uncertaintyWidth: req.query.interval_width == null ? null : Number(req.query.interval_width),
+      openPortfolioFraction: Number(req.query.open_exposure) || 0
+    }));
+  } catch (e) { next(e); }
+});
+
 /** Does confidence-tiered sizing actually beat flat staking on past bets? */
 r.get('/stake/evaluate', (req, res, next) => {
   try {
@@ -302,8 +482,8 @@ r.get('/stake/evaluate', (req, res, next) => {
     const bets = [];
     for (const s of seasons) {
       const rp = replaySeason(s, {
-        minEdge: Number(req.query.min_edge) || 1.5,
-        maxDisagreement: req.query.max_disagreement ? Number(req.query.max_disagreement) : null
+        minEdge: Number(req.query.min_edge) || 3,
+        maxDisagreement: disagreement(req)
       });
       if (!rp.error) bets.push(...rp.bets.filter(b => b.result !== 'Push'));
     }
@@ -312,6 +492,30 @@ r.get('/stake/evaluate', (req, res, next) => {
 });
 
 /* ------------------------------------------------------------------ admin */
+
+r.get('/experiments/protocol', (req, res, next) => {
+  try { res.json(experimentProtocol()); } catch (e) { next(e); }
+});
+
+r.get('/experiments', (req, res, next) => {
+  try { res.json({ experiments: listExperiments() }); } catch (e) { next(e); }
+});
+
+r.get('/experiments/:id', (req, res, next) => {
+  try {
+    const out = getExperiment(req.params.id);
+    if (!out) return res.status(404).json({ error: 'experiment not found' });
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
+r.post('/experiments', (req, res, next) => {
+  try { res.status(201).json(createExperiment(req.body ?? {})); } catch (e) { next(e); }
+});
+
+r.post('/experiments/:id/:stage', (req, res, next) => {
+  try { res.json(runExperimentStage(req.params.id, req.params.stage)); } catch (e) { next(e); }
+});
 
 r.get('/status', (req, res, next) => {
   try {
@@ -325,12 +529,40 @@ r.get('/status', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+r.get('/evidence/coverage', (_req, res, next) => {
+  try { res.json(nflEvidenceCoverage()); } catch (e) { next(e); }
+});
+
+r.get('/validation/firewall', (_req, res, next) => {
+  try { res.json(validationFirewall()); } catch (e) { next(e); }
+});
+
+r.get('/availability/team', (req, res, next) => {
+  try {
+    const team = String(req.query.team ?? '').toUpperCase();
+    if (!team) return res.status(400).json({ error: 'team query param required' });
+    res.json(teamPlayerAvailability(ssn(req), wk(req), team));
+  } catch (e) { next(e); }
+});
+
+r.get('/availability/game', (req, res, next) => {
+  try {
+    const home = String(req.query.home ?? '').toUpperCase();
+    const away = String(req.query.away ?? '').toUpperCase();
+    if (!home || !away) return res.status(400).json({ error: 'home and away query params required' });
+    res.json(gamePlayerAvailability(ssn(req), wk(req), home, away));
+  } catch (e) { next(e); }
+});
+
 r.post('/sync', async (req, res, next) => {
   try {
     const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
     const out = { pbp: [] };
     for (const s of seasons) out.pbp.push(await syncPbpSeason(s));
     out.advanced = await syncAllAdvanced(seasons);
+    clearEnsembleCache();
+    clearNflMarketCache();
+    out.cache_invalidated = true;
     res.json(out);
   } catch (e) { next(e); }
 });
@@ -341,7 +573,11 @@ r.post('/sync', async (req, res, next) => {
  * takes minutes and would make a refresh button feel broken.
  */
 r.post('/lines/sync-now', async (req, res, next) => {
-  try { res.json(await runIfStale('nfl_lines', { force: true })); }
+  try {
+    const result = await runIfStale('nfl_lines', { force: true });
+    clearEnsembleLineCache();
+    res.json(result);
+  }
   catch (e) { next(e); }
 });
 

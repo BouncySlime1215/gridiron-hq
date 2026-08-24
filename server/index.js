@@ -38,7 +38,10 @@ seedIfEmpty();
 // went sixteen days stale without failing. The timer keeps a long-running app
 // current; routes additionally trigger a background refresh when data is stale,
 // so an app that was closed all week catches up on the first page load.
-startScheduler({ intervalMinutes: 30 });
+// The evidence daemon has a T-15m horizon. Other jobs retain their own stale
+// thresholds, so a five-minute scheduler tick does not make heavy ingestion run
+// more often; it simply lets due capture windows fire on time.
+startScheduler({ intervalMinutes: 5 });
 
 app.use('/api/teams', teamsRouter);
 app.use('/api/players', playersRouter);

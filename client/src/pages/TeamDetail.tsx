@@ -4,15 +4,17 @@ import { api, Team, useApi } from '../api';
 import FormationView from '../components/FormationView';
 import { usePlayerCard } from '../components/PlayerCard';
 import OffseasonPanel from '../components/OffseasonPanel';
+import TeamSchedule from '../components/TeamSchedule';
 import SidePanel from '../components/SidePanel';
 
-type Phase = 'offense' | 'defense' | 'special_teams' | 'offseason';
+type Phase = 'offense' | 'defense' | 'special_teams' | 'schedule' | 'offseason';
 
 const PHASE_TABS: { key: Phase; label: string }[] = [
   { key: 'offense', label: 'Offense' },
   { key: 'defense', label: 'Defense' },
   { key: 'special_teams', label: 'Special Teams' },
-  { key: 'offseason', label: 'Offseason & Schedule' }
+  { key: 'schedule', label: 'Schedule' },
+  { key: 'offseason', label: 'Offseason' }
 ];
 
 const UNIT_LABEL: Record<string, string> = {
@@ -92,7 +94,8 @@ export default function TeamDetail() {
           ))}
         </div>
 
-        {phase === 'offseason' ? <OffseasonPanel abbr={team.abbr} /> : (<>
+        {phase === 'offseason' ? <OffseasonPanel abbr={team.abbr} />
+        : phase === 'schedule' ? <TeamSchedule abbr={team.abbr} /> : (<>
         <FormationView
           phase={phase as any}
           depth={(team as any).depth ?? {}}
@@ -106,11 +109,11 @@ export default function TeamDetail() {
 
         <div className="flex items-center gap-4 mt-2 mb-1 text-[11px] text-slate-500 flex-wrap">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(16,185,129,0.25)', border: '1.5px solid #10b981' }} />
+            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(47,125,78,0.2)', border: '1.5px solid #2f7d4e' }} />
             strength
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(244,63,94,0.25)', border: '1.5px solid #f43f5e' }} />
+            <span className="w-3 h-3 rounded-full" style={{ background: 'rgba(166,58,50,0.2)', border: '1.5px solid #a63a32' }} />
             weak spot (pulsing)
           </span>
           <span className="text-slate-400">green = Pro Bowl / All-Pro / 1st-round / top-50 market · red = AI stat review</span>
@@ -120,11 +123,11 @@ export default function TeamDetail() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">
             {Object.entries((team as any).grades.units).map(([unit, g]: any) => (
               <div key={unit} className={`rounded-lg border p-2 ${
-                g.grade === 'strength' ? 'border-emerald-300 bg-emerald-50'
-                : g.grade === 'weakness' ? 'border-rose-300 bg-rose-50' : 'border-slate-200 bg-white'}`}>
+                g.grade === 'strength' ? 'border-good bg-good-tint'
+                : g.grade === 'weakness' ? 'border-crit bg-crit-tint' : 'border-slate-200 bg-white'}`}>
                 <div className="text-[10px] font-bold text-slate-500">{unit}</div>
                 <div className={`text-xs font-bold ${
-                  g.grade === 'strength' ? 'text-emerald-700' : g.grade === 'weakness' ? 'text-rose-700' : 'text-slate-600'}`}>
+                  g.grade === 'strength' ? 'text-good' : g.grade === 'weakness' ? 'text-crit' : 'text-slate-600'}`}>
                   {g.grade === 'ok' ? 'average' : g.grade}
                 </div>
                 <div className="text-[10px] text-slate-500 truncate">
@@ -202,16 +205,60 @@ export default function TeamDetail() {
           {(teamNews ?? []).length === 0 ? (
             <p className="text-xs text-slate-500">No stories for {team.abbr} yet — pull the latest from ESPN&apos;s team feed.</p>
           ) : (teamNews ?? []).slice(0, 8).map(n => (
-            <div key={n.id} className="py-2 border-b border-slate-100 last:border-0">
-              <div className="text-[11px] text-slate-500">{n.date}{n.source && ` · ${n.source}`}</div>
-              <div className="text-sm font-medium">{n.headline}</div>
-              {n.fantasy_impact && <div className="text-xs text-amber-600 mt-0.5">🎯 {n.fantasy_impact}</div>}
+            <div key={n.id} className="py-3 border-b border-slate-100 last:border-0">
+              <div className="flex items-center gap-2 text-[11px] mb-1">
+                <span className="text-slate-500">{n.date}{n.source && ` · ${n.source}`}</span>
+                {n.importance === 3 && <span className="text-crit font-bold">MAJOR</span>}
+                <button className="text-slate-500 hover:text-crit ml-auto"
+                  onClick={async () => { await api(`/news/${n.id}`, { method: 'DELETE' }); refetchNews(); }}>✕</button>
+              </div>
+              <h4 className="text-sm font-semibold text-slate-800">{n.headline}</h4>
+              {n.body && <p className="text-sm text-slate-600 mt-1">{n.body}</p>}
+              {(n.ai_analysis || n.fantasy_impact) && (
+                <div className="mt-2 space-y-1.5">
+                  {n.ai_analysis && (
+                    <div className="border-l-2 border-slate-300 pl-3">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">What it means for {team.abbr}</div>
+                      <p className="text-sm text-slate-700">{n.ai_analysis}</p>
+                    </div>
+                  )}
+                  {n.fantasy_impact && (
+                    <div className="border-l-2 border-[var(--accent)] pl-3">
+                      <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--accent)]">Fantasy impact</div>
+                      <p className="text-sm text-slate-700">{n.fantasy_impact}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!n.ai_analysis && (
+                <ExplainButton newsId={n.id} onDone={refetchNews} />
+              )}
             </div>
           ))}
         </div>
         </>)}
       </div>
       <SidePanel />
+    </div>
+  );
+}
+
+/** Per-story "what does this mean" — same /news/:id/explain endpoint the main News page uses. */
+function ExplainButton({ newsId, onDone }: { newsId: number; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="mt-2">
+      <button className="btn-ghost text-xs" disabled={busy}
+        onClick={async () => {
+          setBusy(true); setErr(null);
+          try { await api(`/news/${newsId}/explain`, { method: 'POST' }); onDone(); }
+          catch (e: any) { setErr(e.message); }
+          finally { setBusy(false); }
+        }}>
+        {busy ? 'Reading…' : '✨ What does this mean?'}
+      </button>
+      {err && <span className="text-xs text-crit ml-2">{err}</span>}
     </div>
   );
 }

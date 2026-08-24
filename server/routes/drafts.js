@@ -3,6 +3,8 @@ import { rows, row, run } from '../db/index.js';
 import { computeConsensus } from './aggregates.js';
 import { statsMap } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
+import { ensureLiveDraft, syncLiveDraft } from '../services/espn-draft.js';
+import { boardState, rankTargets, dossiersFor } from '../services/draft-assist.js';
 
 const r = Router();
 
@@ -43,6 +45,17 @@ function buildMarketPool(draft) {
     if (taken.has(p.id) || pool.has(p.id)) continue;
     pool.set(p.id, { id: p.id, position: p.position, market: tail });
   }
+  // Final safety net: computeConsensus() only returns players with synced FFC/Sleeper
+  // market data, so on a fresh install where that sync hasn't run yet (or failed),
+  // the pool above can come up short of what a real draft needs — a 12-team/16-round
+  // draft is 192 picks. Every fantasy_relevant player who still isn't in the pool
+  // goes in here, ordered by projected points where we have it, so the draft can
+  // never exhaust its player pool regardless of what's synced.
+  const sm = statsMap();
+  const leftover = rows(`SELECT id, position FROM players WHERE fantasy_relevant = 1`)
+    .filter(p => !taken.has(p.id) && !pool.has(p.id))
+    .sort((a, b) => (sm.get(b.id)?.projected_points ?? 0) - (sm.get(a.id)?.projected_points ?? 0));
+  leftover.forEach((p, i) => pool.set(p.id, { id: p.id, position: p.position, market: tail + 50 + i }));
   return [...pool.values()];
 }
 
@@ -233,6 +246,17 @@ r.get('/:id', (req, res) => {
     overflow++;
     available.push({ rank: boardMax + overflow, tier: 6, note: null, player_id: c.id,
       name: c.name, position: c.position, team_abbr: c.team_abbr, primary_color: c.primary_color });
+  }
+  // computeConsensus() only returns players with synced FFC/Sleeper market data —
+  // K/DEF never have any, and on a fresh/offline install nothing might yet. Anyone
+  // still fantasy_relevant and not yet listed goes in last, so this board (like
+  // buildMarketPool's CPU pool) can never come up short of what a real draft needs.
+  for (const p of rows(`SELECT p.id AS player_id, p.name, p.position, t.abbr AS team_abbr, t.primary_color
+                        FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id
+                        WHERE p.fantasy_relevant = 1`)) {
+    if (seen.has(p.player_id) || taken.has(p.player_id)) continue;
+    overflow++;
+    available.push({ rank: boardMax + overflow, tier: 6, note: null, ...p });
   }
   const sm = statsMap();
   const withStats = p => {
@@ -473,6 +497,156 @@ Respond with ONLY JSON:
       draft.id, out.grade, out.summary, JSON.stringify(out.strengths ?? []),
       JSON.stringify(out.weaknesses ?? []), out.best_pick ?? null, out.reach ?? null);
     res.json(out);
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------------ live draft */
+
+/**
+ * Link a connected ESPN league's draft and mirror it locally.
+ *
+ * Safe to call repeatedly — the draft row is keyed on the league and season, so the
+ * user can hit "connect" before the draft, during it, or after a browser refresh and
+ * always land in the same draft room.
+ */
+r.post('/live/link', async (req, res, next) => {
+  try {
+    const leagueRowId = req.body?.league_row_id ?? req.body?.league_id;
+    if (!leagueRowId) return res.status(400).json({ error: 'league_row_id required' });
+    const out = await ensureLiveDraft(leagueRowId);
+    // Pull whatever has already happened, so a mid-draft connect catches up instantly.
+    const sync = await syncLiveDraft(out.draft_id).catch(e => ({ error: e.message }));
+    res.json({ ...out, sync });
+  } catch (e) { next(e); }
+});
+
+/** Poll ESPN for new picks. Cheap; the draft room calls this on a timer. */
+r.post('/:id/sync', async (req, res, next) => {
+  try { res.json(await syncLiveDraft(req.params.id)); }
+  catch (e) { next(e); }
+});
+
+/**
+ * Everything needed to make the pick on the clock: roster needs against this league's
+ * lineup, positional scarcity before the next turn, runs, tier cliffs, and a ranked
+ * shortlist. Deterministic and instant — no API key involved.
+ */
+r.get('/:id/assist', (req, res, next) => {
+  try {
+    const state = boardState(req.params.id);
+    res.json({ ...state, targets: rankTargets(state, Number(req.query.limit) || 8) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Claude's read on the same board.
+ *
+ * Cached per pick number: during a live draft this gets called every time the board
+ * moves, and re-billing a fresh call for an unchanged board would be both slow and
+ * wasteful. `?refresh=1` forces a new one.
+ */
+r.get('/:id/advice', async (req, res, next) => {
+  try {
+    const state = boardState(req.params.id);
+    const pickNo = state.on_the_clock.pick_number ?? 0;
+    if (!req.query.refresh) {
+      const hit = row('SELECT payload FROM draft_advice WHERE draft_id = ? AND pick_number = ?',
+        req.params.id, pickNo);
+      if (hit) return res.json({ ...JSON.parse(hit.payload), cached: true });
+    }
+    if (!getApiKey()) {
+      return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
+    }
+
+    const targets = rankTargets(state, 12);
+    const { my_team, positions, on_the_clock, runs, draft } = state;
+
+    const rosterLine = my_team.picks.length
+      ? my_team.picks.map(p => `Rd${Math.ceil(p.pick_number / draft.team_count)} ${p.position} ${p.name} (${p.team_abbr ?? 'FA'})`).join(', ')
+      : '(empty — this is my first pick)';
+    const needLine = Object.entries(my_team.needs.starters)
+      .filter(([, n]) => n > 0).map(([pos, n]) => `${pos} x${n}`).join(', ') || 'starting lineup is full';
+    // Full scouting dossiers for the realistic shortlist — camp reporting, health,
+    // experience and real production, so the read is grounded in this season's data
+    // rather than in a player's reputation.
+    const shortlist = dossiersFor(targets.slice(0, 6).map(t => t.player_id));
+    const rankOf = new Map(targets.map(t => [t.player_id, t]));
+    const boardLine = shortlist.map(dsr => {
+      const t = rankOf.get(dsr.player_id) ?? {};
+      const bits = [
+        `${dsr.name} — ${dsr.position}, ${dsr.team ?? 'FA'}, board #${t.board_rank}, bye ${dsr.bye_week ?? '?'}`,
+        dsr.rookie ? '  ROOKIE (no NFL snaps)'
+          : `  ${dsr.experience_years ?? '?'} yrs in the league${dsr.draft_capital ? `, drafted ${dsr.draft_capital}` : ''}${dsr.pro_bowls ? `, ${dsr.pro_bowls}x Pro Bowl` : ''}${dsr.all_pro ? `, ${dsr.all_pro}x first-team All-Pro` : ''}`,
+        dsr.projected_points != null
+          ? `  2026 projection: ${Math.round(dsr.projected_points)} pts${dsr.projected_line ? ` (${dsr.projected_line})` : ''}`
+          : '  2026 projection: none',
+        dsr.last_season
+          ? `  2025 actual: ${dsr.last_season.points} pts${dsr.last_season.games ? ` in ${dsr.last_season.games} games` : ''}${dsr.last_season.line ? ` (${dsr.last_season.line})` : ''}`
+          : '  2025 actual: no meaningful production',
+        dsr.prior_season ? `  2024 actual: ${dsr.prior_season.points} pts` : null,
+        dsr.injury_flag ? '  FLAGGED as an injury risk by the market' : null,
+        dsr.injury_report ? `  Injury report: ${dsr.injury_report}` : null,
+        dsr.camp_news.length
+          ? dsr.camp_news.map(n => `  Camp (${n.date}): ${n.headline} — ${n.note}`).join('\n')
+          : '  Camp: nothing reported on him this summer',
+        t.gone_by_next != null ? `  ${Math.round(t.gone_by_next * 100)}% chance he is gone before my next pick` : null
+      ].filter(Boolean).join('\n');
+      return bits;
+    }).join('\n\n');
+
+    const posLine = ['QB', 'RB', 'WR', 'TE'].map(pos => {
+      const p = positions[pos] ?? {};
+      return `${pos}: rostered ${p.rostered ?? 0}, starters still needed ${p.starters_needed ?? 0}, `
+        + `best available ${p.best ?? '—'}, likely still there next turn ${p.fallback ?? '—'}`
+        + (p.cost_of_waiting != null ? `, waiting costs ~${Math.round(p.cost_of_waiting)} pts` : '');
+    }).join('\n');
+
+    const msg = await callClaude({
+      feature: 'draft-advice',
+      maxTokens: 3000,
+      prompt: `You are advising me live, on the clock, in a ${draft.team_count}-team PPR fantasy football draft. Be decisive and brief — I have ${draft.pick_seconds ?? 90} seconds.
+
+SITUATION
+Pick ${on_the_clock.pick_number} overall (round ${on_the_clock.round}), I draft from slot ${draft.my_slot}.
+My next picks after this one: ${on_the_clock.my_upcoming_picks.slice(1).join(', ') || 'none'}.
+Starting lineup this league requires: ${Object.entries(draft.roster_slots).map(([k, v]) => `${v} ${k}`).join(', ')}.
+
+MY ROSTER SO FAR
+${rosterLine}
+Starting slots still unfilled: ${needLine}
+
+POSITION READ
+${posLine}
+${runs.length ? `Active runs: ${runs.map(x => `${x.taken} ${x.position}s in the last ${x.of} picks`).join('; ')}` : 'No positional run in progress.'}
+
+BEST AVAILABLE — scouting dossiers, in my model's order
+${boardLine}
+
+Work only from the players and the data above; do not bring in anyone already off the board, and do not assert anything the dossier does not support. Where the data is silent on a player, say so rather than filling the gap.
+
+Respond with ONLY JSON:
+{"pick":"the one player I should take right now",
+ "why":"two sentences max — cite my roster hole or the scarcity, concretely",
+ "players":[
+   {"name":"...",
+    "pros":"2-3 sentences: what makes him worth the pick — last season's production, the projected role, pedigree, situation",
+    "cons":"2-3 sentences: the real risk — injury, camp reporting, age or inexperience, competition for touches, a bad projection relative to cost",
+    "camp":"one line on how camp has gone for him, or 'nothing reported' if the dossier is silent",
+    "status":"healthy | injury risk | rookie | bounce-back | ageing — whichever single label fits best",
+    "verdict":"take | fine here | let him go"}
+ ],
+ "position_priority":"which positions to attack over my next 2-3 picks, and why, in one sentence",
+ "next_turn_outlook":"one sentence on what should still be there at my next pick"}
+
+Give a "players" entry for every player in the dossier list above, in the same order.`
+    });
+    const out = parseJson(msg);
+    const payload = { ...out, pick_number: pickNo, generated_at: new Date().toISOString() };
+    run(`INSERT INTO draft_advice (draft_id, pick_number, payload) VALUES (?,?,?)
+         ON CONFLICT(draft_id, pick_number) DO UPDATE SET payload = excluded.payload,
+           created_at = datetime('now')`,
+      Number(req.params.id), pickNo, JSON.stringify(payload));
+    res.json(payload);
   } catch (e) { next(e); }
 });
 

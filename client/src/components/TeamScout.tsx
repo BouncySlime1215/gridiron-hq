@@ -9,9 +9,9 @@ import { PlayerPill, num } from './TradeCard';
  */
 
 const STATUS_TONE: Record<string, string> = {
-  strength: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  strength: 'bg-good-tint text-good border-good',
   average: 'bg-slate-100 text-slate-600 border-slate-300',
-  weakness: 'bg-rose-100 text-rose-800 border-rose-300'
+  weakness: 'bg-crit-tint text-crit border-crit'
 };
 const PRIORITY_TONE: Record<string, string> = {
   high: 'border-rose-300 bg-rose-50/50',
@@ -38,7 +38,7 @@ export default function TeamScout({ leagueId, teamId }: { leagueId: number; team
             <div className="flex items-baseline gap-2">
               <span className="text-3xl font-black tabular-nums text-slate-800">{s.lineup.points}</span>
               <span className="text-sm text-slate-500">ppg</span>
-              <span className={`text-sm font-bold ${s.rank <= 3 ? 'text-emerald-600' : s.rank > s.of - 3 ? 'text-rose-600' : 'text-amber-600'}`}>
+              <span className={`text-sm font-bold ${s.rank <= 3 ? 'text-good' : s.rank > s.of - 3 ? 'text-crit' : 'text-amber-600'}`}>
                 {s.rank}{ord(s.rank)} of {s.of}
               </span>
             </div>
@@ -47,9 +47,9 @@ export default function TeamScout({ leagueId, teamId }: { leagueId: number; team
             <div className="ml-auto text-right">
               <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">Weekly range</div>
               <div className="text-sm tabular-nums text-slate-600">
-                <span className="text-rose-600 font-semibold">{s.spread.floor}</span>
+                <span className="text-crit font-semibold">{s.spread.floor}</span>
                 <span className="text-slate-300 mx-1">—</span>
-                <span className="text-emerald-600 font-semibold">{s.spread.ceiling}</span>
+                <span className="text-good font-semibold">{s.spread.ceiling}</span>
               </div>
             </div>
           )}
@@ -88,7 +88,7 @@ export default function TeamScout({ leagueId, teamId }: { leagueId: number; team
                 <span className="text-[11px] text-slate-400">vs {v.league_avg.toFixed(1)} avg</span>
               </div>
               <div className="h-1.5 bg-slate-100 rounded mt-1.5 overflow-hidden">
-                <div className={`h-full rounded ${v.ratio >= 1.12 ? 'bg-emerald-500' : v.ratio <= 0.88 ? 'bg-rose-400' : 'bg-slate-400'}`}
+                <div className={`h-full rounded ${v.ratio >= 1.12 ? 'bg-[var(--good)]' : v.ratio <= 0.88 ? 'bg-[var(--crit)]' : 'bg-slate-400'}`}
                   style={{ width: `${Math.min(100, (v.ratio / 1.6) * 100)}%` }} />
               </div>
               <div className="mt-2 space-y-1">
@@ -145,7 +145,7 @@ export default function TeamScout({ leagueId, teamId }: { leagueId: number; team
                 <span className="text-slate-400 text-[10px] truncate flex-1">
                   {(p.games ?? []).map((g: any) => `${g.home ? '' : '@'}${g.opponent}`).join(' · ')}
                 </span>
-                <span className={`font-bold tabular-nums shrink-0 ${p.swing > 0.3 ? 'text-emerald-600' : p.swing < -0.3 ? 'text-rose-600' : 'text-slate-400'}`}>
+                <span className={`font-bold tabular-nums shrink-0 ${p.swing > 0.3 ? 'text-good' : p.swing < -0.3 ? 'text-crit' : 'text-slate-400'}`}>
                   {num(p.swing)} ppg
                 </span>
               </div>

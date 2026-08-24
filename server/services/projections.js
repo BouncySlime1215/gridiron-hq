@@ -26,7 +26,7 @@ import { rows } from '../db/index.js';
 import { PPR, scoreSim } from './scoring.js';
 import {
   shrink, mean, quantile, percentiles,
-  randGamma, randNegBinomial, randBinomial, randPoisson, randn, randBeta
+  randGamma, randNegBinomial, randBinomial, randPoisson, randn, randBeta, random
 } from './stats-util.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -353,9 +353,11 @@ export function sampleWeek(params, scoring = PPR, mult = 1) {
 }
 
 /** N simulated weeks. */
-export function sampleWeeks(params, n = 2000, scoring = PPR, mult = 1) {
+export function sampleWeeks(params, n = 2000, scoring = PPR, mult = 1, activeProbability = 1) {
   const out = new Array(n);
-  for (let i = 0; i < n; i++) out[i] = sampleWeek(params, scoring, mult);
+  for (let i = 0; i < n; i++) {
+    out[i] = random() <= activeProbability ? sampleWeek(params, scoring, mult) : 0;
+  }
   return out;
 }
 
@@ -363,8 +365,10 @@ export function sampleWeeks(params, n = 2000, scoring = PPR, mult = 1) {
  * Weekly distribution summary for a projection: the percentiles that answer
  * start/sit and trade questions directly.
  */
-export function weeklyDistribution(projection, { runs = 2000, scoring = PPR, mult = 1 } = {}) {
-  const s = sampleWeeks(projection.params, runs, scoring, mult);
+export function weeklyDistribution(projection, {
+  runs = 2000, scoring = PPR, mult = 1, activeProbability = 1
+} = {}) {
+  const s = sampleWeeks(projection.params, runs, scoring, mult, activeProbability);
   const pct = percentiles(s, [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]);
   const m = mean(s);
   return {

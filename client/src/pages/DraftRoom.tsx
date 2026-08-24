@@ -4,9 +4,12 @@ import { api, Draft, headshotUrl, useApi } from '../api';
 import PlayerRow, { Headshot, PosBadge } from '../components/PlayerRow';
 import { PlayerName } from '../components/PlayerCard';
 import DraftRecap from '../components/DraftRecap';
+import { PageError, PageLoading } from '../components/PageState';
 
+// RB uses the good CSS var directly — bg/border-emerald-* are remapped to the
+// brand accent globally (see index.css), and a position's identity color must not.
 const POS_TINT: Record<string, string> = {
-  QB: 'bg-rose-50 border-rose-200', RB: 'bg-emerald-50 border-emerald-200',
+  QB: 'bg-rose-50 border-rose-200', RB: 'bg-[var(--good-tint)] border-[var(--good)]',
   WR: 'bg-sky-50 border-sky-200', TE: 'bg-amber-50 border-amber-200',
   K: 'bg-violet-50 border-violet-200'
 };
@@ -18,7 +21,7 @@ const lastName = (n: string) => {
 
 export default function DraftRoom() {
   const { id } = useParams();
-  const { data: draft, refetch, error } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
+  const { data: draft, refetch, loading, error } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
   const [filter, setFilter] = useState('ALL');
   const [lastCpu, setLastCpu] = useState<any>(null);
   const [entering, setEntering] = useState(true);
@@ -103,10 +106,8 @@ export default function DraftRoom() {
 
   // Only blank the page on the very first load — refetching after each pick must
   // never tear down the board, or every CPU pick looks like a page reload.
-  if (!draft) {
-    if (error) return <p className="text-rose-600 font-medium">Couldn't load this draft: {error}. Try refreshing the page.</p>;
-    return <p className="text-slate-500">Loading draft…</p>;
-  }
+  if (!draft && error) return <PageError message={error} onRetry={refetch} />;
+  if (!draft) return <PageLoading label="Loading draft…" />;
 
   const lastPickNo = draft.picks.length;
   const roundsToShow = Math.min(draft.rounds, Math.ceil((lastPickNo + draft.team_count) / draft.team_count) + 1);
@@ -136,7 +137,7 @@ export default function DraftRoom() {
             }}>⏭ Sim to end</button>
           )}
           {draft.picks.length > 0 && (
-            <button className="btn-ghost" onClick={() => setRecapOpen(true)}>📋 Recap</button>
+            <button className="btn-ghost" onClick={() => setRecapOpen(true)}>Recap</button>
           )}
           <button className="btn-ghost" onClick={undo} disabled={draft.picks.length === 0}>↩ Undo</button>
         </div>
@@ -225,7 +226,7 @@ export default function DraftRoom() {
             <h3 className="text-sm font-bold text-slate-700 mr-auto">Best Available</h3>
             {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
               <button key={p} onClick={() => setFilter(p)}
-                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${filter === p ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-100'}`}>{p}</button>
+                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${filter === p ? 'bg-sky-100 text-sky-900' : 'bg-white text-slate-500 hover:bg-sky-50'}`}>{p}</button>
             ))}
           </div>
           <div className="overflow-y-auto divide-y divide-slate-100">

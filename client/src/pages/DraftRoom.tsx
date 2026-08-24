@@ -4,6 +4,7 @@ import { api, Draft, headshotUrl, useApi } from '../api';
 import PlayerRow, { Headshot, PosBadge } from '../components/PlayerRow';
 import { PlayerName } from '../components/PlayerCard';
 import DraftRecap from '../components/DraftRecap';
+import { PageError, PageLoading } from '../components/PageState';
 
 // RB uses the good CSS var directly — bg/border-emerald-* are remapped to the
 // brand accent globally (see index.css), and a position's identity color must not.
@@ -20,7 +21,7 @@ const lastName = (n: string) => {
 
 export default function DraftRoom() {
   const { id } = useParams();
-  const { data: draft, refetch, loading } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
+  const { data: draft, refetch, loading, error } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
   const [filter, setFilter] = useState('ALL');
   const [lastCpu, setLastCpu] = useState<any>(null);
   const [entering, setEntering] = useState(true);
@@ -103,7 +104,8 @@ export default function DraftRoom() {
 
   // Only blank the page on the very first load — refetching after each pick must
   // never tear down the board, or every CPU pick looks like a page reload.
-  if (!draft) return <p className="text-slate-500">Loading draft…</p>;
+  if (!draft && error) return <PageError message={error} onRetry={refetch} />;
+  if (!draft) return <PageLoading label="Loading draft…" />;
 
   const lastPickNo = draft.picks.length;
   const roundsToShow = Math.min(draft.rounds, Math.ceil((lastPickNo + draft.team_count) / draft.team_count) + 1);

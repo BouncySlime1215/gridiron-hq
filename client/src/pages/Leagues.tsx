@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { PlayerName } from '../components/PlayerCard';
+import { PageError, PageLoading } from '../components/PageState';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
@@ -17,7 +18,7 @@ function StatusPill({ status, ratio }: { status: string; ratio: number }) {
 export default function Leagues() {
   // Shared with the header switcher — clicking a league card here to view its
   // analysis also makes it the active league on My Team, Trade Lab, etc.
-  const { leagues, refetch, activeId: sel, setActiveId: setSel } = useLeague();
+  const { leagues, loading: leaguesLoading, error: leaguesError, refetch, activeId: sel, setActiveId: setSel } = useLeague();
   const { data: analysis, refetch: refetchAnalysis } = useApi<any>(sel ? `/leagues/${sel}/analysis` : null);
   const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026, espn_s2: '', swid: '' });
   const [busy, setBusy] = useState(false);
@@ -85,6 +86,9 @@ export default function Leagues() {
         {msg && <span className="text-xs text-amber-600">{msg}</span>}
       </div>
 
+      {leaguesLoading && !leagues.length && <PageLoading label="Loading your leagues…" />}
+      {leaguesError && !leagues.length && <PageError message={leaguesError} onRetry={refetch} />}
+
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
         {leagues?.map(lg => (
           <div key={lg.id} className={`card p-4 cursor-pointer transition-colors ${sel === lg.id ? 'border-[var(--accent)]' : 'hover:border-slate-400'}`}
@@ -107,7 +111,7 @@ export default function Leagues() {
             </div>
           </div>
         ))}
-        {leagues?.length === 0 && <p className="text-sm text-slate-500">No leagues connected yet.</p>}
+        {!leaguesLoading && !leaguesError && leagues?.length === 0 && <p className="text-sm text-slate-500">No leagues connected yet.</p>}
       </div>
 
       {analysis?.empty && (

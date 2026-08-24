@@ -5,6 +5,7 @@ import { useLeague } from '../state/league';
 import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
 import { Headshot } from '../components/PlayerRow';
+import { PageError } from '../components/PageState';
 
 /**
  * My Team, for whichever league is active in the header.
@@ -22,7 +23,7 @@ import { Headshot } from '../components/PlayerRow';
  */
 export default function MyTeam() {
   const { leagues, active, refetch: refetchLeagues } = useLeague();
-  const { data: lg, loading: lgLoading, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
+  const { data: lg, loading: lgLoading, error: lgError, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
   const [teamOverride, setTeamOverride] = useState<string | null>(null);
   const [tab, setTab] = useState<'scout' | 'roster'>('scout');
   const [syncing, setSyncing] = useState(false);
@@ -147,6 +148,8 @@ export default function MyTeam() {
         {active?.name ?? `${active?.platform} league`}
         {leagues.length > 1 && <span className="text-slate-400"> — switch leagues from the picker up top</span>}
       </p>
+
+      {lgError && !lg && <PageError message={lgError} onRetry={refetchData} />}
 
       {!lgLoading && active && !synced && (
         <div className="card p-6 text-sm text-slate-600 mb-4">

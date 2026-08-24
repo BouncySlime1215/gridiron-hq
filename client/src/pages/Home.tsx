@@ -2,11 +2,15 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
+import { PageError } from '../components/PageState';
 
 export default function Home() {
-  const { data: drafts } = useApi<any[]>('/drafts');
-  const { data: sets } = useApi<any[]>('/rankings');
-  const { data: news, refetch: refetchNews } = useApi<any[]>('/news');
+  // None of these three had error handling at all before — a failed fetch just left
+  // the section quietly showing its empty-state copy ("No stories yet" etc.) forever,
+  // indistinguishable from genuinely having no data.
+  const { data: drafts, error: draftsError, refetch: refetchDrafts } = useApi<any[]>('/drafts');
+  const { data: sets, error: setsError, refetch: refetchSets } = useApi<any[]>('/rankings');
+  const { data: news, error: newsError, refetch: refetchNews } = useApi<any[]>('/news');
   const { leagues, active: activeLeague } = useLeague();
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -43,6 +47,14 @@ export default function Home() {
       <p className="text-sm text-slate-600 mb-2">Training camp, July 2026 — draft season is here.</p>
       {status && <p className="text-xs text-amber-600 mb-4">{status}</p>}
       {!status && <div className="mb-4" />}
+
+      {(draftsError || setsError || newsError) && (
+        <PageError
+          message={[
+            draftsError && 'drafts', setsError && 'rankings', newsError && 'news'
+          ].filter(Boolean).join(', ') + ' failed to load.'}
+          onRetry={() => { refetchDrafts(); refetchSets(); refetchNews(); }} />
+      )}
 
       <div className="grid md:grid-cols-3 gap-4 mb-6">
         <Link to={active ? `/drafts/${active.id}` : '/drafts'} className="card p-5 hover:border-slate-400 transition-colors">

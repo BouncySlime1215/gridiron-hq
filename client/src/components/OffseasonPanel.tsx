@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { useApi } from '../api';
 
 const money = (n?: number | null) =>
@@ -13,10 +12,9 @@ const HEALTHY = { QB: 3, RB: 4, WR: 6, TE: 3, OL: 9, DL: 5, EDGE: 4, LB: 4, CB: 
 
 export default function OffseasonPanel({ abbr }: { abbr: string }) {
   const { data, loading } = useApi<any>(`/nfl/offseason/${abbr}`);
-  const { data: sosAll } = useApi<any[]>('/nfl/sos');
 
   if (loading || !data) return <p className="text-sm text-slate-500">Loading offseason data…</p>;
-  const { cap, sos, schedule, rookies, group_counts: counts, group_avg_age: ages } = data;
+  const { cap, sos, rookies, group_counts: counts, group_avg_age: ages } = data;
 
   const thin = Object.entries(counts)
     .filter(([g, n]) => (HEALTHY as any)[g] && (n as number) < (HEALTHY as any)[g])
@@ -85,28 +83,6 @@ export default function OffseasonPanel({ abbr }: { abbr: string }) {
           </div>
         </div>
       )}
-
-      {/* schedule */}
-      <div className="card p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <h3 className="text-sm font-bold text-slate-700">2026 Schedule</h3>
-          {sos && <span className="text-[11px] text-slate-500">SOS #{sos.rank}/32 (1 = easiest)</span>}
-        </div>
-        <div className="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-9 gap-1.5">
-          {schedule.map((g: any) => {
-            const oppRank = sosAll?.find(s => s.abbr === g.opponent_abbr)?.rank;
-            const tough = oppRank != null && oppRank >= 23;
-            return (
-              <Link key={g.week} to={`/teams/${g.opponent_abbr}`}
-                className={`rounded-lg border p-1.5 text-center hover:border-slate-400 ${tough ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
-                <div className="text-[9px] text-slate-400">WK {g.week}</div>
-                <div className="text-xs font-bold text-slate-700">{g.home ? '' : '@'}{g.opponent_abbr}</div>
-              </Link>
-            );
-          })}
-        </div>
-        {schedule.length === 0 && <p className="text-xs text-slate-500">Schedule not synced yet.</p>}
-      </div>
 
       {/* honest gaps */}
       <div className="card p-4 bg-slate-50">

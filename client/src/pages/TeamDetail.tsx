@@ -4,15 +4,17 @@ import { api, Team, useApi } from '../api';
 import FormationView from '../components/FormationView';
 import { usePlayerCard } from '../components/PlayerCard';
 import OffseasonPanel from '../components/OffseasonPanel';
+import TeamSchedule from '../components/TeamSchedule';
 import SidePanel from '../components/SidePanel';
 
-type Phase = 'offense' | 'defense' | 'special_teams' | 'offseason';
+type Phase = 'offense' | 'defense' | 'special_teams' | 'schedule' | 'offseason';
 
 const PHASE_TABS: { key: Phase; label: string }[] = [
   { key: 'offense', label: 'Offense' },
   { key: 'defense', label: 'Defense' },
   { key: 'special_teams', label: 'Special Teams' },
-  { key: 'offseason', label: 'Offseason & Schedule' }
+  { key: 'schedule', label: 'Schedule' },
+  { key: 'offseason', label: 'Offseason' }
 ];
 
 const UNIT_LABEL: Record<string, string> = {
@@ -92,7 +94,8 @@ export default function TeamDetail() {
           ))}
         </div>
 
-        {phase === 'offseason' ? <OffseasonPanel abbr={team.abbr} /> : (<>
+        {phase === 'offseason' ? <OffseasonPanel abbr={team.abbr} />
+        : phase === 'schedule' ? <TeamSchedule abbr={team.abbr} /> : (<>
         <FormationView
           phase={phase as any}
           depth={(team as any).depth ?? {}}

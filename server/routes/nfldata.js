@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
+import { scheduleOutlook } from '../services/matchups.js';
 
 const r = Router();
 const SITE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
@@ -354,6 +355,53 @@ r.get('/offseason/:abbr', (req, res) => {
       transactions: 'ESPN’s transactions API returns empty for this offseason; FA/trade moves appear in the news feed instead.'
     }
   });
+});
+
+const SKILL_POS = ['QB', 'RB', 'WR', 'TE'];
+
+/**
+ * Full week-by-week schedule for one team, merged with what actually makes a
+ * matchup worth a tap: the betting market's read (spread/total/implied points,
+ * from game_lines) and, per skill position, the defense-vs-position multiplier
+ * scheduleOutlook() already computes elsewhere in the app (Trade Lab, TeamScout)
+ * but which the old schedule grid here never surfaced — it only ever showed the
+ * week number and the opponent's abbreviation.
+ */
+r.get('/:abbr/schedule', (req, res) => {
+  const team = row('SELECT * FROM nfl_teams WHERE abbr = ?', req.params.abbr.toUpperCase());
+  if (!team) return res.status(404).json({ error: 'team not found' });
+  const season = Number(req.query.season) || SEASON;
+
+  const games = rows(`SELECT week, date, opponent_abbr, home FROM schedule_games
+                      WHERE season = ? AND team_id = ? ORDER BY week`, season, team.id);
+  const lines = new Map(rows(`SELECT * FROM game_lines WHERE season = ? AND team = ?`, season, team.abbr)
+    .map(l => [l.week, l]));
+
+  // One scheduleOutlook() call per position covers every week at once.
+  const byPos = Object.fromEntries(SKILL_POS.map(pos => {
+    const out = scheduleOutlook(team.abbr, pos, 1);
+    return [pos, new Map(out.games.map(g => [g.week, g]))];
+  }));
+
+  const weeks = games.map(g => {
+    const line = lines.get(g.week);
+    const played = line?.team_score != null;
+    return {
+      // game_lines' gameday is the more reliable date when both exist — spot-checking
+      // found schedule_games.date stale for some future weeks (a sync-timing mismatch
+      // between the two tables, not a bug in either one individually).
+      week: g.week, date: line?.gameday ?? g.date, opponent: g.opponent_abbr, home: !!g.home,
+      spread: line?.spread ?? null, total: line?.total ?? null, implied_points: line?.implied_points ?? null,
+      gameday: line?.gameday ?? null, gametime: line?.gametime ?? null,
+      played, team_score: played ? line.team_score : null, opp_score: played ? line.opp_score : null,
+      matchups: Object.fromEntries(SKILL_POS.map(pos => {
+        const m = byPos[pos].get(g.week);
+        return [pos, m ? { mult: m.mult, rank: m.rank, allowed: m.allowed, sample: m.sample } : null];
+      }))
+    };
+  });
+
+  res.json({ team: { abbr: team.abbr, name: team.name, primary_color: team.primary_color }, season, weeks });
 });
 
 /** The unit rosters used by X-and-O views and AI analysis. */

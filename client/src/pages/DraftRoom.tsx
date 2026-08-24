@@ -18,7 +18,7 @@ const lastName = (n: string) => {
 
 export default function DraftRoom() {
   const { id } = useParams();
-  const { data: draft, refetch, loading } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
+  const { data: draft, refetch, error } = useApi<Draft & { pick_seconds?: number }>(`/drafts/${id}`);
   const [filter, setFilter] = useState('ALL');
   const [lastCpu, setLastCpu] = useState<any>(null);
   const [entering, setEntering] = useState(true);
@@ -66,11 +66,13 @@ export default function DraftRoom() {
   }, [isMock, myTurn, draftOver, paused, draft?.picks.length, cpuStep]);
 
   useEffect(() => {
-    if (!myTurn || draftOver) { setSecondsLeft(null); return; }
+    // Only mock drafts have a real clock. A live_tracking draft mirrors an
+    // external draft at its own pace — it must never auto-pick for the user.
+    if (!isMock || !myTurn || draftOver || paused) { setSecondsLeft(null); return; }
     setSecondsLeft(draft?.pick_seconds ?? 90);
     const iv = setInterval(() => setSecondsLeft(s => (s == null ? null : Math.max(0, s - 1))), 1000);
     return () => clearInterval(iv);
-  }, [myTurn, draftOver, draft?.pick_seconds, draft?.picks.length]);
+  }, [isMock, myTurn, draftOver, paused, draft?.pick_seconds, draft?.picks.length]);
 
   useEffect(() => {
     if (!myTurn || draftOver) { setRec(null); return; }
@@ -101,7 +103,10 @@ export default function DraftRoom() {
 
   // Only blank the page on the very first load — refetching after each pick must
   // never tear down the board, or every CPU pick looks like a page reload.
-  if (!draft) return <p className="text-slate-500">Loading draft…</p>;
+  if (!draft) {
+    if (error) return <p className="text-rose-600 font-medium">Couldn't load this draft: {error}. Try refreshing the page.</p>;
+    return <p className="text-slate-500">Loading draft…</p>;
+  }
 
   const lastPickNo = draft.picks.length;
   const roundsToShow = Math.min(draft.rounds, Math.ceil((lastPickNo + draft.team_count) / draft.team_count) + 1);
@@ -153,7 +158,7 @@ export default function DraftRoom() {
               </span>
             )}
             <span className="text-white/80 text-xs ml-auto">
-              Round {round}, pick {posInRound} · auto-picks the recommendation at 0:00
+              Round {round}, pick {posInRound}{isMock ? ' · auto-picks the recommendation at 0:00' : ''}
             </span>
           </div>
           {rec?.recommendation && (
@@ -249,12 +254,15 @@ export default function DraftRoom() {
                 action={
                   <button
                     onClick={e => { e.stopPropagation(); pick(a.player_id); }}
+                    disabled={draftOver}
                     title={myTurn ? 'Draft this player' : 'Mark as taken'}
                     className={`shrink-0 text-[9px] font-black px-1.5 py-1 rounded-md transition-colors
-                      ${myTurn
+                      ${draftOver
+                        ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
+                        : myTurn
                         ? 'bg-emerald-600 text-white hover:bg-emerald-500'
                         : 'bg-slate-100 text-slate-400 hover:bg-slate-200 opacity-0 group-hover:opacity-100'}`}>
-                    {myTurn ? 'DRAFT' : 'TAKEN'}
+                    {draftOver ? 'DONE' : myTurn ? 'DRAFT' : 'TAKEN'}
                   </button>
                 }
               />

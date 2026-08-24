@@ -176,7 +176,23 @@ r.get('/', (req, res) => {
 
 r.post('/', (req, res) => {
   const { name, type = 'mock', team_count = 12, rounds = 16, my_slot = 1, ranking_set_id = null, pick_seconds = 90 } = req.body;
-  if (!name) return res.status(400).json({ error: 'name required' });
+  if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'name required' });
+  if (!['mock', 'live_tracking'].includes(type)) return res.status(400).json({ error: 'invalid draft type' });
+  if (!Number.isInteger(team_count) || team_count < 2 || team_count > 20) {
+    return res.status(400).json({ error: 'team_count must be an integer from 2 to 20' });
+  }
+  if (!Number.isInteger(rounds) || rounds < 1 || rounds > 30) {
+    return res.status(400).json({ error: 'rounds must be an integer from 1 to 30' });
+  }
+  if (!Number.isInteger(my_slot) || my_slot < 1 || my_slot > team_count) {
+    return res.status(400).json({ error: 'my_slot must be between 1 and team_count' });
+  }
+  if (!Number.isInteger(pick_seconds) || pick_seconds < 15 || pick_seconds > 600) {
+    return res.status(400).json({ error: 'pick_seconds must be an integer from 15 to 600' });
+  }
+  if (ranking_set_id != null && !row('SELECT id FROM ranking_sets WHERE id = ?', ranking_set_id)) {
+    return res.status(400).json({ error: 'ranking set not found' });
+  }
   run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, ranking_set_id, pick_seconds)
        VALUES (?,?,?,?,?,?,?)`, name, type, team_count, rounds, my_slot, ranking_set_id, pick_seconds);
   res.json(row('SELECT * FROM drafts WHERE id = last_insert_rowid()'));
@@ -233,6 +249,12 @@ r.post('/:id/picks', (req, res) => {
   if (!draft) return res.status(404).json({ error: 'draft not found' });
   const { player_id } = req.body;
   const pickNumber = (row('SELECT COALESCE(MAX(pick_number),0) AS m FROM draft_picks WHERE draft_id = ?', draft.id).m) + 1;
+  if (pickNumber > draft.team_count * draft.rounds) {
+    return res.status(400).json({ error: 'draft is complete' });
+  }
+  if (!Number.isInteger(player_id) || !row('SELECT id FROM players WHERE id = ?', player_id)) {
+    return res.status(400).json({ error: 'player not found' });
+  }
   // snake order
   const round = Math.ceil(pickNumber / draft.team_count);
   const posInRound = ((pickNumber - 1) % draft.team_count) + 1;

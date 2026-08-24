@@ -34,15 +34,18 @@ export default function Drafts() {
           </select>
         </label>
         <label className="text-xs text-slate-600">Teams
-          <input type="number" className="input block mt-1 w-20" value={form.team_count}
-            onChange={e => setForm(f => ({ ...f, team_count: Number(e.target.value) }))} />
+          <input type="number" min={2} max={20} className="input block mt-1 w-20" value={form.team_count}
+            onChange={e => setForm(f => {
+              const team_count = Number(e.target.value);
+              return { ...f, team_count, my_slot: Math.min(f.my_slot, team_count) };
+            })} />
         </label>
         <label className="text-xs text-slate-600">Rounds
-          <input type="number" className="input block mt-1 w-20" value={form.rounds}
+          <input type="number" min={1} max={30} className="input block mt-1 w-20" value={form.rounds}
             onChange={e => setForm(f => ({ ...f, rounds: Number(e.target.value) }))} />
         </label>
         <label className="text-xs text-slate-600">My pick slot
-          <input type="number" className="input block mt-1 w-20" value={form.my_slot}
+          <input type="number" min={1} max={form.team_count} className="input block mt-1 w-20" value={form.my_slot}
             onChange={e => setForm(f => ({ ...f, my_slot: Number(e.target.value) }))} />
         </label>
         <label className="text-xs text-slate-600">Clock (sec)

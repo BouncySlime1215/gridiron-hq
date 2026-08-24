@@ -188,9 +188,14 @@ export default function App() {
 
           {/* Betting section */}
           <Route path="/betting" element={<BettingHome />} />
+          {/* /betting/nfl/picks is the one this app's own nav actually links to
+              ("NFL Auto Picks") — /betting/nfl is a bare alias nothing links to
+              internally, kept only in case it's bookmarked. Both explicitly pass
+              initialTool now, matching every sibling route below, instead of the
+              picks route silently relying on NflMarketBoard's default. */}
           <Route path="/betting/nfl" element={<NflMarketBoard initialTool="board" />} />
           <Route path="/betting/nfl/props" element={<NflProps />} />
-          <Route path="/betting/nfl/picks" element={<NflMarketBoard />} />
+          <Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />
           <Route path="/betting/nfl/operations" element={<NflMarketBoard initialTool="operations" />} />
           <Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} />
           <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} />

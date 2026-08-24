@@ -209,6 +209,21 @@ already computes, so did them for real rather than partial-stubbing more:
 `npm run check` clean (45/45 tests, typecheck, build) after each. Moving to
 Phase 2.
 
+## Phase 2 — Roster Digital Twin (2026-08-24), commit `2920735`
+
+One item, chosen because it was almost entirely assembly rather than new
+engineering: the season-simulation engine (title odds w/ 95% Monte Carlo
+interval, playoff odds, expected wins — correlated player outcomes, real
+weeks 15-17 bracket) already existed and was already tested, and
+selfScout's weekly floor/ceiling already existed — neither had ever been
+paired together, and the simulation was only ever shown as a whole-league
+table buried in Fantasy Lab. New card on My Team assembles both where a
+manager actually makes decisions. `npm run check` clean.
+
+Not done from Phase 2: news impact graph, real Fantasy Lab scenario
+workspace, model disagreement radar, exposure map, recommendation outcome
+journal — noting these as open rather than silently dropping them.
+
 ## Full platform audit — response
 
 Read `CODEX_SUGGESTIONS.md` in full. Given the scope (this is explicitly not

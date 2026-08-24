@@ -1,6 +1,19 @@
 import { configurationHash } from './contracts.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'archived']);
+const REQUIRED_GATES = ['schema', 'leakage', 'data_quality', 'baseline_improvement', 'tests'];
+
+// Shared by promote() and rollback(): a rollback target is itself a promotion
+// (to a possibly-earlier version), so it must clear the exact same gates —
+// otherwise rollback becomes a bypass for promoting a queued/failed/never-
+// vetted experiment straight to production.
+function assertPromotable(candidate) {
+  if (candidate?.status !== 'completed') throw new Error('only completed experiments can be promoted');
+  const gates = candidate.result?.gates ?? {};
+  for (const gate of REQUIRED_GATES) {
+    if (gates[gate] !== true) throw new Error(`promotion blocked: ${gate} gate failed`);
+  }
+}
 
 export class ModelRegistry {
   constructor(store) { this.store = store; }
@@ -30,17 +43,15 @@ export class ModelRegistry {
   promote(id, actor) {
     if (!actor?.permissions?.includes('model:promote')) throw new Error('forbidden: model:promote required');
     const candidate = this.store.get(id);
-    if (candidate?.status !== 'completed') throw new Error('only completed experiments can be promoted');
-    const gates = candidate.result?.gates ?? {};
-    for (const gate of ['schema', 'leakage', 'data_quality', 'baseline_improvement', 'tests']) {
-      if (gates[gate] !== true) throw new Error(`promotion blocked: ${gate} gate failed`);
-    }
+    assertPromotable(candidate);
     return this.store.atomicPromote(id, { promoted_by: actor.id, promoted_at: new Date().toISOString() });
   }
 
   rollback(versionId, actor) {
     if (!actor?.permissions?.includes('model:promote')) throw new Error('forbidden: model:promote required');
-    if (!this.store.get(versionId)) throw new Error('rollback target not found');
+    const candidate = this.store.get(versionId);
+    if (!candidate) throw new Error('rollback target not found');
+    assertPromotable(candidate);
     return this.store.atomicPromote(versionId, { rolled_back_by: actor.id, promoted_at: new Date().toISOString() });
   }
 }

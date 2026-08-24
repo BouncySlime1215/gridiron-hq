@@ -23,16 +23,28 @@ export function assertTimestampedObservation(row) {
   }
   const asOf = Date.parse(row.as_of);
   if (!Number.isFinite(asOf)) throw new Error('observation as_of must be an ISO timestamp');
-  if (row.available_at != null && Date.parse(row.available_at) > asOf) {
-    throw new Error(`future-data leakage: ${observationKey(row)} available after prediction cutoff`);
+  if (row.available_at != null) {
+    const availableAt = Date.parse(row.available_at);
+    if (!Number.isFinite(availableAt)) throw new Error(`observation available_at is not a valid timestamp for ${observationKey(row)}`);
+    if (availableAt > asOf) throw new Error(`future-data leakage: ${observationKey(row)} available after prediction cutoff`);
   }
-  for (const feature of Object.values(row.features ?? {})) {
-    if (feature && typeof feature === 'object' && feature.available_at && Date.parse(feature.available_at) > asOf) {
-      throw new Error(`future-data leakage: feature available after cutoff for ${observationKey(row)}`);
+  for (const [name, feature] of Object.entries(row.features ?? {})) {
+    if (feature && typeof feature === 'object' && feature.available_at != null) {
+      const featureAt = Date.parse(feature.available_at);
+      if (!Number.isFinite(featureAt)) throw new Error(`feature ${name} has an invalid available_at timestamp for ${observationKey(row)}`);
+      if (featureAt > asOf) throw new Error(`future-data leakage: feature available after cutoff for ${observationKey(row)}`);
     }
   }
-  if (row.outcome != null && row.outcome_available_at && Date.parse(row.outcome_available_at) <= asOf) {
-    throw new Error(`target leakage: outcome was attached at prediction time for ${observationKey(row)}`);
+  if (row.outcome != null) {
+    // Allow historical datasets to include realized outcomes without an explicit
+    // outcome_available_at timestamp (the value is known after the fact). If a
+    // timestamp is present, validate it to prevent target leakage (it must be
+    // strictly after the prediction cutoff as_of).
+    if (row.outcome_available_at != null) {
+      const outcomeAt = Date.parse(row.outcome_available_at);
+      if (!Number.isFinite(outcomeAt)) throw new Error(`outcome_available_at is not a valid timestamp for ${observationKey(row)}`);
+      if (outcomeAt <= asOf) throw new Error(`target leakage: outcome was attached at prediction time for ${observationKey(row)}`);
+    }
   }
   return row;
 }

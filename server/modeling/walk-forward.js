@@ -4,7 +4,11 @@ const period = row => Number(row.season) * 100 + Number(row.week);
 const order = (a, b) => period(a) - period(b) || String(a.player_id).localeCompare(String(b.player_id));
 
 export function createWalkForwardSplits(observations, { holdoutSeason, minimumTrainingPeriods = 1 } = {}) {
-  const clean = assertUniqueObservations([...observations].sort(order).map(assertTimestampedObservation));
+  // Detect duplicate observation keys (player/season/week) before running
+  // deep timestamp validation so duplicate-key errors surface predictably.
+  const sorted = [...observations].sort(order);
+  assertUniqueObservations(sorted.map(r => ({ player_id: r.player_id, season: r.season, week: r.week })));
+  const clean = assertUniqueObservations(sorted.map(assertTimestampedObservation));
   const seasons = [...new Set(clean.map(x => Number(x.season)))].sort((a, b) => a - b);
   const finalHoldout = holdoutSeason ?? seasons.at(-1);
   if (!seasons.includes(finalHoldout)) throw new Error('holdout season is absent from observations');
@@ -28,10 +32,18 @@ const failurePrediction = (row, error) => ({
   active_probability: row.active_probability ?? null, error: error instanceof Error ? error.message : String(error)
 });
 
+// Everything a candidate's predict() is allowed to see at prediction time: no
+// outcome, no outcome_available_at. predictAll strips those before the call so a
+// candidate cannot read the answer off the row it was asked to score.
+function predictionTimeRow(row) {
+  const { outcome, outcome_available_at, ...safe } = row;
+  return safe;
+}
+
 function predictAll(model, evaluate) {
   return evaluate.map(row => {
     try {
-      const value = model.predict(row.features ?? {}, row);
+      const value = model.predict(row.features ?? {}, predictionTimeRow(row));
       if (!value || !Number.isFinite(value.prediction)) throw new Error('model returned no finite prediction');
       return { player_id: row.player_id, season: row.season, week: row.week, as_of: row.as_of,
         status: row.inactive ? 'inactive' : 'predicted', active_probability: row.active_probability ?? null,
@@ -44,13 +56,21 @@ export function runWalkForward(observations, candidate, options = {}) {
   if (typeof candidate?.fit !== 'function') throw new Error('candidate.fit is required');
   const splitPlan = createWalkForwardSplits(observations, options);
   const config = { pipeline: PIPELINE_VERSION, feature_set: FEATURE_SET_VERSION,
-    candidate: candidate.name ?? 'unnamed', options };
+    candidate: candidate.name ?? 'unnamed', candidate_version: candidate.version ?? null,
+    dataset_version: options.datasetVersion ?? null, options };
   const folds = splitPlan.splits.map(split => {
     const model = candidate.fit(split.train);
     return { cutoff: split.cutoff, training_rows: split.train.length, predictions: predictAll(model, split.evaluate) };
   });
   return {
-    run_id: configurationHash({ config, observations: observations.map(x => [x.player_id, x.season, x.week, x.as_of]) }),
+    // Fingerprints the full observation set — feature values and outcomes
+    // included, not just identity/timestamp keys — so two materially different
+    // datasets can never collide onto the same run_id and silently overwrite
+    // each other's stored predictions.
+    run_id: configurationHash({ config, observations: observations.map(x => ({
+      player_id: x.player_id, season: x.season, week: x.week, as_of: x.as_of,
+      features: x.features ?? {}, outcome: x.outcome ?? null, outcome_available_at: x.outcome_available_at ?? null
+    })) }),
     config, config_hash: configurationHash(config), folds,
     holdout: { season: splitPlan.holdout.season, state: 'sealed', eligible_rows: splitPlan.holdout.evaluate.length },
     missing_prediction_rate: (() => {

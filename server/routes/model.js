@@ -20,6 +20,7 @@ import { clearMatchupCache } from '../services/matchups.js';
 import { resolvePlayer, assetUniverse, loadRosters } from '../services/trade-engine.js';
 import { deriveFormat } from '../services/format.js';
 import { withRandomSeed } from '../services/stats-util.js';
+import { requireLeagueId } from '../modeling/league-context.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -43,8 +44,10 @@ const league = (req, res) => {
 
 r.get('/projections', (req, res, next) => {
   try {
-    const lg = row('SELECT * FROM leagues ORDER BY id LIMIT 1');
-    const scoring = lg ? scoringFor(lg) : PPR;
+    const leagueId = requireLeagueId(req);
+    const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
+    if (!lg) return res.status(404).json({ error: 'no league found for the active league id' });
+    const scoring = scoringFor(lg);
     const through = Number(req.query.through) || SEASON - 1;
     const proj = memo(`proj:${through}:${JSON.stringify(scoring)}`, () => buildProjections({ through, scoring }));
 
@@ -62,8 +65,10 @@ r.get('/projections', (req, res, next) => {
 /** Full distribution for one player — the percentiles behind a start/sit call. */
 r.get('/projections/:playerId', (req, res, next) => {
   try {
-    const lg = row('SELECT * FROM leagues ORDER BY id LIMIT 1');
-    const scoring = lg ? scoringFor(lg) : PPR;
+    const leagueId = requireLeagueId(req);
+    const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
+    if (!lg) return res.status(404).json({ error: 'no league found for the active league id' });
+    const scoring = scoringFor(lg);
     const through = SEASON - 1;
     const proj = memo(`proj:${through}:${JSON.stringify(scoring)}`, () => buildProjections({ through, scoring }));
 

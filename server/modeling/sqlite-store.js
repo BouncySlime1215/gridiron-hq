@@ -1,34 +1,17 @@
 import { db, row, rows, run } from '../db/index.js';
 
-export function ensureModelLabSchema(database = db) {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS model_experiments (
-      id TEXT PRIMARY KEY, spec_json TEXT NOT NULL, status TEXT NOT NULL,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-      cancellation_requested INTEGER NOT NULL DEFAULT 0,
-      logs_json TEXT NOT NULL DEFAULT '[]', result_json TEXT,
-      promoted_at TEXT, promoted_by TEXT
-    );
-    CREATE TABLE IF NOT EXISTS model_predictions (
-      run_id TEXT NOT NULL, player_id TEXT NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL,
-      as_of TEXT NOT NULL, status TEXT NOT NULL, prediction REAL, lower REAL, upper REAL,
-      active_probability REAL, actual REAL, error TEXT, fold_cutoff INTEGER, is_holdout INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (run_id, player_id, season, week)
-    );
-    CREATE TABLE IF NOT EXISTS model_production_pointer (
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1), experiment_id TEXT NOT NULL,
-      previous_experiment_id TEXT, audit_json TEXT NOT NULL, updated_at TEXT NOT NULL
-    );
-  `);
-}
-
+// Schema lives in server/migrations/004_model_lab.js, applied once at server
+// startup by runMigrations(). Callers (routes, background jobs) run after
+// startup and can rely on the tables existing; tests that construct a store
+// against a fresh throwaway db must call runMigrations() first, same as the
+// draft-state-machine tests do.
 const decode = value => value == null ? null : JSON.parse(value);
 const hydrate = item => item && ({ id: item.id, spec: decode(item.spec_json), status: item.status,
   created_at: item.created_at, updated_at: item.updated_at, cancellation_requested: Boolean(item.cancellation_requested),
   logs: decode(item.logs_json) ?? [], result: decode(item.result_json) });
 
 export class SqliteModelStore {
-  constructor(database = db) { this.db = database; ensureModelLabSchema(database); }
+  constructor(database = db) { this.db = database; }
   get(id) { return hydrate(this.db.prepare('SELECT * FROM model_experiments WHERE id=?').get(id)); }
   insert(item) {
     this.db.prepare(`INSERT INTO model_experiments
@@ -59,7 +42,6 @@ export class SqliteModelStore {
 }
 
 export function persistAudit(audit) {
-  ensureModelLabSchema();
   const insert = db.prepare(`INSERT INTO model_predictions
     (run_id,player_id,season,week,as_of,status,prediction,lower,upper,active_probability,actual,error,fold_cutoff,is_holdout)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(run_id,player_id,season,week) DO UPDATE SET
@@ -77,7 +59,6 @@ export function persistAudit(audit) {
 }
 
 export function predictionsForRun(runId) {
-  ensureModelLabSchema();
   return rows('SELECT * FROM model_predictions WHERE run_id=? ORDER BY season,week,player_id', runId);
 }
 

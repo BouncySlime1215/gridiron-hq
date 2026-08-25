@@ -21,6 +21,7 @@ import { resolvePlayer, assetUniverse, loadRosters } from '../services/trade-eng
 import { deriveFormat } from '../services/format.js';
 import { withRandomSeed } from '../services/stats-util.js';
 import { requireLeagueId } from '../modeling/league-context.js';
+import { requireAuthenticated, assertLeagueMember } from '../platform/auth.js';
 import { assertTimestampedObservation, configurationHash } from '../modeling/contracts.js';
 import { CANDIDATES, FANTASY_FEATURE_CONTRACT } from '../modeling/candidates.js';
 import { ModelRegistry } from '../modeling/registry.js';
@@ -165,7 +166,7 @@ r.post('/registry/experiments', requireModelPermission('model:train'), (req, res
     }
     db.exec('BEGIN IMMEDIATE');
     try {
-      const experiment = registry.create(spec, req.modelPrincipal);
+      const experiment = registry.create(spec, req.modelPrincipal, datasetId, featureId);
       db.prepare(`INSERT INTO model_experiment_inputs (experiment_id,dataset_version_id,feature_version_id) VALUES (?,?,?)`)
         .run(experiment.id, datasetId, featureId);
       recordModelAudit(db, req.modelPrincipal, 'experiment.create', 'experiment', experiment.id, { datasetId, featureId });
@@ -316,11 +317,18 @@ r.post('/registry/experiments/:id/promote', requireModelPermission('model:promot
     const backtest = db.prepare(`SELECT 1 FROM model_backtests
       WHERE experiment_id=? AND protocol='walk_forward' AND status='completed'
       AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
+    // Existence of a completed holdout row is not evidence the model actually
+    // performed on the sealed season — a holdout that failed data_quality or
+    // never reached the minimum validation rows is still "completed" (the run
+    // itself succeeded even though the evidence it produced is bad). Promotion
+    // must gate on the holdout's own recorded gates, not merely its presence.
     const holdout = db.prepare(`SELECT 1 FROM model_backtests
       WHERE experiment_id=? AND protocol='sealed_holdout' AND status='completed'
-      AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
+      AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'
+      AND json_extract(result_json, '$.gates.data_quality')=1
+      AND json_extract(result_json, '$.gates.tests')=1`).get(req.params.id);
     if (!inputs || !backtest) return res.status(409).json({ error: 'promotion requires pinned dataset/features and a completed persisted walk-forward backtest' });
-    if (!holdout) return res.status(409).json({ error: 'promotion requires the sealed final-season holdout to be opened and evaluated first' });
+    if (!holdout) return res.status(409).json({ error: 'promotion requires the sealed final-season holdout to be opened and pass its data_quality and sample-size gates' });
     const out = registry.promote(req.params.id, req.modelPrincipal);
     res.json(out);
   } catch (e) { next(e); }
@@ -333,7 +341,9 @@ r.post('/registry/experiments/:id/rollback', requireModelPermission('model:promo
       AND json_extract(b.result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
     const holdoutEligible = db.prepare(`SELECT 1 FROM model_backtests
       WHERE experiment_id=? AND protocol='sealed_holdout' AND status='completed'
-      AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
+      AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'
+      AND json_extract(result_json, '$.gates.data_quality')=1
+      AND json_extract(result_json, '$.gates.tests')=1`).get(req.params.id);
     if (!eligible || !holdoutEligible) return res.status(409).json({ error: 'rollback target lacks verified persisted evidence' });
     const out = registry.rollback(req.params.id, req.modelPrincipal);
     res.json(out);
@@ -345,7 +355,7 @@ r.post('/registry/experiments/:id/rollback', requireModelPermission('model:promo
 // context (see server/modeling/ARCHITECTURE.md's confirmed active-league defect).
 const league = (req, res) => {
   let id;
-  try { id = requireLeagueId(req); }
+  try { id = requireLeagueId(req); assertLeagueMember(req.auth.userId, id); }
   catch (e) { res.status(e.status ?? 400).json({ error: e.message }); return null; }
   const lg = row('SELECT * FROM leagues WHERE id = ?', id);
   if (!lg) { res.status(404).json({ error: 'no league found for the active league id' }); return null; }
@@ -356,9 +366,10 @@ const respondError = (res, next, e) => (e.status ? res.status(e.status).json({ e
 
 /* ------------------------------------------------------------ projections */
 
-r.get('/projections', (req, res, next) => {
+r.get('/projections', requireAuthenticated, (req, res, next) => {
   try {
     const leagueId = requireLeagueId(req);
+    assertLeagueMember(req.auth.userId, leagueId);
     const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
     if (!lg) return res.status(404).json({ error: 'no league found for the active league id' });
     const scoring = scoringFor(lg);
@@ -377,9 +388,10 @@ r.get('/projections', (req, res, next) => {
 });
 
 /** Full distribution for one player — the percentiles behind a start/sit call. */
-r.get('/projections/:playerId', (req, res, next) => {
+r.get('/projections/:playerId', requireAuthenticated, (req, res, next) => {
   try {
     const leagueId = requireLeagueId(req);
+    assertLeagueMember(req.auth.userId, leagueId);
     const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
     if (!lg) return res.status(404).json({ error: 'no league found for the active league id' });
     const scoring = scoringFor(lg);
@@ -474,7 +486,7 @@ r.get('/accuracy', (req, res, next) => {
 
 /* ------------------------------------------------------------- simulator */
 
-r.get('/:leagueId/simulate', (req, res, next) => {
+r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
@@ -488,7 +500,7 @@ r.get('/:leagueId/simulate', (req, res, next) => {
 });
 
 /** Title-odds impact of a specific trade. */
-r.post('/:leagueId/trade-impact', (req, res, next) => {
+r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });

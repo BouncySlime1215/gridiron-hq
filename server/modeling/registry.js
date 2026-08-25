@@ -19,10 +19,15 @@ function assertPromotable(candidate) {
 export class ModelRegistry {
   constructor(store) { this.store = store; }
 
-  create(spec, actor) {
+  // The experiment id is derived from spec + pinned dataset/feature versions, not
+  // spec alone — otherwise the identical configuration could never be re-evaluated
+  // against a new dataset or feature version (the primary key would collide), which
+  // breaks reproducible champion/challenger comparisons across dataset revisions.
+  create(spec, actor, datasetVersionId = null, featureVersionId = null) {
     if (!can(actor, 'model:train')) throw new Error('forbidden: model:train required');
     const now = new Date().toISOString();
-    const experiment = { id: configurationHash(spec), spec, status: 'queued', created_at: now,
+    const id = configurationHash({ spec, dataset_version_id: datasetVersionId, feature_version_id: featureVersionId });
+    const experiment = { id, spec, status: 'queued', created_at: now,
       updated_at: now, cancellation_requested: false, logs: [], result: null, created_by_user_id: Number(actor.id) };
     return this.store.insert(experiment);
   }

@@ -3,8 +3,16 @@ import { rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ingestAllSources } from '../news/ingest.js';
 import { requireAuthenticated } from '../platform/auth.js';
+import { recordAudit } from '../platform/audit.js';
 
 const r = Router();
+
+// Ingestion fans out to external feeds regardless of which authenticated caller
+// triggers it, so the cooldown is global (per source set, not per user) — the
+// goal is to stop repeated hammering of the same upstream feeds, not to meter
+// individual users.
+const INGEST_COOLDOWN_MS = 60_000;
+let lastIngestAt = 0;
 
 /**
  * Pull every documented RSS source through normalize.js's provenance/dedup pipeline.
@@ -12,8 +20,15 @@ const r = Router();
  * so it must not be an anonymous, unlimited-trigger endpoint.
  */
 r.post('/ingest', requireAuthenticated, async (req, res, next) => {
-  try { res.json({ ok: true, sources: await ingestAllSources() }); }
-  catch (e) { next(e); }
+  try {
+    const now = Date.now();
+    const elapsed = now - lastIngestAt;
+    if (elapsed < INGEST_COOLDOWN_MS) {
+      return res.status(429).json({ error: 'ingestion was run recently', retry_after_ms: INGEST_COOLDOWN_MS - elapsed });
+    }
+    lastIngestAt = now;
+    res.json({ ok: true, sources: await ingestAllSources() });
+  } catch (e) { next(e); }
 });
 
 r.get('/', (req, res) => {
@@ -39,15 +54,17 @@ r.post('/', requireAuthenticated, (req, res) => {
     return res.status(400).json({ error: '"AI analysis" is not a valid reporting source — use the ai_analysis field instead' });
   }
   const team = team_abbr ? row('SELECT id FROM nfl_teams WHERE abbr = ?', team_abbr.toUpperCase()) : null;
-  run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source)
+  const result = run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source)
        VALUES (?,?,?,?,?,?,?,?)`,
     date, team?.id ?? null, headline, body ?? null, ai_analysis ?? null,
     fantasy_impact ?? null, importance, source ?? null);
+  recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.create', entityType: 'news_item', entityId: result.lastInsertRowid, details: { headline, source } });
   res.json({ ok: true });
 });
 
 r.delete('/:id', requireAuthenticated, (req, res) => {
   run('DELETE FROM news_items WHERE id = ?', req.params.id);
+  recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.delete', entityType: 'news_item', entityId: req.params.id });
   res.json({ ok: true });
 });
 
@@ -81,14 +98,20 @@ r.post('/analyze', requireAuthenticated, async (req, res, next) => {
         date, team?.id ?? null, a.headline, original.body ?? null, a.ai_analysis, a.fantasy_impact,
         a.importance ?? 2, source, original.source_url ?? null);
     }
+    recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.analyze', entityType: 'news_item', details: { count: analyzed.length } });
     res.json({ ok: true, count: analyzed.length });
   } catch (e) { next(e); }
 });
 
-function myRosterNames() {
-  // players on my team(s) across every connected league
+function myRosterNames(userId) {
+  // players on my team(s) across every league I'm a member of — scoped through
+  // league_memberships so one authenticated user never sees another user's roster
+  // (leagues rows are not otherwise partitioned by owner).
   const out = new Set();
-  for (const lg of rows('SELECT platform, payload, my_team_id FROM leagues WHERE payload IS NOT NULL')) {
+  const myLeagues = rows(`SELECT l.platform, l.payload, l.my_team_id FROM leagues l
+    JOIN league_memberships lm ON lm.league_id = l.id
+    WHERE lm.user_id = ? AND l.payload IS NOT NULL`, userId);
+  for (const lg of myLeagues) {
     let payload; try { payload = JSON.parse(lg.payload); } catch { continue; }
     if (lg.platform === 'sleeper') {
       const mine = (payload.rosters ?? []).find(r => String(r.roster_id) === String(lg.my_team_id))
@@ -110,7 +133,7 @@ function myRosterNames() {
 
 /** Names of players on the caller's connected rosters, for the News Hub's "My Players" filter. */
 r.get('/my-players', requireAuthenticated, (req, res) => {
-  res.json({ names: myRosterNames() });
+  res.json({ names: myRosterNames(req.auth.userId) });
 });
 
 /** "What does this actually mean?" — on-demand, per story. */
@@ -128,7 +151,7 @@ r.post('/:id/explain', requireAuthenticated, async (req, res, next) => {
       ? rows(`SELECT name, position, slot_code FROM players
               WHERE team_id = ? AND slot_code IS NOT NULL AND phase = 'offense' ORDER BY slot_code`, n.team_id)
       : [];
-    const mine = myRosterNames();
+    const mine = myRosterNames(req.auth.userId);
 
     const msg = await callClaude({
       feature: 'news-explain',
@@ -153,6 +176,7 @@ Respond with ONLY the JSON object.`
     const out = parseJson(msg);
     run(`UPDATE news_items SET ai_analysis = ?, fantasy_impact = ? WHERE id = ?`,
       out.team_impact, out.my_impact, n.id);
+    recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.explain', entityType: 'news_item', entityId: n.id });
     res.json(out);
   } catch (e) { next(e); }
 });
@@ -171,7 +195,7 @@ r.post('/roundup', requireAuthenticated, async (req, res, next) => {
               ORDER BY n.date DESC, n.importance DESC LIMIT 60`);
     if (!stories.length) return res.status(400).json({ error: 'No stories to summarize — pull news first.' });
 
-    const mine = myRosterNames();
+    const mine = myRosterNames(req.auth.userId);
     const msg = await callClaude({
       feature: 'news-roundup',
       maxTokens: 1400,

@@ -76,8 +76,10 @@ app.use('/api/nfl-betting', nflBettingRouter);
 app.use('/api/betting', bettingHubRouter);
 
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message });
+  const status = Number(err?.status) >= 400 && Number(err?.status) < 600 ? Number(err.status) : 500;
+  console.error({ name: err?.name, code: err?.code, status,
+    message: status === 500 ? 'request failed' : err?.message });
+  res.status(status).json({ error: status === 500 ? 'internal server error' : err.message, code: err?.code });
 });
 
 /**

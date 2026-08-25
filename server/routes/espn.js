@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
-import { espnCookies } from '../services/espn-draft.js';
 
 const r = Router();
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
@@ -31,12 +30,7 @@ export async function syncPlayersFromESPN() {
     const url = `${BASE}/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
     const filter = { players: { limit: 800, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
     const headers = { Accept: 'application/json', 'X-Fantasy-Filter': JSON.stringify(filter) };
-    // This is a public default-league endpoint, not tied to any one private league,
-    // but sending cookies from whichever ESPN league is connected (if any) can only
-    // help it see a fuller/more current player pool — same helper the live-draft
-    // sync uses to find cookies, so there's one real source for them, not two.
-    const { s2, swid } = espnCookies();
-    if (s2 && swid) headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
+    // Public default-league data must not borrow credentials from an unrelated league.
     const resp = await fetch(url, { headers });
     if (!resp.ok) throw new Error(`ESPN players API ${resp.status}`);
     const data = await resp.json();

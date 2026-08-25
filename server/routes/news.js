@@ -108,6 +108,11 @@ function myRosterNames() {
   return [...out];
 }
 
+/** Names of players on the caller's connected rosters, for the News Hub's "My Players" filter. */
+r.get('/my-players', requireAuthenticated, (req, res) => {
+  res.json({ names: myRosterNames() });
+});
+
 /** "What does this actually mean?" — on-demand, per story. */
 r.post('/:id/explain', requireAuthenticated, async (req, res, next) => {
   try {

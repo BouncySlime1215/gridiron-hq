@@ -64,6 +64,19 @@ test('parseRssItems extracts title/link/description/pubDate and unwraps CDATA', 
   assert.equal(items[0].creator, 'Jane Reporter');
 });
 
+test('parseRssItems decodes ordinary XML entities in non-CDATA fields', () => {
+  const xml = `<rss><channel>
+    <item><title>Smith &amp; Jones: WR1 &lt;questionable&gt;</title>
+      <link>https://example.com/entities</link>
+      <description>Listed at 90% &amp; trending down</description>
+      <pubDate>Mon, 24 Aug 2026 23:50:36 EST</pubDate></item>
+  </channel></rss>`;
+  const items = parseRssItems(xml);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].title, 'Smith & Jones: WR1 <questionable>');
+  assert.equal(items[0].description, 'Listed at 90% & trending down');
+});
+
 test('ingestRssSource normalizes, attributes, and dedupes into news_items', async () => {
   const team = row(`SELECT abbr, name FROM nfl_teams LIMIT 1`);
   const xml = `<rss><channel>

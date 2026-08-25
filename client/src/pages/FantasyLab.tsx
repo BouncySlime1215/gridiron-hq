@@ -111,7 +111,7 @@ function Registry() {
   if (loading) return <div className="text-sm text-slate-500">Loading persisted registry…</div>;
   if (error) return <div className="text-sm text-red-600">Registry unavailable: {String(error)}</div>;
   const experiments = data?.experiments ?? [];
-  const act = async (id: string, action: 'backtests' | 'promote' | 'rollback') => {
+  const act = async (id: string, action: 'backtests' | 'holdout' | 'promote' | 'rollback') => {
     setBusy(`${id}:${action}`); setActionError(null);
     try { await api(`/model/registry/experiments/${id}/${action}`, { method: 'POST' }); await refetch(); }
     catch (e: any) { setActionError(e.message); }
@@ -132,9 +132,16 @@ function Registry() {
         <td className="p-3 text-[11px] font-mono">{(() => { const input = data?.experiment_inputs?.find((i: any) => i.experiment_id === x.id); return input ? `${String(input.dataset_version_id).slice(0, 8)} / ${String(input.feature_version_id).slice(0, 8)}` : 'Missing'; })()}</td>
         <td className="p-3">{x.result?.gates ? Object.values(x.result.gates).filter(Boolean).length + '/' + Object.keys(x.result.gates).length : '—'}</td>
         <td className="p-3 whitespace-nowrap space-x-1">
-          {x.status === 'queued' && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'backtests')}>Run backtest</button>}
-          {x.status === 'completed' && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'promote')}>Promote</button>}
-          {x.status === 'completed' && data?.production?.experiment_id !== x.id && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'rollback')}>Rollback to</button>}
+          {(() => {
+            const holdoutDone = data?.backtests?.some((b: any) => b.experiment_id === x.id && b.protocol === 'sealed_holdout' && b.status === 'completed');
+            if (x.status !== 'completed') return x.status === 'queued'
+              ? <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'backtests')}>Run backtest</button> : null;
+            return <>
+              {!holdoutDone && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'holdout')}>Run sealed holdout</button>}
+              {holdoutDone && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'promote')}>Promote</button>}
+              {holdoutDone && data?.production?.experiment_id !== x.id && <button className="btn-ghost" disabled={!!busy} onClick={() => act(x.id, 'rollback')}>Rollback to</button>}
+            </>;
+          })()}
         </td>
       </tr>)}</tbody></table></div>}
     {actionError && <p className="text-sm text-red-600">Action failed: {actionError}</p>}

@@ -13,9 +13,19 @@ export const RSS_SOURCES = [
   { name: 'ESPN', url: 'https://www.espn.com/espn/rss/nfl/news', sourceType: 'publisher' }
 ];
 
+const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+/** RSS/XML text nodes are entity-encoded; undo that so headlines don't render literal "&amp;". */
+const decodeXmlEntities = value => value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (whole, entity) => {
+  if (entity[0] === '#') {
+    const code = entity[1] === 'x' || entity[1] === 'X' ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
+    return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+  }
+  return NAMED_ENTITIES[entity] ?? whole;
+});
+
 const unwrapCdata = value => {
   const match = /^<!\[CDATA\[([\s\S]*?)\]\]>$/.exec(value.trim());
-  return (match ? match[1] : value).trim();
+  return match ? match[1].trim() : decodeXmlEntities(value.trim());
 };
 
 const tag = (block, name) => {

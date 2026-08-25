@@ -26,7 +26,7 @@ import { CANDIDATES, FANTASY_FEATURE_CONTRACT } from '../modeling/candidates.js'
 import { ModelRegistry } from '../modeling/registry.js';
 import { SqliteModelStore, recordModelAudit, registrySnapshot } from '../modeling/sqlite-store.js';
 import { requireModelPermission } from '../modeling/authz.js';
-import { runWalkForward } from '../modeling/walk-forward.js';
+import { runWalkForward, openFinalHoldout } from '../modeling/walk-forward.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -201,18 +201,25 @@ r.post('/registry/experiments/:id/backtests', requireModelPermission('model:trai
     const buildCandidate = CANDIDATES[experiment.spec?.candidate];
     if (!buildCandidate) return res.status(400).json({ error: `unsupported candidate; supported: ${Object.keys(CANDIDATES).join(', ')}` });
     const candidate = buildCandidate();
-    const audit = runWalkForward(observations, candidate, {
+    const walkForwardOptions = {
       holdoutSeason: experiment.spec.holdout_season,
       minimumTrainingPeriods: experiment.spec.minimum_training_periods ?? 1,
       datasetVersion: input.dataset_version_id
-    });
+    };
+    const audit = runWalkForward(observations, candidate, walkForwardOptions);
     const predictions = audit.folds.flatMap(f => f.predictions).filter(p => p.status === 'predicted' && Number.isFinite(p.actual));
     const mae = predictions.length ? predictions.reduce((sum, p) => sum + Math.abs(p.prediction - p.actual), 0) / predictions.length : null;
     const minRows = experiment.spec.min_validation_rows ?? 1;
-    // The comparison baseline is fixed and recomputed from the same frozen
-    // validation rows; trainers cannot choose or report its score.
-    const baselineMae = predictions.length
-      ? predictions.reduce((sum, p) => sum + Math.abs(p.actual), 0) / predictions.length
+    // The comparison baseline is the registered historical-mean candidate (mean_baseline),
+    // run through the identical walk-forward splits — a real, fixed model that
+    // trainers cannot choose or report the score of, not a "predict zero" strawman
+    // (mean(|actual|) is trivial to beat for any positive-outcome regression).
+    const baselineAudit = experiment.spec.candidate === 'mean_baseline'
+      ? audit
+      : runWalkForward(observations, CANDIDATES.mean_baseline(), walkForwardOptions);
+    const baselinePredictions = baselineAudit.folds.flatMap(f => f.predictions).filter(p => p.status === 'predicted' && Number.isFinite(p.actual));
+    const baselineMae = baselinePredictions.length
+      ? baselinePredictions.reduce((sum, p) => sum + Math.abs(p.prediction - p.actual), 0) / baselinePredictions.length
       : null;
     const gates = {
       schema: schemaValid, leakage: leakageValid,
@@ -243,13 +250,77 @@ r.post('/registry/experiments/:id/backtests', requireModelPermission('model:trai
   } catch (e) { next(e); }
 });
 
+/**
+ * Opens the sealed final-season holdout (server/modeling/walk-forward.js's
+ * `openFinalHoldout`) and persists it as its own protocol='sealed_holdout'
+ * backtest. This is the blind evidence promotion actually gates on: the
+ * walk_forward backtest above never touches the latest season at all (its
+ * folds only cover seasons strictly before holdout_season), so without this
+ * step a champion could be promoted having never been scored on genuinely
+ * unseen data.
+ */
+r.post('/registry/experiments/:id/holdout', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    const experiment = registry.store.get(req.params.id);
+    if (!experiment) return res.status(404).json({ error: 'experiment not found' });
+    const walkForward = db.prepare(`SELECT 1 FROM model_backtests
+      WHERE experiment_id=? AND protocol='walk_forward' AND status='completed'
+      AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
+    if (!walkForward) return res.status(409).json({ error: 'the walk-forward backtest must complete before the sealed holdout can be opened' });
+    if (db.prepare(`SELECT 1 FROM model_backtests WHERE experiment_id=? AND protocol='sealed_holdout'`).get(req.params.id)) {
+      return res.status(409).json({ error: 'the final holdout for this experiment has already been opened' });
+    }
+    const input = db.prepare(`SELECT i.*, d.metadata_json FROM model_experiment_inputs i
+      JOIN model_dataset_versions d ON d.id=i.dataset_version_id WHERE i.experiment_id=?`).get(req.params.id);
+    if (!input) return res.status(409).json({ error: 'pinned dataset and feature versions required' });
+    const observations = JSON.parse(input.metadata_json).observations;
+    const buildCandidate = CANDIDATES[experiment.spec?.candidate];
+    if (!buildCandidate) return res.status(400).json({ error: `unsupported candidate; supported: ${Object.keys(CANDIDATES).join(', ')}` });
+    const candidate = buildCandidate();
+    const sealedAudit = { holdout: { state: 'sealed', season: experiment.spec.holdout_season } };
+    const opened = openFinalHoldout(observations, candidate, sealedAudit, { authorize: true });
+    const holdoutPredictions = opened.holdout.predictions;
+    const predictions = holdoutPredictions.filter(p => p.status === 'predicted' && Number.isFinite(p.actual));
+    const mae = predictions.length ? predictions.reduce((sum, p) => sum + Math.abs(p.prediction - p.actual), 0) / predictions.length : null;
+    const missingRate = holdoutPredictions.length ? holdoutPredictions.filter(p => p.status === 'failed').length / holdoutPredictions.length : null;
+    const minRows = experiment.spec.min_validation_rows ?? 1;
+    const gates = { data_quality: missingRate === 0, tests: predictions.length >= minRows };
+    const result = {
+      verified_by: 'server:walk-forward:v1', season: opened.holdout.season, gates,
+      mae, sample_size: predictions.length, missing_prediction_rate: missingRate
+    };
+    const id = configurationHash({ experiment: req.params.id, protocol: 'sealed_holdout', season: opened.holdout.season });
+    const now = new Date().toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const insertPrediction = db.prepare(`INSERT INTO model_predictions
+        (run_id,player_id,season,week,as_of,status,prediction,lower,upper,active_probability,actual,error,fold_cutoff,is_holdout)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+      for (const p of holdoutPredictions) insertPrediction.run(id, String(p.player_id), p.season, p.week,
+        p.as_of, p.status, p.prediction ?? null, p.lower ?? null, p.upper ?? null, p.active_probability ?? null, p.actual ?? null, p.error ?? null, null, 1);
+      db.prepare(`INSERT INTO model_backtests (id,experiment_id,protocol,started_at,completed_at,status,result_json)
+        VALUES (?,?,?,?,?,'completed',?)`).run(id, req.params.id, 'sealed_holdout', now, now, JSON.stringify(result));
+      if (mae != null) db.prepare(`INSERT INTO model_metrics
+        (experiment_id,backtest_id,split,metric,value,sample_size,recorded_at) VALUES (?,?, 'holdout','mae',?,?,?)`)
+        .run(req.params.id, id, mae, predictions.length, now);
+      recordModelAudit(db, req.modelPrincipal, 'holdout.open', 'backtest', id, result);
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+    res.status(201).json({ ...db.prepare('SELECT * FROM model_backtests WHERE id=?').get(id), result });
+  } catch (e) { next(e); }
+});
+
 r.post('/registry/experiments/:id/promote', requireModelPermission('model:promote'), (req, res, next) => {
   try {
     const inputs = db.prepare('SELECT 1 FROM model_experiment_inputs WHERE experiment_id=?').get(req.params.id);
     const backtest = db.prepare(`SELECT 1 FROM model_backtests
       WHERE experiment_id=? AND protocol='walk_forward' AND status='completed'
       AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
+    const holdout = db.prepare(`SELECT 1 FROM model_backtests
+      WHERE experiment_id=? AND protocol='sealed_holdout' AND status='completed'
+      AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
     if (!inputs || !backtest) return res.status(409).json({ error: 'promotion requires pinned dataset/features and a completed persisted walk-forward backtest' });
+    if (!holdout) return res.status(409).json({ error: 'promotion requires the sealed final-season holdout to be opened and evaluated first' });
     const out = registry.promote(req.params.id, req.modelPrincipal);
     res.json(out);
   } catch (e) { next(e); }
@@ -260,7 +331,10 @@ r.post('/registry/experiments/:id/rollback', requireModelPermission('model:promo
     const eligible = db.prepare(`SELECT 1 FROM model_experiment_inputs i JOIN model_backtests b ON b.experiment_id=i.experiment_id
       WHERE i.experiment_id=? AND b.protocol='walk_forward' AND b.status='completed'
       AND json_extract(b.result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
-    if (!eligible) return res.status(409).json({ error: 'rollback target lacks verified persisted evidence' });
+    const holdoutEligible = db.prepare(`SELECT 1 FROM model_backtests
+      WHERE experiment_id=? AND protocol='sealed_holdout' AND status='completed'
+      AND json_extract(result_json, '$.verified_by')='server:walk-forward:v1'`).get(req.params.id);
+    if (!eligible || !holdoutEligible) return res.status(409).json({ error: 'rollback target lacks verified persisted evidence' });
     const out = registry.rollback(req.params.id, req.modelPrincipal);
     res.json(out);
   } catch (e) { next(e); }

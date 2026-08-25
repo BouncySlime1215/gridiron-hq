@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
+import { ConnectedNewsHub } from '../features/news/NewsHub';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function News() {
+  const [view, setView] = useState<'log' | 'feed'>('log');
   const [date, setDate] = useState<string>('');
   const [teamFilter, setTeamFilter] = useState('');
   const { data: dates, refetch: refetchDates } = useApi<string[]>('/news/dates');
@@ -89,6 +91,15 @@ export default function News() {
 
   return (
     <div>
+      <div className="mb-3 flex gap-1 border-b border-slate-200" role="tablist" aria-label="News view">
+        <button role="tab" aria-selected={view === 'log'}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'log' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          onClick={() => setView('log')}>Camp Log</button>
+        <button role="tab" aria-selected={view === 'feed'}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'feed' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          onClick={() => setView('feed')}>Attributed Feed</button>
+      </div>
+      {view === 'feed' ? <ConnectedNewsHub /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h1 className="text-2xl font-bold">Training Camp News</h1>
         <select className="input" value={date} onChange={e => setDate(e.target.value)}>
@@ -234,6 +245,7 @@ export default function News() {
           </div>
         ))}
       </div>
+      </>}
     </div>
   );
 }

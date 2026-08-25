@@ -173,24 +173,32 @@ test('NFL resource-spending GET routes require execute or wildcard permission', 
 });
 
 test('server-run backtest persists verified metrics and gates promotion', async () => {
-  const observations = [2023, 2024, 2025].map((season, index) => ({
-    player_id: 'p1', season, week: 1, as_of: `${season}-09-01T00:00:00.000Z`,
-    outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: index + 1, features: {}
-  }));
+  // A single position/player so volume_efficiency's shrinkage reduces to the
+  // plain observed rate (no other bucket to shrink toward) — makes the
+  // candidate's edge over the real mean_baseline candidate easy to verify by hand.
+  const observations = [
+    { player_id: 'p1', season: 2023, week: 1, as_of: '2023-09-01T00:00:00.000Z', outcome_available_at: '2023-09-02T00:00:00.000Z',
+      outcome: 20, features: { position: 'WR', expected_opportunities: 10 } },
+    { player_id: 'p1', season: 2024, week: 1, as_of: '2024-09-01T00:00:00.000Z', outcome_available_at: '2024-09-02T00:00:00.000Z',
+      outcome: 33, features: { position: 'WR', expected_opportunities: 15 } },
+    { player_id: 'p1', season: 2025, week: 1, as_of: '2025-09-01T00:00:00.000Z', outcome_available_at: '2025-09-02T00:00:00.000Z',
+      outcome: 40, features: { position: 'WR', expected_opportunities: 20 } }
+  ];
   const datasetResponse = await request('/registry/datasets', { token: 'real-model-token', body: {
     name: 'verified-observations', content_hash: configurationHash(observations), cutoff_at: '2025-09-03T00:00:00.000Z',
     row_count: observations.length, metadata: { observations }
   } });
   assert.equal(datasetResponse.status, 201);
   const dataset = datasetResponse.payload;
+  const contract = { name: 'single-position-volume-shape', features: { position: { required: true, type: 'string' }, expected_opportunities: { required: true, type: 'number', minimum: 0 } } };
   const featureResponse = await request('/registry/features', { token: 'real-model-token', body: {
-    name: 'empty', version: '1', content_hash: configurationHash({}), contract: {}
+    name: 'volume-shape', version: '1', content_hash: configurationHash(contract), contract
   } });
   assert.equal(featureResponse.status, 201);
   const feature = featureResponse.payload;
   const experimentResponse = await request('/registry/experiments', { token: 'real-model-token', body: {
     dataset_version_id: dataset.id, feature_version_id: feature.id,
-    spec: { candidate: 'mean_baseline', holdout_season: 2025, baseline_mae: 999999, min_validation_rows: 1 }
+    spec: { candidate: 'volume_efficiency', holdout_season: 2025, min_validation_rows: 1 }
   } });
   assert.equal(experimentResponse.status, 201);
   const experiment = experimentResponse.payload;
@@ -198,9 +206,31 @@ test('server-run backtest persists verified metrics and gates promotion', async 
   assert.equal(backtestResponse.status, 201, JSON.stringify(backtestResponse.payload));
   const backtest = backtestResponse.payload;
   assert.equal(backtest.result.verified_by, 'server:walk-forward:v1');
-  assert.equal(backtest.result.mae, 1);
-  assert.equal(backtest.result.baseline_mae, 2);
-  assert.equal(row('SELECT value FROM model_metrics WHERE backtest_id=? AND metric=?', backtest.id, 'mae').value, 1);
+  // volume_efficiency: trained on 2023 (10 opportunities -> outcome 20, rate 2/opp),
+  // predicts 2024's 15 opportunities as 30; actual is 33 -> |30-33| = 3.
+  assert.equal(backtest.result.mae, 3);
+  // mean_baseline: trained on 2023 only, predicts the flat mean (20) for 2024;
+  // actual is 33 -> |20-33| = 13. This is a real registered model run through the
+  // same splits, not a "predict zero" strawman.
+  assert.equal(backtest.result.baseline_mae, 13);
+  assert.equal(row('SELECT value FROM model_metrics WHERE backtest_id=? AND metric=?', backtest.id, 'mae').value, 3);
+
+  // Promotion requires the sealed final-season holdout to have been opened and
+  // evaluated first — a walk-forward pass alone (which never touches 2025) isn't
+  // blind evidence that the model works on genuinely unseen data.
+  const blocked = await request(`/registry/experiments/${experiment.id}/promote`, { token: 'real-model-token' });
+  assert.equal(blocked.status, 409);
+  assert.match(blocked.payload.error, /sealed/);
+
+  const holdout = await request(`/registry/experiments/${experiment.id}/holdout`, { token: 'real-model-token' });
+  assert.equal(holdout.status, 201, JSON.stringify(holdout.payload));
+  assert.equal(holdout.payload.protocol, 'sealed_holdout');
+  assert.equal(holdout.payload.result.season, 2025);
+  assert.equal(row('SELECT value FROM model_metrics WHERE backtest_id=? AND metric=?', holdout.payload.id, 'mae').value, holdout.payload.result.mae);
+
+  const reopened = await request(`/registry/experiments/${experiment.id}/holdout`, { token: 'real-model-token' });
+  assert.equal(reopened.status, 409);
+
   const promoted = await request(`/registry/experiments/${experiment.id}/promote`, { token: 'real-model-token' });
   assert.equal(promoted.status, 200);
 });
@@ -328,15 +358,24 @@ test('partial seed reconciliation is transactional and independently idempotent'
 });
 
 test('volume_efficiency candidate is position-aware and beats the frozen baseline on separable data', async () => {
-  const rowsForSeason = (season, index) => ([
+  // Large, realistic opportunity counts so shrinkage weight (n) dominates the
+  // prior-strength constant (40) and the per-position rate is barely pulled
+  // toward the league blend — otherwise a real historical-mean baseline (which
+  // predicts the flat average of these two widely separated positions) can
+  // out-score a heavily-shrunk position model on a single training fold.
+  const rowsForSeason = (season, wr, rb) => ([
     { player_id: 'wr1', season, week: 1, as_of: `${season}-09-01T00:00:00.000Z`,
-      outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: 12 + index,
-      features: { position: 'WR', expected_opportunities: 8 } },
+      outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: wr,
+      features: { position: 'WR', expected_opportunities: 200 } },
     { player_id: 'rb1', season, week: 1, as_of: `${season}-09-01T00:00:00.000Z`,
-      outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: 4 + index * 0.2,
-      features: { position: 'RB', expected_opportunities: 16 } }
+      outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: rb,
+      features: { position: 'RB', expected_opportunities: 200 } }
   ]);
-  const observations = [2023, 2024, 2025].flatMap((season, index) => rowsForSeason(season, index));
+  const observations = [
+    ...rowsForSeason(2023, 40, 100), // training fold
+    ...rowsForSeason(2024, 42, 95), // evaluated fold
+    ...rowsForSeason(2025, 44, 90) // sealed holdout, unused by this backtest
+  ];
   const dataset = await request('/registry/datasets', { token: 'real-model-token', body: {
     name: 'volume-efficiency-observations', content_hash: configurationHash(observations), cutoff_at: '2025-09-03T00:00:00.000Z',
     row_count: observations.length, metadata: { observations }
@@ -349,15 +388,18 @@ test('volume_efficiency candidate is position-aware and beats the frozen baselin
   assert.equal(feature.status, 201);
   const experiment = await request('/registry/experiments', { token: 'real-model-token', body: {
     dataset_version_id: dataset.payload.id, feature_version_id: feature.payload.id,
-    spec: { candidate: 'volume_efficiency', holdout_season: 2025, min_validation_rows: 1 }
+    spec: { candidate: 'volume_efficiency', holdout_season: 2025, min_validation_rows: 1, nonce: 'separable-two-position' }
   } });
   assert.equal(experiment.status, 201);
   const backtest = await request(`/registry/experiments/${experiment.payload.id}/backtests`, { token: 'real-model-token' });
   assert.equal(backtest.status, 201, JSON.stringify(backtest.payload));
   assert.equal(backtest.payload.result.gates.schema, true);
   assert.equal(backtest.payload.result.gates.leakage, true);
-  // A position-aware model should out-predict the |actual| baseline on data where
-  // WR and RB efficiency are cleanly separable by opportunity volume.
+  // A position-aware model should out-predict the real mean_baseline candidate
+  // (run through the identical splits) on data where WR and RB efficiency are
+  // cleanly separable by opportunity volume.
+  assert.equal(backtest.payload.result.mae, 1.5);
+  assert.equal(backtest.payload.result.baseline_mae, 26.5);
   assert.ok(backtest.payload.result.mae < backtest.payload.result.baseline_mae);
 });
 

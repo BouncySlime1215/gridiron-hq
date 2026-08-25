@@ -8,6 +8,7 @@ export interface NewsStory {
   source_type: string; published_at: string; canonical_url: string; fantasy_impact?: string;
   confidence?: number | null; reliability?: { tier?: string; score?: number | null };
   entities?: { players?: NewsEntity[]; teams?: NewsEntity[] }; projection_change?: { before: number; after: number } | null;
+  injury_entities?: NewsEntity[]; transaction_type?: string | null; ingested_at?: string | null;
   // Claude's read of the story, if any — never a reporting source. Must always
   // render as a visibly distinct, separately labeled block from the byline/source
   // line above, so it can never be mistaken for sourced reporting.
@@ -16,18 +17,21 @@ export interface NewsStory {
 
 const tabs = ['For You', 'My Players', 'Injuries', 'Transactions', 'Official Sources', 'Analysis'] as const;
 
-export default function NewsHub({ stories, loading = false, error = null, refreshedAt }: {
-  stories: NewsStory[]; loading?: boolean; error?: string | null; refreshedAt?: string | null;
+export default function NewsHub({ stories, loading = false, error = null, refreshedAt, myPlayerNames = [] }: {
+  stories: NewsStory[]; loading?: boolean; error?: string | null; refreshedAt?: string | null; myPlayerNames?: string[];
 }) {
   const [tab, setTab] = useState<(typeof tabs)[number]>('For You');
   const [query, setQuery] = useState('');
+  const myPlayers = useMemo(() => new Set(myPlayerNames.map(name => name.toLowerCase())), [myPlayerNames]);
   const visible = useMemo(() => stories.filter(story => {
     if (tab === 'Official Sources' && story.source_type !== 'official') return false;
-    if (tab === 'Injuries' && story.fantasy_impact !== 'injury') return false;
-    if (tab === 'Transactions' && story.fantasy_impact !== 'transaction') return false;
+    if (tab === 'Injuries' && !(story.injury_entities?.length)) return false;
+    if (tab === 'Transactions' && !story.transaction_type) return false;
+    if (tab === 'Analysis' && !story.ai_analysis) return false;
+    if (tab === 'My Players' && !story.entities?.players?.some(p => myPlayers.has(p.name.toLowerCase()))) return false;
     const haystack = `${story.headline} ${story.summary ?? ''} ${story.source}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
-  }), [stories, tab, query]);
+  }), [stories, tab, query, myPlayers]);
 
   return <section aria-labelledby="news-title">
     <header className="mb-4 flex flex-wrap items-end gap-3">
@@ -68,7 +72,7 @@ export default function NewsHub({ stories, loading = false, error = null, refres
 
 /** Real ingested data — server/news/ingest.js's RSS pipeline through normalize.js, not fixtures. */
 export function ConnectedNewsHub() {
-  const { stories, loading, error, refreshedAt } = useNewsFeed();
-  return <NewsHub stories={stories} loading={loading} error={error} refreshedAt={refreshedAt} />;
+  const { stories, loading, error, refreshedAt, myPlayerNames } = useNewsFeed();
+  return <NewsHub stories={stories} loading={loading} error={error} refreshedAt={refreshedAt} myPlayerNames={myPlayerNames} />;
 }
 

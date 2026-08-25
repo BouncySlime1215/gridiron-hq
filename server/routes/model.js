@@ -22,6 +22,7 @@ import { deriveFormat } from '../services/format.js';
 import { withRandomSeed } from '../services/stats-util.js';
 import { requireLeagueId } from '../modeling/league-context.js';
 import { assertTimestampedObservation, configurationHash } from '../modeling/contracts.js';
+import { CANDIDATES, FANTASY_FEATURE_CONTRACT } from '../modeling/candidates.js';
 import { ModelRegistry } from '../modeling/registry.js';
 import { SqliteModelStore, recordModelAudit, registrySnapshot } from '../modeling/sqlite-store.js';
 import { requireModelPermission } from '../modeling/authz.js';
@@ -102,6 +103,14 @@ export function clearModelCache() { cache.clear(); }
 
 r.get('/registry', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(registrySnapshot()); } catch (e) { next(e); }
+});
+
+/** What the backtest endpoint below will actually accept, and the feature contract behind it. */
+r.get('/registry/candidates', requireModelPermission('model:train'), (_req, res) => {
+  res.json({
+    candidates: Object.entries(CANDIDATES).map(([name, build]) => { const c = build(); return { name, version: c.version }; }),
+    feature_contract: FANTASY_FEATURE_CONTRACT
+  });
 });
 
 r.post('/registry/datasets', requireModelPermission('model:train'), (req, res, next) => {
@@ -189,12 +198,9 @@ r.post('/registry/experiments/:id/backtests', requireModelPermission('model:trai
     const schemaValid = validateFeatureSchema(observations, contract);
     let leakageValid = true;
     try { observations.forEach(assertTimestampedObservation); } catch { leakageValid = false; }
-    if (experiment.spec?.candidate !== 'mean_baseline') return res.status(400).json({ error: 'unsupported candidate; supported: mean_baseline' });
-    const candidate = { name: 'mean_baseline', version: '1', fit(training) {
-      const values = training.map(x => Number(x.outcome)).filter(Number.isFinite);
-      const mean = values.reduce((a, b) => a + b, 0) / values.length;
-      return { predict: () => ({ prediction: mean }) };
-    } };
+    const buildCandidate = CANDIDATES[experiment.spec?.candidate];
+    if (!buildCandidate) return res.status(400).json({ error: `unsupported candidate; supported: ${Object.keys(CANDIDATES).join(', ')}` });
+    const candidate = buildCandidate();
     const audit = runWalkForward(observations, candidate, {
       holdoutSeason: experiment.spec.holdout_season,
       minimumTrainingPeriods: experiment.spec.minimum_training_periods ?? 1,
@@ -260,12 +266,19 @@ r.post('/registry/experiments/:id/rollback', requireModelPermission('model:promo
   } catch (e) { next(e); }
 });
 
+// Never default to "the first league in the database" — an unresolved league
+// context must surface as an explicit error, not a silently wrong scoring/roster
+// context (see server/modeling/ARCHITECTURE.md's confirmed active-league defect).
 const league = (req, res) => {
-  const id = req.params.leagueId ?? req.query.league_id;
-  const lg = id ? row('SELECT * FROM leagues WHERE id = ?', id) : row('SELECT * FROM leagues ORDER BY id LIMIT 1');
-  if (!lg) { res.status(404).json({ error: 'no league connected' }); return null; }
+  let id;
+  try { id = requireLeagueId(req); }
+  catch (e) { res.status(e.status ?? 400).json({ error: e.message }); return null; }
+  const lg = row('SELECT * FROM leagues WHERE id = ?', id);
+  if (!lg) { res.status(404).json({ error: 'no league found for the active league id' }); return null; }
   return lg;
 };
+
+const respondError = (res, next, e) => (e.status ? res.status(e.status).json({ error: e.message }) : next(e));
 
 /* ------------------------------------------------------------ projections */
 
@@ -286,7 +299,7 @@ r.get('/projections', (req, res, next) => {
       through, season: SEASON, count: list.length,
       players: list.slice(0, Number(req.query.limit) || 300)
     });
-  } catch (e) { next(e); }
+  } catch (e) { respondError(res, next, e); }
 });
 
 /** Full distribution for one player — the percentiles behind a start/sit call. */
@@ -333,7 +346,7 @@ r.get('/projections/:playerId', (req, res, next) => {
       availability: availability().get(p.player_id) ?? null,
       usage_history: usageFor(p.player_id).slice(0, 20)
     })));
-  } catch (e) { next(e); }
+  } catch (e) { respondError(res, next, e); }
 });
 
 /* -------------------------------------------------------------- accuracy */

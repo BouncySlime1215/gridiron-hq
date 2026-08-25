@@ -1,8 +1,15 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
+import { ingestAllSources } from '../news/ingest.js';
 
 const r = Router();
+
+/** Pull every documented RSS source through normalize.js's provenance/dedup pipeline. */
+r.post('/ingest', async (req, res, next) => {
+  try { res.json({ ok: true, sources: await ingestAllSources() }); }
+  catch (e) { next(e); }
+});
 
 r.get('/', (req, res) => {
   const { date, team } = req.query;
@@ -23,6 +30,9 @@ r.get('/dates', (req, res) => {
 r.post('/', (req, res) => {
   const { date, team_abbr, headline, body, ai_analysis, fantasy_impact, importance = 2, source } = req.body;
   if (!date || !headline) return res.status(400).json({ error: 'date and headline required' });
+  if (source && source.toLowerCase() === 'ai analysis') {
+    return res.status(400).json({ error: '"AI analysis" is not a valid reporting source — use the ai_analysis field instead' });
+  }
   const team = team_abbr ? row('SELECT id FROM nfl_teams WHERE abbr = ?', team_abbr.toUpperCase()) : null;
   run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source)
        VALUES (?,?,?,?,?,?,?,?)`,
@@ -52,11 +62,19 @@ r.post('/analyze', async (req, res, next) => {
       prompt: `You are an NFL training-camp analyst for a fantasy football dashboard. For each story below, write a JSON array where each element has: "team_abbr", "headline" (cleaned up), "ai_analysis" (2-3 sentences of sharp football analysis: scheme fit, depth chart, usage), "fantasy_impact" (1 sentence, specific), "importance" (1=minor, 2=notable, 3=major). Only respond with the JSON array, no other text.\n\nStories:\n${items.map((it, i) => `${i + 1}. [${it.team_abbr}] ${it.headline}${it.body ? ' — ' + it.body : ''}`).join('\n')}`
     });
     const analyzed = parseJson(msg);
-    for (const a of analyzed) {
+    // `a.ai_analysis` is Claude's read of the pasted headline, not a reporting source —
+    // it belongs in the ai_analysis column. `source` describes provenance of the
+    // headline itself: whatever the caller attributed it to, or an explicit
+    // "user-submitted" fallback. Never the literal "AI analysis" (see normalize.js).
+    for (let i = 0; i < analyzed.length; i++) {
+      const a = analyzed[i];
+      const original = items[i] ?? {};
       const team = row('SELECT id FROM nfl_teams WHERE abbr = ?', (a.team_abbr || '').toUpperCase());
-      run(`INSERT INTO news_items (date, team_id, headline, ai_analysis, fantasy_impact, importance, source)
-           VALUES (?,?,?,?,?,?,?)`,
-        date, team?.id ?? null, a.headline, a.ai_analysis, a.fantasy_impact, a.importance ?? 2, 'AI analysis');
+      const source = original.source && original.source.toLowerCase() !== 'ai analysis' ? original.source : 'user-submitted';
+      run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source, source_url)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+        date, team?.id ?? null, a.headline, original.body ?? null, a.ai_analysis, a.fantasy_impact,
+        a.importance ?? 2, source, original.source_url ?? null);
     }
     res.json({ ok: true, count: analyzed.length });
   } catch (e) { next(e); }

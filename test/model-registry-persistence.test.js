@@ -241,6 +241,16 @@ test('feature provenance, validation thresholds, and schema gates cannot be forg
   assert.notEqual(promotion.status, 200);
 });
 
+test('registry/candidates lists mean_baseline and volume_efficiency and marks weather unavailable', async () => {
+  const res = await request('/registry/candidates', { method: 'GET', token: 'real-model-token' });
+  assert.equal(res.status, 200);
+  const names = res.payload.candidates.map(c => c.name);
+  assert.ok(names.includes('mean_baseline'));
+  assert.ok(names.includes('volume_efficiency'));
+  assert.equal(res.payload.feature_contract.features.weather.available, false);
+  assert.equal(res.payload.feature_contract.features.weather.status, 'unavailable');
+});
+
 test('persisted bearer session without a grant is forbidden', () => {
   run(`INSERT INTO users (subject) VALUES ('model:unprivileged')`);
   const userId = row(`SELECT id FROM users WHERE subject='model:unprivileged'`).id;
@@ -315,6 +325,65 @@ test('partial seed reconciliation is transactional and independently idempotent'
   seedIfEmpty();
   assert.equal(row('SELECT COUNT(*) n FROM players').n, before);
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+});
+
+test('volume_efficiency candidate is position-aware and beats the frozen baseline on separable data', async () => {
+  const rowsForSeason = (season, index) => ([
+    { player_id: 'wr1', season, week: 1, as_of: `${season}-09-01T00:00:00.000Z`,
+      outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: 12 + index,
+      features: { position: 'WR', expected_opportunities: 8 } },
+    { player_id: 'rb1', season, week: 1, as_of: `${season}-09-01T00:00:00.000Z`,
+      outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: 4 + index * 0.2,
+      features: { position: 'RB', expected_opportunities: 16 } }
+  ]);
+  const observations = [2023, 2024, 2025].flatMap((season, index) => rowsForSeason(season, index));
+  const dataset = await request('/registry/datasets', { token: 'real-model-token', body: {
+    name: 'volume-efficiency-observations', content_hash: configurationHash(observations), cutoff_at: '2025-09-03T00:00:00.000Z',
+    row_count: observations.length, metadata: { observations }
+  } });
+  assert.equal(dataset.status, 201);
+  const contract = { features: { position: { required: true, type: 'string' }, expected_opportunities: { required: true, type: 'number', minimum: 0 } } };
+  const feature = await request('/registry/features', { token: 'real-model-token', body: {
+    name: 'volume-efficiency-inputs', version: '1', content_hash: configurationHash(contract), contract
+  } });
+  assert.equal(feature.status, 201);
+  const experiment = await request('/registry/experiments', { token: 'real-model-token', body: {
+    dataset_version_id: dataset.payload.id, feature_version_id: feature.payload.id,
+    spec: { candidate: 'volume_efficiency', holdout_season: 2025, min_validation_rows: 1 }
+  } });
+  assert.equal(experiment.status, 201);
+  const backtest = await request(`/registry/experiments/${experiment.payload.id}/backtests`, { token: 'real-model-token' });
+  assert.equal(backtest.status, 201, JSON.stringify(backtest.payload));
+  assert.equal(backtest.payload.result.gates.schema, true);
+  assert.equal(backtest.payload.result.gates.leakage, true);
+  // A position-aware model should out-predict the |actual| baseline on data where
+  // WR and RB efficiency are cleanly separable by opportunity volume.
+  assert.ok(backtest.payload.result.mae < backtest.payload.result.baseline_mae);
+});
+
+test('unsupported candidate name is rejected and lists what is actually supported', async () => {
+  const observations = [2023, 2024].map((season, index) => ({
+    player_id: 'p1', season, week: 1, as_of: `${season}-09-01T00:00:00.000Z`,
+    outcome_available_at: `${season}-09-02T00:00:00.000Z`, outcome: index + 1, features: {}
+  }));
+  const dataset = await request('/registry/datasets', { token: 'real-model-token', body: {
+    name: 'unsupported-candidate-observations', content_hash: configurationHash(observations), cutoff_at: '2024-09-03T00:00:00.000Z',
+    row_count: observations.length, metadata: { observations }
+  } });
+  // content_hash has its own UNIQUE constraint independent of id — an empty contract
+  // {} was already registered by an earlier test, so this needs a distinct contract.
+  const contract = { features: { nonce: { type: 'string', required: false } } };
+  const feature = await request('/registry/features', { token: 'real-model-token', body: {
+    name: 'empty-2', version: '1', content_hash: configurationHash(contract), contract
+  } });
+  const experiment = await request('/registry/experiments', { token: 'real-model-token', body: {
+    dataset_version_id: dataset.payload.id, feature_version_id: feature.payload.id,
+    spec: { candidate: 'not_a_real_model', holdout_season: 2024, min_validation_rows: 1 }
+  } });
+  const backtest = await request(`/registry/experiments/${experiment.payload.id}/backtests`, { token: 'real-model-token' });
+  assert.equal(backtest.status, 400);
+  assert.match(backtest.payload.error, /mean_baseline/);
+  assert.match(backtest.payload.error, /volume_efficiency/);
 });
 
 test('latest migration down and re-up are transactional and reproducible', async () => {

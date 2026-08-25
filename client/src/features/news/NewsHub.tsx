@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useNewsFeed } from './useNewsFeed';
 
 export interface NewsEntity { id: string | number; name: string }
 export interface NewsStory {
@@ -7,6 +8,10 @@ export interface NewsStory {
   source_type: string; published_at: string; canonical_url: string; fantasy_impact?: string;
   confidence?: number | null; reliability?: { tier?: string; score?: number | null };
   entities?: { players?: NewsEntity[]; teams?: NewsEntity[] }; projection_change?: { before: number; after: number } | null;
+  // Claude's read of the story, if any — never a reporting source. Must always
+  // render as a visibly distinct, separately labeled block from the byline/source
+  // line above, so it can never be mistaken for sourced reporting.
+  ai_analysis?: string | null;
 }
 
 const tabs = ['For You', 'My Players', 'Injuries', 'Transactions', 'Official Sources', 'Analysis'] as const;
@@ -46,10 +51,24 @@ export default function NewsHub({ stories, loading = false, error = null, refres
           {story.reliability?.tier && <span className="rounded bg-slate-100 px-2 py-0.5">{story.reliability.tier}</span>}</div>
         <h2 className="mt-1 font-semibold"><a href={story.source_url} target="_blank" rel="noreferrer" className="hover:underline">{story.headline}</a></h2>
         {story.summary && <p className="mt-2 text-sm text-slate-600">{story.summary}</p>}
+        {story.ai_analysis && (
+          <div className="mt-2 rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5">
+            <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
+              AI analysis — not a source
+            </span>
+            <p className="mt-1 text-xs text-indigo-900">{story.ai_analysis}</p>
+          </div>
+        )}
         {story.projection_change && <p className="mt-2 text-xs font-semibold text-amber-700">Projection: {story.projection_change.before.toFixed(1)} → {story.projection_change.after.toFixed(1)}</p>}
         <div className="mt-2 flex flex-wrap gap-2 text-xs">{story.entities?.players?.map(player => <Link key={player.id} to={`/players/${player.id}`} className="text-emerald-700 hover:underline">{player.name}</Link>)}</div>
       </article>)}
     </div>
   </section>;
+}
+
+/** Real ingested data — server/news/ingest.js's RSS pipeline through normalize.js, not fixtures. */
+export function ConnectedNewsHub() {
+  const { stories, loading, error, refreshedAt } = useNewsFeed();
+  return <NewsHub stories={stories} loading={loading} error={error} refreshedAt={refreshedAt} />;
 }
 

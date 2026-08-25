@@ -129,10 +129,20 @@ async function resolveEspnPlayers(espnIds, season) {
   for (const espnId of missing) {
     const info = pool.get(espnId);
     const name = info?.name ?? `ESPN player ${espnId}`;
-    run(`INSERT INTO players (name, position, team_id, espn_id, fantasy_relevant)
+    // A seed row for this player may already exist with no espn_id yet. Claiming it
+    // here (rather than always inserting) is what keeps a draft sync from creating a
+    // second, unrostered row for the same person — see resolvePlayer() in trade-engine.js.
+    const existing = row('SELECT id FROM players WHERE lower(name) = lower(?) AND espn_id IS NULL', name);
+    if (existing) {
+      run('UPDATE players SET espn_id = ?, fantasy_relevant = 1, team_id = COALESCE(?, team_id) WHERE id = ?',
+        espnId, teamIdByAbbr.get(info?.proTeam) ?? null, existing.id);
+      known.set(espnId, existing.id);
+      continue;
+    }
+    const result = run(`INSERT INTO players (name, position, team_id, espn_id, fantasy_relevant)
          VALUES (?,?,?,?,1)`,
       name, info?.position ?? 'WR', teamIdByAbbr.get(info?.proTeam) ?? null, espnId);
-    known.set(espnId, row('SELECT last_insert_rowid() AS id').id);
+    known.set(espnId, Number(result.lastInsertRowid));
   }
   return known;
 }

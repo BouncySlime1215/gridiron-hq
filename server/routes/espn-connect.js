@@ -37,6 +37,53 @@ export const ESPN_TEST_RESULTS = Object.freeze({
   })
 });
 
+const minify = s => s.replace(/(?<!:)\/\/[^\n]*/g, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Source of the one-click bookmarklet. Private ESPN leagues need two cookies,
+ * `espn_s2` and `SWID`, and the usual way to get them is a DevTools walkthrough most
+ * people abandon. This script reads them on ESPN's own page and posts them straight
+ * back to this router's `/cookies` endpoint.
+ *
+ * `/cookies` is per-league and requires a Bearer session, but the bookmarklet runs on
+ * espn.com — a different origin with no access to this app's localStorage token. It is
+ * generated fresh each time the signed-in user requests it (`GET /bookmarklet`), with
+ * that request's own Authorization header baked in, so the saved link is only ever as
+ * valid as the session that created it: it fails the moment that session expires or is
+ * revoked, the same as any other authenticated call this app makes.
+ */
+const BOOKMARKLET = (origin, authorization) => `
+(function(){
+  function get(n){
+    var m = document.cookie.match('(^|;)\\\\s*' + n + '\\\\s*=\\\\s*([^;]+)');
+    return m ? decodeURIComponent(m.pop()) : null;
+  }
+  var s2 = get('espn_s2'), swid = get('SWID');
+  if (!s2 || !swid) {
+    alert('Could not read the ESPN cookies.\\n\\nMake sure you are on espn.com and signed in to your fantasy account, then try again.');
+    return;
+  }
+  var leagueId = (location.href.match(/leagueId[=/](\\d+)/i) || [])[1];
+  var season = (location.href.match(/seasonId[=/](\\d+)/i) || [])[1] || new Date().getFullYear();
+  if (!leagueId) {
+    alert('Open your league on ESPN (its URL should contain leagueId=...) and try again.');
+    return;
+  }
+  fetch('${origin}/api/espn-connect/cookies', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': '${authorization}' },
+    body: JSON.stringify({ league_id: leagueId, season: Number(season), espn_s2: s2, swid: swid })
+  })
+  .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+  .then(function(result){
+    if (result.ok) location.href = '${origin}/leagues?espn_connected=1';
+    else alert('Gridiron HQ said: ' + (result.d.error || 'unknown error'));
+  })
+  .catch(function(){
+    alert('Could not reach Gridiron HQ at ${origin}.\\n\\nMake sure the app is running, then try again.');
+  });
+})();`;
+
 function requestedLeague(body = {}) {
   const leagueId = String(body.league_id ?? '').trim();
   const season = Number(body.season);
@@ -183,6 +230,14 @@ r.delete('/cookies', (req, res, next) => {
       espn_validated_at=NULL, espn_account_fingerprint=NULL WHERE id=?`, league.id);
     res.json({ ok: true });
   } catch (error) { sendError(error, res, next); }
+});
+
+/** The bookmarklet as a javascript: URL, scoped to the requesting user's own session. */
+r.get('/bookmarklet', (req, res) => {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const authorization = req.get('authorization');
+  const script = BOOKMARKLET(origin, authorization);
+  res.json({ href: `javascript:${encodeURIComponent(minify(script))}`, origin });
 });
 
 r.post('/discover', async (req, res, next) => {

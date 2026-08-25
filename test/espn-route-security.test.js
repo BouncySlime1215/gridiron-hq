@@ -52,9 +52,19 @@ async function request(method, url, { token, body } = {}) {
 
 test('all ESPN connection endpoints reject anonymous callers', async () => {
   for (const [method, url] of [['POST','/api/espn-connect/cookies'], ['GET','/api/espn-connect/status?league_id=1&season=2026'],
-    ['DELETE','/api/espn-connect/cookies'], ['POST','/api/espn-connect/discover'], ['POST','/api/espn-connect/test']]) {
+    ['DELETE','/api/espn-connect/cookies'], ['POST','/api/espn-connect/discover'], ['POST','/api/espn-connect/test'],
+    ['GET','/api/espn-connect/bookmarklet']]) {
     assert.equal((await request(method, url)).status, 401, `${method} ${url}`);
   }
+});
+
+test('bookmarklet is generated per-session and posts back to this app authenticated as the requester', async () => {
+  const response = await request('GET', '/api/espn-connect/bookmarklet', { token: 'espn-token' });
+  assert.equal(response.status, 200);
+  const script = decodeURIComponent(response.body.href.replace(/^javascript:/, ''));
+  assert.match(script, /Authorization.*Bearer espn-token/);
+  assert.match(script, /\/api\/espn-connect\/cookies/);
+  assert.match(script, /leagueId/);
 });
 
 test('test access probes public first and does not send or persist supplied credentials', async () => {

@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
+import { fetchEspnLeague } from '../services/espn-client.js';
 
 const r = Router();
 
-const ESPN_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 
 r.get('/', (req, res) => {
@@ -40,13 +40,12 @@ r.delete('/:id', (req, res) => {
 const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K', 23: 'FLEX' };
 
 async function fetchEspn(lg, season) {
-  const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}`
-    + `?scoringPeriodId=1&view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
-  const headers = { Accept: 'application/json' };
-  if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
-  const resp = await fetch(url, { headers });
-  if (!resp.ok) throw new Error(`ESPN API ${resp.status}`);
-  return resp.json();
+  return fetchEspnLeague({
+    leagueId: lg.league_id,
+    season,
+    espn_s2: lg.espn_s2,
+    swid: lg.swid
+  });
 }
 
 const rosterCount = data => (data.teams ?? []).reduce((s, t) => s + (t.roster?.entries?.length ?? 0), 0);

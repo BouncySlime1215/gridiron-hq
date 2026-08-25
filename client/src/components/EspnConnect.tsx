@@ -2,7 +2,13 @@ import { ClipboardEvent, FormEvent, useId, useRef, useState } from 'react';
 import { ApiError, api } from '../api';
 
 type Step = 'league' | 'credentials' | 'success';
-const AUTH_CODES = new Set(['ESPN_AUTHENTICATION_FAILED', 'ESPN_INVALID_CREDENTIALS']);
+const AUTH_CODES = new Set(['ESPN_AUTHENTICATION_FAILED', 'ESPN_INVALID_CREDENTIALS', 'ESPN_CREDENTIALS_INVALID']);
+
+type AccessTestResult = {
+  code: string;
+  connection_state: 'public' | 'credentials_required' | 'credentialed' | 'unknown' | 'mismatch' | 'not_found';
+  message: string;
+};
 
 export function normalizeEspnS2(value: string) {
   return value.trim().replace(/^espn_s2\s*=\s*/i, '').replace(/;.*$/, '').trim();
@@ -68,11 +74,19 @@ export default function EspnConnect() {
         body.espn_s2 = normalizeEspnS2(espnS2);
         body.swid = normalizeSwid(swid);
       }
-      const result = await api<{ leagues: { name?: string }[] }>('/espn-connect/discover', {
+      const result = await api<AccessTestResult>('/espn-connect/test', {
         method: 'POST', body: JSON.stringify(body)
       });
+      if (result.connection_state === 'credentials_required') {
+        setStep('credentials');
+        setMessage(step === 'credentials'
+          ? 'ESPN did not accept those credentials. Paste fresh values from your signed-in ESPN session.'
+          : 'This league is private. Add credentials from your signed-in ESPN session to test access.');
+        if (step === 'credentials') { setEspnS2(''); setSwid(''); }
+        return;
+      }
       setEspnS2(''); setSwid(''); setStep('success');
-      setMessage(`Access confirmed${result.leagues[0]?.name ? ` for ${result.leagues[0].name}` : ''}. No league or credentials were saved.`);
+      setMessage('Access confirmed. No league or credentials were saved.');
     } catch (caught) {
       const apiError = caught as ApiError;
       if (AUTH_CODES.has(apiError.code ?? '')) {

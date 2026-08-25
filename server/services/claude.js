@@ -78,7 +78,8 @@ export const costOf = (model, inTok, outTok) => {
  * Single entry point for every Claude call in the app: enforces the key,
  * records token usage, and returns the raw message.
  */
-export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt }) {
+export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt,
+  tools = undefined, toolChoice = undefined }) {
   const key = getApiKey();
   if (!key) {
     const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
@@ -89,7 +90,9 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
   const client = new Anthropic({ apiKey: key });
   const msg = await client.messages.create({
     model, max_tokens: maxTokens,
-    messages: [{ role: 'user', content: prompt }]
+    messages: [{ role: 'user', content: prompt }],
+    ...(tools?.length ? { tools } : {}),
+    ...(toolChoice ? { tool_choice: toolChoice } : {})
   });
   recordUsage(feature, model, msg.usage);
   return msg;

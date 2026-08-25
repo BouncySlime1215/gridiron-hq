@@ -15,7 +15,7 @@
  * usage across the two. That is a direct measurement of the handoff, rather than an
  * assumption that the next man on a depth chart inherits everything.
  */
-import { rows } from '../db/index.js';
+import { db, rows } from '../db/index.js';
 import { shrink, mean } from './stats-util.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -25,6 +25,17 @@ const MIN_MISSED = 3;
 // Who can inherit whose workload. Receivers and tight ends share a target pool; backs
 // share carries; quarterbacks are a closed shop.
 const INHERITS = { QB: ['QB'], RB: ['RB'], WR: ['WR', 'TE'], TE: ['TE', 'WR'] };
+
+db.exec(`CREATE TABLE IF NOT EXISTS nfl_injuries (
+  season INTEGER, week INTEGER, gsis_id TEXT, team TEXT, full_name TEXT,
+  position TEXT, report_status TEXT, practice_status TEXT, injury TEXT,
+  PRIMARY KEY (season, week, gsis_id)
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS player_metrics (
+  player_id INTEGER NOT NULL REFERENCES players(id), source TEXT NOT NULL,
+  value REAL NOT NULL, fetched_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (player_id, source)
+)`);
 
 /* ------------------------------------------------------------ availability */
 
@@ -69,6 +80,51 @@ export function availability({ through = SEASON - 1 } = {}) {
       observed_rate: +observed.toFixed(3),
       seasons: a.seasons,
       flagged: flagged.has(pid)
+    });
+  }
+  return out;
+}
+
+/**
+ * Pregame probability that each player is active for one specific week.
+ * Historical durability supplies the prior; the actual week injury and practice
+ * designations supply the high-information update. No later-week report is ever
+ * consulted, so the same function is safe in replay.
+ */
+export function weeklyAvailability(season, week, { through = season - 1 } = {}) {
+  const base = availability({ through });
+  const players = rows(`SELECT id, name, position, gsis_id FROM players
+                        WHERE position IN ('QB','RB','WR','TE')`);
+  const reports = new Map(rows(`SELECT * FROM nfl_injuries WHERE season=? AND week=?`, season, week)
+    .map(r => [String(r.gsis_id), r]));
+  const out = new Map();
+
+  for (const p of players) {
+    const prior = base.get(p.id)?.available ?? 0.92;
+    const report = p.gsis_id ? reports.get(String(p.gsis_id)) : null;
+    const status = String(report?.report_status ?? '').toLowerCase();
+    const practice = String(report?.practice_status ?? '').toLowerCase();
+    let active = prior;
+
+    if (/out|reserve|ir|pup|suspend/.test(status)) active = 0.01;
+    else if (/doubtful/.test(status)) active = Math.min(active, 0.15);
+    else if (/questionable/.test(status)) active = Math.min(0.78, Math.max(0.55, active * 0.88));
+    else if (/probable/.test(status)) active = Math.max(active, 0.95);
+
+    if (!/out|reserve|ir|pup|suspend/.test(status)) {
+      if (/did not|dnp/.test(practice)) active *= 0.72;
+      else if (/limited/.test(practice)) active *= 0.92;
+      else if (/full/.test(practice)) active = Math.max(active, 0.96);
+    }
+    active = Math.max(0.01, Math.min(0.995, active));
+    out.set(p.id, {
+      player_id: p.id, name: p.name, position: p.position,
+      active_probability: +active.toFixed(3),
+      durability_prior: +prior.toFixed(3),
+      report_status: report?.report_status ?? null,
+      practice_status: report?.practice_status ?? null,
+      injury: report?.injury ?? null,
+      source: report ? 'weekly injury report + durability prior' : 'durability prior only'
     });
   }
   return out;

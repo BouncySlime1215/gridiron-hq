@@ -1,67 +1,19 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
+import { espnCookies } from '../services/espn-draft.js';
 
 const r = Router();
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
+const SEASON = () => Number(process.env.NFL_SEASON) || new Date().getFullYear();
 
-function getSettings() {
-  return row('SELECT * FROM espn_settings WHERE id = 1');
-}
-
-r.get('/settings', (req, res) => {
-  const s = getSettings();
-  // never leak full cookie values back to the client
-  res.json(s ? { league_id: s.league_id, season: s.season, team_id: s.team_id,
-    has_espn_s2: !!s.espn_s2, has_swid: !!s.swid } : null);
-});
-
-r.put('/settings', (req, res) => {
-  const { league_id, season, team_id, espn_s2, swid } = req.body;
-  const existing = getSettings();
-  if (existing) {
-    run(`UPDATE espn_settings SET league_id = ?, season = ?, team_id = ?,
-         espn_s2 = COALESCE(?, espn_s2), swid = COALESCE(?, swid) WHERE id = 1`,
-      league_id, season, team_id, espn_s2 || null, swid || null);
-  } else {
-    run('INSERT INTO espn_settings (id, league_id, season, team_id, espn_s2, swid) VALUES (1,?,?,?,?,?)',
-      league_id, season, team_id, espn_s2 || null, swid || null);
-  }
-  res.json({ ok: true });
-});
-
-async function espnFetch(views) {
-  const s = getSettings();
-  if (!s?.league_id || !s?.season) throw new Error('ESPN settings not configured');
-  const params = views.map(v => `view=${v}`).join('&');
-  const url = `${BASE}/seasons/${s.season}/segments/0/leagues/${s.league_id}?${params}`;
-  const headers = { Accept: 'application/json' };
-  if (s.espn_s2 && s.swid) {
-    headers.Cookie = `espn_s2=${s.espn_s2}; SWID=${s.swid}`;
-  }
-  const resp = await fetch(url, { headers });
-  if (!resp.ok) throw new Error(`ESPN API ${resp.status}: ${resp.statusText}`);
-  return resp.json();
-}
-
-r.post('/sync', async (req, res, next) => {
-  try {
-    const data = await espnFetch(['mTeam', 'mRoster', 'mMatchup', 'mSettings']);
-    run(`INSERT INTO espn_cache (key, payload, fetched_at) VALUES ('league', ?, datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at`,
-      JSON.stringify(data));
-    // League sync always refreshes the player universe too — ESPN is the source of truth.
-    let playerSync = null;
-    try { playerSync = await syncPlayersFromESPN(); }
-    catch (err) { playerSync = { error: err.message }; }
-    res.json({ ok: true, teams: data.teams?.length ?? 0, playerSync });
-  } catch (e) { next(e); }
-});
-
-r.get('/league', (req, res) => {
-  const cached = row(`SELECT payload, fetched_at FROM espn_cache WHERE key = 'league'`);
-  if (!cached) return res.json(null);
-  res.json({ fetched_at: cached.fetched_at, ...JSON.parse(cached.payload) });
-});
+// A single global "ESPN league settings" row used to be the only way this app knew
+// about a league — /settings, /sync and /league (plus the espn_settings/espn_cache
+// tables) all served that. It's gone now: leagues are per-row in the `leagues` table
+// (see routes/leagues.js and EspnConnect.tsx's bookmarklet-based multi-league
+// connect), and My Team/Trade Lab/the draft tools only ever read from there. Editing
+// this page's old form had silently stopped doing anything anywhere else in the app.
+// What's still real and kept below: pulling ESPN's global player pool/depth charts
+// and pulling ESPN's public news feed — neither is tied to any one league's settings.
 
 // ESPN proTeamId -> our abbr
 const PRO_TEAM = {
@@ -75,12 +27,16 @@ const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
 // Pull ESPN's fantasy player universe (rookies included) and upsert as source of truth.
 export async function syncPlayersFromESPN() {
   {
-    const s = getSettings();
-    const season = s?.season || new Date().getFullYear();
+    const season = SEASON();
     const url = `${BASE}/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
     const filter = { players: { limit: 800, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
     const headers = { Accept: 'application/json', 'X-Fantasy-Filter': JSON.stringify(filter) };
-    if (s?.espn_s2 && s?.swid) headers.Cookie = `espn_s2=${s.espn_s2}; SWID=${s.swid}`;
+    // This is a public default-league endpoint, not tied to any one private league,
+    // but sending cookies from whichever ESPN league is connected (if any) can only
+    // help it see a fuller/more current player pool — same helper the live-draft
+    // sync uses to find cookies, so there's one real source for them, not two.
+    const { s2, swid } = espnCookies();
+    if (s2 && swid) headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
     const resp = await fetch(url, { headers });
     if (!resp.ok) throw new Error(`ESPN players API ${resp.status}`);
     const data = await resp.json();

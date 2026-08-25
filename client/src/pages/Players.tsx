@@ -22,10 +22,10 @@ const VIEWS: Record<string, { label: string; hint: string; cols: Col[] }> = {
       { key: 'adp', label: 'ADP', fmt: p => n1(p.adp) },
       { key: 'adp_edge', label: 'Edge', title: 'ADP minus VOR rank — positive means he lasts longer than he should',
         fmt: p => signed(p.adp_edge),
-        tone: p => p.adp_edge == null ? 'text-slate-300' : p.adp_edge > 3 ? 'text-emerald-600' : p.adp_edge < -3 ? 'text-rose-600' : 'text-slate-400' },
+        tone: p => p.adp_edge == null ? 'text-slate-300' : p.adp_edge > 3 ? 'text-good' : p.adp_edge < -3 ? 'text-crit' : 'text-slate-400' },
       { key: 'last_pts', label: "'25", fmt: p => n0(p.last_pts) },
       { key: 'delta', label: 'Δ', fmt: p => signed(p.delta),
-        tone: p => p.delta == null ? 'text-slate-300' : p.delta >= 0 ? 'text-emerald-600' : 'text-rose-600' }
+        tone: p => p.delta == null ? 'text-slate-300' : p.delta >= 0 ? 'text-good' : 'text-crit' }
     ]
   },
   value: {
@@ -35,13 +35,13 @@ const VIEWS: Record<string, { label: string; hint: string; cols: Col[] }> = {
       { key: 'vor_rank', label: 'VOR#', fmt: p => p.vor_rank ?? '—' },
       { key: 'adp', label: 'ADP', fmt: p => n1(p.adp) },
       { key: 'adp_edge', label: 'Edge', fmt: p => signed(p.adp_edge),
-        tone: p => p.adp_edge == null ? 'text-slate-300' : p.adp_edge > 3 ? 'text-emerald-600' : p.adp_edge < -3 ? 'text-rose-600' : 'text-slate-400' },
+        tone: p => p.adp_edge == null ? 'text-slate-300' : p.adp_edge > 3 ? 'text-good' : p.adp_edge < -3 ? 'text-crit' : 'text-slate-400' },
       { key: 'market_value', label: 'Value', fmt: p => n0(p.market_value) },
       { key: 'market_trend_pct', label: '30d', fmt: p => p.market_trend_pct == null ? '—' : `${p.market_trend_pct > 0 ? '▲' : p.market_trend_pct < 0 ? '▼' : '·'}${Math.abs(p.market_trend_pct).toFixed(1)}%`,
-        tone: p => p.market_trend_pct == null ? 'text-slate-300' : p.market_trend_pct > 0.5 ? 'text-emerald-600' : p.market_trend_pct < -0.5 ? 'text-rose-600' : 'text-slate-400' },
+        tone: p => p.market_trend_pct == null ? 'text-slate-300' : p.market_trend_pct > 0.5 ? 'text-good' : p.market_trend_pct < -0.5 ? 'text-crit' : 'text-slate-400' },
       { key: 'buy_sell', label: 'Call', fmt: p => p.buy_sell ?? p.scout_verdict ?? '—',
-        tone: p => /BUY|WINNER|VALUE/.test(p.buy_sell ?? p.scout_verdict ?? '') ? 'text-emerald-600'
-          : /SELL|AVOID|OVERPRICED/.test(p.buy_sell ?? p.scout_verdict ?? '') ? 'text-rose-600' : 'text-slate-400' }
+        tone: p => /BUY|WINNER|VALUE/.test(p.buy_sell ?? p.scout_verdict ?? '') ? 'text-good'
+          : /SELL|AVOID|OVERPRICED/.test(p.buy_sell ?? p.scout_verdict ?? '') ? 'text-crit' : 'text-slate-400' }
     ]
   },
   weekly: {
@@ -51,12 +51,12 @@ const VIEWS: Record<string, { label: string; hint: string; cols: Col[] }> = {
       { key: 'avg', label: 'Avg', fmt: p => n1(p.avg) },
       { key: 'floor', label: 'Floor', fmt: p => n1(p.floor) },
       { key: 'ceiling', label: 'Ceil', fmt: p => n1(p.ceiling) },
-      { key: 'boom', label: 'Boom', fmt: p => pct(p.boom), tone: () => 'text-emerald-600' },
-      { key: 'bust', label: 'Bust', fmt: p => pct(p.bust), tone: () => 'text-rose-600' },
+      { key: 'boom', label: 'Boom', fmt: p => pct(p.boom), tone: () => 'text-good' },
+      { key: 'bust', label: 'Bust', fmt: p => pct(p.bust), tone: () => 'text-crit' },
       { key: 'consistency', label: 'Cons', fmt: p => p.consistency == null ? '—' : p.consistency.toFixed(2) },
       { key: 'playoff_rank', label: 'PO SOS', title: 'weeks 15-17 schedule rank, 1 = easiest',
         fmt: p => p.playoff_rank ?? '—',
-        tone: p => p.playoff_rank == null ? 'text-slate-300' : p.playoff_rank <= 10 ? 'text-emerald-600' : p.playoff_rank >= 23 ? 'text-rose-600' : 'text-slate-500' }
+        tone: p => p.playoff_rank == null ? 'text-slate-300' : p.playoff_rank <= 10 ? 'text-good' : p.playoff_rank >= 23 ? 'text-crit' : 'text-slate-500' }
     ]
   },
   stats: {
@@ -109,21 +109,21 @@ const GLOSSARY: [string, string][] = [
 
 /** One-click filter + sort combinations that answer a real draft question. */
 const PRESETS: { label: string; hint: string; apply: (s: any) => void }[] = [
-  { label: '💎 Best values', hint: 'Biggest positive gap between ADP and VOR rank',
+  { label: 'Best values', hint: 'Biggest positive gap between ADP and VOR rank',
     apply: s => { s.setSort({ key: 'adp_edge', dir: -1 }); s.setOnlyBoard(false); s.setView('value'); } },
-  { label: '🛡 Safe floors', hint: 'Highest floor with low bust rate — set-and-forget starters',
+  { label: 'Safe floors', hint: 'Highest floor with low bust rate — set-and-forget starters',
     apply: s => { s.setSort({ key: 'floor', dir: -1 }); s.setView('weekly'); } },
-  { label: '🚀 Highest ceilings', hint: 'Best 80th-percentile weeks — tournament and upside plays',
+  { label: 'Highest ceilings', hint: 'Best 80th-percentile weeks — tournament and upside plays',
     apply: s => { s.setSort({ key: 'ceiling', dir: -1 }); s.setView('weekly'); } },
-  { label: '📈 Market rising', hint: 'Trade value climbing fastest in the last 30 days',
+  { label: 'Market rising', hint: 'Trade value climbing fastest in the last 30 days',
     apply: s => { s.setSort({ key: 'market_trend_pct', dir: -1 }); s.setView('value'); } },
-  { label: '📉 Market falling', hint: 'Value dropping — either a buy-low or a warning',
+  { label: 'Market falling', hint: 'Value dropping — either a buy-low or a warning',
     apply: s => { s.setSort({ key: 'market_trend_pct', dir: 1 }); s.setView('value'); } },
-  { label: '🗓 Easy playoffs', hint: 'Softest weeks 15-17 schedule',
+  { label: 'Easy playoffs', hint: 'Softest weeks 15-17 schedule',
     apply: s => { s.setSort({ key: 'playoff_rank', dir: 1 }); s.setView('weekly'); } },
-  { label: '⭐ Proven stars', hint: 'Pro Bowl, All-Pro or NFL Top 100 only',
+  { label: 'Proven stars', hint: 'Pro Bowl, All-Pro or NFL Top 100 only',
     apply: s => { s.setOnlyBadged(true); s.setSort({ key: 'vor', dir: -1 }); s.setView('board'); } },
-  { label: '🔮 Biggest risers', hint: 'Projection furthest above last season',
+  { label: 'Biggest risers', hint: 'Projection furthest above last season',
     apply: s => { s.setSort({ key: 'delta', dir: -1 }); s.setView('board'); } }
 ];
 
@@ -212,7 +212,7 @@ export default function Players() {
       <div className="flex gap-1.5 mb-3 flex-wrap">
         {Object.entries(VIEWS).map(([k, v]) => (
           <button key={k} onClick={() => setView(k as any)}
-            className={`btn ${view === k ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            className={`btn ${view === k ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white text-slate-600 hover:bg-sky-50'}`}>
             {v.label}
           </button>
         ))}
@@ -256,7 +256,7 @@ export default function Players() {
           {teams.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <button onClick={() => setDense(d => !d)}
-          className={`btn text-xs ${dense ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-500'}`}>
+          className={`btn text-xs ${dense ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white border border-slate-200 text-slate-500'}`}>
           {dense ? 'Compact' : 'Comfortable'}
         </button>
         <button

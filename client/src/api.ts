@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
+  // Self-hosted authentication is provisioned with server/platform/provision-auth.js.
+  // Keep the opaque token out of source/config files; callers can persist it once
+  // with setAuthToken(), after which every API request authenticates consistently.
+  const token = typeof window !== 'undefined' ? window.localStorage.getItem('gridiron_session_token') : null;
   const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...opts?.headers
+    }
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -12,16 +20,31 @@ export async function api<T = any>(path: string, opts?: RequestInit): Promise<T>
   return res.json();
 }
 
+export function setAuthToken(token: string | null) {
+  if (typeof window === 'undefined') return;
+  if (token) window.localStorage.setItem('gridiron_session_token', token);
+  else window.localStorage.removeItem('gridiron_session_token');
+}
+
 export function useApi<T = any>(path: string | null) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(!!path);
   const [error, setError] = useState<string | null>(null);
 
   // `loading` only flips while we have nothing to show. Background refetches keep
-  // the previous data on screen so views never flash empty mid-update.
+  // the previous data on screen so views never flash empty mid-update — but only
+  // when it's the SAME resource refreshing. If `path` changed to a different
+  // resource (e.g. the user switched leagues), the old data belongs to something
+  // else now and must not linger under the new path's label.
   const hasData = useRef(false);
+  const prevPath = useRef<string | null>(null);
   const refetch = useCallback(() => {
     if (!path) return;
+    if (prevPath.current !== null && prevPath.current !== path) {
+      hasData.current = false;
+      setData(null);
+    }
+    prevPath.current = path;
     if (!hasData.current) setLoading(true);
     return api<T>(path)
       .then(d => { hasData.current = true; setData(d); setError(null); })
@@ -67,6 +90,15 @@ export interface Draft {
   my_slot: number; ranking_set_id: number | null; status: string;
   picks_made?: number; ranking_set_name?: string;
   picks: DraftPick[]; available: AvailableEntry[];
+  // Server-authoritative state machine fields — see server/draft/store.js.
+  revision: number;
+  order_type: 'snake' | 'linear' | 'third_round_reversal';
+  roster_positions: Record<string, number>;
+  turn_deadline: string | null;
+  paused: 0 | 1;
+  queue: { player_id: number; position: number }[];
+  total_picks: number;
+  on_the_clock: { pick_number: number; round: number; pos_in_round: number; team_slot: number } | null;
 }
 
 export interface DraftPick {

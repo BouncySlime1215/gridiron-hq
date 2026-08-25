@@ -48,7 +48,10 @@ function pickSlot(depth: DepthMap, multi: Record<string, SlotPlayer[]> | undefin
   return pool[index];
 }
 
-const GRADE_COLOR = { strength: '#10b981', weakness: '#f43f5e', ok: '#cbd5e1' } as const;
+// Same hex as --good/--crit in index.css. Inline SVG attributes aren't reached by
+// the class-based color system, so this diagram was the one part of the app still
+// on the old bright emerald/rose palette after the rest was retoned.
+const GRADE_COLOR = { strength: '#2f7d4e', weakness: '#a63a32', ok: '#cbd5e1' } as const;
 
 const shot = (p?: SlotPlayer) =>
   p?.espn_id ? `https://a.espncdn.com/i/headshots/nfl/players/full/${p.espn_id}.png`
@@ -79,7 +82,7 @@ function Node({ x, y, type, code, player, accent, onClick, grade }: {
           : `${grade.starter} — WEAK SPOT: ${grade.weakness_reason ?? 'below starting standard'}`}</title>
       )}
       {grade?.grade === 'strength' && grade.badges?.[0] && (
-        <text x={x} y={y + 39} textAnchor="middle" fontSize={7.5} fontWeight={700} fill="#059669">
+        <text x={x} y={y + 39} textAnchor="middle" fontSize={7.5} fontWeight={700} fill="#2f7d4e">
           {grade.badges[0].length > 22 ? grade.badges[0].slice(0, 20) + '…' : grade.badges[0]}
         </text>
       )}
@@ -133,11 +136,11 @@ function UnitBox({ x, y, w, h, label, onClick, selected }: {
   return (
     <g onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
       <rect x={x} y={y} width={w} height={h} rx={10}
-        fill={selected ? 'rgba(16,185,129,0.08)' : '#f8fafc'}
-        stroke={selected ? '#10b981' : '#e2e8f0'} strokeWidth={selected ? 2 : 1.25}
+        fill={selected ? 'rgba(31,51,80,0.06)' : '#f8fafc'}
+        stroke={selected ? '#1f3350' : '#e2e8f0'} strokeWidth={selected ? 2 : 1.25}
         strokeDasharray={selected ? '' : '5 4'} />
       <text x={x + w / 2} y={y - 6} textAnchor="middle" fontSize={9} fontWeight={800}
-        fill={selected ? '#059669' : '#94a3b8'} letterSpacing={1.2}>
+        fill={selected ? '#1f3350' : '#94a3b8'} letterSpacing={1.2}>
         {label}{onClick ? '  ⓘ' : ''}
       </text>
     </g>
@@ -145,7 +148,7 @@ function UnitBox({ x, y, w, h, label, onClick, selected }: {
 }
 
 export default function FormationView({
-  phase, depth, depthMulti, grades, showGrades = true, accent = '#0f766e', onUnitClick, onPlayerClick, selectedUnit
+  phase, depth, depthMulti, grades, showGrades = true, accent = '#1f3350', onUnitClick, onPlayerClick, selectedUnit
 }: Props) {
   const p = (codes: string[], i = 0) => pickSlot(depth, depthMulti, codes, i);
   const g = (code: string) => (showGrades ? grades?.slots?.[code] : undefined);

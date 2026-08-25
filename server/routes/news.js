@@ -1,8 +1,35 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
+import { ingestAllSources } from '../news/ingest.js';
+import { requireAuthenticated } from '../platform/auth.js';
+import { recordAudit } from '../platform/audit.js';
 
 const r = Router();
+
+// Ingestion fans out to external feeds regardless of which authenticated caller
+// triggers it, so the cooldown is global (per source set, not per user) — the
+// goal is to stop repeated hammering of the same upstream feeds, not to meter
+// individual users.
+const INGEST_COOLDOWN_MS = 60_000;
+let lastIngestAt = 0;
+
+/**
+ * Pull every documented RSS source through normalize.js's provenance/dedup pipeline.
+ * Authenticated only — this fans out to external feeds and writes to the database,
+ * so it must not be an anonymous, unlimited-trigger endpoint.
+ */
+r.post('/ingest', requireAuthenticated, async (req, res, next) => {
+  try {
+    const now = Date.now();
+    const elapsed = now - lastIngestAt;
+    if (elapsed < INGEST_COOLDOWN_MS) {
+      return res.status(429).json({ error: 'ingestion was run recently', retry_after_ms: INGEST_COOLDOWN_MS - elapsed });
+    }
+    lastIngestAt = now;
+    res.json({ ok: true, sources: await ingestAllSources() });
+  } catch (e) { next(e); }
+});
 
 r.get('/', (req, res) => {
   const { date, team } = req.query;
@@ -20,24 +47,29 @@ r.get('/dates', (req, res) => {
 });
 
 // Manual entry (also used by the Claude Code assisted workflow)
-r.post('/', (req, res) => {
+r.post('/', requireAuthenticated, (req, res) => {
   const { date, team_abbr, headline, body, ai_analysis, fantasy_impact, importance = 2, source } = req.body;
   if (!date || !headline) return res.status(400).json({ error: 'date and headline required' });
+  if (source && source.toLowerCase() === 'ai analysis') {
+    return res.status(400).json({ error: '"AI analysis" is not a valid reporting source — use the ai_analysis field instead' });
+  }
   const team = team_abbr ? row('SELECT id FROM nfl_teams WHERE abbr = ?', team_abbr.toUpperCase()) : null;
-  run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source)
+  const result = run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source)
        VALUES (?,?,?,?,?,?,?,?)`,
     date, team?.id ?? null, headline, body ?? null, ai_analysis ?? null,
     fantasy_impact ?? null, importance, source ?? null);
+  recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.create', entityType: 'news_item', entityId: result.lastInsertRowid, details: { headline, source } });
   res.json({ ok: true });
 });
 
-r.delete('/:id', (req, res) => {
+r.delete('/:id', requireAuthenticated, (req, res) => {
   run('DELETE FROM news_items WHERE id = ?', req.params.id);
+  recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.delete', entityType: 'news_item', entityId: req.params.id });
   res.json({ ok: true });
 });
 
 // AI analysis for pasted headlines. Requires ANTHROPIC_API_KEY in env.
-r.post('/analyze', async (req, res, next) => {
+r.post('/analyze', requireAuthenticated, async (req, res, next) => {
   try {
     const { date, items } = req.body; // items: [{team_abbr, headline, body?}]
     if (!getApiKey()) {
@@ -52,20 +84,34 @@ r.post('/analyze', async (req, res, next) => {
       prompt: `You are an NFL training-camp analyst for a fantasy football dashboard. For each story below, write a JSON array where each element has: "team_abbr", "headline" (cleaned up), "ai_analysis" (2-3 sentences of sharp football analysis: scheme fit, depth chart, usage), "fantasy_impact" (1 sentence, specific), "importance" (1=minor, 2=notable, 3=major). Only respond with the JSON array, no other text.\n\nStories:\n${items.map((it, i) => `${i + 1}. [${it.team_abbr}] ${it.headline}${it.body ? ' — ' + it.body : ''}`).join('\n')}`
     });
     const analyzed = parseJson(msg);
-    for (const a of analyzed) {
+    // `a.ai_analysis` is Claude's read of the pasted headline, not a reporting source —
+    // it belongs in the ai_analysis column. `source` describes provenance of the
+    // headline itself: whatever the caller attributed it to, or an explicit
+    // "user-submitted" fallback. Never the literal "AI analysis" (see normalize.js).
+    for (let i = 0; i < analyzed.length; i++) {
+      const a = analyzed[i];
+      const original = items[i] ?? {};
       const team = row('SELECT id FROM nfl_teams WHERE abbr = ?', (a.team_abbr || '').toUpperCase());
-      run(`INSERT INTO news_items (date, team_id, headline, ai_analysis, fantasy_impact, importance, source)
-           VALUES (?,?,?,?,?,?,?)`,
-        date, team?.id ?? null, a.headline, a.ai_analysis, a.fantasy_impact, a.importance ?? 2, 'AI analysis');
+      const source = original.source && original.source.toLowerCase() !== 'ai analysis' ? original.source : 'user-submitted';
+      run(`INSERT INTO news_items (date, team_id, headline, body, ai_analysis, fantasy_impact, importance, source, source_url)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+        date, team?.id ?? null, a.headline, original.body ?? null, a.ai_analysis, a.fantasy_impact,
+        a.importance ?? 2, source, original.source_url ?? null);
     }
+    recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.analyze', entityType: 'news_item', details: { count: analyzed.length } });
     res.json({ ok: true, count: analyzed.length });
   } catch (e) { next(e); }
 });
 
-function myRosterNames() {
-  // players on my team(s) across every connected league
+function myRosterNames(userId) {
+  // players on my team(s) across every league I'm a member of — scoped through
+  // league_memberships so one authenticated user never sees another user's roster
+  // (leagues rows are not otherwise partitioned by owner).
   const out = new Set();
-  for (const lg of rows('SELECT platform, payload, my_team_id FROM leagues WHERE payload IS NOT NULL')) {
+  const myLeagues = rows(`SELECT l.platform, l.payload, l.my_team_id FROM leagues l
+    JOIN league_memberships lm ON lm.league_id = l.id
+    WHERE lm.user_id = ? AND l.payload IS NOT NULL`, userId);
+  for (const lg of myLeagues) {
     let payload; try { payload = JSON.parse(lg.payload); } catch { continue; }
     if (lg.platform === 'sleeper') {
       const mine = (payload.rosters ?? []).find(r => String(r.roster_id) === String(lg.my_team_id))
@@ -85,8 +131,13 @@ function myRosterNames() {
   return [...out];
 }
 
+/** Names of players on the caller's connected rosters, for the News Hub's "My Players" filter. */
+r.get('/my-players', requireAuthenticated, (req, res) => {
+  res.json({ names: myRosterNames(req.auth.userId) });
+});
+
 /** "What does this actually mean?" — on-demand, per story. */
-r.post('/:id/explain', async (req, res, next) => {
+r.post('/:id/explain', requireAuthenticated, async (req, res, next) => {
   try {
     if (!getApiKey()) {
       return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
@@ -100,7 +151,7 @@ r.post('/:id/explain', async (req, res, next) => {
       ? rows(`SELECT name, position, slot_code FROM players
               WHERE team_id = ? AND slot_code IS NOT NULL AND phase = 'offense' ORDER BY slot_code`, n.team_id)
       : [];
-    const mine = myRosterNames();
+    const mine = myRosterNames(req.auth.userId);
 
     const msg = await callClaude({
       feature: 'news-explain',
@@ -125,12 +176,13 @@ Respond with ONLY the JSON object.`
     const out = parseJson(msg);
     run(`UPDATE news_items SET ai_analysis = ?, fantasy_impact = ? WHERE id = ?`,
       out.team_impact, out.my_impact, n.id);
+    recordAudit({ actor: String(req.auth.userId), role: 'user', action: 'news.explain', entityType: 'news_item', entityId: n.id });
     res.json(out);
   } catch (e) { next(e); }
 });
 
 /** Camp roundup: one paragraph on the day + the teams most affected. */
-r.post('/roundup', async (req, res, next) => {
+r.post('/roundup', requireAuthenticated, async (req, res, next) => {
   try {
     if (!getApiKey()) {
       return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
@@ -143,7 +195,7 @@ r.post('/roundup', async (req, res, next) => {
               ORDER BY n.date DESC, n.importance DESC LIMIT 60`);
     if (!stories.length) return res.status(400).json({ error: 'No stories to summarize — pull news first.' });
 
-    const mine = myRosterNames();
+    const mine = myRosterNames(req.auth.userId);
     const msg = await callClaude({
       feature: 'news-roundup',
       maxTokens: 1400,

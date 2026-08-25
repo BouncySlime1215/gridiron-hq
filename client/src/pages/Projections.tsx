@@ -37,7 +37,7 @@ export default function Projections() {
         <div className="ml-auto flex gap-1.5 flex-wrap">
           {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
             <button key={p} onClick={() => setFilter(p)}
-              className={`btn ${filter === p ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{p}</button>
+              className={`btn ${filter === p ? 'bg-sky-100 text-sky-900 border border-sky-200' : 'bg-white text-slate-500 hover:bg-sky-50'}`}>{p}</button>
           ))}
           <button className="btn-ghost" onClick={sync} disabled={busy}>{busy ? 'Pulling…' : '↻ Pull latest'}</button>
           <button className="btn-primary" onClick={createBoard} disabled={!agg?.length}>Create board</button>

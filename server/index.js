@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from './db/index.js';
+import { runMigrations } from './db/migrate.js';
 import { seedIfEmpty } from './db/seed/index.js';
 import teamsRouter from './routes/teams.js';
 import playersRouter from './routes/players.js';
 import rankingsRouter from './routes/rankings.js';
-import draftsRouter from './routes/drafts.js';
+import draftsRouter, { startDraftClockJob } from './routes/drafts.js';
 import espnRouter from './routes/espn.js';
 import newsRouter from './routes/news.js';
 import aggregatesRouter from './routes/aggregates.js';
@@ -28,34 +29,44 @@ import nflMarketRouter from './routes/nfl-market.js';
 import nflBettingRouter from './routes/nfl-betting.js';
 import bettingHubRouter from './routes/betting-hub.js';
 import { startScheduler } from './services/scheduler.js';
+import { legacyAuthenticated, legacyAdmin } from './platform/legacy-access.js';
 
 const app = express();
 app.use(express.json());
 
+await runMigrations();
 seedIfEmpty();
 
 // Nothing in this project used to refresh on its own, which is how the MLB board
 // went sixteen days stale without failing. The timer keeps a long-running app
 // current; routes additionally trigger a background refresh when data is stale,
 // so an app that was closed all week catches up on the first page load.
-startScheduler({ intervalMinutes: 30 });
+// The evidence daemon has a T-15m horizon. Other jobs retain their own stale
+// thresholds, so a five-minute scheduler tick does not make heavy ingestion run
+// more often; it simply lets due capture windows fire on time.
+startScheduler({ intervalMinutes: 5 });
+// Server-owned draft pick clock: survives reconnects and server restarts,
+// since it's driven by drafts.turn_deadline in SQLite rather than any client's
+// setTimeout. Without this, a draft only advanced past the clock while a
+// browser tab with the Draft Room open was watching it count down.
+startDraftClockJob();
 
 app.use('/api/teams', teamsRouter);
-app.use('/api/players', playersRouter);
+app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', rankingsRouter);
 app.use('/api/drafts', draftsRouter);
 app.use('/api/espn', espnRouter);
-app.use('/api/news', newsRouter);
+app.use('/api/news', ...legacyAuthenticated, newsRouter);
 app.use('/api/aggregates', aggregatesRouter);
 app.use('/api/analysis', analysisRouter);
-app.use('/api/leagues', leaguesRouter);
+app.use('/api/leagues', ...legacyAuthenticated, leaguesRouter);
 app.use('/api/nfl', nfldataRouter);
 app.use('/api/stats', statsRouter);
-app.use('/api/dev', devRouter);
+app.use('/api/dev', ...legacyAdmin, devRouter);
 app.use('/api/accolades', accoladesRouter);
 app.use('/api/edge', edgeRouter);
-app.use('/api/tradelab', tradelabRouter);
-app.use('/api/trades', tradesRouter);
+app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
+app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/model', modelRouter);
 app.use('/api/props', propsRouter);

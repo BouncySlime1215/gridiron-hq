@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
+import { ConnectedNewsHub } from '../features/news/NewsHub';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function News() {
+  const [view, setView] = useState<'log' | 'feed'>('log');
   const [date, setDate] = useState<string>('');
   const [teamFilter, setTeamFilter] = useState('');
   const { data: dates, refetch: refetchDates } = useApi<string[]>('/news/dates');
@@ -19,6 +21,8 @@ export default function News() {
   const [aiMsg, setAiMsg] = useState<string | null>(null);
   const [manual, setManual] = useState({ team_abbr: '', headline: '', body: '', importance: 2 });
   const [pulling, setPulling] = useState(false);
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestErr, setIngestErr] = useState<string | null>(null);
   const [roundup, setRoundup] = useState<any>(null);
   const [roundupBusy, setRoundupBusy] = useState(false);
   const [roundupErr, setRoundupErr] = useState<string | null>(null);
@@ -34,6 +38,15 @@ export default function News() {
       refresh();
     } catch (e: any) { setRoundupErr(e.message); }
     finally { setPulling(false); }
+  };
+
+  // Real RSS ingestion — server/news/ingest.js's attributed, deduped, provenance-tracked
+  // pipeline (migration 010), distinct from the ESPN JSON pull above.
+  const ingestRss = async () => {
+    setIngesting(true); setIngestErr(null);
+    try { await api('/news/ingest', { method: 'POST' }); refresh(); }
+    catch (e: any) { setIngestErr(e.message); }
+    finally { setIngesting(false); }
   };
 
   const roundupNow = async () => {
@@ -78,6 +91,15 @@ export default function News() {
 
   return (
     <div>
+      <div className="mb-3 flex gap-1 border-b border-slate-200" role="tablist" aria-label="News view">
+        <button role="tab" aria-selected={view === 'log'}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'log' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          onClick={() => setView('log')}>Camp Log</button>
+        <button role="tab" aria-selected={view === 'feed'}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'feed' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          onClick={() => setView('feed')}>Attributed Feed</button>
+      </div>
+      {view === 'feed' ? <ConnectedNewsHub /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h1 className="text-2xl font-bold">Training Camp News</h1>
         <select className="input" value={date} onChange={e => setDate(e.target.value)}>
@@ -88,11 +110,15 @@ export default function News() {
           <option value="">All teams</option>
           {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr} — {t.name}</option>)}
         </select>
-        <button className="btn-ghost ml-auto" onClick={pullNews} disabled={pulling}>
-          {pulling ? 'Pulling…' : '↻ Pull ESPN news'}
+        <button className="btn-ghost ml-auto" onClick={pullNews} disabled={pulling} title="ESPN's team/league news API — team-scoped">
+          {pulling ? 'Pulling…' : 'Pull ESPN news'}
+        </button>
+        <button className="btn-ghost" onClick={ingestRss} disabled={ingesting}
+          title="Attributed RSS pipeline with provenance, dedup, and entity extraction (server/news/ingest.js)">
+          {ingesting ? 'Ingesting…' : 'Pull RSS (attributed)'}
         </button>
         <button className="btn-primary" onClick={roundupNow} disabled={roundupBusy}>
-          {roundupBusy ? 'Reading the day…' : '📋 Camp roundup'}
+          {roundupBusy ? 'Reading the day…' : 'Camp roundup'}
         </button>
         <button className="btn-ghost" onClick={() => setShowAdd(v => !v)}>{showAdd ? 'Close' : '+ Add'}</button>
       </div>
@@ -219,6 +245,7 @@ export default function News() {
           </div>
         ))}
       </div>
+      </>}
     </div>
   );
 }

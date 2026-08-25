@@ -3,13 +3,57 @@ import { rows, row, run } from '../db/index.js';
 import { computeConsensus } from './aggregates.js';
 import { statsMap } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
+import { ensureLiveDraft, syncLiveDraft } from '../services/espn-draft.js';
+import { boardState, rankTargets, dossiersFor } from '../services/draft-assist.js';
+import { ORDER_TYPES, DEFAULT_ROSTER_POSITIONS, assignRosterSlots, slotForPick as engineSlotForPick } from '../draft/engine.js';
+import {
+  makePick, undoLastPick, redoLastUndo, correctLastPick, setPaused,
+  getQueue, setQueue, autoPickOverdueDrafts,
+  DraftNotFoundError, DraftValidationError, DraftConflictError
+} from '../draft/store.js';
+import {
+  requireAuthenticated, assertLeagueMember, assertCommissioner,
+  ownsDraftTeam, AuthorizationError
+} from '../platform/auth.js';
+import { recordAudit } from '../platform/audit.js';
+import { registerJob } from '../platform/jobs.js';
 
 const r = Router();
 
-function snakeSlot(pickNumber, teamCount) {
-  const round = Math.ceil(pickNumber / teamCount);
-  const posInRound = ((pickNumber - 1) % teamCount) + 1;
-  return round % 2 === 1 ? posInRound : teamCount - posInRound + 1;
+function snakeSlot(pickNumber, teamCount, orderType = 'snake') {
+  return engineSlotForPick(pickNumber, teamCount, orderType);
+}
+
+/** Maps a draft-engine error to its HTTP response; rethrows anything unexpected for the error middleware. */
+function handleDraftError(e, res, next) {
+  if (e?.status && [400, 401, 403, 404, 409].includes(e.status)) {
+    return res.status(e.status).json({ error: e.message });
+  }
+  next(e);
+}
+
+function draftAccess(req, draftId, commissioner = false) {
+  const draft = row('SELECT * FROM drafts WHERE id = ?', draftId);
+  if (!draft) throw new DraftNotFoundError('draft not found');
+  const membership = commissioner
+    ? assertCommissioner(req.auth.userId, draft.league_row_id)
+    : assertLeagueMember(req.auth.userId, draft.league_row_id);
+  return { draft, membership };
+}
+
+function ownedSlot(req, draft, { required = true } = {}) {
+  const ownership = row('SELECT team_slot FROM draft_team_ownership WHERE draft_id = ? AND user_id = ?', draft.id, req.auth.userId);
+  if (!ownership && required) throw new AuthorizationError('team ownership required');
+  return ownership?.team_slot ?? null;
+}
+
+function parseRosterPositions(json) {
+  if (!json) return DEFAULT_ROSTER_POSITIONS;
+  try { return JSON.parse(json); } catch { return DEFAULT_ROSTER_POSITIONS; }
+}
+
+function withParsedDraft(draft) {
+  return { ...draft, roster_positions: parseRosterPositions(draft.roster_positions) };
 }
 
 // --- CPU opponent brain for mock drafts ---------------------------------
@@ -43,6 +87,17 @@ function buildMarketPool(draft) {
     if (taken.has(p.id) || pool.has(p.id)) continue;
     pool.set(p.id, { id: p.id, position: p.position, market: tail });
   }
+  // Final safety net: computeConsensus() only returns players with synced FFC/Sleeper
+  // market data, so on a fresh install where that sync hasn't run yet (or failed),
+  // the pool above can come up short of what a real draft needs — a 12-team/16-round
+  // draft is 192 picks. Every fantasy_relevant player who still isn't in the pool
+  // goes in here, ordered by projected points where we have it, so the draft can
+  // never exhaust its player pool regardless of what's synced.
+  const sm = statsMap();
+  const leftover = rows(`SELECT id, position FROM players WHERE fantasy_relevant = 1`)
+    .filter(p => !taken.has(p.id) && !pool.has(p.id))
+    .sort((a, b) => (sm.get(b.id)?.projected_points ?? 0) - (sm.get(a.id)?.projected_points ?? 0));
+  leftover.forEach((p, i) => pool.set(p.id, { id: p.id, position: p.position, market: tail + 50 + i }));
   return [...pool.values()];
 }
 
@@ -167,15 +222,23 @@ function cpuPick(draft, slot, pool, allPicks) {
   return mk(choice, explainPick(choice, { round, rounds: draft.rounds, myPos, candidates, runPos, tierTop }));
 }
 
+r.use(requireAuthenticated);
+
 r.get('/', (req, res) => {
   res.json(rows(`SELECT d.*, rs.name AS ranking_set_name,
                  (SELECT COUNT(*) FROM draft_picks dp WHERE dp.draft_id = d.id) AS picks_made
-                 FROM drafts d LEFT JOIN ranking_sets rs ON rs.id = d.ranking_set_id
-                 ORDER BY d.created_at DESC`));
+                 FROM drafts d JOIN league_memberships lm ON lm.league_id = d.league_row_id AND lm.user_id = ?
+                 LEFT JOIN ranking_sets rs ON rs.id = d.ranking_set_id
+                 ORDER BY d.created_at DESC`, req.auth.userId));
 });
 
 r.post('/', (req, res) => {
-  const { name, type = 'mock', team_count = 12, rounds = 16, my_slot = 1, ranking_set_id = null, pick_seconds = 90 } = req.body;
+  const {
+    name, type = 'mock', team_count = 12, rounds = 16, my_slot = 1, ranking_set_id = null, pick_seconds = 90,
+    order_type = 'snake', roster_positions = null, league_row_id
+  } = req.body;
+  try { assertCommissioner(req.auth.userId, Number(league_row_id)); }
+  catch (e) { return handleDraftError(e, res, () => {}); }
   if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'name required' });
   if (!['mock', 'live_tracking'].includes(type)) return res.status(400).json({ error: 'invalid draft type' });
   if (!Number.isInteger(team_count) || team_count < 2 || team_count > 20) {
@@ -190,22 +253,42 @@ r.post('/', (req, res) => {
   if (!Number.isInteger(pick_seconds) || pick_seconds < 15 || pick_seconds > 600) {
     return res.status(400).json({ error: 'pick_seconds must be an integer from 15 to 600' });
   }
+  if (!ORDER_TYPES.includes(order_type)) {
+    return res.status(400).json({ error: `order_type must be one of: ${ORDER_TYPES.join(', ')}` });
+  }
   if (ranking_set_id != null && !row('SELECT id FROM ranking_sets WHERE id = ?', ranking_set_id)) {
     return res.status(400).json({ error: 'ranking set not found' });
   }
-  run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, ranking_set_id, pick_seconds)
-       VALUES (?,?,?,?,?,?,?)`, name, type, team_count, rounds, my_slot, ranking_set_id, pick_seconds);
-  res.json(row('SELECT * FROM drafts WHERE id = last_insert_rowid()'));
+  let rosterJson = null;
+  if (roster_positions != null) {
+    if (typeof roster_positions !== 'object' || Array.isArray(roster_positions)) {
+      return res.status(400).json({ error: 'roster_positions must be an object of slot -> count' });
+    }
+    for (const [slot, count] of Object.entries(roster_positions)) {
+      if (!Number.isInteger(count) || count < 0) {
+        return res.status(400).json({ error: `roster_positions.${slot} must be a non-negative integer` });
+      }
+    }
+    rosterJson = JSON.stringify(roster_positions);
+  }
+  run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, ranking_set_id, pick_seconds, order_type, roster_positions, league_row_id)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`, name, type, team_count, rounds, my_slot, ranking_set_id, pick_seconds, order_type, rosterJson, Number(league_row_id));
+  const created = row('SELECT * FROM drafts WHERE id = last_insert_rowid()');
+  run('INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)', created.id, my_slot, req.auth.userId);
+  recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.create', entityType: 'draft', entityId: created.id, details: { name, type, team_count, rounds, order_type } });
+  res.json(withParsedDraft(created));
 });
 
 r.delete('/:id', (req, res) => {
+  try { draftAccess(req, req.params.id, true); } catch (e) { return handleDraftError(e, res, () => {}); }
+  recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.delete', entityType: 'draft', entityId: req.params.id });
   run('DELETE FROM drafts WHERE id = ?', req.params.id);
   res.json({ ok: true });
 });
 
 r.get('/:id', (req, res) => {
-  const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
-  if (!draft) return res.status(404).json({ error: 'draft not found' });
+  let draft;
+  try { ({ draft } = draftAccess(req, req.params.id)); } catch (e) { return handleDraftError(e, res, () => {}); }
   const picks = rows(`SELECT dp.*, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color
                       FROM draft_picks dp
                       JOIN players p ON p.id = dp.player_id
@@ -234,6 +317,17 @@ r.get('/:id', (req, res) => {
     available.push({ rank: boardMax + overflow, tier: 6, note: null, player_id: c.id,
       name: c.name, position: c.position, team_abbr: c.team_abbr, primary_color: c.primary_color });
   }
+  // computeConsensus() only returns players with synced FFC/Sleeper market data —
+  // K/DEF never have any, and on a fresh/offline install nothing might yet. Anyone
+  // still fantasy_relevant and not yet listed goes in last, so this board (like
+  // buildMarketPool's CPU pool) can never come up short of what a real draft needs.
+  for (const p of rows(`SELECT p.id AS player_id, p.name, p.position, t.abbr AS team_abbr, t.primary_color
+                        FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id
+                        WHERE p.fantasy_relevant = 1`)) {
+    if (seen.has(p.player_id) || taken.has(p.player_id)) continue;
+    overflow++;
+    available.push({ rank: boardMax + overflow, tier: 6, note: null, ...p });
+  }
   const sm = statsMap();
   const withStats = p => {
     const st = sm.get(p.player_id ?? p.id);
@@ -241,37 +335,54 @@ r.get('/:id', (req, res) => {
                   last_season_points: st.last_season_points ?? null,
                   projected_pos_rank: st.projected_pos_rank ?? null } : p;
   };
-  res.json({ ...draft, picks: picks.map(withStats), available: available.map(withStats) });
+  const userSlot = ownedSlot(req, draft, { required: false });
+  const myQueue = userSlot == null ? [] : getQueue(draft.id, userSlot);
+  const total = draft.team_count * draft.rounds;
+  const nextPickNumber = picks.length + 1;
+  // Server-computed so the client never has to reimplement order_type math
+  // (snake vs. linear vs. third_round_reversal) to know whose turn it is.
+  const onTheClock = nextPickNumber <= total ? {
+    pick_number: nextPickNumber,
+    round: Math.ceil(nextPickNumber / draft.team_count),
+    pos_in_round: ((nextPickNumber - 1) % draft.team_count) + 1,
+    team_slot: engineSlotForPick(nextPickNumber, draft.team_count, draft.order_type)
+  } : null;
+  res.json({
+    ...withParsedDraft(draft), my_slot: userSlot,
+    picks: picks.map(withStats),
+    available: available.map(withStats),
+    queue: myQueue,
+    total_picks: total,
+    on_the_clock: onTheClock
+  });
 });
 
-r.post('/:id/picks', (req, res) => {
-  const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
-  if (!draft) return res.status(404).json({ error: 'draft not found' });
-  const { player_id } = req.body;
-  const pickNumber = (row('SELECT COALESCE(MAX(pick_number),0) AS m FROM draft_picks WHERE draft_id = ?', draft.id).m) + 1;
-  if (pickNumber > draft.team_count * draft.rounds) {
-    return res.status(400).json({ error: 'draft is complete' });
-  }
-  if (!Number.isInteger(player_id) || !row('SELECT id FROM players WHERE id = ?', player_id)) {
-    return res.status(400).json({ error: 'player not found' });
-  }
-  // snake order
-  const round = Math.ceil(pickNumber / draft.team_count);
-  const posInRound = ((pickNumber - 1) % draft.team_count) + 1;
-  const teamSlot = round % 2 === 1 ? posInRound : draft.team_count - posInRound + 1;
+/**
+ * Submit a pick. Body: { player_id, expected_revision?, idempotency_key? }.
+ * - expected_revision, when supplied, rejects a stale request (409) instead of
+ *   silently applying a pick against a board the client hasn't seen yet.
+ * - idempotency_key, when supplied, makes a retried request replay the
+ *   original result instead of erroring on a double-submit.
+ */
+r.post('/:id/picks', (req, res, next) => {
+  const { player_id, expected_revision, idempotency_key } = req.body;
   try {
-    run('INSERT INTO draft_picks (draft_id, pick_number, team_slot, player_id) VALUES (?,?,?,?)',
-      draft.id, pickNumber, teamSlot, player_id);
-  } catch (e) {
-    return res.status(400).json({ error: 'player already drafted' });
-  }
-  res.json({ ok: true, pick_number: pickNumber, team_slot: teamSlot });
+    const { pick, draft, replayed } = makePick({
+      draftId: req.params.id, playerId: player_id,
+      expectedRevision: expected_revision, idempotencyKey: idempotency_key ?? null,
+      actor: req.auth, source: 'user'
+    });
+    recordAudit({ actor: req.auth.userId, action: 'draft.pick', entityType: 'draft', entityId: draft.id, details: pick });
+    res.json({ ok: true, pick_number: pick.pick_number, team_slot: pick.team_slot, revision: draft.revision, replayed: !!replayed });
+  } catch (e) { handleDraftError(e, res, next); }
 });
 
 /** Make exactly one CPU pick (drives the pick-by-pick animation). */
-r.post('/:id/cpu-pick', (req, res) => {
-  const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
-  if (!draft) return res.status(404).json({ error: 'draft not found' });
+r.post('/:id/cpu-pick', (req, res, next) => {
+  let draft;
+  try { ({ draft } = draftAccess(req, req.params.id, true)); } catch (e) { return handleDraftError(e, res, next); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, next); }
   if (draft.type !== 'mock') return res.status(400).json({ error: 'simulation is for mock drafts only' });
 
   const totalPicks = draft.team_count * draft.rounds;
@@ -281,88 +392,104 @@ r.post('/:id/cpu-pick', (req, res) => {
   const nextPick = allPicks.length + 1;
   if (nextPick > totalPicks) return res.json({ done: true, reason: 'draft complete' });
 
-  const slot = snakeSlot(nextPick, draft.team_count);
-  if (slot === draft.my_slot) return res.json({ done: true, on_the_clock: true, pick_number: nextPick });
+  const slot = snakeSlot(nextPick, draft.team_count, draft.order_type);
+  if (slot === userSlot) return res.json({ done: true, on_the_clock: true, pick_number: nextPick });
 
   const pool = buildMarketPool(draft);
   const choice = cpuPick(draft, slot, pool, allPicks);
   if (!choice) return res.json({ done: true, reason: 'no players left' });
 
-  run('INSERT INTO draft_picks (draft_id, pick_number, team_slot, player_id, reason) VALUES (?,?,?,?,?)',
-    draft.id, nextPick, slot, choice.id, choice.reason ?? null);
+  let outcome;
+  try {
+    outcome = makePick({ draftId: draft.id, playerId: choice.id, expectedRevision: draft.revision, actor: req.auth, source: 'cpu', reason: choice.reason ?? null });
+  } catch (e) { return handleDraftError(e, res, next); }
 
   const p = row(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color
                  FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE p.id = ?`, choice.id);
   res.json({
     done: false,
-    pick: { pick_number: nextPick, team_slot: slot, round: Math.ceil(nextPick / draft.team_count),
+    pick: { pick_number: outcome.pick.pick_number, team_slot: outcome.pick.team_slot, round: Math.ceil(outcome.pick.pick_number / draft.team_count),
             reason: choice.reason, market_rank: Math.round(choice.market), ...p }
   });
 });
 
 // Run CPU picks until it's my turn (used for skip / catch-up).
-r.post('/:id/simulate', (req, res) => {
-  const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
-  if (!draft) return res.status(404).json({ error: 'draft not found' });
+r.post('/:id/simulate', (req, res, next) => {
+  let draft;
+  try { ({ draft } = draftAccess(req, req.params.id, true)); } catch (e) { return handleDraftError(e, res, next); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, next); }
   if (draft.type !== 'mock') return res.status(400).json({ error: 'simulation is for mock drafts only' });
 
   const totalPicks = draft.team_count * draft.rounds;
   const made = [];
   let pool = buildMarketPool(draft);
 
-  for (;;) {
-    const allPicks = rows(`SELECT pick_number, team_slot, player_id,
-                             (SELECT position FROM players WHERE id = player_id) AS position
-                           FROM draft_picks WHERE draft_id = ? ORDER BY pick_number`, draft.id);
-    const nextPick = allPicks.length + 1;
-    if (nextPick > totalPicks) break;
-    const slot = snakeSlot(nextPick, draft.team_count);
-    if (slot === draft.my_slot) break;
-    const choice = cpuPick(draft, slot, pool, allPicks);
-    if (!choice) break;
-    run('INSERT INTO draft_picks (draft_id, pick_number, team_slot, player_id, reason) VALUES (?,?,?,?,?)',
-      draft.id, nextPick, slot, choice.id, choice.reason ?? null);
-    pool = pool.filter(c => c.id !== choice.id);
-    made.push({ pick_number: nextPick, team_slot: slot, player_id: choice.id });
-  }
+  try {
+    for (;;) {
+      const allPicks = rows(`SELECT pick_number, team_slot, player_id,
+                               (SELECT position FROM players WHERE id = player_id) AS position
+                             FROM draft_picks WHERE draft_id = ? ORDER BY pick_number`, draft.id);
+      const nextPick = allPicks.length + 1;
+      if (nextPick > totalPicks) break;
+      const slot = snakeSlot(nextPick, draft.team_count, draft.order_type);
+      if (slot === userSlot) break;
+      const choice = cpuPick(draft, slot, pool, allPicks);
+      if (!choice) break;
+      const outcome = makePick({ draftId: draft.id, playerId: choice.id, expectedRevision: draft.revision, actor: req.auth, source: 'cpu', reason: choice.reason ?? null });
+      draft = outcome.draft;
+      pool = pool.filter(c => c.id !== choice.id);
+      made.push({ pick_number: outcome.pick.pick_number, team_slot: slot, player_id: choice.id });
+    }
+  } catch (e) { return handleDraftError(e, res, next); }
   const count = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draft.id).n;
   res.json({ ok: true, cpu_picks: made.length, draft_complete: count >= totalPicks });
 });
 
 /** Run the entire remaining draft, auto-picking for me from the recommendation. */
-r.post('/:id/sim-to-end', (req, res) => {
-  const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
-  if (!draft) return res.status(404).json({ error: 'draft not found' });
+r.post('/:id/sim-to-end', (req, res, next) => {
+  let draft;
+  try { ({ draft } = draftAccess(req, req.params.id, true)); } catch (e) { return handleDraftError(e, res, next); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, next); }
   const total = draft.team_count * draft.rounds;
   let guard = 0;
-  while (guard++ < total + 5) {
-    const allPicks = rows(`SELECT pick_number, team_slot, player_id,
-                             (SELECT position FROM players WHERE id = player_id) AS position
-                           FROM draft_picks WHERE draft_id = ? ORDER BY pick_number`, draft.id);
-    const nextPick = allPicks.length + 1;
-    if (nextPick > total) break;
-    const slot = snakeSlot(nextPick, draft.team_count);
-    const pool = buildMarketPool(draft);
-    const choice = cpuPick(draft, slot, pool, allPicks);
-    if (!choice) break;
-    run('INSERT INTO draft_picks (draft_id, pick_number, team_slot, player_id, reason) VALUES (?,?,?,?,?)',
-      draft.id, nextPick, slot, choice.id,
-      slot === draft.my_slot ? 'auto-picked to finish the draft' : (choice.reason ?? null));
-  }
+  try {
+    while (guard++ < total + 5) {
+      const allPicks = rows(`SELECT pick_number, team_slot, player_id,
+                               (SELECT position FROM players WHERE id = player_id) AS position
+                             FROM draft_picks WHERE draft_id = ? ORDER BY pick_number`, draft.id);
+      const nextPick = allPicks.length + 1;
+      if (nextPick > total) break;
+      const slot = snakeSlot(nextPick, draft.team_count, draft.order_type);
+      const pool = buildMarketPool(draft);
+      const choice = cpuPick(draft, slot, pool, allPicks);
+      if (!choice) break;
+      const outcome = makePick({
+        draftId: draft.id, playerId: choice.id, expectedRevision: draft.revision,
+        actor: req.auth,
+        source: slot === userSlot ? 'auto' : 'cpu',
+        reason: slot === userSlot ? 'auto-picked to finish the draft' : (choice.reason ?? null)
+      });
+      draft = outcome.draft;
+    }
+  } catch (e) { return handleDraftError(e, res, next); }
   const made = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draft.id).n;
   res.json({ ok: true, picks: made, complete: made >= total });
 });
 
 /** What should I take right now? Value + roster need, with a reason. */
 r.get('/:id/recommendation', (req, res) => {
-  const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
-  if (!draft) return res.status(404).json({ error: 'draft not found' });
+  let draft;
+  try { ({ draft } = draftAccess(req, req.params.id)); } catch (e) { return handleDraftError(e, res, () => {}); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, () => {}); }
   const allPicks = rows(`SELECT pick_number, team_slot, player_id,
                            (SELECT position FROM players WHERE id = player_id) AS position
                          FROM draft_picks WHERE draft_id = ? ORDER BY pick_number`, draft.id);
   const nextPick = allPicks.length + 1;
   const round = Math.ceil(nextPick / draft.team_count);
-  const mine = allPicks.filter(p => p.team_slot === draft.my_slot);
+  const mine = allPicks.filter(p => p.team_slot === userSlot);
   const myPos = {};
   for (const p of mine) myPos[p.position] = (myPos[p.position] ?? 0) + 1;
 
@@ -407,17 +534,96 @@ r.get('/:id/recommendation', (req, res) => {
   });
 });
 
-r.delete('/:id/picks/last', (req, res) => {
-  run(`DELETE FROM draft_picks WHERE draft_id = ? AND pick_number =
-       (SELECT MAX(pick_number) FROM draft_picks WHERE draft_id = ?)`,
-    req.params.id, req.params.id);
-  res.json({ ok: true });
+r.delete('/:id/picks/last', (req, res, next) => {
+  try {
+    const { undone, draft } = undoLastPick({ draftId: req.params.id, actor: req.auth });
+    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.undo', entityType: 'draft', entityId: draft.id, details: undone });
+    res.json({ ok: true, revision: draft.revision });
+  } catch (e) { handleDraftError(e, res, next); }
+});
+
+/** Redo the most recent undo — only valid until a new pick supersedes it. */
+r.post('/:id/picks/redo', (req, res, next) => {
+  try {
+    const { redone, draft } = redoLastUndo({ draftId: req.params.id, actor: req.auth });
+    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.redo', entityType: 'draft', entityId: draft.id, details: redone });
+    res.json({ ok: true, revision: draft.revision });
+  } catch (e) { handleDraftError(e, res, next); }
+});
+
+/** Commissioner-only: fix the most recent pick without undoing/re-picking. Body: { player_id }. */
+r.post('/:id/picks/correct', (req, res, next) => {
+  try {
+    const { corrected, draft } = correctLastPick({
+      draftId: req.params.id, playerId: req.body?.player_id, actor: req.auth
+    });
+    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.correct', entityType: 'draft', entityId: draft.id, details: corrected });
+    res.json({ ok: true, ...corrected, revision: draft.revision });
+  } catch (e) { handleDraftError(e, res, next); }
+});
+
+/** Commissioner-only: pause/resume the server-owned pick clock. Body: { paused: boolean }. */
+r.post('/:id/pause', (req, res, next) => {
+  try {
+    const draft = setPaused({ draftId: req.params.id, paused: !!req.body?.paused, actor: req.auth });
+    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: draft.paused ? 'draft.pause' : 'draft.resume', entityType: 'draft', entityId: draft.id });
+    res.json(withParsedDraft(draft));
+  } catch (e) { handleDraftError(e, res, next); }
+});
+
+/** A team's queue, in priority order. */
+r.get('/:id/queue', (req, res, next) => {
+  try {
+    const { draft } = draftAccess(req, req.params.id);
+    const teamSlot = Number(req.query.team_slot) || ownedSlot(req, draft);
+    if (!Number.isInteger(teamSlot) || teamSlot < 1 || teamSlot > draft.team_count) return res.status(400).json({ error: 'invalid team_slot' });
+    if (!ownsDraftTeam(req.auth.userId, draft.id, teamSlot)) throw new AuthorizationError('team ownership required');
+    res.json(getQueue(req.params.id, teamSlot));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Replaces a team's whole queue, in order. Body: { team_slot?, player_ids: number[] }.
+ * Persisted server-side (never localStorage) so a queue is never split-brained
+ * between one browser tab and the draft's actual server state — it survives
+ * reconnects, other devices, and server restarts identically to every other
+ * piece of draft state.
+ */
+r.put('/:id/queue', (req, res, next) => {
+  try {
+    const { draft } = draftAccess(req, req.params.id);
+    const teamSlot = Number(req.body?.team_slot) || ownedSlot(req, draft);
+    if (!Number.isInteger(teamSlot) || teamSlot < 1 || teamSlot > draft.team_count) return res.status(400).json({ error: 'invalid team_slot' });
+    const playerIds = req.body?.player_ids;
+    if (!Array.isArray(playerIds) || !playerIds.every(Number.isInteger)) {
+      return res.status(400).json({ error: 'player_ids must be an array of integers' });
+    }
+    const queue = setQueue({ draftId: req.params.id, teamSlot, playerIds, actor: req.auth });
+    recordAudit({ actor: req.auth.userId, action: 'draft.queue', entityType: 'draft', entityId: draft.id, details: { team_slot: teamSlot, player_ids: playerIds } });
+    res.json(queue);
+  } catch (e) { handleDraftError(e, res, next); }
+});
+
+/** Roster-slot assignment (FLEX/SUPERFLEX-aware) for one team, given this draft's roster_positions. */
+r.get('/:id/roster/:teamSlot', (req, res) => {
+  let draft;
+  try { ({ draft } = draftAccess(req, req.params.id)); } catch (e) { return handleDraftError(e, res, () => {}); }
+  const picks = rows(`SELECT dp.pick_number, p.id AS player_id, p.name, p.position
+                      FROM draft_picks dp JOIN players p ON p.id = dp.player_id
+                      WHERE dp.draft_id = ? AND dp.team_slot = ? ORDER BY dp.pick_number`,
+    draft.id, req.params.teamSlot);
+  res.json(assignRosterSlots(picks, parseRosterPositions(draft.roster_positions)));
 });
 
 
 /** Stored draft grade — generated once, viewable any time after. */
 r.get('/:id/grade', (req, res) => {
-  const g = row('SELECT grade, summary, strengths, weaknesses, best_pick, reach, generated_at FROM draft_grades WHERE draft_id = ?', req.params.id);
+  let draft;
+  try { ({ draft } = draftAccess(req, req.params.id)); } catch (e) { return handleDraftError(e, res, () => {}); }
+  let userSlot;
+  try { userSlot = ownedSlot(req, draft); } catch (e) { return handleDraftError(e, res, () => {}); }
+  const g = row(`SELECT grade, summary, strengths, weaknesses, best_pick, reach, generated_at
+    FROM draft_team_grades WHERE draft_id = ? AND team_slot = ?`, req.params.id, userSlot);
   res.json(g ? {
     ...g,
     strengths: g.strengths ? JSON.parse(g.strengths) : [],
@@ -427,16 +633,16 @@ r.get('/:id/grade', (req, res) => {
 
 r.post('/:id/grade', async (req, res, next) => {
   try {
+    const { draft } = draftAccess(req, req.params.id);
+    const userSlot = ownedSlot(req, draft);
     if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
-    const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
-    if (!draft) return res.status(404).json({ error: 'draft not found' });
 
     const sm = statsMap();
     const mine = rows(`SELECT dp.pick_number, p.id, p.name, p.position, t.abbr AS team_abbr
                        FROM draft_picks dp JOIN players p ON p.id = dp.player_id
                        LEFT JOIN nfl_teams t ON t.id = p.team_id
                        WHERE dp.draft_id = ? AND dp.team_slot = ? ORDER BY dp.pick_number`,
-      draft.id, draft.my_slot);
+      draft.id, userSlot);
     if (!mine.length) return res.status(400).json({ error: 'No picks on your team yet.' });
 
     const roster = mine.map(p => {
@@ -449,7 +655,7 @@ r.post('/:id/grade', async (req, res, next) => {
     const msg = await callClaude({
       feature: 'draft-grade',
       maxTokens: 1200,
-      prompt: `Grade this 2026 fantasy football draft roster. ${draft.team_count}-team ${draft.rounds}-round league, I picked from slot ${draft.my_slot}.
+      prompt: `Grade this 2026 fantasy football draft roster. ${draft.team_count}-team ${draft.rounds}-round league, I picked from slot ${userSlot}.
 
 MY ROSTER (in draft order, with ESPN season projections):
 ${roster}
@@ -465,15 +671,203 @@ Respond with ONLY JSON:
  "reach":"Player Name — one sentence why, or 'none' if every pick was defensible"}`
     });
     const out = parseJson(msg);
-    run(`INSERT INTO draft_grades (draft_id, grade, summary, strengths, weaknesses, best_pick, reach, generated_at)
-         VALUES (?,?,?,?,?,?,?,datetime('now'))
-         ON CONFLICT(draft_id) DO UPDATE SET grade=excluded.grade, summary=excluded.summary,
+    run(`INSERT INTO draft_team_grades (draft_id, team_slot, grade, summary, strengths, weaknesses, best_pick, reach, generated_at)
+         VALUES (?,?,?,?,?,?,?,?,datetime('now'))
+         ON CONFLICT(draft_id,team_slot) DO UPDATE SET grade=excluded.grade, summary=excluded.summary,
            strengths=excluded.strengths, weaknesses=excluded.weaknesses, best_pick=excluded.best_pick,
            reach=excluded.reach, generated_at=excluded.generated_at`,
-      draft.id, out.grade, out.summary, JSON.stringify(out.strengths ?? []),
+      draft.id, userSlot, out.grade, out.summary, JSON.stringify(out.strengths ?? []),
       JSON.stringify(out.weaknesses ?? []), out.best_pick ?? null, out.reach ?? null);
+    recordAudit({ actor: req.auth.userId, action: 'draft.grade', entityType: 'draft', entityId: draft.id });
     res.json(out);
   } catch (e) { next(e); }
 });
+
+/* ------------------------------------------------------------------ live draft */
+
+/**
+ * Link a connected ESPN league's draft and mirror it locally.
+ *
+ * Safe to call repeatedly — the draft row is keyed on the league and season, so the
+ * user can hit "connect" before the draft, during it, or after a browser refresh and
+ * always land in the same draft room.
+ */
+r.post('/live/link', async (req, res, next) => {
+  try {
+    const leagueRowId = req.body?.league_row_id ?? req.body?.league_id;
+    if (!leagueRowId) return res.status(400).json({ error: 'league_row_id required' });
+    assertCommissioner(req.auth.userId, Number(leagueRowId));
+    const out = await ensureLiveDraft(leagueRowId);
+    const linkedDraft = row('SELECT my_slot FROM drafts WHERE id = ?', out.draft_id);
+    if (linkedDraft?.my_slot) {
+      run(`INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)
+           ON CONFLICT(draft_id, team_slot) DO NOTHING`, out.draft_id, linkedDraft.my_slot, req.auth.userId);
+    }
+    // Pull whatever has already happened, so a mid-draft connect catches up instantly.
+    const sync = await syncLiveDraft(out.draft_id).catch(e => ({ error: e.message }));
+    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.link', entityType: 'draft', entityId: out.draft_id, details: { league_row_id: Number(leagueRowId) } });
+    res.json({ ...out, sync });
+  } catch (e) { next(e); }
+});
+
+/** Poll ESPN for new picks. Cheap; the draft room calls this on a timer. */
+r.post('/:id/sync', async (req, res, next) => {
+  try {
+    draftAccess(req, req.params.id, true);
+    const synced = await syncLiveDraft(req.params.id);
+    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.sync', entityType: 'draft', entityId: req.params.id, details: synced });
+    res.json(synced);
+  }
+  catch (e) { next(e); }
+});
+
+/**
+ * Everything needed to make the pick on the clock: roster needs against this league's
+ * lineup, positional scarcity before the next turn, runs, tier cliffs, and a ranked
+ * shortlist. Deterministic and instant — no API key involved.
+ */
+r.get('/:id/assist', (req, res, next) => {
+  try {
+    const { draft } = draftAccess(req, req.params.id);
+    const state = boardState(req.params.id, ownedSlot(req, draft));
+    res.json({ ...state, targets: rankTargets(state, Number(req.query.limit) || 8) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Claude's read on the same board.
+ *
+ * Cached per pick number: during a live draft this gets called every time the board
+ * moves, and re-billing a fresh call for an unchanged board would be both slow and
+ * wasteful. `?refresh=1` forces a new one.
+ */
+r.get('/:id/advice', async (req, res, next) => {
+  try {
+    const { draft: accessedDraft } = draftAccess(req, req.params.id);
+    const state = boardState(req.params.id, ownedSlot(req, accessedDraft));
+    const pickNo = state.on_the_clock.pick_number ?? 0;
+    if (!req.query.refresh) {
+      const hit = row('SELECT payload FROM draft_advice WHERE draft_id = ? AND pick_number = ?',
+        req.params.id, pickNo);
+      if (hit) return res.json({ ...JSON.parse(hit.payload), cached: true });
+    }
+    if (!getApiKey()) {
+      return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
+    }
+
+    const targets = rankTargets(state, 12);
+    const { my_team, positions, on_the_clock, runs, draft } = state;
+
+    const rosterLine = my_team.picks.length
+      ? my_team.picks.map(p => `Rd${Math.ceil(p.pick_number / draft.team_count)} ${p.position} ${p.name} (${p.team_abbr ?? 'FA'})`).join(', ')
+      : '(empty — this is my first pick)';
+    const needLine = Object.entries(my_team.needs.starters)
+      .filter(([, n]) => n > 0).map(([pos, n]) => `${pos} x${n}`).join(', ') || 'starting lineup is full';
+    // Full scouting dossiers for the realistic shortlist — camp reporting, health,
+    // experience and real production, so the read is grounded in this season's data
+    // rather than in a player's reputation.
+    const shortlist = dossiersFor(targets.slice(0, 6).map(t => t.player_id));
+    const rankOf = new Map(targets.map(t => [t.player_id, t]));
+    const boardLine = shortlist.map(dsr => {
+      const t = rankOf.get(dsr.player_id) ?? {};
+      const bits = [
+        `${dsr.name} — ${dsr.position}, ${dsr.team ?? 'FA'}, board #${t.board_rank}, bye ${dsr.bye_week ?? '?'}`,
+        dsr.rookie ? '  ROOKIE (no NFL snaps)'
+          : `  ${dsr.experience_years ?? '?'} yrs in the league${dsr.draft_capital ? `, drafted ${dsr.draft_capital}` : ''}${dsr.pro_bowls ? `, ${dsr.pro_bowls}x Pro Bowl` : ''}${dsr.all_pro ? `, ${dsr.all_pro}x first-team All-Pro` : ''}`,
+        dsr.projected_points != null
+          ? `  2026 projection: ${Math.round(dsr.projected_points)} pts${dsr.projected_line ? ` (${dsr.projected_line})` : ''}`
+          : '  2026 projection: none',
+        dsr.last_season
+          ? `  2025 actual: ${dsr.last_season.points} pts${dsr.last_season.games ? ` in ${dsr.last_season.games} games` : ''}${dsr.last_season.line ? ` (${dsr.last_season.line})` : ''}`
+          : '  2025 actual: no meaningful production',
+        dsr.prior_season ? `  2024 actual: ${dsr.prior_season.points} pts` : null,
+        dsr.injury_flag ? '  FLAGGED as an injury risk by the market' : null,
+        dsr.injury_report ? `  Injury report: ${dsr.injury_report}` : null,
+        dsr.camp_news.length
+          ? dsr.camp_news.map(n => `  Camp (${n.date}): ${n.headline} — ${n.note}`).join('\n')
+          : '  Camp: nothing reported on him this summer',
+        t.gone_by_next != null ? `  ${Math.round(t.gone_by_next * 100)}% chance he is gone before my next pick` : null
+      ].filter(Boolean).join('\n');
+      return bits;
+    }).join('\n\n');
+
+    const posLine = ['QB', 'RB', 'WR', 'TE'].map(pos => {
+      const p = positions[pos] ?? {};
+      return `${pos}: rostered ${p.rostered ?? 0}, starters still needed ${p.starters_needed ?? 0}, `
+        + `best available ${p.best ?? '—'}, likely still there next turn ${p.fallback ?? '—'}`
+        + (p.cost_of_waiting != null ? `, waiting costs ~${Math.round(p.cost_of_waiting)} pts` : '');
+    }).join('\n');
+
+    const msg = await callClaude({
+      feature: 'draft-advice',
+      maxTokens: 3000,
+      prompt: `You are advising me live, on the clock, in a ${draft.team_count}-team PPR fantasy football draft. Be decisive and brief — I have ${draft.pick_seconds ?? 90} seconds.
+
+SITUATION
+Pick ${on_the_clock.pick_number} overall (round ${on_the_clock.round}), I draft from slot ${draft.my_slot}.
+My next picks after this one: ${on_the_clock.my_upcoming_picks.slice(1).join(', ') || 'none'}.
+Starting lineup this league requires: ${Object.entries(draft.roster_slots).map(([k, v]) => `${v} ${k}`).join(', ')}.
+
+MY ROSTER SO FAR
+${rosterLine}
+Starting slots still unfilled: ${needLine}
+
+POSITION READ
+${posLine}
+${runs.length ? `Active runs: ${runs.map(x => `${x.taken} ${x.position}s in the last ${x.of} picks`).join('; ')}` : 'No positional run in progress.'}
+
+BEST AVAILABLE — scouting dossiers, in my model's order
+${boardLine}
+
+Work only from the players and the data above; do not bring in anyone already off the board, and do not assert anything the dossier does not support. Where the data is silent on a player, say so rather than filling the gap.
+
+Respond with ONLY JSON:
+{"pick":"the one player I should take right now",
+ "why":"two sentences max — cite my roster hole or the scarcity, concretely",
+ "players":[
+   {"name":"...",
+    "pros":"2-3 sentences: what makes him worth the pick — last season's production, the projected role, pedigree, situation",
+    "cons":"2-3 sentences: the real risk — injury, camp reporting, age or inexperience, competition for touches, a bad projection relative to cost",
+    "camp":"one line on how camp has gone for him, or 'nothing reported' if the dossier is silent",
+    "status":"healthy | injury risk | rookie | bounce-back | ageing — whichever single label fits best",
+    "verdict":"take | fine here | let him go"}
+ ],
+ "position_priority":"which positions to attack over my next 2-3 picks, and why, in one sentence",
+ "next_turn_outlook":"one sentence on what should still be there at my next pick"}
+
+Give a "players" entry for every player in the dossier list above, in the same order.`
+    });
+    const out = parseJson(msg);
+    const payload = { ...out, pick_number: pickNo, generated_at: new Date().toISOString() };
+    run(`INSERT INTO draft_advice (draft_id, pick_number, payload) VALUES (?,?,?)
+         ON CONFLICT(draft_id, pick_number) DO UPDATE SET payload = excluded.payload,
+           created_at = datetime('now')`,
+      Number(req.params.id), pickNo, JSON.stringify(payload));
+    res.json(payload);
+  } catch (e) { next(e); }
+});
+
+/**
+ * Starts the server-owned pick clock: every 2s, picks up any mock draft whose
+ * turn_deadline has passed — including ones missed because the server itself
+ * was down — and auto-picks for whoever is on the clock (queue first, then
+ * best-available). Not started at import time; called explicitly from
+ * server/index.js, same convention as startScheduler().
+ */
+export function startDraftClockJob() {
+  return registerJob('draft-auto-pick-clock', {
+    intervalMs: 2000,
+    run: () => autoPickOverdueDrafts({
+      chooseFallback: (draft, teamSlot) => {
+        const allPicks = rows(`SELECT pick_number, team_slot, player_id,
+                                 (SELECT position FROM players WHERE id = player_id) AS position
+                               FROM draft_picks WHERE draft_id = ? ORDER BY pick_number`, draft.id);
+        const pool = buildMarketPool(draft);
+        const choice = cpuPick(draft, teamSlot, pool, allPicks);
+        return choice?.id ?? null;
+      }
+    })
+  });
+}
 
 export default r;

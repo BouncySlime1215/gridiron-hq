@@ -41,7 +41,7 @@ const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
  * Volume comes from recent form weighted toward the last three games, then the
  * market's game script nudges pass and rush opportunity in opposite directions.
  */
-function projectPlayer(season, week, playerId) {
+function projectPlayer(season, week, playerId, { useGameScript = true } = {}) {
   const pv = playerFeatureVector(season, week, playerId);
   if (!pv) return null;
   const f = pv.features;
@@ -54,7 +54,7 @@ function projectPlayer(season, week, playerId) {
     return 0.65 * recent + 0.35 * seasonAvg;
   };
 
-  const gs = pv.team ? gameScriptFor(pv.team, season, week) : null;
+  const gs = useGameScript && pv.team ? gameScriptFor(pv.team, season, week) : null;
   const mPass = gs?.line ? gs.pass_mult : 1;
   const mRush = gs?.line ? gs.rush_mult : 1;
 
@@ -76,6 +76,73 @@ function projectPlayer(season, week, playerId) {
       rush_td_rate: f.rush_td_rate ?? 0.03,
       rec_td_rate: f.rec_td_rate ?? 0.05
     }
+  };
+}
+
+/**
+ * Walk-forward point and probability accuracy for the prop engine.
+ *
+ * Each player-week is projected only from earlier games. The same cutoff-fitted
+ * game-script adjustment is used in replay and production so the audit measures
+ * the policy that will actually run on Sunday.
+ */
+export function propAccuracy(seasons) {
+  const metric = () => ({ n: 0, abs: 0, sq: 0, signed: 0 });
+  const stats = {
+    pass_yds: metric(), rush_yds: metric(), rec_yds: metric(), receptions: metric()
+  };
+  const td = { n: 0, brier: 0, logloss: 0, buckets: Array.from({ length: 10 }, () => ({ n: 0, predicted: 0, actual: 0 })) };
+
+  const add = (key, pred, actual) => {
+    if (!Number.isFinite(pred) || !Number.isFinite(actual)) return;
+    const e = pred - actual, s = stats[key];
+    s.n++; s.abs += Math.abs(e); s.sq += e * e; s.signed += e;
+  };
+
+  for (const season of seasons) {
+    for (const actual of playerWeeks(season).filter(p => p.week >= 2)) {
+      const p = projectPlayer(season, actual.week, actual.player_id);
+      if (!p) continue;
+      const f = actual.features;
+      if (p.volume.attempts > 2) add('pass_yds', p.volume.attempts * p.eff.ypa, f.passing_yards);
+      if (p.volume.carries > 0.5) add('rush_yds', p.volume.carries * p.eff.ypc, f.rushing_yards);
+      if (p.volume.targets > 0.5) {
+        add('rec_yds', p.volume.targets * p.eff.ypt, f.receiving_yards);
+        add('receptions', p.volume.targets * p.eff.catch_rate, f.receptions);
+      }
+
+      const noPass = (1 - Math.min(0.35, p.eff.pass_td_rate)) ** Math.max(0, p.volume.attempts);
+      const noRush = (1 - Math.min(0.3, p.eff.rush_td_rate)) ** Math.max(0, p.volume.carries);
+      const noRec = (1 - Math.min(0.35, p.eff.rec_td_rate)) ** Math.max(0, p.volume.targets);
+      const prob = Math.max(0.001, Math.min(0.999, 1 - noPass * noRush * noRec));
+      const y = (f.passing_tds ?? 0) + (f.rushing_tds ?? 0) + (f.receiving_tds ?? 0) > 0 ? 1 : 0;
+      td.n++; td.brier += (prob - y) ** 2;
+      td.logloss += -(y * Math.log(prob) + (1 - y) * Math.log(1 - prob));
+      const b = td.buckets[Math.min(9, Math.floor(prob * 10))];
+      b.n++; b.predicted += prob; b.actual += y;
+    }
+  }
+
+  const point = Object.fromEntries(Object.entries(stats).map(([key, s]) => [key, {
+    n: s.n,
+    mae: s.n ? +(s.abs / s.n).toFixed(3) : null,
+    rmse: s.n ? +Math.sqrt(s.sq / s.n).toFixed(3) : null,
+    bias: s.n ? +(s.signed / s.n).toFixed(3) : null
+  }]));
+  return {
+    seasons,
+    point_metrics: point,
+    touchdown_probability: {
+      n: td.n,
+      brier: td.n ? +(td.brier / td.n).toFixed(4) : null,
+      log_loss: td.n ? +(td.logloss / td.n).toFixed(4) : null,
+      reliability: td.buckets.map((b, i) => ({
+        range: `${i * 10}-${(i + 1) * 10}%`, n: b.n,
+        predicted: b.n ? +(b.predicted / b.n).toFixed(3) : null,
+        actual: b.n ? +(b.actual / b.n).toFixed(3) : null
+      }))
+    },
+    note: 'Strictly walk-forward within each season. Game-script adjustment is excluded until its coefficients are also cutoff-fitted.'
   };
 }
 
@@ -134,7 +201,7 @@ function noVig(a, b) {
 /** Every projectable player for a week, with distribution percentiles. */
 export function projectWeek(season, week, { minVolume = 2 } = {}) {
   const ids = [...new Set(
-    playerWeeks(season).filter(p => p.week < week).map(p => p.player_id)
+    playerWeeks().filter(p => p.season === season ? p.week < week : p.season === season - 1).map(p => p.player_id)
   )];
   const out = [];
   for (const id of ids) {

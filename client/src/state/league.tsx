@@ -23,6 +23,10 @@ interface League {
 interface LeagueContextValue {
   leagues: League[];
   loading: boolean;
+  // Was silently absent before — every page reading `leagues.length === 0` on a
+  // failed fetch (network down, server error) looked identical to "genuinely no
+  // leagues connected yet," with no way for a page to tell the two apart.
+  error: string | null;
   activeId: number | null;
   active: League | null;
   setActiveId: (id: number | null) => void;
@@ -33,7 +37,7 @@ const STORAGE_KEY = 'gh:activeLeague';
 const LeagueContext = createContext<LeagueContextValue | null>(null);
 
 export function LeagueProvider({ children }: { children: ReactNode }) {
-  const { data: leagues, loading, refetch } = useApi<League[]>('/leagues');
+  const { data: leagues, loading, error, refetch } = useApi<League[]>('/leagues');
   const [activeId, setActiveIdState] = useState<number | null>(() => {
     const stored = Number(localStorage.getItem(STORAGE_KEY));
     return Number.isFinite(stored) && stored > 0 ? stored : null;
@@ -57,7 +61,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   const active = useMemo(() => leagues?.find(l => l.id === activeId) ?? null, [leagues, activeId]);
 
   const value: LeagueContextValue = {
-    leagues: leagues ?? [], loading, activeId, active, setActiveId, refetch
+    leagues: leagues ?? [], loading, error, activeId, active, setActiveId, refetch
   };
   return <LeagueContext.Provider value={value}>{children}</LeagueContext.Provider>;
 }

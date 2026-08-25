@@ -186,6 +186,8 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
 }) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<any>(null);
+  // A targeted player only means something within the league he was picked in.
+  useEffect(() => { setQuery(''); setPicked(null); }, [leagueId]);
   const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
   const { data: offer, loading } = useApi<any>(
     picked && teamId ? `/trades/${leagueId}/offer?team_id=${teamId}&player_id=${picked.id}${exclude}` : null);
@@ -266,7 +268,7 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
                   {offer.offers.map((o: any) => (
                     <div key={o.rank}>
                       <div className="flex items-baseline gap-2 mb-1">
-                        <span className="text-[10px] font-black text-white bg-slate-700 rounded-full w-4 h-4 inline-flex items-center justify-center">{o.rank}</span>
+                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-sky-200 bg-sky-100 text-[10px] font-black text-sky-900">{o.rank}</span>
                         <h4 className="text-xs font-bold text-slate-700">{o.label}</h4>
                         <span className="text-[11px] text-slate-400">{(o.ratio * 100).toFixed(0)}% of his market price</span>
                       </div>
@@ -300,9 +302,9 @@ function PlayerOutlook({ o }: { o: any }) {
           <div><dt className="text-slate-400">Floor / ceiling</dt><dd className="tabular-nums">{o.floor ?? '—'} / {o.ceiling ?? '—'}</dd></div>
           <div><dt className="text-slate-400">Consistency</dt><dd className="tabular-nums">{o.consistency ?? '—'}</dd></div>
           <div><dt className="text-slate-400">Season SOS</dt>
-            <dd className={`tabular-nums font-semibold ${o.sos > 1.02 ? 'text-emerald-600' : o.sos < 0.98 ? 'text-rose-600' : ''}`}>{o.sos}</dd></div>
+            <dd className={`tabular-nums font-semibold ${o.sos > 1.02 ? 'text-good' : o.sos < 0.98 ? 'text-crit' : ''}`}>{o.sos}</dd></div>
           <div><dt className="text-slate-400">Playoff SOS</dt>
-            <dd className={`tabular-nums font-semibold ${o.playoff_sos > 1.02 ? 'text-emerald-600' : o.playoff_sos < 0.98 ? 'text-rose-600' : ''}`}>{o.playoff_sos}</dd></div>
+            <dd className={`tabular-nums font-semibold ${o.playoff_sos > 1.02 ? 'text-good' : o.playoff_sos < 0.98 ? 'text-crit' : ''}`}>{o.playoff_sos}</dd></div>
           <div><dt className="text-slate-400">Bye</dt><dd className="tabular-nums">Week {o.bye ?? '—'}</dd></div>
           <div><dt className="text-slate-400">Age</dt><dd className="tabular-nums">{o.age ?? '—'}</dd></div>
         </dl>
@@ -320,7 +322,7 @@ function PlayerOutlook({ o }: { o: any }) {
                 <span className="font-bold text-slate-700 w-10">{s.opponent}</span>
                 <span className="tabular-nums text-slate-600">{s.avg} ppg</span>
                 <span className="text-[10px] text-slate-400">{s.games}g</span>
-                <span className={`ml-auto font-bold tabular-nums ${s.pct > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                <span className={`ml-auto font-bold tabular-nums ${s.pct > 0 ? 'text-good' : 'text-crit'}`}>
                   {s.pct > 0 ? '+' : ''}{s.pct}%
                 </span>
               </div>
@@ -377,6 +379,8 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
   const [result, setResult] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // A mocked trade's rosters/result only mean something within the league it was built in.
+  useEffect(() => { setTheirId(null); setGive([]); setGet([]); setResult(null); setErr(null); }, [leagueId]);
 
   const mine = rosters?.teams?.find((t: any) => t.roster_id === teamId);
   const others = rosters?.teams?.filter((t: any) => t.roster_id !== teamId) ?? [];
@@ -410,9 +414,9 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
             <button key={p.id} onClick={() => onToggle(p.id)}
               title={locked ? 'Marked untouchable — you can still send him here, this is just a reminder' : undefined}
               className={`w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-slate-50 transition-colors ${
-                sel.includes(p.id) ? (tone === 'give' ? 'bg-rose-50' : 'bg-emerald-50') : ''}`}>
+                sel.includes(p.id) ? (tone === 'give' ? 'bg-crit-tint' : 'bg-good-tint') : ''}`}>
               <input type="checkbox" readOnly checked={sel.includes(p.id)}
-                className={tone === 'give' ? 'accent-rose-500' : 'accent-emerald-600'} />
+                className={tone === 'give' ? 'accent-[var(--crit)]' : 'accent-[var(--good)]'} />
               <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
               <span className={`truncate ${p.starter ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>{p.name}</span>
               {p.starter && <span className="text-[9px] text-emerald-600 font-bold">ST</span>}
@@ -443,11 +447,11 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
 
       <div className="grid md:grid-cols-2 gap-3 mb-4">
         <div>
-          <div className="text-[10px] font-black uppercase tracking-wide text-rose-500 mb-1">You send ({give.length})</div>
+          <div className="text-[10px] font-black uppercase tracking-wide text-crit mb-1">You send ({give.length})</div>
           <Column team={mine} sel={give} onToggle={(id: number) => { toggle(give, setGive, id); setResult(null); }} tone="give" />
         </div>
         <div>
-          <div className="text-[10px] font-black uppercase tracking-wide text-emerald-600 mb-1">You receive ({get.length})</div>
+          <div className="text-[10px] font-black uppercase tracking-wide text-good mb-1">You receive ({get.length})</div>
           <Column team={them} sel={get} onToggle={(id: number) => { toggle(get, setGet, id); setResult(null); }} tone="get" />
         </div>
       </div>
@@ -478,8 +482,8 @@ function Matchups() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        {[['Softest defences — target these', 0, 8, 'emerald'], ['Toughest defences — fade these', -8, undefined, 'rose']].map(
-          ([title, from, to, tone]: any) => {
+        {[['Softest defences — target these', 0, 8, true], ['Toughest defences — fade these', -8, undefined, false]].map(
+          ([title, from, to, isGood]: any) => {
             const list = to != null ? (data?.table ?? []).slice(from, to) : (data?.table ?? []).slice(from).reverse();
             return (
               <div key={title} className="card overflow-hidden">
@@ -492,7 +496,7 @@ function Matchups() {
                       <span className="font-bold text-slate-700 w-10">{d.opponent}</span>
                       <span className="tabular-nums text-slate-600">{d.allowed} ppg allowed</span>
                       <span className="text-[10px] text-slate-400">{d.games}g</span>
-                      <span className={`ml-auto font-bold tabular-nums text-${tone}-600`}>
+                      <span className={`ml-auto font-bold tabular-nums ${isGood ? "text-good" : "text-crit"}`}>
                         {d.mult > 1 ? '+' : ''}{((d.mult - 1) * 100).toFixed(0)}%
                       </span>
                     </div>

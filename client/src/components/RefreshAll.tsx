@@ -43,7 +43,7 @@ export default function RefreshAll({ onDone }: { onDone?: () => void }) {
           <ul className="space-y-0.5">
             {(result.steps ?? []).map((s: any) => (
               <li key={s.name} className="flex items-center gap-2 text-[11px]">
-                <span className={s.ok ? 'text-emerald-600' : 'text-rose-600'}>{s.ok ? '✓' : '✕'}</span>
+                <span className={s.ok ? 'text-good' : 'text-crit'}>{s.ok ? '✓' : '✕'}</span>
                 <span className="text-slate-600 capitalize">{s.name}</span>
                 <span className="ml-auto text-slate-400 truncate max-w-[120px]">
                   {s.ok

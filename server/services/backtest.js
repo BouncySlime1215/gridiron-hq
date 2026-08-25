@@ -197,3 +197,54 @@ export function compare(season, sources = new Map(), { scoring = PPR, field = 'p
   table.sort((a, b) => (b.spearman ?? -1) - (a.spearman ?? -1));
   return { season, field, players_with_actuals: truth.size, table };
 }
+
+/**
+ * Grades the decision the product actually makes: who should be started this
+ * week. Season-total accuracy can look good while weekly ordering is useless,
+ * so this reports realized points, oracle regret and top-player overlap by
+ * position. Missing weeks count as zero; excluding them would use hindsight to
+ * remove injuries and benchings the forecast failed to anticipate.
+ */
+export function weeklyDecisionBacktest(projections, truth, {
+  weeks = 18, starters = { QB: 12, RB: 24, WR: 36, TE: 12 }
+} = {}) {
+  const byPos = {};
+  for (const pos of Object.keys(starters)) {
+    const pool = [...projections.values()].filter(p => p.position === pos && truth.has(p.player_id));
+    const k = Math.min(starters[pos], pool.length);
+    if (!k) continue;
+    let chosenPoints = 0, oraclePoints = 0, overlap = 0, decisions = 0;
+    const errors = [];
+
+    for (let week = 1; week <= weeks; week++) {
+      const ranked = [...pool].sort((a, b) => b.ppg - a.ppg);
+      const actual = pool.map(p => ({
+        id: p.player_id, pred: p.ppg,
+        act: truth.get(p.player_id)?.weeks.get(week) ?? 0
+      }));
+      const picked = ranked.slice(0, k);
+      const oracle = [...actual].sort((a, b) => b.act - a.act).slice(0, k);
+      const oracleIds = new Set(oracle.map(x => x.id));
+      chosenPoints += picked.reduce((s, p) => s + (truth.get(p.player_id)?.weeks.get(week) ?? 0), 0);
+      oraclePoints += oracle.reduce((s, p) => s + p.act, 0);
+      overlap += picked.filter(p => oracleIds.has(p.player_id)).length;
+      decisions += k;
+      errors.push(...actual.map(x => Math.abs(x.pred - x.act)));
+    }
+
+    byPos[pos] = {
+      players: pool.length, weekly_starters: k, decisions,
+      starter_hit_rate: +(overlap / decisions).toFixed(3),
+      realized_points_per_start: +(chosenPoints / decisions).toFixed(2),
+      oracle_points_per_start: +(oraclePoints / decisions).toFixed(2),
+      regret_per_start: +((oraclePoints - chosenPoints) / decisions).toFixed(2),
+      weekly_mae: +mean(errors).toFixed(2)
+    };
+  }
+  const totalDecisions = Object.values(byPos).reduce((s, x) => s + x.decisions, 0);
+  return {
+    positions: byPos,
+    decisions: totalDecisions,
+    note: 'Pregame ranking versus realized weekly outcomes. DNPs remain zero so availability misses cannot disappear through hindsight.'
+  };
+}

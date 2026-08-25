@@ -387,23 +387,31 @@ test('unsupported candidate name is rejected and lists what is actually supporte
 });
 
 test('latest migration down and re-up are transactional and reproducible', async () => {
+  assert.equal(await rollbackMigration('010_news_provenance_and_dedup'), '010_news_provenance_and_dedup');
+  assert.equal(row(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_news_items_duplicate_group'`), undefined);
+  assert.ok(!db.prepare(`PRAGMA table_info(news_items)`).all().some(c => c.name === 'duplicate_group_id'));
+
   assert.equal(await rollbackMigration('009_authoritative_actor_and_ownership_guards'), '009_authoritative_actor_and_ownership_guards');
   for (const trigger of ['model_experiments_promoter_required_insert', 'model_experiments_promoter_required_update',
     'validate_draft_team_owner_update', 'validate_draft_ownership_parent_update']) {
     assert.equal(row(`SELECT name FROM sqlite_master WHERE type='trigger' AND name=?`, trigger), undefined, trigger);
   }
-  assert.deepEqual(await runMigrations(), ['009_authoritative_actor_and_ownership_guards']);
+  assert.deepEqual(await runMigrations(), ['009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup']);
   for (const trigger of ['model_experiments_promoter_required_insert', 'model_experiments_promoter_required_update',
     'validate_draft_team_owner_update', 'validate_draft_ownership_parent_update']) {
     assert.equal(row(`SELECT name FROM sqlite_master WHERE type='trigger' AND name=?`, trigger).name, trigger);
   }
+  assert.ok(db.prepare(`PRAGMA table_info(news_items)`).all().some(c => c.name === 'duplicate_group_id'));
+  assert.ok(row(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_news_items_duplicate_group'`));
+
+  assert.equal(await rollbackMigration('010_news_provenance_and_dedup'), '010_news_provenance_and_dedup');
   assert.equal(await rollbackMigration('009_authoritative_actor_and_ownership_guards'), '009_authoritative_actor_and_ownership_guards');
   assert.equal(await rollbackMigration('008_model_actor_foreign_keys'), '008_model_actor_foreign_keys');
   assert.equal(await rollbackMigration('007_model_permissions_and_upgrade_guard'), '007_model_permissions_and_upgrade_guard');
   assert.equal(await rollbackMigration('006_identity_and_draft_authorization'), '006_identity_and_draft_authorization');
   assert.equal(await rollbackMigration('005_model_registry_integrity'), '005_model_registry_integrity');
   assert.equal(row(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_dataset_versions'`).n, 0);
-  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards']);
+  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup']);
   assert.ok(row(`SELECT name FROM schema_migrations WHERE name='005_model_registry_integrity'`));
 });
 

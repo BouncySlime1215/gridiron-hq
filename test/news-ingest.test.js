@@ -19,6 +19,12 @@ const { parseRssItems, ingestRssSource } = await import('../server/news/ingest.j
 const { upsertNormalizedNewsItem } = await import('../server/news/store.js');
 const { normalizeNewsItem } = await import('../server/news/normalize.js');
 const { default: newsRouter } = await import('../server/routes/news.js');
+const { hashSessionToken } = await import('../server/platform/auth.js');
+
+run(`INSERT INTO users (subject) VALUES ('news:ingest-caller')`);
+const ingestUserId = row(`SELECT id FROM users WHERE subject='news:ingest-caller'`).id;
+run(`INSERT INTO auth_sessions (user_id,token_hash,expires_at) VALUES (?,?,datetime('now','+1 day'))`,
+  ingestUserId, hashSessionToken('news-ingest-token'));
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -27,9 +33,10 @@ app.use(express.json());
 app.use('/api/news', newsRouter);
 app.use((err, req, res, next) => res.status(err.status ?? 500).json({ error: err.message }));
 
-async function request(url, { body, method = 'GET' } = {}) {
+async function request(url, { body, method = 'GET', token } = {}) {
   const encoded = body === undefined ? '' : JSON.stringify(body);
   const headers = encoded ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(encoded)) } : {};
+  if (token) headers.authorization = `Bearer ${token}`;
   const req = new Readable({ read() { this.push(encoded || null); if (encoded) this.push(null); } });
   req.url = `/api/news${url}`; req.method = method; req.headers = headers;
   req.socket = new PassThrough(); req.connection = req.socket;
@@ -98,6 +105,22 @@ test('manual news POST rejects the literal "AI analysis" as a source', async () 
   const accepted = await request('/', { method: 'POST', body: { date: '2026-08-25', headline: 'Manual note', source: 'Beat writer' } });
   assert.equal(accepted.status, 200);
   assert.equal(row(`SELECT source FROM news_items WHERE headline='Manual note'`).source, 'Beat writer');
+});
+
+test('POST /ingest requires authentication', async () => {
+  const anonymous = await request('/ingest', { method: 'POST' });
+  assert.equal(anonymous.status, 401);
+});
+
+test('POST /ingest runs the pipeline for an authenticated caller', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, text: async () => '<rss><channel></channel></rss>' });
+  try {
+    const authenticated = await request('/ingest', { method: 'POST', token: 'news-ingest-token' });
+    assert.equal(authenticated.status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('upsertNormalizedNewsItem is idempotent on duplicate_group_id', () => {

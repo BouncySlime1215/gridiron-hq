@@ -2,11 +2,16 @@ import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ingestAllSources } from '../news/ingest.js';
+import { requireAuthenticated } from '../platform/auth.js';
 
 const r = Router();
 
-/** Pull every documented RSS source through normalize.js's provenance/dedup pipeline. */
-r.post('/ingest', async (req, res, next) => {
+/**
+ * Pull every documented RSS source through normalize.js's provenance/dedup pipeline.
+ * Authenticated only — this fans out to external feeds and writes to the database,
+ * so it must not be an anonymous, unlimited-trigger endpoint.
+ */
+r.post('/ingest', requireAuthenticated, async (req, res, next) => {
   try { res.json({ ok: true, sources: await ingestAllSources() }); }
   catch (e) { next(e); }
 });

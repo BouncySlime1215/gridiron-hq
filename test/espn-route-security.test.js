@@ -222,7 +222,9 @@ test('validated credentials are league scoped and ordinary league data omits sec
     assert.equal(stored.swid, '{member-id}');
     assert.equal(stored.espn_connection_state, 'connected');
     assert.ok(stored.espn_validated_at);
-    const data = await request('GET', `/api/leagues/${stored.id}/data`);
+    const anonymous = await request('GET', `/api/leagues/${stored.id}/data`);
+    assert.equal(anonymous.status, 401);
+    const data = await request('GET', `/api/leagues/${stored.id}/data`, { token: 'espn-token' });
     assert.equal(data.status, 200);
     assert.equal('espn_s2' in data.body, false);
     assert.equal('swid' in data.body, false);

@@ -2,38 +2,70 @@ import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
 import { EspnAuthenticationError, fetchEspnLeague } from '../services/espn-client.js';
+import { requireAuthenticated, assertLeagueMember, assertCommissioner } from '../platform/auth.js';
 
 const r = Router();
+r.use(requireAuthenticated);
+
+function accessibleLeague(req, id, { commissioner = false } = {}) {
+  const lg = row('SELECT * FROM leagues WHERE id = ?', Number(id));
+  if (!lg) return null;
+  (commissioner ? assertCommissioner : assertLeagueMember)(req.auth.userId, lg.id);
+  return lg;
+}
 
 const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 
 r.get('/', (req, res) => {
-  res.json(rows(`SELECT id, platform, league_id, season, name, my_team_id, team_count, ppr, superflex,
-                        league_type, fetched_at,
-                        espn_s2 IS NOT NULL AS has_cookies
-                 FROM leagues ORDER BY id`));
+  res.json(rows(`SELECT l.id, l.platform, l.league_id, l.season, l.name, l.my_team_id, l.team_count,
+                        l.ppr, l.superflex, l.league_type, l.fetched_at,
+                        l.espn_connection_state, l.espn_validated_at,
+                        l.espn_last_sync_at AS last_successful_sync_at
+                 FROM leagues l JOIN league_memberships lm ON lm.league_id=l.id
+                 WHERE lm.user_id=? ORDER BY l.id`, req.auth.userId));
 });
 
-r.post('/', (req, res) => {
-  const { platform, league_id, season = new Date().getFullYear(), my_team_id } = req.body;
-  if (!platform || !league_id) return res.status(400).json({ error: 'platform and league_id required' });
-  run(`INSERT OR IGNORE INTO leagues (platform, league_id, season, my_team_id)
-       VALUES (?,?,?,?)`, platform, String(league_id), season,
-    my_team_id != null ? String(my_team_id) : null);
-  res.json(row('SELECT id, platform, league_id, season FROM leagues WHERE platform = ? AND league_id = ? AND season = ?',
-    platform, String(league_id), season));
+r.post('/', (req, res, next) => {
+  try {
+   const { platform, league_id, season = new Date().getFullYear(), my_team_id } = req.body;
+   if (!platform || !league_id) return res.status(400).json({ error: 'platform and league_id required' });
+   const existing = row('SELECT * FROM leagues WHERE platform=? AND league_id=? AND season=?', platform, String(league_id), season);
+   if (existing) {
+     assertLeagueMember(req.auth.userId, existing.id);
+     return res.json({ id: existing.id, platform: existing.platform, league_id: existing.league_id, season: existing.season });
+   }
+   const result = run(`INSERT INTO leagues (platform, league_id, season, my_team_id) VALUES (?,?,?,?)`,
+     platform, String(league_id), season, my_team_id != null ? String(my_team_id) : null);
+   run(`INSERT INTO league_memberships (league_id,user_id,role) VALUES (?,?,'commissioner')`,
+     Number(result.lastInsertRowid), req.auth.userId);
+   res.json(row('SELECT id, platform, league_id, season FROM leagues WHERE id=?', Number(result.lastInsertRowid)));
+  } catch (error) { next(error); }
 });
 
-r.put('/:id', (req, res) => {
-  const { my_team_id } = req.body;
-  run(`UPDATE leagues SET my_team_id = COALESCE(?, my_team_id) WHERE id = ?`,
-    my_team_id != null ? String(my_team_id) : null, req.params.id);
-  res.json({ ok: true });
+r.put('/:id', (req, res, next) => {
+  try {
+   const lg = accessibleLeague(req, req.params.id, { commissioner: true });
+   if (!lg) return res.status(404).json({ error: 'league not found' });
+   const { my_team_id } = req.body;
+   run(`UPDATE leagues SET my_team_id = COALESCE(?, my_team_id) WHERE id = ?`,
+     my_team_id != null ? String(my_team_id) : null, req.params.id);
+   res.json({ ok: true });
+  } catch (error) { next(error); }
 });
 
-r.delete('/:id', (req, res) => {
-  run('DELETE FROM leagues WHERE id = ?', req.params.id);
-  res.json({ ok: true });
+r.delete('/:id', (req, res, next) => {
+  try {
+   const lg = accessibleLeague(req, req.params.id, { commissioner: true });
+   if (!lg) return res.status(404).json({ error: 'league not found' });
+   if (lg.platform === 'espn') {
+     run(`DELETE FROM espn_credentials WHERE league_id=?`, lg.id);
+     run(`UPDATE leagues SET espn_s2=NULL, swid=NULL, espn_connection_state='reconnect_required',
+       espn_validated_at=NULL, espn_account_fingerprint=NULL WHERE id=?`, lg.id);
+     return res.json({ ok: true, retained: true });
+   }
+   run('DELETE FROM leagues WHERE id = ?', lg.id);
+   res.json({ ok: true, retained: false });
+  } catch (error) { next(error); }
 });
 
 const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K', 23: 'FLEX' };
@@ -103,7 +135,7 @@ async function syncSleeperLeague(lg) {
 r.post('/:id/sync', async (req, res, next) => {
   let lg;
   try {
-    lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
+    lg = accessibleLeague(req, req.params.id, { commissioner: true });
     if (!lg) return res.status(404).json({ error: 'league not found' });
     const result = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
 
@@ -123,11 +155,13 @@ r.post('/:id/sync', async (req, res, next) => {
   }
 });
 
-r.get('/:id/data', (req, res) => {
-  const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
-  if (!lg) return res.status(404).json({ error: 'league not found' });
-  const { espn_s2: _espnS2, swid: _swid, ...safeLeague } = lg;
-  res.json({ ...safeLeague, payload: lg.payload ? JSON.parse(lg.payload) : null });
+r.get('/:id/data', (req, res, next) => {
+  try {
+   const lg = accessibleLeague(req, req.params.id);
+   if (!lg) return res.status(404).json({ error: 'league not found' });
+   const { espn_s2: _espnS2, swid: _swid, ...safeLeague } = lg;
+   res.json({ ...safeLeague, payload: lg.payload ? JSON.parse(lg.payload) : null });
+  } catch (error) { next(error); }
 });
 
 // ---- Roster needs/surplus analysis (ported from akodsi/fantasy-advisor) ----
@@ -184,53 +218,55 @@ function extractRosters(lg) {
   return out;
 }
 
-r.get('/:id/analysis', (req, res) => {
-  const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
-  if (!lg?.payload) return res.status(400).json({ error: 'league not synced yet' });
-
-  const rp = lg.roster_positions ? JSON.parse(lg.roster_positions) : ['QB','RB','RB','WR','WR','TE','FLEX'];
-  const perTeam = Object.fromEntries(SKILL.map(p => [p, rp.filter(x => x === p).length]));
-  const flex = rp.filter(x => ['FLEX','REC_FLEX','WRRB_FLEX'].includes(x)).length;
-  perTeam.QB += rp.filter(x => x === 'SUPER_FLEX').length;
-  for (const [pos, share] of Object.entries(FLEX_SPLIT)) perTeam[pos] += flex * share;
-
-  const rosters = extractRosters(lg);
-  const matched = rosters.reduce((s, ro) => s + ro.players.length, 0);
-  if (matched === 0) {
-    return res.json({
-      league: { id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id },
-      empty: true,
-      message: 'No rostered players found — this league likely hasn’t drafted yet for this season. Analysis will populate after your draft.',
-      averages: {}, rosters: []
-    });
-  }
-  for (const ro of rosters) {
-    const byPos = Object.fromEntries(SKILL.map(p => [p, []]));
-    for (const p of ro.players) if (byPos[p.position]) byPos[p.position].push(p);
-    for (const pos of SKILL) byPos[pos].sort((a, b) => b.value - a.value);
-    ro.positions = {};
-    for (const pos of SKILL) {
-      const slots = Math.ceil(perTeam[pos] - 0.001);
-      ro.positions[pos] = {
-        starters: byPos[pos].slice(0, slots).map(p => ({ id: p.id, name: p.name, value: p.value })),
-        starter_value: byPos[pos].slice(0, slots).reduce((s, p) => s + p.value, 0),
-        depth: byPos[pos].length
-      };
-    }
-  }
-  const averages = Object.fromEntries(SKILL.map(pos =>
-    [pos, rosters.reduce((s, ro) => s + ro.positions[pos].starter_value, 0) / (rosters.length || 1)]));
-  for (const ro of rosters) {
-    ro.needs = []; ro.surplus = [];
-    for (const pos of SKILL) {
-      const ratio = ro.positions[pos].starter_value / (averages[pos] || 1);
-      ro.positions[pos].ratio = ratio;
-      ro.positions[pos].status = ratio < WEAK ? 'need' : ratio > STRONG ? 'surplus' : 'ok';
-      if (ratio < WEAK) ro.needs.push(pos);
-      if (ratio > STRONG) ro.surplus.push(pos);
-    }
-  }
-  res.json({ league: { id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id }, averages, rosters });
+r.get('/:id/analysis', (req, res, next) => {
+  try {
+   const lg = accessibleLeague(req, req.params.id);
+   if (!lg?.payload) return res.status(400).json({ error: 'league not synced yet' });
+ 
+   const rp = lg.roster_positions ? JSON.parse(lg.roster_positions) : ['QB','RB','RB','WR','WR','TE','FLEX'];
+   const perTeam = Object.fromEntries(SKILL.map(p => [p, rp.filter(x => x === p).length]));
+   const flex = rp.filter(x => ['FLEX','REC_FLEX','WRRB_FLEX'].includes(x)).length;
+   perTeam.QB += rp.filter(x => x === 'SUPER_FLEX').length;
+   for (const [pos, share] of Object.entries(FLEX_SPLIT)) perTeam[pos] += flex * share;
+ 
+   const rosters = extractRosters(lg);
+   const matched = rosters.reduce((s, ro) => s + ro.players.length, 0);
+   if (matched === 0) {
+     return res.json({
+       league: { id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id },
+       empty: true,
+       message: 'No rostered players found — this league likely hasn’t drafted yet for this season. Analysis will populate after your draft.',
+       averages: {}, rosters: []
+     });
+   }
+   for (const ro of rosters) {
+     const byPos = Object.fromEntries(SKILL.map(p => [p, []]));
+     for (const p of ro.players) if (byPos[p.position]) byPos[p.position].push(p);
+     for (const pos of SKILL) byPos[pos].sort((a, b) => b.value - a.value);
+     ro.positions = {};
+     for (const pos of SKILL) {
+       const slots = Math.ceil(perTeam[pos] - 0.001);
+       ro.positions[pos] = {
+         starters: byPos[pos].slice(0, slots).map(p => ({ id: p.id, name: p.name, value: p.value })),
+         starter_value: byPos[pos].slice(0, slots).reduce((s, p) => s + p.value, 0),
+         depth: byPos[pos].length
+       };
+     }
+   }
+   const averages = Object.fromEntries(SKILL.map(pos =>
+     [pos, rosters.reduce((s, ro) => s + ro.positions[pos].starter_value, 0) / (rosters.length || 1)]));
+   for (const ro of rosters) {
+     ro.needs = []; ro.surplus = [];
+     for (const pos of SKILL) {
+       const ratio = ro.positions[pos].starter_value / (averages[pos] || 1);
+       ro.positions[pos].ratio = ratio;
+       ro.positions[pos].status = ratio < WEAK ? 'need' : ratio > STRONG ? 'surplus' : 'ok';
+       if (ratio < WEAK) ro.needs.push(pos);
+       if (ratio > STRONG) ro.surplus.push(pos);
+     }
+   }
+   res.json({ league: { id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id }, averages, rosters });
+  } catch (error) { next(error); }
 });
 
 export default r;

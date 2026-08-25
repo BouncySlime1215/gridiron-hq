@@ -28,6 +28,9 @@ export class EspnResponseError extends EspnError {
 export class EspnLeagueMismatchError extends EspnError {
   constructor() { super('ESPN response did not match the requested league and season', { code: 'ESPN_LEAGUE_MISMATCH', status: 400 }); }
 }
+export class EspnLeagueNotFoundError extends EspnError {
+  constructor() { super('ESPN league not found', { code: 'ESPN_LEAGUE_NOT_FOUND', status: 404 }); }
+}
 
 function cleanCookieValue(value, name) {
   const normalized = String(value ?? '').trim();
@@ -65,10 +68,13 @@ export function redactEspnSecrets(value) {
 
 export async function espnRequest(url, credentials, { timeoutMs = DEFAULT_TIMEOUT_MS, fetchImpl = fetch } = {}) {
   const timeout = Math.max(1, Math.min(Number(timeoutMs) || DEFAULT_TIMEOUT_MS, 30_000));
+  const hasCredentials = credentials != null;
+  const headers = { Accept: 'application/json' };
+  if (hasCredentials) headers.Cookie = buildEspnCookieHeader(credentials);
   let response;
   try {
     response = await fetchImpl(url, {
-      headers: { Accept: 'application/json', Cookie: buildEspnCookieHeader(credentials) },
+      headers,
       signal: AbortSignal.timeout(timeout)
     });
   } catch (error) {
@@ -76,6 +82,7 @@ export async function espnRequest(url, credentials, { timeoutMs = DEFAULT_TIMEOU
     throw new EspnError('ESPN request failed', { code: 'ESPN_NETWORK_ERROR', status: 502, cause: error });
   }
   if (response.status === 401 || response.status === 403) throw new EspnAuthenticationError();
+  if (response.status === 404) throw new EspnLeagueNotFoundError();
   if (!response.ok) throw new EspnError('ESPN request failed', {
     code: 'ESPN_UPSTREAM_ERROR', status: 502, upstreamStatus: response.status
   });
@@ -92,7 +99,8 @@ export function leagueUrl(leagueId, season, views = ['mTeam', 'mRoster', 'mMatch
 }
 
 export async function fetchEspnLeague({ leagueId, season, espn_s2, swid, views, ...options }) {
-  const data = await espnRequest(leagueUrl(leagueId, season, views), { espn_s2, swid }, options);
+  const credentials = espn_s2 == null && swid == null ? undefined : { espn_s2, swid };
+  const data = await espnRequest(leagueUrl(leagueId, season, views), credentials, options);
   const actualLeague = data.id ?? data.leagueId;
   const actualSeason = data.seasonId ?? data.season;
   if (String(actualLeague) !== String(leagueId) || Number(actualSeason) !== Number(season)) {

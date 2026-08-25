@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EspnAuthenticationError, EspnLeagueMismatchError, EspnResponseError, EspnTimeoutError,
+  EspnAuthenticationError, EspnLeagueMismatchError, EspnLeagueNotFoundError, EspnResponseError, EspnTimeoutError,
   buildEspnCookieHeader, espnAccountFingerprint, espnRequest, fetchEspnLeague,
   normalizeEspnS2, normalizeSwid, redactEspnSecrets
 } from '../server/services/espn-client.js';
@@ -32,10 +32,26 @@ test('request uses a bounded timeout and performs one fetch only', async () => {
   assert.equal(calls, 1);
 });
 
+test('public requests omit cookies while authenticated requests normalize them', async () => {
+  const seen = [];
+  const fetchImpl = async (_url, options) => {
+    seen.push(options.headers);
+    return { ok: true, status: 200, json: async () => ({ id: 12, seasonId: 2026 }) };
+  };
+  await fetchEspnLeague({ leagueId: '12', season: 2026, fetchImpl });
+  await fetchEspnLeague({ leagueId: '12', season: 2026,
+    espn_s2: ' token ', swid: '%7Bmember%7D', fetchImpl });
+  assert.deepEqual(seen[0], { Accept: 'application/json' });
+  assert.deepEqual(seen[1], { Accept: 'application/json', Cookie: 'espn_s2=token; SWID={member}' });
+});
+
 test('maps authentication, timeout, and malformed JSON to typed errors', async () => {
   await assert.rejects(() => espnRequest('x', { espn_s2: 's2', swid: 'id' }, {
     fetchImpl: async () => ({ ok: false, status: 403 })
   }), EspnAuthenticationError);
+  await assert.rejects(() => espnRequest('x', undefined, {
+    fetchImpl: async () => ({ ok: false, status: 404 })
+  }), EspnLeagueNotFoundError);
   await assert.rejects(() => espnRequest('x', { espn_s2: 's2', swid: 'id' }, {
     fetchImpl: async () => { throw Object.assign(new Error('aborted'), { name: 'TimeoutError' }); }
   }), EspnTimeoutError);

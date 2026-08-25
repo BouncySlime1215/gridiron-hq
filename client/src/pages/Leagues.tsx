@@ -3,6 +3,7 @@ import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { PlayerName } from '../components/PlayerCard';
 import { PageError, PageLoading } from '../components/PageState';
+import EspnConnect from '../components/EspnConnect';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
@@ -20,7 +21,7 @@ export default function Leagues() {
   // analysis also makes it the active league on My Team, Trade Lab, etc.
   const { leagues, loading: leaguesLoading, error: leaguesError, refetch, activeId: sel, setActiveId: setSel } = useLeague();
   const { data: analysis, refetch: refetchAnalysis } = useApi<any>(sel ? `/leagues/${sel}/analysis` : null);
-  const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026, espn_s2: '', swid: '' });
+  const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026 });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -31,7 +32,7 @@ export default function Leagues() {
       const lg = await api('/leagues', { method: 'POST', body: JSON.stringify(form) });
       const s = await api(`/leagues/${lg.id}/sync`, { method: 'POST' });
       setMsg(`Added and synced — ${s.teams} teams${s.fell_back ? `, using ${s.season_used} rosters (this season hasn’t drafted yet)` : ''}.`);
-      setForm(f => ({ ...f, league_id: '', espn_s2: '', swid: '' }));
+      setForm(f => ({ ...f, league_id: '' }));
       refetch();
       setSel(lg.id);
     } catch (e: any) { setMsg(e.message); }
@@ -54,7 +55,7 @@ export default function Leagues() {
       <h1 className="text-2xl font-bold mb-1">My Leagues</h1>
       <p className="text-sm text-slate-500 mb-5">Connect as many leagues as you want — Sleeper (no login needed) or ESPN (cookies for private leagues). Each one gets roster-needs analysis against real trade-market values.</p>
 
-      <div className="card p-4 mb-6 flex flex-wrap gap-3 items-end">
+      <div className="card p-4 mb-4">
         <label className="text-xs text-slate-600">Platform
           <select className="input block mt-1" value={form.platform}
             onChange={e => setForm(f => ({ ...f, platform: e.target.value }))}>
@@ -62,29 +63,20 @@ export default function Leagues() {
             <option value="espn">ESPN</option>
           </select>
         </label>
-        <label className="text-xs text-slate-600">League ID
-          <input className="input block mt-1 w-48" placeholder={form.platform === 'sleeper' ? '1124...' : '1234567'}
-            value={form.league_id} onChange={e => setForm(f => ({ ...f, league_id: e.target.value }))} />
-        </label>
-        <label className="text-xs text-slate-600">Season
-          <input type="number" className="input block mt-1 w-24" value={form.season}
-            onChange={e => setForm(f => ({ ...f, season: Number(e.target.value) }))} />
-        </label>
-        {form.platform === 'espn' && (
-          <>
-            <label className="text-xs text-slate-600">espn_s2
-              <input className="input block mt-1 w-56 font-mono" value={form.espn_s2}
-                onChange={e => setForm(f => ({ ...f, espn_s2: e.target.value }))} />
-            </label>
-            <label className="text-xs text-slate-600">SWID
-              <input className="input block mt-1 w-48 font-mono" value={form.swid}
-                onChange={e => setForm(f => ({ ...f, swid: e.target.value }))} />
-            </label>
-          </>
-        )}
-        <button className="btn-primary" onClick={add} disabled={busy}>{busy ? 'Working…' : '+ Add & sync'}</button>
-        {msg && <span className="text-xs text-amber-600">{msg}</span>}
+        {form.platform === 'sleeper' && <div className="mt-3 flex flex-wrap gap-3 items-end">
+          <label className="text-xs text-slate-600">League ID
+            <input className="input block mt-1 w-48" placeholder="1124..." value={form.league_id}
+              onChange={e => setForm(f => ({ ...f, league_id: e.target.value }))} />
+          </label>
+          <label className="text-xs text-slate-600">Season
+            <input type="number" className="input block mt-1 w-24" value={form.season}
+              onChange={e => setForm(f => ({ ...f, season: Number(e.target.value) }))} />
+          </label>
+          <button className="btn-primary" onClick={add} disabled={busy}>{busy ? 'Working…' : '+ Add & sync'}</button>
+          {msg && <span className="text-xs text-amber-600" role="status" aria-live="polite">{msg}</span>}
+        </div>}
       </div>
+      {form.platform === 'espn' && <div className="mb-6"><EspnConnect /></div>}
 
       {leaguesLoading && !leagues.length && <PageLoading label="Loading your leagues…" />}
       {leaguesError && !leagues.length && <PageError message={leaguesError} onRetry={refetch} />}

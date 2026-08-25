@@ -53,3 +53,16 @@ export function up(db) {
     );
   `);
 }
+
+export function down(db) {
+  db.exec(`DROP TABLE IF EXISTS draft_events;
+    DROP TABLE IF EXISTS draft_queue;
+    DROP INDEX IF EXISTS idx_draft_picks_idempotency;
+    ALTER TABLE draft_picks DROP COLUMN source;
+    ALTER TABLE draft_picks DROP COLUMN idempotency_key;
+    ALTER TABLE drafts DROP COLUMN paused;
+    ALTER TABLE drafts DROP COLUMN turn_deadline;
+    ALTER TABLE drafts DROP COLUMN roster_positions;
+    ALTER TABLE drafts DROP COLUMN order_type;
+    ALTER TABLE drafts DROP COLUMN revision;`);
+}

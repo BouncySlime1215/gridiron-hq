@@ -452,9 +452,15 @@ test('latest migration down and re-up are transactional and reproducible', async
   assert.equal(await rollbackMigration('007_model_permissions_and_upgrade_guard'), '007_model_permissions_and_upgrade_guard');
   assert.equal(await rollbackMigration('006_identity_and_draft_authorization'), '006_identity_and_draft_authorization');
   assert.equal(await rollbackMigration('005_model_registry_integrity'), '005_model_registry_integrity');
+  assert.equal(await rollbackMigration('004_model_lab'), '004_model_lab');
+  assert.equal(await rollbackMigration('003_draft_state_machine'), '003_draft_state_machine');
+  assert.equal(await rollbackMigration('002_platform_audit_log'), '002_platform_audit_log');
+  assert.equal(await rollbackMigration('001_baseline_marker'), '001_baseline_marker');
   assert.equal(row(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_dataset_versions'`).n, 0);
-  assert.deepEqual(await runMigrations(), ['005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup']);
+  assert.deepEqual(await runMigrations(), ['001_baseline_marker', '002_platform_audit_log', '003_draft_state_machine', '004_model_lab', '005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup']);
   assert.ok(row(`SELECT name FROM schema_migrations WHERE name='005_model_registry_integrity'`));
+  assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
 });
 
 test('representative legacy provenance upgrade quarantines unmatched actors and enforces new writes', async () => {

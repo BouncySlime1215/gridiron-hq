@@ -29,3 +29,9 @@ export function up(db) {
     );
   `);
 }
+
+export function down(db) {
+  db.exec(`DROP TABLE IF EXISTS model_production_pointer;
+    DROP TABLE IF EXISTS model_predictions;
+    DROP TABLE IF EXISTS model_experiments;`);
+}

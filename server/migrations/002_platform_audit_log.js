@@ -15,3 +15,7 @@ export function up(db) {
     CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
   `);
 }
+
+export function down(db) {
+  db.exec('DROP INDEX IF EXISTS idx_audit_log_entity; DROP TABLE IF EXISTS audit_log;');
+}

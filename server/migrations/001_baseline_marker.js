@@ -8,3 +8,4 @@
 // versioned system and which predate it.
 export const name = '001_baseline_marker';
 export function up() { /* no-op: documents the cutover, does not touch schema */ }
+export function down() { /* no-op: only the schema_migrations marker is removed */ }

@@ -72,12 +72,16 @@ export default function Leagues() {
         </label>
         {form.platform === 'espn' && (
           <>
+            <div className="basis-full text-xs text-slate-500">
+              Fallback only — use "Connect ESPN" (bookmarklet, on the Dashboard/Settings) to grab these
+              automatically. Paste manually here only if that doesn't work for you.
+            </div>
             <label className="text-xs text-slate-600">espn_s2
-              <input className="input block mt-1 w-56 font-mono" value={form.espn_s2}
+              <input type="password" autoComplete="off" className="input block mt-1 w-56 font-mono" value={form.espn_s2}
                 onChange={e => setForm(f => ({ ...f, espn_s2: e.target.value }))} />
             </label>
             <label className="text-xs text-slate-600">SWID
-              <input className="input block mt-1 w-48 font-mono" value={form.swid}
+              <input type="password" autoComplete="off" className="input block mt-1 w-48 font-mono" value={form.swid}
                 onChange={e => setForm(f => ({ ...f, swid: e.target.value }))} />
             </label>
           </>

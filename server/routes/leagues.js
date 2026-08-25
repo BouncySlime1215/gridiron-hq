@@ -40,7 +40,12 @@ const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K',
 
 async function fetchEspn(lg, season) {
   if (!lg.espn_s2 || !lg.swid) throw Object.assign(new Error('ESPN connection required'), { status: 400 });
-  return fetchEspnLeague({ leagueId: lg.league_id, season, espn_s2: lg.espn_s2, swid: lg.swid });
+  return fetchEspnLeague({
+    leagueId: lg.league_id,
+    season,
+    espn_s2: lg.espn_s2,
+    swid: lg.swid
+  });
 }
 
 const rosterCount = data => (data.teams ?? []).reduce((s, t) => s + (t.roster?.entries?.length ?? 0), 0);

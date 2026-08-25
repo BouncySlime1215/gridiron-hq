@@ -30,7 +30,8 @@ export async function syncPlayersFromESPN() {
     const url = `${BASE}/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
     const filter = { players: { limit: 800, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
     const headers = { Accept: 'application/json', 'X-Fantasy-Filter': JSON.stringify(filter) };
-    // Public default-league data must not borrow credentials from an unrelated league.
+    // This is ESPN's public default-league pool. Never borrow credentials from an
+    // unrelated private league for a global synchronization job.
     const resp = await fetch(url, { headers });
     if (!resp.ok) throw new Error(`ESPN players API ${resp.status}`);
     const data = await resp.json();

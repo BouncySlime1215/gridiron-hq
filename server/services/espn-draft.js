@@ -47,15 +47,17 @@ export function espnCookies(leagueId, season) {
   return { s2: league?.espn_s2 ?? null, swid: league?.swid ?? null };
 }
 
-async function espnGet(leagueId, season, views) {
-  const { s2, swid } = espnCookies(leagueId, season);
-  if (!s2 || !swid) throw Object.assign(new Error('ESPN connection required'), { status: 400 });
-  return fetchEspnLeague({ leagueId, season, espn_s2: s2, swid, views });
-}
-
 /** Draft board + settings + team names for a league. */
-export function fetchDraftDetail(leagueId, season) {
-  return espnGet(leagueId, season, ['mDraftDetail', 'mSettings', 'mTeam']);
+export function fetchDraftDetail(league) {
+  if (!league.espn_s2 || !league.swid) {
+    throw Object.assign(new Error('ESPN connection required'), { status: 400 });
+  }
+  return fetchEspnLeague({
+    leagueId: league.league_id,
+    season: league.season,
+    espn_s2: league.espn_s2, swid: league.swid,
+    views: ['mDraftDetail', 'mSettings', 'mTeam']
+  });
 }
 
 const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
@@ -144,7 +146,7 @@ export async function ensureLiveDraft(leagueRowId) {
   if (!lg) throw Object.assign(new Error('league not found'), { status: 404 });
   if (lg.platform !== 'espn') throw Object.assign(new Error('live draft sync is ESPN-only'), { status: 400 });
 
-  const data = await fetchDraftDetail(lg.league_id, lg.season);
+  const data = await fetchDraftDetail(lg);
   const ds = data.settings?.draftSettings ?? {};
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
   const pickOrder = ds.pickOrder ?? (data.teams ?? []).map(t => t.id);
@@ -194,7 +196,13 @@ async function syncLiveDraftImpl(draftId) {
     throw Object.assign(new Error('not an ESPN-linked live draft'), { status: 400 });
   }
 
-  const data = await fetchDraftDetail(draft.espn_league_id, draft.season);
+  const league = row('SELECT * FROM leagues WHERE id = ?', draft.league_row_id);
+  if (!league || league.platform !== 'espn'
+      || String(league.league_id) !== String(draft.espn_league_id)
+      || Number(league.season) !== Number(draft.season)) {
+    throw Object.assign(new Error('draft is not bound to its requested ESPN league'), { status: 409 });
+  }
+  const data = await fetchDraftDetail(league);
   const detail = data.draftDetail ?? {};
   const ds = data.settings?.draftSettings ?? {};
   const pickOrder = ds.pickOrder ?? JSON.parse(draft.pick_order ?? '{}').order ?? [];

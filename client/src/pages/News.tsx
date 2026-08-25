@@ -19,6 +19,8 @@ export default function News() {
   const [aiMsg, setAiMsg] = useState<string | null>(null);
   const [manual, setManual] = useState({ team_abbr: '', headline: '', body: '', importance: 2 });
   const [pulling, setPulling] = useState(false);
+  const [ingesting, setIngesting] = useState(false);
+  const [ingestErr, setIngestErr] = useState<string | null>(null);
   const [roundup, setRoundup] = useState<any>(null);
   const [roundupBusy, setRoundupBusy] = useState(false);
   const [roundupErr, setRoundupErr] = useState<string | null>(null);
@@ -34,6 +36,15 @@ export default function News() {
       refresh();
     } catch (e: any) { setRoundupErr(e.message); }
     finally { setPulling(false); }
+  };
+
+  // Real RSS ingestion — server/news/ingest.js's attributed, deduped, provenance-tracked
+  // pipeline (migration 010), distinct from the ESPN JSON pull above.
+  const ingestRss = async () => {
+    setIngesting(true); setIngestErr(null);
+    try { await api('/news/ingest', { method: 'POST' }); refresh(); }
+    catch (e: any) { setIngestErr(e.message); }
+    finally { setIngesting(false); }
   };
 
   const roundupNow = async () => {
@@ -88,8 +99,12 @@ export default function News() {
           <option value="">All teams</option>
           {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr} — {t.name}</option>)}
         </select>
-        <button className="btn-ghost ml-auto" onClick={pullNews} disabled={pulling}>
+        <button className="btn-ghost ml-auto" onClick={pullNews} disabled={pulling} title="ESPN's team/league news API — team-scoped">
           {pulling ? 'Pulling…' : 'Pull ESPN news'}
+        </button>
+        <button className="btn-ghost" onClick={ingestRss} disabled={ingesting}
+          title="Attributed RSS pipeline with provenance, dedup, and entity extraction (server/news/ingest.js)">
+          {ingesting ? 'Ingesting…' : 'Pull RSS (attributed)'}
         </button>
         <button className="btn-primary" onClick={roundupNow} disabled={roundupBusy}>
           {roundupBusy ? 'Reading the day…' : 'Camp roundup'}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Edge from './Edge';
 import Model from './Model';
 import { api, useApi } from '../api';
+import ModelRegistryPanel from '../features/model-lab/ModelRegistryPanel';
 
 /**
  * Edge Tools and the Prediction Engine, merged into one hub.
@@ -96,7 +97,7 @@ export default function FantasyLab() {
       </div>
       <p className="text-xs text-slate-400 mb-4">{BLURB[tab] ?? ''}</p>
 
-      {tab === 'registry' ? <Registry /> : active.source === 'edge'
+      {tab === 'registry' ? <div className="space-y-4"><ModelRegistryPanel /><Registry /></div> : active.source === 'edge'
         ? <Edge tab={tab as any} embedded />
         : <Model tab={tab as any} embedded />}
     </div>

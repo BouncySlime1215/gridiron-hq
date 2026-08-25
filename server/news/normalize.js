@@ -38,7 +38,11 @@ export function normalizeNewsItem(raw, { identity, ingestedAt = new Date().toISO
     summary: raw.summary ?? null, canonical_url: url, entities,
     injury_entities: raw.injury_entities ?? [], transaction_type: raw.transaction_type ?? null,
     reliability: raw.reliability ?? { tier: 'unrated', score: null },
-    duplicate_group_id: digest(`${url}|${normalizedHeadline(raw.headline)}`),
+    // Keyed on the canonical URL alone (matching clusterNews' notion of "same
+    // story") so a publisher correcting a headline updates the existing row via
+    // store.js's ON CONFLICT(duplicate_group_id) path instead of forking a
+    // second, stale-headline row for the same URL.
+    duplicate_group_id: digest(url),
     user_relevance: raw.user_relevance ?? null, fantasy_impact: raw.fantasy_impact ?? 'unclassified',
     confidence: raw.confidence ?? null, classification_version: classificationVersion,
     attribution_required: true

@@ -32,7 +32,7 @@ r.get('/dates', (req, res) => {
 });
 
 // Manual entry (also used by the Claude Code assisted workflow)
-r.post('/', (req, res) => {
+r.post('/', requireAuthenticated, (req, res) => {
   const { date, team_abbr, headline, body, ai_analysis, fantasy_impact, importance = 2, source } = req.body;
   if (!date || !headline) return res.status(400).json({ error: 'date and headline required' });
   if (source && source.toLowerCase() === 'ai analysis') {
@@ -46,13 +46,13 @@ r.post('/', (req, res) => {
   res.json({ ok: true });
 });
 
-r.delete('/:id', (req, res) => {
+r.delete('/:id', requireAuthenticated, (req, res) => {
   run('DELETE FROM news_items WHERE id = ?', req.params.id);
   res.json({ ok: true });
 });
 
 // AI analysis for pasted headlines. Requires ANTHROPIC_API_KEY in env.
-r.post('/analyze', async (req, res, next) => {
+r.post('/analyze', requireAuthenticated, async (req, res, next) => {
   try {
     const { date, items } = req.body; // items: [{team_abbr, headline, body?}]
     if (!getApiKey()) {
@@ -109,7 +109,7 @@ function myRosterNames() {
 }
 
 /** "What does this actually mean?" — on-demand, per story. */
-r.post('/:id/explain', async (req, res, next) => {
+r.post('/:id/explain', requireAuthenticated, async (req, res, next) => {
   try {
     if (!getApiKey()) {
       return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
@@ -153,7 +153,7 @@ Respond with ONLY the JSON object.`
 });
 
 /** Camp roundup: one paragraph on the day + the teams most affected. */
-r.post('/roundup', async (req, res, next) => {
+r.post('/roundup', requireAuthenticated, async (req, res, next) => {
   try {
     if (!getApiKey()) {
       return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });

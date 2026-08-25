@@ -98,11 +98,11 @@ test('normalize.js rejects "AI analysis" as a source before it ever reaches stor
 });
 
 test('manual news POST rejects the literal "AI analysis" as a source', async () => {
-  const rejected = await request('/', { method: 'POST', body: { date: '2026-08-25', headline: 'Manual note', source: 'AI Analysis' } });
+  const rejected = await request('/', { method: 'POST', token: 'news-ingest-token', body: { date: '2026-08-25', headline: 'Manual note', source: 'AI Analysis' } });
   assert.equal(rejected.status, 400);
   assert.match(rejected.payload.error, /not a valid reporting source/);
 
-  const accepted = await request('/', { method: 'POST', body: { date: '2026-08-25', headline: 'Manual note', source: 'Beat writer' } });
+  const accepted = await request('/', { method: 'POST', token: 'news-ingest-token', body: { date: '2026-08-25', headline: 'Manual note', source: 'Beat writer' } });
   assert.equal(accepted.status, 200);
   assert.equal(row(`SELECT source FROM news_items WHERE headline='Manual note'`).source, 'Beat writer');
 });
@@ -110,6 +110,14 @@ test('manual news POST rejects the literal "AI analysis" as a source', async () 
 test('POST /ingest requires authentication', async () => {
   const anonymous = await request('/ingest', { method: 'POST' });
   assert.equal(anonymous.status, 401);
+});
+
+test('news mutation and API-spending routes reject anonymous callers', async () => {
+  assert.equal((await request('/', { method: 'POST', body: { date: '2026-08-25', headline: 'x' } })).status, 401);
+  assert.equal((await request('/1', { method: 'DELETE' })).status, 401);
+  assert.equal((await request('/analyze', { method: 'POST', body: { date: '2026-08-25', items: [] } })).status, 401);
+  assert.equal((await request('/1/explain', { method: 'POST' })).status, 401);
+  assert.equal((await request('/roundup', { method: 'POST', body: {} })).status, 401);
 });
 
 test('POST /ingest runs the pipeline for an authenticated caller', async () => {
@@ -134,4 +142,20 @@ test('upsertNormalizedNewsItem is idempotent on duplicate_group_id', () => {
   assert.equal(b.inserted, false);
   assert.equal(a.id, b.id);
   assert.equal(row('SELECT body FROM news_items WHERE id=?', a.id).body, 'updated summary');
+});
+
+test('a corrected headline updates the existing row instead of forking a duplicate', () => {
+  const original = normalizeNewsItem({
+    source: 'Wire', source_url: 'https://example.com/corrected-story', headline: 'Player questionable for Sunday',
+    published_at: '2026-08-03T00:00:00Z'
+  });
+  const corrected = normalizeNewsItem({
+    source: 'Wire', source_url: 'https://example.com/corrected-story', headline: 'Player ruled out for Sunday',
+    published_at: '2026-08-03T00:00:00Z'
+  });
+  const a = upsertNormalizedNewsItem(original);
+  const b = upsertNormalizedNewsItem(corrected);
+  assert.equal(a.id, b.id);
+  assert.equal(row('SELECT COUNT(*) AS n FROM news_items WHERE canonical_url=?', original.canonical_url).n, 1);
+  assert.equal(row('SELECT headline FROM news_items WHERE id=?', a.id).headline, 'Player ruled out for Sunday');
 });

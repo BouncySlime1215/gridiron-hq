@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+export class ApiError extends Error {
+  code?: string;
+  status: number;
+
+  constructor(message: string, { code, status }: { code?: string; status: number }) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
 export async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
   // Self-hosted authentication is provisioned with server/platform/provision-auth.js.
   // Keep the opaque token out of source/config files; callers can persist it once
@@ -14,8 +26,12 @@ export async function api<T = any>(path: string, opts?: RequestInit): Promise<T>
     }
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `${res.status} ${res.statusText}`);
+    const parsed = await res.json().catch(() => ({}));
+    const body = parsed && typeof parsed === 'object' ? parsed as { error?: string; code?: string } : {};
+    throw new ApiError(body.error || `${res.status} ${res.statusText}`, {
+      code: typeof body.code === 'string' ? body.code : undefined,
+      status: res.status
+    });
   }
   return res.json();
 }

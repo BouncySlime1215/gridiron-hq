@@ -185,7 +185,8 @@ r.post('/registry/experiments/:id/backtests', requireModelPermission('model:trai
     const experiment = registry.store.get(req.params.id);
     if (!experiment) return res.status(404).json({ error: 'experiment not found' });
     if (experiment.status !== 'queued') return res.status(409).json({ error: 'only queued experiments can be backtested' });
-    const input = db.prepare(`SELECT i.*, d.metadata_json, f.contract_json, f.content_hash AS feature_content_hash
+    const input = db.prepare(`SELECT i.*, d.metadata_json, d.content_hash AS dataset_content_hash,
+      f.contract_json, f.content_hash AS feature_content_hash
       FROM model_experiment_inputs i
       JOIN model_dataset_versions d ON d.id=i.dataset_version_id
       JOIN model_feature_versions f ON f.id=i.feature_version_id WHERE i.experiment_id=?`).get(req.params.id);
@@ -228,7 +229,12 @@ r.post('/registry/experiments/:id/backtests', requireModelPermission('model:trai
       baseline_improvement: Number.isFinite(mae) && Number.isFinite(baselineMae) && mae < baselineMae,
       tests: predictions.length >= minRows
     };
-    const result = { verified_by: 'server:walk-forward:v1', run_id: audit.run_id, gates, mae, baseline_mae: baselineMae, sample_size: predictions.length };
+    const result = {
+      verified_by: 'server:walk-forward:v1', run_id: audit.run_id,
+      dataset_content_hash: input.dataset_content_hash,
+      feature_content_hash: input.feature_content_hash,
+      gates, mae, baseline_mae: baselineMae, sample_size: predictions.length
+    };
     const id = configurationHash({ experiment: req.params.id, protocol: 'walk_forward', run_id: audit.run_id });
     const now = new Date().toISOString();
     db.exec('BEGIN IMMEDIATE');
@@ -355,10 +361,12 @@ r.post('/registry/experiments/:id/rollback', requireModelPermission('model:promo
 // context (see server/modeling/ARCHITECTURE.md's confirmed active-league defect).
 const league = (req, res) => {
   let id;
-  try { id = requireLeagueId(req); assertLeagueMember(req.auth.userId, id); }
+  try { id = requireLeagueId(req); }
   catch (e) { res.status(e.status ?? 400).json({ error: e.message }); return null; }
   const lg = row('SELECT * FROM leagues WHERE id = ?', id);
   if (!lg) { res.status(404).json({ error: 'no league found for the active league id' }); return null; }
+  try { assertLeagueMember(req.auth.userId, id); }
+  catch (e) { res.status(e.status ?? 403).json({ error: e.message }); return null; }
   return lg;
 };
 
@@ -369,9 +377,9 @@ const respondError = (res, next, e) => (e.status ? res.status(e.status).json({ e
 r.get('/projections', requireAuthenticated, (req, res, next) => {
   try {
     const leagueId = requireLeagueId(req);
-    assertLeagueMember(req.auth.userId, leagueId);
     const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
     if (!lg) return res.status(404).json({ error: 'no league found for the active league id' });
+    assertLeagueMember(req.auth.userId, leagueId);
     const scoring = scoringFor(lg);
     const through = Number(req.query.through) || SEASON - 1;
     const proj = memo(`proj:${through}:${JSON.stringify(scoring)}`, () => buildProjections({ through, scoring }));
@@ -391,9 +399,9 @@ r.get('/projections', requireAuthenticated, (req, res, next) => {
 r.get('/projections/:playerId', requireAuthenticated, (req, res, next) => {
   try {
     const leagueId = requireLeagueId(req);
-    assertLeagueMember(req.auth.userId, leagueId);
     const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
     if (!lg) return res.status(404).json({ error: 'no league found for the active league id' });
+    assertLeagueMember(req.auth.userId, leagueId);
     const scoring = scoringFor(lg);
     const through = SEASON - 1;
     const proj = memo(`proj:${through}:${JSON.stringify(scoring)}`, () => buildProjections({ through, scoring }));

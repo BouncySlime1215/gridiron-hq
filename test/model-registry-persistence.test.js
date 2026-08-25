@@ -103,6 +103,16 @@ test('registry snapshot requires an authenticated persisted grant', async () => 
   assert.equal((await request('/registry', { method: 'GET', token: 'real-model-token' })).status, 200);
 });
 
+test('projection HTTP route rejects missing and unresolved active league context', async () => {
+  const missing = await request('/projections', { method: 'GET', token: 'real-model-token' });
+  assert.equal(missing.status, 400);
+  assert.match(missing.payload.error, /active league is required/);
+
+  const unresolved = await request('/projections?league_id=2147483647', { method: 'GET', token: 'real-model-token' });
+  assert.equal(unresolved.status, 404);
+  assert.match(unresolved.payload.error, /no league found for the active league id/);
+});
+
 test('NFL operational mutations require execute rather than training permission', async () => {
   run(`INSERT INTO users (subject) VALUES ('model:executor')`);
   const executorId = row(`SELECT id FROM users WHERE subject='model:executor'`).id;
@@ -213,6 +223,11 @@ test('server-run backtest persists verified metrics and gates promotion', async 
   // actual is 33 -> |20-33| = 13. This is a real registered model run through the
   // same splits, not a "predict zero" strawman.
   assert.equal(backtest.result.baseline_mae, 13);
+  assert.equal(backtest.result.dataset_content_hash, dataset.content_hash);
+  assert.equal(backtest.result.feature_content_hash, feature.content_hash);
+  const persistedResult = JSON.parse(row('SELECT result_json FROM model_backtests WHERE id=?', backtest.id).result_json);
+  assert.equal(persistedResult.dataset_content_hash, dataset.content_hash);
+  assert.equal(persistedResult.feature_content_hash, feature.content_hash);
   assert.equal(row('SELECT value FROM model_metrics WHERE backtest_id=? AND metric=?', backtest.id, 'mae').value, 3);
 
   // Promotion requires the sealed final-season holdout to have been opened and

@@ -15,7 +15,7 @@ const { seedIfEmpty } = await import('../server/db/seed/index.js');
 await runMigrations();
 seedIfEmpty();
 
-const { parseRssItems, ingestRssSource } = await import('../server/news/ingest.js');
+const { RSS_SOURCES, parseRssItems, ingestRssSource } = await import('../server/news/ingest.js');
 const { upsertNormalizedNewsItem } = await import('../server/news/store.js');
 const { normalizeNewsItem } = await import('../server/news/normalize.js');
 const { default: newsRouter } = await import('../server/routes/news.js');
@@ -102,6 +102,31 @@ test('ingestRssSource normalizes, attributes, and dedupes into news_items', asyn
   assert.equal(second.inserted, 0);
   assert.equal(second.updated, 1);
   assert.equal(row(`SELECT COUNT(*) AS n FROM news_items WHERE source_url LIKE 'https://example.com/a%'`).n, 1);
+});
+
+test('configured live RSS source is normalized and returned by GET /api/news with provenance', async () => {
+  const source = RSS_SOURCES[0];
+  const xml = `<rss><channel><item>
+    <title><![CDATA[Configured feed provenance check]]></title>
+    <link><![CDATA[https://www.espn.com/nfl/story/_/id/12345/provenance-check?utm_source=rss]]></link>
+    <description><![CDATA[An item delivered by the configured publisher feed.]]></description>
+    <pubDate>Tue, 25 Aug 2026 12:00:00 GMT</pubDate>
+  </item></channel></rss>`;
+  const result = await ingestRssSource(source, { fetchImpl: async url => {
+    assert.equal(url, source.url);
+    return { ok: true, text: async () => xml };
+  } });
+  assert.equal(result.inserted, 1);
+
+  const response = await request('/');
+  assert.equal(response.status, 200);
+  const article = response.payload.find(item => item.headline === 'Configured feed provenance check');
+  assert.ok(article);
+  assert.equal(article.source, source.name);
+  assert.equal(article.canonical_url, 'https://www.espn.com/nfl/story/_/id/12345/provenance-check');
+  assert.ok(Number.isFinite(Date.parse(article.ingested_at)));
+  assert.notEqual(article.source, 'AI analysis');
+  assert.equal(row(`SELECT COUNT(*) AS n FROM news_items WHERE source='AI analysis'`).n, 0);
 });
 
 test('normalize.js rejects "AI analysis" as a source before it ever reaches storage', () => {

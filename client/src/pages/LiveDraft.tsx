@@ -141,6 +141,7 @@ function Room({ id }: { id: string }) {
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [live, setLive] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
   const [filter, setFilter] = useState('ALL');
   const [rosterTab, setRosterTab] = useState<'lineup' | 'order'>('lineup');
   const adviceFor = useRef<number | null>(null);
@@ -159,9 +160,18 @@ function Room({ id }: { id: string }) {
       const s = await api(`/drafts/${id}/sync`, { method: 'POST' });
       if (s.new_picks?.length) setSyncNote(`+${s.new_picks.length} pick${s.new_picks.length > 1 ? 's' : ''} from ESPN`);
       setDesynced(!!s.desynced);
+      setAuthRequired(false);
       setErr(null);
     } catch (e: any) {
-      setErr(e.message);   // a sync failure must never blank the board
+      if (e.message === 'ESPN authentication failed') {
+        // Authentication errors are terminal for this polling episode. Keep the
+        // mirrored board intact and wait for an explicit retry after replacement.
+        setAuthRequired(true);
+        setLive(false);
+        setErr(null);
+      } else {
+        setErr(e.message);   // a sync failure must never blank the board
+      }
     } finally {
       syncing.current = false;
     }
@@ -230,7 +240,27 @@ function Room({ id }: { id: string }) {
       ?? state.targets.find((t: any) => t.name === advice.pick) ?? null;
   }, [advice, state]);
 
-  if (!state) return <p className="text-slate-500">Connecting to your ESPN draft…</p>;
+  const retryConnection = () => {
+    setAuthRequired(false);
+    setErr(null);
+    setLive(true);
+    void tick();
+  };
+
+  const reconnectNotice = authRequired && (
+    <div role="alert" className="card border-amber-300 bg-amber-50 p-4 mb-4">
+      <div className="font-semibold text-amber-900">ESPN reconnect required</div>
+      <p className="text-sm text-amber-800 mt-1">
+        Polling is paused and your last mirrored draft state is preserved. Replace this league’s ESPN credentials in Settings, then retry.
+      </p>
+      <div className="flex gap-3 mt-3">
+        <Link to="/settings" className="text-sm font-medium text-sky-700 underline">Open Settings</Link>
+        <button onClick={retryConnection} className="text-sm font-medium text-amber-900 underline">Retry connection</button>
+      </div>
+    </div>
+  );
+
+  if (!state) return <div>{reconnectNotice ?? <p className="text-slate-500">Connecting to your ESPN draft…</p>}</div>;
 
   const d = state.draft;
   const lineup = state.my_team.lineup;
@@ -239,6 +269,7 @@ function Room({ id }: { id: string }) {
 
   return (
     <div>
+      {reconnectNotice}
       {/* ------------------------------------------------------- sniped toasts */}
       {snipes.length > 0 && (
         <div className="fixed top-4 right-4 z-50 space-y-2 w-72">

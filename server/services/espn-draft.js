@@ -11,6 +11,7 @@
  * downstream feature (board, recommendation, grade) works unchanged on a live draft.
  */
 import { rows, row, run, db } from '../db/index.js';
+import { fetchEspnLeague } from './espn-client.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
@@ -38,32 +39,25 @@ const pickCols = db.prepare(`PRAGMA table_info(draft_picks)`).all().map(c => c.n
 if (!pickCols.includes('espn_team_id')) db.exec(`ALTER TABLE draft_picks ADD COLUMN espn_team_id INTEGER`);
 if (!pickCols.includes('keeper')) db.exec(`ALTER TABLE draft_picks ADD COLUMN keeper INTEGER DEFAULT 0`);
 
-/** ESPN cookies, from wherever the user connected (bookmarklet or manual form). */
-export function espnCookies() {
-  const get = k => row(`SELECT value FROM app_settings WHERE key = ?`, k)?.value ?? null;
-  let s2 = get('espn_s2'), swid = get('swid');
-  if (!s2 || !swid) {
-    const lg = row(`SELECT espn_s2, swid FROM leagues
-                    WHERE platform='espn' AND espn_s2 IS NOT NULL AND swid IS NOT NULL
-                    ORDER BY fetched_at DESC LIMIT 1`);
-    s2 = lg?.espn_s2 ?? null; swid = lg?.swid ?? null;
-  }
-  return { s2, swid };
-}
-
-async function espnGet(leagueId, season, views) {
-  const { s2, swid } = espnCookies();
-  const url = `${BASE}/seasons/${season}/segments/0/leagues/${leagueId}?${views.map(v => `view=${v}`).join('&')}`;
-  const headers = { Accept: 'application/json' };
-  if (s2 && swid) headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
-  const resp = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
-  if (!resp.ok) throw new Error(`ESPN API ${resp.status} on league ${leagueId}`);
-  return resp.json();
+/** ESPN cookies for one exact league/season. Never fall back across league rows. */
+export function espnCookies(leagueId, season) {
+  if (leagueId == null || season == null) return { s2: null, swid: null };
+  const league = row(`SELECT espn_s2, swid FROM leagues
+    WHERE platform='espn' AND league_id=? AND season=?`, String(leagueId), Number(season));
+  return { s2: league?.espn_s2 ?? null, swid: league?.swid ?? null };
 }
 
 /** Draft board + settings + team names for a league. */
-export function fetchDraftDetail(leagueId, season) {
-  return espnGet(leagueId, season, ['mDraftDetail', 'mSettings', 'mTeam']);
+export function fetchDraftDetail(league) {
+  if (!league.espn_s2 || !league.swid) {
+    throw Object.assign(new Error('ESPN connection required'), { status: 400 });
+  }
+  return fetchEspnLeague({
+    leagueId: league.league_id,
+    season: league.season,
+    espn_s2: league.espn_s2, swid: league.swid,
+    views: ['mDraftDetail', 'mSettings', 'mTeam']
+  });
 }
 
 const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
@@ -152,7 +146,7 @@ export async function ensureLiveDraft(leagueRowId) {
   if (!lg) throw Object.assign(new Error('league not found'), { status: 404 });
   if (lg.platform !== 'espn') throw Object.assign(new Error('live draft sync is ESPN-only'), { status: 400 });
 
-  const data = await fetchDraftDetail(lg.league_id, lg.season);
+  const data = await fetchDraftDetail(lg);
   const ds = data.settings?.draftSettings ?? {};
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
   const pickOrder = ds.pickOrder ?? (data.teams ?? []).map(t => t.id);
@@ -202,7 +196,13 @@ async function syncLiveDraftImpl(draftId) {
     throw Object.assign(new Error('not an ESPN-linked live draft'), { status: 400 });
   }
 
-  const data = await fetchDraftDetail(draft.espn_league_id, draft.season);
+  const league = row('SELECT * FROM leagues WHERE id = ?', draft.league_row_id);
+  if (!league || league.platform !== 'espn'
+      || String(league.league_id) !== String(draft.espn_league_id)
+      || Number(league.season) !== Number(draft.season)) {
+    throw Object.assign(new Error('draft is not bound to its requested ESPN league'), { status: 409 });
+  }
+  const data = await fetchDraftDetail(league);
   const detail = data.draftDetail ?? {};
   const ds = data.settings?.draftSettings ?? {};
   const pickOrder = ds.pickOrder ?? JSON.parse(draft.pick_order ?? '{}').order ?? [];

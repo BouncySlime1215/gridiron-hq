@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
+import { EspnAuthenticationError, fetchEspnLeague } from '../services/espn-client.js';
 
 const r = Router();
 
-const ESPN_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 
 r.get('/', (req, res) => {
@@ -15,20 +15,19 @@ r.get('/', (req, res) => {
 });
 
 r.post('/', (req, res) => {
-  const { platform, league_id, season = new Date().getFullYear(), espn_s2, swid, my_team_id } = req.body;
+  const { platform, league_id, season = new Date().getFullYear(), my_team_id } = req.body;
   if (!platform || !league_id) return res.status(400).json({ error: 'platform and league_id required' });
-  run(`INSERT OR IGNORE INTO leagues (platform, league_id, season, espn_s2, swid, my_team_id)
-       VALUES (?,?,?,?,?,?)`, platform, String(league_id), season, espn_s2 ?? null, swid ?? null,
+  run(`INSERT OR IGNORE INTO leagues (platform, league_id, season, my_team_id)
+       VALUES (?,?,?,?)`, platform, String(league_id), season,
     my_team_id != null ? String(my_team_id) : null);
   res.json(row('SELECT id, platform, league_id, season FROM leagues WHERE platform = ? AND league_id = ? AND season = ?',
     platform, String(league_id), season));
 });
 
 r.put('/:id', (req, res) => {
-  const { my_team_id, espn_s2, swid } = req.body;
-  run(`UPDATE leagues SET my_team_id = COALESCE(?, my_team_id),
-       espn_s2 = COALESCE(?, espn_s2), swid = COALESCE(?, swid) WHERE id = ?`,
-    my_team_id != null ? String(my_team_id) : null, espn_s2 ?? null, swid ?? null, req.params.id);
+  const { my_team_id } = req.body;
+  run(`UPDATE leagues SET my_team_id = COALESCE(?, my_team_id) WHERE id = ?`,
+    my_team_id != null ? String(my_team_id) : null, req.params.id);
   res.json({ ok: true });
 });
 
@@ -40,13 +39,13 @@ r.delete('/:id', (req, res) => {
 const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K', 23: 'FLEX' };
 
 async function fetchEspn(lg, season) {
-  const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}`
-    + `?scoringPeriodId=1&view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
-  const headers = { Accept: 'application/json' };
-  if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
-  const resp = await fetch(url, { headers });
-  if (!resp.ok) throw new Error(`ESPN API ${resp.status}`);
-  return resp.json();
+  if (!lg.espn_s2 || !lg.swid) throw Object.assign(new Error('ESPN connection required'), { status: 400 });
+  return fetchEspnLeague({
+    leagueId: lg.league_id,
+    season,
+    espn_s2: lg.espn_s2,
+    swid: lg.swid
+  });
 }
 
 const rosterCount = data => (data.teams ?? []).reduce((s, t) => s + (t.roster?.entries?.length ?? 0), 0);
@@ -66,7 +65,8 @@ async function syncEspnLeague(lg) {
   const rosterPositions = Object.entries(lineup)
     .flatMap(([slot, n]) => Array(n).fill(ESPN_SLOT_NAME[slot]).filter(Boolean));
   run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?,
-       league_type = ?, fetched_at = datetime('now') WHERE id = ?`,
+       league_type = ?, fetched_at = datetime('now'), espn_last_sync_at=datetime('now'),
+       espn_connection_state='connected' WHERE id = ?`,
     data.settings?.name ?? `ESPN ${lg.league_id}`, data.teams?.length ?? null,
     JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null,
     leagueTypeFromPayload('espn', data), lg.id);
@@ -101,8 +101,9 @@ async function syncSleeperLeague(lg) {
 }
 
 r.post('/:id/sync', async (req, res, next) => {
+  let lg;
   try {
-    const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
+    lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
     if (!lg) return res.status(404).json({ error: 'league not found' });
     const result = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
 
@@ -114,13 +115,19 @@ r.post('/:id/sync', async (req, res, next) => {
     const values = await syncDynastyValues().catch(e => ({ error: e.message }));
 
     res.json({ ok: true, ...result, values });
-  } catch (e) { next(e); }
+  } catch (e) {
+    if (lg?.platform === 'espn' && e instanceof EspnAuthenticationError) {
+      run(`UPDATE leagues SET espn_connection_state='reconnect_required' WHERE id=?`, lg.id);
+    }
+    next(e);
+  }
 });
 
 r.get('/:id/data', (req, res) => {
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
   if (!lg) return res.status(404).json({ error: 'league not found' });
-  res.json({ ...lg, payload: lg.payload ? JSON.parse(lg.payload) : null });
+  const { espn_s2: _espnS2, swid: _swid, ...safeLeague } = lg;
+  res.json({ ...safeLeague, payload: lg.payload ? JSON.parse(lg.payload) : null });
 });
 
 // ---- Roster needs/surplus analysis (ported from akodsi/fantasy-advisor) ----

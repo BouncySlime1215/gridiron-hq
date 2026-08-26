@@ -1,6 +1,7 @@
-import { db, row, run } from '../index.js';
+import { db, row, rows, run } from '../index.js';
 import { TEAMS } from './teams.js';
 import { DEPTH, DEFAULT_BOARD } from './players.js';
+import { findPlayerMatch } from '../../services/player-identity.js';
 
 const SLOT_PHASE = {
   QB: 'offense', RB1: 'offense', RB2: 'offense', WR1: 'offense', WR2: 'offense', WR3: 'offense', TE1: 'offense',
@@ -47,13 +48,31 @@ export function seedIfEmpty() {
     }
 
     const playerIdByName = {};
+    // Identity lookup for the fallback below. Loaded once and kept current as rows are
+    // inserted, so one pass can't create the same player twice.
+    const knownPlayers = rows('SELECT id, name, position, team_id, espn_id FROM players');
+
     for (const [abbr, slots] of Object.entries(DEPTH)) {
       for (const [slot, name] of Object.entries(slots)) {
         const depthRank = /2$/.test(slot) ? 2 : /3$/.test(slot) ? 3 : 1;
         let player = row('SELECT id FROM players WHERE team_id=? AND slot_code=? ORDER BY id LIMIT 1', teamIds[abbr], slot);
         if (!player) {
+          // slot_code is not a stable key: the ESPN player sync clears every offensive
+          // and special-teams slot_code before rebuilding depth charts from ownership,
+          // so a seeded player who didn't win a slot there becomes invisible to the
+          // lookup above. This function runs on *every* boot, so the insert below then
+          // added a second row for a player we already had, once per boot — which is
+          // where this database's duplicate players (and draft picks split across two
+          // ids for the same person) came from. Fall back to matching the human.
+          const { match } = findPlayerMatch(knownPlayers, {
+            espn_id: null, name, position: SLOT_POS[slot], team_id: teamIds[abbr]
+          });
+          if (match) player = { id: match.id };
+        }
+        if (!player) {
           const result = insertPlayer.run(name, SLOT_POS[slot], teamIds[abbr], depthRank, slot, SLOT_PHASE[slot], FANTASY_SLOT.has(slot) ? 1 : 0);
           player = { id: Number(result.lastInsertRowid) };
+          knownPlayers.push({ id: player.id, name, position: SLOT_POS[slot], team_id: teamIds[abbr], espn_id: null });
         } else {
           run(`UPDATE players SET name=?,position=?,depth_rank=?,phase=?,fantasy_relevant=? WHERE id=?`,
             name, SLOT_POS[slot], depthRank, SLOT_PHASE[slot], FANTASY_SLOT.has(slot) ? 1 : 0, player.id);
@@ -82,10 +101,15 @@ export function seedIfEmpty() {
       ON CONFLICT(set_id, player_id) DO UPDATE SET rank=excluded.rank,tier=excluded.tier`);
 
     DEFAULT_BOARD.forEach(([name, pos, abbr], i) => {
-      let pid = playerIdByName[name] ?? row('SELECT id FROM players WHERE name=? ORDER BY id LIMIT 1', name)?.id;
+      // Exact `name=?` alone missed anyone whose stored spelling differs by an
+      // apostrophe or suffix, and inserted a duplicate for them instead.
+      let pid = playerIdByName[name]
+        ?? row('SELECT id FROM players WHERE name=? ORDER BY id LIMIT 1', name)?.id
+        ?? findPlayerMatch(knownPlayers, { espn_id: null, name, position: pos, team_id: teamIds[abbr] ?? null }).match?.id;
       if (!pid) {
         const result = insertPlayer.run(name, pos, teamIds[abbr] ?? null, 1, null, 'offense', 1);
         pid = Number(result.lastInsertRowid);
+        knownPlayers.push({ id: pid, name, position: pos, team_id: teamIds[abbr] ?? null, espn_id: null });
       }
       run('UPDATE players SET fantasy_relevant = 1 WHERE id = ?', pid);
       const tier = i < 6 ? 1 : i < 15 ? 2 : i < 30 ? 3 : i < 50 ? 4 : i < 75 ? 5 : 6;

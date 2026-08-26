@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, headshotUrl, useApi } from '../api';
+import { Link, useParams } from 'react-router-dom';
+import { api, headshotUrl } from '../api';
+import DraftDiscovery from '../components/live-draft/DraftDiscovery';
 
 /* --------------------------------------------------------------- primitives */
 
@@ -78,59 +79,11 @@ function Face({ p, size = 40 }: { p: any; size?: number }) {
   );
 }
 
-/* ------------------------------------------------------------------ picker */
-
-function ConnectLeague() {
-  const { data: leagues } = useApi<any[]>('/leagues');
-  const [busy, setBusy] = useState<number | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const nav = useNavigate();
-
-  const link = async (id: number) => {
-    setBusy(id); setErr(null);
-    try {
-      const out = await api('/drafts/live/link', { method: 'POST', body: JSON.stringify({ league_row_id: id }) });
-      nav(`/live-draft/${out.draft_id}`);
-    } catch (e: any) { setErr(e.message); }
-    finally { setBusy(null); }
-  };
-
-  const espn = (leagues ?? []).filter(l => l.platform === 'espn');
-  return (
-    <div>
-      <h1 className="text-2xl font-bold mb-1">Live Draft Hub</h1>
-      <p className="text-sm text-slate-600 mb-6">
-        Mirrors your ESPN draft board pick-by-pick and tells you who to take while you're on the clock.
-      </p>
-      {err && <p className="text-sm text-rose-600 mb-3">{err}</p>}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {espn.map(l => (
-          <button key={l.id} onClick={() => link(l.id)} disabled={busy === l.id}
-            className="card p-4 text-left hover:border-sky-300 disabled:opacity-50">
-            <div className="font-semibold">{l.name ?? `ESPN ${l.league_id}`}</div>
-            <div className="text-xs text-slate-500 mt-1">
-              {l.season} · {l.team_count ?? '?'} teams · league {l.league_id}
-            </div>
-            <div className="text-xs font-medium text-sky-700 mt-2">
-              {busy === l.id ? 'Connecting…' : 'Open draft room →'}
-            </div>
-          </button>
-        ))}
-        {!espn.length && (
-          <p className="text-sm text-slate-500">
-            No ESPN leagues connected yet — <Link to="/settings" className="text-sky-700 underline">connect ESPN</Link> first.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* --------------------------------------------------------------- the room */
 
 export default function LiveDraft() {
   const { id } = useParams();
-  if (!id) return <ConnectLeague />;
+  if (!id) return <DraftDiscovery />;
   return <Room id={id} />;
 }
 

@@ -1,0 +1,103 @@
+{
+  "seasons": [
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "point_metrics": {
+    "pass_yds": {
+      "n": 2335,
+      "mae": 70.142,
+      "rmse": 90.284,
+      "bias": 0.113
+    },
+    "rush_yds": {
+      "n": 8621,
+      "mae": 16.979,
+      "rmse": 25.092,
+      "bias": 0.098
+    },
+    "rec_yds": {
+      "n": 16750,
+      "mae": 18.658,
+      "rmse": 26.053,
+      "bias": 0.876
+    },
+    "receptions": {
+      "n": 16750,
+      "mae": 1.413,
+      "rmse": 1.882,
+      "bias": 0.063
+    }
+  },
+  "touchdown_probability": {
+    "n": 19705,
+    "brier": 0.1693,
+    "log_loss": 0.5884,
+    "reliability": [
+      {
+        "range": "0-10%",
+        "n": 5957,
+        "predicted": 0.028,
+        "actual": 0.123
+      },
+      {
+        "range": "10-20%",
+        "n": 3569,
+        "predicted": 0.148,
+        "actual": 0.182
+      },
+      {
+        "range": "20-30%",
+        "n": 3019,
+        "predicted": 0.248,
+        "actual": 0.237
+      },
+      {
+        "range": "30-40%",
+        "n": 2298,
+        "predicted": 0.347,
+        "actual": 0.289
+      },
+      {
+        "range": "40-50%",
+        "n": 1537,
+        "predicted": 0.446,
+        "actual": 0.366
+      },
+      {
+        "range": "50-60%",
+        "n": 944,
+        "predicted": 0.548,
+        "actual": 0.431
+      },
+      {
+        "range": "60-70%",
+        "n": 717,
+        "predicted": 0.647,
+        "actual": 0.526
+      },
+      {
+        "range": "70-80%",
+        "n": 613,
+        "predicted": 0.749,
+        "actual": 0.716
+      },
+      {
+        "range": "80-90%",
+        "n": 706,
+        "predicted": 0.849,
+        "actual": 0.8
+      },
+      {
+        "range": "90-100%",
+        "n": 345,
+        "predicted": 0.928,
+        "actual": 0.87
+      }
+    ]
+  },
+  "note": "Strictly walk-forward within each season. Game-script adjustment is excluded until its coefficients are also cutoff-fitted.",
+  "_elapsed_s": 22.1
+}

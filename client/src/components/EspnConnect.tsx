@@ -25,7 +25,33 @@ export default function EspnConnect() {
   const [msg, setMsg] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [paste, setPaste] = useState('');
+  const [pasteErr, setPasteErr] = useState<string | null>(null);
   const autoRan = useRef(false);
+
+  /**
+   * The always-works path. Bookmarklets are genuinely awkward on Safari, on mobile,
+   * and on managed work profiles, and some browsers refuse the cross-origin post
+   * outright — pasting whatever `document.cookie` gave them never fails for those
+   * reasons, and the server pulls the two values out of the blob.
+   */
+  const connectFromPaste = async () => {
+    setBusy(true); setPasteErr(null); setMsg(null);
+    try {
+      const r = await api<any>('/espn-connect/cookies', {
+        method: 'POST',
+        body: JSON.stringify({ raw: paste })
+      });
+      setPaste('');
+      setBanner(r.leagues_found > 0
+        ? `Connected! Found ${r.leagues_found} league${r.leagues_found === 1 ? '' : 's'} on your ESPN account below.`
+        : 'Connected to ESPN. No leagues showed up yet — try "Find my leagues" below.');
+      refetch();
+      discover(true);
+    } catch (e: any) {
+      setPasteErr(e.message);
+    } finally { setBusy(false); }
+  };
 
   const discover = async (silent = false) => {
     if (!silent) setBusy(true);
@@ -135,15 +161,60 @@ export default function EspnConnect() {
             (Windows) to show it, then try again. On a trackpad, click and hold the button until it lifts, then drag.
           </p>
 
+          {/* The fallback that works everywhere. Not hidden behind a link: bookmarklets
+              fail for enough people (Safari, mobile, work laptops, browsers that block
+              the cross-origin post) that burying this just strands them. */}
+          <div className="mt-4 pt-3 border-t border-slate-200">
+            <p className="text-xs font-semibold text-slate-700 mb-1">Or paste it instead</p>
+            <ol className="text-xs text-slate-600 space-y-1.5 mb-2 list-decimal list-inside">
+              <li>
+                On{' '}
+                <a href="https://www.espn.com/fantasy/football/" target="_blank" rel="noreferrer"
+                  className="text-emerald-600 underline">espn.com</a>, signed in, press{' '}
+                <kbd className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-600">F12</kbd>{' '}
+                (or right-click → <b>Inspect</b>) and open the <b>Console</b> tab.
+              </li>
+              {/* Not flex: `display:flex` on an <li> suppresses its list marker, which
+                  silently renumbered these steps 1, _, 2. */}
+              <li>
+                Paste this, press Enter:{' '}
+                <code className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[11px] text-slate-700 whitespace-nowrap">
+                  copy(document.cookie)
+                </code>{' '}
+                <button type="button"
+                  className="text-[10px] text-emerald-600 bg-white border border-slate-200 rounded px-1.5 py-0.5 align-middle"
+                  onClick={() => navigator.clipboard?.writeText('copy(document.cookie)')}>copy</button>
+              </li>
+              <li>Come back here, paste in the box, and hit Connect.</li>
+            </ol>
+            <textarea
+              value={paste}
+              onChange={e => { setPaste(e.target.value); setPasteErr(null); }}
+              rows={3}
+              spellCheck={false}
+              aria-label="Paste your ESPN cookies"
+              placeholder="Paste here — the whole cookie string is fine, we'll find the two bits we need."
+              className="w-full text-[11px] font-mono rounded-lg border border-slate-300 p-2 text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            {pasteErr && (
+              <p role="alert" className="text-[11px] text-rose-600 mt-1">{pasteErr}</p>
+            )}
+            <button
+              className="btn-primary text-xs mt-2"
+              disabled={busy || !paste.trim()}
+              onClick={connectFromPaste}>
+              {busy ? 'Checking with ESPN…' : 'Connect'}
+            </button>
+          </div>
+
           <button onClick={() => setShowHelp(s => !s)}
             className="text-[11px] text-slate-500 hover:text-slate-700 underline mt-3">
-            {showHelp ? 'Hide other option' : "Can't drag to bookmarks? Try this instead"}
+            {showHelp ? 'Hide advanced' : 'Advanced: run the connect script in the console'}
           </button>
           {showHelp && bm?.console_snippet && (
             <div className="mt-2">
               <p className="text-[11px] text-slate-500 mb-1">
-                While on espn.com, signed in: right-click the page and choose <b>Inspect</b>, click the{' '}
-                <b>Console</b> tab at the top of the panel that opens, paste this in, and press Enter:
+                Same thing the bookmark does — paste this into the console on espn.com instead:
               </p>
               <div className="relative">
                 <pre className="text-[10px] bg-slate-50 border border-slate-200 rounded-lg p-2 overflow-x-auto max-h-32 text-slate-600">
@@ -155,7 +226,8 @@ export default function EspnConnect() {
             </div>
           )}
           <p className="text-[10px] text-slate-400 mt-3">
-            Nothing is sent anywhere but ESPN and this app running on your own Mac.
+            Your cookies are checked against ESPN and stored only on this machine. Nothing is
+            sent anywhere else, and a failed attempt never touches a connection that already works.
           </p>
         </>
       )}

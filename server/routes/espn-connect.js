@@ -3,16 +3,30 @@
  *
  * Private ESPN leagues need two cookies, `espn_s2` and `SWID`, and the usual way to get
  * them is a nine-step DevTools walkthrough that most people abandon. This route serves a
- * bookmarklet that reads them on ESPN's own page and posts them straight back here.
+ * bookmarklet that reads them on ESPN's own page and posts them straight back here, plus
+ * a paste box that accepts whatever the user managed to copy for the browsers where
+ * bookmarklets are awkward (Safari, mobile, locked-down work profiles).
  *
  * The cookies never leave the machine: the bookmarklet runs in the user's browser and
- * posts to localhost. Nothing is sent anywhere but ESPN's API, exactly as before.
+ * posts to their own local install. Nothing is sent anywhere but ESPN's API.
  */
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 
 const r = Router();
-const PORT = process.env.API_PORT || 5177;
+
+/**
+ * Where this install actually answers, as seen by the browser.
+ *
+ * Hardcoding localhost:5177 broke every clone that runs on another port (PORT/API_PORT
+ * are configurable) — the bookmarklet would post into the void with no visible reason.
+ * Deriving it from the request the Settings page just made is always right.
+ */
+function originFor(req) {
+  const host = req.headers.host || `localhost:${process.env.API_PORT || 5177}`;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  return `${proto}://${host}`;
+}
 
 /**
  * Cookies, wherever they actually live.
@@ -44,6 +58,35 @@ function getCookies() {
   return { s2: null, swid: null, source: null };
 }
 
+/* ---------------------------------------------------------------- cross-origin */
+
+/**
+ * The bookmarklet runs on espn.com and posts here, which is cross-origin — so without
+ * these headers the browser rejects the request before this server ever sees a body,
+ * and the user just gets "could not reach Gridiron HQ" with nothing in any log. That
+ * was the actual reason one-click connect never worked.
+ *
+ * Scoped to ESPN origins only: this endpoint writes credentials, so it should not be
+ * callable by any page that happens to know the port.
+ */
+const ESPN_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*espn\.com$/i;
+
+function captureCors(req, res, next) {
+  const origin = req.headers.origin;
+  if (origin && ESPN_ORIGIN.test(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type');
+    // Chrome's Private Network Access check: a public site (espn.com) reaching a
+    // private address (this machine) is refused unless the target opts in.
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    res.setHeader('Access-Control-Max-Age', '600');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+}
+
 /* --------------------------------------------------------- the bookmarklet */
 
 /**
@@ -63,19 +106,13 @@ const BOOKMARKLET = origin => `
   if (!s2 || !swid) {
     alert('Could not read the ESPN cookies.\\n\\n' +
           'Make sure you are on espn.com and signed in to your fantasy account, then try again.\\n\\n' +
-          'If it still fails, ESPN may have changed their cookie settings — ' +
-          'you can copy them manually from DevTools > Application > Cookies.');
+          'If it still fails, open Settings in Gridiron HQ and use the paste box instead.');
     return;
   }
-  var leagues = [];
-  try {
-    var m = location.href.match(/leagueId[=/](\\d+)/i);
-    if (m) leagues.push(m[1]);
-  } catch (e) {}
   fetch('${origin}/api/espn-connect/cookies', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ espn_s2: s2, swid: swid, league_ids: leagues })
+    body: JSON.stringify({ espn_s2: s2, swid: swid })
   })
   .then(function(r){ return r.json(); })
   .then(function(d){
@@ -86,18 +123,30 @@ const BOOKMARKLET = origin => `
     else alert('Gridiron HQ said: ' + (d.error || 'unknown error'));
   })
   .catch(function(){
-    alert('Could not reach Gridiron HQ at ${origin}.\\n\\nMake sure the app is running (npm start, or double-click the Desktop icon), then try again.');
+    alert('Could not reach Gridiron HQ at ${origin}.\\n\\n' +
+          'Make sure the app is running, then try again. If your browser blocks this, ' +
+          'open Settings in Gridiron HQ and use the paste box instead.');
   });
 })();`;
 
-const minify = s => s.replace(/\/\/[^\n]*/g, '').replace(/\s+/g, ' ').trim();
+/**
+ * Strip whole-line comments, then collapse whitespace.
+ *
+ * Deliberately only matches a `//` that starts its own line. The previous version
+ * matched `//` anywhere, so it ate the one inside `http://localhost:5177/...` and
+ * emitted `fetch('http:` — a syntax error. The bookmarklet could never have run.
+ */
+const minify = s => s.replace(/^\s*\/\/[^\n]*$/gm, '').replace(/\s+/g, ' ').trim();
 
-/** The bookmarklet as a javascript: URL, plus instructions for the Settings page. */
+/** The bookmarklet as a javascript: URL, plus a copy/paste snippet for the fallback. */
 r.get('/bookmarklet', (req, res) => {
-  const origin = `http://localhost:${PORT}`;
+  const origin = originFor(req);
   res.json({
     href: `javascript:${encodeURIComponent(minify(BOOKMARKLET(origin)))}`,
     console_snippet: minify(BOOKMARKLET(origin)),
+    // What the paste box wants: dump the cookies to the clipboard, no posting involved.
+    // Works in every browser's console, including ones that refuse bookmarklets.
+    copy_snippet: 'copy(document.cookie)',
     origin
   });
 });
@@ -105,26 +154,82 @@ r.get('/bookmarklet', (req, res) => {
 /* ------------------------------------------------------------ the receiver */
 
 /**
- * Store cookies posted by the bookmarklet, then look up which leagues the account
- * actually has — so the user picks from a list instead of hunting for a league id.
+ * Pull espn_s2 / SWID out of whatever the user pasted.
+ *
+ * Accepts a raw `document.cookie` dump, a `Cookie:` header, a curl command, the two
+ * values on separate lines, or JSON — because telling a non-technical user "paste
+ * exactly the right substring" is how you lose them. Exported for tests.
  */
-r.post('/cookies', async (req, res, next) => {
+export function extractEspnCookies(text) {
+  const s = String(text ?? '');
+  const pick = name => {
+    // key=value, tolerating quotes, whitespace and surrounding punctuation.
+    const m = s.match(new RegExp(`${name}\\s*[=:]\\s*["']?([^;,"'\\s]+)`, 'i'));
+    return m ? decodeURIComponent(m[1]) : null;
+  };
+  const s2 = pick('espn_s2');
+  let swid = pick('SWID');
+  // A bare SWID pasted on its own line has no key at all — accept a lone GUID.
+  if (!swid) {
+    const guid = s.match(/\{?[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\}?/i);
+    if (guid) swid = guid[0];
+  }
+  return { espn_s2: s2, swid };
+}
+
+/** ESPN's API wants the SWID in braces; the cookie sometimes already has them. */
+const braceSwid = v => (v.startsWith('{') ? v : `{${v}}`);
+
+/**
+ * Store cookies from the bookmarklet or the paste box.
+ *
+ * Validates against ESPN *before* writing anything. Two reasons that matters: garbage
+ * never gets persisted and silently breaks every later sync, and a failed attempt can
+ * no longer destroy credentials that were working — an unauthenticated write endpoint
+ * that overwrites every league's cookies with whatever it receives is a genuine footgun
+ * (it wiped a real set during development).
+ */
+r.options('/cookies', captureCors);
+r.post('/cookies', captureCors, async (req, res, next) => {
   try {
-    const espn_s2 = (req.body?.espn_s2 ?? '').trim();
-    const swidRaw = (req.body?.swid ?? '').trim();
-    if (!espn_s2 || !swidRaw) return res.status(400).json({ error: 'both espn_s2 and SWID are required' });
-    // ESPN's API wants the SWID wrapped in braces; the cookie sometimes already is.
-    const swid = swidRaw.startsWith('{') ? swidRaw : `{${swidRaw}}`;
+    let espn_s2 = (req.body?.espn_s2 ?? '').trim();
+    let swidRaw = (req.body?.swid ?? '').trim();
+
+    // The paste box sends one blob instead of two fields.
+    if (req.body?.raw) {
+      const parsed = extractEspnCookies(req.body.raw);
+      espn_s2 = espn_s2 || (parsed.espn_s2 ?? '');
+      swidRaw = swidRaw || (parsed.swid ?? '');
+    }
+
+    if (!espn_s2 || !swidRaw) {
+      return res.status(400).json({
+        error: "Couldn't find both cookies in that. Make sure what you paste contains espn_s2 and SWID."
+      });
+    }
+    const swid = braceSwid(swidRaw);
+
+    const check = await validateCookies(espn_s2, swid);
+    if (!check.ok) {
+      return res.status(400).json({
+        error: check.reason,
+        // Nothing was written — say so explicitly, so a user who was already connected
+        // knows a failed retry did not just log them out.
+        unchanged: true
+      });
+    }
 
     run(`INSERT INTO app_settings (key, value) VALUES ('espn_s2', ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`, espn_s2);
     run(`INSERT INTO app_settings (key, value) VALUES ('swid', ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`, swid);
-    // Keep any already-connected leagues working with the refreshed cookies.
-    run(`UPDATE leagues SET espn_s2 = ?, swid = ? WHERE platform = 'espn'`, espn_s2, swid);
+    // Refresh saved leagues that belong to THIS ESPN account (or were never bound to
+    // one), not every ESPN league on the install — someone with leagues under two
+    // accounts would otherwise have the second connection silently break the first.
+    run(`UPDATE leagues SET espn_s2 = ?, swid = ?
+         WHERE platform = 'espn' AND (swid IS NULL OR swid = ?)`, espn_s2, swid, swid);
 
-    const found = await discoverLeagues(espn_s2, swid).catch(() => []);
-    res.json({ ok: true, leagues_found: found.length, leagues: found });
+    res.json({ ok: true, leagues_found: check.leagues.length, leagues: check.leagues });
   } catch (e) { next(e); }
 });
 
@@ -142,6 +247,7 @@ r.get('/status', (req, res) => {
 
 r.delete('/cookies', (req, res) => {
   run(`DELETE FROM app_settings WHERE key IN ('espn_s2','swid')`);
+  run(`UPDATE leagues SET espn_s2 = NULL, swid = NULL WHERE platform = 'espn'`);
   res.json({ ok: true });
 });
 
@@ -150,16 +256,21 @@ r.delete('/cookies', (req, res) => {
  *
  * ESPN's fan API returns the user's fantasy preferences, each carrying a league id —
  * which is how we turn "signed in" into "here are your leagues" without asking the user
- * to find an id in a URL.
+ * to find an id in a URL. Also doubles as the credential check: it is the cheapest
+ * endpoint that fails loudly when the cookies are wrong.
  */
-async function discoverLeagues(espn_s2, swid) {
+async function fetchFanLeagues(espn_s2, swid) {
   const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
   const headers = { Cookie: `espn_s2=${espn_s2}; SWID=${swid}`, Accept: 'application/json' };
 
   const res = await fetch(
     `https://fan.api.espn.com/apis/v2/fans/${encodeURIComponent(swid)}?featureFlags=challengeEntries&showAirings=buy,live,replay&source=ESPN.com+-+FAM&lang=en&section=espn`,
     { headers, signal: AbortSignal.timeout(15000) });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    const err = new Error(`ESPN returned ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   const data = await res.json();
 
   const out = [];
@@ -182,12 +293,36 @@ async function discoverLeagues(espn_s2, swid) {
   return [...new Map(out.map(l => [l.league_id, l])).values()];
 }
 
+/**
+ * Do these cookies actually work? Returns leagues on success so the caller doesn't
+ * need a second round-trip. Never throws — the caller turns `reason` into UI copy.
+ */
+async function validateCookies(espn_s2, swid) {
+  try {
+    return { ok: true, leagues: await fetchFanLeagues(espn_s2, swid) };
+  } catch (e) {
+    // 404 is what the fan API actually returns for a SWID it doesn't recognise — as
+    // common a failure as 401/403 here, and "ESPN returned 404" tells a user nothing.
+    if (e.status === 401 || e.status === 403 || e.status === 404) {
+      return {
+        ok: false,
+        reason: "ESPN didn't recognise those cookies. Make sure you were signed in to ESPN in that browser when you copied them, and that you copied both espn_s2 and SWID.",
+        leagues: []
+      };
+    }
+    if (e.name === 'TimeoutError' || /timeout/i.test(e.message)) {
+      return { ok: false, reason: "Couldn't reach ESPN just now (timed out). Your existing connection was left alone — try again in a moment.", leagues: [] };
+    }
+    return { ok: false, reason: `Couldn't verify those cookies with ESPN: ${e.message}`, leagues: [] };
+  }
+}
+
 /** Re-run discovery on demand, using stored cookies from whichever source has them. */
 r.get('/discover', async (req, res, next) => {
   try {
     const { s2, swid } = getCookies();
     if (!s2 || !swid) return res.status(400).json({ error: 'no ESPN cookies stored yet — connect below first' });
-    res.json({ leagues: await discoverLeagues(s2, swid) });
+    res.json({ leagues: await fetchFanLeagues(s2, swid).catch(() => []) });
   } catch (e) { next(e); }
 });
 

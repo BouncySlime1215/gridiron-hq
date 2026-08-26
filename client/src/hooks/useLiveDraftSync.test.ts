@@ -95,6 +95,29 @@ describe('useLiveDraftSync', () => {
     expect(result.current.desynced).toBe(true);
   });
 
+  it.each(['ESPN_INVALID_SNAPSHOT', 'ESPN_MALFORMED_RESPONSE'])(
+    'treats categorized %s errors as terminal invalid data and preserves the board',
+    async code => {
+      mockAssistThen(mockedApi);
+      const { result } = renderHook(() => useLiveDraftSync('1'));
+      await flush();
+
+      mockedApi.mockImplementation((path: string) => path.endsWith('/sync')
+        ? Promise.reject(new ApiError('unsafe ESPN response', { code, status: 422 }))
+        : Promise.resolve(board));
+      const callsBeforeFailure = mockedApi.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+      await flush();
+      expect(result.current.health).toBe('invalid-data');
+      expect(result.current.board).toEqual(board);
+      expect(result.current.consecutiveFailures).toBe(0);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      await flush();
+      expect(mockedApi.mock.calls.length).toBe(callsBeforeFailure + 2); // failed sync + retained-board fetch; no poll
+    }
+  );
+
   it('pausing stops polling and resuming restarts it', async () => {
     mockAssistThen(mockedApi);
     const { result } = renderHook(() => useLiveDraftSync('1'));

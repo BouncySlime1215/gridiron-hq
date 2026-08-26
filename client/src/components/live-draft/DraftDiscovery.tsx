@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../../api';
 import {
-  confirmDraftTeam, discoverLiveDrafts, startOrResumeLiveDraft, type DraftFixture
+  discoverLiveDrafts, startOrResumeLiveDraft, type DraftFixture
 } from '../../services/liveDraft';
 
 const STATUS_LABEL: Record<DraftFixture['status'], string> = {
@@ -21,23 +21,16 @@ function formatWhen(iso: string | null) {
 }
 
 /** Guided team-confirmation control: shown only when ownership can't be proven from ESPN alone. */
-function TeamConfirm({ fixture, onConfirmed }: { fixture: DraftFixture; onConfirmed: (slot: number) => void }) {
+function TeamConfirm({ fixture, onConfirmed }: { fixture: DraftFixture; onConfirmed: (teamId: number, slot: number) => void }) {
   const [choice, setChoice] = useState<number | ''>('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const options = useMemo(
     () => (fixture.pick_order ?? []).map((espnTeamId, i) => ({ espnTeamId, slot: i + 1 })),
     [fixture.pick_order]
   );
 
-  const confirm = async () => {
+  const confirm = () => {
     if (choice === '') return;
-    setBusy(true); setErr(null);
-    try {
-      await confirmDraftTeam(fixture.league_row_id, Number(choice));
-      onConfirmed(options.findIndex(o => o.espnTeamId === Number(choice)) + 1);
-    } catch (e: any) { setErr(e.message); }
-    finally { setBusy(false); }
+    onConfirmed(Number(choice), options.findIndex(o => o.espnTeamId === Number(choice)) + 1);
   };
 
   return (
@@ -45,7 +38,6 @@ function TeamConfirm({ fixture, onConfirmed }: { fixture: DraftFixture; onConfir
       <p className="text-xs font-semibold text-amber-900">
         We couldn't confirm which team is yours in this league. Pick it before starting — no roster will be assigned automatically.
       </p>
-      {err && <p role="alert" className="text-xs text-rose-700 mt-1">{err}</p>}
       <div className="mt-2 flex gap-2 items-center flex-wrap">
         <label htmlFor={`team-${fixture.league_row_id}`} className="sr-only">Your ESPN team</label>
         <select id={`team-${fixture.league_row_id}`} className="input text-xs" value={choice}
@@ -53,8 +45,8 @@ function TeamConfirm({ fixture, onConfirmed }: { fixture: DraftFixture; onConfir
           <option value="">Select your team…</option>
           {options.map(o => <option key={o.espnTeamId} value={o.espnTeamId}>Draft slot {o.slot}</option>)}
         </select>
-        <button type="button" className="btn-primary text-xs" disabled={choice === '' || busy} onClick={confirm}>
-          {busy ? 'Confirming…' : 'Confirm my team'}
+        <button type="button" className="btn-primary text-xs" disabled={choice === ''} onClick={confirm}>
+          Confirm my team
         </button>
       </div>
     </div>
@@ -63,6 +55,7 @@ function TeamConfirm({ fixture, onConfirmed }: { fixture: DraftFixture; onConfir
 
 function FixtureCard({ fixture, onStarted }: { fixture: DraftFixture; onStarted: (draftId: number) => void }) {
   const [confirmedSlot, setConfirmedSlot] = useState<number | null>(fixture.ownership_confirmed ? fixture.my_slot : null);
+  const [confirmedTeamId, setConfirmedTeamId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const canStart = fixture.ownership_confirmed || confirmedSlot != null;
@@ -73,7 +66,7 @@ function FixtureCard({ fixture, onStarted }: { fixture: DraftFixture; onStarted:
   const start = async () => {
     setBusy(true); setErr(null);
     try {
-      const out = await startOrResumeLiveDraft(fixture.league_row_id);
+      const out = await startOrResumeLiveDraft(fixture.league_row_id, confirmedTeamId ?? undefined);
       onStarted(out.draft_id);
     } catch (e: any) {
       const apiErr = e as ApiError;
@@ -108,7 +101,10 @@ function FixtureCard({ fixture, onStarted }: { fixture: DraftFixture; onStarted:
         </div>
       </dl>
 
-      {!canStart && <TeamConfirm fixture={fixture} onConfirmed={setConfirmedSlot} />}
+      {!canStart && <TeamConfirm fixture={fixture} onConfirmed={(teamId, slot) => {
+        setConfirmedTeamId(teamId);
+        setConfirmedSlot(slot);
+      }} />}
 
       {err && <p role="alert" className="text-xs text-rose-700 mt-2">{err}</p>}
       <button type="button" className="btn-primary text-xs mt-3" disabled={!canStart || busy} onClick={start}

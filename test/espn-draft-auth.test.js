@@ -15,7 +15,7 @@ test('live draft authentication failure is terminal for the polling episode', ()
 test('reconnect notice is singular and explicit retry resumes polling', () => {
   assert.equal(source.match(/ESPN reconnect required/g)?.length, 1);
   assert.match(syncHook, /const reconnect = useCallback\(\(\) => \{[\s\S]*authRequiredRef\.current = false;[\s\S]*void run\(\)/);
-  assert.match(syncHook, /if \(!authRequiredRef\.current\) scheduleNext/);
+  assert.match(syncHook, /if \(!authRequiredRef\.current && !invalidDataRef\.current\) scheduleNext/);
   assert.match(source, /last mirrored draft state is preserved/);
   assert.match(source, /Retry connection/);
 });

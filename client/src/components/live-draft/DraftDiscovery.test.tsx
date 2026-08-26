@@ -24,11 +24,16 @@ function renderPage() {
   return render(<MemoryRouter><DraftDiscovery /></MemoryRouter>);
 }
 
+function mockDiscovery(fixtures: any[]) {
+  mockedApi.mockResolvedValueOnce([{ id: 1, platform: 'espn' }]);
+  for (const fixture of fixtures) mockedApi.mockResolvedValueOnce(fixture);
+}
+
 describe('DraftDiscovery', () => {
   afterEach(() => { vi.clearAllMocks(); cleanup(); });
 
   it('shows all required setup fields for a fixture', async () => {
-    mockedApi.mockResolvedValueOnce([baseFixture]);
+    mockDiscovery([baseFixture]);
     renderPage();
     const card = await screen.findByTestId('draft-fixture');
     expect(within(card).getByText('Dynasty Dudes')).toBeInTheDocument();
@@ -59,32 +64,33 @@ describe('DraftDiscovery', () => {
   it('disables Start until an unproven team is explicitly confirmed, then enables it', async () => {
     const user = userEvent.setup();
     const unconfirmed = { ...baseFixture, ownership_confirmed: false, my_team: null, my_slot: null };
-    mockedApi.mockResolvedValueOnce([unconfirmed]);
+    mockDiscovery([unconfirmed]);
     renderPage();
     const card = await screen.findByTestId('draft-fixture');
     const startBtn = within(card).getByRole('button', { name: 'Start Live Draft' });
     expect(startBtn).toBeDisabled();
 
-    mockedApi.mockResolvedValueOnce({ ok: true });
     await user.selectOptions(within(card).getByLabelText('Your ESPN team'), '3');
     await user.click(within(card).getByRole('button', { name: 'Confirm my team' }));
     await waitFor(() => expect(startBtn).toBeEnabled());
-    expect(mockedApi).toHaveBeenCalledWith('/drafts/live/confirm-team', expect.objectContaining({
-      body: JSON.stringify({ league_row_id: 1, espn_team_id: 3 })
+    mockedApi.mockResolvedValueOnce({ draft_id: 42, created: true, sync: {} });
+    await user.click(startBtn);
+    expect(mockedApi).toHaveBeenCalledWith('/drafts/live/link', expect.objectContaining({
+      body: JSON.stringify({ league_row_id: 1, confirmed_team_id: 3 })
     }));
   });
 
   it('never silently assigns a roster: no start call happens before confirmation', async () => {
     const unconfirmed = { ...baseFixture, ownership_confirmed: false, my_team: null, my_slot: null };
-    mockedApi.mockResolvedValueOnce([unconfirmed]);
+    mockDiscovery([unconfirmed]);
     renderPage();
     await screen.findByTestId('draft-fixture');
-    expect(mockedApi).toHaveBeenCalledTimes(1); // only the discover call
+    expect(mockedApi).toHaveBeenCalledTimes(2); // league list + read-only discovery
   });
 
   it('shows "Start Live Draft" for a never-started fixture and reuses the returned draft id', async () => {
     const user = userEvent.setup();
-    mockedApi.mockResolvedValueOnce([baseFixture]);
+    mockDiscovery([baseFixture]);
     renderPage();
     const card = await screen.findByTestId('draft-fixture');
     expect(within(card).getByRole('button', { name: 'Start Live Draft' })).toBeInTheDocument();
@@ -97,7 +103,7 @@ describe('DraftDiscovery', () => {
   });
 
   it('shows "Resume Live Draft" once a local draft already exists for the league', async () => {
-    mockedApi.mockResolvedValueOnce([{ ...baseFixture, status: 'active', local_draft_id: 42 }]);
+    mockDiscovery([{ ...baseFixture, status: 'active', local_draft_id: 42 }]);
     renderPage();
     const card = await screen.findByTestId('draft-fixture');
     expect(within(card).getByRole('button', { name: 'Resume Live Draft' })).toBeInTheDocument();
@@ -105,7 +111,7 @@ describe('DraftDiscovery', () => {
 
   it('surfaces an authentication-expiry error with a recovery message instead of crashing', async () => {
     const user = userEvent.setup();
-    mockedApi.mockResolvedValueOnce([{ ...baseFixture, local_draft_id: 42 }]);
+    mockDiscovery([{ ...baseFixture, local_draft_id: 42 }]);
     renderPage();
     const card = await screen.findByTestId('draft-fixture');
     mockedApi.mockRejectedValueOnce(new ApiError('expired', { code: 'ESPN_AUTHENTICATION_FAILED', status: 401 }));
@@ -117,7 +123,7 @@ describe('DraftDiscovery', () => {
     const user = userEvent.setup();
     // Each "load" simulates a fresh browser session (new render) hitting discover, then start/resume.
     for (let attempt = 1; attempt <= 3; attempt++) {
-      mockedApi.mockResolvedValueOnce([{ ...baseFixture, local_draft_id: attempt === 1 ? null : 42 }]);
+      mockDiscovery([{ ...baseFixture, local_draft_id: attempt === 1 ? null : 42 }]);
       const { unmount } = renderPage();
       const card = await screen.findByTestId('draft-fixture');
       const label = attempt === 1 ? 'Start Live Draft' : 'Resume Live Draft';

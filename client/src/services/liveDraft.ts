@@ -6,8 +6,7 @@ import { api } from '../api';
  * These endpoints are owned by the server team; this file is the single place the
  * client depends on their shape, so a contract change only has to be reconciled here.
  *
- *   GET  /drafts/live/discover           -> DraftFixture[]
- *   POST /drafts/live/confirm-team       -> { ok: true }
+ *   GET  /leagues + GET /drafts/live/discovery?league_row_id=:id
  *   POST /drafts/live/link (existing)    -> { draft_id, created, sync }
  */
 
@@ -33,17 +32,20 @@ export interface DraftFixture {
 }
 
 export function discoverLiveDrafts(): Promise<DraftFixture[]> {
-  return api<DraftFixture[]>('/drafts/live/discover');
-}
-
-export function confirmDraftTeam(leagueRowId: number, espnTeamId: number): Promise<{ ok: true }> {
-  return api('/drafts/live/confirm-team', {
-    method: 'POST',
-    body: JSON.stringify({ league_row_id: leagueRowId, espn_team_id: espnTeamId })
-  });
+  return api<Array<{ id: number; platform: string }>>('/leagues').then(leagues =>
+    Promise.all(leagues
+      .filter(league => league.platform === 'espn')
+      .map(league => api<DraftFixture>(`/drafts/live/discovery?league_row_id=${league.id}`)))
+  );
 }
 
 /** Idempotent: starts a fresh draft or resumes the existing one for this league+season. */
-export function startOrResumeLiveDraft(leagueRowId: number): Promise<{ draft_id: number; created: boolean; sync: any }> {
-  return api('/drafts/live/link', { method: 'POST', body: JSON.stringify({ league_row_id: leagueRowId }) });
+export function startOrResumeLiveDraft(leagueRowId: number, confirmedTeamId?: number): Promise<{ draft_id: number; created: boolean; sync: any }> {
+  return api('/drafts/live/link', {
+    method: 'POST',
+    body: JSON.stringify({
+      league_row_id: leagueRowId,
+      ...(confirmedTeamId == null ? {} : { confirmed_team_id: confirmedTeamId })
+    })
+  });
 }

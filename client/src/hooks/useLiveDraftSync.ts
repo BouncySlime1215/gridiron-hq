@@ -64,6 +64,7 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
   const failuresRef = useRef(0);
   const pausedRef = useRef(paused);
   const authRequiredRef = useRef(false);
+  const invalidDataRef = useRef(false);
 
   const clearTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
 
@@ -86,6 +87,7 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
         setSyncNote(`+${sync.new_picks.length} pick${sync.new_picks.length > 1 ? 's' : ''} from ESPN`);
       }
       authRequiredRef.current = false;
+      invalidDataRef.current = false;
       setAuthRequired(false);
       setInvalidData(!!sync.desynced || (sync.failures?.length ?? 0) > 0);
       setError(null);
@@ -104,10 +106,19 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
         inFlight.current = false;
         return; // do not reschedule — reconnect() restarts polling explicitly
       }
-      setError(apiErr?.message ?? 'Sync failed'); // never blank the board on a failed poll
-      failuresRef.current += 1;
-      setConsecutiveFailures(failuresRef.current);
-      setRecovering(false);
+      if (apiErr?.code === 'ESPN_INVALID_SNAPSHOT' || apiErr?.code === 'ESPN_MALFORMED_RESPONSE') {
+        // The server has stopped this sync episode after rejecting unsafe data.
+        // Preserve the last valid board and require an explicit recovery action.
+        invalidDataRef.current = true;
+        setInvalidData(true);
+        setError(apiErr.message);
+        setRecovering(false);
+      } else {
+        setError(apiErr?.message ?? 'Sync failed'); // never blank the board on a failed poll
+        failuresRef.current += 1;
+        setConsecutiveFailures(failuresRef.current);
+        setRecovering(false);
+      }
     } finally {
       inFlight.current = false;
     }
@@ -120,7 +131,7 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
       setError((prev) => prev ?? e.message);
     }
 
-    if (!authRequiredRef.current) scheduleNext(backoffFor(failuresRef.current));
+    if (!authRequiredRef.current && !invalidDataRef.current) scheduleNext(backoffFor(failuresRef.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId, scheduleNext]);
 
@@ -134,6 +145,8 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
     clearTimer();
     setError(null);
     setRecovering(true);
+    invalidDataRef.current = false;
+    setInvalidData(false);
     failuresRef.current = 0;
     setConsecutiveFailures(0);
     void run();

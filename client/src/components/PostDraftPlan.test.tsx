@@ -1,4 +1,3 @@
-// @ts-nocheck -- The application does not currently install a browser component-test runner.
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';

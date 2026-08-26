@@ -111,6 +111,25 @@ test('post-draft-plan returns an explicit not-yet-drafted response (200, not an 
   assert.equal(res.body.self_scout, undefined);
 });
 
+test('post-draft-plan remains not-yet-drafted while ESPN rosters are only partially populated', async () => {
+  const partial = draftedRoster();
+  partial.teams[0].roster.entries = partial.teams[0].roster.entries.slice(0, 1);
+  partial.teams[1].roster.entries = partial.teams[1].roster.entries.slice(0, 1);
+  insertLeague(105, partial);
+  const res = await request('/api/trades/105/post-draft-plan?team_id=1');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.drafted, false);
+  assert.equal(res.body.self_scout, undefined);
+});
+
+test('post-draft-plan rejects previous-season fallback rosters as not yet drafted', async () => {
+  const previousSeason = { ...draftedRoster(), seasonId: 2025 };
+  insertLeague(106, previousSeason);
+  const res = await request('/api/trades/106/post-draft-plan?team_id=1');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.drafted, false);
+});
+
 test('post-draft-plan combines self-scout, trades, and best-lineup output for a completed draft', async () => {
   insertLeague(102, draftedRoster());
   const res = await request('/api/trades/102/post-draft-plan?team_id=1');

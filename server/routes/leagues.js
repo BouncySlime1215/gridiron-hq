@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { rows, row, run } from '../db/index.js';
+import { db, rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
 
 const r = Router();
@@ -32,9 +32,63 @@ r.put('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * What removing this league would actually destroy, so the UI can say so before
+ * asking the user to confirm rather than after.
+ */
+function removalImpact(leagueId) {
+  const drafts = rows('SELECT id, name, type FROM drafts WHERE league_row_id = ?', leagueId);
+  const picks = drafts.length
+    ? row(`SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id IN (${drafts.map(() => '?').join(',')})`,
+      ...drafts.map(d => d.id)).n
+    : 0;
+  return { drafts: drafts.length, draft_picks: picks, draft_names: drafts.map(d => d.name) };
+}
+
+r.get('/:id/removal-impact', (req, res) => {
+  const lg = row('SELECT id, name FROM leagues WHERE id = ?', req.params.id);
+  if (!lg) return res.status(404).json({ error: 'league not found' });
+  res.json({ league: lg.name, ...removalImpact(req.params.id) });
+});
+
+/**
+ * Remove a league.
+ *
+ * Defaults to *disconnecting*: credentials are cleared but the league row and its
+ * draft history stay. A bare `DELETE FROM leagues` used to run here, which left
+ * drafts pointing at a league row that no longer existed — silently, because the
+ * declared foreign key isn't actually enforced on databases where
+ * services/espn-draft.js's import-time `ALTER TABLE drafts ADD COLUMN
+ * league_row_id INTEGER` (no REFERENCES) won the race against migration 006.
+ * On this machine that would have orphaned 3 drafts and 330 picks with no error.
+ *
+ * `?purge=1` really deletes, but only after removing the dependent drafts in the
+ * same transaction, so it can't leave the same orphans behind.
+ */
 r.delete('/:id', (req, res) => {
-  run('DELETE FROM leagues WHERE id = ?', req.params.id);
-  res.json({ ok: true });
+  const lg = row('SELECT id FROM leagues WHERE id = ?', req.params.id);
+  if (!lg) return res.status(404).json({ error: 'league not found' });
+  const impact = removalImpact(req.params.id);
+
+  if (req.query.purge !== '1') {
+    run(`UPDATE leagues SET espn_s2 = NULL, swid = NULL WHERE id = ?`, req.params.id);
+    return res.json({ ok: true, disconnected: true, retained: impact });
+  }
+
+  db.exec('BEGIN');
+  try {
+    const drafts = rows('SELECT id FROM drafts WHERE league_row_id = ?', req.params.id);
+    for (const d of drafts) {
+      run('DELETE FROM draft_picks WHERE draft_id = ?', d.id);
+      run('DELETE FROM drafts WHERE id = ?', d.id);
+    }
+    run('DELETE FROM leagues WHERE id = ?', req.params.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  res.json({ ok: true, purged: true, removed: impact });
 });
 
 const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K', 23: 'FLEX' };

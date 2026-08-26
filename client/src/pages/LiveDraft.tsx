@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, headshotUrl } from '../api';
 import DraftDiscovery from '../components/live-draft/DraftDiscovery';
+import { useLiveDraftSync, type SyncHealth } from '../hooks/useLiveDraftSync';
 
 /* --------------------------------------------------------------- primitives */
 
@@ -79,6 +80,47 @@ function Face({ p, size = 40 }: { p: any; size?: number }) {
   );
 }
 
+const HEALTH_LABEL: Record<SyncHealth, string> = {
+  connecting: 'Connecting…',
+  scheduled: 'Scheduled — waiting for ESPN to start',
+  synchronized: 'Synchronized',
+  delayed: 'Delayed — retrying',
+  offline: 'Offline — retrying',
+  'reconnect-required': 'Reconnect required',
+  'invalid-data': 'Invalid data — board preserved',
+  recovering: 'Recovering…',
+  completed: 'Completed'
+};
+
+const HEALTH_TINT: Record<SyncHealth, string> = {
+  connecting: 'bg-slate-100 text-slate-600',
+  scheduled: 'bg-sky-100 text-sky-700',
+  synchronized: 'bg-emerald-100 text-emerald-700',
+  delayed: 'bg-amber-100 text-amber-700',
+  offline: 'bg-rose-100 text-rose-700',
+  'reconnect-required': 'bg-amber-100 text-amber-800',
+  'invalid-data': 'bg-rose-100 text-rose-700',
+  recovering: 'bg-sky-100 text-sky-700',
+  completed: 'bg-slate-200 text-slate-700'
+};
+
+function HealthBadge({ health }: { health: SyncHealth }) {
+  return (
+    <span role="status" className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${HEALTH_TINT[health]}`}>
+      {HEALTH_LABEL[health]}
+    </span>
+  );
+}
+
+function formatLastSync(at: number | null) {
+  if (!at) return 'never';
+  const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (secs < 5) return 'just now';
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  return `${mins}m ago`;
+}
+
 /* --------------------------------------------------------------- the room */
 
 export default function LiveDraft() {
@@ -88,75 +130,39 @@ export default function LiveDraft() {
 }
 
 function Room({ id }: { id: string }) {
-  const [state, setState] = useState<any>(null);
+  const sync = useLiveDraftSync(id);
+  const state = sync.board;
   const [advice, setAdvice] = useState<any>(null);
   const [adviceBusy, setAdviceBusy] = useState(false);
-  const [syncNote, setSyncNote] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [live, setLive] = useState(true);
-  const [authRequired, setAuthRequired] = useState(false);
   const [filter, setFilter] = useState('ALL');
   const [rosterTab, setRosterTab] = useState<'lineup' | 'order'>('lineup');
   const adviceFor = useRef<number | null>(null);
   const targetIds = useRef<Map<number, string>>(new Map());
+  const seenBoard = useRef<any>(null);
   const [snipes, setSnipes] = useState<{ key: number; name: string; team: string }[]>([]);
-  const [desynced, setDesynced] = useState(false);
-  // ESPN can be slower to answer during a live draft than the 4s poll interval — without
-  // this, a slow request and the next timer tick can race through the same sync/resolve
-  // path and duplicate or drop a pick.
-  const syncing = useRef(false);
 
-  const tick = useCallback(async () => {
-    if (syncing.current) return;
-    syncing.current = true;
-    try {
-      const s = await api(`/drafts/${id}/sync`, { method: 'POST' });
-      if (s.new_picks?.length) setSyncNote(`+${s.new_picks.length} pick${s.new_picks.length > 1 ? 's' : ''} from ESPN`);
-      setDesynced(!!s.desynced);
-      setAuthRequired(false);
-      setErr(null);
-    } catch (e: any) {
-      if (e.message === 'ESPN authentication failed') {
-        // Authentication errors are terminal for this polling episode. Keep the
-        // mirrored board intact and wait for an explicit retry after replacement.
-        setAuthRequired(true);
-        setLive(false);
-        setErr(null);
-      } else {
-        setErr(e.message);   // a sync failure must never blank the board
-      }
-    } finally {
-      syncing.current = false;
+  // The sync hook owns polling/backoff/board-preservation; this effect only reacts to
+  // a freshly landed board to compute snipe toasts once per update, not once per poll.
+  useEffect(() => {
+    if (!state || state === seenBoard.current) return;
+    seenBoard.current = state;
+    const gone = (state.recent_picks ?? []).filter(
+      (p: any) => p.team_slot !== state.draft.my_slot && targetIds.current.has(p.id));
+    if (gone.length) {
+      setSnipes(cur => [
+        ...gone.map((p: any) => ({ key: p.pick_number, name: p.name, team: teamNameForSlot(state.draft, p.team_slot) })),
+        ...cur
+      ].slice(0, 4));
     }
-    try {
-      const s = await api(`/drafts/${id}/assist`);
-      // A target on our shortlist just went to someone else — worth a nudge, since it
-      // reshuffles who's actually still reachable at the next turn.
-      const gone = (s.recent_picks ?? []).filter(
-        (p: any) => p.team_slot !== s.draft.my_slot && targetIds.current.has(p.id));
-      if (gone.length) {
-        setSnipes(cur => [
-          ...gone.map((p: any) => ({ key: p.pick_number, name: p.name, team: teamNameForSlot(s.draft, p.team_slot) })),
-          ...cur
-        ].slice(0, 4));
-      }
-      targetIds.current = new Map((s.targets ?? []).map((t: any) => [t.player_id, t.name]));
-      setState(s);
-    } catch (e: any) { setErr(e.message); }
-  }, [id]);
+    targetIds.current = new Map((state.targets ?? []).map((t: any) => [t.player_id, t.name]));
+  }, [state]);
 
   useEffect(() => {
     if (!snipes.length) return;
     const t = setTimeout(() => setSnipes(cur => cur.slice(0, -1)), 6000);
     return () => clearTimeout(t);
   }, [snipes]);
-
-  useEffect(() => { tick(); }, [tick]);
-  useEffect(() => {
-    if (!live) return;
-    const iv = setInterval(tick, 4000);
-    return () => clearInterval(iv);
-  }, [live, tick]);
 
   const clock = state?.on_the_clock;
   const myTurn = !!clock?.my_turn;
@@ -193,14 +199,7 @@ function Room({ id }: { id: string }) {
       ?? state.targets.find((t: any) => t.name === advice.pick) ?? null;
   }, [advice, state]);
 
-  const retryConnection = () => {
-    setAuthRequired(false);
-    setErr(null);
-    setLive(true);
-    void tick();
-  };
-
-  const reconnectNotice = authRequired && (
+  const reconnectNotice = sync.health === 'reconnect-required' && (
     <div role="alert" className="card border-amber-300 bg-amber-50 p-4 mb-4">
       <div className="font-semibold text-amber-900">ESPN reconnect required</div>
       <p className="text-sm text-amber-800 mt-1">
@@ -208,12 +207,36 @@ function Room({ id }: { id: string }) {
       </p>
       <div className="flex gap-3 mt-3">
         <Link to="/settings" className="text-sm font-medium text-sky-700 underline">Open Settings</Link>
-        <button onClick={retryConnection} className="text-sm font-medium text-amber-900 underline">Retry connection</button>
+        <button onClick={sync.reconnect} className="text-sm font-medium text-amber-900 underline">Retry connection</button>
       </div>
     </div>
   );
 
-  if (!state) return <div>{reconnectNotice ?? <p className="text-slate-500">Connecting to your ESPN draft…</p>}</div>;
+  const invalidDataNotice = sync.health === 'invalid-data' && (
+    <div role="alert" className="card border-rose-300 bg-rose-50 p-4 mb-4">
+      <div className="font-semibold text-rose-900">ESPN sent data we couldn't safely apply</div>
+      <p className="text-sm text-rose-800 mt-1">
+        The last valid board is shown below — nothing was changed. This usually clears itself
+        on the next sync; reconcile now to try immediately.
+      </p>
+      <div className="flex gap-3 mt-3">
+        <button onClick={sync.reconcileNow} className="text-sm font-medium text-rose-900 underline">Reconcile now</button>
+      </div>
+    </div>
+  );
+
+  if (!state) {
+    return (
+      <div>
+        {reconnectNotice}
+        {!reconnectNotice && (
+          <p className="text-slate-500">
+            {sync.error ? `Connecting to your ESPN draft… (${sync.error}, retrying)` : 'Connecting to your ESPN draft…'}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   const d = state.draft;
   const lineup = state.my_team.lineup;
@@ -223,6 +246,7 @@ function Room({ id }: { id: string }) {
   return (
     <div>
       {reconnectNotice}
+      {invalidDataNotice}
       {/* ------------------------------------------------------- sniped toasts */}
       {snipes.length > 0 && (
         <div className="fixed top-4 right-4 z-50 space-y-2 w-72">
@@ -235,22 +259,37 @@ function Room({ id }: { id: string }) {
         </div>
       )}
       {/* ---------------------------------------------------------- header */}
-      <div className="flex items-center gap-3 flex-wrap mb-3">
+      <div className="flex items-center gap-3 flex-wrap mb-1">
         <Link to="/live-draft" className="text-xs text-slate-500 hover:text-slate-700">← hub</Link>
         <h1 className="text-lg font-bold">{d.name}</h1>
-        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">LIVE · ESPN</span>
-        <button onClick={() => setLive(v => !v)}
-          className={`text-[11px] px-2 py-1 rounded-full border ${live ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
-          {live ? '● syncing every 4s' : '‖ paused'}
+        <HealthBadge health={sync.health} />
+        <button onClick={sync.togglePause}
+          className={`text-[11px] px-2 py-1 rounded-full border ${!sync.paused ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+          {sync.paused ? '‖ paused' : '● auto-syncing'}
         </button>
-        {syncNote && <span className="text-[11px] text-slate-500">{syncNote}</span>}
-        {desynced && (
-          <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-300 px-2 py-0.5 rounded-full"
-            title="ESPN has more picks than this board has mirrored — a pick failed to sync. Check the real draft board and reconnect if this doesn't clear on its own.">
+        <button onClick={sync.reconcileNow}
+          className="text-[11px] px-2 py-1 rounded-full border bg-white border-slate-200 text-slate-600 hover:bg-slate-50">
+          Reconcile now
+        </button>
+        {sync.syncNote && <span className="text-[11px] text-slate-500">{sync.syncNote}</span>}
+      </div>
+      <div className="flex items-center gap-3 flex-wrap mb-3 text-[11px] text-slate-500">
+        <span>Last synced: {formatLastSync(sync.lastSyncedAt)}</span>
+        {sync.picksOnEspn != null && (
+          <span>Board: {sync.picksMirrored}/{sync.picksOnEspn} picks mirrored</span>
+        )}
+        {sync.consecutiveFailures > 0 && sync.nextRetryMs != null && (
+          <span className="text-amber-700">
+            {sync.consecutiveFailures} failed poll{sync.consecutiveFailures > 1 ? 's' : ''} — retrying in ~{Math.round(sync.nextRetryMs / 1000)}s
+          </span>
+        )}
+        {sync.desynced && (
+          <span className="font-bold text-rose-700 bg-rose-50 border border-rose-300 px-2 py-0.5 rounded-full"
+            title="ESPN has more picks than this board has mirrored, or a snapshot was rejected — the last valid board is preserved. Reconcile now, or reconnect if this doesn't clear.">
             ⚠ OUT OF SYNC WITH ESPN
           </span>
         )}
-        {err && <span className="text-[11px] text-rose-600">{err}</span>}
+        {err && <span className="text-rose-600">{err}</span>}
       </div>
 
       {/* ------------------------------------------------------ clock strip */}

@@ -28,11 +28,11 @@ const PICK_ORDER = [10, 20, 30, 40];
 // Each test gets its own league_id — leagues has UNIQUE(platform, league_id, season)
 // and every test in this file shares one database.
 let leagueCounter = 0;
-function makeLeague() {
+function makeLeague(myTeamId = 10) {
   leagueCounter += 1;
   const leagueId = String(5550000 + leagueCounter);
   run(`INSERT INTO leagues (platform, league_id, season, name, my_team_id, espn_s2, swid, team_count)
-       VALUES ('espn', ?, ?, 'Test League', 10, 'fake-s2', 'fake-swid', 4)`, leagueId, SEASON);
+       VALUES ('espn', ?, ?, 'Test League', ?, 'fake-s2', 'fake-swid', 4)`, leagueId, SEASON, myTeamId);
   return row('SELECT last_insert_rowid() AS id').id;
 }
 
@@ -151,4 +151,28 @@ test('concurrent syncs for the same draft do not race — only one poll is in fl
   const [a, b] = await Promise.all([syncLiveDraft(draft_id), syncLiveDraft(draft_id)]);
   assert.deepEqual(a, b, 'both callers must observe the same in-flight result, not two independent polls');
   assert.equal(fetchCalls, 1, 'only one ESPN request should have gone out for the overlapping calls');
+});
+
+test('a user whose ESPN team is not in the current pick order gets an unconfirmed slot, never a guessed one', async () => {
+  const leagueRowId = makeLeague(999); // 999 is not in PICK_ORDER
+  stubEspn(() => espnSnapshot({ picks: [] }));
+  const { draft_id, my_slot_confirmed } = await ensureLiveDraft(leagueRowId);
+  assert.equal(my_slot_confirmed, false);
+  const draft = row('SELECT * FROM drafts WHERE id=?', draft_id);
+  assert.equal(draft.my_slot, null, 'must not silently default to slot 1');
+  assert.equal(draft.my_slot_confirmed, 0);
+});
+
+test('a re-sync that transiently fails to match the team does not un-confirm an already-confirmed slot', async () => {
+  const leagueRowId = makeLeague(10); // 10 IS in PICK_ORDER — confirms cleanly first
+  stubEspn(() => espnSnapshot({ picks: [] }));
+  const first = await ensureLiveDraft(leagueRowId);
+  assert.equal(first.my_slot_confirmed, true);
+
+  // Simulate ESPN briefly reporting a pick order that no longer includes team 10.
+  const originalSnapshot = espnSnapshot;
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ ...originalSnapshot({ picks: [] }), settings: { draftSettings: { pickOrder: [20, 30, 40, 50] }, rosterSettings: {} } }) });
+  const second = await ensureLiveDraft(leagueRowId);
+  assert.equal(second.my_slot_confirmed, true, 'the previously confirmed slot must survive a transient lookup miss');
+  assert.equal(row('SELECT my_slot FROM drafts WHERE id=?', second.draft_id).my_slot, 1);
 });

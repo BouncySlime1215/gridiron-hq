@@ -34,6 +34,9 @@ if (!draftCols.includes('pick_order')) db.exec(`ALTER TABLE drafts ADD COLUMN pi
 if (!draftCols.includes('roster_slots')) db.exec(`ALTER TABLE drafts ADD COLUMN roster_slots TEXT`);
 if (!draftCols.includes('last_synced_at')) db.exec(`ALTER TABLE drafts ADD COLUMN last_synced_at TEXT`);
 if (!draftCols.includes('draft_at')) db.exec(`ALTER TABLE drafts ADD COLUMN draft_at TEXT`);
+// NULL/0 means "we could not prove which ESPN team is the connected user's" — the
+// client must ask them to confirm before treating any slot as "my turn" (Phase 3A).
+if (!draftCols.includes('my_slot_confirmed')) db.exec(`ALTER TABLE drafts ADD COLUMN my_slot_confirmed INTEGER DEFAULT 1`);
 
 const pickCols = db.prepare(`PRAGMA table_info(draft_picks)`).all().map(c => c.name);
 if (!pickCols.includes('espn_team_id')) db.exec(`ALTER TABLE draft_picks ADD COLUMN espn_team_id INTEGER`);
@@ -170,7 +173,11 @@ export async function ensureLiveDraft(leagueRowId) {
   const totalSlots = (data.draftDetail?.picks ?? []).length;
   const rounds = totalSlots && teamCount ? Math.round(totalSlots / teamCount)
     : Object.values(lineup).reduce((s, n) => s + n, 0);
-  const mySlot = Math.max(1, pickOrder.indexOf(Number(lg.my_team_id)) + 1);
+  // A user whose ESPN team can't be matched in the current pick order must never be
+  // silently assigned slot 1 — that would misattribute "my turn" to a stranger's team.
+  const mySlotIndex = pickOrder.indexOf(Number(lg.my_team_id));
+  const mySlot = mySlotIndex === -1 ? null : mySlotIndex + 1;
+  const mySlotConfirmed = mySlotIndex === -1 ? 0 : 1;
 
   const existing = row(`SELECT * FROM drafts WHERE type='live' AND league_row_id = ? AND season = ?`,
     lg.id, lg.season);
@@ -179,24 +186,30 @@ export async function ensureLiveDraft(leagueRowId) {
     [t.id, t.name || `${t.location ?? ''} ${t.nickname ?? ''}`.trim() || `Team ${t.id}`])));
 
   if (existing) {
-    run(`UPDATE drafts SET name=?, team_count=?, rounds=?, my_slot=?, pick_seconds=?,
+    // Don't let a transient lookup miss silently un-confirm a team the user already
+    // had correctly matched — only overwrite my_slot/confirmation if this pass found
+    // it, or if it was never confirmed to begin with (nothing to lose either way).
+    const keepPrevious = !mySlotConfirmed && existing.my_slot_confirmed;
+    const finalSlot = keepPrevious ? existing.my_slot : mySlot;
+    const finalConfirmed = keepPrevious ? existing.my_slot_confirmed : mySlotConfirmed;
+    run(`UPDATE drafts SET name=?, team_count=?, rounds=?, my_slot=?, my_slot_confirmed=?, pick_seconds=?,
          pick_order=?, roster_slots=?, espn_league_id=?, draft_at=? WHERE id=?`,
-      name, teamCount, rounds, mySlot, ds.timePerSelection ?? 90,
+      name, teamCount, rounds, finalSlot, finalConfirmed, ds.timePerSelection ?? 90,
       JSON.stringify({ order: pickOrder, team_names: JSON.parse(teamNames) }),
       JSON.stringify(startingSlots(lineup)), String(lg.league_id),
       ds.date ? new Date(ds.date).toISOString() : null, existing.id);
-    return { draft_id: existing.id, created: false };
+    return { draft_id: existing.id, created: false, my_slot_confirmed: Boolean(finalConfirmed) };
   }
 
-  run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, pick_seconds,
+  run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, my_slot_confirmed, pick_seconds,
         league_row_id, espn_league_id, season, pick_order, roster_slots, draft_at)
-       VALUES (?, 'live', ?,?,?,?,?,?,?,?,?,?)`,
-    name, teamCount, rounds, mySlot, ds.timePerSelection ?? 90,
+       VALUES (?, 'live', ?,?,?,?,?,?,?,?,?,?,?)`,
+    name, teamCount, rounds, mySlot, mySlotConfirmed, ds.timePerSelection ?? 90,
     lg.id, String(lg.league_id), lg.season,
     JSON.stringify({ order: pickOrder, team_names: JSON.parse(teamNames) }),
     JSON.stringify(startingSlots(lineup)),
     ds.date ? new Date(ds.date).toISOString() : null);
-  return { draft_id: row('SELECT last_insert_rowid() AS id').id, created: true };
+  return { draft_id: row('SELECT last_insert_rowid() AS id').id, created: true, my_slot_confirmed: Boolean(mySlotConfirmed) };
 }
 
 /**

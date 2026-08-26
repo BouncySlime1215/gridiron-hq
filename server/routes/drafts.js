@@ -710,6 +710,30 @@ r.post('/live/link', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * Confirm which draft slot is the connected user's team.
+ *
+ * ensureLiveDraft() cannot always match the league's my_team_id against the current
+ * ESPN pick order (a fresh league connection, an ESPN id mismatch, a team that
+ * changed ownership) — when it can't, my_slot is left unconfirmed rather than
+ * guessed, and the client must ask the user to pick their team from the roster
+ * list before anything can safely claim "it's your turn" (Phase 3A).
+ */
+r.post('/:id/confirm-slot', (req, res, next) => {
+  try {
+    const { draft } = draftAccess(req, req.params.id);
+    const slot = Number(req.body?.team_slot);
+    if (!Number.isInteger(slot) || slot < 1 || slot > draft.team_count) {
+      return res.status(400).json({ error: `team_slot must be between 1 and ${draft.team_count}` });
+    }
+    run('UPDATE drafts SET my_slot=?, my_slot_confirmed=1 WHERE id=?', slot, draft.id);
+    run(`INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)
+         ON CONFLICT(draft_id, team_slot) DO UPDATE SET user_id=excluded.user_id`, draft.id, slot, req.auth.userId);
+    recordAudit({ actor: req.auth.userId, role: 'member', action: 'draft.confirm_slot', entityType: 'draft', entityId: draft.id, details: { team_slot: slot } });
+    res.json({ ok: true, my_slot: slot });
+  } catch (e) { next(e); }
+});
+
 /** Poll ESPN for new picks. Cheap; the draft room calls this on a timer. */
 r.post('/:id/sync', async (req, res, next) => {
   try {

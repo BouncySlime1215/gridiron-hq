@@ -2,159 +2,93 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
-import { PageError } from '../components/PageState';
+import { Card, Confidence, ErrorState, PageHeader, Provenance, Section, Skeleton, StatTile } from '../components/ui/DesignSystem';
 
-const PRIORITY_TONE: Record<string, string> = {
-  high: 'border-crit bg-crit-tint',
-  medium: 'border-amber-300 bg-amber-50',
-  low: 'border-slate-200 bg-slate-50'
-};
-const PRIORITY_DOT: Record<string, string> = { high: 'bg-crit', medium: 'bg-amber-500', low: 'bg-slate-400' };
-interface InboxItem { type: string; priority: string; title: string; action: string; link: string; }
+interface InboxItem { type: string; priority: 'high' | 'medium' | 'low'; title: string; action: string; link: string; }
+interface AccuracyPayload { season: number; players_graded: number; table: { source: string; mae: number; r2: number; spearman: number }[]; distribution?: { coverage_80?: number }; note: string; error?: string; }
+const priorityStyle = { high: 'border-red-200 bg-red-50', medium: 'border-amber-200 bg-amber-50', low: 'border-slate-200 bg-slate-50' };
 
 export default function Home() {
-  // None of these three had error handling at all before — a failed fetch just left
-  // the section quietly showing its empty-state copy ("No stories yet" etc.) forever,
-  // indistinguishable from genuinely having no data.
-  const { data: drafts, error: draftsError, refetch: refetchDrafts } = useApi<any[]>('/drafts');
-  const { data: sets, error: setsError, refetch: refetchSets } = useApi<any[]>('/rankings');
-  const { data: news, error: newsError, refetch: refetchNews } = useApi<any[]>('/news');
-  const { leagues, active: activeLeague } = useLeague();
-  // Merges signals the app already computes elsewhere (roster fixes, real trade
-  // opportunities, major news about your own players) into one ranked queue —
-  // the Dashboard used to be pure navigation with no synthesis at all.
-  const inboxUrl = activeLeague ? `/trades/${activeLeague.id}/inbox${activeLeague.my_team_id ? `?team_id=${activeLeague.my_team_id}` : ''}` : null;
-  const { data: inbox, loading: inboxLoading } = useApi<{ items: InboxItem[] }>(inboxUrl);
-  const [refreshing, setRefreshing] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  const draftsApi = useApi<any[]>('/drafts');
+  const rankingsApi = useApi<any[]>('/rankings');
+  const newsApi = useApi<any[]>('/news');
+  const accuracyApi = useApi<AccuracyPayload>('/model/accuracy');
+  const { leagues, active: league, error: leagueError, refetch: refetchLeagues } = useLeague();
+  const inboxUrl = league ? `/trades/${league.id}/inbox${league.my_team_id ? `?team_id=${league.my_team_id}` : ''}` : null;
+  const inboxApi = useApi<{ items: InboxItem[] }>(inboxUrl);
+  const [refreshing, setRefreshing] = useState(false), [status, setStatus] = useState<string | null>(null);
 
   const refreshAll = async () => {
-    setRefreshing(true); setStatus('Pulling ESPN player database + all 32 team news feeds…');
+    setRefreshing(true); setStatus('Refreshing player, league and news sources…');
     try {
-      const r = await api('/aggregates/refresh-all', { method: 'POST' });
-      const newStories = (r.news?.general ?? 0) + (r.news?.teams ?? 0);
-      setStatus(`Data refreshed (${newStories} new stories). Asking AI: did any news change team outlooks…`);
-      try {
-        const a = await api('/analysis/refresh', { method: 'POST', body: JSON.stringify({}) });
-        const changed = (a.refreshed ?? []).filter((t: any) => t.changed);
-        setStatus(`Done. ${newStories} new stories · outlooks re-checked for ${a.refreshed?.length ?? 0} teams, ${changed.length} updated${changed.length ? ': ' + changed.map((t: any) => t.abbr).join(', ') : ''}.`);
-      } catch (e: any) {
-        setStatus(`Data refreshed (${newStories} new stories). AI outlook pass skipped: ${e.message}`);
-      }
-      refetchNews();
+      const result = await api('/aggregates/refresh-all', { method: 'POST' });
+      if (league) await api(`/leagues/${league.id}/sync`, { method: 'POST' });
+      setStatus(`Refresh complete · ${(result.news?.general ?? 0) + (result.news?.teams ?? 0)} new stories.`);
+      await Promise.all([newsApi.refetch(), inboxApi.refetch(), refetchLeagues()]);
     } catch (e: any) { setStatus(`Refresh failed: ${e.message}`); }
     finally { setRefreshing(false); }
   };
 
-  const active = drafts?.find(d => d.status === 'active');
-  const latestNews = news?.slice(0, 5) ?? [];
+  const activeDraft = draftsApi.data?.find(d => d.status === 'active');
+  const attention = inboxApi.data?.items ?? [];
+  const changed = newsApi.data?.slice(0, 4) ?? [];
+  const modelRow = accuracyApi.data?.table?.find(x => x.source === 'Gridiron model');
+  const coverage = accuracyApi.data?.distribution?.coverage_80 ?? null;
+  const sourceError = draftsApi.error || rankingsApi.error || newsApi.error || leagueError;
 
-  return (
-    <div>
-      <div className="flex items-center gap-3 mb-1">
-        <h1 className="text-3xl font-semibold tracking-[-0.035em]">Dashboard</h1>
-        <button className="btn-primary ml-auto" onClick={refreshAll} disabled={refreshing}>
-          {refreshing ? 'Refreshing…' : 'Refresh everything'}
-        </button>
-      </div>
-      <p className="text-sm text-slate-600 mb-2">Training camp, July 2026 — draft season is here.</p>
-      {status && <p className="text-xs text-amber-600 mb-4">{status}</p>}
-      {!status && <div className="mb-4" />}
+  return <div>
+    <PageHeader eyebrow="Fantasy command center" title="What needs your attention" description={league ? `Prioritized for ${league.name}. Every recommendation links to the place you can act on it.` : 'Connect a league to turn roster, news and market data into a personal action list.'}
+      actions={<button className="btn-primary" onClick={refreshAll} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh sources'}</button>}
+      meta={<><span>{league?.connection_status === 'connected' ? '● League connected' : '○ League needs attention'}</span><span>{leagues.length} league{leagues.length === 1 ? '' : 's'} available</span></>} />
+    {status && <div aria-live="polite" className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">{status}</div>}
+    {sourceError && <div className="mb-4"><ErrorState message={String(sourceError)} retry={() => { draftsApi.refetch(); rankingsApi.refetch(); newsApi.refetch(); refetchLeagues(); }} /></div>}
 
-      {(draftsError || setsError || newsError) && (
-        <PageError
-          message={[
-            draftsError && 'drafts', setsError && 'rankings', newsError && 'news'
-          ].filter(Boolean).join(', ') + ' failed to load.'}
-          onRetry={() => { refetchDrafts(); refetchSets(); refetchNews(); }} />
-      )}
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,.7fr)]">
+      <div className="space-y-6">
+        <Section title="1 · Act now" description="Urgent roster, credential, trade and draft decisions come first.">
+          {!league ? <Card className="p-5"><div className="font-bold">Connect your first league</div><p className="mt-1 text-sm text-slate-500">ESPN and Sleeper context powers every personal recommendation.</p><Link to="/league?view=connections" className="btn-primary mt-4 inline-block">Connect league</Link></Card>
+            : inboxApi.loading && !inboxApi.data ? <div className="space-y-2"><Skeleton className="h-20" /><Skeleton className="h-20" /></div>
+            : attention.length ? <div className="space-y-2">{attention.map((item, index) => <Link key={`${item.type}:${index}`} to={item.link} className={`block rounded-[10px] border p-4 transition-colors hover:border-slate-400 ${priorityStyle[item.priority]}`}><div className="flex items-center gap-2"><span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">{item.priority}</span><span className="font-bold text-slate-900">{item.title}</span></div><p className="mt-1 text-sm text-slate-600">Why: {item.action}</p></Link>)}</div>
+            : <Card className="p-5"><div className="font-bold text-slate-900">No urgent roster action</div><p className="mt-1 text-sm text-slate-500">The current roster, news and trade scans found nothing that clears the action threshold.</p></Card>}
+        </Section>
 
-      {activeLeague && (
-        <div className="card p-4 mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="font-bold text-sm text-slate-700">Today's priorities</h2>
-            <span className="text-xs text-slate-400">{activeLeague.name}</span>
-          </div>
-          {inboxLoading && !inbox && <p className="text-xs text-slate-500">Reading your roster, news, and the trade market…</p>}
-          {inbox && inbox.items.length === 0 && (
-            <p className="text-xs text-slate-500">Nothing urgent right now — your roster looks clean, no major news, no trade worth a look.</p>
-          )}
-          {inbox && inbox.items.length > 0 && (
-            <div className="space-y-2">
-              {inbox.items.map((it, i) => (
-                <Link key={i} to={it.link}
-                  className={`flex items-start gap-2.5 rounded-lg border p-2.5 hover:border-slate-400 transition-colors ${PRIORITY_TONE[it.priority] ?? 'border-slate-200 bg-slate-50'}`}>
-                  <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${PRIORITY_DOT[it.priority] ?? 'bg-slate-400'}`} />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-800">{it.title}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{it.action}</div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        <Section title="2 · What changed" description="Newest information, ranked before general browsing.">
+          <Card className="divide-y divide-slate-100 overflow-hidden">
+            {changed.length ? changed.map((item: any) => <Link key={item.id} to="/news" className="flex gap-3 p-4 hover:bg-slate-50"><span className="mt-0.5 text-[10px] font-extrabold text-slate-500">{item.team_abbr ?? 'NFL'}</span><div><div className="text-sm font-semibold text-slate-900">{item.headline}</div><div className="mt-1 text-xs text-slate-500">{item.date} · {item.source ?? 'source recorded in News'}</div></div></Link>) : <div className="p-5 text-sm text-slate-500">No new items since the last refresh.</div>}
+          </Card>
+        </Section>
 
-      <div className="grid md:grid-cols-3 gap-4 mb-6">
-        <Link to={active ? `/drafts/${active.id}` : '/drafts'} className="card p-5 hover:border-slate-400 transition-colors">
-          <div className="mb-5 text-xs font-semibold text-slate-400">01</div>
-          <div className="text-lg font-semibold tracking-tight">{active ? `Continue: ${active.name}` : 'Start a draft'}</div>
-          <div className="text-xs text-slate-500 mt-1">
-            {active ? `${active.picks_made} picks made` : 'Mock it or track your live draft'}
+        <Section title="3 · What to do next" description="Concrete next steps, with the evidence behind each one.">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Action to={activeDraft ? `/drafts/${activeDraft.id}` : '/draft'} title={activeDraft ? 'Continue draft' : 'Prepare draft'} why={activeDraft ? `${activeDraft.picks_made ?? 0} picks are already recorded.` : 'Your player board and live tracker share one workflow.'} />
+            <Action to={league ? '/league' : '/league?view=connections'} title={league ? 'Review roster' : 'Connect league'} why={league ? 'Strength, depth and risk are calculated against this league specifically.' : 'Personal analysis requires a roster source.'} />
+            <Action to="/trade-lab" title="Scan trade market" why="The engine separates lineup improvement from market fairness and acceptance likelihood." />
           </div>
-        </Link>
-        <Link to="/rankings" className="card p-5 hover:border-slate-400 transition-colors">
-          <div className="mb-5 text-xs font-semibold text-slate-400">02</div>
-          <div className="text-lg font-semibold tracking-tight">My Rankings</div>
-          <div className="text-xs text-slate-500 mt-1">
-            {sets?.length ?? 0} board{sets?.length === 1 ? '' : 's'} · seeded with July consensus top 100
-          </div>
-        </Link>
-        <Link to={leagues.length ? '/my-team' : '/leagues'} className="card p-5 hover:border-slate-400 transition-colors">
-          <div className="mb-5 text-xs font-semibold text-slate-400">03</div>
-          <div className="text-lg font-semibold tracking-tight">{leagues.length ? 'My Team' : 'Connect a league'}</div>
-          <div className="text-xs text-slate-500 mt-1">
-            {leagues.length
-              ? `${activeLeague?.name ?? 'League'}${leagues.length > 1 ? ` +${leagues.length - 1} more` : ''}`
-              : 'Link ESPN or Sleeper for rosters & scores'}
-          </div>
-        </Link>
+        </Section>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-sm text-slate-700">Latest Camp News</h2>
-            <Link to="/news" className="text-xs text-emerald-600 hover:underline">all news →</Link>
-          </div>
-          {latestNews.length === 0 ? (
-            <p className="text-xs text-slate-500">No stories yet. Add camp news (or paste headlines for AI analysis) on the News page.</p>
-          ) : latestNews.map((n: any) => (
-            <div key={n.id} className="py-2 border-b border-slate-200/60 last:border-0">
-              <div className="flex items-center gap-2 text-xs">
-                {n.team_abbr && <span className="font-black px-1.5 py-0.5 rounded text-white text-[10px]" style={{ background: n.primary_color }}>{n.team_abbr}</span>}
-                <span className="text-slate-500">{n.date}</span>
-                {n.importance === 3 && <span className="text-rose-600 font-bold text-[10px]">MAJOR</span>}
-              </div>
-              <div className="text-sm mt-0.5">{n.headline}</div>
-            </div>
-          ))}
-        </div>
-        <div className="card p-4">
-          <h2 className="font-bold text-sm text-slate-700 mb-3">Deep Dives</h2>
-          <p className="text-xs text-slate-500 mb-3">Scheme &amp; coaching turnover this offseason — 10 new head coaches. Start with the teams that changed the most:</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[['NYG', 'Harbaugh era begins'], ['PIT', 'McCarthy + Rodgers'], ['CLE', 'Monken air raid'], ['LV', 'Kubiak + Mendoza'],
-              ['ATL', 'Stefanski + Tua/Penix'], ['TEN', 'Saleh rebuild']].map(([abbr, note]) => (
-              <Link key={abbr} to={`/teams/${abbr}`} className="rounded-lg border border-slate-200 hover:border-slate-500 p-2 text-xs">
-                <span className="font-bold text-slate-800">{abbr}</span>
-                <span className="text-slate-500 block">{note}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </div>
+      <aside className="space-y-4">
+        <Section title="4 · Confidence" description="Measured calibration, not a decorative score.">
+          <Card className="p-4">
+            {accuracyApi.loading && !accuracyApi.data ? <Skeleton className="h-20" /> : accuracyApi.data?.error ? <p className="text-sm text-amber-700">{accuracyApi.data.error}</p> : <>
+              <Confidence coverage={coverage} sample={accuracyApi.data?.players_graded} />
+              <div className="mt-4 grid grid-cols-2 gap-3"><StatTile label="Held-out MAE" value={modelRow ? modelRow.mae.toFixed(1) : '—'} delta="season points" /><StatTile label="Rank correlation" value={modelRow ? modelRow.spearman.toFixed(3) : '—'} delta="Spearman" /></div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">{accuracyApi.data?.note}</p>
+            </>}
+          </Card>
+        </Section>
+        <Section title="5 · Freshness" description="Each source owns its timestamp.">
+          <Card className="space-y-3 p-4">
+            <Fresh label="League roster" value={league?.fetched_at} missing="Never synced" />
+            <Fresh label="News" value={changed[0]?.created_at ?? changed[0]?.date} missing="No stories" />
+            <Fresh label="Model holdout" value={accuracyApi.data?.season ? `Season ${accuracyApi.data.season}` : null} missing="Not graded" plain />
+            <Provenance source="Gridiron local SQLite + ESPN/Sleeper + nflverse" updatedAt={league?.fetched_at} version="Evidence contracts and cutoffs are recorded in Model Lab">Background refresh keeps the prior value visible and cannot overwrite a newer league selection.</Provenance>
+          </Card>
+        </Section>
+      </aside>
     </div>
-  );
+  </div>;
 }
+
+function Action({ to, title, why }: { to: string; title: string; why: string }) { return <Link to={to} className="card block p-4 hover:border-emerald-300"><div className="font-bold text-slate-900">{title} →</div><p className="mt-2 text-xs leading-5 text-slate-500">Why: {why}</p></Link>; }
+function Fresh({ label, value, missing, plain = false }: { label: string; value?: string | null; missing: string; plain?: boolean }) { return <div className="flex items-center justify-between gap-3 text-xs"><span className="font-semibold text-slate-600">{label}</span><span className="text-right text-slate-400">{value ? plain ? value : new Date(`${value}${value.includes('T') ? '' : 'Z'}`).toLocaleString() : missing}</span></div>; }

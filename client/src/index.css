@@ -3,27 +3,34 @@
 @tailwind utilities;
 
 :root {
-  /* One token system for the whole app. Position identity colors (.pos-*, below)
-     are semantic, not brand, and are never touched by this. */
-  --ink: #1c1e1a;
-  --muted: #74766a;
-  --bg-0: #f6f4ec; --bg-1: #f8f7f1; --bg-2: #f3f1e7;
-  --card-bg: rgb(255 255 255 / .92);
-  --edge: #e6e2d3;
-  --accent: #1f3350;
-  --accent-strong: #16253c;
-  --accent-tint: #eaeef4;
-  --good: #2f7d4e;
-  --good-tint: #e9f3ec;
-  --crit: #a63a32;
-  --crit-tint: #f7ebe9;
+  --bg: #ffffff;
+  --surface: #f8fafc;
+  --line: #e2e8f0;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --subtle: #94a3b8;
+  --accent: #059669;
+  --warn: #b45309;
+  --danger: #b91c1c;
+  --info: #0369a1;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-6: 24px; --space-8: 32px; --space-12: 48px; --space-16: 64px;
+  --radius-control: 6px; --radius-card: 10px; --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgb(15 23 42 / .05);
+  --shadow-overlay: 0 24px 64px rgb(15 23 42 / .16);
+
+  /* Compatibility aliases while legacy surfaces move onto the shared system. */
+  --bg-0: var(--bg); --bg-1: var(--surface); --bg-2: var(--surface);
+  --card-bg: var(--bg); --edge: var(--line);
+  --accent-strong: #047857; --accent-tint: #ecfdf5;
+  --good: var(--accent); --good-tint: #ecfdf5;
+  --crit: var(--danger); --crit-tint: #fef2f2;
 }
 html { background: var(--bg-0); }
 body {
   @apply antialiased;
   margin: 0;
-  background: linear-gradient(135deg, var(--bg-0) 0%, var(--bg-1) 48%, var(--bg-2) 100%);
-  background-attachment: fixed;
+  background: var(--bg);
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
   letter-spacing: -0.012em;
@@ -41,20 +48,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .card {
   background: var(--card-bg);
   border: 1px solid var(--edge);
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgb(30 28 20 / .04);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 a.card:hover { border-color: rgb(0 0 0 / .16); box-shadow: 0 8px 28px rgb(0 0 0 / .06); transform: translateY(-1px); }
 .btn {
-  @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors;
+  @apply px-3 py-1.5 text-sm font-medium transition-colors;
+  border-radius: var(--radius-control);
 }
 .btn-primary {
   @apply btn;
   color: #fff;
   background: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 999px;
+  border-radius: var(--radius-control);
 }
 .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn-ghost {
@@ -62,14 +70,14 @@ a.card:hover { border-color: rgb(0 0 0 / .16); box-shadow: 0 8px 28px rgb(0 0 0 
   color: var(--ink);
   background: rgb(255 255 255 / .72);
   border: 1px solid var(--edge);
-  border-radius: 999px;
+  border-radius: var(--radius-control);
 }
 .input {
   @apply px-3 py-1.5 text-sm;
   color: var(--ink);
   background: rgb(255 255 255 / .82);
   border: 1px solid var(--edge);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
 }
 .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
 ::selection { background: var(--accent-tint); color: var(--ink); }
@@ -77,11 +85,20 @@ a.card:hover { border-color: rgb(0 0 0 / .16); box-shadow: 0 8px 28px rgb(0 0 0 
 /* Platform visual system: one restrained language across legacy and new pages. */
 main > div { width: 100%; max-width: 1440px; margin-inline: auto; }
 main h1 {
-  font-size: clamp(2rem, 3vw, 2.75rem) !important;
+  font-size: clamp(1.75rem, 3vw, 2.25rem) !important;
   line-height: 1.08 !important;
   font-weight: 600 !important;
   letter-spacing: -0.04em !important;
   color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }
 main h2 { font-weight: 600 !important; letter-spacing: -0.025em; color: var(--ink); }
 main h3 { font-weight: 600 !important; letter-spacing: -0.015em; }

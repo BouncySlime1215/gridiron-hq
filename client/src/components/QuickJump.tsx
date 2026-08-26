@@ -4,25 +4,19 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { api, headshotUrl } from '../api';
 
 export const DESTINATIONS = [
-  ['Dashboard', '/', 'Overview and live workspace'],
-  ['My Team', '/my-team', 'Roster, needs and lineup'],
+  ['Command Center', '/', 'Prioritized actions and source freshness'],
+  ['League Hub', '/league', 'Roster, sync health and league-wide analysis'],
+  ['Draft', '/draft', 'Mock, live and recap modes'],
   ['Players', '/players', 'Search, compare and rank players'],
-  ['Draft Room', '/drafts', 'Drafts and live board'],
-  ['32 Teams', '/teams', 'Team depth and scheme'],
-  ['Fantasy Lab', '/lab', 'Predictions and edge tools'],
   ['Trade Lab', '/trade-lab', 'Trade construction and impact'],
-  ['Camp News', '/news', 'News and fantasy impact'],
-  ['My Leagues', '/leagues', 'Connected leagues'],
-  ['Settings', '/settings', 'ESPN and data settings'],
-  ['NFL Auto Picks', '/betting/nfl/picks', 'Decision desk and model hub'],
-  ['NFL Props', '/betting/nfl/props', 'Player prop projections'],
-  ['NFL Blind Replay', '/betting/training', 'Equity and validation evidence'],
-  ['NFL Model Operations', '/betting/nfl/operations', 'Promotion gates and challenger state'],
-  ['NFL Line Shop', '/betting/lines', 'Price and CLV comparison'],
-  ['NFL Variables', '/betting/catalog', 'Feature contracts'],
+  ['News', '/news', 'Attributed news and fantasy impact'],
+  ["X's & O's", '/teams', 'Whiteboard schemes and team context'],
+  ['Matchups', '/matchups', 'Opponent history and weekly projections'],
+  ['Betting Hub', '/betting', 'NFL and MLB ledgers'],
+  ['NFL Auto', '/betting/nfl/picks', 'Picks, CLV, line shop and model evidence'],
   ['MLB Auto Picks', '/betting/mlb/auto', 'Forward and quarantined picks'],
-  ['MLB Board', '/betting/mlb', 'Pregame projections'],
-  ['MLB Pick Ledger', '/betting/mlb/picks', 'Tracked MLB decisions'],
+  ['Accuracy & Experiments', '/lab', 'Backtests, promotion gates and registry'],
+  ['Settings', '/settings', 'Connections and local API configuration'],
 ] as const;
 
 export function destinationLabel(pathname: string) {

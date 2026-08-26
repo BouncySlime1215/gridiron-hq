@@ -712,7 +712,12 @@ r.post('/live/link', async (req, res, next) => {
       confirmedTeamId: req.body?.confirmed_team_id
     });
     // Pull whatever has already happened, so a mid-draft connect catches up instantly.
-    const sync = await syncLiveDraft(out.draft_id).catch(e => ({ error: e.message }));
+    const sync = await syncLiveDraft(out.draft_id).catch(error => ({
+      ok: false,
+      error: error.message,
+      code: error.code ?? 'ESPN_SYNC_FAILED',
+      sync_status: liveDraftSyncStatus(out.draft_id)
+    }));
     recordAudit({ actor: req.auth.userId, role: membership.role, action: 'draft.link', entityType: 'draft', entityId: out.draft_id, details: { league_row_id: Number(leagueRowId) } });
     res.json({ ...out, sync });
   } catch (e) {

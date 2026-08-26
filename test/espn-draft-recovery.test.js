@@ -92,6 +92,9 @@ test('successful synchronization persists health, board counts, and restart-safe
   const status = liveDraftSyncStatus(100);
   assert.equal(status.health_state, 'healthy');
   assert.equal(status.board_count, 1);
+  assert.equal(status.authoritative_snapshot_count, 1);
+  assert.equal(status.expected_board_count, 2);
+  assert.equal(status.recovery_action, null);
   assert.equal(status.consecutive_failures, 0);
   assert.equal(status.retry_status, 'ready');
   assert.ok(status.last_attempt_at);
@@ -107,6 +110,7 @@ test('network loss preserves the board and schedules bounded persisted backoff',
   assert.equal(status.health_state, 'retrying');
   assert.equal(status.failure_category, 'transient');
   assert.equal(status.retry_status, 'scheduled');
+  assert.equal(status.recovery_action, 'retry');
   assert.ok(Date.parse(status.next_retry_at) > Date.now());
   assert.ok(Date.parse(status.next_retry_at) - Date.now() <= 60_000);
   assert.deepEqual(rows('SELECT * FROM draft_picks WHERE draft_id=100'), before);
@@ -121,6 +125,7 @@ test('authentication expiry and malformed data stop unsafe automatic mutation', 
     ...liveDraftSyncStatus(100), health_state: 'auth_required', failure_category: 'authentication',
     retry_status: 'stopped', recovery_state: 'action_required'
   });
+  assert.equal(liveDraftSyncStatus(100).recovery_action, 'reconnect_espn');
   const callsAfterAuth = fetchCalls;
   await syncDueLiveDrafts({ now: new Date(Date.now() + 120_000) });
   assert.equal(fetchCalls, callsAfterAuth);
@@ -131,6 +136,7 @@ test('authentication expiry and malformed data stop unsafe automatic mutation', 
   const invalid = liveDraftSyncStatus(100);
   assert.equal(invalid.health_state, 'invalid_data');
   assert.equal(invalid.retry_status, 'stopped');
+  assert.equal(invalid.recovery_action, 'retry');
   assert.deepEqual(rows('SELECT * FROM draft_picks WHERE draft_id=100'), before);
 });
 

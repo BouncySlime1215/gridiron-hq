@@ -161,3 +161,22 @@ test('invalid confirmation never persists or assigns a roster', async () => {
   assert.equal(row('SELECT COUNT(*) n FROM espn_team_confirmations').n, 0);
   assert.equal(row('SELECT COUNT(*) n FROM drafts').n, 0);
 });
+
+test('start returns categorized persisted recovery state when the immediate sync cannot authenticate', async () => {
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return { ok: true, status: 200, json: async () => structuredClone(fixture) };
+    return { ok: false, status: 401, json: async () => ({}) };
+  };
+  const response = await request('POST', '/api/drafts/live/link', {
+    league_row_id: 901, confirmed_team_id: '22'
+  });
+  assert.equal(response.status, 200, JSON.stringify(response.body));
+  assert.equal(response.body.sync.ok, false);
+  assert.equal(response.body.sync.code, 'ESPN_AUTHENTICATION_FAILED');
+  assert.equal(response.body.sync.sync_status.health_state, 'auth_required');
+  assert.equal(response.body.sync.sync_status.failure_category, 'authentication');
+  assert.equal(response.body.sync.sync_status.recovery_action, 'reconnect_espn');
+  assert.equal(row('SELECT COUNT(*) n FROM draft_picks WHERE draft_id=?', response.body.draft_id).n, 0);
+});

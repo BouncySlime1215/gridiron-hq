@@ -586,11 +586,23 @@ export function syncLiveDraft(draftId, { recoveryState = 'none' } = {}) {
 
 export function liveDraftSyncStatus(draftId) {
   ensureSyncState(draftId);
-  const state = row(`SELECT s.*, d.espn_snapshot_pick_count AS board_count,
+  const state = row(`SELECT s.*,
+      (SELECT COUNT(*) FROM draft_picks dp WHERE dp.draft_id=d.id) AS board_count,
+      d.espn_snapshot_pick_count AS authoritative_snapshot_count,
       d.espn_board_revision AS board_revision, d.status AS draft_status,
-      d.last_synced_at AS board_synced_at
+      d.last_synced_at AS board_synced_at, d.team_count * d.rounds AS expected_board_count
     FROM espn_draft_sync_state s JOIN drafts d ON d.id=s.draft_id WHERE s.draft_id=?`, Number(draftId));
-  return state;
+  if (!state) return null;
+  const recoveryAction = state.health_state === 'auth_required' ? 'reconnect_espn'
+    : state.health_state === 'invalid_data' || state.health_state === 'retrying' || state.health_state === 'failed'
+      ? 'retry' : null;
+  return {
+    ...state,
+    board_count: Number(state.board_count),
+    authoritative_snapshot_count: Number(state.authoritative_snapshot_count),
+    expected_board_count: Number(state.expected_board_count),
+    recovery_action: recoveryAction
+  };
 }
 
 /** Reconcile every due ESPN draft. Terminal auth/data failures wait for a manual retry. */

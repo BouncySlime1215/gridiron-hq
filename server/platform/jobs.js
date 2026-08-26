@@ -11,7 +11,7 @@ const jobs = new Map();
  * the same name replaces the previous job (stopping it first) rather than
  * running two copies.
  */
-export function registerJob(name, { intervalMs, run }) {
+export function registerJob(name, { intervalMs, run, runImmediately = false }) {
   cancelJob(name);
   const state = {
     name, intervalMs, run,
@@ -36,6 +36,7 @@ export function registerJob(name, { intervalMs, run }) {
   state.timer = setInterval(tick, intervalMs);
   if (typeof state.timer.unref === 'function') state.timer.unref();
   jobs.set(name, state);
+  if (runImmediately) void tick();
   return jobStatus(name);
 }
 

@@ -723,16 +723,20 @@ r.post('/live/link', async (req, res, next) => {
   }
 });
 
-/** Poll ESPN for new picks. Cheap; the draft room calls this on a timer. */
-r.post('/:id/sync', async (req, res, next) => {
+/** Reconcile the complete authoritative ESPN board. League membership is enough:
+ * callers cannot choose any mutation, and the server validates ESPN's full snapshot. */
+async function reconcileLiveDraft(req, res, next) {
   try {
-    draftAccess(req, req.params.id, true);
+    const { membership } = draftAccess(req, req.params.id);
     const synced = await syncLiveDraft(req.params.id);
-    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.sync', entityType: 'draft', entityId: req.params.id, details: synced });
+    recordAudit({ actor: req.auth.userId, role: membership.role, action: 'draft.sync', entityType: 'draft', entityId: req.params.id, details: synced });
     res.json(synced);
   }
   catch (e) { next(e); }
-});
+}
+
+r.post('/:id/sync', reconcileLiveDraft);
+r.post('/:id/reconcile', reconcileLiveDraft);
 
 /**
  * Everything needed to make the pick on the clock: roster needs against this league's

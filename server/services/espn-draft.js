@@ -12,6 +12,7 @@
  */
 import { rows, row, run, db } from '../db/index.js';
 import { fetchEspnLeague } from './espn-client.js';
+import { createHash } from 'node:crypto';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
@@ -206,18 +207,25 @@ async function espnPlayerPool(season) {
   return map;
 }
 
-async function resolveEspnPlayers(espnIds, season) {
+async function prepareEspnPlayers(espnIds, season) {
   const known = new Map(rows(
     `SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL`).map(p => [p.espn_id, p.id]));
   const missing = espnIds.filter(id => !known.has(id));
-  if (!missing.length) return known;
+  if (!missing.length) return { known, missing: new Map() };
 
-  let pool;
-  try { pool = await espnPlayerPool(season); } catch { pool = new Map(); }
+  const pool = await espnPlayerPool(season);
+  const unresolved = missing.filter(id => !pool.has(id));
+  if (unresolved.length) throw invalidSnapshot('unknown ESPN player', { player_ids: unresolved });
+  return { known, missing: new Map(missing.map(id => [id, pool.get(id)])) };
+}
+
+function materializeEspnPlayers(plan) {
+  const known = new Map(plan.known);
   const teamIdByAbbr = new Map(rows(`SELECT id, abbr FROM nfl_teams`).map(t => [t.abbr, t.id]));
-  for (const espnId of missing) {
-    const info = pool.get(espnId);
-    const name = info?.name ?? `ESPN player ${espnId}`;
+  for (const [espnId, info] of plan.missing) {
+    const claimed = row('SELECT id FROM players WHERE espn_id = ?', espnId);
+    if (claimed) { known.set(espnId, claimed.id); continue; }
+    const name = info.name;
     // A seed row for this player may already exist with no espn_id yet. Claiming it
     // here (rather than always inserting) is what keeps a draft sync from creating a
     // second, unrostered row for the same person — see resolvePlayer() in trade-engine.js.
@@ -234,6 +242,93 @@ async function resolveEspnPlayers(espnIds, season) {
     known.set(espnId, Number(result.lastInsertRowid));
   }
   return known;
+}
+
+function invalidSnapshot(message, details = {}) {
+  return Object.assign(new Error(`invalid ESPN draft snapshot: ${message}`), {
+    status: 422, code: 'ESPN_INVALID_SNAPSHOT', category: 'invalid_data', details
+  });
+}
+
+function canonicalHash(value) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+/**
+ * Validate and normalize one complete ESPN board without touching the database.
+ * A populated board must contain every pre-created ESPN slot; made picks must form
+ * a dense prefix. This distinguishes a legitimate in-progress board from a
+ * truncated response that would otherwise delete valid local picks.
+ */
+export function normalizeAuthoritativeSnapshot(data, draft) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw invalidSnapshot('payload is not an object');
+  const detail = data.draftDetail;
+  const settings = data.settings;
+  const draftSettings = settings?.draftSettings;
+  if (!detail || typeof detail !== 'object' || !draftSettings || typeof draftSettings !== 'object') {
+    throw invalidSnapshot('draft detail or settings missing');
+  }
+  if (!Array.isArray(detail.picks) || !Array.isArray(draftSettings.pickOrder) || !Array.isArray(data.teams)) {
+    throw invalidSnapshot('picks, pick order, or teams missing');
+  }
+
+  const teamCount = Number(draft.team_count);
+  const rounds = Number(draft.rounds);
+  const total = teamCount * rounds;
+  if (!Number.isInteger(teamCount) || teamCount < 2 || !Number.isInteger(rounds) || rounds < 1) {
+    throw invalidSnapshot('local draft dimensions are invalid');
+  }
+  const teams = data.teams.map(team => String(team?.id ?? ''));
+  const teamSet = new Set(teams);
+  if (teams.length !== teamCount || teamSet.size !== teamCount || teamSet.has('')) {
+    throw invalidSnapshot('team list does not match draft dimensions');
+  }
+  const pickOrder = draftSettings.pickOrder.map(id => String(id));
+  if (pickOrder.length !== teamCount || new Set(pickOrder).size !== teamCount
+      || pickOrder.some(id => !teamSet.has(id))) {
+    throw invalidSnapshot('pick order is incomplete or inconsistent');
+  }
+  if (detail.picks.length !== 0 && detail.picks.length !== total) {
+    throw invalidSnapshot('board is truncated', { expected_slots: total, received_slots: detail.picks.length });
+  }
+  if ((detail.inProgress || detail.drafted) && detail.picks.length !== total) {
+    throw invalidSnapshot('active or completed board is truncated', { expected_slots: total, received_slots: detail.picks.length });
+  }
+
+  const slotNumbers = new Set();
+  const made = [];
+  for (const raw of detail.picks) {
+    if (!raw || typeof raw !== 'object') throw invalidSnapshot('pick entry is malformed');
+    const pickNumber = Number(raw.overallPickNumber);
+    if (!Number.isInteger(pickNumber) || pickNumber < 1 || pickNumber > total || slotNumbers.has(pickNumber)) {
+      throw invalidSnapshot('duplicate or impossible pick number', { pick_number: raw.overallPickNumber });
+    }
+    slotNumbers.add(pickNumber);
+    if (raw.playerId === -1) continue;
+    const playerId = Number(raw.playerId);
+    const espnTeamId = String(raw.teamId ?? '');
+    if (!Number.isInteger(playerId) || playerId === -1) throw invalidSnapshot('pick has an invalid player id', { pick_number: pickNumber });
+    if (!teamSet.has(espnTeamId)) throw invalidSnapshot('pick references an unknown team', { pick_number: pickNumber, team_id: espnTeamId });
+    made.push({
+      pick_number: pickNumber,
+      espn_player_id: playerId,
+      espn_team_id: espnTeamId,
+      team_slot: pickOrder.indexOf(espnTeamId) + 1,
+      keeper: raw.keeper === true || raw.keeper === 1 ? 1 : 0
+    });
+  }
+  if (detail.picks.length && slotNumbers.size !== total) throw invalidSnapshot('board slot numbers are incomplete');
+  made.sort((a, b) => a.pick_number - b.pick_number);
+  if (made.some((pick, index) => pick.pick_number !== index + 1)) {
+    throw invalidSnapshot('made picks contain an invalid gap');
+  }
+  const playerIds = made.map(pick => pick.espn_player_id);
+  if (new Set(playerIds).size !== playerIds.length) throw invalidSnapshot('duplicate drafted player');
+  if (detail.drafted && made.length !== total) throw invalidSnapshot('completed board has unfilled picks');
+
+  const status = detail.drafted ? 'complete' : detail.inProgress || made.length ? 'active' : 'scheduled';
+  const canonical = { pick_order: pickOrder, status, picks: made };
+  return { ...canonical, hash: canonicalHash(canonical), total };
 }
 
 /**
@@ -315,12 +410,7 @@ export async function ensureLiveDraft(leagueRowId, { userId, confirmedTeamId } =
   return { draft_id: draftId, created: !legacy, discovery: setup };
 }
 
-/**
- * Pull the current ESPN board and mirror any picks we don't have yet.
- *
- * Cheap enough to call every couple of seconds: it only writes when a new pick has
- * actually landed, and returns just the deltas so the UI can announce them.
- */
+/** Pull, validate, and transactionally make the local ESPN board exactly authoritative. */
 async function syncLiveDraftImpl(draftId) {
   const draft = row('SELECT * FROM drafts WHERE id = ?', draftId);
   if (!draft) throw Object.assign(new Error('draft not found'), { status: 404 });
@@ -335,82 +425,77 @@ async function syncLiveDraftImpl(draftId) {
     throw Object.assign(new Error('draft is not bound to its requested ESPN league'), { status: 409 });
   }
   const data = await fetchDraftDetail(league);
-  const detail = data.draftDetail ?? {};
-  const ds = data.settings?.draftSettings ?? {};
-  const pickOrder = ds.pickOrder ?? JSON.parse(draft.pick_order ?? '{}').order ?? [];
-  const slotOf = new Map(pickOrder.map((teamId, i) => [teamId, i + 1]));
+  const snapshot = normalizeAuthoritativeSnapshot(data, draft);
+  const existing = rows(`SELECT dp.pick_number, dp.team_slot, dp.espn_team_id, dp.keeper, p.espn_id AS espn_player_id
+    FROM draft_picks dp JOIN players p ON p.id=dp.player_id WHERE dp.draft_id=? ORDER BY dp.pick_number`, draftId)
+    .map(pick => ({ pick_number: pick.pick_number, espn_player_id: pick.espn_player_id,
+      espn_team_id: String(pick.espn_team_id), team_slot: pick.team_slot, keeper: Number(pick.keeper) }));
+  const boardMatches = JSON.stringify(existing) === JSON.stringify(snapshot.picks);
+  const snapshotMatches = draft.espn_snapshot_hash === snapshot.hash;
 
-  // Only slots that have actually been used. ESPN's own sentinel for "not filled yet"
-  // is exactly -1 (see the file comment) — every real pick, including D/ST (whose ids
-  // can be positive or negative depending on league/season), is anything else. An
-  // earlier version of this guessed at a numeric range for D/ST ids and silently
-  // dropped any pick that fell outside it; trust ESPN's actual sentinel instead.
-  const made = (detail.picks ?? [])
-    .filter(p => p.playerId != null && p.playerId !== -1)
-    .sort((a, b) => a.overallPickNumber - b.overallPickNumber);
-
-  const have = new Set(rows('SELECT pick_number FROM draft_picks WHERE draft_id = ?', draftId)
-    .map(p => p.pick_number));
-  const fresh = made.filter(p => !have.has(p.overallPickNumber));
-
-  let added = [];
-  const failures = [];
-  if (fresh.length) {
-    const idMap = await resolveEspnPlayers([...new Set(fresh.map(p => p.playerId))], draft.season);
-    for (const p of fresh) {
-      const playerId = idMap.get(p.playerId);
-      if (!playerId) { failures.push({ pick: p.overallPickNumber, reason: 'player could not be resolved' }); continue; }
-      // pickOrder is re-derived fresh from this same ESPN response every call, so a
-      // missing slot means the team genuinely isn't in the current draft order (a real
-      // ESPN data inconsistency) rather than stale cached data. Skip rather than write
-      // a made-up team_slot — team_slot drives "is this my pick" everywhere downstream,
-      // and a wrong number there is worse than retrying this pick on the next poll.
-      const slot = slotOf.get(p.teamId);
-      if (slot == null) { failures.push({ pick: p.overallPickNumber, reason: `team ${p.teamId} not in pick order` }); continue; }
-      try {
-        run(`INSERT INTO draft_picks (draft_id, pick_number, team_slot, player_id, espn_team_id, keeper)
-             VALUES (?,?,?,?,?,?)`,
-          draftId, p.overallPickNumber, slot, playerId, p.teamId, p.keeper ? 1 : 0);
-        added.push(p.overallPickNumber);
-      } catch (e) {
-        // UNIQUE(draft_id, player_id) is the one expected failure here: the same player
-        // already mirrored under another pick number, which happens if ESPN renumbers
-        // after a trade. Anything else is a real bug and must not vanish silently —
-        // it's exactly the kind of thing that quietly desyncs the board for the rest
-        // of the draft with no visible error.
-        if (!String(e.message).includes('UNIQUE') || !String(e.message).includes('player_id')) {
-          console.error(`[live-draft] failed to mirror pick ${p.overallPickNumber} for draft ${draftId}:`, e.message);
-          failures.push({ pick: p.overallPickNumber, reason: e.message });
+  let changed = [];
+  let revision = Number(draft.espn_board_revision ?? 0);
+  if (!boardMatches || !snapshotMatches || draft.status !== snapshot.status) {
+    const plan = await prepareEspnPlayers([...new Set(snapshot.picks.map(pick => pick.espn_player_id))], draft.season);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = row('SELECT espn_snapshot_hash, espn_board_revision FROM drafts WHERE id=?', draftId);
+      // Another process may have reconciled the same snapshot while player metadata
+      // was fetched. Treat that as the same serialized result, not another revision.
+      if (!snapshotMatches && current?.espn_snapshot_hash === snapshot.hash) {
+        db.exec('COMMIT');
+        revision = Number(current.espn_board_revision ?? 0);
+      } else {
+        const idMap = materializeEspnPlayers(plan);
+        run('DELETE FROM draft_picks WHERE draft_id=?', draftId);
+        for (const pick of snapshot.picks) {
+          const playerId = idMap.get(pick.espn_player_id);
+          if (!playerId) throw invalidSnapshot('player mapping disappeared during reconciliation');
+          run(`INSERT INTO draft_picks
+            (draft_id,pick_number,team_slot,player_id,espn_team_id,keeper,source)
+            VALUES (?,?,?,?,?,?,'espn')`, draftId, pick.pick_number, pick.team_slot,
+          playerId, pick.espn_team_id, pick.keeper);
         }
+        revision = Number(current?.espn_board_revision ?? 0) + 1;
+        run(`UPDATE drafts SET status=?, pick_order=?, last_synced_at=datetime('now'),
+          espn_snapshot_hash=?, espn_snapshot_pick_count=?, espn_board_revision=? WHERE id=?`,
+        snapshot.status,
+        JSON.stringify({ order: snapshot.pick_order,
+          team_names: JSON.parse(draft.pick_order ?? '{}').team_names ?? {} }),
+        snapshot.hash, snapshot.picks.length, revision, draftId);
+        db.exec('COMMIT');
+        const before = new Map(existing.map(pick => [pick.pick_number, pick]));
+        const after = new Map(snapshot.picks.map(pick => [pick.pick_number, pick]));
+        changed = [...new Set([...before.keys(), ...after.keys()])]
+          .filter(number => JSON.stringify(before.get(number)) !== JSON.stringify(after.get(number)))
+          .sort((a, b) => a - b);
       }
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
     }
   }
 
-  run(`UPDATE drafts SET last_synced_at = datetime('now'),
-       status = ? WHERE id = ?`, detail.drafted ? 'complete' : 'active', draftId);
-
-  const total = draft.team_count * draft.rounds;
-  const count = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
+  const count = snapshot.picks.length;
   const nextPick = count + 1;
-  // Reconcile against ESPN's own count rather than trust that "we added N rows" means
-  // "we have everything ESPN has" — a pick that failed for a reason not caught above
-  // (or on a prior sync, before this fix existed) would otherwise desync silently for
-  // the rest of the draft with every downstream "on the clock" computation just wrong.
-  const desynced = count < made.length;
 
   return {
     ok: true,
-    espn_in_progress: !!detail.inProgress,
-    espn_complete: !!detail.drafted,
-    picks_on_espn: made.length,
+    espn_in_progress: snapshot.status === 'active',
+    espn_complete: snapshot.status === 'complete',
+    picks_on_espn: count,
     picks_mirrored: count,
-    new_picks: added,
-    failures,
-    desynced,
-    next_pick: nextPick <= total ? nextPick : null,
-    on_the_clock_slot: nextPick <= total ? slotForPick(nextPick, draft.team_count) : null,
+    new_picks: changed.filter(number => !existing.some(pick => pick.pick_number === number)),
+    changed_picks: changed,
+    failures: [],
+    desynced: false,
+    board_revision: revision,
+    snapshot_hash: snapshot.hash,
+    idempotent: changed.length === 0,
+    next_pick: nextPick <= snapshot.total ? nextPick : null,
+    on_the_clock_slot: nextPick <= snapshot.total ? slotForPick(nextPick, draft.team_count) : null,
     my_slot: draft.my_slot,
-    my_turn: nextPick <= total && slotForPick(nextPick, draft.team_count) === draft.my_slot
+    my_turn: nextPick <= snapshot.total && slotForPick(nextPick, draft.team_count) === draft.my_slot
   };
 }
 

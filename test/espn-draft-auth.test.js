@@ -23,9 +23,10 @@ test('authentication failure does not clear mirrored draft state or picks', () =
   assert.doesNotMatch(authBranch, /setState\(|setState\(null\)|setSnipes\(\[\]\)/);
 });
 
-test('resume reconciliation is additive and keyed by preserved ESPN pick numbers', () => {
-  assert.match(service, /const have = new Set\(rows\('SELECT pick_number FROM draft_picks WHERE draft_id = \?'/);
-  assert.match(service, /const fresh = made\.filter\(p => !have\.has\(p\.overallPickNumber\)\)/);
-  assert.doesNotMatch(service, /DELETE FROM draft_picks/);
+test('resume reconciliation validates then replaces only the linked authoritative board', () => {
+  assert.match(service, /normalizeAuthoritativeSnapshot\(data, draft\)/);
+  assert.match(service, /BEGIN IMMEDIATE/);
+  assert.match(service, /DELETE FROM draft_picks WHERE draft_id=\?/);
+  assert.match(service, /espn_snapshot_hash/);
   assert.match(service, /picks_mirrored: count/);
 });

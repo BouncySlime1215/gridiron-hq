@@ -444,6 +444,7 @@ test('unsupported candidate name is rejected and lists what is actually supporte
 });
 
 test('latest migration down and re-up are transactional and reproducible', async () => {
+  assert.equal(await rollbackMigration('014_espn_authoritative_board'), '014_espn_authoritative_board');
   assert.equal(await rollbackMigration('013_espn_live_draft_setup'), '013_espn_live_draft_setup');
   assert.equal(await rollbackMigration('012_espn_connection_security'), '012_espn_connection_security');
   assert.equal(row(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='espn_credentials'`).n, 0);
@@ -457,7 +458,7 @@ test('latest migration down and re-up are transactional and reproducible', async
     'validate_draft_team_owner_update', 'validate_draft_ownership_parent_update']) {
     assert.equal(row(`SELECT name FROM sqlite_master WHERE type='trigger' AND name=?`, trigger), undefined, trigger);
   }
-  assert.deepEqual(await runMigrations(), ['009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup', '011_espn_credential_health', '012_espn_connection_security', '013_espn_live_draft_setup']);
+  assert.deepEqual(await runMigrations(), ['009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup', '011_espn_credential_health', '012_espn_connection_security', '013_espn_live_draft_setup', '014_espn_authoritative_board']);
   for (const trigger of ['model_experiments_promoter_required_insert', 'model_experiments_promoter_required_update',
     'validate_draft_team_owner_update', 'validate_draft_ownership_parent_update']) {
     assert.equal(row(`SELECT name FROM sqlite_master WHERE type='trigger' AND name=?`, trigger).name, trigger);
@@ -466,6 +467,7 @@ test('latest migration down and re-up are transactional and reproducible', async
   assert.ok(row(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_news_items_duplicate_group'`));
   assert.ok(row(`SELECT name FROM sqlite_master WHERE type='table' AND name='espn_credentials'`));
 
+  assert.equal(await rollbackMigration('014_espn_authoritative_board'), '014_espn_authoritative_board');
   assert.equal(await rollbackMigration('013_espn_live_draft_setup'), '013_espn_live_draft_setup');
   assert.equal(await rollbackMigration('012_espn_connection_security'), '012_espn_connection_security');
   assert.equal(await rollbackMigration('011_espn_credential_health'), '011_espn_credential_health');
@@ -480,7 +482,7 @@ test('latest migration down and re-up are transactional and reproducible', async
   assert.equal(await rollbackMigration('002_platform_audit_log'), '002_platform_audit_log');
   assert.equal(await rollbackMigration('001_baseline_marker'), '001_baseline_marker');
   assert.equal(row(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_dataset_versions'`).n, 0);
-  assert.deepEqual(await runMigrations(), ['001_baseline_marker', '002_platform_audit_log', '003_draft_state_machine', '004_model_lab', '005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup', '011_espn_credential_health', '012_espn_connection_security', '013_espn_live_draft_setup']);
+  assert.deepEqual(await runMigrations(), ['001_baseline_marker', '002_platform_audit_log', '003_draft_state_machine', '004_model_lab', '005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup', '011_espn_credential_health', '012_espn_connection_security', '013_espn_live_draft_setup', '014_espn_authoritative_board']);
   assert.ok(row(`SELECT name FROM schema_migrations WHERE name='005_model_registry_integrity'`));
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);

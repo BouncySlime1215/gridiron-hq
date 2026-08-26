@@ -9,7 +9,7 @@ const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 
 r.get('/', (req, res) => {
   res.json(rows(`SELECT id, platform, league_id, season, name, my_team_id, team_count, ppr, superflex,
-                        league_type, fetched_at,
+                        league_type, fetched_at, connection_status, sync_error,
                         espn_s2 IS NOT NULL AS has_cookies
                  FROM leagues ORDER BY id`));
 });
@@ -20,8 +20,13 @@ r.post('/', (req, res) => {
   run(`INSERT OR IGNORE INTO leagues (platform, league_id, season, espn_s2, swid, my_team_id)
        VALUES (?,?,?,?,?,?)`, platform, String(league_id), season, espn_s2 ?? null, swid ?? null,
     my_team_id != null ? String(my_team_id) : null);
-  res.json(row('SELECT id, platform, league_id, season FROM leagues WHERE platform = ? AND league_id = ? AND season = ?',
-    platform, String(league_id), season));
+  const created = row('SELECT id, platform, league_id, season FROM leagues WHERE platform = ? AND league_id = ? AND season = ?',
+    platform, String(league_id), season);
+  if (req.auth?.userId) {
+    run(`INSERT INTO league_memberships (league_id,user_id,role) VALUES (?,?,'commissioner')
+         ON CONFLICT(league_id,user_id) DO UPDATE SET role='commissioner'`, created.id, req.auth.userId);
+  }
+  res.json(created);
 });
 
 r.put('/:id', (req, res) => {
@@ -71,7 +76,8 @@ r.delete('/:id', (req, res) => {
   const impact = removalImpact(req.params.id);
 
   if (req.query.purge !== '1') {
-    run(`UPDATE leagues SET espn_s2 = NULL, swid = NULL WHERE id = ?`, req.params.id);
+    run(`UPDATE leagues SET espn_s2 = NULL, swid = NULL,
+         connection_status='needs_reconnect', sync_error=NULL WHERE id = ?`, req.params.id);
     return res.json({ ok: true, disconnected: true, retained: impact });
   }
 
@@ -159,6 +165,7 @@ r.post('/:id/sync', async (req, res, next) => {
     const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
     if (!lg) return res.status(404).json({ error: 'league not found' });
     const result = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
+    run(`UPDATE leagues SET connection_status='connected', sync_error=NULL WHERE id=?`, lg.id);
 
     // Market values are priced per league format, so they can only be fetched once a
     // league exists to derive that format from. Without this a freshly connected
@@ -168,7 +175,11 @@ r.post('/:id/sync', async (req, res, next) => {
     const values = await syncDynastyValues().catch(e => ({ error: e.message }));
 
     res.json({ ok: true, ...result, values });
-  } catch (e) { next(e); }
+  } catch (e) {
+    run(`UPDATE leagues SET connection_status='sync_failed', sync_error=? WHERE id=?`,
+      String(e.message ?? e).slice(0, 500), req.params.id);
+    next(e);
+  }
 });
 
 r.get('/:id/data', (req, res) => {

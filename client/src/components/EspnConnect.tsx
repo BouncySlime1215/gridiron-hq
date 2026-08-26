@@ -97,7 +97,7 @@ export default function EspnConnect() {
       await api(`/leagues/${r.id}/sync`, { method: 'POST' });
       setMsg(`Added and synced ${l.name}.`);
       refetch();
-    } catch (e: any) { setMsg(`Added, but the first sync failed: ${e.message}. Try "Sync" on the My Leagues page.`); }
+    } catch (e: any) { setMsg(`Added, but the first sync failed: ${e.message}. Try “Sync” in League Hub → Connections.`); }
     finally { setBusy(false); }
   };
 

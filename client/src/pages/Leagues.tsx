@@ -23,6 +23,7 @@ export default function Leagues() {
   const [form, setForm] = useState({ platform: 'sleeper', league_id: '', season: 2026, espn_s2: '', swid: '' });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [removal, setRemoval] = useState<null | { id: number; name: string; drafts: number; draft_picks: number; draft_names: string[] }>(null);
 
   const add = async () => {
     if (!form.league_id) return;
@@ -46,6 +47,26 @@ export default function Leagues() {
       refetch(); refetchAnalysis();
     }
     catch (e: any) { setMsg(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const inspectRemoval = async (id: number, name: string) => {
+    setBusy(true); setMsg(null);
+    try {
+      const impact = await api<any>(`/leagues/${id}/removal-impact`);
+      setRemoval({ id, name, ...impact });
+    } catch (e: any) { setMsg(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const disconnect = async () => {
+    if (!removal) return;
+    setBusy(true);
+    try {
+      await api(`/leagues/${removal.id}`, { method: 'DELETE' });
+      setMsg(`Disconnected ${removal.name}. Draft history and league data were retained.`);
+      setRemoval(null); refetch();
+    } catch (e: any) { setMsg(e.message); }
     finally { setBusy(false); }
   };
 
@@ -103,11 +124,16 @@ export default function Leagues() {
               {lg.team_count ?? '?'} teams · {lg.season}{lg.superflex ? ' · superflex' : ''}{lg.ppr === 1 ? ' · PPR' : lg.ppr === 0.5 ? ' · half-PPR' : ''}
             </div>
             <div className="text-[10px] text-slate-400 mt-0.5">{lg.fetched_at ? `synced ${lg.fetched_at}` : 'never synced'}</div>
+            {lg.connection_status && lg.connection_status !== 'connected' && (
+              <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800">
+                {lg.connection_status === 'needs_reconnect' ? 'Credentials disconnected — reconnect to sync' : `Sync failed${lg.sync_error ? `: ${lg.sync_error}` : ''}`}
+              </div>
+            )}
             <div className="flex gap-3 mt-2">
               <button className="text-xs text-emerald-600 hover:underline"
                 onClick={e => { e.stopPropagation(); sync(lg.id); }}>↻ sync</button>
               <button className="text-xs text-rose-600 hover:underline"
-                onClick={async e => { e.stopPropagation(); if (confirm('Remove this league?')) { await api(`/leagues/${lg.id}`, { method: 'DELETE' }); if (sel === lg.id) setSel(null); refetch(); } }}>remove</button>
+                onClick={e => { e.stopPropagation(); inspectRemoval(lg.id, lg.name ?? `League ${lg.league_id}`); }}>disconnect</button>
             </div>
           </div>
         ))}
@@ -157,6 +183,28 @@ export default function Leagues() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {removal && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-900/20 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => !busy && setRemoval(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="disconnect-title" className="w-full max-w-lg rounded-[10px] border border-slate-200 bg-white p-6 shadow-xl" onMouseDown={e => e.stopPropagation()}>
+            <div className="text-xs font-bold uppercase tracking-wider text-amber-700">Safe disconnect</div>
+            <h2 id="disconnect-title" className="mt-1 text-xl font-extrabold text-slate-900">Disconnect {removal.name}?</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">ESPN cookies will be removed and live syncing will stop. The league itself stays in Gridiron HQ so nothing silently disappears.</p>
+            <div className="mt-4 rounded-[10px] border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div className="font-semibold text-slate-900">What will be retained</div>
+              <ul className="mt-2 space-y-1 text-slate-600">
+                <li>League settings and cached roster data</li>
+                <li>{removal.drafts} draft{removal.drafts === 1 ? '' : 's'} and {removal.draft_picks} recorded pick{removal.draft_picks === 1 ? '' : 's'}</li>
+                {removal.draft_names.slice(0, 3).map(name => <li key={name} className="truncate">“{name}”</li>)}
+              </ul>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button className="btn-ghost" onClick={() => setRemoval(null)} disabled={busy}>Cancel</button>
+              <button className="btn-primary" onClick={disconnect} disabled={busy}>{busy ? 'Disconnecting…' : 'Disconnect credentials'}</button>
+            </div>
           </div>
         </div>
       )}

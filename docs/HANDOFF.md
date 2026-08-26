@@ -4,7 +4,9 @@ Written 2026-08-26. Everything below was verified against the code and the live
 database at that date, not recalled. Where something is uncertain it says so.
 
 Branch: `phase3-live-draft-reliability` (off `origin/main` @ `9abacd6`).
-4 commits, **not pushed**. `npm test` = 177 passing, `npm run typecheck` clean.
+Continuation verified 2026-08-26: safe removal, automatic local sign-in,
+connection-health state, the duplicate-player dry-run, and the first UI/IA phase
+are implemented. `npm test` = 187 passing and `npm run typecheck` is clean.
 
 ---
 
@@ -48,7 +50,7 @@ already have one.
 
 ---
 
-## 1. What I changed (4 commits)
+## 1. What I changed
 
 1. **`Phase 3B: transactional live-draft reconciliation engine`**
    New `server/services/draft-reconcile.js`. One-transaction reconciliation of
@@ -79,14 +81,12 @@ already have one.
 
 ---
 
-## 2. Finish this first (in progress, not committed)
+## 2. Safe league removal (complete)
 
-### `DELETE /api/leagues/:id` silently orphans drafts
-`server/routes/leagues.js:35` is a bare `DELETE FROM leagues WHERE id = ?`.
-
-Verified in an isolated DB: the delete **succeeds and leaves orphaned drafts**
-pointing at a league row that no longer exists. It does not error, and nothing
-tells the user their draft history just became unreachable.
+### `DELETE /api/leagues/:id` no longer orphans drafts
+The old route was a bare `DELETE FROM leagues WHERE id = ?`. In an isolated DB
+that delete succeeded and left orphaned drafts pointing at a league row that no
+longer existed. The route, UI, and database guards below replace that behavior.
 
 Why it doesn't hit a FK error: `migrations/006` declares
 `league_row_id INTEGER REFERENCES leagues(id)`, but `services/espn-draft.js:30`
@@ -98,22 +98,20 @@ that sticks. `PRAGMA foreign_key_list(drafts)` on such a DB shows only the
 Live data as of writing: leagues 1, 3 and 4 have drafts; **330 draft picks** sit
 under league-bound drafts.
 
-**What to do** (matches the Phase 3 spec §8, "safe removal"):
-- Make deletion explain what will be removed vs retained, and require
-  confirmation.
-- Default to *disconnecting* (clear `espn_s2`/`swid`, mark needs-reconnect) and
-  keep the league row + draft history, rather than a hard delete.
-- If a hard delete is genuinely wanted, either re-point or explicitly delete the
-  dependent drafts in one transaction — never leave orphans.
-- Reconcile the two conflicting definitions of `drafts.league_row_id` so the FK
-  is actually declared. This needs a migration, and needs care on existing DBs.
-- Test both: delete-with-drafts and delete-without.
+**Implemented** (matches the Phase 3 spec §8, "safe removal"):
+- The UI fetches and displays removal impact before confirmation.
+- Default removal disconnects credentials, marks `needs_reconnect`, and retains
+  league/draft history.
+- Explicit purge deletes dependent drafts and picks in one transaction.
+- Migration 011 enforces the missing parent contract on legacy databases with
+  insert/update/delete guards without a risky rebuild of the hot drafts table.
+- Disconnect, purge, no-history, and orphan-prevention paths are tested.
 
 ---
 
 ## 3. Remaining loose ends
 
-### 3.1 Existing duplicate players (data repair — NOT done)
+### 3.1 Existing duplicate players (dry-run complete; merge intentionally gated)
 My commit 4 stops *new* duplicates. The existing ones are still there.
 
 Measured on the live DB: **64 duplicate groups** across 1036 players, and picks
@@ -128,16 +126,19 @@ They split into two kinds, and **only one is safe to merge**:
   duplicates. **Do not auto-merge these.** Needs a per-case judgment, ideally
   surfaced in Dev Hub for a human to confirm.
 
-Build the merge as **dry-run first**, printing exactly what it would do.
+`services/player-repair.js` and the Dev Hub now provide the requested read-only
+dry-run, including every referenced table. It never merges the distinct-ID
+groups. Applying the safe subset remains intentionally absent until its
+collision policy is reviewed.
 Watch out: `draft_picks` has `UNIQUE(draft_id, player_id)` — if both rows appear
 in the *same* draft, a naive re-point collides. Decide that case explicitly.
 
-### 3.2 The bearer-token sign-in confuses new clones
-`/api/leagues`, `/api/news`, `/api/dev` etc. sit behind `legacyAuthenticated`
-and return 401 until you paste a token into the "Application sign-in" box on
-Settings. Someone cloning the repo hits a wall of 401s with no explanation.
-Either document it in the README's setup steps or make first-run provisioning
-automatic for a local single-user install.
+### 3.2 Local sign-in (complete)
+`/api/leagues`, `/api/news`, `/api/dev` etc. remain behind
+`legacyAuthenticated`; a fresh clone no longer has to provision them manually.
+`POST /api/auth/local-session` now provisions the local owner only for literal
+loopback callers. The client retries one 401 after obtaining that session, so a
+fresh clone requires no token paste while protected routes remain authenticated.
 
 ### 3.3 Phase 3C / 3D (paused by the user, resume later)
 - **3C**: adaptive polling with capped backoff + jitter, pause on hidden tab,

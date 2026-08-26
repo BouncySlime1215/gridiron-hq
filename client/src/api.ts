@@ -1,6 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export async function api<T = any>(path: string, opts?: RequestInit): Promise<T> {
+let localSessionPromise: Promise<string | null> | null = null;
+
+async function provisionLocalSession() {
+  if (typeof window === 'undefined') return null;
+  if (!localSessionPromise) {
+    localSessionPromise = fetch('/api/auth/local-session', { method: 'POST' })
+      .then(async res => {
+        if (!res.ok) return null;
+        const body = await res.json();
+        const token = typeof body.token === 'string' ? body.token : null;
+        if (token) setAuthToken(token);
+        return token;
+      })
+      .finally(() => { localSessionPromise = null; });
+  }
+  return localSessionPromise;
+}
+
+export async function api<T = any>(path: string, opts?: RequestInit, retried = false): Promise<T> {
   // Self-hosted authentication is provisioned with server/platform/provision-auth.js.
   // Keep the opaque token out of source/config files; callers can persist it once
   // with setAuthToken(), after which every API request authenticates consistently.
@@ -13,6 +31,10 @@ export async function api<T = any>(path: string, opts?: RequestInit): Promise<T>
       ...opts?.headers
     }
   });
+  if (res.status === 401 && !retried && path !== '/auth/local-session') {
+    const provisioned = await provisionLocalSession();
+    if (provisioned) return api<T>(path, opts, true);
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `${res.status} ${res.statusText}`);
@@ -38,6 +60,9 @@ export function useApi<T = any>(path: string | null) {
   // else now and must not linger under the new path's label.
   const hasData = useRef(false);
   const prevPath = useRef<string | null>(null);
+  const requestId = useRef(0);
+  const controller = useRef<AbortController | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const refetch = useCallback(() => {
     if (!path) return;
     if (prevPath.current !== null && prevPath.current !== path) {
@@ -46,14 +71,29 @@ export function useApi<T = any>(path: string | null) {
     }
     prevPath.current = path;
     if (!hasData.current) setLoading(true);
-    return api<T>(path)
-      .then(d => { hasData.current = true; setData(d); setError(null); })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+    else setRefreshing(true);
+    controller.current?.abort();
+    const abort = new AbortController();
+    controller.current = abort;
+    const id = ++requestId.current;
+    return api<T>(path, { signal: abort.signal })
+      .then(d => {
+        if (id !== requestId.current) return;
+        hasData.current = true; setData(d); setError(null);
+      })
+      .catch(e => {
+        if (e?.name !== 'AbortError' && id === requestId.current) setError(e.message);
+      })
+      .finally(() => {
+        if (id === requestId.current) { setLoading(false); setRefreshing(false); }
+      });
   }, [path]);
 
-  useEffect(() => { refetch(); }, [refetch]);
-  return { data, loading, error, refetch };
+  useEffect(() => {
+    refetch();
+    return () => controller.current?.abort();
+  }, [refetch]);
+  return { data, loading, refreshing, error, refetch };
 }
 
 /** Headshot URL from whichever platform id we have. */

@@ -28,6 +28,7 @@ import mlbRouter from './routes/mlb.js';
 import nflMarketRouter from './routes/nfl-market.js';
 import nflBettingRouter from './routes/nfl-betting.js';
 import bettingHubRouter from './routes/betting-hub.js';
+import localAuthRouter from './routes/local-auth.js';
 import { startScheduler } from './services/scheduler.js';
 import { legacyAuthenticated, legacyAdmin } from './platform/legacy-access.js';
 
@@ -51,6 +52,9 @@ startScheduler({ intervalMinutes: 5 });
 // browser tab with the Draft Room open was watching it count down.
 startDraftClockJob();
 
+// Public only on the loopback interface. It removes the fresh-install token
+// paste step while all protected route families remain bearer-authenticated.
+app.use('/api/auth', localAuthRouter);
 app.use('/api/teams', teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', rankingsRouter);

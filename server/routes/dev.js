@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getApiKey, setApiKey, clearApiKey, usageSummary, PRICING } from '../services/claude.js';
 import { rows, row } from '../db/index.js';
+import { playerIdentityRepairPlan } from '../services/player-repair.js';
 
 const r = Router();
 
@@ -37,6 +38,7 @@ r.put('/key', (req, res) => {
 r.delete('/key', (req, res) => { clearApiKey(); res.json({ ok: true }); });
 
 r.get('/usage', (req, res) => res.json(usageSummary(Number(req.query.days) || 30)));
+r.get('/player-identity/repair-plan', (req, res) => res.json(playerIdentityRepairPlan()));
 
 
 /** One button: repull every live data source. */

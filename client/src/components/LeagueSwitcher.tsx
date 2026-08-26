@@ -34,6 +34,12 @@ export default function LeagueSwitcher() {
   }
 
   return (
+    <div className="flex items-center gap-2">
+    {active?.connection_status && active.connection_status !== 'connected' && (
+      <Link to="/leagues" className="rounded-full border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800">
+        Reconnect
+      </Link>
+    )}
     <select
       value={activeId ?? ''}
       onChange={e => setActiveId(Number(e.target.value))}
@@ -45,5 +51,6 @@ export default function LeagueSwitcher() {
         </option>
       ))}
     </select>
+    </div>
   );
 }

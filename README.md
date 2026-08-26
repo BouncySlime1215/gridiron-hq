@@ -69,10 +69,11 @@ machine.
 
 ### Connecting your league
 
-On the **My Leagues** page, add an ESPN or Sleeper league.
+In **League Hub → Connections**, add an ESPN or Sleeper league. The installed local app signs
+this browser in automatically; there is no bearer token or provisioning command to copy.
 
 - **Sleeper** and **public ESPN** leagues need only the league ID.
-- **Private ESPN** leagues also need your `espn_s2` and `SWID` cookies — the **ESPN Settings**
+- **Private ESPN** leagues also need your `espn_s2` and `SWID` cookies — **Settings**
   page walks you through finding them in your browser. They are stored only in the local SQLite
   file and are sent only to ESPN.
 

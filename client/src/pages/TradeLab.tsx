@@ -80,7 +80,7 @@ export default function TradeLab() {
         ))}
       </div>
 
-      {!active && <div className="card p-6 text-sm text-slate-500">Connect a league on the My Leagues page first.</div>}
+      {!active && <div className="card p-6 text-sm text-slate-500">Connect a league in League Hub first.</div>}
       {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}

@@ -8,6 +8,8 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-league-removal-test
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { db, rows, row, run } = await import('../server/db/index.js');
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations();
 // Creates drafts.league_row_id / espn_league_id at import time.
 await import('../server/services/espn-draft.js');
 const { default: leaguesRouter } = await import('../server/routes/leagues.js');
@@ -58,8 +60,16 @@ test('the default removal disconnects: credentials go, draft history stays', asy
   assert.ok(row('SELECT id FROM leagues WHERE id = ?', leagueId), 'league row must survive');
   assert.equal(row('SELECT espn_s2 FROM leagues WHERE id = ?', leagueId).espn_s2, null,
     'stored credentials must be cleared');
+  assert.equal(row('SELECT connection_status FROM leagues WHERE id = ?', leagueId).connection_status, 'needs_reconnect');
   assert.ok(row('SELECT id FROM drafts WHERE id = ?', draftId), 'draft history must survive');
   assert.equal(rows('SELECT id FROM draft_picks WHERE draft_id = ?', draftId).length, 1);
+});
+
+test('database integrity guards reject orphaned draft references and direct parent deletion', () => {
+  assert.throws(() => run(`INSERT INTO drafts (name,type,league_row_id) VALUES ('orphan','mock',999999)`),
+    /draft league not found/);
+  const { leagueId } = leagueWithDraftHistory();
+  assert.throws(() => run('DELETE FROM leagues WHERE id=?', leagueId), /league has draft history/);
 });
 
 test('a purge removes dependent drafts too, leaving no orphans behind', async () => {

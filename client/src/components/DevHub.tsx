@@ -21,6 +21,7 @@ export default function DevHub() {
   const [keyInput, setKeyInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [repair, setRepair] = useState<any>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -164,6 +165,17 @@ export default function DevHub() {
                     </li>
                   ))}
                 </ul>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Player identity audit</h3>
+                  <button className="btn-ghost text-xs" onClick={async () => setRepair(await api('/dev/player-identity/repair-plan'))}>Run dry-run</button>
+                </div>
+                {!repair ? <p className="text-[11px] text-slate-400">Scans duplicate names without changing any draft, roster or player row.</p> : <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  <div className="grid grid-cols-3 gap-2 text-center"><div><b className="block text-lg text-slate-900">{repair.duplicate_groups}</b>duplicate</div><div><b className="block text-lg text-emerald-700">{repair.safe_groups}</b>safe</div><div><b className="block text-lg text-amber-700">{repair.review_groups}</b>review</div></div>
+                  <p className="mt-2 text-[10px] leading-4 text-slate-500">{repair.note}</p>
+                </div>}
               </div>
             </div>
           </section>

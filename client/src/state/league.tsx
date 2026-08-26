@@ -17,6 +17,8 @@ interface League {
   name: string | null;
   my_team_id: string | null;
   team_count: number | null;
+  connection_status?: 'connected' | 'needs_reconnect' | 'sync_failed';
+  sync_error?: string | null;
   [key: string]: any;
 }
 

@@ -88,6 +88,95 @@ export function startingSlots(lineupSlotCounts = {}) {
   return out;
 }
 
+function normalizedMemberId(value) {
+  return String(value ?? '').trim().replace(/^\{/, '').replace(/\}$/, '').toLowerCase();
+}
+
+function teamName(team) {
+  return team?.name || `${team?.location ?? ''} ${team?.nickname ?? ''}`.trim() || `Team ${team?.id}`;
+}
+
+function teamOwnerIds(team) {
+  const values = [team?.primaryOwner, ...(Array.isArray(team?.owners) ? team.owners : [])];
+  return [...new Set(values.map(normalizedMemberId).filter(Boolean))];
+}
+
+function rosterRequirements(lineupSlotCounts = {}) {
+  const requirements = {};
+  for (const [slot, count] of Object.entries(lineupSlotCounts)) {
+    const name = SLOT_NAME[Number(slot)] ?? `SLOT_${slot}`;
+    if (Number.isFinite(Number(count)) && Number(count) > 0) requirements[name] = Number(count);
+  }
+  return requirements;
+}
+
+/** Convert ESPN's setup payload into the stable, UI-safe Phase 3A contract. */
+export function normalizeDraftDiscovery(data, league, { userId } = {}) {
+  const settings = data?.settings ?? {};
+  const draftSettings = settings.draftSettings ?? {};
+  const detail = data?.draftDetail ?? {};
+  const teams = Array.isArray(data?.teams) ? data.teams.filter(team => team?.id != null) : [];
+  const ids = new Set(teams.map(team => String(team.id)));
+  const rawOrder = Array.isArray(draftSettings.pickOrder) ? draftSettings.pickOrder : [];
+  const pickOrder = rawOrder.map(id => String(id)).filter(id => ids.has(id));
+  const validPickOrder = pickOrder.length === teams.length && new Set(pickOrder).size === teams.length;
+  const teamCount = Number(settings.size ?? teams.length) || null;
+  const totalSlots = Array.isArray(detail.picks) ? detail.picks.length : 0;
+  const lineup = settings.rosterSettings?.lineupSlotCounts ?? {};
+  const rosterCount = Object.values(lineup).reduce((sum, count) => sum + (Number(count) || 0), 0);
+  const rounds = Number(draftSettings.numberOfRounds)
+    || (totalSlots && teamCount ? totalSlots / teamCount : 0)
+    || rosterCount || null;
+  const status = detail.drafted ? 'completed' : detail.inProgress ? 'active' : 'scheduled';
+  const memberId = normalizedMemberId(league.swid);
+  const ownedTeams = memberId ? teams.filter(team => teamOwnerIds(team).includes(memberId)) : [];
+  const confirmation = userId == null ? null : row(
+    'SELECT espn_team_id FROM espn_team_confirmations WHERE league_row_id=? AND user_id=?',
+    league.id, Number(userId));
+  const confirmedTeam = confirmation && teams.find(team => String(team.id) === String(confirmation.espn_team_id));
+  const provedTeam = ownedTeams.length === 1 ? ownedTeams[0] : null;
+  const selectedTeam = provedTeam ?? confirmedTeam ?? null;
+  const ownershipSource = provedTeam ? 'espn' : confirmedTeam ? 'confirmed' : null;
+  const selectedIndex = selectedTeam && validPickOrder
+    ? pickOrder.indexOf(String(selectedTeam.id)) : -1;
+  const scheduledMillis = draftSettings.date == null ? NaN : Number(draftSettings.date);
+  const scheduledTime = Number.isFinite(scheduledMillis)
+    ? new Date(scheduledMillis).toISOString() : null;
+
+  return {
+    league_name: settings.name ?? league.name ?? `ESPN ${league.league_id}`,
+    league_id: String(league.league_id),
+    league_row_id: league.id,
+    season: Number(league.season),
+    draft_status: status,
+    scheduled_time: scheduledTime,
+    team_count: teamCount,
+    round_count: Number.isInteger(rounds) ? rounds : null,
+    draft_type: String(draftSettings.type ?? (draftSettings.auction ? 'AUCTION' : 'SNAKE')).toLowerCase(),
+    pick_timer_seconds: Number(draftSettings.timePerSelection) || null,
+    roster_requirements: rosterRequirements(lineup),
+    user_team: selectedTeam ? { id: String(selectedTeam.id), name: teamName(selectedTeam) } : null,
+    user_draft_slot: selectedIndex >= 0 ? selectedIndex + 1 : null,
+    ownership: {
+      state: provedTeam ? 'proven' : confirmedTeam ? 'confirmed' : 'confirmation_required',
+      source: ownershipSource,
+      can_start: !!selectedTeam && selectedIndex >= 0,
+      reason: !selectedTeam ? 'team_confirmation_required'
+        : selectedIndex < 0 ? 'pick_order_unavailable' : null
+    },
+    pick_order: validPickOrder ? pickOrder : null,
+    teams: teams.map(team => ({ id: String(team.id), name: teamName(team) }))
+  };
+}
+
+/** Fetch the current setup without creating or modifying any draft or ownership row. */
+export async function discoverLiveDraft(leagueRowId, { userId } = {}) {
+  const league = row('SELECT * FROM leagues WHERE id = ?', Number(leagueRowId));
+  if (!league) throw Object.assign(new Error('league not found'), { status: 404 });
+  if (league.platform !== 'espn') throw Object.assign(new Error('live draft discovery is ESPN-only'), { status: 400 });
+  return normalizeDraftDiscovery(await fetchDraftDetail(league), league, { userId });
+}
+
 /**
  * ESPN player id -> our player row, inserting a stub for anyone we have never seen.
  *
@@ -151,46 +240,79 @@ async function resolveEspnPlayers(espnIds, season) {
  * Create (or find) the live draft row mirroring a connected league's ESPN draft.
  * Idempotent: calling it again returns the existing draft and refreshes its settings.
  */
-export async function ensureLiveDraft(leagueRowId) {
+export async function ensureLiveDraft(leagueRowId, { userId, confirmedTeamId } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueRowId);
   if (!lg) throw Object.assign(new Error('league not found'), { status: 404 });
   if (lg.platform !== 'espn') throw Object.assign(new Error('live draft sync is ESPN-only'), { status: 400 });
 
+  if (!Number.isInteger(Number(userId))) throw Object.assign(new Error('authenticated user required'), { status: 401 });
   const data = await fetchDraftDetail(lg);
+  const teams = Array.isArray(data.teams) ? data.teams : [];
+  if (confirmedTeamId != null) {
+    const selected = teams.find(team => String(team.id) === String(confirmedTeamId));
+    if (!selected) throw Object.assign(new Error('confirmed ESPN team is not in this league'), { status: 400 });
+    run(`INSERT INTO espn_team_confirmations (league_row_id,user_id,espn_team_id,confirmed_at)
+         VALUES (?,?,?,datetime('now'))
+         ON CONFLICT(league_row_id,user_id) DO UPDATE SET
+           espn_team_id=excluded.espn_team_id, confirmed_at=excluded.confirmed_at`,
+      lg.id, Number(userId), String(selected.id));
+  }
+  const setup = normalizeDraftDiscovery(data, lg, { userId });
+  if (!setup.ownership.can_start) {
+    throw Object.assign(new Error(setup.ownership.reason === 'pick_order_unavailable'
+      ? 'ESPN pick order is not available yet' : 'explicit ESPN team confirmation required'), {
+      status: 409, code: setup.ownership.reason === 'pick_order_unavailable'
+        ? 'ESPN_PICK_ORDER_UNAVAILABLE' : 'ESPN_TEAM_CONFIRMATION_REQUIRED', discovery: setup
+    });
+  }
   const ds = data.settings?.draftSettings ?? {};
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
-  const pickOrder = ds.pickOrder ?? (data.teams ?? []).map(t => t.id);
-  const teamCount = pickOrder.length || data.teams?.length || 10;
-  const totalSlots = (data.draftDetail?.picks ?? []).length;
-  const rounds = totalSlots && teamCount ? Math.round(totalSlots / teamCount)
-    : Object.values(lineup).reduce((s, n) => s + n, 0);
-  const mySlot = Math.max(1, pickOrder.indexOf(Number(lg.my_team_id)) + 1);
+  const pickOrder = setup.pick_order;
+  const teamCount = setup.team_count;
+  const rounds = setup.round_count;
+  const mySlot = setup.user_draft_slot;
 
-  const existing = row(`SELECT * FROM drafts WHERE type='live' AND league_row_id = ? AND season = ?`,
-    lg.id, lg.season);
-  const name = `${lg.name ?? `ESPN ${lg.league_id}`} — ${lg.season} draft`;
+  const identity = row(`SELECT d.* FROM espn_live_draft_identity i
+    JOIN drafts d ON d.id=i.draft_id WHERE i.league_row_id=? AND i.season=?`, lg.id, lg.season);
+  const legacy = identity ?? row(`SELECT * FROM drafts WHERE type='live' AND league_row_id=? AND season=? ORDER BY id LIMIT 1`, lg.id, lg.season);
+  const name = `${setup.league_name} — ${lg.season} draft`;
   const teamNames = JSON.stringify(Object.fromEntries((data.teams ?? []).map(t =>
     [t.id, t.name || `${t.location ?? ''} ${t.nickname ?? ''}`.trim() || `Team ${t.id}`])));
 
-  if (existing) {
-    run(`UPDATE drafts SET name=?, team_count=?, rounds=?, my_slot=?, pick_seconds=?,
-         pick_order=?, roster_slots=?, espn_league_id=?, draft_at=? WHERE id=?`,
+  let draftId = legacy?.id ?? null;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (draftId) {
+      run(`INSERT OR IGNORE INTO espn_live_draft_identity (league_row_id,season,draft_id) VALUES (?,?,?)`, lg.id, lg.season, draftId);
+      run(`UPDATE drafts SET name=?, team_count=?, rounds=?, my_slot=?, pick_seconds=?,
+         pick_order=?, roster_slots=?, espn_league_id=?, draft_at=?, espn_draft_status=?,
+         espn_draft_type=?, espn_team_id=?, espn_ownership_source=?, setup_synced_at=datetime('now') WHERE id=?`,
       name, teamCount, rounds, mySlot, ds.timePerSelection ?? 90,
       JSON.stringify({ order: pickOrder, team_names: JSON.parse(teamNames) }),
       JSON.stringify(startingSlots(lineup)), String(lg.league_id),
-      ds.date ? new Date(ds.date).toISOString() : null, existing.id);
-    return { draft_id: existing.id, created: false };
+      setup.scheduled_time, setup.draft_status, setup.draft_type, setup.user_team.id,
+      setup.ownership.source, draftId);
+    } else {
+      const inserted = run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, pick_seconds,
+          league_row_id, espn_league_id, season, pick_order, roster_slots, draft_at,
+          espn_draft_status,espn_draft_type,espn_team_id,espn_ownership_source,setup_synced_at)
+         VALUES (?, 'live', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+      name, teamCount, rounds, mySlot, ds.timePerSelection ?? 90,
+      lg.id, String(lg.league_id), lg.season,
+      JSON.stringify({ order: pickOrder, team_names: JSON.parse(teamNames) }),
+      JSON.stringify(startingSlots(lineup)), setup.scheduled_time, setup.draft_status,
+      setup.draft_type, setup.user_team.id, setup.ownership.source);
+      draftId = Number(inserted.lastInsertRowid);
+      run(`INSERT INTO espn_live_draft_identity (league_row_id,season,draft_id) VALUES (?,?,?)`, lg.id, lg.season, draftId);
+    }
+    run(`INSERT INTO draft_team_ownership (draft_id,team_slot,user_id) VALUES (?,?,?)
+         ON CONFLICT(draft_id,user_id) DO UPDATE SET team_slot=excluded.team_slot`, draftId, mySlot, Number(userId));
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
   }
-
-  run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, pick_seconds,
-        league_row_id, espn_league_id, season, pick_order, roster_slots, draft_at)
-       VALUES (?, 'live', ?,?,?,?,?,?,?,?,?,?)`,
-    name, teamCount, rounds, mySlot, ds.timePerSelection ?? 90,
-    lg.id, String(lg.league_id), lg.season,
-    JSON.stringify({ order: pickOrder, team_names: JSON.parse(teamNames) }),
-    JSON.stringify(startingSlots(lineup)),
-    ds.date ? new Date(ds.date).toISOString() : null);
-  return { draft_id: row('SELECT last_insert_rowid() AS id').id, created: true };
+  return { draft_id: draftId, created: !legacy, discovery: setup };
 }
 
 /**

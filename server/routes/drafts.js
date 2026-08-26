@@ -3,7 +3,7 @@ import { rows, row, run } from '../db/index.js';
 import { computeConsensus } from './aggregates.js';
 import { statsMap } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
-import { ensureLiveDraft, syncLiveDraft } from '../services/espn-draft.js';
+import { discoverLiveDraft, ensureLiveDraft, syncLiveDraft } from '../services/espn-draft.js';
 import { boardState, rankTargets, dossiersFor } from '../services/draft-assist.js';
 import { ORDER_TYPES, DEFAULT_ROSTER_POSITIONS, assignRosterSlots, slotForPick as engineSlotForPick } from '../draft/engine.js';
 import {
@@ -685,6 +685,16 @@ Respond with ONLY JSON:
 
 /* ------------------------------------------------------------------ live draft */
 
+/** Read-only ESPN setup discovery. This never creates a draft or assigns a team. */
+r.get('/live/discovery', async (req, res, next) => {
+  try {
+    const leagueRowId = Number(req.query?.league_row_id ?? req.query?.league_id);
+    if (!Number.isInteger(leagueRowId)) return res.status(400).json({ error: 'league_row_id required' });
+    assertLeagueMember(req.auth.userId, leagueRowId);
+    res.json(await discoverLiveDraft(leagueRowId, { userId: req.auth.userId }));
+  } catch (error) { next(error); }
+});
+
 /**
  * Link a connected ESPN league's draft and mirror it locally.
  *
@@ -696,18 +706,21 @@ r.post('/live/link', async (req, res, next) => {
   try {
     const leagueRowId = req.body?.league_row_id ?? req.body?.league_id;
     if (!leagueRowId) return res.status(400).json({ error: 'league_row_id required' });
-    assertCommissioner(req.auth.userId, Number(leagueRowId));
-    const out = await ensureLiveDraft(leagueRowId);
-    const linkedDraft = row('SELECT my_slot FROM drafts WHERE id = ?', out.draft_id);
-    if (linkedDraft?.my_slot) {
-      run(`INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)
-           ON CONFLICT(draft_id, team_slot) DO NOTHING`, out.draft_id, linkedDraft.my_slot, req.auth.userId);
-    }
+    const membership = assertLeagueMember(req.auth.userId, Number(leagueRowId));
+    const out = await ensureLiveDraft(Number(leagueRowId), {
+      userId: req.auth.userId,
+      confirmedTeamId: req.body?.confirmed_team_id
+    });
     // Pull whatever has already happened, so a mid-draft connect catches up instantly.
     const sync = await syncLiveDraft(out.draft_id).catch(e => ({ error: e.message }));
-    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.link', entityType: 'draft', entityId: out.draft_id, details: { league_row_id: Number(leagueRowId) } });
+    recordAudit({ actor: req.auth.userId, role: membership.role, action: 'draft.link', entityType: 'draft', entityId: out.draft_id, details: { league_row_id: Number(leagueRowId) } });
     res.json({ ...out, sync });
-  } catch (e) { next(e); }
+  } catch (e) {
+    if (e?.code === 'ESPN_TEAM_CONFIRMATION_REQUIRED' || e?.code === 'ESPN_PICK_ORDER_UNAVAILABLE') {
+      return res.status(e.status).json({ error: e.message, code: e.code, discovery: e.discovery });
+    }
+    next(e);
+  }
 });
 
 /** Poll ESPN for new picks. Cheap; the draft room calls this on a timer. */

@@ -13,6 +13,7 @@
 import { rows, row, run, db } from '../db/index.js';
 import { fetchEspnLeague } from './espn-client.js';
 import { createHash } from 'node:crypto';
+import { registerJob } from '../platform/jobs.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
@@ -402,6 +403,8 @@ export async function ensureLiveDraft(leagueRowId, { userId, confirmedTeamId } =
     }
     run(`INSERT INTO draft_team_ownership (draft_id,team_slot,user_id) VALUES (?,?,?)
          ON CONFLICT(draft_id,user_id) DO UPDATE SET team_slot=excluded.team_slot`, draftId, mySlot, Number(userId));
+    run(`INSERT OR IGNORE INTO espn_draft_sync_state (draft_id,recovery_state)
+         VALUES (?, 'catch_up')`, draftId);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -505,11 +508,108 @@ async function syncLiveDraftImpl(draftId) {
 // the same new player ends up inserted twice under different local ids, or a pick
 // silently lost to the UNIQUE(draft_id, pick_number) race between two inserts.
 const inFlight = new Map();
-export function syncLiveDraft(draftId) {
-  if (inFlight.has(draftId)) return inFlight.get(draftId);
-  const p = syncLiveDraftImpl(draftId).finally(() => inFlight.delete(draftId));
-  inFlight.set(draftId, p);
+const RETRY_BASE_MS = 2_000;
+const RETRY_MAX_MS = 60_000;
+
+function syncFailure(error) {
+  if (error?.code === 'ESPN_AUTHENTICATION_FAILED' || error?.code === 'ESPN_INVALID_CREDENTIALS') {
+    return { category: 'authentication', health: 'auth_required', retry: 'stopped' };
+  }
+  if (error?.code === 'ESPN_INVALID_SNAPSHOT' || error?.code === 'ESPN_MALFORMED_RESPONSE'
+      || error?.code === 'ESPN_LEAGUE_MISMATCH') {
+    return { category: 'invalid_data', health: 'invalid_data', retry: 'stopped' };
+  }
+  return { category: 'transient', health: 'retrying', retry: 'scheduled' };
+}
+
+function retryDelay(draftId, failures) {
+  const exponential = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * (2 ** Math.min(failures - 1, 5)));
+  // Stable per-draft jitter keeps tests deterministic while preventing every draft
+  // on a restarted server from retrying on the same millisecond.
+  const jitter = (Number(draftId) * 1103515245 + failures * 12345) >>> 0;
+  return Math.min(RETRY_MAX_MS, exponential + (jitter % Math.max(1, Math.floor(exponential / 4))));
+}
+
+function ensureSyncState(draftId) {
+  run(`INSERT OR IGNORE INTO espn_draft_sync_state (draft_id,recovery_state)
+       VALUES (?, 'catch_up')`, Number(draftId));
+}
+
+function beginSyncAttempt(draftId, recoveryState) {
+  ensureSyncState(draftId);
+  run(`UPDATE espn_draft_sync_state SET health_state='syncing', last_attempt_at=datetime('now'),
+       retry_status='ready', next_retry_at=NULL, recovery_state=?, updated_at=datetime('now')
+       WHERE draft_id=?`, recoveryState, Number(draftId));
+}
+
+function recordSyncSuccess(draftId, result) {
+  const complete = result.espn_complete;
+  run(`UPDATE espn_draft_sync_state SET health_state=?, last_success_at=datetime('now'),
+       failure_category=NULL, failure_code=NULL, failure_message=NULL,
+       consecutive_failures=0, next_retry_at=NULL, retry_status=?, recovery_state='recovered',
+       updated_at=datetime('now') WHERE draft_id=?`,
+  complete ? 'complete' : 'healthy', complete ? 'complete' : 'ready', Number(draftId));
+}
+
+function recordSyncFailure(draftId, error) {
+  const failure = syncFailure(error);
+  const current = row(`SELECT consecutive_failures,retry_count FROM espn_draft_sync_state WHERE draft_id=?`, Number(draftId));
+  const failures = Number(current?.consecutive_failures ?? 0) + 1;
+  const nextRetryAt = failure.retry === 'scheduled'
+    ? new Date(Date.now() + retryDelay(draftId, failures)).toISOString() : null;
+  run(`UPDATE espn_draft_sync_state SET health_state=?, last_failure_at=datetime('now'),
+       failure_category=?, failure_code=?, failure_message=?, consecutive_failures=?,
+       retry_count=?, next_retry_at=?, retry_status=?, recovery_state=?, updated_at=datetime('now')
+       WHERE draft_id=?`, failure.health, failure.category, error?.code ?? 'ESPN_SYNC_FAILED',
+  String(error?.message ?? 'ESPN synchronization failed').slice(0, 500), failures,
+  Number(current?.retry_count ?? 0) + 1, nextRetryAt, failure.retry,
+  failure.retry === 'stopped' ? 'action_required' : 'catch_up', Number(draftId));
+}
+
+export function syncLiveDraft(draftId, { recoveryState = 'none' } = {}) {
+  const key = String(draftId);
+  if (inFlight.has(key)) return inFlight.get(key);
+  const p = (async () => {
+    beginSyncAttempt(draftId, recoveryState);
+    try {
+      const result = await syncLiveDraftImpl(draftId);
+      recordSyncSuccess(draftId, result);
+      return result;
+    } catch (error) {
+      recordSyncFailure(draftId, error);
+      throw error;
+    }
+  })().finally(() => inFlight.delete(key));
+  inFlight.set(key, p);
   return p;
+}
+
+export function liveDraftSyncStatus(draftId) {
+  ensureSyncState(draftId);
+  const state = row(`SELECT s.*, d.espn_snapshot_pick_count AS board_count,
+      d.espn_board_revision AS board_revision, d.status AS draft_status,
+      d.last_synced_at AS board_synced_at
+    FROM espn_draft_sync_state s JOIN drafts d ON d.id=s.draft_id WHERE s.draft_id=?`, Number(draftId));
+  return state;
+}
+
+/** Reconcile every due ESPN draft. Terminal auth/data failures wait for a manual retry. */
+export async function syncDueLiveDrafts({ now = new Date() } = {}) {
+  const due = rows(`SELECT d.id FROM drafts d
+    LEFT JOIN espn_draft_sync_state s ON s.draft_id=d.id
+    WHERE d.type='live' AND d.espn_league_id IS NOT NULL AND d.status<>'complete'
+      AND (s.draft_id IS NULL OR s.retry_status IN ('ready','scheduled'))
+      AND (s.next_retry_at IS NULL OR s.next_retry_at<=?)
+    ORDER BY d.id`, now.toISOString());
+  return Promise.all(due.map(({ id }) => syncLiveDraft(id, { recoveryState: 'catch_up' })
+    .then(result => ({ draft_id: id, ok: true, result }))
+    .catch(error => ({ draft_id: id, ok: false, code: error?.code ?? 'ESPN_SYNC_FAILED' }))));
+}
+
+export function startEspnDraftSyncJob({ intervalMs = 4_000 } = {}) {
+  return registerJob('espn-live-draft-sync', {
+    intervalMs, runImmediately: true, run: () => syncDueLiveDrafts()
+  });
 }
 
 /** Snake order: odd rounds run 1..N, even rounds run back N..1. */

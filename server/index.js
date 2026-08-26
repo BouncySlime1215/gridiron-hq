@@ -30,6 +30,7 @@ import nflBettingRouter from './routes/nfl-betting.js';
 import bettingHubRouter from './routes/betting-hub.js';
 import { startScheduler } from './services/scheduler.js';
 import { legacyAuthenticated, legacyAdmin } from './platform/legacy-access.js';
+import { startEspnDraftSyncJob } from './services/espn-draft.js';
 
 const app = express();
 app.use(express.json());
@@ -50,6 +51,9 @@ startScheduler({ intervalMinutes: 5 });
 // setTimeout. Without this, a draft only advanced past the clock while a
 // browser tab with the Draft Room open was watching it count down.
 startDraftClockJob();
+// ESPN mirroring is server-owned. The immediate first tick catches up drafts after
+// browser, server, or machine downtime; persisted retry state governs later ticks.
+startEspnDraftSyncJob();
 
 app.use('/api/teams', teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);

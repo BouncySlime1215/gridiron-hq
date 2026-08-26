@@ -3,7 +3,7 @@ import { rows, row, run } from '../db/index.js';
 import { computeConsensus } from './aggregates.js';
 import { statsMap } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
-import { discoverLiveDraft, ensureLiveDraft, syncLiveDraft } from '../services/espn-draft.js';
+import { discoverLiveDraft, ensureLiveDraft, syncLiveDraft, liveDraftSyncStatus } from '../services/espn-draft.js';
 import { boardState, rankTargets, dossiersFor } from '../services/draft-assist.js';
 import { ORDER_TYPES, DEFAULT_ROSTER_POSITIONS, assignRosterSlots, slotForPick as engineSlotForPick } from '../draft/engine.js';
 import {
@@ -737,6 +737,25 @@ async function reconcileLiveDraft(req, res, next) {
 
 r.post('/:id/sync', reconcileLiveDraft);
 r.post('/:id/reconcile', reconcileLiveDraft);
+
+/** Persisted synchronization health; reading status never starts a second fetch. */
+r.get('/:id/sync-status', (req, res, next) => {
+  try {
+    const { draft } = draftAccess(req, req.params.id);
+    if (draft.type !== 'live' || !draft.espn_league_id) return res.status(400).json({ error: 'not an ESPN-linked live draft' });
+    res.json(liveDraftSyncStatus(draft.id));
+  } catch (error) { next(error); }
+});
+
+/** Explicit recovery action for stopped auth/invalid-data episodes and transient failures. */
+r.post('/:id/retry', async (req, res, next) => {
+  try {
+    const { membership } = draftAccess(req, req.params.id);
+    const synced = await syncLiveDraft(req.params.id, { recoveryState: 'manual_retry' });
+    recordAudit({ actor: req.auth.userId, role: membership.role, action: 'draft.retry', entityType: 'draft', entityId: req.params.id, details: synced });
+    res.json({ ...synced, sync_status: liveDraftSyncStatus(req.params.id) });
+  } catch (error) { next(error); }
+});
 
 /**
  * Everything needed to make the pick on the clock: roster needs against this league's

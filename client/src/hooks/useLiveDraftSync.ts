@@ -63,6 +63,7 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failuresRef = useRef(0);
   const pausedRef = useRef(paused);
+  const authRequiredRef = useRef(false);
 
   const clearTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
 
@@ -84,6 +85,7 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
       if (sync.new_picks?.length) {
         setSyncNote(`+${sync.new_picks.length} pick${sync.new_picks.length > 1 ? 's' : ''} from ESPN`);
       }
+      authRequiredRef.current = false;
       setAuthRequired(false);
       setInvalidData(!!sync.desynced || (sync.failures?.length ?? 0) > 0);
       setError(null);
@@ -95,6 +97,7 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
       if (apiErr?.code === 'ESPN_AUTHENTICATION_FAILED' || apiErr?.status === 401 || apiErr?.status === 403) {
         // Terminal for this polling episode: never mutate against a token we know is
         // dead. The mirrored board stays exactly as it was until the user reconnects.
+        authRequiredRef.current = true;
         setAuthRequired(true);
         setError(null);
         setRecovering(false);
@@ -117,7 +120,7 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
       setError((prev) => prev ?? e.message);
     }
 
-    if (!authRequired) scheduleNext(backoffFor(failuresRef.current));
+    if (!authRequiredRef.current) scheduleNext(backoffFor(failuresRef.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId, scheduleNext]);
 
@@ -138,6 +141,7 @@ export function useLiveDraftSync(draftId: string): LiveDraftSyncState {
 
   const reconnect = useCallback(() => {
     clearTimer();
+    authRequiredRef.current = false;
     setAuthRequired(false);
     setError(null);
     setRecovering(true);

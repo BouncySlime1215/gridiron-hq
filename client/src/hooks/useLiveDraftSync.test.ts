@@ -55,6 +55,10 @@ describe('useLiveDraftSync', () => {
     act(() => { result.current.reconnect(); });
     await flush();
     expect(result.current.health).toBe('synchronized');
+    const callsAfterReconnect = mockedApi.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    await flush();
+    expect(mockedApi.mock.calls.length).toBeGreaterThan(callsAfterReconnect);
   });
 
   it('degrades to delayed then offline on repeated transient failures, preserving the board', async () => {

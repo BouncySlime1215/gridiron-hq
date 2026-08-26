@@ -116,4 +116,54 @@ describe('useLiveDraftSync', () => {
     await flush();
     expect(result.current.health).toBe('completed');
   });
+
+  it('a manual retry surfaces recovering while the request is in flight, then settles', async () => {
+    mockAssistThen(mockedApi);
+    const { result } = renderHook(() => useLiveDraftSync('1'));
+    await flush();
+    expect(result.current.health).toBe('synchronized');
+
+    // Simulate a transient failure first so there is something to recover from.
+    mockedApi.mockImplementation((path: string) => path.endsWith('/sync')
+      ? Promise.reject(new Error('network error'))
+      : Promise.resolve(board));
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    await flush();
+    expect(result.current.health).toBe('delayed');
+
+    let resolveSync: (v: any) => void;
+    mockedApi.mockImplementation((path: string) => path.endsWith('/sync')
+      ? new Promise(res => { resolveSync = res; })
+      : Promise.resolve(board));
+    act(() => { result.current.retry(); });
+    expect(result.current.health).toBe('recovering');
+    await act(async () => { resolveSync!(okSync); await Promise.resolve(); });
+    await flush();
+    expect(result.current.health).toBe('synchronized');
+  });
+
+  it('resuming the same draft after a simulated browser/server restart (fresh mount) re-fetches and converges on the current ESPN snapshot, including a mid-draft correction', async () => {
+    // "Restart" = a brand-new hook instance with no prior client state, exactly what
+    // happens on browser reopen / page reload / server restart — the hook has no
+    // client-persisted state, so this is the resume path.
+    const corrected = { ...board, recent_picks: [{ id: 9, pick_number: 5, team_slot: 2, name: 'Corrected Player' }] };
+    mockedApi.mockImplementation((path: string) => path.endsWith('/sync')
+      ? Promise.resolve({ ...okSync, desynced: true, failures: [{ pick: 5, reason: 'replaced' }] })
+      : Promise.resolve(board));
+    const { result, unmount } = renderHook(() => useLiveDraftSync('1'));
+    await flush();
+    expect(result.current.health).toBe('invalid-data');
+    expect(result.current.board).toEqual(board); // preserved through the bad snapshot
+    unmount();
+
+    // Next poll cycle (post-restart) ESPN now reports the corrected, fully valid snapshot.
+    mockedApi.mockImplementation((path: string) => path.endsWith('/sync')
+      ? Promise.resolve(okSync)
+      : Promise.resolve(corrected));
+    const restarted = renderHook(() => useLiveDraftSync('1'));
+    await flush();
+    expect(restarted.result.current.health).toBe('synchronized');
+    expect(restarted.result.current.board).toEqual(corrected);
+    expect(restarted.result.current.desynced).toBe(false);
+  });
 });

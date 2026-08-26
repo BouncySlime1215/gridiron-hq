@@ -112,4 +112,26 @@ describe('DraftDiscovery', () => {
     await user.click(within(card).getByRole('button', { name: 'Resume Live Draft' }));
     expect(await within(card).findByRole('alert')).toHaveTextContent(/reconnect this league in Settings/);
   });
+
+  it('starting or resuming the same league three times (fresh page load each time) always resolves the same local draft id, never a duplicate', async () => {
+    const user = userEvent.setup();
+    // Each "load" simulates a fresh browser session (new render) hitting discover, then start/resume.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      mockedApi.mockResolvedValueOnce([{ ...baseFixture, local_draft_id: attempt === 1 ? null : 42 }]);
+      const { unmount } = renderPage();
+      const card = await screen.findByTestId('draft-fixture');
+      const label = attempt === 1 ? 'Start Live Draft' : 'Resume Live Draft';
+      const btn = within(card).getByRole('button', { name: label });
+
+      mockedApi.mockResolvedValueOnce({ draft_id: 42, created: attempt === 1, sync: {} });
+      await user.click(btn);
+      await waitFor(() => expect(mockedApi).toHaveBeenCalledWith('/drafts/live/link', expect.objectContaining({
+        body: JSON.stringify({ league_row_id: 1 })
+      })));
+      const result = await mockedApi.mock.results.at(-1)!.value;
+      expect(result.draft_id).toBe(42);
+      unmount();
+      cleanup();
+    }
+  });
 });

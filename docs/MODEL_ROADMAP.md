@@ -737,40 +737,97 @@ decision rules, and the metrics that constitute success. Store the hash in
 ```
 2016-2020  TRAIN        — freely usable
 2021       VALIDATE     — hyperparameters only
-2022-2025  SEALED       — opened once, in order, never re-used
-2026       FORWARD      — the real out-of-sample
+2022-2025  SEALED       — opened one WEEK at a time, never re-used
+2026       FORWARD      — the real out-of-sample, also graded week by week
 ```
 
-### 12.3 Opening rules
+### 12.3 Opening rules — by week, not by season
 
-- Seasons open **one at a time, chronologically**
-- Opening is **logged, irreversible, and attributed** (`nfl_validation_windows`
-  already models this; `test/model-integrity.test.js` already asserts "NFL
-  validation firewall never relabels opened seasons as untouched")
-- **A season, once opened, can never be used to select a model again**
-- Any spec change → new experiment, fresh seal, remaining unopened seasons only
+**Season-level opening was the original design; it is wrong, and this replaces
+it.** The model runs every week in production, deciding start/sit and bet sizing
+with only the data that exists *that Tuesday*. An audit that hands it a whole
+season at once tests a task the model never actually performs, and it can only
+report one aggregate number for 18 weeks of very different conditions.
 
-### 12.4 What gets reported (all of it, always)
+Instead, within each sealed season, replay week by week:
 
-MAE, RMSE, bias, R², Brier, log loss, CRPS, reliability, PIT, coverage at four
-levels, rank correlation, **start/sit regret, waiver regret, draft value error**,
-and CLV where a market exists — sliced by season, week, position, usage class,
-injury status, and confidence bucket. Plus **statistical uncertainty on every
-metric** and a list of the **worst misses with post-hoc explanations**.
+```
+for season in [2022, 2023, 2024, 2025]:      # sealed seasons, in order
+  for week in 1..18:
+    cutoff = everything strictly before (season, week)
+    prediction = model(cutoff)                # only data through last week
+    actual = reveal(season, week)              # unlock this week's results
+    record(prediction, actual, cutoff)          # logged, irreversible
+    # week's actual data now becomes part of "cutoff" for week+1
+```
 
-### 12.5 Baselines that must be beaten
+- Weeks open **one at a time, chronologically, within each sealed season**
+- Each opening is **logged, irreversible, and attributed** — same guarantee as
+  before, at finer grain (`nfl_validation_windows` already models a cutoff;
+  extend it to week granularity)
+- **A week, once opened, can never be used to select a model again** — including
+  by a later week's hyperparameter choice
+- This is mechanically the same discipline `propAccuracy()` already uses
+  ("each player-week is projected only from earlier games") — the audit simply
+  applies it as the *scoring unit* instead of only the *fitting unit*
+
+### 12.4 Weekly fault analysis — examine failures where they happen, not after the season
+
+After each week's predictions are scored, before moving to the next week, run a
+fault pass:
+
+- **Where did it miss, and by how much** — worst 10 misses that week, by player
+- **Why** — attribute each miss to a structural link (§4.2): opportunity wrong,
+  efficiency wrong, availability wrong, or a genuine surprise (injury mid-game,
+  coaching change, weather) no model could have had
+- **When in the season** — plot error by week number across all four sealed
+  seasons. A model that is fine in weeks 1-10 and degrades in 11-18 has a
+  specific, fixable problem (playoff-race game script? divisional-round
+  familiarity? roster churn from injuries compounding?) that a single
+  end-of-season number would hide entirely
+- **Bye weeks, short weeks, and national-TV games** get their own slice — these
+  are exactly the conditions a season-aggregate metric averages away
+
+The output is a **week-by-week fault ledger**, not just a season scorecard:
+`(season, week, player, predicted, actual, error, attributed_cause)` for every
+graded player-week across all four sealed seasons — over 27,000 rows if
+every active player-week is scored. That ledger is the real deliverable of the
+audit; the aggregate MAE/Brier/CRPS numbers in §12.5 are a summary of it, not a
+replacement for it.
+
+### 12.5 What gets reported (all of it, always)
+
+Everything in the weekly fault ledger (§12.4), rolled up two ways:
+
+1. **By week-in-season** (week 1 vs week 2 vs ... vs week 18), across all four
+   sealed seasons — this is the primary view, since it is what actually
+   happened to the model's own decisions over time
+2. **By the usual slices** — season, position, usage class, injury status,
+   confidence bucket
+
+Per slice: MAE, RMSE, bias, R², Brier, log loss, CRPS, reliability, PIT,
+coverage at four levels, rank correlation, **start/sit regret, waiver regret,
+draft value error**, and CLV where a market exists. Plus **statistical
+uncertainty on every metric** and the worst misses with their attributed cause
+from §12.4.
+
+### 12.6 Baselines that must be beaten
 
 Every claim is relative to: (a) always-predict-base-rate, (b) last-season
 points, (c) the 60/40 blend that currently beats us, (d) market/ADP consensus,
-(e) **ffopportunity expected points**, (f) a **shuffled-null permutation**.
+(e) **ffopportunity expected points**, (f) a **shuffled-null permutation**. All
+six are computed on the **same weekly cadence** as the model, not once per
+season, so the comparison is to what each baseline would have told you *that
+week*, not what it says in hindsight.
 
-### 12.6 The null test is mandatory
+### 12.7 The null test is mandatory
 
-For any claimed edge, re-run with shuffled labels. If the real result is not
-clearly outside the null distribution, **there is no edge.** This is what
-correctly killed the 15-specialist meta-model (R² −0.0167 vs null −0.0171).
+For any claimed edge, re-run with shuffled labels, **at the same weekly
+cadence**. If the real result is not clearly outside the null distribution,
+**there is no edge.** This is what correctly killed the 15-specialist
+meta-model (R² −0.0167 vs null −0.0171).
 
-### 12.7 Promotion gates
+### 12.8 Promotion gates
 
 No model reaches production without: sealed-holdout performance beating all
 baselines; calibration within tolerance; a permutation-null result; **N ≥ 250

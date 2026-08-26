@@ -178,9 +178,21 @@ An independent expected-points model. Both a feature and a bar to clear.
 - **6.1** Pre-register and **hash** the spec — feature list, model family,
   hyperparameter space, decision rules, success metrics
 - **6.2** Partition: 2016-20 train / 2021 validate / 2022-25 sealed / 2026 forward
-- **6.3** Open sealed seasons one at a time, chronologically, irreversibly logged
-- **6.4** Report everything including failures, with permutation-null tests
-- **6.5** Promotion gates: beat all baselines, calibration in tolerance,
+- **6.3** Open sealed seasons **one week at a time**, chronologically,
+  irreversibly logged — not whole seasons. The model runs weekly in
+  production; the audit replays it the same way, so week 15 is graded using
+  only data through week 14, exactly as it would run for real
+- **6.4** After each week is scored, run a **fault pass** before opening the
+  next: worst misses that week, attributed cause (opportunity / efficiency /
+  availability / genuine surprise), and where in the season it happened. This
+  produces a week-by-week fault ledger, not one end-of-season number — a model
+  that's fine through week 10 and degrades from 11-18 is a different, fixable
+  problem than one that's uniformly mediocre, and a season aggregate hides
+  that difference completely
+- **6.5** Report everything including failures, rolled up **by week-in-season**
+  first and by the usual slices second, with permutation-null tests at the
+  same weekly cadence
+- **6.6** Promotion gates: beat all baselines, calibration in tolerance,
   ≥250 shadow decisions with positive CLV where a market exists
 
 ---

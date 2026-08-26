@@ -11,6 +11,7 @@
  * downstream feature (board, recommendation, grade) works unchanged on a live draft.
  */
 import { rows, row, run, db } from '../db/index.js';
+import { reconcileDraftBoard, openQuarantine } from './draft-reconcile.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
@@ -123,6 +124,15 @@ async function espnPlayerPool(season) {
   return map;
 }
 
+/**
+ * ESPN player id -> our player row, for ids ESPN's own pool can genuinely resolve.
+ *
+ * An id ESPN's pool doesn't have any record of at all is left OUT of the returned
+ * map on purpose — the caller (the reconciliation engine) quarantines it instead of
+ * this function inventing a name and guessing a position for it. A fabricated "WR"
+ * fallback used to sit here; that's exactly what put unresolved kickers, defenses,
+ * and deep-league fliers on the board under a made-up position (Phase 3C).
+ */
 async function resolveEspnPlayers(espnIds, season) {
   const known = new Map(rows(
     `SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL`).map(p => [p.espn_id, p.id]));
@@ -134,10 +144,10 @@ async function resolveEspnPlayers(espnIds, season) {
   const teamIdByAbbr = new Map(rows(`SELECT id, abbr FROM nfl_teams`).map(t => [t.abbr, t.id]));
   for (const espnId of missing) {
     const info = pool.get(espnId);
-    const name = info?.name ?? `ESPN player ${espnId}`;
+    if (!info?.name || !info?.position) continue; // genuinely unresolvable — leave for quarantine, do not fabricate
     run(`INSERT INTO players (name, position, team_id, espn_id, fantasy_relevant)
          VALUES (?,?,?,?,1)`,
-      name, info?.position ?? 'WR', teamIdByAbbr.get(info?.proTeam) ?? null, espnId);
+      info.name, info.position, teamIdByAbbr.get(info.proTeam) ?? null, espnId);
     known.set(espnId, row('SELECT last_insert_rowid() AS id').id);
   }
   return known;
@@ -217,54 +227,35 @@ async function syncLiveDraftImpl(draftId) {
     .filter(p => p.playerId != null && p.playerId !== -1)
     .sort((a, b) => a.overallPickNumber - b.overallPickNumber);
 
-  const have = new Set(rows('SELECT pick_number FROM draft_picks WHERE draft_id = ?', draftId)
-    .map(p => p.pick_number));
-  const fresh = made.filter(p => !have.has(p.overallPickNumber));
+  // Resolve every pick ESPN reports, not just ones missing locally — a correction or
+  // renumber can touch an already-mirrored pick, and the engine needs the full picture
+  // to detect that. resolveEspnPlayers() is a no-op for ids already known.
+  const idMap = made.length
+    ? await resolveEspnPlayers([...new Set(made.map(p => p.playerId))], draft.season)
+    : new Map();
 
-  let added = [];
-  const failures = [];
-  if (fresh.length) {
-    const idMap = await resolveEspnPlayers([...new Set(fresh.map(p => p.playerId))], draft.season);
-    for (const p of fresh) {
-      const playerId = idMap.get(p.playerId);
-      if (!playerId) { failures.push({ pick: p.overallPickNumber, reason: 'player could not be resolved' }); continue; }
-      // pickOrder is re-derived fresh from this same ESPN response every call, so a
-      // missing slot means the team genuinely isn't in the current draft order (a real
-      // ESPN data inconsistency) rather than stale cached data. Skip rather than write
-      // a made-up team_slot — team_slot drives "is this my pick" everywhere downstream,
-      // and a wrong number there is worse than retrying this pick on the next poll.
-      const slot = slotOf.get(p.teamId);
-      if (slot == null) { failures.push({ pick: p.overallPickNumber, reason: `team ${p.teamId} not in pick order` }); continue; }
-      try {
-        run(`INSERT INTO draft_picks (draft_id, pick_number, team_slot, player_id, espn_team_id, keeper)
-             VALUES (?,?,?,?,?,?)`,
-          draftId, p.overallPickNumber, slot, playerId, p.teamId, p.keeper ? 1 : 0);
-        added.push(p.overallPickNumber);
-      } catch (e) {
-        // UNIQUE(draft_id, player_id) is the one expected failure here: the same player
-        // already mirrored under another pick number, which happens if ESPN renumbers
-        // after a trade. Anything else is a real bug and must not vanish silently —
-        // it's exactly the kind of thing that quietly desyncs the board for the rest
-        // of the draft with no visible error.
-        if (!String(e.message).includes('UNIQUE') || !String(e.message).includes('player_id')) {
-          console.error(`[live-draft] failed to mirror pick ${p.overallPickNumber} for draft ${draftId}:`, e.message);
-          failures.push({ pick: p.overallPickNumber, reason: e.message });
-        }
-      }
-    }
-  }
+  // An ESPN response with zero picks while we already have mirrored picks is far more
+  // likely a transient/incomplete response than a real draft reset — treating it as
+  // authoritative would wipe the whole board as "stale". Skip reconciliation for this
+  // poll instead (Phase 3B / spec B.14: preserve the previous valid board rather than
+  // apply a reconciliation that cannot be trusted).
+  const hasExistingPicks = rows('SELECT 1 FROM draft_picks WHERE draft_id=? LIMIT 1', draftId).length > 0;
+  const suspiciousEmptyResponse = made.length === 0 && hasExistingPicks;
+  const { added, corrected, removed, quarantined } = suspiciousEmptyResponse
+    ? { added: [], corrected: [], removed: [], quarantined: [] }
+    : reconcileDraftBoard(draftId, made, idMap, slotOf, new Date().toISOString());
+  const failures = quarantined; // kept under the old field name for API back-compat
 
   run(`UPDATE drafts SET last_synced_at = datetime('now'),
        status = ? WHERE id = ?`, detail.drafted ? 'complete' : 'active', draftId);
 
   const total = draft.team_count * draft.rounds;
   const count = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
-  const nextPick = count + 1;
-  // Reconcile against ESPN's own count rather than trust that "we added N rows" means
-  // "we have everything ESPN has" — a pick that failed for a reason not caught above
-  // (or on a prior sync, before this fix existed) would otherwise desync silently for
-  // the rest of the draft with every downstream "on the clock" computation just wrong.
-  const desynced = count < made.length;
+  // Next pick / on-the-clock must reflect ESPN's authoritative count, not our local
+  // mirrored count — a quarantined pick otherwise makes every downstream "whose turn
+  // is it" computation wrong for the rest of the draft (Phase 3B fix).
+  const nextPick = made.length + 1;
+  const desynced = count < made.length || quarantined.length > 0;
 
   return {
     ok: true,
@@ -273,6 +264,9 @@ async function syncLiveDraftImpl(draftId) {
     picks_on_espn: made.length,
     picks_mirrored: count,
     new_picks: added,
+    corrected_picks: corrected,
+    removed_picks: removed,
+    unresolved_count: openQuarantine(draftId).length,
     failures,
     desynced,
     next_pick: nextPick <= total ? nextPick : null,

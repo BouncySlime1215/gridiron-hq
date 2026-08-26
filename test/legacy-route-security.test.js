@@ -53,7 +53,8 @@ async function request(path, token) {
 }
 
 test('legacy league/news/trade/player/dev route families reject anonymous callers', async () => {
-  for (const path of ['/api/leagues', '/api/news', '/api/tradelab/1/scout', '/api/trades/1/scout', '/api/players', '/api/dev/status']) {
+  for (const path of ['/api/leagues', '/api/news', '/api/tradelab/1/scout', '/api/trades/1/scout',
+    '/api/trades/1/post-draft-plan', '/api/players', '/api/dev/status']) {
     assert.equal((await request(path)).status, 401, path);
   }
 });

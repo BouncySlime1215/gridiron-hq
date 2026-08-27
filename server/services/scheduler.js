@@ -183,6 +183,25 @@ async function refreshNflPropCalibration() {
   });
 }
 
+/** Capture the live prop market, and settle anything the week has now decided. */
+async function refreshPropCapture() {
+  const { capturePropMarket, settlePropQuotes, propClvStatus } = await import('./nfl-prop-clv.js');
+  const status = propClvStatus();
+  if (!status.has_key) return { skipped: true, reason: 'no ODDS_API_KEY; prop CLV archive stays empty' };
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  const captured = await capturePropMarket({ season });
+  return { captured, archive: propClvStatus() };
+}
+
+/** Run the report-only evaluation pass. */
+async function refreshModelWatch() {
+  const { runModelWatch } = await import('./nfl-model-watch.js');
+  // Head discovery is the expensive part and only changes when a season lands;
+  // the drift checks are what justify a daily cadence.
+  const r = runModelWatch({ includeHeadSearch: false });
+  return { alerts: r.alerts, findings: r.findings.length, production_eligible: r.production_eligible };
+}
+
 /**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
@@ -200,7 +219,26 @@ export const JOBS = {
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60,
     label: 'NFL weekly snapshot, settlement, and challenger retraining' },
   nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60,
-    label: 'NFL chronological prop calibration registry' }
+    label: 'NFL chronological prop calibration registry' },
+  /*
+   * Prop quote capture. Every hour during a slate, because a prop line that is
+   * only observed once cannot yield closing-line value — CLV needs the price
+   * when the bet would have been placed AND the price at close.
+   *
+   * This is the job that unblocks the central open question. Spreads are a
+   * settled negative (0 of 21 models beat 15,096 closing lines); props have
+   * never been measured against a real price at all, because this archive has
+   * always been empty. No key configured means it no-ops harmlessly.
+   */
+  nfl_prop_capture: { run: refreshPropCapture, maxAgeMinutes: 60,
+    label: 'NFL prop market capture (CLV evidence)' },
+  /*
+   * The evaluation loop. Proposes and reports; cannot promote. Daily is the
+   * right cadence — it is watching for drift and for candidates that start
+   * clearing the bar as data accumulates, neither of which moves hourly.
+   */
+  nfl_model_watch: { run: refreshModelWatch, maxAgeMinutes: 24 * 60,
+    label: 'Model drift watch and candidate discovery (report only)' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

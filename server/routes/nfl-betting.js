@@ -38,6 +38,10 @@ import {
 import { weeklyLearningStatus } from '../services/weekly-learning.js';
 import { tdCalibrationCatalog } from '../services/nfl-prop-calibration.js';
 import { signalQualityCatalog } from '../services/model-signal-quality.js';
+import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '../services/nfl-profitability.js';
+import { reconcilePropQuoteMatches, settlePropQuotes } from '../services/nfl-prop-clv.js';
+import { newsSignalCoverage, syncAiNewsSignals, syncStructuredNewsSignals, teamNewsSignals } from '../services/nfl-news-signal.js';
+import { passingSpecialistAudit } from '../services/nfl-passing-specialists.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
@@ -127,6 +131,56 @@ r.get('/props/accuracy', (req, res, next) => {
 r.get('/props/quotes/status', (req, res, next) => {
   try { res.json(propQuoteStatus()); }
   catch (e) { next(e); }
+});
+
+r.post('/props/quotes/reconcile', (_req, res, next) => {
+  try { res.json(reconcilePropQuoteMatches({ force: true })); }
+  catch (e) { next(e); }
+});
+
+r.post('/props/quotes/settle', (req, res, next) => {
+  try { res.json(settlePropQuotes({ season: ssn(req), week: wk(req) })); }
+  catch (e) { next(e); }
+});
+
+r.get('/profitability', (_req, res, next) => {
+  try { res.json(profitabilityOperations()); }
+  catch (e) { next(e); }
+});
+
+r.get('/profitability/passing-specialists', (_req, res, next) => {
+  try { res.json(passingSpecialistAudit()); }
+  catch (e) { next(e); }
+});
+
+r.get('/teasers/prices', (_req, res, next) => {
+  try { res.json(teaserPriceLedger()); }
+  catch (e) { next(e); }
+});
+
+r.post('/teasers/prices', (req, res, next) => {
+  try {
+    const out = recordTeaserPrice(req.body ?? {});
+    if (out.error) return res.status(400).json(out);
+    res.status(201).json(out);
+  } catch (e) { next(e); }
+});
+
+r.post('/news/signals/sync', (req, res, next) => {
+  try { res.json(syncStructuredNewsSignals({ sinceDays: Number(req.query.days) || 14 })); }
+  catch (e) { next(e); }
+});
+
+r.post('/news/signals/ai', async (req, res, next) => {
+  try { res.json(await syncAiNewsSignals({ sinceDays: Number(req.query.days) || 7 })); }
+  catch (e) { next(e); }
+});
+
+r.get('/news/signals', (req, res, next) => {
+  try {
+    const team = req.query.team ? String(req.query.team).toUpperCase() : null;
+    res.json({ coverage: newsSignalCoverage(), team: team ? teamNewsSignals(team) : null });
+  } catch (e) { next(e); }
 });
 
 r.get('/props/calibration', (_req, res, next) => {

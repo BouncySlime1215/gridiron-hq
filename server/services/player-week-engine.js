@@ -22,6 +22,8 @@ import {
   candidatePlayerHeads, PLAYER_HEAD_REGISTRY_VERSION
 } from './player-head-registry.js';
 import { playerSignalTrace } from './model-signal-quality.js';
+import { playerWeekNewsSignal } from './nfl-news-signal.js';
+import { priorFfOpportunity } from './ffopportunity.js';
 import {
   percentiles, randBinomial, randNegBinomial, random, withRandomSeed
 } from './stats-util.js';
@@ -171,6 +173,12 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
       playerName: projection.name, gsisId: projection.gsis_id, season, week
     }), applied: false,
     why_not_applied: 'validated against a non-regressing baseline; degrades the shipped model because structural shrinkage already encodes it' };
+    engine.news_context = playerWeekNewsSignal(projection.name, {
+      season, week, team: projection.team
+    });
+    engine.external_benchmarks = {
+      ffopportunity: priorFfOpportunity(projection.gsis_id, season, week)
+    };
     out.set(playerId, {
       ...projection,
       ppg: +ppg.toFixed(2),

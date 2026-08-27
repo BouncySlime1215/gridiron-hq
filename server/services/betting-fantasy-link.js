@@ -52,6 +52,7 @@ export function bettingViewOf(season, week, playerId, scoring = PPR) {
       opponent: line.opponent, pass_mult: gs.pass_mult, rush_mult: gs.rush_mult
     } : null,
     injury: injury ? { status: injury.report_status, practice: injury.practice_status, injury: injury.injury } : null,
+    news: projection.player_week_engine?.news_context ?? null,
     opportunity: {
       targets: r2(state.volume.targets), carries: r2(state.volume.carries), attempts: r2(state.volume.attempts),
       target_share: projection.volume?.target_share,
@@ -87,6 +88,14 @@ export function reconcile(season, week, playerId, fantasyPoints, scoring = PPR) 
   }
   if (view.injury?.status) {
     reasons.push(`Injury report: ${view.injury.status}${view.injury.injury ? ` (${view.injury.injury})` : ''}.`);
+  }
+  if (view.news?.availability) {
+    const n = view.news.availability;
+    reasons.push(`Verified news context: ${n.status.replaceAll('_', ' ')} (${Math.round(n.confidence * 100)}% extraction confidence), published ${new Date(n.published_at).toLocaleDateString()}. It is displayed but cannot move the number until its ablation gate passes.`);
+  }
+  if (view.news?.role) {
+    const n = view.news.role;
+    reasons.push(`Role report: ${n.status.replaceAll('_', ' ')} from ${n.source ?? 'the linked source'}; numeric authority remains zero while this signal is in shadow.`);
   }
   // Always state the underlying volume case. The conditional notes above only
   // fire on notable situations, and a flagged gap with no explanation next to

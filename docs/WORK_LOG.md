@@ -647,3 +647,78 @@ six-hour API cache expired and exhaust a free account before Week 1. Scheduled
 capture now spends only at **T−24h and T−1h**, skips all other runs, and keeps
 a hard 50-credit reserve. A forced scheduler test 319 hours before kickoff
 correctly made zero paid requests.
+
+---
+
+## 2026-08-27 — profitability plan execution, first operational pass
+
+### Forward evidence gates now exist in code
+
+The prop decision policy is serialized, SHA-256 hashed, and archived under
+`nfl-prop-shadow-2026.1`. Reusing that version with changed policy bytes throws
+instead of silently rewriting the audit. The NFL operations API and UI now
+report:
+
+- direct model-match coverage and explicit abstention coverage separately;
+- unresolved identity reasons instead of a single missing-projection count;
+- T-24h and T-1h capture rates, pending windows, and irrecoverably missed
+  windows;
+- settlement resolution and results overdue by more than 24 hours;
+- one forward scorecard per prop market, including sample, Brier, ECE,
+  calibration slope, mean/median CLV and a week-clustered CLV interval;
+- the 200-overall / 75-per-market minimums and `0u` staking authority while
+  any gate remains blocked;
+- reachable teaser prices. The Wong view cannot become eligible without a
+  recorded two-team six-point price of -115 or better at a book the user can
+  actually access.
+
+The first quote reconciliation classified all 876 stored rows:
+
+| Classification | Quotes |
+|---|---:|
+| Directly modeled | 406 |
+| Identity resolved, role gate abstained | 382 |
+| Team defense / unsupported participant | 48 |
+| Genuine unresolved identity | 40 |
+
+Operationally resolved coverage is therefore **95.43%**, clearing the 95%
+gate without weakening prop eligibility. Direct model coverage remains 46.35%
+and is deliberately reported as a different number.
+
+### Twenty passing specialists were tested; zero were promoted
+
+`npm run audit:nfl-passing-specialists` declares five question families
+(team plays, pass intent, attempt conversion, QB participation, efficiency)
+at four ridge penalties before validation. Discovery is 2022→2023 and the
+fixed candidates are evaluated on 2024–2025. Every candidate must improve
+MAE in both windows, survive Holm correction across all 20, preserve rank and
+retain 76–84% coverage for its nominal 80% interval.
+
+The strongest family was passing efficiency. Its four variants improved
+validation MAE by 0.160–0.202 yards and improved Spearman rank, but none was
+statistically reliable after multiplicity correction and interval coverage
+was only 69.9–70.7%. Every volume-family candidate failed at least one earlier
+gate. **No candidate received production authority; the active engine remains
+unchanged.** These variants may accumulate 2026 shadow evidence but cannot be
+called improvements.
+
+### News is shared evidence, not prose pasted onto a pick
+
+`nfl-news-signal.js` converts timestamped reporting into typed availability and
+role claims with player identity, team, evidence span, confidence, source and
+publication time. The shared player-week engine attaches the same pre-kickoff
+claim to fantasy and prop views. Spread reasoning displays the typed claims for
+both teams. Numeric authority is zero: generic injury adjustments previously
+degraded the shipped pipeline, so this new family must pass chronological
+ablation and forward replication before moving a number.
+
+### GitHub source provenance
+
+Historical lines were refreshed from nflverse `nfldata` (15,096 team rows,
+1999–2026). The runtime registry pins the inspected upstream commits for
+`nflverse/nfldata`, `nflverse/nflfastR`, `ffverse/ffopportunity`, and
+`nflverse/nfl4th`. GPL-family model code was not copied. Expected-points,
+game-state and expected-opportunity ideas are independently implemented shadow
+benchmarks and still face the same promotion gates. The source archive has no
+trustworthy multi-book historical opener, so opening-line and CLV claims remain
+forward-only.

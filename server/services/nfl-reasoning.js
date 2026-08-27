@@ -21,6 +21,7 @@
 import { rows } from '../db/index.js';
 import { teamFeatureVector } from './nfl-features.js';
 import { teamWeeks } from './nfl-pbp.js';
+import { teamNewsSignals } from './nfl-news-signal.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
@@ -161,6 +162,9 @@ export function explainPick({ season, week, market, pickTeam, oppTeam, side, lin
                               modelProbability, impliedProbability, detail }) {
   const fa = pickTeam && oppTeam ? factorAnalysis(season, week, pickTeam, oppTeam, market) : { supporting: [], opposing: [], considered: 0 };
   const sentiment = pickTeam ? publicSignal(season, week, pickTeam, market) : null;
+  const news = pickTeam && oppTeam ? {
+    pick_team: teamNewsSignals(pickTeam), opponent: teamNewsSignals(oppTeam)
+  } : null;
 
   const edge = modelProbability != null && impliedProbability != null
     ? modelProbability - impliedProbability : null;
@@ -207,6 +211,8 @@ export function explainPick({ season, week, market, pickTeam, oppTeam, side, lin
     supporting_text: bullets, opposing_text: counters,
     market_sentiment: sentiment,
     market_agreement: marketAgreement,
+    news_context: news,
+    news_policy: 'Typed, timestamped availability and role claims are decision context. Their numeric spread authority remains zero until ablation and 2026 forward gates pass.',
     confidence: noHistory ? 'no in-season evidence yet' : confidenceLabel(edge, fa)
   };
 }

@@ -585,6 +585,7 @@ export function projectWeek(season, week, { minVolume = 2 } = {}) {
       volume: p.volume, eligibility, engine_version: p.engine_version, cutoff: p.cutoff,
       signal_quality: playerSignalTrace({ projection, eligibility,
         gameScript: p.game_script, eventState: p }),
+      news_context: projection.player_week_engine?.news_context ?? null,
       projection: {
         pass_yds: r3(mean(sims.pass_yds)), rush_yds: r3(mean(sims.rush_yds)),
         rec_yds: r3(mean(sims.rec_yds)), receptions: r3(mean(sims.receptions)),

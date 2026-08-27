@@ -22,7 +22,11 @@ export interface Reasoning {
   confidence: string;
   no_history?: boolean;
   no_history_note?: string | null;
+  news_context?: { pick_team: TeamNews; opponent: TeamNews } | null;
+  news_policy?: string;
 }
+interface NewsClaim { player_name: string; signal_type: string; status: string; confidence: number; evidence_span: string; source?: string; }
+interface TeamNews { team: string; claims: NewsClaim[]; unavailable_burden: number; role_pressure: number; production_eligible: boolean; }
 
 const CONF_STYLE: Record<string, string> = {
   strong: 'bg-slate-100 text-slate-900 border-slate-300',
@@ -46,7 +50,7 @@ export default function PickReasoning({ reasoning, defaultOpen = false }: {
   const [open, setOpen] = useState(defaultOpen);
   if (!reasoning) return null;
   const r = reasoning;
-  if (r.factors_considered === 0 && !r.market_sentiment?.movement) return null;
+  if (r.factors_considered === 0 && !r.market_sentiment?.movement && !r.news_context?.pick_team.claims.length && !r.news_context?.opponent.claims.length) return null;
 
   return (
     <div className="border-t border-slate-100 mt-2 pt-2">
@@ -109,6 +113,13 @@ export default function PickReasoning({ reasoning, defaultOpen = false }: {
                 </div>
               )}
               <div className="text-[9px] text-slate-400 mt-1.5">{r.market_sentiment.note}</div>
+            </div>
+          )}
+          {r.news_context && (r.news_context.pick_team.claims.length > 0 || r.news_context.opponent.claims.length > 0) && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-2">
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-amber-700">Injuries & role news</div>
+              {[r.news_context.pick_team, r.news_context.opponent].map(team => team.claims.length > 0 && <div key={team.team} className="mt-1.5"><div className="text-[10px] font-black text-slate-700">{team.team}</div>{team.claims.slice(0, 4).map((claim, index) => <div key={`${claim.player_name}-${claim.signal_type}-${index}`} className="text-[11px] leading-5 text-slate-700"><b>{claim.player_name}</b> · {claim.status.replaceAll('_', ' ')} · {Math.round(claim.confidence * 100)}% extraction confidence</div>)}</div>)}
+              <div className="mt-2 text-[9px] leading-4 text-slate-500">{r.news_policy}</div>
             </div>
           )}
         </div>

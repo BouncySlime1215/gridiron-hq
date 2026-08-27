@@ -6,7 +6,6 @@ import LeagueSwitcher from './components/LeagueSwitcher';
 import DevHub from './components/DevHub';
 import RefreshAll from './components/RefreshAll';
 import QuickJump, { destinationLabel } from './components/QuickJump';
-import AiReplayDock from './components/AiReplayDock';
 import { Skeleton } from './components/ui/DesignSystem';
 
 const Home = lazy(() => import('./pages/Home'));
@@ -121,7 +120,6 @@ export default function App() {
           <Route path="/nfl-board" element={<Navigate to="/betting/nfl/picks" replace />} /><Route path="/props" element={<PropsBoard />} /><Route path="/props/auto-picks" element={<PropsAutoPicks />} /><Route path="/props/picks" element={<PropsPicks />} /><Route path="/props/model" element={<PropsModel />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes></Suspense></main>
-        <AiReplayDock />
       </div>
     </div>
   </PlayerCardProvider></LeagueProvider>;

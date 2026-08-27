@@ -5,8 +5,95 @@ import { ConnectedNewsHub } from '../features/news/NewsHub';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+const SIGNAL_LABEL: Record<string, string> = {
+  out_for_season: 'Out for season', out: 'Out', doubtful: 'Doubtful', questionable: 'Questionable',
+  did_not_practice: 'Did not practice', limited: 'Limited practice', available_positive: 'Cleared',
+  starter_confirmed: 'Starter confirmed', role_down: 'Role decreasing', role_up: 'Role increasing',
+  role_limited: 'Role limited'
+};
+const SIGNAL_TONE: Record<string, string> = {
+  out_for_season: 'border-rose-500 bg-rose-50', out: 'border-rose-400 bg-rose-50',
+  doubtful: 'border-rose-300 bg-rose-50/60', questionable: 'border-amber-400 bg-amber-50',
+  did_not_practice: 'border-amber-400 bg-amber-50', limited: 'border-amber-300 bg-amber-50/60',
+  available_positive: 'border-emerald-400 bg-emerald-50', starter_confirmed: 'border-emerald-400 bg-emerald-50',
+  role_up: 'border-emerald-400 bg-emerald-50', role_down: 'border-rose-400 bg-rose-50',
+  role_limited: 'border-amber-300 bg-amber-50/60'
+};
+
+/**
+ * The typed claim feed — every card here traces to a verbatim quote and a
+ * fixed status enum, not freshly-generated prose. This is what actually
+ * distinguishes it from the Camp Log's per-story AI blurb: you can check the
+ * evidence span against the source yourself.
+ */
+function SignalFeed() {
+  const [team, setTeam] = useState('');
+  const { data, refetch } = useApi<any>(`/news/signals${team ? `?team=${team}` : ''}`);
+  const { data: teams } = useApi<any[]>('/teams');
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold">Signal Feed</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Typed availability and role claims, extracted with a verbatim quote from the source story.
+            {data?.scope === 'my_roster' && <> Scoped to your {data.roster_size} rostered players.</>}
+          </p>
+        </div>
+        <select className="input ml-auto" value={team} onChange={e => setTeam(e.target.value)}>
+          <option value="">{data?.scope === 'my_roster' ? 'My roster (default)' : 'All teams'}</option>
+          {teams?.map(t => <option key={t.abbr} value={t.abbr}>{t.abbr} — {t.name}</option>)}
+        </select>
+        <button className="btn-ghost text-xs" onClick={() => refetch()}>Refresh</button>
+      </div>
+
+      {data?.coverage && (
+        <div className="flex gap-4 text-xs text-slate-500 mb-4 flex-wrap">
+          <span><strong className="text-slate-700">{data.coverage.signals ?? 0}</strong> typed claims</span>
+          <span><strong className="text-slate-700">{data.coverage.stories ?? 0}</strong> stories covered</span>
+          <span><strong className="text-slate-700">{data.coverage.players ?? 0}</strong> players tracked</span>
+          {data.coverage.recent_material_untyped > 0 && (
+            <span className="text-amber-600">{data.coverage.recent_material_untyped} recent stories look material but haven't been typed yet</span>
+          )}
+        </div>
+      )}
+
+      {data?.signals?.length === 0 && (
+        <div className="card p-8 text-center text-sm text-slate-500">
+          No typed claims {data.scope === 'my_roster' ? 'for your roster' : 'for this team'} in the last 14 days.
+          The extractor runs hourly against ingested news — pull news on the Camp Log tab first if the archive is empty.
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {data?.signals?.map((s: any, i: number) => (
+          <div key={i} className={`card p-4 border-l-4 ${SIGNAL_TONE[s.status] ?? 'border-slate-300'}`}>
+            <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap">
+              <span className="font-bold text-slate-800">{s.player_name}</span>
+              {s.team && <span className="text-slate-400">· {s.team}</span>}
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-white/60 border border-current">
+                {SIGNAL_LABEL[s.status] ?? s.status}
+              </span>
+              {s.body_part && <span className="text-slate-500">{s.body_part}</span>}
+              <span className="text-slate-400 ml-auto">{Math.round(s.confidence * 100)}% confidence</span>
+              <span className="text-slate-400">{s.published_at?.slice(0, 10)}</span>
+            </div>
+            <blockquote className="text-sm text-slate-700 italic border-l-2 border-slate-200 pl-2">
+              "{s.evidence_span}"
+            </blockquote>
+            <div className="text-[11px] text-slate-400 mt-1.5">
+              {s.source}{s.story_url && <> · <a href={s.story_url} target="_blank" rel="noreferrer" className="text-[var(--accent)] hover:underline">source</a></>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function News() {
-  const [view, setView] = useState<'log' | 'feed'>('log');
+  const [view, setView] = useState<'log' | 'feed' | 'signals'>('log');
   const [date, setDate] = useState<string>('');
   const [teamFilter, setTeamFilter] = useState('');
   const { data: dates, refetch: refetchDates } = useApi<string[]>('/news/dates');
@@ -98,8 +185,11 @@ export default function News() {
         <button role="tab" aria-selected={view === 'feed'}
           className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'feed' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
           onClick={() => setView('feed')}>Attributed Feed</button>
+        <button role="tab" aria-selected={view === 'signals'}
+          className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'signals' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          onClick={() => setView('signals')} title="Typed, evidence-quoted claims — not freshly-generated prose">Signal Feed</button>
       </div>
-      {view === 'feed' ? <ConnectedNewsHub /> : <>
+      {view === 'feed' ? <ConnectedNewsHub /> : view === 'signals' ? <SignalFeed /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h1 className="text-2xl font-bold">Training Camp News</h1>
         <select className="input" value={date} onChange={e => setDate(e.target.value)}>

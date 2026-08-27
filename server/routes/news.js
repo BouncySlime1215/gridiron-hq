@@ -4,6 +4,8 @@ import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ingestAllSources } from '../news/ingest.js';
 import { requireAuthenticated } from '../platform/auth.js';
 import { recordAudit } from '../platform/audit.js';
+import { newsSignalCoverage } from '../services/nfl-news-signal.js';
+import { normalizePlayerName } from '../services/player-identity.js';
 
 const r = Router();
 
@@ -134,6 +136,47 @@ function myRosterNames(userId) {
 /** Names of players on the caller's connected rosters, for the News Hub's "My Players" filter. */
 r.get('/my-players', requireAuthenticated, (req, res) => {
   res.json({ names: myRosterNames(req.auth.userId) });
+});
+
+/**
+ * The typed signal feed — what `nfl-news-signal.js` actually extracted, not
+ * regenerated prose. Every row here is a claim with a verbatim quote proving
+ * it, a status from a fixed enum, and a confidence score, rather than an LLM
+ * summary invented fresh on each page load. Existed and ran on a schedule
+ * before this route did; it just never reached a page a user looks at.
+ *
+ * Defaults to the caller's own rostered players when leagues are connected —
+ * the news that changes what THEY should do — and falls back to the highest-
+ * confidence league-wide claims otherwise.
+ */
+r.get('/signals', requireAuthenticated, (req, res) => {
+  const { team, days = 14 } = req.query;
+  const since = new Date(Date.now() - Number(days) * 86400000).toISOString();
+  const mine = myRosterNames(req.auth.userId);
+  const myKeys = new Set(mine.map(normalizePlayerName).filter(Boolean));
+
+  let sql = `SELECT s.*, n.source_url AS story_url FROM nfl_news_signals s
+             LEFT JOIN news_items n ON n.id = s.news_id
+             WHERE s.published_at >= ?`;
+  const params = [since];
+  if (team) { sql += ' AND s.team = ?'; params.push(String(team).toUpperCase()); }
+  sql += ' ORDER BY s.confidence DESC, s.published_at DESC LIMIT 300';
+  const all = rows(sql, ...params);
+
+  const scoped = !team && myKeys.size ? all.filter(x => myKeys.has(x.player_key)) : all;
+  // One card per player+signal_type: the strongest, most recent claim, not
+  // every historical mention of the same injury.
+  const latest = new Map();
+  for (const claim of scoped) {
+    const key = `${claim.player_key}|${claim.signal_type}`;
+    if (!latest.has(key)) latest.set(key, claim);
+  }
+  res.json({
+    scope: !team && myKeys.size ? 'my_roster' : team ? 'team' : 'league',
+    roster_size: myKeys.size,
+    signals: [...latest.values()],
+    coverage: newsSignalCoverage()
+  });
 });
 
 /** "What does this actually mean?" — on-demand, per story. */

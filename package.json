@@ -23,6 +23,8 @@
     "audit:nfl": "node scripts/nfl-blind-audit.mjs",
     "fit:nfl-props": "node scripts/fit-prop-calibration.mjs",
     "diagnose:nfl-passing": "node scripts/diagnose-passing-components.mjs",
+    "audit:nfl-passing-specialists": "node scripts/audit-passing-specialists.mjs",
+    "sync:ffopportunity": "node --env-file-if-exists=.env scripts/sync-ffopportunity.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:rollback": "node scripts/rollback-migration.mjs"
   },

@@ -15,6 +15,8 @@ interface Proj {
     layers: { id: string; label: string; status: string; authority: number;
       noise_class: string; evidence: string[] }[];
   };
+  news_context?: { availability?: { status: string; confidence: number; published_at: string; source?: string } | null;
+    role?: { status: string; confidence: number; published_at: string; source?: string } | null; policy?: string } | null;
 }
 interface BoardRow {
   market: string; market_label: string; player: string; team: string; position: string | null;
@@ -204,6 +206,8 @@ function ProjectionCard({ player: p }: { player: Proj }) {
       <span className="rounded-full bg-slate-100 px-2 py-1">{p.eligibility?.state?.replaceAll('_', ' ') ?? 'pregame role screened'}</span>
       {p.cutoff && <span className="rounded-full bg-slate-100 px-2 py-1">data through {p.cutoff}</span>}
     </div>
+    {p.news_context?.availability && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><b>News:</b> {p.news_context.availability.status.replaceAll('_', ' ')} · {Math.round(p.news_context.availability.confidence * 100)}% extraction confidence · numeric authority remains shadow-only</div>}
+    {p.news_context?.role && <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900"><b>Role:</b> {p.news_context.role.status.replaceAll('_', ' ')} · shared with the fantasy engine</div>}
     {p.signal_quality && <details className="mt-3 rounded-lg border border-slate-200 bg-white text-xs">
       <summary className="cursor-pointer px-3 py-2 font-bold text-slate-700">
         Signal truth · {p.signal_quality.active_layers} active layers · ceiling {pct(p.signal_quality.confidence_ceiling)}

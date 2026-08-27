@@ -185,7 +185,8 @@ async function refreshNflPropCalibration() {
 
 /** Capture the live prop market, and settle anything the week has now decided. */
 async function refreshPropCapture() {
-  const { capturePropMarket, settlePropQuotes, finalizeClosingSnapshots, propClvStatus } = await import('./nfl-prop-clv.js');
+  const { capturePropMarket, settlePropQuotes, finalizeClosingSnapshots, propClvStatus,
+    reconcilePropQuoteMatches } = await import('./nfl-prop-clv.js');
   const { currentNflWeek } = await import('./weekly-learning.js');
   const status = propClvStatus();
   if (!status.has_key) return { skipped: true, reason: 'no ODDS_API_KEY; prop CLV archive stays empty' };
@@ -197,7 +198,15 @@ async function refreshPropCapture() {
                     WHERE settled=0 AND season IS NOT NULL AND week IS NOT NULL
                       AND commence_time <= ?`, new Date().toISOString());
   const settlement = due.map(x => ({ ...x, ...settlePropQuotes(x) }));
-  return { captured, closing, settlement, archive: propClvStatus() };
+  return { captured, closing, settlement, reconciliation: reconcilePropQuoteMatches(), archive: propClvStatus() };
+}
+
+/** Turn fresh reporting into typed, cutoff-safe context shared by fantasy and betting. */
+async function refreshNflNewsSignals() {
+  const { syncStructuredNewsSignals, syncAiNewsSignals, newsSignalCoverage } = await import('./nfl-news-signal.js');
+  const rules = syncStructuredNewsSignals({ sinceDays: 14 });
+  const ai = await syncAiNewsSignals({ sinceDays: 7, limit: 20 });
+  return { rules, ai, coverage: newsSignalCoverage() };
 }
 
 /** Run the report-only evaluation pass. */
@@ -239,6 +248,8 @@ export const JOBS = {
    */
   nfl_prop_capture: { run: refreshPropCapture, maxAgeMinutes: 60,
     label: 'NFL prop market capture (CLV evidence)' },
+  nfl_news_signals: { run: refreshNflNewsSignals, maxAgeMinutes: 60,
+    label: 'Typed NFL news, injury and role signals' },
   /*
    * The evaluation loop. Proposes and reports; cannot promote. Daily is the
    * right cadence — it is watching for drift and for candidates that start

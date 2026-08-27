@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, useApi } from '../../api';
 import { Notice, SectionHeading, SignalCard, StatusPill } from './BettingUI';
 import { ModelLoadingSignature } from './ModelLoadingSignature';
+import { ProfitabilityControl } from './ProfitabilityControl';
 
 interface Gate { id: string; label: string; passed: boolean; actual: unknown; target: string; }
 interface RegistryRow { market: string; role: string; model_version: string; state: string; reason: string; }
@@ -74,6 +75,7 @@ export function NflModelOperations() {
       <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act('audit')}>{busy === 'audit' ? 'Recording…' : 'Record immutable gate audit'}</button>
       <button className="btn-primary text-sm" disabled={!!busy} onClick={() => act('ablations')}>{busy === 'ablations' ? 'Running nine blind cuts…' : 'Run feature-family ablations'}</button></div>
     {error && <Notice title="Operations action failed" tone="bad">{error}</Notice>}
+    <ProfitabilityControl />
     <Registry rows={d.registry} />
     <GateGrid gates={d.gates} />
     {d.evidence.data_provenance && <EvidenceWarehouse evidence={d.evidence.data_provenance} />}

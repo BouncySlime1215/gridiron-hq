@@ -109,6 +109,20 @@ async function refreshPlayerRosters() {
   return syncPlayersFromESPN();
 }
 
+/**
+ * The X's & O's writeups. Self-limiting by design (see refreshStaleAnalyses):
+ * only teams with news newer than their last analysis actually spend an AI
+ * call, so scheduling this does not mean refreshing 32 teams every cycle —
+ * most cycles it does nothing. This is what actually fixes stale write-ups
+ * like "Deebo Samuel's hybrid role continues" surviving a trade; the
+ * detector for that already existed (GET /analysis/validate) but nothing
+ * ever acted on what it found until now.
+ */
+async function refreshTeamAnalyses() {
+  const { refreshStaleAnalyses } = await import('../routes/analysis.js');
+  return refreshStaleAnalyses();
+}
+
 /** NFL lines for the current season, including scores as games go final. */
 async function refreshNflLines() {
   const { syncCurrentLines, clearGameScriptCache } = await import('./gamescript.js');
@@ -331,7 +345,9 @@ export const JOBS = {
   nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60,
     label: 'Official practice reports (nflverse injuries release)' },
   nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30,
-    label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' }
+    label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' },
+  team_analyses: { run: refreshTeamAnalyses, maxAgeMinutes: 4 * 60,
+    label: "X's & O's writeups — self-limited to teams with news newer than their analysis" }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

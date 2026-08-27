@@ -74,40 +74,52 @@ Respond with ONLY a JSON object. Keys: any of ${ANALYSIS_FIELDS.join(', ')} (onl
   return { abbr: team.abbr, changed: updates.length > 0, fields: updates, reason: result.reason ?? '' };
 }
 
+/**
+ * Shared by the route below AND the scheduler — this used to exist only as
+ * an inline route handler, which is why it was never scheduled: there was
+ * nothing importable to schedule. Default behavior (no teams/force) only
+ * touches teams with news newer than their last analysis, which is what
+ * makes it safe to run on a timer rather than only on a manual click — most
+ * cycles it does nothing and spends nothing.
+ */
+export async function refreshStaleAnalyses({ teams: teamAbbrs, force = false } = {}) {
+  if (!getApiKey()) return { skipped: true, reason: 'no Anthropic API key configured' };
+  const client = null;
+
+  let teams;
+  if (Array.isArray(teamAbbrs) && teamAbbrs.length) {
+    const list = teamAbbrs.map(a => a.toUpperCase());
+    teams = rows(`SELECT * FROM nfl_teams WHERE abbr IN (${list.map(() => '?').join(',')})`, ...list);
+  } else if (force) {
+    teams = rows('SELECT * FROM nfl_teams');
+  } else {
+    teams = rows(`SELECT t.* FROM nfl_teams t WHERE EXISTS (
+                    SELECT 1 FROM news_items n WHERE n.team_id = t.id
+                    AND n.created_at > COALESCE(t.analysis_updated_at, '1970-01-01'))`);
+  }
+  if (teams.length === 0) return { ok: true, refreshed: [], message: 'No teams have news newer than their analysis.' };
+
+  const results = [];
+  const BATCH = 4;
+  for (let i = 0; i < teams.length; i += BATCH) {
+    const batch = teams.slice(i, i + BATCH);
+    const settled = await Promise.allSettled(batch.map(t => refreshTeam(client, t)));
+    for (let j = 0; j < settled.length; j++) {
+      results.push(settled[j].status === 'fulfilled'
+        ? settled[j].value
+        : { abbr: batch[j].abbr, error: settled[j].reason?.message });
+    }
+  }
+  return { ok: true, refreshed: results };
+}
+
 // POST /api/analysis/refresh  { teams?: ["KC", ...], force?: bool }
 // Default: only teams with news newer than their last analysis refresh.
 r.post('/refresh', async (req, res, next) => {
   try {
-    if (!getApiKey()) {
-      return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right) to enable live AI analysis.' });
-    }
-    const client = null;
-
-    let teams;
-    if (Array.isArray(req.body?.teams) && req.body.teams.length) {
-      const list = req.body.teams.map(a => a.toUpperCase());
-      teams = rows(`SELECT * FROM nfl_teams WHERE abbr IN (${list.map(() => '?').join(',')})`, ...list);
-    } else if (req.body?.force) {
-      teams = rows('SELECT * FROM nfl_teams');
-    } else {
-      teams = rows(`SELECT t.* FROM nfl_teams t WHERE EXISTS (
-                      SELECT 1 FROM news_items n WHERE n.team_id = t.id
-                      AND n.created_at > COALESCE(t.analysis_updated_at, '1970-01-01'))`);
-    }
-    if (teams.length === 0) return res.json({ ok: true, refreshed: [], message: 'No teams have news newer than their analysis.' });
-
-    const results = [];
-    const BATCH = 4;
-    for (let i = 0; i < teams.length; i += BATCH) {
-      const batch = teams.slice(i, i + BATCH);
-      const settled = await Promise.allSettled(batch.map(t => refreshTeam(client, t)));
-      for (let j = 0; j < settled.length; j++) {
-        results.push(settled[j].status === 'fulfilled'
-          ? settled[j].value
-          : { abbr: batch[j].abbr, error: settled[j].reason?.message });
-      }
-    }
-    res.json({ ok: true, refreshed: results });
+    const result = await refreshStaleAnalyses({ teams: req.body?.teams, force: req.body?.force });
+    if (result.skipped) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right) to enable live AI analysis.' });
+    res.json(result);
   } catch (e) { next(e); }
 });
 

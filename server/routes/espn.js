@@ -3,6 +3,7 @@ import { rows, row, run } from '../db/index.js';
 import { espnCookies } from '../services/espn-draft.js';
 import { findPlayerMatch } from '../services/player-identity.js';
 import { recordSync } from '../services/scheduler.js';
+import { extractEntities } from '../news/normalize.js';
 
 const r = Router();
 
@@ -150,8 +151,26 @@ r.post('/sync-players', async (req, res, next) => {
   try { res.json(await syncPlayersFromESPN()); } catch (e) { next(e); }
 });
 
+let _playerIdentityCache = null;
+/** Cached per process-tick, not per call — this runs once per sync batch, not once per article. */
+function playerIdentity() {
+  if (!_playerIdentityCache) _playerIdentityCache = rows(`SELECT id, name FROM players WHERE fantasy_relevant = 1`);
+  return _playerIdentityCache;
+}
+
+/**
+ * This was the actual reason so many stories never produced a typed claim
+ * regardless of how good the extraction rules were: ESPN's news pull is the
+ * most-used ingestion path (the default "Pull ESPN news" button) and never
+ * populated entities_json at all, unlike the RSS and Twitter pipelines which
+ * both call extractEntities. A story with no resolved player entity is
+ * invisible to nfl-news-signal.js no matter what it says — confirmed live:
+ * the Tunsil-torn-triceps story matched the injury regex correctly and was
+ * still skipped, because entities_json was null.
+ */
 function insertArticles(articles, teams, forcedTeamId = null) {
   let added = 0;
+  const players = playerIdentity();
   for (const a of articles) {
     if (!a.headline) continue;
     const exists = row('SELECT id FROM news_items WHERE headline = ?', a.headline);
@@ -165,11 +184,44 @@ function insertArticles(articles, teams, forcedTeamId = null) {
           const nickname = t.name.split(' ').pop();
           return new RegExp(`\\b${t.name}\\b`).test(text) || new RegExp(`\\b${nickname}\\b`).test(text);
         });
-    run(`INSERT INTO news_items (date, team_id, headline, body, importance, source)
-         VALUES (?,?,?,?,2,'ESPN')`, date, team?.id ?? null, a.headline, a.description ?? null);
+    const entities = extractEntities(text, { players, teams });
+    // published_at was never set here, only `date` — and the typed-claims
+    // extractor filters on `published_at IS NOT NULL`, so every ESPN-sourced
+    // story was invisible to it regardless of entity resolution. Real
+    // published timestamp when ESPN provides one; the ingest time otherwise,
+    // which is still strictly after the story existed and keeps it visible.
+    const publishedAt = a.published ? new Date(a.published).toISOString() : new Date().toISOString();
+    run(`INSERT INTO news_items (date, team_id, headline, body, importance, source, entities_json, published_at)
+         VALUES (?,?,?,?,2,'ESPN',?,?)`, date, team?.id ?? null, a.headline, a.description ?? null,
+      JSON.stringify(entities), publishedAt);
     added++;
   }
   return added;
+}
+
+/**
+ * One-time backfill for the existing backlog inserted before this fix — the
+ * ~1,100 stories already sitting with entities_json = NULL. Safe to re-run;
+ * only touches rows still missing entities.
+ */
+export function backfillNewsEntities() {
+  const players = playerIdentity();
+  const teams = rows('SELECT id, name, abbr FROM nfl_teams');
+  const missing = rows(`SELECT id, date, headline, body FROM news_items WHERE entities_json IS NULL OR published_at IS NULL`);
+  const update = db.prepare(`UPDATE news_items SET entities_json = ?, published_at = COALESCE(published_at, ?) WHERE id = ?`);
+  let updated = 0, resolved = 0;
+  for (const item of missing) {
+    const entities = extractEntities(`${item.headline} ${item.body ?? ''}`, { players, teams });
+    // Backdated to the story's own `date` where we have nothing better, not
+    // "now" — a story from three weeks ago should not suddenly look like it
+    // just published, which would distort "is this news recent" everywhere
+    // that reads published_at.
+    const fallbackPublishedAt = item.date ? new Date(`${item.date}T12:00:00Z`).toISOString() : new Date().toISOString();
+    update.run(JSON.stringify(entities), fallbackPublishedAt, item.id);
+    updated++;
+    if (entities.players.length) resolved++;
+  }
+  return { checked: missing.length, updated, resolved_a_player: resolved };
 }
 
 export async function syncTeamNewsFeed(abbr) {

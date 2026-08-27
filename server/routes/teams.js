@@ -12,6 +12,44 @@ r.get('/', (req, res) => {
   res.json(rows('SELECT id, abbr, name, conference, division, head_coach, off_scheme, def_scheme, primary_color, secondary_color FROM nfl_teams ORDER BY conference, division, name'));
 });
 
+/**
+ * Players ESPN's own depth chart still lists as the starter, but who are
+ * actually out for the season — the sync target (roster_players' depth_slot)
+ * and the injury signal are two different pipelines with two different
+ * update cadences, so a torn-triceps IR move can post to news before ESPN's
+ * depth chart catches up.
+ *
+ * Deliberately does NOT reuse `nfl_news_signals` here — that table only
+ * resolves players who are `fantasy_relevant = 1`, which correctly excludes
+ * almost every offensive lineman (Tunsil is exactly the case that exposed
+ * this: a real season-ending injury that could never appear in the
+ * fantasy-scoped signal table no matter how good the extraction regex was).
+ * A depth-chart diagram cares about every starter, not just skill positions,
+ * so this scans recent team news directly against every rostered name using
+ * the same out-of-season/released language, independent of fantasy scoping.
+ */
+const SEASON_ENDING_RE = /(?:out for (?:the )?season|season[- ]ending|torn (?:acl|achilles|triceps|pector\w*|pec|quad(?:riceps)?|bicep|patella|meniscus)|ruptured \w+|placed on (?:injured reserve|ir))\b/i;
+const RELEASED_RE = /\b(?:waived|released|cut|terminated)\b/i;
+
+function seasonEndingPlayerIds(teamId) {
+  const roster = rows(`SELECT DISTINCT rp.espn_id, rp.name FROM roster_players rp
+                       WHERE rp.team_id = ? AND rp.espn_id IS NOT NULL`, teamId);
+  if (!roster.length) return new Set();
+  const recentNews = rows(`SELECT headline, body FROM news_items
+                           WHERE team_id = ? AND COALESCE(published_at, date) >= datetime('now', '-45 days')`, teamId);
+  const flagged = new Set();
+  for (const player of roster) {
+    const lastName = player.name.split(' ').slice(-1)[0];
+    const nameRe = new RegExp(`\\b${lastName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    for (const n of recentNews) {
+      const text = `${n.headline ?? ''} ${n.body ?? ''}`;
+      if (!nameRe.test(text)) continue;
+      if (SEASON_ENDING_RE.test(text) || RELEASED_RE.test(text)) { flagged.add(player.espn_id); break; }
+    }
+  }
+  return flagged;
+}
+
 r.get('/:abbr', (req, res) => {
   const team = row('SELECT * FROM nfl_teams WHERE abbr = ?', req.params.abbr.toUpperCase());
   if (!team) return res.status(404).json({ error: 'team not found' });
@@ -27,10 +65,23 @@ r.get('/:abbr', (req, res) => {
                          WHERE rp.team_id = ? AND rp.depth_slot IS NOT NULL
                            AND rp.depth_order IS NOT NULL AND rp.depth_order <= 4
                          ORDER BY rp.depth_slot, rp.depth_order`, team.id);
+  const seasonEnding = seasonEndingPlayerIds(team.id);
+  const bySlot = {};
+  for (const s of starters) (bySlot[s.depth_slot] ??= []).push(s);
+
   const depth = {}, multi = {};
-  for (const s of starters) {
-    (multi[s.depth_slot] ??= []).push(s);
-    if (s.depth_order === 1 && !depth[s.depth_slot]) depth[s.depth_slot] = s;
+  for (const [slot, list] of Object.entries(bySlot)) {
+    // Skip anyone flagged season-ending/released and promote the next healthy
+    // name at that slot, rather than showing a player who is not on the field.
+    const active = list.find(s => !seasonEnding.has(s.espn_id));
+    const starter = active ?? list[0];
+    const displaced = list.find(s => seasonEnding.has(s.espn_id) && s !== starter);
+    depth[slot] = displaced ? { ...starter, replacing: displaced.name } : starter;
+    // FormationView's pickSlot() reads depth_multi FIRST and only falls back
+    // to `depth` when depth_multi is absent — so depth_multi has to carry the
+    // same fix, not just `depth`, or the diagram keeps showing index 0 of the
+    // raw ESPN order regardless of what `depth` resolved to.
+    multi[slot] = [depth[slot], ...list.filter(s => s !== starter)];
   }
 
   res.json({ ...team, players, depth, depth_multi: multi, grades: unitGrades(team.id) });

@@ -52,7 +52,12 @@ const STATUS_RULES = [
   // ("released from injured reserve") resolves to the transaction, not a
   // fresh season-ending claim.
   { re: /\b(?:waived|released|cut|terminated)\b/i, status: 'released', unavailable: 1.0, confidence: 0.95 },
-  { re: /(?:out for (?:the )?season|season[- ]ending|torn acl|torn achilles|placed on (?:injured reserve|ir))\b/i, status: 'out_for_season', unavailable: 0.995, confidence: 0.97 },
+  // "Torn X" for any of these body parts is a season-ending injury in NFL
+  // practice regardless of which one — this was hardcoded to only "acl" and
+  // "achilles" and silently missed everything else (e.g. "torn triceps"),
+  // which is exactly the gap that let a season-ending starter keep showing
+  // as active on a depth-chart diagram.
+  { re: /(?:out for (?:the )?season|season[- ]ending|torn (?:acl|achilles|triceps|pector\w*|pec|quad(?:riceps)?|bicep|patella|meniscus)|ruptured \w+|placed on (?:injured reserve|ir))\b/i, status: 'out_for_season', unavailable: 0.995, confidence: 0.97 },
   { re: /(?:ruled out|will not play|won['’]t play|to miss|expected to miss|sidelined)\b/i, status: 'out', unavailable: 0.94, confidence: 0.9 },
   { re: /\bdoubtful\b/i, status: 'doubtful', unavailable: 0.76, confidence: 0.92 },
   { re: /\bquestionable\b/i, status: 'questionable', unavailable: 0.38, confidence: 0.86 },

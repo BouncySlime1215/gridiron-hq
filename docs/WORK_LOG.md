@@ -334,6 +334,95 @@ outcomes are close to structurally unpredictable; the model beats every naive
 baseline on every stat in every season, by 4–6%. That is the honest ceiling
 for this class of model on this data.
 
+### 9. Rookies: the model could not see them at all
+
+Verified directly: at Week 1 of 2025, 880 players received a projection and
+**zero** of them were players without prior NFL usage. `buildProjections`
+builds entirely from `player_week_usage`, so a rookie is invisible until he
+has already played — worst exactly at draft season and the opening weeks.
+
+Not a modelling problem, a missing prior. Everywhere else an unknown starts
+at a positional prior and shrinks toward evidence; rookies had no prior to
+start from. Draft capital is that prior, and it is strong:
+
+| draft band | rookie opportunity/game | n |
+|---|---:|---:|
+| Round 1 | 16.60 | 28 |
+| Round 2 | 9.77 | 15 |
+| Round 3 | 5.56 | 10 |
+| Round 4+ | 5.14 | 22 |
+
+A 4x spread, available before a snap is played. `nfl-rookies.js` provides the
+prior (band × position, shrunk hard toward a conservative fallback because
+n=75 and `player_accolades` only covers players still rostered in 2026 — these
+are surviving rookies), refines it by depth-chart rank from `nfl_depth`, and
+blends toward observed usage with k=4 games.
+
+**On college data:** deliberately not used. Draft position already aggregates
+college production, testing, medicals and interviews, priced by 32 teams with
+far more information than this database. College box scores would help only
+insofar as they beat that consensus — the same bet as beating a closing line.
+If added later, they should be tested as a candidate against the draft-capital
+prior, not assumed to improve on it.
+
+### 10. Correction: coaching history DOES exist
+
+§7 recorded coaching history as unavailable because `nfl_teams` holds only a
+current snapshot. That was true of the local database and wrong as a
+conclusion. `nflverse/nfldata`'s `games.csv` carries `home_coach`/`away_coach`
+per game, yielding exact per-team-season head coaches — now synced into
+`nfl_team_coaches` (`nfl-coaches.js`): **384 team-seasons, 2015–2026, 96
+coaches**, 7–11 changes a year, verifiable against public record (Belichick →
+Mayo 2024, Fisher → McVay 2017, Ben Johnson → CHI 2025).
+
+It does not replace `nfl-scheme.js`; they answer different questions. Coaches
+tell you **who** changed (a discrete, verifiable fact); scheme discontinuity
+tells you **what** changed in play-calling, which is what actually reaches a
+player's usage. A new coach who keeps the system should not move a projection;
+a retained staff that overhauls its identity should. Limitation: head coach
+only — nfldata carries no coordinator, and a coordinator change under a
+retained head coach is exactly what scheme detection is for.
+
+### 11. Passing yards: the "weak stat" framing was half a statistical artifact
+
+Two hypotheses tested, informed by outside research.
+
+**Hypothesis 1 — the volume × efficiency decomposition is hurting.** Published
+work finds passing yards per game is itself the most stable QB stat while
+efficiency (YPA, TD rate) has weak year-to-year correlation, which would
+suggest decomposing a stable quantity into two unstable ones is a mistake.
+**Rejected on measurement:** decomposed 63.19 MAE vs direct-prior 65.47, and
+every blend from 20% to 60% direct made it worse. The decomposition is
+already the better structure here.
+
+**Hypothesis 2 — restricted range.** r² can only explain between-player
+variance, and starting QBs are far more alike in volume than receivers are.
+Variance decomposition over 2023–2025:
+
+| stat | between-player | within-player | between share |
+|---|---:|---:|---:|
+| passing yards | 1550.6 | 4591.0 | **25.2%** |
+| rushing yards | 503.9 | 421.2 | 54.5% |
+| receiving yards | 407.7 | 477.5 | 46.1% |
+| receptions | 2.3 | 2.4 | 48.7% |
+
+**Confirmed.** Three-quarters of passing-yards variance is week-to-week noise
+within the same quarterback, so the theoretical r² ceiling is ~0.25 against
+~0.46–0.55 for the other stats. Against ceiling:
+
+| stat | r² | ceiling | share of achievable |
+|---|---:|---:|---:|
+| passing yards | 0.075 | 0.252 | 30% |
+| rushing yards | 0.338 | 0.545 | 62% |
+| receiving yards | 0.278 | 0.461 | 60% |
+| receptions | 0.284 | 0.487 | 58% |
+
+So passing yards is genuinely harder — half the achievable ceiling of the
+others — **and** the model captures a smaller share of what is available
+(30% vs ~60%). Both are true; the raw r² comparison overstated the gap by
+roughly 2x. Real remaining headroom exists, but it is about a third of what
+"0.075 vs 0.34" implied.
+
 ## Open
 
 1. ~~Walk-forward TD calibrator~~ — **done** (§8). Improves in all three

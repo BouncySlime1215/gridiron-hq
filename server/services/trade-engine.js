@@ -609,6 +609,113 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
   };
 }
 
+/* -------------------------------------- "go get them" — multiple targets */
+
+/**
+ * Same offer-ladder logic as offerFor(), generalized to a whole shopping list at
+ * once. Targets are grouped by current owner — a real trade is with one team, so
+ * two players on different rosters come back as two separate ladders, one per
+ * owner, rather than pretending a single package could land both.
+ */
+export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
+  const { formatKey } = deriveFormat(lg);
+  const assets = assetUniverse(lg, formatKey);
+  const teams = loadRosters(lg, assets);
+  const slots = lineupSlots(lg);
+  const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
+  if (!me) return { error: 'your team not found in this league' };
+
+  const targets = [...new Set((targetIds ?? []).map(Number))]
+    .map(id => resolvePlayer(id, assets, teams)).filter(Boolean);
+  if (!targets.length) return { error: 'no valid players selected' };
+
+  const byOwner = new Map();
+  for (const t of targets) {
+    const owner = teams.find(tm => tm.players.some(p => p.id === t.id));
+    if (!owner || owner.roster_id === me.roster_id) continue;
+    if (!byOwner.has(owner.roster_id)) byOwner.set(owner.roster_id, { team: owner, targets: [] });
+    byOwner.get(owner.roster_id).targets.push(t);
+  }
+  if (!byOwner.size) {
+    return { error: 'None of the selected players are on another roster in this league — check they are actually rostered, or that you do not already own them.' };
+  }
+
+  const context = rosterContext(lg);
+  const myPool = candidates(me, slots, 12, excludeIds);
+  const myLine = bestLineup(me.players, slots);
+
+  const ladders = [];
+  for (const { team: owner, targets: theirTargets } of byOwner.values()) {
+    const ownerCtx = context.get(String(owner.roster_id));
+    const targetsValue = theirTargets.reduce((s, p) => s + Math.max(0, p.value), 0);
+
+    const withoutThem = bestLineup(owner.players.filter(p => !theirTargets.some(t => t.id === p.id)), slots);
+    const theirLine = bestLineup(owner.players, slots);
+    const theirCost = +(theirLine.points - withoutThem.points).toFixed(2);
+    const replaceable = theirCost < 1.0 * theirTargets.length;
+
+    const withThem = bestLineup([...me.players, ...theirTargets], slots);
+    const upside = +(withThem.points - myLine.points).toFixed(2);
+
+    const base = {
+      targets: theirTargets.map(slim), owner: owner.owner, owner_id: owner.roster_id,
+      their_cost: theirCost, replaceable, upside_ppg: upside,
+      leverage: replaceable
+        ? `${owner.owner} can cover ${theirTargets.length > 1 ? 'both' : 'him'} — losing ${theirTargets.length > 1 ? 'them' : 'him'} only costs their lineup ${theirCost} ppg. Start low.`
+        : `${theirTargets.length > 1 ? 'They are' : 'He is'} load-bearing for ${owner.owner} (${theirCost} ppg of their lineup). Expect to pay a premium or get refused.`
+    };
+
+    if (upside <= 0.05) {
+      ladders.push({ ...base, error: `This package would not crack your starting lineup.`,
+        reason: `Adding ${theirTargets.map(t => t.name).join(' + ')} is worth ${upside} ppg to your lineup — not enough to change your best starting 9.` });
+      continue;
+    }
+
+    const maxGive = Math.min(4, theirTargets.length + 2);
+    const packages = combos(myPool, maxGive);
+    const priced = [];
+    for (const give of packages) {
+      const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
+      const ratio = targetsValue ? giveValue / targetsValue : 0;
+      if (ratio < 0.70 || ratio > 1.65) continue;
+      const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
+        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window });
+      if (ev.me.ppg_delta <= 0) continue;
+      priced.push({
+        i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
+        ...ev,
+        efficiency: +(ev.me.ppg_delta / Math.max(1, giveValue / 100)).toFixed(3)
+      });
+    }
+    if (!priced.length) {
+      ladders.push({ ...base, error: 'Nothing on your roster prices out for this package.',
+        reason: `Every combination in range (${Math.round(targetsValue * 0.7)}–${Math.round(targetsValue * 1.65)}) costs you more lineup value than it returns. Try fewer targets, or a third team.`
+          + (excludeIds?.size ? ` This search also left out your untouchable player(s).` : '') });
+      continue;
+    }
+
+    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0);
+    const pool = acceptable.length ? acceptable : priced;
+    const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
+    const seenHeadline = new Set();
+    const distinctByCost = [...pool]
+      .sort((a, b) => a.ratio - b.ratio || b.me.ppg_delta - a.me.ppg_delta)
+      .filter(p => {
+        const k = headline(p.i_give);
+        if (seenHeadline.has(k)) return false;
+        seenHeadline.add(k);
+        return true;
+      });
+    const RUNG_LABEL = ['Opening offer', 'Good value', 'Fair price', 'Sweetened', 'Safest bet'];
+    const offers = distinctByCost.slice(0, 5).map((p, i) => ({ ...p, rank: i + 1, label: RUNG_LABEL[i] ?? `Offer ${i + 1}` }));
+    const byEfficiency = [...pool].sort((a, b) => b.efficiency - a.efficiency);
+
+    ladders.push({ ...base, offers, fair: byEfficiency[0], alternatives: byEfficiency.slice(1, 5) });
+  }
+
+  return { me: { roster_id: me.roster_id, owner: me.owner }, ladders };
+}
+
 /* --------------------------------------------------------------- self scout */
 
 /**

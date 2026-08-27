@@ -7,6 +7,7 @@ import { usePlayerCard } from '../components/PlayerCard';
 const TABS = [
   { id: 'find', label: 'Find deals', hint: 'Every realistic trade in your league, ranked' },
   { id: 'target', label: 'Target a player', hint: 'Name him — get the offer that lands him' },
+  { id: 'targetMany', label: 'Go get them', hint: 'Pick multiple players — build the packages that land them' },
   { id: 'mock', label: 'Mock a trade', hint: 'Build any deal, see who wins' },
   { id: 'matchups', label: 'Matchups', hint: 'Defence vs position, and head-to-head history' }
 ] as const;
@@ -83,6 +84,7 @@ export default function TradeLab() {
       {!active && <div className="card p-6 text-sm text-slate-500">Connect a league in League Hub first.</div>}
       {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {active && tab === 'targetMany' && <TargetMany leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'matchups' && <Matchups />}
     </div>
@@ -284,6 +286,136 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
       </div>
 
       {outlook && !outlook.error && <PlayerOutlook o={outlook} />}
+    </div>
+  );
+}
+
+/**
+ * "Go get them" — the same offer-ladder logic as TargetPlayer, but for a whole
+ * shopping list at once. Targets on different rosters come back as separate
+ * ladders (one per owner) since a real trade is with one team at a time.
+ */
+function TargetMany({ leagueId, teamId, rosters, untouchable, untouchableNames }: {
+  leagueId: number; teamId: string | null; rosters: any; untouchable: number[]; untouchableNames: string[];
+}) {
+  const [partnerId, setPartnerId] = useState<string>('');
+  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState<any[]>([]);
+  useEffect(() => { setQuery(''); setPicked([]); setPartnerId(''); }, [leagueId]);
+  useEffect(() => { setPicked([]); setQuery(''); }, [partnerId]);
+  const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
+  const ids = picked.map(p => p.id).join(',');
+  const { data: result, loading } = useApi<any>(
+    picked.length && teamId ? `/trades/${leagueId}/offer-many?team_id=${teamId}&player_ids=${ids}${exclude}` : null);
+
+  const partners = useMemo(() =>
+    (rosters?.teams ?? []).filter((t: any) => t.roster_id !== teamId), [rosters, teamId]);
+
+  const pool = useMemo(() => {
+    const teams = partnerId ? partners.filter((t: any) => t.roster_id === partnerId) : partners;
+    return teams.flatMap((t: any) => t.players.map((p: any) => ({ ...p, owner: t.owner })));
+  }, [partners, partnerId]);
+
+  const results = useMemo(() => {
+    if (query.trim().length < 2) return [];
+    const q = query.toLowerCase();
+    const pickedIds = new Set(picked.map(p => p.id));
+    return pool.filter((p: any) => p.name.toLowerCase().includes(q) && !pickedIds.has(p.id))
+      .sort((a: any, b: any) => b.value - a.value).slice(0, 8);
+  }, [query, pool, picked]);
+
+  return (
+    <div>
+      <div className="card p-4 mb-3">
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-400">Trade with a specific manager? (optional)</label>
+        <select className="input w-full mt-1.5" value={partnerId} onChange={e => setPartnerId(e.target.value)}>
+          <option value="">Any manager — search the whole league</option>
+          {partners.map((t: any) => <option key={t.roster_id} value={t.roster_id}>{t.owner}</option>)}
+        </select>
+
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate-400">Who do you want? Add as many as you like.</label>
+        <input className="input w-full mt-1.5" placeholder="Start typing a player's name…"
+          value={query} onChange={e => setQuery(e.target.value)} />
+        {query.trim().length >= 2 && results.length === 0 && (
+          <p className="mt-2 text-xs text-slate-400">No match{partnerId ? ` on ${partners.find((t: any) => t.roster_id === partnerId)?.owner}'s roster` : ''}.</p>
+        )}
+        {results.length > 0 && (
+          <div className="mt-2 divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+            {results.map((p: any) => (
+              <button key={p.id} onClick={() => { setPicked(prev => [...prev, p]); setQuery(''); }}
+                className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-sm">
+                <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
+                <span className="font-semibold">{p.name}</span>
+                <span className="text-xs text-slate-400">{p.team_abbr}</span>
+                <span className="text-xs text-slate-500 ml-auto">{p.owner}</span>
+                <span className="text-xs text-emerald-700 font-semibold tabular-nums">{p.value?.toLocaleString()}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {picked.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {picked.map(p => (
+              <button key={p.id} onClick={() => setPicked(prev => prev.filter(x => x.id !== p.id))}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700">
+                {p.name} <span className="text-slate-400">×</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {loading && <div className="card p-6 text-sm text-slate-500">Pricing them against your roster…</div>}
+      {result?.error && <div className="card p-5 border-amber-200 bg-amber-50/40 text-sm text-slate-700">{result.error}</div>}
+
+      {result?.ladders?.map((l: any) => (
+        <div key={l.owner_id} className="mb-4">
+          <div className="card p-4 border-emerald-200 mb-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {l.targets.map((t: any) => <PlayerPill key={t.id} p={t} tone="get" />)}
+              <span className="text-xs text-slate-500">owned by <span className="font-semibold text-slate-700">{l.owner}</span></span>
+            </div>
+            <p className="text-xs text-slate-600 mt-2">{l.leverage}</p>
+          </div>
+
+          {l.error && (
+            <div className="card p-4 border-amber-200 bg-amber-50/40 text-sm text-slate-700">
+              <p className="font-bold text-slate-800 mb-1">{l.error}</p>
+              <p>{l.reason}</p>
+            </div>
+          )}
+
+          {l.offers?.length > 0 && (
+            <div>
+              <h3 className="text-sm font-bold text-slate-700 mb-0.5">{l.offers.length} ways to land {l.targets.length > 1 ? 'this package' : 'him'} from {l.owner}</h3>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Cheapest first. Open with #1; if they say no, move down the list.
+                {untouchable.length > 0 && ` Your ${untouchable.length} untouchable player${untouchable.length > 1 ? 's' : ''} never appear here.`}
+              </p>
+              <div className="space-y-2">
+                {l.offers.map((o: any) => (
+                  <div key={o.rank}>
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-sky-200 bg-sky-100 text-[10px] font-black text-sky-900">{o.rank}</span>
+                      <h4 className="text-xs font-bold text-slate-700">{o.label}</h4>
+                      <span className="text-[11px] text-slate-400">{(o.ratio * 100).toFixed(0)}% of their combined market price</span>
+                    </div>
+                    <TradeCard deal={{ ...o, partner: l.owner, i_get: l.targets }} leagueId={leagueId} compact untouchableNames={untouchableNames} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {!picked.length && (
+        <div className="card p-6 text-sm text-slate-500">
+          {partnerId
+            ? `Search ${partners.find((t: any) => t.roster_id === partnerId)?.owner}'s roster and add the players you want — this builds the real packages that would get a deal done with them specifically.`
+            : 'Search and add a few players — from one team or several — and this builds the real packages that would land them, priced against your own roster.'}
+        </div>
+      )}
     </div>
   );
 }

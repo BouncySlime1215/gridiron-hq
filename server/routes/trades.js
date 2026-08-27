@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { row, rows } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
-  findTrades, offerFor, selfScout, playerOutlook, evaluate,
+  findTrades, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
   assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff
 } from '../services/trade-engine.js';
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
@@ -139,6 +139,19 @@ r.get('/:leagueId/offer', (req, res, next) => {
     if (!req.query.player_id) return res.status(400).json({ error: 'player_id required' });
     res.json(offerFor(lg, {
       myTeamId: req.query.team_id, targetId: req.query.player_id, excludeIds: excludeSet(req)
+    }));
+  } catch (e) { next(e); }
+});
+
+/* --------------------------------------------- "what do I offer for THEM" */
+r.get('/:leagueId/offer-many', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const raw = String(req.query.player_ids ?? '').trim();
+    if (!raw) return res.status(400).json({ error: 'player_ids required (comma-separated)' });
+    res.json(offerForMany(lg, {
+      myTeamId: req.query.team_id, targetIds: raw.split(',').map(Number).filter(Number.isFinite),
+      excludeIds: excludeSet(req)
     }));
   } catch (e) { next(e); }
 });

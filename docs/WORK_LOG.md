@@ -423,6 +423,94 @@ others — **and** the model captures a smaller share of what is available
 roughly 2x. Real remaining headroom exists, but it is about a third of what
 "0.075 vs 0.34" implied.
 
+### 12. Betting: the edge is in execution, not prediction
+
+The spread question was being treated as one problem and it is two. Only one
+was ever answered.
+
+**Prediction edge — settled negative.** 21 component models against 15,096
+closing lines, 0 clear the materiality gate. Do not re-litigate this.
+
+**Execution edge — real, measured, never exploited.** Books disagree. In a
+single 272-event snapshot across ~6.4 books per market: spread lines differ by
+**0.813 points on average**, 37.5% of markets differ by a full point or more,
+and taking the best available price rather than a median one is worth
+**2.566% per bet**.
+
+**The real break-even is 51.38%, not 52.38%.** The universally-quoted figure
+assumes every spread is priced −110 both ways. Measured over 11,134 games
+carrying real `spread_odds` (2006–2025), only **13.2%** actually were. A full
+point of required win rate is a large share of any realistic edge.
+
+*(Methodological note worth keeping: American odds cannot be averaged
+directly — the scale is discontinuous at zero. An earlier pass this session
+made that error and produced a nonsense mean of −58.3. Average implied
+probabilities and convert back.)*
+
+#### Key numbers are why line shopping beats price shopping
+
+NFL margins are not smooth. Over 7,276 games here:
+
+| margin | share of games |
+|---|---:|
+| **3** | **15.12%** |
+| 7 | 9.03% |
+| 6 | 5.99% |
+| 10 | 5.51% |
+
+A half point from 3.5→3.0 is worth **4.2×** one from 5.5→5.0. Treating all
+half points as equal is what makes line shopping look marginal.
+`lineMoveValue()` prices moves against the empirical margin distribution.
+
+#### Wong teasers — the one defensible +EV bet found
+
+Predicts nothing; exploits a structural property the teaser payout ignores. A
+6-point teaser costs the same whether it crosses both key numbers or neither.
+
+**1,391 qualifying legs, 74.69% win rate, SE 1.17pp (1999–2025).** Stable
+across eras — leave-one-era-out gives 73.94%–75.68%.
+
+| price | break-even | z | EV/bet |
+|---|---:|---:|---:|
+| **−110** | 72.37% | **1.99** | **+6.50%** |
+| −115 | 73.14% | 1.33 | +4.30% |
+| −120 | 73.85% | 0.71 | +2.27% |
+| −130 | 75.18% | −0.42 | **−1.30%** |
+
+The identical bet is +6.5% at −110 and −1.3% at −130 — which validates the
+execution thesis directly. `findTeaserLegs()` enforces a −115 floor.
+
+**Caveats, stated because overstating this costs real money:** z=1.99 clears a
+one-sided 5% bar and nothing more; books have moved many 2-team 6-point
+teasers to −120+ precisely because this is known, so price availability is the
+binding constraint; legs must be in **different games** or the independence
+behind p^n fails; and it still owes forward CLV before sizing real money.
+
+#### Staking
+
+Quarter Kelly, because full Kelly is growth-optimal only when the probability
+is exact and is violently asymmetric to overestimated edge. The load-bearing
+guardrail is `stakeFor()`'s `source`:
+
+- `'execution'` — advantage observed at bet time. May size a bet.
+- `'model'` — returns **zero units** until proven CLV exists. Spreads never
+  beat a closing line; props have no recorded CLV. Sizing on an unvalidated
+  edge is the ordinary way Kelly ends a bankroll, and the code refuses rather
+  than warns.
+
+#### Data sourcing, resolved
+
+- **Historical opening lines: no free source exists.** `nfldata`'s
+  `initial_lines.csv` is 2021-only, one book, and is **lookahead** lines
+  (BAL −5.5 → +9.5 in Week 15 — that is Lamar Jackson's injury, not market
+  drift; 45% move >3 points). Unusable for CLV.
+- `closing_lines.csv` is 2006–2018 and does not overlap it.
+- **You already have real prices locally**: 11,134 games with `spread_odds`.
+- OddsPortal's `robots.txt` disallows every historical season path and every
+  odds-serving AJAX endpoint. Not scraped.
+- The forward capture job (§ `nfl-prop-clv.js`) is the clean path to CLV and
+  needs only `ODDS_API_KEY`.
+
 ## Open
 
 1. ~~Walk-forward TD calibrator~~ — **done** (§8). Improves in all three
@@ -447,3 +535,57 @@ roughly 2x. Real remaining headroom exists, but it is about a third of what
    as open in the superseded handoff docs and still untouched.
 7. **Spreads** — 0/21 component models clear the materiality gate. Settled
    finding (the market has no exploitable edge here), not an open task.
+
+---
+
+## Where to start next (handoff)
+
+Ordered by value per unit of effort. Everything below is measured, not
+guessed; the numbers behind each item are in the sections above.
+
+**1. Set `ODDS_API_KEY`.** Nothing else unblocks as much. It starts
+`nfl_prop_capture` (hourly) and turns the central open question — do props
+have an edge — from unanswerable into measurable. ~200 settled bets before
+median CLV means anything, so the clock starts the day it is set.
+
+**2. Verify the teaser edge against live prices.** The strategy is +6.50% EV
+at −110 and −1.30% at −130. Everything depends on whether a −110 or −115
+2-team 6-point teaser is actually available at the books reachable from here.
+That is a market-availability question, not an analysis question, and it
+decides whether §12 is worth anything in practice.
+
+**3. Extend the key-number work to other documented spots.** The teaser result
+came from taking the margin distribution seriously. The same lens has not been
+pointed at: alternate teaser lengths (6.5 and 7 points), home underdogs,
+divisional unders, or middling opportunities where two books straddle 3.
+`lineMoveValue()` already prices any of these correctly.
+
+**4. Passing yards, and only passing yards.** It captures 30% of its
+achievable ceiling against ~60% for the other stats. Broad-brush signals are
+exhausted (nine documented rejections in §8) — this needs passing-specific
+work on volume and efficiency, not another general-purpose head.
+
+**5. LLM extraction from `news_items`.** 1,036 rows with `injury_entities_json`
+and `fantasy_impact` already populated. This is the one signal family a
+numeric model structurally cannot reach. It goes through the same gate as
+everything else — "an LLM found it" is not evidence it helps.
+
+### Do not redo these
+
+- **Sides/totals prediction.** 0 of 21 models beat 15,096 closing lines,
+  three independent ways.
+- **Recency/blend heads.** 24 candidates × 4 stats, zero survivors.
+- **Opponent strength on volume.** Actively harmful (MAE 70.6 → 90.8); it
+  double-counts the betting line, which already prices the opponent.
+- **Teammate competition.** A player's own share already measures it.
+- **Applying age/injury as adjustments.** Both validated in isolation and both
+  degraded the shipped pipeline. Kept as displayed context only.
+- **Scraping OddsPortal.** robots.txt disallows every historical path.
+
+### The rule that produced every real result here
+
+Never judge a change by a backtested win rate. Out-of-sample against a real
+baseline, Holm-corrected across the whole batch, then **ablated against the
+shipped pipeline**. Two signals passed the first two steps and failed the
+third. The ablation switch (`GRIDIRON_NO_CONTEXT_ADJ`) exists so that claim
+stays checkable rather than asserted.

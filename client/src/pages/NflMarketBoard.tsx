@@ -42,10 +42,12 @@ interface Graded extends AutoPick { status: 'Pending' | 'Won' | 'Lost' | 'Push';
 interface Standing { wins: number; losses: number; pushes: number; win_rate: number | null; units: number; weeks_tracked: number; }
 interface AllGameRow {
   matchup: string; market: string; selection: string; side: string | null;
+  home_team: string; away_team: string; line: number | null;
   american_price: number | null; model_probability: number | null; implied_probability: number | null;
   edge: number | null; edge_points: number | null; disagreement: number | null;
   eligible: boolean; is_pick: boolean; detail: string;
 }
+interface AiExplanation { paragraph: string; }
 interface CandidatePayload {
   season: number; week: number; candidates: AutoPick[];
   abstentions: (AutoPick & { abstention_reason?: string })[];
@@ -126,6 +128,8 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const candidateApi = useApi<CandidatePayload>(boardVisible ? `/nfl-market/picks/candidates?season=2026&week=${week}` : null);
   const userBetsApi = useApi<{ bets: TrackedBet[]; standing: Standing }>(boardVisible ? `/nfl-market/bets?season=2026&week=${week}` : null);
   const [trackingKey, setTrackingKey] = useState<string | null>(null);
+  const [openExplainKey, setOpenExplainKey] = useState<string | null>(null);
+  const [explainCache, setExplainCache] = useState<Record<string, AiExplanation | { error: string } | 'loading'>>({});
   const { data: catalog, loading: catalogLoading } = useApi<EnsembleCatalog>(boardVisible || (tool === 'model' && modelView === 'method') ? '/nfl-betting/ensemble/models' : null);
 
   const refreshLines = async () => {
@@ -167,6 +171,21 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const untrackBet = async (id: number) => {
     await api(`/nfl-market/bets/${id}`, { method: 'DELETE' });
     userBetsApi.refetch();
+  };
+
+  const toggleExplain = async (g: AllGameRow, key: string) => {
+    if (openExplainKey === key) { setOpenExplainKey(null); return; }
+    setOpenExplainKey(key);
+    if (explainCache[key]) return;
+    setExplainCache(c => ({ ...c, [key]: 'loading' }));
+    try {
+      const r = await api<AiExplanation>('/nfl-betting/explain/ai', { method: 'POST', body: JSON.stringify({
+        season: 2026, week, market: g.market, matchup: g.matchup, home_team: g.home_team, away_team: g.away_team,
+        selection: g.selection, side: g.side, line: g.line, american_price: g.american_price,
+        model_probability: g.model_probability, implied_probability: g.implied_probability, detail: g.detail
+      }) });
+      setExplainCache(c => ({ ...c, [key]: r }));
+    } catch (e: any) { setExplainCache(c => ({ ...c, [key]: { error: e.message } })); }
   };
 
   const board = useMemo(() => (boardApi.data?.board ?? [])
@@ -253,28 +272,38 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
                     const key = `${g.matchup}-${g.market}-${g.selection}`;
                     const alreadyTracked = userBetsApi.data?.bets.some(b => b.matchup === g.matchup && b.market === g.market && b.selection === g.selection);
                     const eligible = g.is_pick || g.eligible;
+                    const explain = explainCache[key];
                     return (
-                    <div key={`${g.matchup}-${g.market}-${i}`}
-                      className={`grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center ${eligible ? 'bg-emerald-50/70 ring-1 ring-inset ring-emerald-200' : ''}`}>
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-black text-slate-900">{g.matchup}</span>
-                          {eligible && <StatusPill tone="good">{g.is_pick ? '★ Locked pick' : '★ Clears policy'}</StatusPill>}
+                    <div key={`${g.matchup}-${g.market}-${i}`} className={eligible ? 'bg-emerald-50/70' : ''}>
+                      <div className={`grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center ${eligible ? 'ring-1 ring-inset ring-emerald-200' : ''}`}>
+                        <button className="text-left" onClick={() => toggleExplain(g, key)}>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-black text-slate-900">{g.matchup}</span>
+                            {eligible && <StatusPill tone="good">{g.is_pick ? '★ Locked pick' : '★ Clears policy'}</StatusPill>}
+                          </div>
+                          <div className="mt-0.5 text-sm text-slate-500">{MARKET_LABEL[g.market] ?? g.market} · {g.selection} {g.side ?? ''} · <span className="underline decoration-dotted">{openExplainKey === key ? 'Hide reasoning' : 'Why?'}</span></div>
+                        </button>
+                        <div className="flex gap-5 sm:text-right">
+                          <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Price</div><div className="text-base font-black text-slate-800">{americanFmt(g.american_price)}</div></div>
+                          <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div>
+                            <div className={`text-base font-black ${(g.edge_points ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-800'}`}>{g.edge_points != null ? `${g.edge_points > 0 ? '+' : ''}${g.edge_points.toFixed(1)} pts` : '—'}</div></div>
+                          <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Confidence</div>
+                            {g.model_probability != null
+                              ? <div className={`text-base font-black ${g.model_probability >= 0.55 ? 'text-emerald-700' : 'text-slate-900'}`}>{pct(g.model_probability)}</div>
+                              : <div className="text-xs font-bold text-slate-400">Unvalidated</div>}
+                          </div>
                         </div>
-                        <div className="mt-0.5 text-sm text-slate-500">{MARKET_LABEL[g.market] ?? g.market} · {g.selection} {g.side ?? ''}</div>
+                        <button className="btn-ghost text-xs whitespace-nowrap" disabled={alreadyTracked || trackingKey === key || g.american_price == null}
+                          onClick={() => trackBet(g)}>{alreadyTracked ? 'Tracked' : trackingKey === key ? 'Tracking…' : 'Track bet'}</button>
                       </div>
-                      <div className="flex gap-5 sm:text-right">
-                        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Price</div><div className="text-base font-black text-slate-800">{americanFmt(g.american_price)}</div></div>
-                        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div>
-                          <div className={`text-base font-black ${(g.edge_points ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-800'}`}>{g.edge_points != null ? `${g.edge_points > 0 ? '+' : ''}${g.edge_points.toFixed(1)} pts` : '—'}</div></div>
-                        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Confidence</div>
-                          {g.model_probability != null
-                            ? <div className={`text-base font-black ${g.model_probability >= 0.55 ? 'text-emerald-700' : 'text-slate-900'}`}>{pct(g.model_probability)}</div>
-                            : <div className="text-xs font-bold text-slate-400">Unvalidated</div>}
+                      {openExplainKey === key && (
+                        <div className="border-t border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700">
+                          {explain === 'loading' ? 'Reading the model\'s own factors…'
+                            : explain && 'error' in explain ? <span className="text-rose-600">{explain.error}</span>
+                            : explain ? explain.paragraph
+                            : null}
                         </div>
-                      </div>
-                      <button className="btn-ghost text-xs whitespace-nowrap" disabled={alreadyTracked || trackingKey === key || g.american_price == null}
-                        onClick={() => trackBet(g)}>{alreadyTracked ? 'Tracked' : trackingKey === key ? 'Tracking…' : 'Track bet'}</button>
+                      )}
                     </div>
                   );})}
                 </div>}

@@ -10,6 +10,7 @@ import {
   gradeTotalPicks, totalPicksStanding
 } from '../services/nfl-props.js';
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
+import { callClaude, getApiKey } from '../services/claude.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
 import { boardFor, accuracy, clearNflMarketCache } from '../services/nfl-market.js';
@@ -271,6 +272,49 @@ r.get('/board/explained', (req, res, next) => {
       season: ssn(req), week: wk(req),
       board: explainBoard(ssn(req), wk(req), filtered.slice(0, Number(req.query.limit) || 20))
     });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Stats-to-English, for debugging the model, not selling the pick. The
+ * structured factor breakdown (explainPick) is already deterministic and
+ * complete — this just asks Claude to translate it into one readable
+ * paragraph. Claude is told explicitly not to add facts or make a call;
+ * it can only rephrase what the deterministic reasoning already found,
+ * which is the point — this is a lens onto the model's own inputs, not a
+ * second opinion.
+ */
+r.post('/explain/ai', async (req, res, next) => {
+  try {
+    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
+    const b = req.body ?? {};
+    const season = Number(b.season) || SEASON, week = Number(b.week) || 1;
+    const market = String(b.market ?? 'spread');
+    const pickTeam = market === 'total' ? b.home_team : b.selection;
+    const oppTeam = market === 'total' ? b.away_team : (b.selection === b.home_team ? b.away_team : b.home_team);
+    const reasoning = explainPick({
+      season, week, market, pickTeam, oppTeam, side: b.side, line: b.line,
+      modelProbability: b.model_probability, impliedProbability: b.implied_probability, detail: b.detail
+    });
+
+    const fmtFactor = f => `${f.label}: ${pickTeam} ${f.pick_display} vs ${oppTeam} ${f.opponent_display}`;
+    const prompt = `You are translating an NFL betting model's already-computed reasoning into plain English for someone debugging the model. You are NOT making a betting recommendation and must NOT introduce any fact, stat, injury, or weather detail that is not listed below.
+
+GAME: ${b.matchup ?? `${b.away_team ?? ''} at ${b.home_team ?? ''}`}, ${market} — model likes ${b.selection ?? pickTeam} ${b.side ?? ''}
+${reasoning.headline}
+${reasoning.no_history ? reasoning.no_history_note : ''}
+Factors favoring this side: ${reasoning.supporting.length ? reasoning.supporting.map(fmtFactor).join('; ') : 'none found'}
+Factors against this side: ${reasoning.opposing.length ? reasoning.opposing.map(fmtFactor).join('; ') : 'none found'}
+Market movement: ${reasoning.market_agreement ?? 'no meaningful line movement recorded'}
+News context — ${pickTeam}: ${reasoning.news_context?.pick_team?.length ? reasoning.news_context.pick_team.map(n => n.headline).join('; ') : 'nothing typed/extracted'}
+News context — ${oppTeam}: ${reasoning.news_context?.opponent?.length ? reasoning.news_context.opponent.map(n => n.headline).join('; ') : 'nothing typed/extracted'}
+Model's own confidence label: ${reasoning.confidence}
+
+Write ONE paragraph (4-6 sentences) explaining, in plain English, what actually drove this number — which factors pulled which direction and how strong the evidence really is. If a category above is empty (e.g. no news, no history), say so plainly rather than skipping it silently; an empty input is itself useful for debugging where the model is weak. Do not recommend betting the pick or not.`;
+
+    const msg = await callClaude({ feature: 'nfl-pick-explain-ai', maxTokens: 500, prompt });
+    const text = msg?.content?.find?.(item => item.type === 'text')?.text?.trim() ?? '';
+    res.json({ paragraph: text, reasoning });
   } catch (e) { next(e); }
 });
 

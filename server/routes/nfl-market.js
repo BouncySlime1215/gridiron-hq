@@ -112,6 +112,7 @@ r.get('/picks/candidates', (req, res, next) => {
       // decide on every game themselves, confidence included.
       all_games: decisionBoard.decisions.map(d => ({
         matchup: d.matchup, market: d.market, selection: d.selection, side: d.side,
+        home_team: d.home_team, away_team: d.away_team, line: d.line,
         american_price: d.american_price, model_probability: d.model_probability,
         implied_probability: d.implied_probability, edge: d.probability_difference,
         edge_points: d.edge_points, disagreement: d.disagreement,

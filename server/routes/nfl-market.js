@@ -104,6 +104,18 @@ r.get('/picks/candidates', (req, res, next) => {
     res.json({
       season, week, candidates: decisionBoard.selected,
       abstentions: decisionBoard.decisions.filter(d => !d.eligible),
+      // Every game on the slate, model confidence included, whether or not it
+      // cleared the policy's edge/disagreement bar to become a "pick". The
+      // curated 5-a-week candidates list is the model's own best-conviction
+      // subset; this is the full board for a user who wants to see and
+      // decide on every game themselves, confidence included.
+      all_games: decisionBoard.decisions.map(d => ({
+        matchup: d.matchup, market: d.market, selection: d.selection, side: d.side,
+        american_price: d.american_price, model_probability: d.model_probability,
+        implied_probability: d.implied_probability, edge: d.probability_difference,
+        eligible: d.eligible, is_pick: decisionBoard.selected.some(s => s.matchup === d.matchup && s.market === d.market),
+        detail: d.detail
+      })),
       policy: decisionBoard.policy,
       clv: closingLineValue(),
       evidence,

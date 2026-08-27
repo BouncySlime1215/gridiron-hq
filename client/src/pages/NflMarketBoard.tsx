@@ -40,9 +40,15 @@ interface AutoPick {
 }
 interface Graded extends AutoPick { status: 'Pending' | 'Won' | 'Lost' | 'Push'; units: number; }
 interface Standing { wins: number; losses: number; pushes: number; win_rate: number | null; units: number; weeks_tracked: number; }
+interface AllGameRow {
+  matchup: string; market: string; selection: string; side: string | null;
+  american_price: number | null; model_probability: number | null; implied_probability: number | null;
+  edge: number | null; eligible: boolean; is_pick: boolean; detail: string;
+}
 interface CandidatePayload {
   season: number; week: number; candidates: AutoPick[];
   abstentions: (AutoPick & { abstention_reason?: string })[];
+  all_games: AllGameRow[];
   policy: { id: string; version: string; markets: string[]; maxPicksPerWeek: number; minEdge: number; maxDisagreement: number };
   clv: { available: boolean; snapshots: number; captures: number; note?: string };
   evidence?: { created_at: string; result: { overall: { bets: number; wins: number; losses: number; units: number; roi: number; uncertainty?: { roi_95: [number, number] } } } } | null;
@@ -250,6 +256,33 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
           </div>
           {candidateApi.data?.evidence_note && <p className="mt-2 text-xs leading-5 text-slate-500">{candidateApi.data.evidence_note}</p>}
         </section>
+
+        {(candidateApi.data?.all_games?.length ?? 0) > 0 && (
+          <section>
+            <SectionHeading eyebrow="Full slate" title={`All ${candidateApi.data!.all_games.length} Week ${week} games`}
+              description="Every market the model has an opinion on, confidence included — not just the curated five that cleared the production policy. Use this to bet the games you like yourself." />
+            <div className="card overflow-hidden divide-y divide-slate-100">
+              {candidateApi.data!.all_games.map((g, i) => (
+                <div key={`${g.matchup}-${g.market}-${i}`} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-black text-slate-900">{g.matchup}</span>
+                      <StatusPill tone="neutral">{MARKET_LABEL[g.market] ?? g.market}</StatusPill>
+                      {g.is_pick && <StatusPill tone="good">Curated pick</StatusPill>}
+                      {!g.eligible && <StatusPill tone="neutral">Below policy floor</StatusPill>}
+                    </div>
+                    <div className="mt-0.5 text-sm text-slate-500">{g.selection} {g.side ?? ''} · {g.detail}</div>
+                  </div>
+                  <div className="flex gap-5 sm:text-right">
+                    <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Price</div><div className="text-base font-black text-slate-800">{americanFmt(g.american_price)}</div></div>
+                    <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Model</div><div className="text-base font-black text-slate-900">{pct(g.model_probability)}</div></div>
+                    <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div><div className={`text-base font-black ${(g.edge ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-800'}`}>{g.edge != null ? `${g.edge > 0 ? '+' : ''}${pct(g.edge)}` : '—'}</div></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {runResult && (
           <section>

@@ -26,6 +26,28 @@ const SIGNAL_TONE: Record<string, string> = {
  * distinguishes it from the Camp Log's per-story AI blurb: you can check the
  * evidence span against the source yourself.
  */
+function TwitterStatus() {
+  const { data } = useApi<any>('/news/twitter-status');
+  if (!data?.configured) return null;
+  const s = data.spend, lc = data.line_correlation;
+  return (
+    <div className="card p-3 mb-4 text-[11px] text-slate-500 flex flex-wrap gap-x-5 gap-y-1 items-center">
+      <span className="font-bold text-slate-600">Twitter ingestion (twitterapi.io):</span>
+      <span>${s.spent_usd.toFixed(3)} spent of ${s.budget_usd} budget</span>
+      <span className={s.blocked ? 'text-rose-600 font-bold' : 'text-slate-500'}>
+        {s.blocked ? 'CAP REACHED — ingestion paused' : `$${s.remaining_usd.toFixed(2)} remaining`}
+      </span>
+      <span>· {s.calls} calls</span>
+      {lc && (
+        <span className="ml-auto">
+          Tweet→line: {lc.resolved} resolved{lc.resolved > 0 && `, ${lc.moved} moved`}
+          {!lc.sample_sufficient && <span className="text-amber-600"> (accumulating, not yet meaningful)</span>}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function SignalFeed() {
   const [team, setTeam] = useState('');
   const { data, refetch } = useApi<any>(`/news/signals${team ? `?team=${team}` : ''}`);
@@ -33,6 +55,7 @@ function SignalFeed() {
 
   return (
     <div>
+      <TwitterStatus />
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Signal Feed</h1>

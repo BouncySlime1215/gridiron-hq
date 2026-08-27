@@ -179,6 +179,18 @@ r.get('/signals', requireAuthenticated, (req, res) => {
   });
 });
 
+/**
+ * Twitter ingestion status: real money on a prepaid balance, so this stays
+ * one request away rather than buried in a log only a server operator sees.
+ */
+r.get('/twitter-status', requireAuthenticated, async (req, res, next) => {
+  try {
+    const { twitterSpendStatus, hasKey } = await import('../services/twitterapi-io.js');
+    const { tweetLineCorrelationSummary } = await import('../services/nfl-tweet-line-correlation.js');
+    res.json({ configured: hasKey(), spend: twitterSpendStatus(), line_correlation: tweetLineCorrelationSummary() });
+  } catch (e) { next(e); }
+});
+
 /** "What does this actually mean?" — on-demand, per story. */
 r.post('/:id/explain', requireAuthenticated, async (req, res, next) => {
   try {

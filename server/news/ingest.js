@@ -43,7 +43,7 @@ export function parseRssItems(xml) {
   })).filter(item => item.title && item.link);
 }
 
-function loadIdentity() {
+export function loadIdentity() {
   return {
     players: rows(`SELECT id, name FROM players WHERE fantasy_relevant = 1`),
     teams: rows(`SELECT id, name, abbr FROM nfl_teams`)

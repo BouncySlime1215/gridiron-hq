@@ -154,7 +154,12 @@ async function refreshNflLineSnapshots() {
   const { gradeClosingLineValue } = await import('./nfl-clv.js');
   // Grade as soon as a fresh capture exists: a bet becomes gradeable the moment
   // its game kicks off, and the last capture before that is its close.
-  return { ...snap, clv: gradeClosingLineValue() };
+  const result = { ...snap, clv: gradeClosingLineValue() };
+  // A fresh snapshot is exactly the moment open tweet-watches can be checked
+  // for movement — running it here means it never waits on a separate timer.
+  const { checkTweetLineMovement } = await import('./nfl-tweet-line-correlation.js');
+  result.tweet_line_check = await checkTweetLineMovement();
+  return result;
 }
 
 /**
@@ -181,6 +186,28 @@ async function refreshNflPropCalibration() {
     trainRows: replay([2022, 2023]), discoveryRows: replay([2024]),
     validationRows: replay([2025]), persist: true
   });
+}
+
+/**
+ * Insider tweets, budget-capped.
+ *
+ * The spend cap is enforced inside twitterapi-io.js on every call, not just
+ * here — this scheduled job is the normal path, but the guard has to hold
+ * even if something calls ingestTwitterInsiders directly. Runs the typed
+ * extractor immediately after so a fresh tweet gets a claim on the same
+ * cycle it lands, rather than waiting for nfl_news_signals' own run.
+ */
+async function refreshTwitterInsiders() {
+  const { ingestTwitterInsiders } = await import('../news/twitter-ingest.js');
+  const { hasKey, twitterSpendStatus } = await import('./twitterapi-io.js');
+  if (!hasKey()) return { skipped: true, reason: 'no TWITTERAPI_IO_KEY configured' };
+  const ingested = await ingestTwitterInsiders();
+  if (ingested.stored > 0) {
+    const { syncStructuredNewsSignals } = await import('./nfl-news-signal.js');
+    ingested.typed = syncStructuredNewsSignals({ sinceDays: 1 });
+  }
+  ingested.spend = twitterSpendStatus();
+  return ingested;
 }
 
 /** Capture the live prop market, and settle anything the week has now decided. */
@@ -256,7 +283,9 @@ export const JOBS = {
    * clearing the bar as data accumulates, neither of which moves hourly.
    */
   nfl_model_watch: { run: refreshModelWatch, maxAgeMinutes: 24 * 60,
-    label: 'Model drift watch and candidate discovery (report only)' }
+    label: 'Model drift watch and candidate discovery (report only)' },
+  twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60,
+    label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

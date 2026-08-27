@@ -96,6 +96,19 @@ async function refreshMlbBoxscores() {
   return syncFinalBoxscores(yesterday);
 }
 
+/**
+ * Player roster/team assignments. This was the actual cause of players
+ * showing up on the wrong team — not a sync bug, a MISSING sync: this
+ * function was correct and already existed, but only ran when someone
+ * clicked "Repull rosters" by hand. A trade or release made after the last
+ * manual click stayed wrong until the next click, indefinitely. Scheduled
+ * now like every other data source in this file.
+ */
+async function refreshPlayerRosters() {
+  const { syncPlayersFromESPN } = await import('../routes/espn.js');
+  return syncPlayersFromESPN();
+}
+
 /** NFL lines for the current season, including scores as games go final. */
 async function refreshNflLines() {
   const { syncCurrentLines, clearGameScriptCache } = await import('./gamescript.js');
@@ -283,6 +296,8 @@ export const JOBS = {
   mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, label: 'MLB final boxscore settlement' },
   mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, label: 'MLB probable starters' },
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
+  player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60,
+    label: 'Player team assignments — the actual fix for stale roster spots' },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' },
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, label: 'Multi-book line snapshots (CLV)' },
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' },

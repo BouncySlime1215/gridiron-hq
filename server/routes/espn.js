@@ -5,6 +5,17 @@ import { findPlayerMatch } from '../services/player-identity.js';
 import { recordSync } from '../services/scheduler.js';
 
 const r = Router();
+
+// A real, queryable audit trail of every team change this sync has ever
+// detected — the actual answer to "spot them all, not just guessing". Before
+// this, a team_id UPDATE was silent: correct in the moment, but nothing
+// recorded that a player named A.J. Brown genuinely moved teams versus his
+// row having always said that. Now every detected move is a row here.
+import { db } from '../db/index.js';
+db.exec(`CREATE TABLE IF NOT EXISTS player_team_changes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL,
+  player_name TEXT NOT NULL, from_team TEXT, to_team TEXT, detected_at TEXT NOT NULL
+)`);
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 const SEASON = () => Number(process.env.NFL_SEASON) || new Date().getFullYear();
 
@@ -54,7 +65,9 @@ export async function syncPlayersFromESPN() {
     // inserted a duplicate every sync, then took whichever row came first when two
     // real players share a name. See services/player-identity.js.
     const known = rows('SELECT id, name, position, team_id, espn_id FROM players');
+    const teamAbbrById = Object.fromEntries(rows('SELECT id, abbr FROM nfl_teams').map(t => [t.id, t.abbr]));
     const candidates = {}; // teamId -> position -> [{id, pct}] for depth-chart rebuild
+    const teamChanges = [];
     players.forEach((entry, idx) => {
       const pl = entry.player ?? entry;
       const pos = ESPN_POS[pl.defaultPositionId];
@@ -75,6 +88,14 @@ export async function syncPlayersFromESPN() {
       let playerId;
       if (match) {
         playerId = match.id;
+        // A genuine team change, not a routine re-affirmation of the same team —
+        // the distinction that makes this an audit trail rather than log noise.
+        // Only fires once known.team_id was already something (never for a
+        // freshly-added or previously-team-less row).
+        if (match.team_id != null && teamId != null && match.team_id !== teamId) {
+          teamChanges.push({ player_id: playerId, player_name: pl.fullName,
+            from_team: teamAbbrById[match.team_id] ?? null, to_team: teamAbbrById[teamId] ?? null });
+        }
         run('UPDATE players SET team_id = ?, fantasy_relevant = 1, espn_id = ? WHERE id = ?', teamId, pl.id ?? null, playerId);
         // Keep the in-memory view current so a later row in this same batch can't
         // re-match the row we just bound.
@@ -107,11 +128,23 @@ export async function syncPlayersFromESPN() {
     }
     // `ambiguous` is surfaced rather than swallowed: each entry is a real ESPN player
     // this sync deliberately refused to bind, so it should be visible, not silent.
-    const result = { ok: true, fetched: players.length, updated, added, ambiguous_count: ambiguous.length, ambiguous };
+    if (teamChanges.length) {
+      const now = new Date().toISOString();
+      const insertChange = db.prepare(`INSERT INTO player_team_changes
+        (player_id,player_name,from_team,to_team,detected_at) VALUES (?,?,?,?,?)`);
+      for (const c of teamChanges) insertChange.run(c.player_id, c.player_name, c.from_team, c.to_team, now);
+    }
+    const result = { ok: true, fetched: players.length, updated, added, ambiguous_count: ambiguous.length,
+      ambiguous, team_changes: teamChanges };
     recordSync('espn_players', 'ok', result);
     return result;
   } catch (e) { recordSync('espn_players', 'error', e.message); throw e; }
 }
+
+/** Every team change this sync has ever caught, newest first — the audit trail itself. */
+r.get('/team-changes', (req, res) => {
+  res.json(rows(`SELECT * FROM player_team_changes ORDER BY detected_at DESC LIMIT ?`, Number(req.query.limit) || 100));
+});
 
 r.post('/sync-players', async (req, res, next) => {
   try { res.json(await syncPlayersFromESPN()); } catch (e) { next(e); }

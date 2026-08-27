@@ -114,6 +114,7 @@ r.get('/picks/candidates', (req, res, next) => {
         matchup: d.matchup, market: d.market, selection: d.selection, side: d.side,
         american_price: d.american_price, model_probability: d.model_probability,
         implied_probability: d.implied_probability, edge: d.probability_difference,
+        edge_points: d.edge_points, disagreement: d.disagreement,
         eligible: d.eligible, is_pick: decisionBoard.selected.some(s => s.matchup === d.matchup && s.market === d.market),
         detail: d.detail
       })),

@@ -43,7 +43,8 @@ interface Standing { wins: number; losses: number; pushes: number; win_rate: num
 interface AllGameRow {
   matchup: string; market: string; selection: string; side: string | null;
   american_price: number | null; model_probability: number | null; implied_probability: number | null;
-  edge: number | null; eligible: boolean; is_pick: boolean; detail: string;
+  edge: number | null; edge_points: number | null; disagreement: number | null;
+  eligible: boolean; is_pick: boolean; detail: string;
 }
 interface CandidatePayload {
   season: number; week: number; candidates: AutoPick[];
@@ -171,9 +172,6 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const board = useMemo(() => (boardApi.data?.board ?? [])
     .filter(b => marketFilter === 'all' || b.market === marketFilter), [boardApi.data, marketFilter]);
   const standing = runResult?.standing ?? historyApi.data?.standing;
-  const evidence = candidateApi.data?.evidence?.result.overall;
-  const activeMargin = catalog?.models.filter(m => m.margin_n > 0 && m.margin_weight > 0).length ?? 0;
-  const activeTotal = catalog?.models.filter(m => m.total_n > 0 && m.total_weight > 0).length ?? 0;
   const pbpRows = system?.pbp.team.reduce((n, s) => n + s.rows, 0) ?? 0;
   const calibration = calibrationPayload?.calibration;
   const pregame = pregamePayload?.coverage.find(x => x.season === 2026 && x.week === week);
@@ -242,14 +240,16 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
 
         <section>
           <SectionHeading eyebrow="Full slate" title={`Week ${week} · ${candidateApi.data?.all_games?.length ?? '—'} games`}
-            description="Every priced game, confidence included. A game lights up green the moment it clears the production policy's edge and disagreement floor." />
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,.7fr)]">
+            description="Every priced game, ranked by how much the model and the market disagree. A game lights up green the moment it clears the production policy." />
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,.6fr)]">
             <div className="card overflow-hidden">
               {candidateApi.loading ? <div className="p-4"><ModelLoadingSignature sport="NFL" compact stages={[`Scoring Week ${week} games`, 'Applying frozen policy', 'Publishing eligible decisions']} /></div>
                 : candidateApi.error ? <div className="p-6 text-sm text-rose-600">{candidateApi.error}</div>
                 : !candidateApi.data?.all_games?.length ? <EmptyState title="No priced games yet" description="Refresh lines to pull this week's board." />
                 : <div className="divide-y divide-slate-100">
-                  {candidateApi.data.all_games.map((g, i) => {
+                  {[...candidateApi.data.all_games]
+                    .sort((a, b) => Number(b.is_pick) - Number(a.is_pick) || Number(b.eligible) - Number(a.eligible) || (b.edge_points ?? 0) - (a.edge_points ?? 0))
+                    .map((g, i) => {
                     const key = `${g.matchup}-${g.market}-${g.selection}`;
                     const alreadyTracked = userBetsApi.data?.bets.some(b => b.matchup === g.matchup && b.market === g.market && b.selection === g.selection);
                     const eligible = g.is_pick || g.eligible;
@@ -259,20 +259,19 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-black text-slate-900">{g.matchup}</span>
-                          <StatusPill tone="neutral">{MARKET_LABEL[g.market] ?? g.market}</StatusPill>
-                          {eligible && <StatusPill tone="good">{g.is_pick ? '★ Locked pick' : '★ Eligible pick'}</StatusPill>}
+                          {eligible && <StatusPill tone="good">{g.is_pick ? '★ Locked pick' : '★ Clears policy'}</StatusPill>}
                         </div>
-                        <div className="mt-0.5 text-sm text-slate-500">{g.selection} {g.side ?? ''} · {g.detail}</div>
+                        <div className="mt-0.5 text-sm text-slate-500">{MARKET_LABEL[g.market] ?? g.market} · {g.selection} {g.side ?? ''}</div>
                       </div>
                       <div className="flex gap-5 sm:text-right">
                         <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Price</div><div className="text-base font-black text-slate-800">{americanFmt(g.american_price)}</div></div>
-                        <div>
-                          <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Confidence</div>
+                        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div>
+                          <div className={`text-base font-black ${(g.edge_points ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-800'}`}>{g.edge_points != null ? `${g.edge_points > 0 ? '+' : ''}${g.edge_points.toFixed(1)} pts` : '—'}</div></div>
+                        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Confidence</div>
                           {g.model_probability != null
                             ? <div className={`text-base font-black ${g.model_probability >= 0.55 ? 'text-emerald-700' : 'text-slate-900'}`}>{pct(g.model_probability)}</div>
-                            : <div className="text-xs font-bold text-slate-400">Not calibrated</div>}
+                            : <div className="text-xs font-bold text-slate-400">Unvalidated</div>}
                         </div>
-                        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div><div className={`text-base font-black ${(g.edge ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-800'}`}>{g.edge != null ? `${g.edge > 0 ? '+' : ''}${pct(g.edge)}` : '—'}</div></div>
                       </div>
                       <button className="btn-ghost text-xs whitespace-nowrap" disabled={alreadyTracked || trackingKey === key || g.american_price == null}
                         onClick={() => trackBet(g)}>{alreadyTracked ? 'Tracked' : trackingKey === key ? 'Tracking…' : 'Track bet'}</button>
@@ -282,28 +281,28 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
             </div>
 
             <div className="space-y-3">
-              <SignalCard label="Active ensemble" value={catalogLoading ? 'Evaluating…' : `${activeMargin}/${catalog?.count ?? 20} margin`}
-                detail={`${activeTotal}/${catalog?.count ?? 20} models currently carry a total forecast. Missing sources abstain.`}
-                tone={activeMargin >= 15 ? 'good' : 'warn'} />
-              <SignalCard label="Development evidence" value="Not forward proof"
-                detail={evidence ? `${evidence.wins}-${evidence.losses} · ${evidence.units >= 0 ? '+' : ''}${evidence.units.toFixed(2)}u · ${(evidence.roi * 100).toFixed(1)}% outcome-blind development ROI; interval ${((evidence.uncertainty?.roi_95?.[0] ?? 0) * 100).toFixed(1)}% to ${((evidence.uncertainty?.roi_95?.[1] ?? 0) * 100).toFixed(1)}%.` : '2021–25 is opened development data. Frozen 2026 decisions supply forward proof.'}
-                tone="warn" />
-              <SignalCard label="Abstentions" value={`${candidateApi.data?.abstentions?.length ?? 0} games`}
-                detail="Every rejected candidate keeps an explicit reason in the decision audit." />
-              <SignalCard label="CLV" value={candidateApi.data?.clv?.available ? 'Tracking' : 'Unavailable'}
-                detail={candidateApi.data?.clv?.available ? `${candidateApi.data.clv.snapshots} stored quotes` : 'Two or more timed snapshots are required.'}
-                tone={candidateApi.data?.clv?.available ? 'info' : 'warn'} />
-              <SignalCard label="Data freshness" value={systemLoading || pregameLoading ? 'Checking…' : latestQuote ? new Date(latestQuote).toLocaleDateString() : 'No live quote'}
-                detail={pregameLoading ? 'Loading immutable pregame coverage.' : pregame ? `${pregame.teams}/32 team snapshots · ${new Date(pregame.last_capture).toLocaleString()}` : 'Current-week roster, QB and injury context has not been captured.'}
-                tone={pregame?.teams === 32 ? 'good' : 'warn'} />
-              <SignalCard label="Cover calibration" value={calibrationLoading ? 'Checking…' : calibration?.metrics.forward_gate_passed ? 'Promoted' : 'Blocked'}
-                detail={calibrationLoading ? 'Loading the latest chronological calibration audit.' : calibration ? `${calibration.metrics.walk_forward_n} walk-forward covers · model ${calibration.metrics.walk_forward_calibrated_brier?.toFixed(4) ?? '—'} vs market ${calibration.metrics.walk_forward_market_brier?.toFixed(4) ?? '—'} Brier.` : 'No fitted calibration is available.'}
+              <SignalCard label="Best game this week"
+                value={candidateApi.data?.all_games?.length
+                  ? [...candidateApi.data.all_games].sort((a, b) => (b.edge_points ?? 0) - (a.edge_points ?? 0))[0].matchup
+                  : '—'}
+                detail={candidateApi.data?.all_games?.length
+                  ? `${Math.abs([...candidateApi.data.all_games].sort((a, b) => (b.edge_points ?? 0) - (a.edge_points ?? 0))[0].edge_points ?? 0).toFixed(1)}pt edge — the model and market disagree most here.` : 'Waiting on this week\'s lines.'}
+                tone="info" />
+              <SignalCard label="Locked + tracked record"
+                value={standing || userBetsApi.data?.standing
+                  ? `${(standing?.wins ?? 0) + (userBetsApi.data?.standing.wins ?? 0)}-${(standing?.losses ?? 0) + (userBetsApi.data?.standing.losses ?? 0)}`
+                  : 'No settled bets'}
+                detail={`Auto-picks ${standing ? `${standing.units >= 0 ? '+' : ''}${standing.units.toFixed(2)}u` : '—'} · your tracked bets ${userBetsApi.data?.standing ? `${userBetsApi.data.standing.units >= 0 ? '+' : ''}${userBetsApi.data.standing.units.toFixed(2)}u` : '—'}.`}
+                tone={((standing?.units ?? 0) + (userBetsApi.data?.standing.units ?? 0)) >= 0 ? 'good' : 'warn'} />
+              <SignalCard label="Model vs. market"
+                value={calibration?.metrics.forward_gate_passed ? 'Model validated' : 'Market still favored'}
+                detail={calibration?.metrics.forward_gate_passed ? 'The model beats the market on out-of-sample cover accuracy — confidence numbers reflect that.' : 'The market still predicts covers better than the model on out-of-sample seasons, so confidence is withheld rather than shown as a guess. Full numbers are on the Audit tab.'}
                 tone={calibration?.metrics.forward_gate_passed ? 'good' : 'warn'} />
-              <SignalCard label="Tracked result" value={standing ? `${standing.wins}-${standing.losses}` : 'No settled picks'}
-                detail={standing ? `${standing.units >= 0 ? '+' : ''}${standing.units.toFixed(2)}u across ${standing.weeks_tracked} tracked week${standing.weeks_tracked === 1 ? '' : 's'}.` : 'The live record begins only when picks are locked before kickoff.'} />
+              <SignalCard label="Data freshness" value={systemLoading || pregameLoading ? 'Checking…' : latestQuote ? new Date(latestQuote).toLocaleDateString() : 'No live quote'}
+                detail={pregame?.teams === 32 ? `Full ${pregame.teams}/32 team roster + injury snapshot captured.` : 'Roster/injury context for this week has not been captured yet — refresh lines.'}
+                tone={pregame?.teams === 32 ? 'good' : 'warn'} />
             </div>
           </div>
-          {candidateApi.data?.evidence_note && <p className="mt-2 text-xs leading-5 text-slate-500">{candidateApi.data.evidence_note}</p>}
         </section>
 
         {boardVisible && (
@@ -346,10 +345,13 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         )}
 
         {acc && (
-          <section>
-            <SectionHeading eyebrow="Reality check" title="Model versus market baseline"
-              description="A prediction model earns trust by beating the market baseline on unseen games, not by displaying a large standalone accuracy number." />
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <details className="card overflow-hidden group">
+            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-4 hover:bg-slate-50">
+              <div className="min-w-0 flex-1"><div className="text-base font-black text-slate-900">Reality check: model vs. market</div>
+                <div className="text-sm text-slate-500">Full accuracy audit — the numbers behind the "Market still favored" card above.</div></div>
+              <span className="text-sm font-bold text-slate-400 group-open:hidden">Open</span>
+            </summary>
+            <div className="grid gap-3 border-t border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-4">
               <SignalCard label="Model margin MAE" value={`${acc.margin_mae} pts`} detail={`${acc.games_graded.toLocaleString()} nested walk-forward games`} />
               <SignalCard label="Market margin MAE" value={acc.market_margin_mae == null ? '—' : `${acc.market_margin_mae} pts`}
                 detail={acc.market_margin_mae != null && acc.margin_mae > acc.market_margin_mae ? 'Market remains stronger.' : 'Model is ahead on this measure.'}
@@ -359,7 +361,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
                 detail={acc.market_total_mae != null && acc.total_mae > acc.market_total_mae ? 'Market remains stronger.' : 'Model is ahead on this measure.'}
                 tone={acc.market_total_mae != null && acc.total_mae <= acc.market_total_mae ? 'good' : 'warn'} />
             </div>
-          </section>
+          </details>
         )}
 
         <details className="card overflow-hidden group">

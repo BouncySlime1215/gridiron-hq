@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { boardFor, accuracy, predictGame, clearNflMarketCache } from '../services/nfl-market.js';
 import { syncCurrentLines } from '../services/gamescript.js';
 import { autoPickDecisionBoard, persistPickDecisions, ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
+import { addUserBet, removeUserBet, userBetsFor, allUserBets, userBetsStanding } from '../services/nfl-user-bets.js';
 import { NFL_PRODUCTION_POLICY } from '../services/nfl-policy.js';
 import { closingLineValue } from '../services/line-shopping.js';
 import { latestTrainingAudit } from '../services/nfl-replay.js';
@@ -125,6 +126,32 @@ r.get('/picks/candidates', (req, res, next) => {
         : 'The prior five-season ROI came from a non-parity replay and is retired. Rerun the exact versioned policy.'
     });
   } catch (e) { next(e); }
+});
+
+/** Every game the user has chosen to track as their own bet, this week, graded. */
+r.get('/bets', (req, res, next) => {
+  try {
+    const season = Number(req.query.season) || SEASON;
+    const week = Number(req.query.week) || 1;
+    res.json({ season, week, bets: userBetsFor(season, week), standing: userBetsStanding() });
+  } catch (e) { next(e); }
+});
+
+r.get('/bets/history', (req, res, next) => {
+  try { res.json({ bets: allUserBets(), standing: userBetsStanding() }); } catch (e) { next(e); }
+});
+
+/** Track any game from the full slate as the user's own bet — separate from the model's curated auto-picks. */
+r.post('/bets', requireModelPermission('model:execute'), (req, res, next) => {
+  try {
+    const season = Number(req.body?.season) || SEASON;
+    const week = Number(req.body?.week) || 1;
+    res.json(addUserBet(season, week, req.body ?? {}));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+r.delete('/bets/:id', requireModelPermission('model:execute'), (req, res, next) => {
+  try { res.json(removeUserBet(Number(req.params.id))); } catch (e) { next(e); }
 });
 
 /**

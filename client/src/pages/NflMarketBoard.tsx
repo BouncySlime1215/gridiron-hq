@@ -69,6 +69,12 @@ interface SystemStatus {
 interface CoverCalibration { created_at: string; sample_size: number; trained_from: number; trained_through: number;
   metrics: { walk_forward_n: number; walk_forward_calibrated_brier: number | null; walk_forward_market_brier: number | null; forward_gate_passed: boolean }; }
 interface PregameCoverage { season: number; week: number; teams: number; first_capture: string; last_capture: string; }
+interface TrackedBet {
+  id: number; season: number; week: number; matchup: string; market: string; selection: string;
+  side: string | null; line: number; american_price: number; model_probability: number | null;
+  implied_probability: number | null; edge: number | null; units_staked: number;
+  status: 'Pending' | 'Won' | 'Lost' | 'Push'; units: number;
+}
 
 const MARKET_LABEL: Record<string, string> = { moneyline: 'Moneyline', spread: 'Spread', total: 'Total' };
 const STATUS_STYLE: Record<string, string> = {
@@ -117,6 +123,8 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const boardApi = useApi<{ season: number; week: number; board: BoardRow[] }>(
     boardVisible ? `/nfl-betting/board/explained?week=${week}&limit=60` : null);
   const candidateApi = useApi<CandidatePayload>(boardVisible ? `/nfl-market/picks/candidates?season=2026&week=${week}` : null);
+  const userBetsApi = useApi<{ bets: TrackedBet[]; standing: Standing }>(boardVisible ? `/nfl-market/bets?season=2026&week=${week}` : null);
+  const [trackingKey, setTrackingKey] = useState<string | null>(null);
   const { data: catalog, loading: catalogLoading } = useApi<EnsembleCatalog>(boardVisible || (tool === 'model' && modelView === 'method') ? '/nfl-betting/ensemble/models' : null);
 
   const refreshLines = async () => {
@@ -138,6 +146,26 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
       setRunResult(r); historyApi.refetch(); candidateApi.refetch(); boardApi.refetch();
     } catch (e: any) { setRunError(e.message); }
     finally { setRunning(false); }
+  };
+
+  const trackBet = async (g: AllGameRow) => {
+    const key = `${g.matchup}-${g.market}-${g.selection}`;
+    setTrackingKey(key);
+    try {
+      await api('/nfl-market/bets', { method: 'POST', body: JSON.stringify({
+        season: 2026, week, matchup: g.matchup, market: g.market, selection: g.selection,
+        side: g.side, line: g.side ? Number(g.side.replace('+', '')) : null,
+        american_price: g.american_price, model_probability: g.model_probability,
+        implied_probability: g.implied_probability, edge: g.edge
+      }) });
+      userBetsApi.refetch();
+    } catch (e: any) { setRunError(e.message); }
+    finally { setTrackingKey(null); }
+  };
+
+  const untrackBet = async (id: number) => {
+    await api(`/nfl-market/bets/${id}`, { method: 'DELETE' });
+    userBetsApi.refetch();
   };
 
   const board = useMemo(() => (boardApi.data?.board ?? [])
@@ -260,10 +288,13 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         {(candidateApi.data?.all_games?.length ?? 0) > 0 && (
           <section>
             <SectionHeading eyebrow="Full slate" title={`All ${candidateApi.data!.all_games.length} Week ${week} games`}
-              description="Every market the model has an opinion on, confidence included — not just the curated five that cleared the production policy. Use this to bet the games you like yourself." />
+              description="Every market the model has an opinion on, confidence included — not just the curated five that cleared the production policy. Track any game you want to bet yourself and it's graded and tallied below just like the auto-picks." />
             <div className="card overflow-hidden divide-y divide-slate-100">
-              {candidateApi.data!.all_games.map((g, i) => (
-                <div key={`${g.matchup}-${g.market}-${i}`} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              {candidateApi.data!.all_games.map((g, i) => {
+                const key = `${g.matchup}-${g.market}-${g.selection}`;
+                const alreadyTracked = userBetsApi.data?.bets.some(b => b.matchup === g.matchup && b.market === g.market && b.selection === g.selection);
+                return (
+                <div key={`${g.matchup}-${g.market}-${i}`} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-black text-slate-900">{g.matchup}</span>
@@ -278,8 +309,41 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
                     <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Model</div><div className="text-base font-black text-slate-900">{pct(g.model_probability)}</div></div>
                     <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div><div className={`text-base font-black ${(g.edge ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-800'}`}>{g.edge != null ? `${g.edge > 0 ? '+' : ''}${pct(g.edge)}` : '—'}</div></div>
                   </div>
+                  <button className="btn-ghost text-xs whitespace-nowrap" disabled={alreadyTracked || trackingKey === key || g.american_price == null}
+                    onClick={() => trackBet(g)}>{alreadyTracked ? 'Tracked' : trackingKey === key ? 'Tracking…' : 'Track bet'}</button>
                 </div>
-              ))}
+              );})}
+            </div>
+          </section>
+        )}
+
+        {boardVisible && (
+          <section>
+            <SectionHeading eyebrow="Your bets" title="Tracked bets"
+              description="Games you chose to bet yourself from the full slate — graded the same way as the auto-picks, tallied week by week." />
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(220px,.5fr)]">
+              <div className="card overflow-hidden">
+                {!userBetsApi.data?.bets.length
+                  ? <EmptyState title="No bets tracked yet" description="Use “Track bet” on any game in the full slate above." />
+                  : <div className="divide-y divide-slate-100">
+                    {userBetsApi.data.bets.map(b => (
+                      <div key={b.id} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-black text-slate-900">{b.matchup}</span>
+                            <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS_STYLE[b.status]}`}>{b.status}</span>
+                          </div>
+                          <div className="mt-0.5 text-sm text-slate-500">{b.selection} {b.side ?? ''} · {americanFmt(b.american_price)}</div>
+                        </div>
+                        <div className="text-right"><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Units</div>
+                          <div className={`text-base font-black ${b.units > 0 ? 'text-emerald-700' : b.units < 0 ? 'text-rose-600' : 'text-slate-800'}`}>{b.units >= 0 ? '+' : ''}{b.units.toFixed(2)}u</div></div>
+                        <button className="btn-ghost text-xs" onClick={() => untrackBet(b.id)}>Remove</button>
+                      </div>
+                    ))}
+                  </div>}
+              </div>
+              <SignalCard label="Your record" value={userBetsApi.data?.standing ? `${userBetsApi.data.standing.wins}-${userBetsApi.data.standing.losses}` : 'No settled bets'}
+                detail={userBetsApi.data?.standing ? `${userBetsApi.data.standing.units >= 0 ? '+' : ''}${userBetsApi.data.standing.units.toFixed(2)}u across ${userBetsApi.data.standing.weeks_tracked} tracked week${userBetsApi.data.standing.weeks_tracked === 1 ? '' : 's'}.` : 'Track a game above to start your own record.'} />
             </div>
           </section>
         )}

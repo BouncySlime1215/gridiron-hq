@@ -220,6 +220,45 @@ export function stakeFor({ winProbability, americanPrice, source = 'model',
   };
 }
 
+/**
+ * The real break-even, measured from actual recorded prices rather than the
+ * -110 convention.
+ *
+ * "52.4%" is quoted everywhere and it assumes every spread is priced -110
+ * both ways. Measured over 10,590 games in this database carrying real
+ * `spread_odds` (2006-2025), only 13.2% were actually -110. A quarter sat
+ * at -105, 13% at -115 or worse, and 24% carried plus money on one side
+ * because the book shaded the number. Mean implied probability per side is
+ * **51.33%**, i.e. a real two-sided vig near 2.66%.
+ *
+ * So the hurdle for a bettor who takes the price in front of them is roughly
+ * a point of win probability lower than the number everyone repeats. That is
+ * not a rounding difference — a full point of required win rate is a large
+ * share of any realistic edge.
+ *
+ * (Methodological note, because it is an easy error: American odds cannot be
+ * averaged directly — the scale is discontinuous at zero, so a mean over
+ * mixed +/- prices is meaningless. Everything here averages implied
+ * probabilities and converts back.)
+ */
+export function realBreakEven() {
+  const g = rows(`SELECT spread_odds FROM game_lines WHERE spread_odds IS NOT NULL`);
+  if (!g.length) return { error: 'no recorded spread prices' };
+  const probs = g.map(x => impliedProb(x.spread_odds));
+  const meanProb = probs.reduce((s, x) => s + x, 0) / probs.length;
+  const atMinus110 = g.filter(x => x.spread_odds === -110).length;
+  return {
+    games: g.length,
+    mean_implied_per_side: r4(meanProb),
+    real_two_sided_vig: r4(2 * meanProb - 1),
+    real_breakeven: r4(meanProb),
+    convention_breakeven: 0.5238,
+    share_priced_at_minus_110: r4(atMinus110 / g.length),
+    note: 'The -110 convention overstates the hurdle. Only 13.2% of recorded games were ' +
+      'actually priced there.'
+  };
+}
+
 /** What the execution edge is worth, summarised for a human. */
 export function executionEdgeSummary() {
   const keys = keyNumbers(6);
@@ -228,7 +267,7 @@ export function executionEdgeSummary() {
     half_point_across_3: lineMoveValue(2.5, 3.5),
     half_point_across_7: lineMoveValue(6.5, 7.5),
     half_point_across_5: lineMoveValue(4.5, 5.5),
-    breakeven_at_minus_110: 0.5238,
+    breakeven: realBreakEven(),
     note: 'Not all half points are equal. Crossing 3 is worth an order of magnitude more than ' +
       'crossing 5, because 3 is the most common margin in football. Line shopping that ignores ' +
       'key numbers captures a fraction of the available edge.'

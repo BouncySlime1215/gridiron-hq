@@ -28,6 +28,9 @@ const { evidenceDaemonStatus } = await import('../server/services/evidence-daemo
 const { allPicks } = await import('../server/services/mlb-auto-picks.js');
 const { startAiBlindReplay, normalizeReview, agentLearningMemory } = await import('../server/services/nfl-ai-replay.js');
 const { validationFirewall } = await import('../server/services/nfl-evidence.js');
+const { decomposePassingError } = await import('../server/services/nfl-passing-diagnostic.js');
+const { flattenAllProps } = await import('../server/services/odds-api.js');
+const { finalizeClosingSnapshots, noVigPropProbability, duePropCaptureHorizon } = await import('../server/services/nfl-prop-clv.js');
 const { teamPlayerAvailability } = await import('../server/services/nfl-player-value.js');
 const { safeStakeFor } = await import('../server/services/staking.js');
 const {
@@ -140,6 +143,65 @@ test('anytime touchdown market excludes passing touchdowns', () => {
   assert.equal(anytimeTdHit({ passTd: 4, rushTd: 0, recTd: 0 }), 0);
   assert.equal(anytimeTdHit({ passTd: 0, rushTd: 1, recTd: 0 }), 1);
   assert.equal(anytimeTdHit({ passTd: 0, rushTd: 0, recTd: 1 }), 1);
+});
+
+test('passing diagnostic exactly separates volume and efficiency error', () => {
+  const out = decomposePassingError({ predictedAttempts: 34, predictedYpa: 7.2,
+    actualAttempts: 29, actualYpa: 8.1 });
+  assert.equal(out.exact, true);
+  assert.ok(Math.abs(out.total - (34 * 7.2 - 29 * 8.1)) < 1e-9);
+});
+
+test('prop CLV capture preserves every bookmaker instead of collapsing to best price', () => {
+  const payload = { id: 'event', home_team: 'Home', away_team: 'Away', commence_time: '2026-09-01T00:00:00Z',
+    bookmakers: [
+      { key: 'book_a', markets: [{ key: 'player_pass_yds', outcomes: [
+        { description: 'Q B', name: 'Over', point: 250.5, price: -110 }
+      ] }] },
+      { key: 'book_b', markets: [{ key: 'player_pass_yds', outcomes: [
+        { description: 'Q B', name: 'Over', point: 250.5, price: -105 }
+      ] }] }
+    ] };
+  const quotes = flattenAllProps(payload);
+  assert.equal(quotes.length, 2);
+  assert.deepEqual(quotes.map(q => q.book), ['book_a', 'book_b']);
+});
+
+test('prop no-vig probabilities remove a two-sided book margin', () => {
+  const over = noVigPropProbability(-115, -105);
+  const under = noVigPropProbability(-105, -115);
+  assert.ok(Math.abs(over + under - 1) < 1e-12);
+});
+
+test('prop close is the final quote before kickoff and ignores in-game rows', () => {
+  const insert = db.prepare(`INSERT INTO nfl_prop_clv
+    (captured_at,event_id,book,market,player,side,line,american_price,implied_probability,
+     season,week,commence_time)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const base = ['PROP_CLOSE', 'book', 'player_pass_yds', 'Test QB', 'Over'];
+  insert.run('2026-08-27T10:00:00Z', ...base, 249.5, -110, 0.50, 2026, 1, '2026-08-27T12:00:00Z');
+  insert.run('2026-08-27T11:59:00Z', ...base, 254.5, -120, 0.55, 2026, 1, '2026-08-27T12:00:00Z');
+  insert.run('2026-08-27T12:01:00Z', ...base, 270.5, -200, 0.70, 2026, 1, '2026-08-27T12:00:00Z');
+  finalizeClosingSnapshots('2026-08-27T13:00:00Z');
+  const original = db.prepare(`SELECT * FROM nfl_prop_clv
+    WHERE event_id='PROP_CLOSE' AND captured_at='2026-08-27T10:00:00Z'`).get();
+  const after = db.prepare(`SELECT * FROM nfl_prop_clv
+    WHERE event_id='PROP_CLOSE' AND captured_at='2026-08-27T12:01:00Z'`).get();
+  assert.equal(original.closing_line, 254.5);
+  assert.equal(original.closing_price, -120);
+  assert.ok(Math.abs(original.clv_probability - 0.05) < 1e-12);
+  assert.equal(after.closing_price, null, 'a quote captured after kickoff is not evidence');
+});
+
+test('scheduled prop capture spends only at T-24h and T-1h windows', () => {
+  const kickoff = '2026-09-10T17:00:00Z';
+  assert.equal(duePropCaptureHorizon(kickoff, [], '2026-09-09T16:00:00Z'), null);
+  assert.equal(duePropCaptureHorizon(kickoff, [], '2026-09-09T18:00:00Z'), 24);
+  assert.equal(duePropCaptureHorizon(kickoff, ['2026-09-09T18:00:00Z'], '2026-09-10T15:00:00Z'), null);
+  assert.equal(duePropCaptureHorizon(kickoff, ['2026-09-09T18:00:00Z'], '2026-09-10T16:15:00Z'), 1);
+  assert.equal(duePropCaptureHorizon(kickoff, ['2026-09-09T18:00:00Z', '2026-09-10T16:15:00Z'],
+    '2026-09-10T16:30:00Z'), null);
+  assert.equal(duePropCaptureHorizon(kickoff, [], '2026-09-10T17:01:00Z'), null);
 });
 
 test('candidate registry contains at least twenty shadow-only hypotheses', () => {

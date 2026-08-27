@@ -36,8 +36,9 @@
  * promotion requirement.
  */
 import { db, rows, run } from '../db/index.js';
-import { hasKey, events, playerProps, flattenProps, PROP_MARKETS } from './odds-api.js';
+import { hasKey, events, playerProps, flattenAllProps, PROP_MARKETS, usage } from './odds-api.js';
 import { playerWeeks } from './nfl-pbp.js';
+import { projectWeek } from './nfl-props.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_prop_clv (
@@ -53,11 +54,91 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_prop_clv_settle ON nfl_prop_clv(settled, season, week);
 `);
 
+const quoteCols = new Set(db.prepare('PRAGMA table_info(nfl_prop_clv)').all().map(c => c.name));
+for (const [column, type] of [
+  ['commence_time', 'TEXT'], ['home_team', 'TEXT'], ['away_team', 'TEXT'],
+  ['closing_fair_probability', 'REAL'], ['clv_probability', 'REAL']
+]) {
+  if (!quoteCols.has(column)) db.exec(`ALTER TABLE nfl_prop_clv ADD COLUMN ${column} ${type}`);
+}
+
 /** American odds -> implied probability, and the no-vig pair. */
 export const impliedFromAmerican = p => (p >= 0 ? 100 / (p + 100) : -p / (-p + 100));
 
 /** Decimal price, for CLV in percentage terms. */
 const decimalFromAmerican = p => (p >= 0 ? 1 + p / 100 : 1 + 100 / -p);
+const HOUR = 3600e3;
+export const PROP_CAPTURE_HORIZONS_HOURS = Object.freeze([24, 1]);
+const PROP_CREDIT_RESERVE = 50;
+
+const normalizeName = value => String(value ?? '').toLowerCase()
+  .replace(/[^a-z ]/g, '').replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
+  .replace(/\s+/g, ' ').trim();
+
+const MARKET_STAT = {
+  player_pass_yds: 'pass_yds', player_rush_yds: 'rush_yds',
+  player_reception_yds: 'rec_yds', player_receptions: 'receptions',
+  player_anytime_td: 'any_td'
+};
+
+export function noVigPropProbability(ownPrice, oppositePrice) {
+  const own = impliedFromAmerican(ownPrice);
+  if (!Number.isFinite(oppositePrice)) return own;
+  const opposite = impliedFromAmerican(oppositePrice);
+  return own + opposite > 0 ? own / (own + opposite) : null;
+}
+
+function attachFairProbabilities(quotes) {
+  const index = new Map(quotes.map(q => [[q.event_id, q.book, q.market,
+    normalizeName(q.player), q.line ?? '', String(q.side).toLowerCase()].join('|'), q]));
+  return quotes.map(q => {
+    const side = String(q.side).toLowerCase();
+    const oppositeSide = side === 'over' ? 'under' : side === 'under' ? 'over' : null;
+    const opposite = oppositeSide ? index.get([q.event_id, q.book, q.market,
+      normalizeName(q.player), q.line ?? '', oppositeSide].join('|')) : null;
+    return { ...q, implied_probability: noVigPropProbability(q.american_price, opposite?.american_price) };
+  });
+}
+
+function weekForEvent(event, season, fallbackWeek) {
+  const home = rows('SELECT abbr FROM nfl_teams WHERE name=?', event.home_team)[0]?.abbr;
+  const away = rows('SELECT abbr FROM nfl_teams WHERE name=?', event.away_team)[0]?.abbr;
+  if (!home || !away) return fallbackWeek ?? null;
+  const candidates = rows(`SELECT week,gameday FROM game_lines
+                            WHERE season=? AND home=1 AND team=? AND opponent=?`, season, home, away);
+  if (!candidates.length) return fallbackWeek ?? null;
+  const kickoff = new Date(event.commence_time).getTime();
+  candidates.sort((a, b) => Math.abs(new Date(`${a.gameday}T17:00:00Z`).getTime() - kickoff)
+    - Math.abs(new Date(`${b.gameday}T17:00:00Z`).getTime() - kickoff));
+  return candidates[0].week;
+}
+
+function probabilityForQuote(quote, projections) {
+  const projection = projections.get(normalizeName(quote.player));
+  if (!projection) return null;
+  if (quote.market === 'player_anytime_td') return projection.projection.any_td_prob;
+  const stat = MARKET_STAT[quote.market];
+  const samples = projection._sims?.[stat];
+  if (!samples?.length || !Number.isFinite(quote.line)) return null;
+  const over = samples.filter(value => value > quote.line).length / samples.length;
+  return /^under$/i.test(quote.side) ? 1 - over : over;
+}
+
+/** Return the closest still-missing capture horizon that is currently due. */
+export function duePropCaptureHorizon(commenceTime, priorCaptures = [],
+  now = new Date().toISOString(), horizons = PROP_CAPTURE_HORIZONS_HOURS) {
+  const kickoff = new Date(commenceTime).getTime(), at = new Date(now).getTime();
+  if (!Number.isFinite(kickoff) || !Number.isFinite(at) || at >= kickoff) return null;
+  const due = horizons.filter(hours => {
+    if (kickoff - at > hours * HOUR) return false;
+    const opens = kickoff - hours * HOUR;
+    return !priorCaptures.some(capture => {
+      const t = new Date(capture).getTime();
+      return t >= opens && t < kickoff;
+    });
+  });
+  return due.length ? Math.min(...due) : null;
+}
 
 /**
  * Capture the current prop market. Idempotent per (capture, event, book,
@@ -69,25 +150,94 @@ const decimalFromAmerican = p => (p >= 0 ? 1 + p / 100 : 1 + 100 / -p);
  * across the whole market, and would bake this week's model into the record
  * of what the market offered.
  */
-export async function capturePropMarket({ season, week, maxEvents = 12 } = {}) {
+export async function capturePropMarket({ season, week, maxEvents = 12, scheduled = false } = {}) {
   if (!hasKey()) return { skipped: true, reason: 'no ODDS_API_KEY configured' };
   const capturedAt = new Date().toISOString();
   const list = (await events()) ?? [];
+  let selected = list;
+  if (scheduled) {
+    selected = list.filter(event => {
+      const prior = rows('SELECT DISTINCT captured_at FROM nfl_prop_clv WHERE event_id=?', event.id)
+        .map(row => row.captured_at);
+      return duePropCaptureHorizon(event.commence_time, prior, capturedAt) != null;
+    });
+    if (!selected.length) {
+      const next = list.map(event => ({ event: event.id, commence_time: event.commence_time,
+        hours_until: (new Date(event.commence_time).getTime() - Date.now()) / HOUR }))
+        .filter(x => x.hours_until > 0).sort((a, b) => a.hours_until - b.hours_until)[0] ?? null;
+      return { skipped: true, reason: 'no T-24h or T-1h prop capture window is due', next_event: next };
+    }
+  }
+  const budget = usage();
+  const affordable = Number.isFinite(budget.requests_remaining)
+    ? Math.max(0, Math.floor((budget.requests_remaining - PROP_CREDIT_RESERVE) / PROP_MARKETS.length))
+    : maxEvents;
+  const eventLimit = Math.min(maxEvents, affordable);
+  if (eventLimit < 1) return { skipped: true,
+    reason: `credit reserve protected (${budget.requests_remaining ?? 'unknown'} remaining; ${PROP_CREDIT_RESERVE} reserved)`,
+    usage: budget };
+  selected = selected.sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time)).slice(0, eventLimit);
   const insert = db.prepare(`INSERT OR IGNORE INTO nfl_prop_clv
-    (captured_at,event_id,book,market,player,side,line,american_price,season,week)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`);
+    (captured_at,event_id,book,market,player,side,line,american_price,
+     model_probability,implied_probability,edge,season,week,commence_time,home_team,away_team)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const projectionsByWeek = new Map();
   let stored = 0, seen = 0;
-  for (const e of list.slice(0, maxEvents)) {
+  for (const e of selected) {
     let payload;
     try { payload = await playerProps(e.id, { markets: PROP_MARKETS }); } catch { continue; }
     if (!payload) continue;
-    for (const q of flattenProps(payload)) {
+    const eventWeek = weekForEvent(e, season, week);
+    if (!projectionsByWeek.has(eventWeek)) {
+      const projections = Number.isInteger(eventWeek) ? projectWeek(season, eventWeek) : [];
+      projectionsByWeek.set(eventWeek, new Map(projections.map(p => [normalizeName(p.name), p])));
+    }
+    const projectionIndex = projectionsByWeek.get(eventWeek);
+    for (const q of attachFairProbabilities(flattenAllProps(payload))) {
       seen++;
+      if (q.commence_time && new Date(q.commence_time).getTime() <= new Date(capturedAt).getTime()) continue;
+      const modelProbability = probabilityForQuote(q, projectionIndex);
+      const edge = Number.isFinite(modelProbability) && Number.isFinite(q.implied_probability)
+        ? modelProbability - q.implied_probability : null;
+      const offeredLine = q.line ?? (q.market === 'player_anytime_td' ? 0.5 : null);
       stored += insert.run(capturedAt, q.event_id, q.book, q.market, q.player, q.side,
-        q.line ?? null, q.american_price, season ?? null, week ?? null).changes;
+        offeredLine, q.american_price, modelProbability, q.implied_probability, edge,
+        season ?? null, eventWeek ?? null, q.commence_time ?? e.commence_time ?? null,
+        q.home_team ?? e.home_team ?? null, q.away_team ?? e.away_team ?? null).changes;
     }
   }
-  return { captured_at: capturedAt, events: Math.min(list.length, maxEvents), quotes_seen: seen, stored };
+  const closing = finalizeClosingSnapshots();
+  return { captured_at: capturedAt, events: selected.length, quotes_seen: seen,
+    modeled: rows('SELECT COUNT(*) n FROM nfl_prop_clv WHERE captured_at=? AND model_probability IS NOT NULL', capturedAt)[0]?.n ?? 0,
+    stored, closing, usage: usage(), schedule: scheduled ? { horizons_hours: PROP_CAPTURE_HORIZONS_HOURS,
+      credit_reserve: PROP_CREDIT_RESERVE } : null };
+}
+
+/** Freeze the last book-specific quote before kickoff as the close. */
+export function finalizeClosingSnapshots(now = new Date().toISOString()) {
+  const pending = rows(`SELECT * FROM nfl_prop_clv
+                        WHERE commence_time IS NOT NULL AND commence_time <= ?
+                          AND captured_at < commence_time
+                          AND closing_price IS NULL`, now);
+  const update = db.prepare(`UPDATE nfl_prop_clv
+    SET closing_line=?,closing_price=?,closing_fair_probability=?,clv_probability=?,clv_cents=?
+    WHERE captured_at=? AND event_id=? AND book=? AND market=? AND player=? AND side=?`);
+  let finalized = 0, unmatched = 0;
+  for (const quote of pending) {
+    const close = rows(`SELECT line,american_price,implied_probability FROM nfl_prop_clv
+                        WHERE event_id=? AND book=? AND market=? AND player=? AND side=?
+                          AND captured_at < ?
+                        ORDER BY captured_at DESC LIMIT 1`, quote.event_id, quote.book,
+    quote.market, quote.player, quote.side, quote.commence_time)[0];
+    if (!close) { unmatched++; continue; }
+    const clv = Number.isFinite(close.implied_probability) && Number.isFinite(quote.implied_probability)
+      ? close.implied_probability - quote.implied_probability : null;
+    update.run(close.line, close.american_price, close.implied_probability, clv,
+      clv == null ? null : clv * 100, quote.captured_at, quote.event_id, quote.book,
+      quote.market, quote.player, quote.side);
+    finalized++;
+  }
+  return { finalized, unmatched };
 }
 
 /** Map a stored market key to the player-week field that settles it. */
@@ -109,25 +259,26 @@ const SETTLE_FIELD = {
 export function settlePropQuotes({ season, week } = {}) {
   const pending = rows(`SELECT * FROM nfl_prop_clv
                         WHERE settled = 0 AND season = ? AND week = ?
-                          AND market IN ('player_pass_yds','player_rush_yds','player_reception_yds','player_receptions')`,
+                          AND market IN ('player_pass_yds','player_rush_yds','player_reception_yds','player_receptions','player_anytime_td')`,
   season, week);
   if (!pending.length) return { settled: 0, unmatched: 0, note: 'nothing pending for that week' };
 
   const actuals = new Map();
   for (const r of playerWeeks(season).filter(x => x.week === week)) {
-    actuals.set(String(r.player_name ?? '').toLowerCase(), r.features);
+    actuals.set(normalizeName(r.player_name), r.features);
   }
   const upd = db.prepare(`UPDATE nfl_prop_clv SET settled=1, actual_value=?, won=?
                           WHERE captured_at=? AND event_id=? AND book=? AND market=? AND player=? AND side=?`);
   let settled = 0, unmatched = 0;
   for (const q of pending) {
-    const f = actuals.get(String(q.player).toLowerCase());
+    const f = actuals.get(normalizeName(q.player));
     if (!f) { unmatched++; continue; }
-    const actual = f[SETTLE_FIELD[q.market]];
+    const actual = q.market === 'player_anytime_td'
+      ? ((f.rushing_tds ?? 0) + (f.receiving_tds ?? 0)) : f[SETTLE_FIELD[q.market]];
     if (!Number.isFinite(actual) || q.line == null) { unmatched++; continue; }
     // A push (exact line) is neither a win nor a loss; recorded as null.
     const won = actual === q.line ? null
-      : /over/i.test(q.side) ? (actual > q.line ? 1 : 0) : (actual < q.line ? 1 : 0);
+      : /^(over|yes)$/i.test(q.side) ? (actual > q.line ? 1 : 0) : (actual < q.line ? 1 : 0);
     upd.run(actual, won, q.captured_at, q.event_id, q.book, q.market, q.player, q.side);
     settled++;
   }
@@ -152,8 +303,30 @@ export function propEdgeEvidence() {
         'Roughly 200 settled bets are needed before median CLV means anything.'
     };
   }
-  const settled = rows(`SELECT * FROM nfl_prop_clv WHERE settled = 1 AND won IS NOT NULL`);
-  const withClv = rows(`SELECT clv_cents FROM nfl_prop_clv WHERE clv_cents IS NOT NULL`).map(r => r.clv_cents);
+  /*
+   * Quotes are not bets. Counting every book, both sides and every hourly
+   * snapshot would turn one Josh Allen market into dozens of fake samples.
+   * The shadow policy is deterministic: for each event/player/market, freeze
+   * the earliest captured board and retain its single largest positive
+   * model-vs-no-vig divergence. Later captures exist only to establish CLV.
+   */
+  const modeled = rows(`SELECT * FROM nfl_prop_clv
+                        WHERE model_probability IS NOT NULL
+                          AND implied_probability IS NOT NULL
+                          AND captured_at < commence_time
+                        ORDER BY captured_at,event_id,market,player,edge DESC`);
+  const decisions = new Map();
+  for (const quote of modeled) {
+    const key = `${quote.event_id}|${quote.market}|${normalizeName(quote.player)}`;
+    const current = decisions.get(key);
+    if (!current || quote.captured_at < current.captured_at
+      || (quote.captured_at === current.captured_at && quote.edge > current.edge)) {
+      decisions.set(key, quote);
+    }
+  }
+  const shadow = [...decisions.values()].filter(quote => quote.edge > 0);
+  const settled = shadow.filter(quote => quote.settled === 1 && quote.won != null);
+  const withClv = shadow.map(quote => quote.clv_probability).filter(Number.isFinite);
   const median = a => {
     if (!a.length) return null;
     const s = [...a].sort((x, y) => x - y);
@@ -166,11 +339,13 @@ export function propEdgeEvidence() {
   return {
     status: settled.length >= 200 ? 'measurable' : 'accumulating',
     captured_quotes: total,
+    modeled_quotes: modeled.length,
+    shadow_decisions: shadow.length,
     settled_bets: settled.length,
     win_rate: settled.length ? +(wins / settled.length).toFixed(4) : null,
     roi: roi == null ? null : +roi.toFixed(4),
-    median_clv_cents: median(withClv),
-    breakeven_note: 'At standard -110 pricing the break-even win rate is 52.4%.',
+    median_clv_probability: median(withClv),
+    breakeven_note: 'Prices are real and no-vigged per book. One immutable shadow decision per event/player/market; hourly quotes and both sides are never counted as independent bets.',
     verdict: settled.length < 200
       ? `Only ${settled.length} settled bets. Below ~200 this cannot separate edge from variance; keep accumulating.`
       : 'Sample is large enough to read. Median CLV is the primary signal; ROI is noisier and secondary.'
@@ -180,6 +355,8 @@ export function propEdgeEvidence() {
 export function propClvStatus() {
   const x = rows(`SELECT COUNT(*) quotes, COUNT(DISTINCT captured_at) captures,
                          COUNT(DISTINCT event_id) events, SUM(settled) settled,
+                         SUM(model_probability IS NOT NULL) modeled,
+                         SUM(closing_price IS NOT NULL) closed,
                          MIN(captured_at) first, MAX(captured_at) latest
                   FROM nfl_prop_clv`)[0];
   return { ...x, has_key: hasKey() };

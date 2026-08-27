@@ -180,6 +180,11 @@ Fantasy has no outcome feedback at all.
 ### 3.4 Start recording live prop lines **now**
 Historical prop lines only accrue forward. Every week not recording is a week
 lost permanently. **This can start during Stage 0** — it's just a capture job.
+- **Status:** live and measurable. Book-specific quotes are preserved at
+  T−24h and T−1h, model/no-vig probabilities are attached at capture, the last
+  pre-kick quote becomes the close, and settlement feeds one deduplicated
+  shadow decision per event/player/market. A 50-credit reserve prevents the
+  free Odds API tier from being exhausted by polling.
 - **Effort:** ~2 days
 - **Gate:** lines captured weekly with timestamps
 

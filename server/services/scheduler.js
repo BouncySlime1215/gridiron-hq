@@ -185,12 +185,19 @@ async function refreshNflPropCalibration() {
 
 /** Capture the live prop market, and settle anything the week has now decided. */
 async function refreshPropCapture() {
-  const { capturePropMarket, settlePropQuotes, propClvStatus } = await import('./nfl-prop-clv.js');
+  const { capturePropMarket, settlePropQuotes, finalizeClosingSnapshots, propClvStatus } = await import('./nfl-prop-clv.js');
+  const { currentNflWeek } = await import('./weekly-learning.js');
   const status = propClvStatus();
   if (!status.has_key) return { skipped: true, reason: 'no ODDS_API_KEY; prop CLV archive stays empty' };
   const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
-  const captured = await capturePropMarket({ season });
-  return { captured, archive: propClvStatus() };
+  const current = currentNflWeek(season);
+  const captured = await capturePropMarket({ season, week: current.week, scheduled: true });
+  const closing = finalizeClosingSnapshots();
+  const due = rows(`SELECT DISTINCT season,week FROM nfl_prop_clv
+                    WHERE settled=0 AND season IS NOT NULL AND week IS NOT NULL
+                      AND commence_time <= ?`, new Date().toISOString());
+  const settlement = due.map(x => ({ ...x, ...settlePropQuotes(x) }));
+  return { captured, closing, settlement, archive: propClvStatus() };
 }
 
 /** Run the report-only evaluation pass. */

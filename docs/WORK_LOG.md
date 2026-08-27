@@ -589,3 +589,61 @@ baseline, Holm-corrected across the whole batch, then **ablated against the
 shipped pipeline**. Two signals passed the first two steps and failed the
 third. The ablation switch (`GRIDIRON_NO_CONTEXT_ADJ`) exists so that claim
 stays checkable rather than asserted.
+
+---
+
+## 2026-08-27 — passing attribution and a working prop-CLV loop
+
+### Passing yards: volume is the larger remaining error source
+
+`nfl-passing-diagnostic.js` now separates attempts from yards per attempt
+without creating another collection of correlated full-output heads. On 1,450
+pregame-eligible QB weeks from 2022–2025:
+
+| View | MAE |
+|---|---:|
+| Shipped attempts × shipped YPA | **59.00** |
+| Season attempts × shipped YPA | 62.08 |
+| Shipped attempts × season YPA | 61.29 |
+| Season attempts × season YPA | 61.98 |
+
+All replacements are walk-forward. Both component replacements are worse, so
+the volume × efficiency decomposition remains the champion. Exact target-game
+error attribution (diagnostic only, never promotion evidence) assigns **56.4%
+of pre-covariance squared error to attempts** and 43.6% to efficiency; volume
+rises to 60.0% in 2025. Future passing work should therefore improve the
+pregame attempts question with genuinely new evidence, not blend the final
+yardage estimate toward another recent average.
+
+Reproduce with `npm run diagnose:nfl-passing`.
+
+### The original prop capture could never measure edge
+
+Setting `ODDS_API_KEY` exposed three structural defects in the first CLV
+implementation:
+
+1. `flattenProps()` collapsed all books to the best price before persistence,
+   so a book-specific close could not exist.
+2. Captures stored no model probability, week, kickoff, or fair implied
+   probability; settlement and model-vs-market grading could never run.
+3. The evidence report counted every book, both sides, and every hourly quote
+   as if each were an independent bet.
+
+Fixed. The archive now preserves every book-specific quote, pairs over/under
+prices to remove vig, attaches the shared player-week distribution at capture,
+infers the NFL week, freezes the final pre-kick quote as the close, settles all
+four yardage/reception markets plus anytime TD, and counts one immutable shadow
+decision per event/player/market. Hourly observations establish line movement;
+they never inflate the sample size.
+
+The first real capture preserved 529 quotes from 12 events, matched 406 to
+model distributions, and froze 64 distinct shadow decisions. Nothing is called
+an edge: zero are settled, and the existing ≥200 forward-decision gate remains.
+
+### Free-tier credit safety
+
+An hourly full-slate capture would spend roughly 60 credits every time the
+six-hour API cache expired and exhaust a free account before Week 1. Scheduled
+capture now spends only at **T−24h and T−1h**, skips all other runs, and keeps
+a hard 50-credit reserve. A forced scheduler test 319 hours before kickoff
+correctly made zero paid requests.

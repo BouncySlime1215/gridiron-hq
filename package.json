@@ -22,6 +22,7 @@
     "sync:history": "node server/scripts/sync-history.js",
     "audit:nfl": "node scripts/nfl-blind-audit.mjs",
     "fit:nfl-props": "node scripts/fit-prop-calibration.mjs",
+    "diagnose:nfl-passing": "node scripts/diagnose-passing-components.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:rollback": "node scripts/rollback-migration.mjs"
   },

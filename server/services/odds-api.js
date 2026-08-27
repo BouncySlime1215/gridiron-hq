@@ -160,6 +160,38 @@ export function flattenProps(payload) {
   return [...best.values()];
 }
 
+/**
+ * Every bookmaker quote, without best-price collapsing.
+ *
+ * The UI wants one best price and therefore uses `flattenProps`. A CLV archive
+ * needs the opposite: the exact book-specific quote at every timestamp. If we
+ * collapse first, a later best price can come from another book and no closing
+ * comparison is possible.
+ */
+export function flattenAllProps(payload) {
+  if (!payload?.bookmakers) return [];
+  const out = [];
+  for (const book of payload.bookmakers) {
+    for (const market of book.markets ?? []) {
+      for (const o of market.outcomes ?? []) {
+        out.push({
+          market: market.key,
+          player: o.description ?? o.name,
+          side: o.description ? o.name : 'Yes',
+          line: o.point ?? null,
+          american_price: o.price,
+          book: book.key,
+          home_team: payload.home_team,
+          away_team: payload.away_team,
+          commence_time: payload.commence_time,
+          event_id: payload.id
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /** Cache state, so the UI can show what is fresh without spending anything. */
 export function cacheStatus() {
   return rows(`SELECT cache_key, fetched_at, LENGTH(payload) AS bytes

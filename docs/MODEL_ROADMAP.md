@@ -911,9 +911,10 @@ from the pinned dataset + code hash.
 | Fantasy MAE (2025 holdout) | 42.68 | **< 42.10** (beat the blend) |
 | Fantasy 80% coverage | 0.733 | **0.78-0.82** |
 | Fantasy PIT | `[28,19,11,...]` | flat |
-| Props pass-yds MAE | 70.14 | **< 60** |
-| Props TD Brier | 0.1693 | **< 0.160** *(needs resolution, not calibration)* |
-| Props TD skill score | 15.0% | **> 22%** |
+| Props pass-yds MAE | 70.14 | ~~< 60~~ → **beat own season-to-date avg, 90% CI excluding zero** (met: 59.77 vs 63.33, CI [-4.67,-2.49]) |
+| Props rush/rec-yds, receptions | unmeasured | **same baseline-relative gate** (all met — see `BUILD_ORDER.md` §2.2) |
+| Props TD Brier | 0.1693 | *superseded by skill score — Brier is not comparable across populations with different base rates* |
+| Props TD skill score | 15.0% | **> 22%** (now measured per market: anytime-TD 6.2% broad / 4.0% market-eligible; 2+ TD 27.1%; **interceptions −1.6%, i.e. worse than base rate**) |
 | Prop CLV | unmeasured | **positive median over ≥200 bets** |
 | Spreads | no edge | *unchanged — do not chase* |
 | Scheduled retraining jobs | **0** | ≥ 4 |

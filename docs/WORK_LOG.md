@@ -47,8 +47,20 @@ Current model, 2022–2025, n=1530 aligned player-weeks:
 So the model does have genuine skill — but that is now demonstrated rather
 than implied by clearing an arbitrary threshold.
 
-**Open:** rush yards, receiving yards and receptions still have raw MAE only.
-They need the same baseline-relative treatment.
+**Extended to all four prop stats** (`baselineGateTest(metric, seasons)`,
+`allBaselineGates()`). Each player's baseline records only weeks he actually
+featured in, so it is an average over real games rather than being dragged to
+zero by inactive weeks. All four pass on 2022–2025:
+
+| metric | n | model MAE | baseline MAE | 90% CI on difference | passes |
+|---|---:|---:|---:|---|---|
+| passing yards | 1530 | 59.77 | 63.33 | [-4.67, -2.49] | yes |
+| rushing yards | 3347 | 24.14 | 25.17 | [-1.33, -0.73] | yes |
+| receiving yards | 9255 | 21.54 | 22.70 | [-1.33, -1.01] | yes |
+| receptions | 9255 | 1.585 | 1.659 | [-0.085, -0.063] | yes |
+
+`BUILD_ORDER.md` §2.2 and `MODEL_ROADMAP.md` §14 now cite this gate rather
+than the flat `<60`.
 
 ### 2. Graded metrics: 5 → 25
 
@@ -163,22 +175,53 @@ starters 10–40%), broad TD Brier 0.1588 → 0.1531, market-eligible TD Brier
 `npm run check` green after every change above: **199/199 tests**, typecheck,
 production build, isolated-database startup smoke.
 
+### 6. The "market-eligible TD calibration is red" item was two measurement bugs
+
+It was carried as the last unresolved red item from Stage 2. Investigating it
+found no model defect in the place the gate pointed, and two real reporting
+defects instead.
+
+**a. Brier was compared across populations with different base rates.** Broad
+0.1531 vs market-eligible 0.1955 read as "the eligible model is much worse."
+But the eligible population's TD base rate is 28.5% against the broad
+population's 20.5%, and a higher base rate raises the achievable Brier floor
+(climatology 0.2037 vs 0.1632). Against each population's own climatology the
+gap is 6.2% vs 4.0% skill — real, but a fraction of what the raw numbers
+implied. `brier_skill` and `base_rate` are now reported on every probability
+metric, which makes them comparable.
+
+This immediately surfaced something the 5-metric view could not see:
+**interception probability has negative skill (−1.6%)** — it is worse than
+simply predicting the base rate. `pass_td` is only marginally better (+2.3%).
+The best-performing markets are 2+ TD (27.1%) and any-type TD (20.3%).
+
+**b. The audit grades a model production does not ship.** A calibrator is
+active (`ensemble-global-position`, fit through 2025) and `propBoard` and the
+pick generator both route anytime-TD through `calibrateAnytimeTd`. But
+`propReplayRows` computes raw probabilities and never calls it — so every
+"TD calibration" number in the audit describes the pre-calibration model.
+Same class of bug as the earlier "audit grades standalone opportunity while
+production uses joint team simulation" defect.
+
+Deliberately **not** resolved by applying the active calibrator in the replay:
+it is fit through 2025, so applying it to a 2022–2025 replay would leak the
+outcome seasons into their own grade. `propAccuracy().probability_calibration`
+now reports the discrepancy, what is graded, and why, rather than silently
+picking a side.
+
 ## Open
 
-1. **Market-eligible TD calibration** — 0.1955 Brier vs 0.1531 broad. The
-   eligible population has a materially higher base rate and still borrows the
-   broad calibration head instead of having one fit to itself. The one item
-   from Stage 2's original red list that is still genuinely unresolved.
-2. **Baseline-relative gates for rush yards, receiving yards, receptions** —
-   passing yards has one; the other three do not.
-3. **Gate documentation** — `BUILD_ORDER.md` §2.2 and `MODEL_ROADMAP.md` §14
-   still cite the flat `<60` target. They should reference the
-   baseline-relative methodology instead.
-4. **New signal families** — per §3, the next real accuracy gain requires
+1. **Walk-forward TD calibrator** — the honest fix for §6b: fit per season on
+   prior seasons only, so the shipped calibrated path can be graded without
+   leakage. Real work, not a flag flip.
+2. **Interception probability has negative skill** (§6a) — it is actively
+   worse than the base rate and is currently surfaced to users. Either fix or
+   stop showing it.
+3. **New signal families** — per §3, the next real accuracy gain requires
    participation/snap-share, injury designations, or personnel data, not more
    reweighting of existing history.
-5. **Draft Room / Trade Lab Phase 4+** — draft queue, waiver prescription,
+4. **Draft Room / Trade Lab Phase 4+** — draft queue, waiver prescription,
    trade counteroffers, mobile navigation, saved views, model registry. Listed
    as open in the superseded handoff docs and still untouched.
-6. **Spreads** — 0/21 component models clear the materiality gate. Settled
+5. **Spreads** — 0/21 component models clear the materiality gate. Settled
    finding (the market has no exploitable edge here), not an open task.

@@ -22,7 +22,7 @@ import {
   playerWeekProjection, sampleTeamWeekEvents, teamWeekEventExpectations
 } from './player-week-engine.js';
 import { hasKey, events, playerProps, flattenProps, PROP_MARKETS } from './odds-api.js';
-import { calibrateAnytimeTd } from './nfl-prop-calibration.js';
+import { calibrateAnytimeTd, activeTdCalibration } from './nfl-prop-calibration.js';
 import { playerSignalTrace } from './model-signal-quality.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 
@@ -103,9 +103,9 @@ export function propReplayRows(seasons, { reconciliationStrength = 0, useCache =
   // Season-to-date own-average, per player, strictly prior weeks only — the
   // "beat the baseline" comparator. Reset every season so it never crosses
   // the season boundary a real bettor also can't cross.
-  const passYdHistory = new Map();
+  const history = { pass_yds: new Map(), rush_yds: new Map(), rec_yds: new Map(), receptions: new Map() };
   for (const season of seasons) {
-    passYdHistory.clear();
+    for (const m of Object.values(history)) m.clear();
     const actualWeeks = playerWeeks(season).filter(p => p.week >= 2);
     for (const week of [...new Set(actualWeeks.map(p => p.week))].sort((a, b) => a - b)) {
       const engine = buildPlayerWeekEngine({ season, week });
@@ -151,14 +151,17 @@ export function propReplayRows(seasons, { reconciliationStrength = 0, useCache =
 
         const actualTotalTds = (f.passing_tds ?? 0) + (f.rushing_tds ?? 0) + (f.receiving_tds ?? 0);
 
-        const hist = passYdHistory.get(actual.player_id);
-        const seasonToDatePassYds = hist && hist.length >= 2 ? hist.reduce((s, v) => s + v, 0) / hist.length : null;
+        const seasonToDate = key => {
+          const hist = history[key].get(actual.player_id);
+          return hist && hist.length >= 2 ? hist.reduce((s, v) => s + v, 0) / hist.length : null;
+        };
 
         replayRows.push({
           season, week, player_id: actual.player_id, player_name: actual.player_name,
           team: actual.team, position: projection.position,
           eligibility,
-          baseline: { pass_yds: seasonToDatePassYds },
+          baseline: { pass_yds: seasonToDate('pass_yds'), rush_yds: seasonToDate('rush_yds'),
+            rec_yds: seasonToDate('rec_yds'), receptions: seasonToDate('receptions') },
           broad: {
             pass_yds: p.events.passYd, rush_yds: p.events.rushYd,
             rec_yds: p.events.recYd, receptions: p.events.rec,
@@ -206,11 +209,19 @@ export function propReplayRows(seasons, { reconciliationStrength = 0, useCache =
           }
         });
 
-        if ((f.pass_attempts ?? 0) > 10) {
-          const arr = passYdHistory.get(actual.player_id) ?? [];
-          arr.push(f.passing_yards ?? 0);
-          passYdHistory.set(actual.player_id, arr);
-        }
+        // Record actuals only when the player had real involvement that week,
+        // so the baseline is an average over games he actually featured in
+        // rather than being dragged to zero by inactive weeks.
+        const record = (key, value, involved) => {
+          if (!involved) return;
+          const arr = history[key].get(actual.player_id) ?? [];
+          arr.push(value ?? 0);
+          history[key].set(actual.player_id, arr);
+        };
+        record('pass_yds', f.passing_yards, (f.pass_attempts ?? 0) > 10);
+        record('rush_yds', f.rushing_yards, (f.carries ?? 0) >= 1);
+        record('rec_yds', f.receiving_yards, (f.targets ?? 0) >= 1);
+        record('receptions', f.receptions, (f.targets ?? 0) >= 1);
       }
     }
   }
@@ -227,6 +238,38 @@ const POINT_METRIC_KEYS = [
   'yards_per_attempt', 'yards_per_carry', 'yards_per_target', 'yards_per_reception'
 ];
 const PROBABILITY_METRIC_KEYS = ['anytime_td', 'total_td', 'multi_td', 'pass_td', 'rush_td', 'rec_td', 'interception'];
+
+/**
+ * The replay grades RAW simulated probabilities. Production does not ship
+ * those: `propBoard` and the pick generator both route anytime-TD through
+ * `calibrateAnytimeTd`, which applies whichever calibration head is active.
+ * So these probability metrics describe the pre-calibration model, and a
+ * "TD calibration is red" reading off them is grading something that never
+ * reaches a user.
+ *
+ * The audit deliberately does NOT apply the active calibrator instead: it is
+ * fit through 2025, so applying it to a 2022-2025 replay would leak the
+ * outcome seasons into their own grade — exactly the look-ahead the rest of
+ * this pipeline exists to prevent. Making the calibrated path measurable
+ * honestly needs a walk-forward calibrator (fit per-season on prior seasons
+ * only), which is a real piece of work, not a flag flip.
+ *
+ * Reported rather than silently resolved in either direction.
+ */
+function probabilityCalibrationStatus() {
+  const active = activeTdCalibration();
+  return {
+    graded: 'raw',
+    production_applies_calibration: true,
+    active_calibrator: active
+      ? { id: active.id, candidate_id: active.candidate_id, train_through: active.train_through }
+      : null,
+    why_not_applied_here: active
+      ? `active calibrator is fit through ${active.train_through}; applying it to a replay of those same seasons would leak outcomes into their own grade`
+      : 'no calibrator is currently active, so production and this replay agree',
+    resolution: 'a per-season walk-forward calibrator would let the shipped path be graded without leakage'
+  };
+}
 
 export function propAccuracy(seasons, { reconciliationStrength = 0, useCache = true } = {}) {
   const normalizedSeasons = [...new Set(seasons.map(Number))].sort((a, b) => a - b);
@@ -343,10 +386,30 @@ export function propAccuracy(seasons, { reconciliationStrength = 0, useCache = t
     rmse: s.n ? +Math.sqrt(s.sq / s.n).toFixed(3) : null,
     bias: s.n ? +(s.signed / s.n).toFixed(3) : null
   }]));
+  /*
+   * Brier alone is not comparable across populations with different base
+   * rates, and reporting it that way produced a false "red" gate: broad TD
+   * Brier 0.1531 vs market-eligible 0.1955 looked like the eligible model was
+   * much worse, when the eligible population simply has a higher base rate
+   * (28.5% vs 20.5%) and therefore a higher achievable floor. Against each
+   * population's own climatology the gap is far smaller (6.2% vs 4.0% skill)
+   * — real, but a fraction of what the raw numbers implied.
+   *
+   * `brier_skill` is 1 - brier/climatology, where climatology is the
+   * base-rate-only forecast (p(1-p)). 0 means "no better than knowing the
+   * base rate"; negative means actively worse than it.
+   */
   const summarizeProbSet = set => Object.fromEntries(Object.entries(set).map(([key, s]) => [key, {
     n: s.n,
     brier: s.n ? +(s.brier / s.n).toFixed(4) : null,
     log_loss: s.n ? +(s.logloss / s.n).toFixed(4) : null,
+    base_rate: s.n ? +(s.buckets.reduce((sum, b) => sum + b.actual, 0) / s.n).toFixed(4) : null,
+    brier_skill: (() => {
+      if (!s.n) return null;
+      const base = s.buckets.reduce((sum, b) => sum + b.actual, 0) / s.n;
+      const climatology = base * (1 - base);
+      return climatology > 0 ? +(1 - (s.brier / s.n) / climatology).toFixed(4) : null;
+    })(),
     reliability: s.buckets.map((b, i) => ({
       range: `${i * 10}-${(i + 1) * 10}%`, n: b.n,
       predicted: b.n ? +(b.predicted / b.n).toFixed(3) : null,
@@ -370,7 +433,8 @@ export function propAccuracy(seasons, { reconciliationStrength = 0, useCache = t
     note: 'Strictly walk-forward within each season. Broad-population and pregame market-eligible metrics are both reported so abstention cannot masquerade as accuracy. ' +
       `${POINT_METRIC_KEYS.length} point metrics and ${PROBABILITY_METRIC_KEYS.length} probability markets graded ` +
       '(up from the original 4 point + 1 probability). touchdown_probability/point_metrics kept for backward compatibility; ' +
-      'probability_metrics/point_metrics are the full set.'
+      'probability_metrics/point_metrics are the full set.',
+    probability_calibration: probabilityCalibrationStatus()
   };
   if (useCache) accuracyCache.set(cacheKey, { at: Date.now(), value: result });
   return result;
@@ -393,26 +457,36 @@ export function propAccuracy(seasons, { reconciliationStrength = 0, useCache = t
  * not have a demonstrated real edge over a trivial baseline, regardless of
  * which one has the lower raw MAE.
  */
-export function passingYardsGateTest(seasons, { reconciliationStrength = 0, useCache = true } = {}) {
+const GATE_CONFIG = {
+  pass_yds: { market: 'player_pass_yds', eligible: v => v.attempts > 2, unit: 'yds', who: 'QB' },
+  rush_yds: { market: 'player_rush_yds', eligible: v => v.carries > 0.5, unit: 'yds', who: 'rusher' },
+  rec_yds: { market: 'player_reception_yds', eligible: v => v.targets > 0.5, unit: 'yds', who: 'receiver' },
+  receptions: { market: 'player_receptions', eligible: v => v.targets > 0.5, unit: 'rec', who: 'receiver' }
+};
+
+export function baselineGateTest(metricKey, seasons, { reconciliationStrength = 0, useCache = true } = {}) {
+  const cfg = GATE_CONFIG[metricKey];
+  if (!cfg) throw new Error(`no baseline gate defined for ${metricKey}`);
   const replay = propReplayRows(seasons, { reconciliationStrength, useCache });
   const modelErr = [], baselineErr = [];
   for (const r of replay.rows) {
-    if (!(r.broad.volume.attempts > 2)) continue;
-    if (!r.eligibility.markets.player_pass_yds) continue;
-    if (r.baseline.pass_yds == null) continue;
-    const actualYds = r.actual.pass_yds;
-    modelErr.push(Math.abs(r.broad.pass_yds - actualYds));
-    baselineErr.push(Math.abs(r.baseline.pass_yds - actualYds));
+    if (!cfg.eligible(r.broad.volume)) continue;
+    if (!r.eligibility.markets[cfg.market]) continue;
+    if (r.baseline[metricKey] == null) continue;
+    const act = r.actual[metricKey];
+    modelErr.push(Math.abs(r.broad[metricKey] - act));
+    baselineErr.push(Math.abs(r.baseline[metricKey] - act));
   }
   const test = pairedBootstrapDiff(baselineErr, modelErr, { iterations: 2000, seed: 7 });
   const modelMae = modelErr.length ? modelErr.reduce((a, b) => a + b, 0) / modelErr.length : null;
   const baselineMae = baselineErr.length ? baselineErr.reduce((a, b) => a + b, 0) / baselineErr.length : null;
   return {
+    metric: metricKey,
     seasons: [...new Set(seasons.map(Number))].sort((a, b) => a - b),
     n: modelErr.length,
     model_mae: modelMae != null ? +modelMae.toFixed(3) : null,
     baseline_mae: baselineMae != null ? +baselineMae.toFixed(3) : null,
-    baseline: 'each QB\'s own season-to-date average passing yards (walk-forward, min. 2 prior starts)',
+    baseline: `each ${cfg.who}'s own season-to-date average ${metricKey} (walk-forward, min. 2 prior games with involvement)`,
     bootstrap: test,
     // `test.significant` is true only when the 90% CI on (model - baseline) excludes zero.
     // A negative mean_diff means the model wins; it still needs `significant: true` to count as real.
@@ -421,10 +495,20 @@ export function passingYardsGateTest(seasons, { reconciliationStrength = 0, useC
       ? `not enough paired data: ${test.error}`
       : (test.significant
           ? (test.mean_diff < 0
-              ? `real edge: model beats season-to-date average by ${(-test.mean_diff).toFixed(2)} yds MAE, CI excludes zero`
-              : `real, but backwards: model is WORSE than season-to-date average by ${test.mean_diff.toFixed(2)} yds MAE`)
+              ? `real edge: model beats season-to-date average by ${(-test.mean_diff).toFixed(2)} ${cfg.unit} MAE, CI excludes zero`
+              : `real, but backwards: model is WORSE than season-to-date average by ${test.mean_diff.toFixed(2)} ${cfg.unit} MAE`)
           : `not distinguishable from noise: 90% CI on the difference is [${test.ci90?.[0]}, ${test.ci90?.[1]}], straddles zero`)
   };
+}
+
+/** Back-compat wrapper: the passing-yards gate, which existed before the others. */
+export function passingYardsGateTest(seasons, opts = {}) {
+  return baselineGateTest('pass_yds', seasons, opts);
+}
+
+/** All four prop gates at once. */
+export function allBaselineGates(seasons, opts = {}) {
+  return Object.fromEntries(Object.keys(GATE_CONFIG).map(k => [k, baselineGateTest(k, seasons, opts)]));
 }
 
 function propSamples(events) {

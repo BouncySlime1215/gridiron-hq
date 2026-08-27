@@ -119,12 +119,26 @@ events. Fantasy head becomes a thin scoring translator over it.
 This deletes the crude `0.65/0.35` blend with no shrinkage, no priors, no
 availability — replacing it with the good engine that already existed.
 - **Effort:** ~1 week
-- **Gate:** **props passing-yds MAE < 60** (from 70.14) on the same 4-season
-  walk-forward. This is the single clearest predicted win in the plan.
-- **Status:** duplicate blend deleted. Broad passing-yards MAE improved to
-  67.724 but remains above the original gate. A pregame market-eligible QB
-  population clears it at 59.298; both populations are reported because the
-  eligibility change cannot be hidden inside the headline metric.
+- **Gate (superseded):** ~~props passing-yds MAE < 60 (from 70.14)~~. That
+  number was derived from the *old* model's error, so it only ever meant
+  "better than what we replaced." Measured against no-skill baselines, a model
+  could clear it while beating a constant league-mean guess (61.13 MAE) by 3%.
+- **Gate (current):** beat each player's own walk-forward season-to-date
+  average by a margin whose 90% paired-bootstrap CI **excludes zero**
+  (`baselineGateTest()` in `server/services/nfl-props.js`). A lower raw MAE on
+  a lucky sample does not pass.
+- **Status:** duplicate blend deleted; QB participation fix landed. All four
+  prop gates pass on 2022–2025:
+
+  | metric | model MAE | season-to-date baseline | 90% CI on difference |
+  |---|---:|---:|---|
+  | passing yards | 59.77 | 63.33 | [-4.67, -2.49] |
+  | rushing yards | 24.14 | 25.17 | [-1.33, -0.73] |
+  | receiving yards | 21.54 | 22.70 | [-1.33, -1.01] |
+  | receptions | 1.585 | 1.659 | [-0.085, -0.063] |
+
+  Broad and pregame market-eligible populations are both still reported, since
+  the eligibility change cannot be hidden inside the headline metric.
 
 ### 2.3 Turn `betting-fantasy-link.js` into a test
 It currently reconciles two models. Once there is one model, agreement is

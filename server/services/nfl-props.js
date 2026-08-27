@@ -162,6 +162,15 @@ export function propReplayRows(seasons, { reconciliationStrength = 0, useCache =
           eligibility,
           baseline: { pass_yds: seasonToDate('pass_yds'), rush_yds: seasonToDate('rush_yds'),
             rec_yds: seasonToDate('rec_yds'), receptions: seasonToDate('receptions') },
+          // Snapshot (not a reference) — the underlying arrays keep growing as
+          // the replay walks forward, and a shared reference would let a later
+          // week's outcome appear in an earlier week's history.
+          history: {
+            pass_yds: [...(history.pass_yds.get(actual.player_id) ?? [])],
+            rush_yds: [...(history.rush_yds.get(actual.player_id) ?? [])],
+            rec_yds: [...(history.rec_yds.get(actual.player_id) ?? [])],
+            receptions: [...(history.receptions.get(actual.player_id) ?? [])]
+          },
           broad: {
             pass_yds: p.events.passYd, rush_yds: p.events.rushYd,
             rec_yds: p.events.recYd, receptions: p.events.rec,

@@ -9,7 +9,8 @@
 import { Router } from 'express';
 import { db, row, rows, run } from '../db/index.js';
 import { scoringFor, PPR } from '../services/scoring.js';
-import { buildProjections, weeklyDistribution, seasonDistribution } from '../services/projections.js';
+import { buildProjections, seasonDistribution } from '../services/projections.js';
+import { buildPlayerWeekEngine, playerWeekDistribution } from '../services/player-week-engine.js';
 import { compare, actuals, gradePoint, gradeDistribution, baselines, weeklyDecisionBacktest } from '../services/backtest.js';
 import { simulateSeason, tradeImpact } from '../services/season-sim.js';
 import { fitCorrelations, correlationTable, clearCorrelationCache } from '../services/correlation.js';
@@ -421,7 +422,10 @@ r.get('/projections/:playerId', requireAuthenticated, (req, res, next) => {
     // belongs in it. The *weekly* number is a specific start/sit call for a specific
     // upcoming opponent, which is exactly what game script is for.
     const week = Number(req.query.week) || 1;
-    const gs = p.team ? gameScriptFor(p.team, SEASON, week) : null;
+    const weeklyMap = memo(`player-week:${SEASON}:${week}:${JSON.stringify(scoring)}`,
+      () => buildPlayerWeekEngine({ season: SEASON, week, scoring }));
+    const weeklyProjection = weeklyMap.get(p.player_id) ?? p;
+    const gs = weeklyProjection.team ? gameScriptFor(weeklyProjection.team, SEASON, week) : null;
     const mult = gs?.line ? { pass: gs.pass_mult, rush: gs.rush_mult } : 1;
     const weeklyAvail = weeklyAvailability(SEASON, week).get(p.player_id) ?? null;
 
@@ -431,7 +435,8 @@ r.get('/projections/:playerId', requireAuthenticated, (req, res, next) => {
       week,
       seed: seed == null ? null : Number(seed),
       game_script: gs,
-      weekly: weeklyDistribution(p, {
+      weekly_projection: weeklyProjection,
+      weekly: playerWeekDistribution(weeklyProjection, {
         runs: 4000, scoring, mult,
         activeProbability: weeklyAvail?.active_probability ?? 1
       }),

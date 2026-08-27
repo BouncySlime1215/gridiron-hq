@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { scheduleOutlook } from '../services/matchups.js';
+import { recordSync } from '../services/scheduler.js';
 
 const r = Router();
 const SITE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
@@ -115,7 +116,9 @@ export async function syncRosters() {
       teams++;
     }
   }
-  return { teams, players: total };
+  const result = { teams, players: total };
+  recordSync('espn_rosters', teams < abbrs.length ? 'error' : 'ok', result);
+  return result;
 }
 
 // ---- Schedules + strength of schedule ----
@@ -152,11 +155,19 @@ export async function syncSchedules(season = SEASON) {
       teams++;
     }
   }
-  return { teams, games };
+  const result = { teams, games };
+  recordSync('espn_schedules', teams < abbrs.length ? 'error' : 'ok', result);
+  return result;
 }
 
 // ---- Salary cap (OverTheCap, public HTML) ----
 export async function syncCap() {
+  try {
+    return await syncCapImpl();
+  } catch (e) { recordSync('overthecap_cap', 'error', e.message); throw e; }
+}
+
+async function syncCapImpl() {
   const resp = await fetch('https://overthecap.com/salary-cap-space', {
     headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/html' }
   });
@@ -190,7 +201,9 @@ export async function syncCap() {
     updated++;
   }
   if (updated < 30) throw new Error(`OverTheCap parse only matched ${updated}/32 teams — layout may have changed; not trusting it`);
-  return { teams: updated };
+  const result = { teams: updated };
+  recordSync('overthecap_cap', 'ok', result);
+  return result;
 }
 
 /**
@@ -242,7 +255,9 @@ export async function syncDepthChart(season = SEASON) {
       teamsDone++;
     }
   }
-  return { teams: teamsDone, assignments: matched };
+  const result = { teams: teamsDone, assignments: matched };
+  recordSync('espn_depth_chart', teamsDone < abbrs.length ? 'error' : 'ok', result);
+  return result;
 }
 
 r.post('/sync-depth', async (req, res, next) => {

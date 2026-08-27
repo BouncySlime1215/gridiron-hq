@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getApiKey, setApiKey, clearApiKey, usageSummary, PRICING } from '../services/claude.js';
 import { rows, row } from '../db/index.js';
 import { playerIdentityRepairPlan } from '../services/player-repair.js';
+import { allSources } from '../services/source-registry.js';
 
 const r = Router();
 
@@ -39,6 +40,16 @@ r.delete('/key', (req, res) => { clearApiKey(); res.json({ ok: true }); });
 
 r.get('/usage', (req, res) => res.json(usageSummary(Number(req.query.days) || 30)));
 r.get('/player-identity/repair-plan', (req, res) => res.json(playerIdentityRepairPlan()));
+
+/**
+ * Every ingestion source the app has — scheduled or on-demand — with its
+ * declared cadence, cutoff semantics, failure mode, and live staleness.
+ * Build Order 0.5: the point is that nothing here is a silent guess.
+ */
+r.get('/sources', (req, res) => {
+  const sources = allSources();
+  res.json({ count: sources.length, stale: sources.filter(s => s.stale).length, sources });
+});
 
 
 /** One button: repull every live data source. */

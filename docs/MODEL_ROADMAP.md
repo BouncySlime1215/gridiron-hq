@@ -795,6 +795,35 @@ every active player-week is scored. That ledger is the real deliverable of the
 audit; the aggregate MAE/Brier/CRPS numbers in §12.5 are a summary of it, not a
 replacement for it.
 
+#### Grade against what the game actually became, not just the stat line
+
+A missed prediction and a *misunderstood* game are different failures, and the
+ledger must be able to tell them apart. For every graded player-week, attach
+the game's own realised context alongside the player's stat error:
+
+- **Final score and margin** — was this a blowout? A player projected for volume
+  who got pulled in the fourth quarter of a 35-point win was a *game-script*
+  miss, not a role miss — the opportunity model should have seen the spread and
+  discounted second-half volume, and if it didn't, that is the specific bug.
+- **What game script the model assumed vs what happened** — the projection
+  already carries an implied script (§1.5, `pass_mult`/`rush_mult` from
+  `gameScriptFor`). Compare that assumption to the realised play-by-play pass
+  rate. A big miss with the assumed script *correct* is an efficiency or
+  availability failure; a big miss with the assumed script *wrong* is a
+  game-theory failure — the projection trusted a pre-game line that the game
+  itself invalidated in the first quarter.
+- **In-game events with no pre-game signal** — an injury during the game, an
+  ejection, a weather shift, a blowout that started a running-clock — these are
+  logged as **unmodelable-in-advance**, separately from misses the pre-game data
+  should have caught. A model should never be penalised the same way for a
+  freak in-game injury as for ignoring a Wednesday DNP report that was sitting
+  in `nfl_injuries` the whole time.
+
+This is what makes the audit **learn**, not just score: the attributed-cause
+column feeds directly back into Stage 3's calibration jobs (build order,
+Stage 3.2-3.3). "Game-script misses cluster in blowout-favourite spots" is an
+actionable finding that changes a feature; "MAE was 42.7" is not.
+
 ### 12.5 What gets reported (all of it, always)
 
 Everything in the weekly fault ledger (§12.4), rolled up two ways:

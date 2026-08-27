@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { syncPlayersFromESPN, syncGeneralNews, syncTeamNewsFeed } from './espn.js';
 import { deriveFormat } from '../services/format.js';
+import { recordSync } from '../services/scheduler.js';
 
 const r = Router();
 
@@ -32,81 +33,92 @@ function playerLookup() {
 
 // FantasyFootballCalculator ADP — free public API
 async function syncFFC(season) {
-  const resp = await fetch(`https://fantasyfootballcalculator.com/api/v1/adp/ppr?teams=12&year=${season}`,
-    { headers: { Accept: 'application/json' } });
-  if (!resp.ok) throw new Error(`FFC ADP API ${resp.status}`);
-  const data = await resp.json();
-  const lookup = playerLookup();
-  let matched = 0;
-  for (const p of data.players ?? []) {
-    const pos = p.position === 'PK' ? 'K' : p.position;
-    const id = lookup.get(`${normName(p.name)}|${pos}`);
-    if (!id) continue;
-    run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'ffc_adp',?,datetime('now'))
-         ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
-      id, p.adp);
-    matched++;
-  }
-  return { fetched: (data.players ?? []).length, matched };
+  try {
+    const resp = await fetch(`https://fantasyfootballcalculator.com/api/v1/adp/ppr?teams=12&year=${season}`,
+      { headers: { Accept: 'application/json' } });
+    if (!resp.ok) throw new Error(`FFC ADP API ${resp.status}`);
+    const data = await resp.json();
+    const lookup = playerLookup();
+    let matched = 0;
+    for (const p of data.players ?? []) {
+      const pos = p.position === 'PK' ? 'K' : p.position;
+      const id = lookup.get(`${normName(p.name)}|${pos}`);
+      if (!id) continue;
+      run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'ffc_adp',?,datetime('now'))
+           ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
+        id, p.adp);
+      matched++;
+    }
+    const result = { fetched: (data.players ?? []).length, matched };
+    recordSync('ffc_adp', 'ok', result);
+    return result;
+  } catch (e) { recordSync('ffc_adp', 'error', e.message); throw e; }
 }
 
 // Sleeper — free public API; search_rank approximates their overall player ranking
 async function syncSleeper() {
-  const resp = await fetch('https://api.sleeper.app/v1/players/nfl', { headers: { Accept: 'application/json' } });
-  if (!resp.ok) throw new Error(`Sleeper API ${resp.status}`);
-  const data = await resp.json();
-  const lookup = playerLookup();
-  let matched = 0;
-  for (const p of Object.values(data)) {
-    if (!p.full_name || !p.position || !p.search_rank || p.search_rank > 9000000) continue;
-    if (!['QB', 'RB', 'WR', 'TE', 'K'].includes(p.position)) continue;
-    const id = lookup.get(`${normName(p.full_name)}|${p.position}`);
-    if (!id) continue;
-    run('UPDATE players SET sleeper_id = ? WHERE id = ?', p.player_id, id);
-    run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'sleeper_rank',?,datetime('now'))
-         ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
-      id, p.search_rank);
-    matched++;
-    if (p.injury_status) {
-      run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'injury_flag',1,datetime('now'))
-           ON CONFLICT(player_id, source) DO UPDATE SET value = 1, fetched_at = excluded.fetched_at`, id);
+  try {
+    const resp = await fetch('https://api.sleeper.app/v1/players/nfl', { headers: { Accept: 'application/json' } });
+    if (!resp.ok) throw new Error(`Sleeper API ${resp.status}`);
+    const data = await resp.json();
+    const lookup = playerLookup();
+    let matched = 0;
+    for (const p of Object.values(data)) {
+      if (!p.full_name || !p.position || !p.search_rank || p.search_rank > 9000000) continue;
+      if (!['QB', 'RB', 'WR', 'TE', 'K'].includes(p.position)) continue;
+      const id = lookup.get(`${normName(p.full_name)}|${p.position}`);
+      if (!id) continue;
+      run('UPDATE players SET sleeper_id = ? WHERE id = ?', p.player_id, id);
+      run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'sleeper_rank',?,datetime('now'))
+           ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
+        id, p.search_rank);
+      matched++;
+      if (p.injury_status) {
+        run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'injury_flag',1,datetime('now'))
+             ON CONFLICT(player_id, source) DO UPDATE SET value = 1, fetched_at = excluded.fetched_at`, id);
+      }
     }
-  }
-  return { matched };
+    recordSync('sleeper_players', 'ok', { matched });
+    return { matched };
+  } catch (e) { recordSync('sleeper_players', 'error', e.message); throw e; }
 }
 
 // FantasyCalc — market trade values from real trades (via akodsi/fantasy-advisor).
 // We use redraft values + the 30-day trend as a buy/sell signal.
 async function syncFantasyCalc() {
-  const league = row(`SELECT team_count, ppr, superflex FROM leagues ORDER BY id LIMIT 1`);
-  const params = new URLSearchParams({
-    isDynasty: 'false',
-    numQbs: String(league?.superflex ? 2 : 1),
-    numTeams: String(league?.team_count ?? 12),
-    ppr: String(league?.ppr ?? 1)
-  });
-  const resp = await fetch(`https://api.fantasycalc.com/values/current?${params}`, { headers: { Accept: 'application/json' } });
-  if (!resp.ok) throw new Error(`FantasyCalc API ${resp.status}`);
-  const data = await resp.json();
-  const bySleeper = new Map(rows('SELECT id, sleeper_id FROM players WHERE sleeper_id IS NOT NULL').map(p => [p.sleeper_id, p.id]));
-  const lookup = playerLookup();
-  let matched = 0;
-  const upsert = (id, source, value) =>
-    run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,?,?,datetime('now'))
-         ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
-      id, source, value);
-  for (const entry of data) {
-    const p = entry.player ?? {};
-    if (p.position === 'PICK') continue;
-    const id = (p.sleeperId && bySleeper.get(String(p.sleeperId)))
-      ?? lookup.get(`${normName(p.name ?? '')}|${p.position}`);
-    if (!id) continue;
-    if (entry.redraftValue != null) upsert(id, 'fc_value', entry.redraftValue);
-    if (entry.trend30Day != null) upsert(id, 'fc_trend30', entry.trend30Day);
-    if (entry.maybeAdp != null) upsert(id, 'fc_adp', entry.maybeAdp);
-    matched++;
-  }
-  return { fetched: data.length, matched };
+  try {
+    const league = row(`SELECT team_count, ppr, superflex FROM leagues ORDER BY id LIMIT 1`);
+    const params = new URLSearchParams({
+      isDynasty: 'false',
+      numQbs: String(league?.superflex ? 2 : 1),
+      numTeams: String(league?.team_count ?? 12),
+      ppr: String(league?.ppr ?? 1)
+    });
+    const resp = await fetch(`https://api.fantasycalc.com/values/current?${params}`, { headers: { Accept: 'application/json' } });
+    if (!resp.ok) throw new Error(`FantasyCalc API ${resp.status}`);
+    const data = await resp.json();
+    const bySleeper = new Map(rows('SELECT id, sleeper_id FROM players WHERE sleeper_id IS NOT NULL').map(p => [p.sleeper_id, p.id]));
+    const lookup = playerLookup();
+    let matched = 0;
+    const upsert = (id, source, value) =>
+      run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,?,?,datetime('now'))
+           ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
+        id, source, value);
+    for (const entry of data) {
+      const p = entry.player ?? {};
+      if (p.position === 'PICK') continue;
+      const id = (p.sleeperId && bySleeper.get(String(p.sleeperId)))
+        ?? lookup.get(`${normName(p.name ?? '')}|${p.position}`);
+      if (!id) continue;
+      if (entry.redraftValue != null) upsert(id, 'fc_value', entry.redraftValue);
+      if (entry.trend30Day != null) upsert(id, 'fc_trend30', entry.trend30Day);
+      if (entry.maybeAdp != null) upsert(id, 'fc_adp', entry.maybeAdp);
+      matched++;
+    }
+    const result = { fetched: data.length, matched };
+    recordSync('fantasycalc_values', 'ok', result);
+    return result;
+  } catch (e) { recordSync('fantasycalc_values', 'error', e.message); throw e; }
 }
 
 /**
@@ -168,6 +180,7 @@ export async function syncDynastyValues() {
     }
     results.push({ formatKey, isDynasty, fetched: data.length, players, picks });
   }
+  recordSync('fantasycalc_dynasty', results.some(r => r.error) ? 'error' : 'ok', { formats: results });
   return { formats: results };
 }
 

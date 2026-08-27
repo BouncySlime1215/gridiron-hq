@@ -16,6 +16,7 @@
 import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { db, rows, run } from '../db/index.js';
+import { recordSync } from './scheduler.js';
 
 const PBP_URL = s => `https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_${s}.csv.gz`;
 
@@ -159,6 +160,12 @@ const parseFieldPosition = (s, posteam) => {
  * `onProgress` reports parsed play counts so a long run isn't silent.
  */
 export async function syncPbpSeason(season, { onProgress } = {}) {
+  try {
+    return await syncPbpSeasonImpl(season, { onProgress });
+  } catch (e) { recordSync('nflverse_pbp', 'error', e.message); throw e; }
+}
+
+async function syncPbpSeasonImpl(season, { onProgress } = {}) {
   const res = await fetch(PBP_URL(season), { signal: AbortSignal.timeout(300000) });
   if (!res.ok) throw new Error(`pbp ${season} -> HTTP ${res.status}`);
 
@@ -166,6 +173,12 @@ export async function syncPbpSeason(season, { onProgress } = {}) {
   const teams = new Map();    // `${week}|${team}` -> { off, def, opponent, home }
   const players = new Map();  // `${week}|${playerId}` -> playerAcc
   let plays = 0;
+
+  // gsis_id -> position, from nflverse's own players.csv (synced separately by
+  // nflverse.js:syncCrosswalk). Rushers and receivers never get a position any
+  // other way here — only the passer path could infer 'QB' on its own.
+  const posMap = new Map(rows('SELECT gsis_id, position FROM nflverse_player_positions WHERE position IS NOT NULL')
+    .map(r => [r.gsis_id, r.position]));
 
   const num = (rec, name) => {
     const i = idx?.[name];
@@ -348,7 +361,8 @@ export async function syncPbpSeason(season, { onProgress } = {}) {
     const passerId = str(rec, 'passer_player_id');
     if (passerId) {
       const p = playerSlot(week, passerId);
-      p.name ??= str(rec, 'passer_player_name'); p.team ??= posteam; p.opponent ??= defteam; p.position ??= 'QB';
+      p.name ??= str(rec, 'passer_player_name'); p.team ??= posteam; p.opponent ??= defteam;
+      p.position ??= posMap.get(passerId) ?? 'QB';
       p.dropbacks++;
       if (num(rec, 'sack') === 1) p.sacks++;
       else {
@@ -366,6 +380,7 @@ export async function syncPbpSeason(season, { onProgress } = {}) {
     if (rusherId) {
       const p = playerSlot(week, rusherId);
       p.name ??= str(rec, 'rusher_player_name'); p.team ??= posteam; p.opponent ??= defteam;
+      p.position ??= posMap.get(rusherId) ?? null;
       p.carries++; p.rush_yds += rushYds; p.rush_epa += epa;
       if (success) p.rush_succ++;
       if (rushYds >= 10) { p.expl_rush++; p.expl_plays++; }
@@ -383,6 +398,7 @@ export async function syncPbpSeason(season, { onProgress } = {}) {
     if (recId) {
       const p = playerSlot(week, recId);
       p.name ??= str(rec, 'receiver_player_name'); p.team ??= posteam; p.opponent ??= defteam;
+      p.position ??= posMap.get(recId) ?? null;
       p.targets++; p.rec_epa += epa;
       if (airY != null) { p.rec_air += airY; if (airY >= 15) p.deep_tgt++; }
       if (num(rec, 'complete_pass') === 1) {
@@ -417,7 +433,9 @@ export async function syncPbpSeason(season, { onProgress } = {}) {
 
   writeTeamWeeks(season, teams);
   const teamTotals = writePlayerWeeks(season, players, teams);
-  return { season, plays, team_rows: teams.size, player_rows: players.size, teams_seen: teamTotals };
+  const result = { season, plays, team_rows: teams.size, player_rows: players.size, teams_seen: teamTotals };
+  recordSync('nflverse_pbp', 'ok', result);
+  return result;
 }
 
 /* ------------------------------------------------------------------ derive */

@@ -1,0 +1,121 @@
+{
+  "frozen_at": "2026-08-27T01:24:46.378Z",
+  "season": 2025,
+  "players_graded": 382,
+  "table": [
+    {
+      "source": "Gridiron model",
+      "n": 382,
+      "mae": 42.12,
+      "rmse": 58.71,
+      "bias": 2.61,
+      "r2": 0.5889,
+      "spearman": 0.7831,
+      "top_n": 36,
+      "top_n_hit_rate": 0.472
+    },
+    {
+      "source": "Blend (60/40)",
+      "n": 382,
+      "mae": 42.7,
+      "rmse": 60.59,
+      "bias": 5.34,
+      "r2": 0.5621,
+      "spearman": 0.78,
+      "top_n": 36,
+      "top_n_hit_rate": 0.472
+    },
+    {
+      "source": "Last season points",
+      "n": 382,
+      "mae": 46.7,
+      "rmse": 67.85,
+      "bias": 9.44,
+      "r2": 0.4509,
+      "spearman": 0.7568,
+      "top_n": 36,
+      "top_n_hit_rate": 0.556
+    },
+    {
+      "source": "Last season ppg x 17",
+      "n": 382,
+      "mae": 58.21,
+      "rmse": 79.95,
+      "bias": 37.55,
+      "r2": 0.2375,
+      "spearman": 0.7395,
+      "top_n": 36,
+      "top_n_hit_rate": 0.528
+    }
+  ],
+  "distribution": {
+    "n": 150,
+    "crps": 36.412,
+    "calibration_error": 0.307,
+    "pit_histogram": [
+      36,
+      15,
+      14,
+      10,
+      13,
+      15,
+      17,
+      12,
+      8,
+      10
+    ],
+    "coverage_80": 0.7
+  },
+  "weekly_decisions": {
+    "positions": {
+      "QB": {
+        "players": 65,
+        "weekly_starters": 12,
+        "decisions": 216,
+        "starter_hit_rate": 0.389,
+        "realized_points_per_start": 13.09,
+        "oracle_points_per_start": 23.08,
+        "regret_per_start": 9.99,
+        "weekly_mae": 9.2
+      },
+      "RB": {
+        "players": 113,
+        "weekly_starters": 24,
+        "decisions": 432,
+        "starter_hit_rate": 0.574,
+        "realized_points_per_start": 12.1,
+        "oracle_points_per_start": 17.15,
+        "regret_per_start": 5.05,
+        "weekly_mae": 5.11
+      },
+      "WR": {
+        "players": 169,
+        "weekly_starters": 36,
+        "decisions": 648,
+        "starter_hit_rate": 0.519,
+        "realized_points_per_start": 10.45,
+        "oracle_points_per_start": 16.22,
+        "regret_per_start": 5.77,
+        "weekly_mae": 5.37
+      },
+      "TE": {
+        "players": 90,
+        "weekly_starters": 12,
+        "decisions": 216,
+        "starter_hit_rate": 0.31,
+        "realized_points_per_start": 7.37,
+        "oracle_points_per_start": 15.49,
+        "regret_per_start": 8.12,
+        "weekly_mae": 4.2
+      }
+    },
+    "decisions": 1512,
+    "note": "Pregame ranking versus realized weekly outcomes. DNPs remain zero so availability misses cannot disappear through hindsight."
+  },
+  "code": {
+    "commit": "0c2de2c2a9fcd7cfccfa3f6e5e59ddeb73e393bc",
+    "dirty": true
+  },
+  "dataset_hash": "2cdbf23e4e02935a6417b85c35dbd429370a61dc224043da4df52a5349d8c84b",
+  "note": "Reproduce with: node scripts/freeze-baseline.mjs 2025 — checkout the pinned commit first if HEAD has since moved."
+}

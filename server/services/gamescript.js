@@ -17,6 +17,7 @@
 import { db, rows, row, run } from '../db/index.js';
 import { parseCsv } from './nflverse.js';
 import { mean } from './stats-util.js';
+import { recordSync } from './scheduler.js';
 
 const GAMES_URL = 'https://github.com/nflverse/nfldata/raw/master/data/games.csv';
 const ESPN_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
@@ -72,6 +73,12 @@ const impliedPoints = (spread, total) => total / 2 - spread / 2;
 
 /** Historical lines, 1999-present, for fitting. */
 export async function syncHistoricalLines() {
+  try {
+    return await syncHistoricalLinesImpl();
+  } catch (e) { recordSync('nflverse_historical_lines', 'error', e.message); throw e; }
+}
+
+async function syncHistoricalLinesImpl() {
   const res = await fetch(GAMES_URL, { signal: AbortSignal.timeout(120000) });
   if (!res.ok) throw new Error(`games.csv -> HTTP ${res.status}`);
   const { header, records } = parseCsv(await res.text());
@@ -131,7 +138,9 @@ export async function syncHistoricalLines() {
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { rows: n };
+  const result = { rows: n };
+  recordSync('nflverse_historical_lines', 'ok', result);
+  return result;
 }
 
 /**

@@ -30,6 +30,10 @@ const { startAiBlindReplay, normalizeReview, agentLearningMemory } = await impor
 const { validationFirewall } = await import('../server/services/nfl-evidence.js');
 const { teamPlayerAvailability } = await import('../server/services/nfl-player-value.js');
 const { safeStakeFor } = await import('../server/services/staking.js');
+const {
+  WEEKLY_ENSEMBLE_HEADS, WEEKLY_ENSEMBLE_WEIGHTS,
+  weeklyEnsemblePrediction, weeklyEnsembleContext
+} = await import('../server/services/weekly-ensemble.js');
 
 test.after(() => {
   db.close();
@@ -53,6 +57,21 @@ test('seeded simulations are exactly reproducible', () => {
   const c = withRandomSeed(42, () => Array.from({ length: 8 }, random));
   assert.deepEqual(a, b);
   assert.notDeepEqual(a, c);
+});
+
+test('weekly ensemble is convex, position-aware, and uses only supplied prior weeks', () => {
+  for (const weights of Object.values(WEEKLY_ENSEMBLE_WEIGHTS)) {
+    assert.equal(weights.length, WEEKLY_ENSEMBLE_HEADS.length);
+    assert.ok(weights.every(weight => weight >= 0 && weight <= 1));
+    assert.ok(Math.abs(weights.reduce((sum, weight) => sum + weight, 0) - 1) < 1e-12);
+  }
+  const priorWeeks = [8, 12, 20, 4];
+  const context = weeklyEnsembleContext({ structural: 14, priorWeeks, position: 'RB' });
+  assert.deepEqual(context, {
+    structural: 14, season_to_date: 11, last3: 12, last1: 4, median: 12, position: 'RB'
+  });
+  assert.ok(Math.abs(weeklyEnsemblePrediction(context) - 11.6) < 1e-12);
+  assert.equal(weeklyEnsembleContext({ structural: 14, priorWeeks: [], position: 'RB' }), null);
 });
 
 test('AI replay refuses to spend before a Claude key is configured', () => {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { espnCookies } from '../services/espn-draft.js';
 import { findPlayerMatch } from '../services/player-identity.js';
+import { recordSync } from '../services/scheduler.js';
 
 const r = Router();
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
@@ -27,7 +28,7 @@ const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
 
 // Pull ESPN's fantasy player universe (rookies included) and upsert as source of truth.
 export async function syncPlayersFromESPN() {
-  {
+  try {
     const season = SEASON();
     const url = `${BASE}/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
     const filter = { players: { limit: 800, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
@@ -106,8 +107,10 @@ export async function syncPlayersFromESPN() {
     }
     // `ambiguous` is surfaced rather than swallowed: each entry is a real ESPN player
     // this sync deliberately refused to bind, so it should be visible, not silent.
-    return { ok: true, fetched: players.length, updated, added, ambiguous_count: ambiguous.length, ambiguous };
-  }
+    const result = { ok: true, fetched: players.length, updated, added, ambiguous_count: ambiguous.length, ambiguous };
+    recordSync('espn_players', 'ok', result);
+    return result;
+  } catch (e) { recordSync('espn_players', 'error', e.message); throw e; }
 }
 
 r.post('/sync-players', async (req, res, next) => {
@@ -137,23 +140,31 @@ function insertArticles(articles, teams, forcedTeamId = null) {
 }
 
 export async function syncTeamNewsFeed(abbr) {
-  const teams = rows('SELECT id, abbr, name FROM nfl_teams');
-  const abbrToEspnId = Object.fromEntries(Object.entries(PRO_TEAM).map(([id, ab]) => [ab, id]));
-  const team = teams.find(t => t.abbr === abbr);
-  const espnId = abbrToEspnId[abbr];
-  if (!team || !espnId) throw new Error(`unknown team ${abbr}`);
-  const resp = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?team=${espnId}&limit=20`,
-    { headers: { Accept: 'application/json' } });
-  if (!resp.ok) throw new Error(`ESPN team news API ${resp.status}`);
-  return insertArticles((await resp.json()).articles ?? [], teams, team.id);
+  try {
+    const teams = rows('SELECT id, abbr, name FROM nfl_teams');
+    const abbrToEspnId = Object.fromEntries(Object.entries(PRO_TEAM).map(([id, ab]) => [ab, id]));
+    const team = teams.find(t => t.abbr === abbr);
+    const espnId = abbrToEspnId[abbr];
+    if (!team || !espnId) throw new Error(`unknown team ${abbr}`);
+    const resp = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?team=${espnId}&limit=20`,
+      { headers: { Accept: 'application/json' } });
+    if (!resp.ok) throw new Error(`ESPN team news API ${resp.status}`);
+    const added = insertArticles((await resp.json()).articles ?? [], teams, team.id);
+    recordSync('espn_news_team', 'ok', { abbr, added });
+    return added;
+  } catch (e) { recordSync('espn_news_team', 'error', `${abbr}: ${e.message}`); throw e; }
 }
 
 export async function syncGeneralNews() {
-  const teams = rows('SELECT id, abbr, name FROM nfl_teams');
-  const resp = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=50',
-    { headers: { Accept: 'application/json' } });
-  if (!resp.ok) throw new Error(`ESPN news API ${resp.status}`);
-  return insertArticles((await resp.json()).articles ?? [], teams);
+  try {
+    const teams = rows('SELECT id, abbr, name FROM nfl_teams');
+    const resp = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=50',
+      { headers: { Accept: 'application/json' } });
+    if (!resp.ok) throw new Error(`ESPN news API ${resp.status}`);
+    const added = insertArticles((await resp.json()).articles ?? [], teams);
+    recordSync('espn_news_general', 'ok', { added });
+    return added;
+  } catch (e) { recordSync('espn_news_general', 'error', e.message); throw e; }
 }
 
 // Pull latest headlines from ESPN's public news API. With ?team=ABBR pulls that

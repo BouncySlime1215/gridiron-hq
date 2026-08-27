@@ -36,6 +36,15 @@ export function lastRun(job) {
   return rows('SELECT * FROM sync_log WHERE job = ?', job)[0] ?? null;
 }
 
+/**
+ * Records a completed sync into the same log the scheduler's own timed jobs
+ * use, so a source that only ever runs on demand (nflverse, ESPN, aggregates,
+ * ...) shows up in staleness reporting exactly like a scheduled one. See
+ * source-registry.js, which is what actually reads this for every source —
+ * scheduled or not.
+ */
+export function recordSync(job, status, detail) { record(job, status, detail); }
+
 function record(job, status, detail) {
   run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs)
        VALUES (?,?,?,?,1)

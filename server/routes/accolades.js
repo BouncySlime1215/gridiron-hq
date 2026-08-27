@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
+import { recordSync } from '../services/scheduler.js';
 
 const r = Router();
 
@@ -287,6 +288,12 @@ const nameKey = n => (n ?? '').toLowerCase().replace(/[.'’-]/g, '')
  * so a mid-summer sync legitimately returns a partial list.
  */
 export async function syncTop100(season = Number(process.env.NFL_SEASON) || 2026) {
+  try {
+    return await syncTop100Impl(season);
+  } catch (e) { recordSync('nfl_top100', 'error', e.message); throw e; }
+}
+
+async function syncTop100Impl(season) {
   const url = `${WIKI_API}?action=query&prop=revisions&rvprop=content&rvslots=main&format=json&formatversion=2`
     + `&redirects=1&titles=${encodeURIComponent(`NFL Top 100 Players of ${season}`)}`;
   const resp = await fetch(url, { headers: { 'User-Agent': 'GridironHQ/1.0 (local personal use)' } });
@@ -316,11 +323,13 @@ export async function syncTop100(season = Number(process.env.NFL_SEASON) || 2026
   for (const [rank, name] of found) upsert.run(season, rank, name, nameKey(name));
 
   const ranks = [...found.keys()].sort((a, b) => a - b);
-  return {
+  const result = {
     season, revealed: found.size,
     range: ranks.length ? `#${ranks[ranks.length - 1]} → #${ranks[0]}` : null,
     note: found.size < 100 ? 'Partial — the NFL reveals this list through early September.' : 'Complete.'
   };
+  recordSync('nfl_top100', 'ok', result);
+  return result;
 }
 
 r.post('/top100/sync', async (req, res, next) => {

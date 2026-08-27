@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
+import { recordSync } from '../services/scheduler.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -31,6 +32,12 @@ const ESPN_POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
  * (statSourceId 0) for the top ~800 fantasy players.
  */
 export async function syncStats(season = SEASON) {
+  try {
+    return await syncStatsImpl(season);
+  } catch (e) { recordSync('espn_season_stats', 'error', e.message); throw e; }
+}
+
+async function syncStatsImpl(season) {
   const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
   const filter = { players: { limit: 800, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
   const resp = await fetch(url, {
@@ -75,7 +82,9 @@ export async function syncStats(season = SEASON) {
       if (isProj) projected++; else actual++;
     }
   }
-  return { projected, actual };
+  const result = { projected, actual };
+  recordSync('espn_season_stats', 'ok', result);
+  return result;
 }
 
 r.post('/sync', async (req, res, next) => {

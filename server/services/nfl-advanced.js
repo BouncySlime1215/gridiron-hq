@@ -20,6 +20,7 @@
 import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { db, rows, run } from '../db/index.js';
+import { recordSync } from './scheduler.js';
 
 const REL = 'https://github.com/nflverse/nflverse-data/releases/download';
 
@@ -377,11 +378,15 @@ export function snapShare(season, week, player, team) {
 
 export async function syncAllAdvanced(seasons) {
   const out = {};
-  out.ngs = await syncNgs(seasons);
-  out.pfr = await syncPfrAdv(seasons);
-  out.snaps = await syncSnaps(seasons);
-  out.depth = await syncDepthCharts(seasons);
-  out.injuries = await syncInjuries(seasons);
+  const step = async (name, fn) => {
+    try { const r = await fn(); recordSync(name, 'ok', r); return r; }
+    catch (e) { recordSync(name, 'error', e.message); throw e; }
+  };
+  out.ngs = await step('nfl_ngs', () => syncNgs(seasons));
+  out.pfr = await step('nfl_pfr_adv', () => syncPfrAdv(seasons));
+  out.snaps = await step('nfl_advanced_snaps', () => syncSnaps(seasons));
+  out.depth = await step('nfl_depth_charts', () => syncDepthCharts(seasons));
+  out.injuries = await step('nfl_injuries', () => syncInjuries(seasons));
   return out;
 }
 

@@ -12,6 +12,8 @@
  * rows this codebase is still cleaning up.
  */
 import { db, rows, row, run } from '../db/index.js';
+import { findPlayerMatch, normalizePlayerName } from './player-identity.js';
+import { recordSync } from './scheduler.js';
 
 const RELEASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 
@@ -46,6 +48,18 @@ db.exec(`
     week INTEGER NOT NULL,
     offense_snaps REAL, offense_pct REAL,
     PRIMARY KEY (player_id, season, week)
+  );
+
+  -- gsis_id -> position, sourced straight from nflverse's players.csv. This is
+  -- comprehensive (every player who has ever appeared in a play), unlike our
+  -- own players table which only carries the current ~800-player roster
+  -- universe. nfl_player_week_features keys on gsis_id, so this is what makes
+  -- backfilling its position column (and future ingests) possible.
+  CREATE TABLE IF NOT EXISTS nflverse_player_positions (
+    gsis_id TEXT PRIMARY KEY,
+    position TEXT,
+    position_group TEXT,
+    ngs_position TEXT
   );
 `);
 
@@ -108,32 +122,96 @@ export async function syncCrosswalk() {
   const { header, records } = await fetchCsv(`${RELEASE}/players/players.csv`);
   const at = indexer(header);
   const iGsis = at('gsis_id'), iEspn = at('espn_id'), iName = at('display_name'), iPos = at('position');
+  const iPosGroup = at('position_group'), iNgs = at('ngs_position');
   if (iGsis < 0 || iEspn < 0) throw new Error('players.csv is missing gsis_id/espn_id');
 
   const byEspn = new Map(rows('SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL')
     .map(p => [String(p.espn_id), p.id]));
-  // Name fallback for the handful of players with no espn_id on our side.
-  const norm = s => (s ?? '').toLowerCase().replace(/[.'’-]/g, '')
-    .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
-  const byName = new Map(rows('SELECT id, name, position FROM players WHERE espn_id IS NULL')
-    .map(p => [`${norm(p.name)}|${p.position}`, p.id]));
+  // Name fallback for the handful of players with no espn_id on our side — shares
+  // player-identity.js's matcher so a name collision refuses to guess instead of
+  // silently rebinding the wrong human (the same bug that split Ja'Marr Chase's
+  // picks across two rows in the ESPN sync, before that file existed).
+  const noEspnCandidates = rows('SELECT id, name, position, team_id, espn_id FROM players WHERE espn_id IS NULL');
+  const byNormName = new Map();
+  for (const c of noEspnCandidates) {
+    const key = normalizePlayerName(c.name);
+    if (!byNormName.has(key)) byNormName.set(key, []);
+    byNormName.get(key).push(c);
+  }
+
+  // nflverse's defensive position codes are finer than ours (DE/DT vs our DL,
+  // FS/SS vs our S) and its position_group doesn't line up either — Myles
+  // Garrett is our EDGE but nflverse's position_group lumps him under DL — so
+  // an exact-position match misses IDP-relevant defenders entirely. This is a
+  // second-chance pass: same name, any of our coarser code's plausible
+  // nflverse equivalents.
+  const DEFENSIVE_POSITION_COMPAT = {
+    DL: new Set(['DL', 'DE', 'DT', 'NT']),
+    // nflverse doesn't distinguish edge rushers from off-ball linebackers at
+    // all — Micah Parsons, Brian Burns, Trey Hendrickson all come back as
+    // plain LB/LB — so EDGE has to accept LB too.
+    EDGE: new Set(['DL', 'DE', 'OLB', 'EDGE', 'LB']),
+    LB: new Set(['LB', 'ILB', 'OLB', 'MLB']),
+    S: new Set(['DB', 'FS', 'SS', 'S']),
+    CB: new Set(['DB', 'CB'])
+  };
+  const isCompatiblePosition = (ourPos, nflPos, nflPosGroup) => {
+    const allowed = DEFENSIVE_POSITION_COMPAT[ourPos];
+    return !!allowed && (allowed.has(nflPos) || allowed.has(nflPosGroup));
+  };
 
   const up = db.prepare('UPDATE players SET gsis_id = ? WHERE id = ?');
-  let matched = 0;
+  const upPos = db.prepare(`INSERT INTO nflverse_player_positions (gsis_id, position, position_group, ngs_position)
+    VALUES (?,?,?,?)
+    ON CONFLICT(gsis_id) DO UPDATE SET position=excluded.position,
+      position_group=excluded.position_group, ngs_position=excluded.ngs_position`);
+  let matched = 0, ambiguous = 0;
   db.exec('BEGIN');
   try {
     for (const rec of records) {
       const gsis = rec[iGsis];
       if (!gsis) continue;
-      const id = byEspn.get(String(rec[iEspn]))
-        ?? byName.get(`${norm(rec[iName])}|${rec[iPos]}`);
+      // Every player who has ever appeared in nflverse gets a position row —
+      // this is the comprehensive lookup nfl_player_week_features backfills from.
+      upPos.run(gsis, rec[iPos] || null, iPosGroup < 0 ? null : (rec[iPosGroup] || null),
+        iNgs < 0 ? null : (rec[iNgs] || null));
+      let id = byEspn.get(String(rec[iEspn]));
+      if (!id) {
+        const found = findPlayerMatch(noEspnCandidates,
+          { espn_id: null, name: rec[iName], position: rec[iPos], team_id: null });
+        if (found.ambiguous) { ambiguous++; continue; }
+        id = found.match?.id;
+      }
+      if (!id) {
+        const nameMatches = byNormName.get(normalizePlayerName(rec[iName])) ?? [];
+        const compatible = nameMatches.filter(c => isCompatiblePosition(c.position, rec[iPos], rec[iPosGroup]));
+        if (compatible.length === 1) id = compatible[0].id;
+        else if (compatible.length > 1) { ambiguous++; continue; }
+      }
       if (!id) continue;
       up.run(gsis, id);
       matched++;
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { nflverse_players: records.length, matched };
+  const positions = backfillPlayerWeekPositions();
+  return { nflverse_players: records.length, matched, ambiguous, positions };
+}
+
+/**
+ * Fills in nfl_player_week_features.position for rows nfl-pbp.js left NULL —
+ * it only ever set 'QB' (via passer_player_id) and never looked up rushers or
+ * receivers. Safe to rerun: only touches rows that are still missing a position.
+ */
+export function backfillPlayerWeekPositions() {
+  const before = row(`SELECT COUNT(*) AS n FROM nfl_player_week_features WHERE position IS NULL OR position = ''`)?.n ?? 0;
+  db.prepare(`UPDATE nfl_player_week_features
+    SET position = (SELECT position FROM nflverse_player_positions WHERE gsis_id = nfl_player_week_features.player_id)
+    WHERE (position IS NULL OR position = '')
+      AND EXISTS (SELECT 1 FROM nflverse_player_positions np
+                  WHERE np.gsis_id = nfl_player_week_features.player_id AND np.position IS NOT NULL AND np.position != '')`).run();
+  const after = row(`SELECT COUNT(*) AS n FROM nfl_player_week_features WHERE position IS NULL OR position = ''`)?.n ?? 0;
+  return { before_null: before, after_null: after, filled: before - after };
 }
 
 /* ---------------------------------------------------------- weekly usage */
@@ -227,10 +305,17 @@ export async function syncSnapCounts(season) {
 /** Everything, in dependency order. */
 export async function syncAll(seasons) {
   const result = { crosswalk: null, usage: [], snaps: [] };
-  result.crosswalk = await syncCrosswalk();
+  try {
+    result.crosswalk = await syncCrosswalk();
+    recordSync('nflverse_crosswalk', 'ok', result.crosswalk);
+  } catch (e) { recordSync('nflverse_crosswalk', 'error', e.message); throw e; }
   for (const s of seasons) {
-    result.usage.push(await syncWeeklyUsage(s).catch(e => ({ season: s, error: e.message })));
-    result.snaps.push(await syncSnapCounts(s).catch(e => ({ season: s, error: e.message })));
+    const usage = await syncWeeklyUsage(s).catch(e => ({ season: s, error: e.message }));
+    result.usage.push(usage);
+    recordSync('nflverse_weekly_usage', usage.error ? 'error' : 'ok', usage);
+    const snaps = await syncSnapCounts(s).catch(e => ({ season: s, error: e.message }));
+    result.snaps.push(snaps);
+    recordSync('nflverse_snap_counts', snaps.error ? 'error' : 'ok', snaps);
   }
   return result;
 }

@@ -12,22 +12,13 @@
  * "does he clear 1.5 total bases", which is a question about a distribution.
  */
 import { rows } from '../db/index.js';
-import { mean } from './stats-util.js';
+import { mean, shrink } from './stats-util.js';
 import { starterFor } from './mlb.js';
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const leagueCache = new Map();
 const battingEnvironmentCache = new Map();
 const opponentKCache = new Map();
-
-/**
- * Shrinks an observed rate toward a prior. With `k` games of prior weight, a
- * player with few games sits near the league mean and earns his own number as
- * the sample grows. Without this, a hitter who is 3-for-6 projects as a .500
- * hitter, which is how naive projection systems embarrass themselves.
- */
-const shrink = (observed, prior, n, k) =>
-  n + k > 0 ? (observed * n + prior * k) / (n + k) : prior;
 
 /* ------------------------------------------------------------- population */
 

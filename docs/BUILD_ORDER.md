@@ -56,6 +56,27 @@ must lower confidence, not silently serve old numbers.
 ## STAGE 1 — Fix how the model weighs evidence
 *The core defect. Everything downstream inherits it.*
 
+> **STATUS: run and measured — see `STAGE_1_RESULTS.md` for the full write-up.**
+> All gates re-measured **week-by-week** (4,340 graded player-weeks for 2025)
+> rather than on 382 season totals, because that is how the model runs in
+> production and because the season-total sample was too small to separate a
+> 1% effect from noise. Fit on 2023+2024, validated on 2025.
+>
+> - **1.1 FAILED → constants kept.** Fitted `k*` is statistically
+>   indistinguishable from hardcoded (CRPS delta −0.011, 90% CI [−0.82, 0.80]).
+>   Recorded, not activated. We now know the constants were fine.
+> - **1.2 PASSED.** 80% coverage 0.724 → **0.795**, PIT calibration error
+>   0.161 → 0.110, CRPS flat. The weekly sampler had *no* parameter-uncertainty
+>   draw at all; adding it (`WEEKLY_LEVEL.sigma = 0.45`) is the fix.
+> - **1.3 PASSED after diagnosis.** Weekly is the authoritative gate. Separate
+>   role memory (`seasonDecay=.05`, `weekHalfLife=5`) improved structural MAE
+>   4.586 → 4.501 without hurting rank, CRPS, or coverage. A cutoff-safe convex
+>   ensemble fitted on 2023 and architecture-selected on 2024 then scored
+>   **4.420 MAE / .6739 Spearman / 3.145 CRPS / .815 coverage** on 2025,
+>   beating the fixed 60/40 blend's 4.442 significantly (90% bootstrap CI for
+>   MAE delta [−.0403, −.0036]). Four non-circular role-prior candidates were
+>   rejected and removed. **Stage 2 is unlocked.**
+
 ### 1.1 Fit the shrinkage constants
 Replace ~20 hand-picked numbers with `k* = σ²_within / σ²_between`, estimated
 per metric per position from data strictly before each cutoff. Version the
@@ -74,9 +95,10 @@ Parameter uncertainty (log-normal level draw) and availability uncertainty
 
 ### 1.3 Beat the blend
 The whole point of 1.1–1.2.
-- **Gate:** **fantasy MAE < 42.10** and Spearman ≥ 0.7791 on the same 382
-  players. If we still lose to a 10-second average, stop and diagnose — do not
-  proceed.
+- **Authoritative weekly gate:** beat season-to-date and the fixed 60/40 blend
+  significantly on identical player-weeks; Spearman must not decline; 80%
+  coverage must remain in [.78, .82]; CRPS must not worsen. Season-total MAE
+  and rank remain separately reported for the draft-time product.
 
 ---
 
@@ -86,6 +108,9 @@ The whole point of 1.1–1.2.
 ### 2.1 Extract the player-week engine
 Hierarchical state estimator producing a joint distribution over underlying
 events. Fantasy head becomes a thin scoring translator over it.
+- **Status:** started after 1.3 passed. `player-week-engine.js` now owns the
+  frozen weekly ensemble and Fantasy Lab's weekly player view consumes it.
+  Event-state extraction and the props migration remain.
 - **Effort:** ~2 weeks
 - **Gate:** fantasy numbers unchanged or better after refactor (pure move)
 
@@ -189,6 +214,14 @@ An independent expected-points model. Both a feature and a bar to clear.
   that's fine through week 10 and degrades from 11-18 is a different, fixable
   problem than one that's uniformly mediocre, and a season aggregate hides
   that difference completely
+  - **Grade against what the game actually became**, not just the stat line:
+    final score/margin, the game script the model assumed vs what really
+    happened, and in-game events (injury, blowout, weather shift) tagged
+    separately as unmodelable-in-advance rather than penalized like an
+    ignored Wednesday injury report. A missed number and a misunderstood game
+    are different bugs, and only this comparison tells them apart.
+  - The attributed cause **feeds Stage 3's calibration jobs directly** — this
+    is what makes the audit a learning loop, not a scorecard
 - **6.5** Report everything including failures, rolled up **by week-in-season**
   first and by the usual slices second, with permutation-null tests at the
   same weekly cadence
@@ -213,9 +246,44 @@ An independent expected-points model. Both a feature and a bar to clear.
 need per-case judgment. Dry-run exists in `player-repair.js`.
 - Watch `UNIQUE(draft_id, player_id)` collisions when re-pointing picks
 
-### P3 — UI
-Deferred by your call. `UI_REVAMP.md` has the plan; Codex already shipped the
-design system and four-domain nav.
+### P3 — UI, small touch-ups only
+Codex already shipped the design system + four-domain nav as a starting
+scaffold. Anything beyond small fixes on top of that scaffold waits for
+**Stage 7** below — building new pages against models that are still
+changing (Stages 1-6) means rebuilding those pages again once the models
+settle. The full overhaul is deliberately last.
+
+---
+
+## STAGE 7 — Full UI overhaul
+*Last, on purpose. Every surface below depends on a model output — projection
+distributions, driver decompositions, calibration state, CLV, the fault ledger
+— that isn't stable until Stages 1-6 are done. Building the real pages earlier
+means rebuilding them once the engine changes shape.*
+
+Full plan in `docs/UI_REVAMP.md`. In sequence:
+
+- **7.1** Design system + tokens + core components (light/minimal, per Nick's
+  stated preference — no dark dashboards, schematic not decorative diagrams).
+  Codex's initial four-domain nav + `DesignSystem.tsx` scaffold is the starting
+  point, not the finish line.
+- **7.2** Navigation/IA restructure onto the four domains (Fantasy /
+  Intelligence / Betting / Lab) with redirects so nothing 404s
+- **7.3** Home / Command Center — what needs attention, what changed, what to
+  do, why, how confident, how fresh
+- **7.4** Players consolidation — one virtualised table replacing
+  Players/PlayerDetail/Rankings/Projections
+- **7.5** Draft (pairs with the paused Phase 3D)
+- **7.6** Betting hub UI — CLV ledger, divergence board, prop lab, and the
+  Model Honesty Panel showing the four disproofs from §0 permanently, plus
+  the week-by-week fault ledger from Stage 6 rendered as a real page, not a
+  JSON dump
+- **7.7** Lab UI — accuracy ledger, experiments, registry/promotion, all
+  driven by the fault ledger and calibration diagnostics that now actually exist
+- **7.8** Accessibility + performance pass across all of it
+
+**Gate:** every number on every page traces to a real, versioned model output —
+no placeholder charts shipped ahead of the data that fills them.
 
 ---
 
@@ -228,7 +296,9 @@ design system and four-domain nav.
 3. Make it learn on a schedule                  ── ~2 weeks
 4. New signal                                   ── ~3 weeks
 5. Advanced (optional)                          ── months
-6. Blind audit                                  ── last, once
+6. Blind audit, week-by-week, with a fault      ── last, once
+   ledger that learns from what actually happened
+7. Full UI overhaul                             ── last of all
 ```
 
 **Two hard rules**

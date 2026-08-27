@@ -12,6 +12,9 @@ import { accuracy } from '../services/nfl-market.js';
 import { countVariables } from '../services/nfl-features.js';
 import { usage as oddsUsage } from '../services/odds-api.js';
 import { rows } from '../db/index.js';
+import { realBreakEven } from '../services/nfl-execution-edge.js';
+import { wongHistory, teaserEV } from '../services/nfl-teasers.js';
+import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
 
 const r = Router();
 
@@ -53,6 +56,31 @@ function mlbStanding() {
   };
 }
 
+/**
+ * What actually has a case for being +EV right now, cached hourly.
+ *
+ * Prediction (win-accuracy/margin-MAE above) and execution are different
+ * questions — 0 of 21 spread models beat the closing line, but the teaser
+ * edge and real vig are properties of the MARKET, not a forecast, so they
+ * don't need the same walk-forward re-fit on every request.
+ */
+let edgeCache = null;
+function edgeSnapshot() {
+  if (edgeCache && Date.now() - edgeCache.at < 3600e3) return edgeCache.value;
+  let value;
+  try {
+    const hist = wongHistory();
+    value = {
+      teaser: { ...hist, ev_at_110: teaserEV({ americanPrice: -110, legRate: hist.win_rate, standardError: hist.standard_error }),
+        ev_at_130: teaserEV({ americanPrice: -130, legRate: hist.win_rate, standardError: hist.standard_error }) },
+      break_even: realBreakEven(),
+      prop_edge: propEdgeEvidence()
+    };
+  } catch (e) { value = { error: e.message }; }
+  edgeCache = { at: Date.now(), value };
+  return value;
+}
+
 r.get('/summary', (req, res, next) => {
   try {
     let modelAccuracy = null;
@@ -64,7 +92,8 @@ r.get('/summary', (req, res, next) => {
         variables: countVariables()
       },
       mlb: { standing: mlbStanding() },
-      odds_api: oddsUsage()
+      odds_api: oddsUsage(),
+      edges: edgeSnapshot()
     });
   } catch (e) { next(e); }
 });

@@ -14,6 +14,13 @@ interface Summary {
   };
   mlb: { standing: { tracked_picks: number; days_tracked: number; latest_slate: string | null; note: string } };
   odds_api: { has_key: boolean; requests_remaining: number | null; requests_used: number | null };
+  edges?: {
+    teaser?: { legs: number; win_rate: number; standard_error: number;
+      ev_at_110: { verdict: string; ev_per_bet: number; z: number };
+      ev_at_130: { verdict: string; ev_per_bet: number } };
+    break_even?: { real_breakeven: number; convention_breakeven: number; share_priced_at_minus_110: number };
+    prop_edge?: { status: string; captured_quotes: number; settled_bets?: number; median_clv_cents?: number | null; verdict: string };
+  };
 }
 
 const pct = (v: number | null | undefined) =>
@@ -43,9 +50,10 @@ export default function BettingHome() {
     <div>
       <h1 className="text-2xl font-bold mb-1">Betting</h1>
       <p className="text-sm text-slate-500 mb-5">
-        Model versus market across two sports. Every pick is tracked as its own straight bet at one
-        unit — no parlays, no stake sizing, no retroactive edits.
+        Model versus market across two sports, plus execution edges the model doesn't need to predict anything to earn.
       </p>
+
+      <EdgeStrip edges={data?.edges} />
 
       <div className="grid md:grid-cols-2 gap-4 mb-6">
         <SportCard
@@ -139,6 +147,64 @@ export default function BettingHome() {
         browser, and VegasInsider puts it behind a paywall. Line movement (where the number opened
         versus where it sits now) and disagreement between books are used instead, which is what
         those percentages are usually a proxy for anyway.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What's actually defensible right now, distinct from the model's win-loss
+ * record above. Prediction is a settled negative (0 of 21 spread models beat
+ * the closing line); these three numbers are properties of the MARKET, not a
+ * forecast, so they get their own strip rather than being buried as footnotes.
+ */
+function EdgeStrip({ edges }: { edges?: Summary['edges'] }) {
+  if (!edges) return null;
+  const t = edges.teaser, be = edges.break_even, pe = edges.prop_edge;
+  const teaserGood = t?.ev_at_110?.verdict?.includes('significant');
+  return (
+    <div className="grid md:grid-cols-3 gap-4 mb-6">
+      <div className={`card p-4 border-l-4 ${teaserGood ? 'border-l-emerald-500' : 'border-l-slate-300'}`}>
+        <h2 className="text-sm font-bold text-slate-700 mb-1">Wong teasers</h2>
+        {t ? (
+          <>
+            <div className="text-2xl font-black text-slate-800">
+              {(t.win_rate * 100).toFixed(1)}%
+              <span className="text-xs font-normal text-slate-400 ml-1.5">of {t.legs} legs, 1999&ndash;2025</span>
+            </div>
+            <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+              <b className={teaserGood ? 'text-emerald-700' : 'text-slate-500'}>
+                {(t.ev_at_110.ev_per_bet * 100).toFixed(2)}% EV at &minus;110
+              </b>{t.ev_at_130.ev_per_bet < 0 && <> · negative at &minus;130 — the edge is entirely the price you get</>}
+            </p>
+            <p className="text-[10px] text-slate-400 mt-1">z={t.ev_at_110.z.toFixed(2)} — clears a one-sided 5% bar, not a sure thing.</p>
+          </>
+        ) : <p className="text-xs text-slate-500">Not computed.</p>}
+      </div>
+
+      <div className="card p-4">
+        <h2 className="text-sm font-bold text-slate-700 mb-1">Real break-even</h2>
+        {be ? (
+          <>
+            <div className="text-2xl font-black text-slate-800">{(be.real_breakeven * 100).toFixed(2)}%</div>
+            <p className="text-xs text-slate-600 mt-1.5">
+              vs the {(be.convention_breakeven * 100).toFixed(2)}% everyone quotes for &minus;110 —
+              only {(be.share_priced_at_minus_110 * 100).toFixed(1)}% of recorded games were actually priced there.
+            </p>
+          </>
+        ) : <p className="text-xs text-slate-500">Not computed.</p>}
+      </div>
+
+      <div className="card p-4">
+        <h2 className="text-sm font-bold text-slate-700 mb-1">Prop edge evidence</h2>
+        {pe ? (
+          <>
+            <div className="text-2xl font-black text-slate-800">
+              {pe.settled_bets ?? 0}<span className="text-sm font-normal text-slate-400">/200</span>
+            </div>
+            <p className="text-xs text-slate-600 mt-1.5">{pe.captured_quotes} quotes captured. {pe.verdict}</p>
+          </>
+        ) : <p className="text-xs text-slate-500">Not computed.</p>}
       </div>
     </div>
   );

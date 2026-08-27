@@ -98,8 +98,11 @@ export function wongHistory({ seasons = null, points = 6 } = {}) {
  * Legs are assumed independent, which requires them to be in different games —
  * enforced by the caller, and flagged in `assumptions` rather than left silent.
  */
-export function teaserEV({ americanPrice = -110, legRate = null, legs = 2 } = {}) {
-  const hist = legRate == null ? wongHistory() : null;
+export function teaserEV({ americanPrice = -110, legRate = null, standardError = null, legs = 2 } = {}) {
+  // Only recompute history when the caller didn't already have it — but a
+  // caller supplying legRate without standardError still needs it for z, so
+  // fetch history for the SE whenever it wasn't explicitly provided too.
+  const hist = legRate == null || standardError == null ? wongHistory() : null;
   const p = legRate ?? hist?.win_rate;
   if (!Number.isFinite(p)) return { error: 'no leg rate available' };
   const imp = impliedProb(americanPrice);
@@ -107,7 +110,7 @@ export function teaserEV({ americanPrice = -110, legRate = null, legs = 2 } = {}
   const winAll = Math.pow(p, legs);
   const ev = winAll * payout - 1;
   const need = Math.pow(imp, 1 / legs);
-  const se = hist?.standard_error ?? null;
+  const se = standardError ?? hist?.standard_error ?? null;
   const z = se ? (p - need) / se : null;
   return {
     price: americanPrice, legs, leg_rate: r4(p),
@@ -135,7 +138,7 @@ export function teaserEV({ americanPrice = -110, legRate = null, legs = 2 } = {}
 export function findTeaserLegs(games, { americanPrice = -110, points = 6,
   bankrollUnits = 100, minPrice = -115 } = {}) {
   const hist = wongHistory();
-  const ev = teaserEV({ americanPrice, legRate: hist.win_rate });
+  const ev = teaserEV({ americanPrice, legRate: hist.win_rate, standardError: hist.standard_error });
   const priceOk = americanPrice >= minPrice;
 
   const qualifying = (games ?? []).map(g => {

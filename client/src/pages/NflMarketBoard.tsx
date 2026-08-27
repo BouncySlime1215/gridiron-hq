@@ -170,7 +170,6 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
 
   const board = useMemo(() => (boardApi.data?.board ?? [])
     .filter(b => marketFilter === 'all' || b.market === marketFilter), [boardApi.data, marketFilter]);
-  const candidates = candidateApi.data?.candidates ?? [];
   const standing = runResult?.standing ?? historyApi.data?.standing;
   const evidence = candidateApi.data?.evidence?.result.overall;
   const activeMargin = catalog?.models.filter(m => m.margin_n > 0 && m.margin_weight > 0).length ?? 0;
@@ -242,22 +241,44 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         {running && <Notice title="Evaluating the production policy" tone="info">Lines are refreshing and the walk-forward ensemble is scoring every game. Only eligible spread picks will be locked.</Notice>}
 
         <section>
-          <SectionHeading eyebrow="Decision desk" title={`Week ${week} eligible picks`}
-            description="This is the actionable production slate. The much larger base-model board is research-only and lives below." />
+          <SectionHeading eyebrow="Full slate" title={`Week ${week} · ${candidateApi.data?.all_games?.length ?? '—'} games`}
+            description="Every priced game, confidence included. A game lights up green the moment it clears the production policy's edge and disagreement floor." />
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,.7fr)]">
             <div className="card overflow-hidden">
-              <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
-                <div>
-                  <div className="text-sm font-black text-slate-900">Production candidates</div>
-                  <div className="text-xs text-slate-500">Spread only · maximum five · not locked until you run analysis</div>
-                </div>
-                <StatusPill tone={candidates.length ? 'warn' : 'neutral'}>{candidateApi.loading ? 'Evaluating' : `${candidates.length} eligible`}</StatusPill>
-              </div>
-              {candidateApi.loading ? <div className="p-4"><ModelLoadingSignature sport="NFL" compact stages={[`Scoring Week ${week} candidates`, 'Applying frozen policy', 'Publishing eligible decisions']} /></div>
+              {candidateApi.loading ? <div className="p-4"><ModelLoadingSignature sport="NFL" compact stages={[`Scoring Week ${week} games`, 'Applying frozen policy', 'Publishing eligible decisions']} /></div>
                 : candidateApi.error ? <div className="p-6 text-sm text-rose-600">{candidateApi.error}</div>
-                : candidates.length ? <CandidateList rows={candidates} />
-                : <EmptyState title="The model is abstaining"
-                    description="No spread clears both the 3-point edge floor and the 4.5-point disagreement ceiling. Zero picks is a valid production outcome." />}
+                : !candidateApi.data?.all_games?.length ? <EmptyState title="No priced games yet" description="Refresh lines to pull this week's board." />
+                : <div className="divide-y divide-slate-100">
+                  {candidateApi.data.all_games.map((g, i) => {
+                    const key = `${g.matchup}-${g.market}-${g.selection}`;
+                    const alreadyTracked = userBetsApi.data?.bets.some(b => b.matchup === g.matchup && b.market === g.market && b.selection === g.selection);
+                    const eligible = g.is_pick || g.eligible;
+                    return (
+                    <div key={`${g.matchup}-${g.market}-${i}`}
+                      className={`grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center ${eligible ? 'bg-emerald-50/70 ring-1 ring-inset ring-emerald-200' : ''}`}>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-black text-slate-900">{g.matchup}</span>
+                          <StatusPill tone="neutral">{MARKET_LABEL[g.market] ?? g.market}</StatusPill>
+                          {eligible && <StatusPill tone="good">{g.is_pick ? '★ Locked pick' : '★ Eligible pick'}</StatusPill>}
+                        </div>
+                        <div className="mt-0.5 text-sm text-slate-500">{g.selection} {g.side ?? ''} · {g.detail}</div>
+                      </div>
+                      <div className="flex gap-5 sm:text-right">
+                        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Price</div><div className="text-base font-black text-slate-800">{americanFmt(g.american_price)}</div></div>
+                        <div>
+                          <div className="text-xs font-bold uppercase tracking-wide text-slate-400">Confidence</div>
+                          {g.model_probability != null
+                            ? <div className={`text-base font-black ${g.model_probability >= 0.55 ? 'text-emerald-700' : 'text-slate-900'}`}>{pct(g.model_probability)}</div>
+                            : <div className="text-xs font-bold text-slate-400">Not calibrated</div>}
+                        </div>
+                        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div><div className={`text-base font-black ${(g.edge ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-800'}`}>{g.edge != null ? `${g.edge > 0 ? '+' : ''}${pct(g.edge)}` : '—'}</div></div>
+                      </div>
+                      <button className="btn-ghost text-xs whitespace-nowrap" disabled={alreadyTracked || trackingKey === key || g.american_price == null}
+                        onClick={() => trackBet(g)}>{alreadyTracked ? 'Tracked' : trackingKey === key ? 'Tracking…' : 'Track bet'}</button>
+                    </div>
+                  );})}
+                </div>}
             </div>
 
             <div className="space-y-3">
@@ -284,38 +305,6 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
           </div>
           {candidateApi.data?.evidence_note && <p className="mt-2 text-xs leading-5 text-slate-500">{candidateApi.data.evidence_note}</p>}
         </section>
-
-        {(candidateApi.data?.all_games?.length ?? 0) > 0 && (
-          <section>
-            <SectionHeading eyebrow="Full slate" title={`All ${candidateApi.data!.all_games.length} Week ${week} games`}
-              description="Every market the model has an opinion on, confidence included — not just the curated five that cleared the production policy. Track any game you want to bet yourself and it's graded and tallied below just like the auto-picks." />
-            <div className="card overflow-hidden divide-y divide-slate-100">
-              {candidateApi.data!.all_games.map((g, i) => {
-                const key = `${g.matchup}-${g.market}-${g.selection}`;
-                const alreadyTracked = userBetsApi.data?.bets.some(b => b.matchup === g.matchup && b.market === g.market && b.selection === g.selection);
-                return (
-                <div key={`${g.matchup}-${g.market}-${i}`} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-black text-slate-900">{g.matchup}</span>
-                      <StatusPill tone="neutral">{MARKET_LABEL[g.market] ?? g.market}</StatusPill>
-                      {g.is_pick && <StatusPill tone="good">Curated pick</StatusPill>}
-                      {!g.eligible && <StatusPill tone="neutral">Below policy floor</StatusPill>}
-                    </div>
-                    <div className="mt-0.5 text-sm text-slate-500">{g.selection} {g.side ?? ''} · {g.detail}</div>
-                  </div>
-                  <div className="flex gap-5 sm:text-right">
-                    <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Price</div><div className="text-base font-black text-slate-800">{americanFmt(g.american_price)}</div></div>
-                    <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Model</div><div className="text-base font-black text-slate-900">{pct(g.model_probability)}</div></div>
-                    <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div><div className={`text-base font-black ${(g.edge ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-800'}`}>{g.edge != null ? `${g.edge > 0 ? '+' : ''}${pct(g.edge)}` : '—'}</div></div>
-                  </div>
-                  <button className="btn-ghost text-xs whitespace-nowrap" disabled={alreadyTracked || trackingKey === key || g.american_price == null}
-                    onClick={() => trackBet(g)}>{alreadyTracked ? 'Tracked' : trackingKey === key ? 'Tracking…' : 'Track bet'}</button>
-                </div>
-              );})}
-            </div>
-          </section>
-        )}
 
         {boardVisible && (
           <section>
@@ -423,29 +412,6 @@ function FeatureTabs<T extends string>({ value, onChange, items }: {
       className={`rounded-lg px-3 py-2 text-sm font-bold transition-colors ${value === id
         ? 'bg-white text-sky-900 shadow-sm ring-1 ring-sky-200' : 'text-slate-500 hover:bg-white hover:text-slate-900'}`}>{label}</button>)}
   </div>;
-}
-
-function CandidateList({ rows }: { rows: AutoPick[] }) {
-  return <div className="divide-y divide-slate-100">{rows.slice(0, 5).map((p, i) => (
-    <div key={`${p.matchup}-${p.selection}`} className="grid gap-3 px-4 py-4 sm:grid-cols-[32px_minmax(0,1fr)_auto] sm:items-center">
-      <div className="grid h-8 w-8 place-items-center rounded-full bg-sky-100 text-sm font-bold text-sky-900 ring-1 ring-sky-200">{i + 1}</div>
-      <div>
-        <div className="flex flex-wrap items-center gap-2"><span className="text-base font-black text-slate-900">{p.selection} {p.side}</span><StatusPill tone="warn">Research grade</StatusPill></div>
-        <div className="mt-0.5 text-sm text-slate-500">{p.matchup} · {p.detail}</div>
-        <div className="mt-1 text-xs text-slate-400">
-          {p.book ?? 'Book unavailable'} · {p.quote_at ? `quoted ${new Date(p.quote_at).toLocaleString()}` : 'quote time unavailable'}
-          {p.feature_snapshot?.margin_models_active != null ? ` · ${p.feature_snapshot.margin_models_active}/${p.feature_snapshot.margin_models_available ?? 20} models active` : ''}
-          {p.feature_snapshot?.cover_calibration ? ` · ${p.feature_snapshot.cover_calibration}` : ' · probability gate unavailable'}
-          {p.feature_snapshot?.pregame_snapshot_at ? ` · pregame ${new Date(p.feature_snapshot.pregame_snapshot_at).toLocaleString()}` : ' · no pregame snapshot'}
-        </div>
-      </div>
-      <div className="flex gap-5 sm:text-right">
-        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Price</div><div className="text-base font-black text-slate-800">{americanFmt(p.american_price)}</div></div>
-        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Edge</div><div className="text-base font-black text-slate-900">{p.edge_points?.toFixed(1) ?? '—'} pts</div></div>
-        <div><div className="text-xs font-bold uppercase tracking-wide text-slate-400">Scatter</div><div className="text-base font-black text-slate-800">{p.disagreement?.toFixed(1) ?? '—'}</div></div>
-      </div>
-    </div>
-  ))}</div>;
 }
 
 function ResearchRow({ row: b }: { row: BoardRow }) {

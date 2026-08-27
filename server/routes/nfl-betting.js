@@ -5,7 +5,10 @@
 import { Router } from 'express';
 import { requireModelPermission } from '../modeling/authz.js';
 import { catalog, countVariables, teamFeatureVector, playerFeatureVector, bettingTrends } from '../services/nfl-features.js';
-import { propBoard, propAccuracy, topTotals, ensureTotalPicks, gradeTotalPicks, totalPicksStanding } from '../services/nfl-props.js';
+import {
+  propBoard, propAccuracy, propQuoteStatus, topTotals, ensureTotalPicks,
+  gradeTotalPicks, totalPicksStanding
+} from '../services/nfl-props.js';
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
@@ -26,12 +29,21 @@ import { capturePregameSnapshots, pregameSnapshotCoverage } from '../services/nf
 import { startAiBlindReplay, aiReplayRun, aiReplayLogs, activeAiReplayRun, latestAiReplayRun } from '../services/nfl-ai-replay.js';
 import { nflEvidenceCoverage, validationFirewall } from '../services/nfl-evidence.js';
 import { gamePlayerAvailability, teamPlayerAvailability } from '../services/nfl-player-value.js';
+import { playerHeadCatalog } from '../services/player-head-registry.js';
+import { auditPlayerHeads, playerHeadAuditHistory } from '../services/player-head-validation.js';
+import {
+  blindAuditProtocol, blindAuditStatus, listBlindAudits,
+  preregisterBlindAudit, runNextBlindAuditWeek
+} from '../services/nfl-blind-audit.js';
+import { weeklyLearningStatus } from '../services/weekly-learning.js';
+import { tdCalibrationCatalog } from '../services/nfl-prop-calibration.js';
+import { signalQualityCatalog } from '../services/model-signal-quality.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
 // A training grant must not authorize spending API/AI resources, locking picks,
 // or writing/grading bets.
-const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/sync$)/;
+const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/sync$)/;
 const resourceSpendingGet = /^(\/lines\/(?:shop|disagreement)|\/sharp\/(?:board|divergence))$/;
 r.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
@@ -60,6 +72,11 @@ r.get('/catalog', (req, res, next) => {
       variables: scope ? c.filter(v => v.scope === scope) : c
     });
   } catch (e) { next(e); }
+});
+
+r.get('/signal-quality', (_req, res, next) => {
+  try { res.json(signalQualityCatalog()); }
+  catch (e) { next(e); }
 });
 
 r.get('/features/team', (req, res, next) => {
@@ -103,7 +120,60 @@ r.get('/props', async (req, res, next) => {
 r.get('/props/accuracy', (req, res, next) => {
   try {
     const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
-    res.json(propAccuracy(seasons));
+    res.json({ ...propAccuracy(seasons), calibration: tdCalibrationCatalog().active });
+  } catch (e) { next(e); }
+});
+
+r.get('/props/quotes/status', (req, res, next) => {
+  try { res.json(propQuoteStatus()); }
+  catch (e) { next(e); }
+});
+
+r.get('/props/calibration', (_req, res, next) => {
+  try { res.json(tdCalibrationCatalog()); }
+  catch (e) { next(e); }
+});
+
+r.get('/heads', (req, res, next) => {
+  try { res.json({ ...playerHeadCatalog(), audits: playerHeadAuditHistory().slice(0, 5),
+    forward: weeklyLearningStatus().candidate_heads, prop_calibration: tdCalibrationCatalog() }); }
+  catch (e) { next(e); }
+});
+
+r.get('/blind-audits/protocol', (_req, res, next) => {
+  try { res.json(blindAuditProtocol()); }
+  catch (e) { next(e); }
+});
+
+r.get('/blind-audits', (_req, res, next) => {
+  try { res.json({ audits: listBlindAudits() }); }
+  catch (e) { next(e); }
+});
+
+r.get('/blind-audits/:id', (req, res, next) => {
+  try {
+    const audit = blindAuditStatus(req.params.id);
+    if (!audit) return res.status(404).json({ error: 'blind audit not found' });
+    res.json(audit);
+  } catch (e) { next(e); }
+});
+
+r.post('/blind-audits', (req, res, next) => {
+  try { res.status(201).json(preregisterBlindAudit(req.body ?? {})); }
+  catch (e) { next(e); }
+});
+
+r.post('/blind-audits/:id/next', (req, res, next) => {
+  try { res.json(runNextBlindAuditWeek(req.params.id)); }
+  catch (e) { next(e); }
+});
+
+r.post('/heads/audit', (req, res, next) => {
+  try {
+    res.json(auditPlayerHeads({
+      openValidation: req.body?.open_validation === true,
+      persist: true
+    }));
   } catch (e) { next(e); }
 });
 

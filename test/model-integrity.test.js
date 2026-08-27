@@ -37,6 +37,15 @@ const {
 const { activeWeeklyWeightSet, saveWeeklyFit } = await import('../server/services/weekly-weight-store.js');
 const { groundPlayerVerdict } = await import('../server/routes/players.js');
 const { detectRoleChange } = await import('../server/services/role-changepoint.js');
+const {
+  playerWeekProjection, playerWeekEventExpectation, sampleTeamWeekEvents
+} = await import('../server/services/player-week-engine.js');
+const { PLAYER_HEADS } = await import('../server/services/player-head-registry.js');
+const { auditPlayerHeads } = await import('../server/services/player-head-validation.js');
+const { anytimeTdHit } = await import('../server/services/nfl-props.js');
+const { scoreSim } = await import('../server/services/scoring.js');
+const { blindAuditProtocol } = await import('../server/services/nfl-blind-audit.js');
+const { signalQualityCatalog, playerSignalTrace } = await import('../server/services/model-signal-quality.js');
 
 test.after(() => {
   db.close();
@@ -75,6 +84,105 @@ test('weekly ensemble is convex, position-aware, and uses only supplied prior we
   });
   assert.ok(Math.abs(weeklyEnsemblePrediction(context) - 11.6) < 1e-12);
   assert.equal(weeklyEnsembleContext({ structural: 14, priorWeeks: [], position: 'RB' }), null);
+});
+
+test('shared player engine resolves canonical internal and GSIS identities', () => {
+  const projection = { player_id: 7, gsis_id: '00-0031234', name: 'Test Player' };
+  const engine = new Map([[7, projection]]);
+  assert.equal(playerWeekProjection(engine, 7), projection);
+  assert.equal(playerWeekProjection(engine, '7'), projection);
+  assert.equal(playerWeekProjection(engine, '00-0031234'), projection);
+  assert.equal(playerWeekProjection(engine, 'missing'), null);
+});
+
+test('joint player simulation obeys one team opportunity budget on every draw', () => {
+  const params = overrides => ({
+    attempts: 0, carries: 0, targets: 0, dispersion: 10,
+    ypa: 7, pass_td_rate: 0.045, int_rate: 0.025,
+    ypc: 4.2, rush_td_rate: 0.03, catch_rate: 0.68,
+    ypt: 8, rec_td_rate: 0.05, ...overrides
+  });
+  const shared = { team: 'TST', volume: { team_pass_att: 34, team_rush_att: 27 } };
+  const engine = new Map([
+    [1, { ...shared, player_id: 1, position: 'QB', params: params({ attempts: 32, carries: 4 }) }],
+    [2, { ...shared, player_id: 2, position: 'QB', params: params({ attempts: 2 }) }],
+    [3, { ...shared, player_id: 3, position: 'RB', params: params({ carries: 17, targets: 4 }) }],
+    [4, { ...shared, player_id: 4, position: 'RB', params: params({ carries: 8, targets: 3 }) }],
+    [5, { ...shared, player_id: 5, position: 'WR', params: params({ targets: 9 }) }],
+    [6, { ...shared, player_id: 6, position: 'WR', params: params({ targets: 7 }) }]
+  ]);
+  const samples = sampleTeamWeekEvents(engine, 'TST', { runs: 80, seed: 19 });
+  for (let i = 0; i < 80; i++) {
+    const draw = [...samples.values()].map(x => x[i]);
+    const qbDraw = [samples.get(1)[i], samples.get(2)[i]];
+    const attempts = draw.reduce((sum, x) => sum + x.attempts, 0);
+    const carries = draw.reduce((sum, x) => sum + x.carries, 0);
+    const targets = draw.reduce((sum, x) => sum + x.targets, 0);
+    assert.ok(targets <= attempts, `targets ${targets} cannot exceed attempts ${attempts}`);
+    assert.ok(attempts >= 0 && carries >= 0);
+    assert.equal(qbDraw.filter(x => x.attempts > 0).length, attempts > 0 ? 1 : 0,
+      'quarterback participation is selected once per game, not split attempt by attempt');
+  }
+});
+
+test('fantasy scoring is a pure translation of the shared event expectation', () => {
+  const projection = {
+    player_id: 1, name: 'Shared State', team: 'TST', position: 'WR',
+    params: { attempts: 0, carries: 1, targets: 8, ypa: 0, pass_td_rate: 0,
+      int_rate: 0, ypc: 5, rush_td_rate: 0.02, catch_rate: 0.7,
+      ypt: 8.5, rec_td_rate: 0.06 }
+  };
+  const state = playerWeekEventExpectation(projection);
+  assert.ok(Math.abs(state.structural_fantasy_points - scoreSim(state.events)) < 1e-12);
+});
+
+test('anytime touchdown market excludes passing touchdowns', () => {
+  assert.equal(anytimeTdHit({ passTd: 4, rushTd: 0, recTd: 0 }), 0);
+  assert.equal(anytimeTdHit({ passTd: 0, rushTd: 1, recTd: 0 }), 1);
+  assert.equal(anytimeTdHit({ passTd: 0, rushTd: 0, recTd: 1 }), 1);
+});
+
+test('candidate registry contains at least twenty shadow-only hypotheses', () => {
+  assert.ok(PLAYER_HEADS.length >= 20);
+  assert.ok(PLAYER_HEADS.every(head => head.status === 'candidate'));
+  assert.equal(new Set(PLAYER_HEADS.map(head => head.id)).size, PLAYER_HEADS.length);
+});
+
+test('signal truth registry exposes hundreds of shadow paths without granting authority', () => {
+  const catalog = signalQualityCatalog();
+  assert.ok(catalog.paths >= 300);
+  assert.ok(catalog.layers.length >= 10);
+  assert.ok(catalog.component_targets.length >= 12);
+  assert.ok(catalog.truth_gates.includes('placebo_or_permutation_passed'));
+  const trace = playerSignalTrace({ projection: {
+    player_id: 1, name: 'Trace Player', position: 'WR', evidence_games: 12,
+    params: { ypa: 0, ypc: 4.2, ypt: 8.1 }, candidate_heads: { a: 1 },
+    player_week_engine: { cutoff: '2026-W1' }
+  }, eligibility: { state: 'market_plausible_role' }, eventState: {
+    volume: { attempts: 0, carries: 2, targets: 7 }
+  } });
+  assert.equal(trace.candidate_paths_evaluated_by_registry, catalog.paths);
+  assert.ok(trace.layers.every(x => x.truth && x.noise_class));
+});
+
+test('player-head validation remains sealed unless explicitly opened', () => {
+  const result = auditPlayerHeads({
+    developmentSeason: 2097, discoverySeason: 2098, validationSeason: 2099,
+    openValidation: false, persist: false, minN: 250
+  });
+  assert.equal(result.validation_opened, false);
+  assert.equal(result.validation, null);
+  assert.equal(result.production_eligible, false);
+});
+
+test('blind audit preregisters a fixed chronological week sequence and honest classification', () => {
+  const protocol = blindAuditProtocol();
+  assert.equal(protocol.classification, 'historical_algorithmically_blind_replay');
+  assert.deepEqual(protocol.seasons, [2021, 2022, 2023, 2024, 2025]);
+  assert.deepEqual(protocol.schedule[0], { season: 2021, week: 5 });
+  assert.deepEqual(protocol.schedule.at(-1), { season: 2025, week: 18 });
+  assert.equal(protocol.schedule.length, 70);
+  assert.ok(protocol.rules.some(x => /2026 forward shadow/i.test(x)));
 });
 
 test('adaptive weekly weights cannot leak into the week they were trained through', () => {

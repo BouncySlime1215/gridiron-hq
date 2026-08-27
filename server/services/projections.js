@@ -157,11 +157,11 @@ export const LEVEL_UNCERTAINTY = { a: 0, b: 1.15, lo: 0.30, hi: 0.70, downMult: 
  */
 function history(through, throughWeek = null) {
   if (throughWeek == null) {
-    return rows(`SELECT u.*, p.name, p.position AS pos, p.espn_id, p.sleeper_id
+    return rows(`SELECT u.*, p.name, p.position AS pos, p.espn_id, p.sleeper_id, p.gsis_id
                  FROM player_week_usage u JOIN players p ON p.id = u.player_id
                  WHERE u.season <= ? AND p.position IN ('QB','RB','WR','TE')`, through);
   }
-  return rows(`SELECT u.*, p.name, p.position AS pos, p.espn_id, p.sleeper_id
+  return rows(`SELECT u.*, p.name, p.position AS pos, p.espn_id, p.sleeper_id, p.gsis_id
                FROM player_week_usage u JOIN players p ON p.id = u.player_id
                WHERE (u.season < ? OR (u.season = ? AND u.week <= ?))
                  AND p.position IN ('QB','RB','WR','TE')`, through, through, throughWeek);
@@ -300,6 +300,7 @@ export function buildProjections({
     if (w <= 0) continue;
     const a = acc.get(u.player_id) ?? {
       id: u.player_id, name: u.name, pos: u.pos, espn_id: u.espn_id, sleeper_id: u.sleeper_id,
+      gsis_id: u.gsis_id,
       team: null, lastSeason: -1, w: 0, games: 0, seasons: new Set(), gamesBySeason: new Map(), attemptsBySeason: new Map(),
       roleW: 0, tgtShareW: 0, tgtShare: 0, roleCarries: 0, roleAttempts: 0,
       targets: 0, receptions: 0, recYds: 0, recTd: 0,
@@ -458,7 +459,7 @@ export function buildProjections({
 
     out.set(a.id, {
       player_id: a.id, name: a.name, position: a.pos, team: a.team,
-      espn_id: a.espn_id, sleeper_id: a.sleeper_id,
+      espn_id: a.espn_id, sleeper_id: a.sleeper_id, gsis_id: a.gsis_id,
       evidence_games: a.games, evidence_weight: +n.toFixed(1), seasons: [...a.seasons].sort(),
       role_prior: { mode: 'flat_structural_head', target_share: 0.06,
         carry_share: a.pos === 'RB' ? 0.25 : 0.02 },
@@ -496,34 +497,47 @@ export function buildProjections({
  *
  * @param mult optional matchup multiplier applied to opportunity
  */
-export function sampleWeek(params, scoring = PPR, mult = 1) {
+export function sampleWeekEvents(params, mult = 1) {
   const p = params;
   // A scalar applies to everything (a pure matchup adjustment); an object lets the
   // game-script layer move passing and rushing volume in opposite directions, which is
   // the entire point of it — a favourite runs more *and* throws less.
   const mPass = typeof mult === 'object' ? (mult.pass ?? 1) : mult;
   const mRush = typeof mult === 'object' ? (mult.rush ?? 1) : mult;
-  let passYd = 0, passTd = 0, int = 0, rushYd = 0, rushTd = 0, rec = 0, recYd = 0, recTd = 0;
+  let attempts = 0, carries = 0, targets = 0;
 
   if (p.attempts > 0) {
-    const att = randNegBinomial(p.attempts * mPass, p.dispersion);
-    // Yards per attempt varies game to game; a gamma keeps it positive and right-skewed.
-    passYd = att > 0 ? randGamma(att * 0.9, p.ypa / 0.9) : 0;
-    passTd = randBinomial(att, Math.min(0.35, p.pass_td_rate));
-    int = randBinomial(att, Math.min(0.2, p.int_rate));
+    attempts = randNegBinomial(p.attempts * mPass, p.dispersion);
   }
   if (p.carries > 0) {
-    const car = randNegBinomial(p.carries * mRush, p.dispersion);
-    rushYd = car > 0 ? randGamma(car * 0.75, p.ypc / 0.75) : 0;
-    rushTd = randBinomial(car, Math.min(0.3, p.rush_td_rate));
+    carries = randNegBinomial(p.carries * mRush, p.dispersion);
   }
   if (p.targets > 0) {
-    const tgt = randNegBinomial(p.targets * mPass, p.dispersion);
-    rec = randBinomial(tgt, Math.min(0.95, p.catch_rate));
-    recYd = rec > 0 ? randGamma(rec * 0.8, (p.ypt / Math.max(0.05, p.catch_rate)) / 0.8) : 0;
-    recTd = randBinomial(tgt, Math.min(0.35, p.rec_td_rate));
+    targets = randNegBinomial(p.targets * mPass, p.dispersion);
   }
-  return scoreSim({ passYd, passTd, int, rushYd, rushTd, rec, recYd, recTd }, scoring);
+  return sampleAllocatedWeekEvents(p, { attempts, carries, targets });
+}
+
+/**
+ * Event draw conditional on opportunity counts allocated by a team simulation.
+ * Keeping efficiency sampling here means standalone and joint simulations use
+ * identical yardage and touchdown mechanics.
+ */
+export function sampleAllocatedWeekEvents(p, { attempts = 0, carries = 0, targets = 0 } = {}) {
+  const passYd = attempts > 0 ? randGamma(attempts * 0.9, p.ypa / 0.9) : 0;
+  const passTd = randBinomial(attempts, Math.min(0.35, p.pass_td_rate));
+  const int = randBinomial(attempts, Math.min(0.2, p.int_rate));
+  const rushYd = carries > 0 ? randGamma(carries * 0.75, p.ypc / 0.75) : 0;
+  const rushTd = randBinomial(carries, Math.min(0.3, p.rush_td_rate));
+  const rec = randBinomial(targets, Math.min(0.95, p.catch_rate));
+  const recYd = rec > 0 ? randGamma(rec * 0.8, (p.ypt / Math.max(0.05, p.catch_rate)) / 0.8) : 0;
+  const recTd = randBinomial(targets, Math.min(0.35, p.rec_td_rate));
+  return { attempts, carries, targets, passYd, passTd, int, rushYd, rushTd, rec, recYd, recTd };
+}
+
+/** One simulated week scored for fantasy from the shared football-event draw. */
+export function sampleWeek(params, scoring = PPR, mult = 1) {
+  return scoreSim(sampleWeekEvents(params, mult), scoring);
 }
 
 /**

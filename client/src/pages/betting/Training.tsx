@@ -65,6 +65,13 @@ interface AiReplayLog {
   evidence_coverage?: { home_feature_fields: number; away_feature_fields: number; context_fields_present: number; context_fields_total: number } | null;
   outcome: string | null; units: number | null;
 }
+interface BlindAudit {
+  id: number; label: string; status: 'registered' | 'running' | 'complete';
+  spec_hash: string; code_hash: string; data_hash: string;
+  progress: { opened: number; total: number; next: { season: number; week: number } | null };
+  final?: { betting?: { bets: number; wins: number; losses: number; units: number; roi: number | null } } | null;
+  weeks: { ordinal: number; season: number; week: number; chain_hash: string }[];
+}
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}u`);
@@ -89,6 +96,9 @@ export default function Training() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiErr, setAiErr] = useState<string | null>(null);
   const [aiLogs, setAiLogs] = useState<AiReplayLog[]>([]);
+  const [blindRun, setBlindRun] = useState<BlindAudit | null>(null);
+  const [blindBusy, setBlindBusy] = useState(false);
+  const [blindError, setBlindError] = useState<string | null>(null);
   const { data: protocol } = useApi<Protocol>('/nfl-betting/experiments/protocol');
   const { data: registry } = useApi<{ experiments: Experiment[] }>('/nfl-betting/experiments');
   const { data: calibrationPayload } = useApi<{ calibration: Calibration | null }>('/nfl-betting/calibration/cover');
@@ -96,6 +106,7 @@ export default function Training() {
   const { data: latestAudit } = useApi<{ audit: { result: Training } | null }>('/nfl-betting/replay/latest');
   const { data: activeAiPayload } = useApi<{ run: AiReplay | null }>('/nfl-betting/ai-replay/active');
   const { data: latestAiPayload } = useApi<{ run: AiReplay | null }>('/nfl-betting/ai-replay/latest');
+  const blindApi = useApi<{ audits: BlindAudit[] }>('/nfl-betting/blind-audits');
   const calibration = calibrationPayload?.calibration;
   useEffect(() => { if (!data && latestAudit?.audit?.result) setData(latestAudit.audit.result); }, [latestAudit, data]);
   // A dev-server refresh should never make an already-running, budgeted job
@@ -108,6 +119,9 @@ export default function Training() {
     api<{ logs: AiReplayLog[] }>(`/nfl-betting/ai-replay/${latest.id}/logs`)
       .then(x => setAiLogs(x.logs)).catch(() => {});
   }, [latestAiPayload, aiRun]);
+  useEffect(() => {
+    if (!blindRun && blindApi.data?.audits?.length) setBlindRun(blindApi.data.audits[0]);
+  }, [blindApi.data, blindRun]);
   useEffect(() => {
     if (!aiRun || aiRun.status !== 'running') return;
     const tick = () => {
@@ -148,6 +162,24 @@ export default function Training() {
     } catch (e: any) { setAiErr(e.message); }
     finally { setAiBusy(false); }
   };
+  const preregisterBlind = async () => {
+    setBlindBusy(true); setBlindError(null);
+    try {
+      const created = await api<BlindAudit>('/nfl-betting/blind-audits', { method: 'POST',
+        body: JSON.stringify({ seasons: [2021, 2022, 2023, 2024, 2025], startWeek: 5, endWeek: 18 }) });
+      setBlindRun(created); await blindApi.refetch();
+    } catch (e: any) { setBlindError(e.message); }
+    finally { setBlindBusy(false); }
+  };
+  const openNextBlindWeek = async () => {
+    if (!blindRun) return;
+    setBlindBusy(true); setBlindError(null);
+    try {
+      const updated = await api<BlindAudit>(`/nfl-betting/blind-audits/${blindRun.id}/next`, { method: 'POST' });
+      setBlindRun(updated); await blindApi.refetch();
+    } catch (e: any) { setBlindError(e.message); }
+    finally { setBlindBusy(false); }
+  };
 
   const o = data?.overall;
 
@@ -168,6 +200,39 @@ export default function Training() {
       <Notice title={firewall?.canonical_label ?? 'Development replay — not an untouched profitability test'} tone="warn">
         This audit uses the same versioned spread-only policy, edge floor, disagreement guard, weekly cap and ranking rule as the live desk. It is mechanically outcome-blind, but 2021–25 has already informed development. Only frozen, pre-kickoff 2026 decisions can become untouched forward evidence.
       </Notice>
+
+      <section className="my-5">
+        <SectionHeading eyebrow="Sealed audit controller" title="One irreversible week at a time"
+          description="The controller hashes the committed code, exact model-input tables, model registry and policy. It refuses the next week if any frozen input changes." />
+        {blindError && <Notice title="Blind audit action blocked" tone="bad">{blindError}</Notice>}
+        <div className="card overflow-hidden">
+          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill tone={blindRun?.status === 'complete' ? 'good' : blindRun ? 'info' : 'neutral'}>{blindRun?.status ?? 'not preregistered'}</StatusPill>
+                <span className="text-sm font-black text-slate-900">2021–2025 chronological replay</span>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Historical algorithmic blindness prevents target-week leakage and mid-run tuning. It is not relabeled as untouched: genuine promotion evidence remains frozen 2026 pre-kickoff decisions and positive CLV.</p>
+              {blindRun && <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
+                <span>{blindRun.progress.opened}/{blindRun.progress.total} weeks opened</span>
+                <span>spec {blindRun.spec_hash.slice(0, 12)}</span>
+                <span>chain {blindRun.weeks.at(-1)?.chain_hash.slice(0, 12) ?? 'not started'}</span>
+                {blindRun.progress.next && <span>next: {blindRun.progress.next.season} W{blindRun.progress.next.week}</span>}
+              </div>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {!blindRun && <button className="btn-primary text-sm" disabled={blindBusy} onClick={preregisterBlind}>{blindBusy ? 'Hashing…' : 'Preregister frozen audit'}</button>}
+              {blindRun && blindRun.status !== 'complete' && <button className="btn-primary text-sm" disabled={blindBusy} onClick={openNextBlindWeek}>{blindBusy ? 'Opening…' : `Open ${blindRun.progress.next?.season ?? ''} W${blindRun.progress.next?.week ?? ''}`}</button>}
+            </div>
+          </div>
+          {blindRun?.final?.betting && <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-4">
+            <BlindMetric label="Bets" value={String(blindRun.final.betting.bets)} />
+            <BlindMetric label="Record" value={`${blindRun.final.betting.wins}-${blindRun.final.betting.losses}`} />
+            <BlindMetric label="Units" value={u(blindRun.final.betting.units)} />
+            <BlindMetric label="ROI" value={pct(blindRun.final.betting.roi)} />
+          </div>}
+        </div>
+      </section>
 
       {firewall && <div className="my-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Recorded research trials" value={firewall.total_recorded_trials.toLocaleString()} />
@@ -359,6 +424,10 @@ export default function Training() {
       )}
     </div>
   );
+}
+
+function BlindMetric({ label, value }: { label: string; value: string }) {
+  return <div className="bg-white p-3"><div className="text-[10px] font-black uppercase tracking-wide text-slate-400">{label}</div><div className="mt-1 text-lg font-black text-slate-900">{value}</div></div>;
 }
 
 function AiReplayPanel({ run, logs }: { run: AiReplay; logs: AiReplayLog[] }) {

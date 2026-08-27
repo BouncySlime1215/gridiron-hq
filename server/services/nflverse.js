@@ -127,6 +127,8 @@ export async function syncCrosswalk() {
 
   const byEspn = new Map(rows('SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL')
     .map(p => [String(p.espn_id), p.id]));
+  const byGsis = new Map(rows('SELECT id, gsis_id FROM players WHERE gsis_id IS NOT NULL')
+    .map(p => [p.gsis_id, p.id]));
   // Name fallback for the handful of players with no espn_id on our side — shares
   // player-identity.js's matcher so a name collision refuses to guess instead of
   // silently rebinding the wrong human (the same bug that split Ja'Marr Chase's
@@ -161,11 +163,14 @@ export async function syncCrosswalk() {
   };
 
   const up = db.prepare('UPDATE players SET gsis_id = ? WHERE id = ?');
+  const addHistorical = db.prepare(`INSERT INTO players
+    (name,position,team_id,depth_rank,phase,fantasy_relevant,espn_id,gsis_id)
+    VALUES (?,?,NULL,99,'historical',0,?,?)`);
   const upPos = db.prepare(`INSERT INTO nflverse_player_positions (gsis_id, position, position_group, ngs_position)
     VALUES (?,?,?,?)
     ON CONFLICT(gsis_id) DO UPDATE SET position=excluded.position,
       position_group=excluded.position_group, ngs_position=excluded.ngs_position`);
-  let matched = 0, ambiguous = 0;
+  let matched = 0, ambiguous = 0, createdHistorical = 0;
   db.exec('BEGIN');
   try {
     for (const rec of records) {
@@ -175,7 +180,7 @@ export async function syncCrosswalk() {
       // this is the comprehensive lookup nfl_player_week_features backfills from.
       upPos.run(gsis, rec[iPos] || null, iPosGroup < 0 ? null : (rec[iPosGroup] || null),
         iNgs < 0 ? null : (rec[iNgs] || null));
-      let id = byEspn.get(String(rec[iEspn]));
+      let id = byGsis.get(gsis) ?? byEspn.get(String(rec[iEspn]));
       if (!id) {
         const found = findPlayerMatch(noEspnCandidates,
           { espn_id: null, name: rec[iName], position: rec[iPos], team_id: null });
@@ -188,6 +193,19 @@ export async function syncCrosswalk() {
         if (compatible.length === 1) id = compatible[0].id;
         else if (compatible.length > 1) { ambiguous++; continue; }
       }
+      // The usage model is historical, while the app roster is current. Do not
+      // discard old or newly-entering skill players merely because they are no
+      // longer in today's ESPN player pool. Historical rows are non-fantasy-
+      // relevant, teamless identities and therefore never pollute current UI or
+      // depth charts; they only make cutoff-safe joins possible.
+      if (!id && ['QB', 'RB', 'WR', 'TE'].includes(rec[iPos]) && rec[iName]) {
+        const espn = Number(rec[iEspn]);
+        id = Number(addHistorical.run(rec[iName], rec[iPos],
+          Number.isFinite(espn) ? espn : null, gsis).lastInsertRowid);
+        byGsis.set(gsis, id);
+        if (Number.isFinite(espn)) byEspn.set(String(espn), id);
+        createdHistorical++;
+      }
       if (!id) continue;
       up.run(gsis, id);
       matched++;
@@ -195,7 +213,7 @@ export async function syncCrosswalk() {
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   const positions = backfillPlayerWeekPositions();
-  return { nflverse_players: records.length, matched, ambiguous, positions };
+  return { nflverse_players: records.length, matched, ambiguous, created_historical: createdHistorical, positions };
 }
 
 /**

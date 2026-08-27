@@ -28,7 +28,7 @@ import { gamePlayerAvailability } from './nfl-player-value.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
 const EVAL_FROM = 2022;    // seasons graded out-of-sample (also where play-by-play features exist)
-const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v2-dynamic-state';
+const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v3-significant-residual-gate';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_ensemble_fit_artifacts (
   artifact_key TEXT PRIMARY KEY, model_version TEXT NOT NULL,
@@ -800,6 +800,14 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     const slope = denominator > 0 ? rs.signal.reduce((s, x, i) => s + x * rs.actual[i], 0) / denominator : 0;
     const baselineMse = rs.actual.length ? mean(rs.actual.map(x => x ** 2)) : null;
     const residualMse = rs.actual.length ? mean(rs.actual.map((x, i) => (x - slope * rs.signal[i]) ** 2)) : null;
+    const paired = rs.actual.map((x, i) => (x - slope * rs.signal[i]) ** 2 - x ** 2);
+    const pairedMean = paired.length ? mean(paired) : null;
+    const pairedSd = paired.length > 1
+      ? Math.sqrt(paired.reduce((sum, x) => sum + (x - pairedMean) ** 2, 0) / (paired.length - 1)) : null;
+    const residualT = pairedSd > 0 ? pairedMean / (pairedSd / Math.sqrt(paired.length)) : null;
+    const marketRmse = baselineMse == null ? null : Math.sqrt(baselineMse);
+    const modelRmse = residualMse == null ? null : Math.sqrt(residualMse);
+    const residualGain = marketRmse == null || modelRmse == null ? null : marketRmse - modelRmse;
     return {
       id: m.id, name: m.name, family: m.family, note: m.note,
       margin_rmse: mm.length ? +Math.sqrt(mean(mm)).toFixed(3) : null,
@@ -808,6 +816,8 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
       residual_slope: rs.actual.length >= 100 ? r2(slope) : null,
       residual_rmse: residualMse == null ? null : r2(Math.sqrt(residualMse)),
       market_residual_rmse: baselineMse == null ? null : r2(Math.sqrt(baselineMse)),
+      residual_rmse_gain: r2(residualGain),
+      residual_paired_t: r2(residualT),
       residual_n: rs.actual.length
     };
   });
@@ -827,10 +837,12 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   for (const m of scored) {
     m.margin_weight = mW ? +(rawWeight(m, 'margin_rmse') / mW).toFixed(4) : 0;
     m.total_weight = tW ? +(rawWeight(m, 'total_rmse') / tW).toFixed(4) : 0;
-    // A component earns residual weight only if its own historical,
-    // walk-forward signal has lower error than simply staying at the market.
-    m.residual_weight = m.residual_n >= 100 && m.residual_rmse < m.market_residual_rmse
-      ? Math.exp(-0.7 * m.residual_rmse) : 0;
+    // A microscopic in-sample inequality is not an edge. A component earns
+    // residual authority only after a material gain and one-sided paired test
+    // on the cutoff-safe replay. The market remains the prediction otherwise.
+    m.residual_gate_passed = m.residual_n >= 250
+      && m.residual_rmse_gain >= 0.03 && m.residual_paired_t <= -1.645;
+    m.residual_weight = m.residual_gate_passed ? Math.exp(-0.7 * m.residual_rmse) : 0;
   }
   const residualWeightSum = scored.reduce((s, m) => s + m.residual_weight, 0);
   for (const m of scored) m.residual_weight = residualWeightSum

@@ -108,9 +108,10 @@ The whole point of 1.1–1.2.
 ### 2.1 Extract the player-week engine
 Hierarchical state estimator producing a joint distribution over underlying
 events. Fantasy head becomes a thin scoring translator over it.
-- **Status:** started after 1.3 passed. `player-week-engine.js` now owns the
-  frozen weekly ensemble and Fantasy Lab's weekly player view consumes it.
-  Event-state extraction and the props migration remain.
+- **Status:** architecture complete. `player-week-engine.js` owns canonical
+  identity resolution, the frozen weekly ensemble, deterministic event
+  expectations and constrained team-level simulation. Fantasy scoring is a
+  translation over those events; see `STAGE_2_RESULTS.md`.
 - **Effort:** ~2 weeks
 - **Gate:** fantasy numbers unchanged or better after refactor (pure move)
 
@@ -120,11 +121,17 @@ availability — replacing it with the good engine that already existed.
 - **Effort:** ~1 week
 - **Gate:** **props passing-yds MAE < 60** (from 70.14) on the same 4-season
   walk-forward. This is the single clearest predicted win in the plan.
+- **Status:** duplicate blend deleted. Broad passing-yards MAE improved to
+  67.724 but remains above the original gate. A pregame market-eligible QB
+  population clears it at 59.298; both populations are reported because the
+  eligibility change cannot be hidden inside the headline metric.
 
 ### 2.3 Turn `betting-fantasy-link.js` into a test
 It currently reconciles two models. Once there is one model, agreement is
 structural.
 - **Gate:** fantasy↔props disagreement ≈ 0 by construction
+- **Status:** complete at the event layer and enforced by model-integrity
+  tests. The fantasy calibration shift is intentionally separate and visible.
 
 ---
 
@@ -139,6 +146,9 @@ All 8 current jobs are ingestion. Add refit jobs to `scheduler.js`.
   fit ledger preserves both promotions and rejections. The frozen 2023
   champion remains active until at least 250 forward snapshots exist and a
   challenger improves newest-window MAE without damaging rank or coverage.
+  The first-write snapshot now also stores all 24 candidate heads. Discovery
+  can remove redundant variants and correct for multiple comparisons; forward
+  review eligibility never means automatic promotion.
 - **Effort:** ~3 days
 - **Gate:** ≥4 retraining jobs running on cadence; `sync_log` shows them
 

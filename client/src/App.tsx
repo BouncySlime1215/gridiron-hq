@@ -28,7 +28,6 @@ const PropsModel = lazy(() => import('./pages/props/PropsModel'));
 const PropsAutoPicks = lazy(() => import('./pages/props/PropsAutoPicks'));
 const NflMarketBoard = lazy(() => import('./pages/NflMarketBoard'));
 const BettingHome = lazy(() => import('./pages/betting/BettingHome'));
-const NflProps = lazy(() => import('./pages/betting/NflProps'));
 const MlbBoard = lazy(() => import('./pages/betting/MlbBoard'));
 const MlbAutoPicks = lazy(() => import('./pages/betting/MlbAutoPicks'));
 
@@ -108,7 +107,7 @@ export default function App() {
           <Route path="/trade-lab" element={<TradeLab />} /><Route path="/news" element={<News />} />
           <Route path="/settings" element={<Settings />} /><Route path="/lab" element={<FantasyLab />} />
           <Route path="/betting" element={<BettingHome />} /><Route path="/betting/nfl" element={<NflMarketBoard initialTool="board" />} />
-          <Route path="/betting/nfl/props" element={<NflProps />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />
+          <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />
           <Route path="/betting/nfl/operations" element={<NflMarketBoard initialTool="operations" />} /><Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} />
           <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} /><Route path="/betting/training" element={<NflMarketBoard initialTool="training" />} /><Route path="/betting/catalog" element={<NflMarketBoard initialTool="variables" />} />
           <Route path="/betting/mlb" element={<MlbBoard />} /><Route path="/betting/mlb/legacy" element={<PropsBoard />} /><Route path="/betting/mlb/auto" element={<MlbAutoPicks />} /><Route path="/betting/mlb/auto-legacy" element={<PropsAutoPicks />} /><Route path="/betting/mlb/picks" element={<PropsPicks />} /><Route path="/betting/mlb/model" element={<PropsModel />} />

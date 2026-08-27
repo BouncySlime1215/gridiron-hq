@@ -20,6 +20,8 @@
     "dev:client": "vite --config client/vite.config.ts",
     "sync:data": "node scripts/bootstrap-data.mjs",
     "sync:history": "node server/scripts/sync-history.js",
+    "audit:nfl": "node scripts/nfl-blind-audit.mjs",
+    "fit:nfl-props": "node scripts/fit-prop-calibration.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:rollback": "node scripts/rollback-migration.mjs"
   },

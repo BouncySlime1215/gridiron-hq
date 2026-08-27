@@ -172,6 +172,17 @@ async function refreshWeeklyLearning() {
   return runWeeklyLearningCycle();
 }
 
+/** Refit the TD calibrator on fixed chronological eras; promotion still requires replication. */
+async function refreshNflPropCalibration() {
+  const { propReplayRows } = await import('./nfl-props.js');
+  const { auditTdCalibration } = await import('./nfl-prop-calibration.js');
+  const replay = seasons => propReplayRows(seasons, { useCache: false }).rows;
+  return auditTdCalibration({
+    trainRows: replay([2022, 2023]), discoveryRows: replay([2024]),
+    validationRows: replay([2025]), persist: true
+  });
+}
+
 /**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
@@ -187,7 +198,9 @@ export const JOBS = {
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, label: 'Multi-book line snapshots (CLV)' },
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60,
-    label: 'NFL weekly snapshot, settlement, and challenger retraining' }
+    label: 'NFL weekly snapshot, settlement, and challenger retraining' },
+  nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60,
+    label: 'NFL chronological prop calibration registry' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

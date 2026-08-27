@@ -36,7 +36,8 @@ function newsFor(player) {
 r.get('/', (req, res) => {
   const { position, q } = req.query;
   let sql = `SELECT p.*, t.abbr AS team_abbr, t.name AS team_name
-             FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE 1=1`;
+             FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id
+             WHERE COALESCE(p.phase, '') <> 'historical'`;
   const params = [];
   if (position) { sql += ' AND p.position = ?'; params.push(position); }
   if (q) { sql += ' AND p.name LIKE ?'; params.push(`%${q}%`); }

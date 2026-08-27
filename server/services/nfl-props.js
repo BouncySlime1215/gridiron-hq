@@ -14,11 +14,17 @@
  * as unavailable instead of the page breaking.
  */
 import { db, rows, run } from '../db/index.js';
-import { playerFeatureVector, teamFeatureVector } from './nfl-features.js';
 import { playerWeeks } from './nfl-pbp.js';
 import { gameScriptFor } from './gamescript.js';
-import { randNegBinomial, randGamma, randBinomial, quantile, mean } from './stats-util.js';
+import { quantile, mean } from './stats-util.js';
+import {
+  buildPlayerWeekEngine, playerPropEligibility, playerWeekEventExpectation,
+  playerWeekProjection, sampleTeamWeekEvents, teamWeekEventExpectations
+} from './player-week-engine.js';
 import { hasKey, events, playerProps, flattenProps, PROP_MARKETS } from './odds-api.js';
+import { calibrateAnytimeTd } from './nfl-prop-calibration.js';
+import { playerSignalTrace } from './model-signal-quality.js';
+import { pairedBootstrapDiff } from './backtest-significance.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_total_picks (
@@ -29,53 +35,53 @@ db.exec(`
     model_total REAL, detail TEXT, units_staked REAL DEFAULT 1, selected_at TEXT NOT NULL,
     PRIMARY KEY (season, week, rank)
   );
+  CREATE TABLE IF NOT EXISTS nfl_prop_quote_snapshots (
+    captured_at TEXT NOT NULL, event_id TEXT NOT NULL, commence_time TEXT,
+    home_team TEXT, away_team TEXT, book TEXT NOT NULL, market TEXT NOT NULL,
+    player TEXT NOT NULL, side TEXT NOT NULL, line REAL, line_key TEXT NOT NULL,
+    american_price INTEGER NOT NULL,
+    PRIMARY KEY (captured_at,event_id,book,market,player,side,line_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_nfl_prop_quotes_event
+    ON nfl_prop_quote_snapshots(event_id,market,captured_at);
 `);
 
-const SIMS = 8000;
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
+const accuracyCache = new Map();
+const replayCache = new Map();
+
+function persistPropQuotes(quotes, capturedAt) {
+  const insert = db.prepare(`INSERT OR IGNORE INTO nfl_prop_quote_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,player,side,line,line_key,american_price)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+  let stored = 0;
+  for (const q of quotes) stored += insert.run(capturedAt, q.event_id, q.commence_time,
+    q.home_team, q.away_team, q.book, q.market, q.player, q.side, q.line,
+    q.line == null ? 'null' : String(q.line), q.american_price).changes;
+  return stored;
+}
+
+export function propQuoteStatus() {
+  const x = rows(`SELECT COUNT(*) quotes,COUNT(DISTINCT captured_at) captures,
+                         COUNT(DISTINCT event_id) events,MIN(captured_at) first,MAX(captured_at) latest
+                  FROM nfl_prop_quote_snapshots`)[0];
+  return { ...x, replay_ready: (x?.captures ?? 0) >= 2 && (x?.events ?? 0) >= 25 };
+}
 
 /* ------------------------------------------------------------- projection */
 
-/**
- * A player's expected volume and efficiency for one upcoming week.
- * Volume comes from recent form weighted toward the last three games, then the
- * market's game script nudges pass and rush opportunity in opposite directions.
- */
-function projectPlayer(season, week, playerId, { useGameScript = true } = {}) {
-  const pv = playerFeatureVector(season, week, playerId);
-  if (!pv) return null;
-  const f = pv.features;
-
-  // Recent form leads, season average anchors — a three-game sample alone is
-  // too noisy to project from, and a season average alone ignores role changes.
-  const blend = (recent, seasonAvg) => {
-    if (recent == null) return seasonAvg;
-    if (seasonAvg == null) return recent;
-    return 0.65 * recent + 0.35 * seasonAvg;
-  };
-
-  const gs = useGameScript && pv.team ? gameScriptFor(pv.team, season, week) : null;
-  const mPass = gs?.line ? gs.pass_mult : 1;
-  const mRush = gs?.line ? gs.rush_mult : 1;
-
-  const targets = (blend(f.targets_last3, f.targets) ?? 0) * mPass;
-  const carries = (blend(f.carries_last3, f.carries) ?? 0) * mRush;
-  const attempts = (f.pass_attempts ?? 0) * mPass;
-
+/** Thin props adapter over the canonical player-week engine. */
+function propView(projection, season, week, { useGameScript = true } = {}) {
+  if (!projection) return null;
+  const gs = useGameScript && projection.team ? gameScriptFor(projection.team, season, week) : null;
+  const mult = gs?.line ? { pass: gs.pass_mult, rush: gs.rush_mult } : 1;
+  const state = playerWeekEventExpectation(projection, { mult });
   return {
-    player_id: playerId, name: pv.name, team: pv.team, position: pv.position,
+    ...state,
+    projection,
+    mult,
     opponent: gs?.line?.opponent ?? null,
-    game_script: gs?.line ? { pass_mult: gs.pass_mult, rush_mult: gs.rush_mult, ...gs.line } : null,
-    volume: { targets, carries, attempts },
-    eff: {
-      ypa: f.yards_per_attempt ?? 7,
-      ypc: f.yards_per_carry ?? 4.2,
-      catch_rate: f.catch_rate ?? 0.65,
-      ypt: f.yards_per_target ?? 7.5,
-      pass_td_rate: f.pass_td_rate ?? 0.045,
-      rush_td_rate: f.rush_td_rate ?? 0.03,
-      rec_td_rate: f.rec_td_rate ?? 0.05
-    }
+    game_script: gs?.line ? { pass_mult: gs.pass_mult, rush_mult: gs.rush_mult, ...gs.line } : null
   };
 }
 
@@ -86,93 +92,352 @@ function projectPlayer(season, week, playerId, { useGameScript = true } = {}) {
  * game-script adjustment is used in replay and production so the audit measures
  * the policy that will actually run on Sunday.
  */
-export function propAccuracy(seasons) {
-  const metric = () => ({ n: 0, abs: 0, sq: 0, signed: 0 });
-  const stats = {
-    pass_yds: metric(), rush_yds: metric(), rec_yds: metric(), receptions: metric()
-  };
-  const td = { n: 0, brier: 0, logloss: 0, buckets: Array.from({ length: 10 }, () => ({ n: 0, predicted: 0, actual: 0 })) };
-
-  const add = (key, pred, actual) => {
-    if (!Number.isFinite(pred) || !Number.isFinite(actual)) return;
-    const e = pred - actual, s = stats[key];
-    s.n++; s.abs += Math.abs(e); s.sq += e * e; s.signed += e;
-  };
-
+export function propReplayRows(seasons, { reconciliationStrength = 0, useCache = true } = {}) {
+  const normalizedSeasons = [...new Set(seasons.map(Number))].sort((a, b) => a - b);
+  const cacheKey = `${normalizedSeasons.join(',')}|reconcile=${reconciliationStrength}`;
+  const cached = replayCache.get(cacheKey);
+  if (useCache && cached && Date.now() - cached.at < 6 * 60 * 60 * 1000) return cached.value;
+  seasons = normalizedSeasons;
+  const replayRows = [];
+  let eligible = 0, projected = 0;
+  // Season-to-date own-average, per player, strictly prior weeks only — the
+  // "beat the baseline" comparator. Reset every season so it never crosses
+  // the season boundary a real bettor also can't cross.
+  const passYdHistory = new Map();
   for (const season of seasons) {
-    for (const actual of playerWeeks(season).filter(p => p.week >= 2)) {
-      const p = projectPlayer(season, actual.week, actual.player_id);
-      if (!p) continue;
-      const f = actual.features;
-      if (p.volume.attempts > 2) add('pass_yds', p.volume.attempts * p.eff.ypa, f.passing_yards);
-      if (p.volume.carries > 0.5) add('rush_yds', p.volume.carries * p.eff.ypc, f.rushing_yards);
-      if (p.volume.targets > 0.5) {
-        add('rec_yds', p.volume.targets * p.eff.ypt, f.receiving_yards);
-        add('receptions', p.volume.targets * p.eff.catch_rate, f.receptions);
+    passYdHistory.clear();
+    const actualWeeks = playerWeeks(season).filter(p => p.week >= 2);
+    for (const week of [...new Set(actualWeeks.map(p => p.week))].sort((a, b) => a - b)) {
+      const engine = buildPlayerWeekEngine({ season, week });
+      const teamStates = new Map(), marketTeamStates = new Map();
+      for (const team of new Set([...engine.values()].map(p => p.team).filter(Boolean))) {
+        const gs = gameScriptFor(team, season, week);
+        const mult = gs?.line ? { pass: gs.pass_mult, rush: gs.rush_mult } : 1;
+        teamStates.set(team, teamWeekEventExpectations(engine, team, {
+          mult, reconciliationStrength, conditionalPrimary: false
+        }));
+        marketTeamStates.set(team, teamWeekEventExpectations(engine, team, {
+          mult, reconciliationStrength, conditionalPrimary: false
+        }));
       }
+      for (const actual of actualWeeks.filter(p => p.week === week)) {
+        eligible++;
+        const projection = playerWeekProjection(engine, actual.player_id);
+        if (!projection) continue;
+        projected++;
+        const p = teamStates.get(projection.team)?.get(projection.player_id)
+          ?? playerWeekEventExpectation(projection, { mult: 0 });
+        const marketP = marketTeamStates.get(projection.team)?.get(projection.player_id) ?? p;
+        const eligibility = playerPropEligibility(engine, projection);
+        const f = actual.features;
 
-      const noPass = (1 - Math.min(0.35, p.eff.pass_td_rate)) ** Math.max(0, p.volume.attempts);
-      const noRush = (1 - Math.min(0.3, p.eff.rush_td_rate)) ** Math.max(0, p.volume.carries);
-      const noRec = (1 - Math.min(0.35, p.eff.rec_td_rate)) ** Math.max(0, p.volume.targets);
-      const prob = Math.max(0.001, Math.min(0.999, 1 - noPass * noRush * noRec));
-      const y = (f.passing_tds ?? 0) + (f.rushing_tds ?? 0) + (f.receiving_tds ?? 0) > 0 ? 1 : 0;
-      td.n++; td.brier += (prob - y) ** 2;
-      td.logloss += -(y * Math.log(prob) + (1 - y) * Math.log(1 - prob));
-      const b = td.buckets[Math.min(9, Math.floor(prob * 10))];
-      b.n++; b.predicted += prob; b.actual += y;
+        const noPass = (1 - Math.min(0.35, p.efficiency.pass_td_rate)) ** Math.max(0, p.volume.attempts);
+        const noRush = (1 - Math.min(0.3, p.efficiency.rush_td_rate)) ** Math.max(0, p.volume.carries);
+        const noRec = (1 - Math.min(0.35, p.efficiency.rec_td_rate)) ** Math.max(0, p.volume.targets);
+        const noInt = (1 - Math.min(0.2, p.efficiency.int_rate)) ** Math.max(0, p.volume.attempts);
+        const prob = Math.max(0.001, Math.min(0.999, 1 - noRush * noRec)); // sportsbook "anytime TD": excludes passing
+        const totalTdProb = Math.max(0.001, Math.min(0.999, 1 - noPass * noRush * noRec));
+        const lambdaAll = -Math.log(Math.max(1e-9, noPass * noRush * noRec));
+        const multiTdProb = Math.max(0.001, Math.min(0.999, 1 - Math.exp(-lambdaAll) * (1 + lambdaAll))); // Poisson approx, 2+ TDs
+
+        const marketNoPass = (1 - Math.min(0.35, marketP.efficiency.pass_td_rate)) ** Math.max(0, marketP.volume.attempts);
+        const marketNoRush = (1 - Math.min(0.3, marketP.efficiency.rush_td_rate)) ** Math.max(0, marketP.volume.carries);
+        const marketNoRec = (1 - Math.min(0.35, marketP.efficiency.rec_td_rate)) ** Math.max(0, marketP.volume.targets);
+        const marketNoInt = (1 - Math.min(0.2, marketP.efficiency.int_rate)) ** Math.max(0, marketP.volume.attempts);
+        const marketProb = Math.max(0.001, Math.min(0.999, 1 - marketNoRush * marketNoRec));
+        const marketTotalTdProb = Math.max(0.001, Math.min(0.999, 1 - marketNoPass * marketNoRush * marketNoRec));
+        const marketLambdaAll = -Math.log(Math.max(1e-9, marketNoPass * marketNoRush * marketNoRec));
+        const marketMultiTdProb = Math.max(0.001, Math.min(0.999, 1 - Math.exp(-marketLambdaAll) * (1 + marketLambdaAll)));
+
+        const actualTotalTds = (f.passing_tds ?? 0) + (f.rushing_tds ?? 0) + (f.receiving_tds ?? 0);
+
+        const hist = passYdHistory.get(actual.player_id);
+        const seasonToDatePassYds = hist && hist.length >= 2 ? hist.reduce((s, v) => s + v, 0) / hist.length : null;
+
+        replayRows.push({
+          season, week, player_id: actual.player_id, player_name: actual.player_name,
+          team: actual.team, position: projection.position,
+          eligibility,
+          baseline: { pass_yds: seasonToDatePassYds },
+          broad: {
+            pass_yds: p.events.passYd, rush_yds: p.events.rushYd,
+            rec_yds: p.events.recYd, receptions: p.events.rec,
+            pass_attempts: p.volume.attempts, carries: p.volume.carries, targets: p.volume.targets,
+            passing_tds: p.events.passTd, rushing_tds: p.events.rushTd, receiving_tds: p.events.recTd,
+            interceptions: p.events.int,
+            total_touches: p.volume.carries + p.events.rec,
+            total_yards: p.events.passYd + p.events.rushYd + p.events.recYd,
+            total_tds: p.events.passTd + p.events.rushTd + p.events.recTd,
+            anytime_td: prob, total_td: totalTdProb, multi_td: multiTdProb,
+            pass_td_prob: 1 - noPass, rush_td_prob: 1 - noRush, rec_td_prob: 1 - noRec,
+            interception_prob: 1 - noInt,
+            volume: p.volume
+          },
+          market: {
+            pass_yds: marketP.events.passYd, rush_yds: marketP.events.rushYd,
+            rec_yds: marketP.events.recYd, receptions: marketP.events.rec,
+            pass_attempts: marketP.volume.attempts, carries: marketP.volume.carries, targets: marketP.volume.targets,
+            passing_tds: marketP.events.passTd, rushing_tds: marketP.events.rushTd, receiving_tds: marketP.events.recTd,
+            interceptions: marketP.events.int,
+            total_touches: marketP.volume.carries + marketP.events.rec,
+            total_yards: marketP.events.passYd + marketP.events.rushYd + marketP.events.recYd,
+            total_tds: marketP.events.passTd + marketP.events.rushTd + marketP.events.recTd,
+            anytime_td: marketProb, total_td: marketTotalTdProb, multi_td: marketMultiTdProb,
+            pass_td_prob: 1 - marketNoPass, rush_td_prob: 1 - marketNoRush, rec_td_prob: 1 - marketNoRec,
+            interception_prob: 1 - marketNoInt,
+            volume: marketP.volume
+          },
+          actual: {
+            pass_yds: f.passing_yards ?? 0, rush_yds: f.rushing_yards ?? 0,
+            rec_yds: f.receiving_yards ?? 0, receptions: f.receptions ?? 0,
+            pass_attempts: f.pass_attempts ?? 0, carries: f.carries ?? 0, targets: f.targets ?? 0,
+            passing_tds: f.passing_tds ?? 0, rushing_tds: f.rushing_tds ?? 0, receiving_tds: f.receiving_tds ?? 0,
+            interceptions: f.interceptions ?? 0,
+            total_touches: f.total_touches ?? ((f.carries ?? 0) + (f.receptions ?? 0)),
+            total_yards: f.total_yards ?? ((f.passing_yards ?? 0) + (f.rushing_yards ?? 0) + (f.receiving_yards ?? 0)),
+            total_tds: f.total_tds ?? actualTotalTds,
+            anytime_td: (f.rushing_tds ?? 0) + (f.receiving_tds ?? 0) > 0 ? 1 : 0,
+            total_td: actualTotalTds > 0 ? 1 : 0,
+            multi_td: actualTotalTds >= 2 ? 1 : 0,
+            pass_td: (f.passing_tds ?? 0) > 0 ? 1 : 0,
+            rush_td: (f.rushing_tds ?? 0) > 0 ? 1 : 0,
+            rec_td: (f.receiving_tds ?? 0) > 0 ? 1 : 0,
+            interception: (f.interceptions ?? 0) > 0 ? 1 : 0
+          }
+        });
+
+        if ((f.pass_attempts ?? 0) > 10) {
+          const arr = passYdHistory.get(actual.player_id) ?? [];
+          arr.push(f.passing_yards ?? 0);
+          passYdHistory.set(actual.player_id, arr);
+        }
+      }
     }
   }
+  const result = { seasons, eligible, projected, rows: replayRows };
+  if (useCache) replayCache.set(cacheKey, { at: Date.now(), value: result });
+  return result;
+}
 
-  const point = Object.fromEntries(Object.entries(stats).map(([key, s]) => [key, {
+const POINT_METRIC_KEYS = [
+  'pass_yds', 'rush_yds', 'rec_yds', 'receptions',
+  'pass_attempts', 'carries', 'targets',
+  'passing_tds', 'rushing_tds', 'receiving_tds', 'interceptions',
+  'total_touches', 'total_yards', 'total_tds',
+  'yards_per_attempt', 'yards_per_carry', 'yards_per_target', 'yards_per_reception'
+];
+const PROBABILITY_METRIC_KEYS = ['anytime_td', 'total_td', 'multi_td', 'pass_td', 'rush_td', 'rec_td', 'interception'];
+
+export function propAccuracy(seasons, { reconciliationStrength = 0, useCache = true } = {}) {
+  const normalizedSeasons = [...new Set(seasons.map(Number))].sort((a, b) => a - b);
+  const cacheKey = `${normalizedSeasons.join(',')}|reconcile=${reconciliationStrength}`;
+  const cached = accuracyCache.get(cacheKey);
+  if (useCache && cached && Date.now() - cached.at < 6 * 60 * 60 * 1000) return cached.value;
+  const replay = propReplayRows(normalizedSeasons, { reconciliationStrength, useCache });
+  const metric = () => ({ n: 0, abs: 0, sq: 0, signed: 0 });
+  const metricSet = () => Object.fromEntries(POINT_METRIC_KEYS.map(k => [k, metric()]));
+  const stats = metricSet(), marketStats = metricSet();
+  const tdSet = () => ({ n: 0, brier: 0, logloss: 0,
+    buckets: Array.from({ length: 10 }, () => ({ n: 0, predicted: 0, actual: 0 })) });
+  const probSet = () => Object.fromEntries(PROBABILITY_METRIC_KEYS.map(k => [k, tdSet()]));
+  const td = probSet(), marketTd = probSet();
+  const add = (set, key, pred, actual) => {
+    if (!Number.isFinite(pred) || !Number.isFinite(actual)) return;
+    const e = pred - actual, s = set[key];
+    s.n++; s.abs += Math.abs(e); s.sq += e * e; s.signed += e;
+  };
+  const addTd = (set, key, prob, y) => {
+    if (!Number.isFinite(prob) || !Number.isFinite(y)) return;
+    const s = set[key];
+    s.n++; s.brier += (prob - y) ** 2;
+    s.logloss += -(y * Math.log(prob) + (1 - y) * Math.log(1 - prob));
+    const b = s.buckets[Math.min(9, Math.floor(prob * 10))];
+    b.n++; b.predicted += prob; b.actual += y;
+  };
+  const rate = (numer, denom) => (Number.isFinite(numer) && denom > 0.5 ? numer / denom : null);
+  for (const r of replay.rows) {
+    const p = r.broad, m = r.market, f = r.actual, eligibility = r.eligibility;
+    const passOk = p.volume.attempts > 2, rushOk = p.volume.carries > 0.5, recOk = p.volume.targets > 0.5;
+
+    if (passOk) {
+      add(stats, 'pass_yds', p.pass_yds, f.pass_yds);
+      add(stats, 'pass_attempts', p.pass_attempts, f.pass_attempts);
+      add(stats, 'passing_tds', p.passing_tds, f.passing_tds);
+      add(stats, 'interceptions', p.interceptions, f.interceptions);
+      add(stats, 'yards_per_attempt', rate(p.pass_yds, p.pass_attempts), rate(f.pass_yds, f.pass_attempts));
+      addTd(td, 'pass_td', p.pass_td_prob, f.pass_td);
+      addTd(td, 'interception', p.interception_prob, f.interception);
+      if (eligibility.markets.player_pass_yds) {
+        add(marketStats, 'pass_yds', m.pass_yds, f.pass_yds);
+        add(marketStats, 'pass_attempts', m.pass_attempts, f.pass_attempts);
+        add(marketStats, 'passing_tds', m.passing_tds, f.passing_tds);
+        add(marketStats, 'interceptions', m.interceptions, f.interceptions);
+        add(marketStats, 'yards_per_attempt', rate(m.pass_yds, m.pass_attempts), rate(f.pass_yds, f.pass_attempts));
+        addTd(marketTd, 'pass_td', m.pass_td_prob, f.pass_td);
+        addTd(marketTd, 'interception', m.interception_prob, f.interception);
+      }
+    }
+    if (rushOk) {
+      add(stats, 'rush_yds', p.rush_yds, f.rush_yds);
+      add(stats, 'carries', p.carries, f.carries);
+      add(stats, 'rushing_tds', p.rushing_tds, f.rushing_tds);
+      add(stats, 'yards_per_carry', rate(p.rush_yds, p.carries), rate(f.rush_yds, f.carries));
+      addTd(td, 'rush_td', p.rush_td_prob, f.rush_td);
+      if (eligibility.markets.player_rush_yds) {
+        add(marketStats, 'rush_yds', m.rush_yds, f.rush_yds);
+        add(marketStats, 'carries', m.carries, f.carries);
+        add(marketStats, 'rushing_tds', m.rushing_tds, f.rushing_tds);
+        add(marketStats, 'yards_per_carry', rate(m.rush_yds, m.carries), rate(f.rush_yds, f.carries));
+        addTd(marketTd, 'rush_td', m.rush_td_prob, f.rush_td);
+      }
+    }
+    const recMarketOk = eligibility.markets.player_reception_yds || eligibility.markets.player_receptions;
+    if (recOk) {
+      add(stats, 'rec_yds', p.rec_yds, f.rec_yds);
+      add(stats, 'receptions', p.receptions, f.receptions);
+      add(stats, 'targets', p.targets, f.targets);
+      add(stats, 'receiving_tds', p.receiving_tds, f.receiving_tds);
+      add(stats, 'yards_per_target', rate(p.rec_yds, p.targets), rate(f.rec_yds, f.targets));
+      add(stats, 'yards_per_reception', rate(p.rec_yds, p.receptions), rate(f.rec_yds, f.receptions));
+      addTd(td, 'rec_td', p.rec_td_prob, f.rec_td);
+      if (eligibility.markets.player_reception_yds) {
+        add(marketStats, 'rec_yds', m.rec_yds, f.rec_yds);
+        add(marketStats, 'yards_per_target', rate(m.rec_yds, m.targets), rate(f.rec_yds, f.targets));
+        add(marketStats, 'yards_per_reception', rate(m.rec_yds, m.receptions), rate(f.rec_yds, f.receptions));
+      }
+      if (eligibility.markets.player_receptions) {
+        add(marketStats, 'receptions', m.receptions, f.receptions);
+        add(marketStats, 'targets', m.targets, f.targets);
+      }
+      if (recMarketOk) {
+        add(marketStats, 'receiving_tds', m.receiving_tds, f.receiving_tds);
+        addTd(marketTd, 'rec_td', m.rec_td_prob, f.rec_td);
+      }
+    }
+    const anyMarketOk = eligibility.markets.player_pass_yds || eligibility.markets.player_rush_yds || recMarketOk;
+    if (rushOk || recOk) {
+      add(stats, 'total_touches', p.total_touches, f.total_touches);
+      if ((eligibility.markets.player_rush_yds && rushOk) || (recMarketOk && recOk)) {
+        add(marketStats, 'total_touches', m.total_touches, f.total_touches);
+      }
+    }
+    if (passOk || rushOk || recOk) {
+      add(stats, 'total_yards', p.total_yards, f.total_yards);
+      add(stats, 'total_tds', p.total_tds, f.total_tds);
+      addTd(td, 'total_td', p.total_td, f.total_td);
+      addTd(td, 'multi_td', p.multi_td, f.multi_td);
+      if (anyMarketOk) {
+        add(marketStats, 'total_yards', m.total_yards, f.total_yards);
+        add(marketStats, 'total_tds', m.total_tds, f.total_tds);
+        addTd(marketTd, 'total_td', m.total_td, f.total_td);
+        addTd(marketTd, 'multi_td', m.multi_td, f.multi_td);
+      }
+    }
+    addTd(td, 'anytime_td', p.anytime_td, f.anytime_td);
+    if (eligibility.markets.player_anytime_td) addTd(marketTd, 'anytime_td', m.anytime_td, f.anytime_td);
+  }
+
+  const summarizePoint = set => Object.fromEntries(Object.entries(set).map(([key, s]) => [key, {
     n: s.n,
     mae: s.n ? +(s.abs / s.n).toFixed(3) : null,
     rmse: s.n ? +Math.sqrt(s.sq / s.n).toFixed(3) : null,
     bias: s.n ? +(s.signed / s.n).toFixed(3) : null
   }]));
-  return {
-    seasons,
-    point_metrics: point,
-    touchdown_probability: {
-      n: td.n,
-      brier: td.n ? +(td.brier / td.n).toFixed(4) : null,
-      log_loss: td.n ? +(td.logloss / td.n).toFixed(4) : null,
-      reliability: td.buckets.map((b, i) => ({
-        range: `${i * 10}-${(i + 1) * 10}%`, n: b.n,
-        predicted: b.n ? +(b.predicted / b.n).toFixed(3) : null,
-        actual: b.n ? +(b.actual / b.n).toFixed(3) : null
-      }))
+  const summarizeProbSet = set => Object.fromEntries(Object.entries(set).map(([key, s]) => [key, {
+    n: s.n,
+    brier: s.n ? +(s.brier / s.n).toFixed(4) : null,
+    log_loss: s.n ? +(s.logloss / s.n).toFixed(4) : null,
+    reliability: s.buckets.map((b, i) => ({
+      range: `${i * 10}-${(i + 1) * 10}%`, n: b.n,
+      predicted: b.n ? +(b.predicted / b.n).toFixed(3) : null,
+      actual: b.n ? +(b.actual / b.n).toFixed(3) : null
+    }))
+  }]));
+  const probResult = summarizeProbSet(td), marketProbResult = summarizeProbSet(marketTd);
+  const result = {
+    seasons: normalizedSeasons,
+    coverage: { eligible: replay.eligible, projected: replay.projected,
+      rate: replay.eligible ? +(replay.projected / replay.eligible).toFixed(4) : null },
+    point_metrics: summarizePoint(stats),
+    touchdown_probability: probResult.anytime_td,
+    probability_metrics: probResult,
+    market_eligible: {
+      point_metrics: summarizePoint(marketStats),
+      touchdown_probability: marketProbResult.anytime_td,
+      probability_metrics: marketProbResult,
+      rule: 'Pregame-only role gate: clear projected QB1 (>=20 attempts and >=3-attempt lead), >=4 carries, >=2 targets, or >=4 combined TD opportunities. No target-week outcome is read.'
     },
-    note: 'Strictly walk-forward within each season. Game-script adjustment is excluded until its coefficients are also cutoff-fitted.'
+    note: 'Strictly walk-forward within each season. Broad-population and pregame market-eligible metrics are both reported so abstention cannot masquerade as accuracy. ' +
+      `${POINT_METRIC_KEYS.length} point metrics and ${PROBABILITY_METRIC_KEYS.length} probability markets graded ` +
+      '(up from the original 4 point + 1 probability). touchdown_probability/point_metrics kept for backward compatibility; ' +
+      'probability_metrics/point_metrics are the full set.'
+  };
+  if (useCache) accuracyCache.set(cacheKey, { at: Date.now(), value: result });
+  return result;
+}
+
+/**
+ * Is the passing-yards model's edge over a trivial baseline real, or noise?
+ *
+ * The old gate ("<60 MAE") was calibrated against a bad prior model (70.14
+ * MAE), not against anything with real skill. Measured directly: the model's
+ * 59.3 MAE barely beats a constant "always guess the league mean" (61.1) and
+ * barely beats each QB's own season-to-date average (60.5) — a 2-3% edge that
+ * clearing "<60" made look like a solid pass.
+ *
+ * This runs the same paired bootstrap this codebase already uses for the
+ * Stage 1 CRPS-vs-noise question (`backtest-significance.js`): resample which
+ * player-weeks are in the test set, thousands of times, and check whether the
+ * model's improvement over the season-to-date baseline survives a different,
+ * similarly-drawn sample. If the 90% interval straddles zero, the model does
+ * not have a demonstrated real edge over a trivial baseline, regardless of
+ * which one has the lower raw MAE.
+ */
+export function passingYardsGateTest(seasons, { reconciliationStrength = 0, useCache = true } = {}) {
+  const replay = propReplayRows(seasons, { reconciliationStrength, useCache });
+  const modelErr = [], baselineErr = [];
+  for (const r of replay.rows) {
+    if (!(r.broad.volume.attempts > 2)) continue;
+    if (!r.eligibility.markets.player_pass_yds) continue;
+    if (r.baseline.pass_yds == null) continue;
+    const actualYds = r.actual.pass_yds;
+    modelErr.push(Math.abs(r.broad.pass_yds - actualYds));
+    baselineErr.push(Math.abs(r.baseline.pass_yds - actualYds));
+  }
+  const test = pairedBootstrapDiff(baselineErr, modelErr, { iterations: 2000, seed: 7 });
+  const modelMae = modelErr.length ? modelErr.reduce((a, b) => a + b, 0) / modelErr.length : null;
+  const baselineMae = baselineErr.length ? baselineErr.reduce((a, b) => a + b, 0) / baselineErr.length : null;
+  return {
+    seasons: [...new Set(seasons.map(Number))].sort((a, b) => a - b),
+    n: modelErr.length,
+    model_mae: modelMae != null ? +modelMae.toFixed(3) : null,
+    baseline_mae: baselineMae != null ? +baselineMae.toFixed(3) : null,
+    baseline: 'each QB\'s own season-to-date average passing yards (walk-forward, min. 2 prior starts)',
+    bootstrap: test,
+    // `test.significant` is true only when the 90% CI on (model - baseline) excludes zero.
+    // A negative mean_diff means the model wins; it still needs `significant: true` to count as real.
+    gate_passes: test.significant === true && test.mean_diff < 0,
+    verdict: test.error
+      ? `not enough paired data: ${test.error}`
+      : (test.significant
+          ? (test.mean_diff < 0
+              ? `real edge: model beats season-to-date average by ${(-test.mean_diff).toFixed(2)} yds MAE, CI excludes zero`
+              : `real, but backwards: model is WORSE than season-to-date average by ${test.mean_diff.toFixed(2)} yds MAE`)
+          : `not distinguishable from noise: 90% CI on the difference is [${test.ci90?.[0]}, ${test.ci90?.[1]}], straddles zero`)
   };
 }
 
-/** Monte Carlo of one player's week, returning the stat lines a prop asks about. */
-function simulatePlayer(p, sims = SIMS) {
+function propSamples(events) {
   const out = { pass_yds: [], rush_yds: [], rec_yds: [], receptions: [], any_td: [] };
-  const { volume: v, eff: e } = p;
-  for (let i = 0; i < sims; i++) {
-    let passYd = 0, rushYd = 0, recYd = 0, rec = 0, tds = 0;
-    if (v.attempts > 0.5) {
-      const att = randNegBinomial(v.attempts, 6);
-      passYd = att > 0 ? randGamma(att * 0.9, e.ypa / 0.9) : 0;
-      tds += randBinomial(att, Math.min(0.35, e.pass_td_rate));
-    }
-    if (v.carries > 0.5) {
-      const car = randNegBinomial(v.carries, 6);
-      rushYd = car > 0 ? randGamma(car * 0.75, e.ypc / 0.75) : 0;
-      tds += randBinomial(car, Math.min(0.3, e.rush_td_rate));
-    }
-    if (v.targets > 0.5) {
-      const tgt = randNegBinomial(v.targets, 6);
-      rec = randBinomial(tgt, Math.min(0.95, e.catch_rate));
-      recYd = rec > 0 ? randGamma(rec * 0.8, (e.ypt / Math.max(0.05, e.catch_rate)) / 0.8) : 0;
-      tds += randBinomial(tgt, Math.min(0.35, e.rec_td_rate));
-    }
-    out.pass_yds.push(passYd); out.rush_yds.push(rushYd); out.rec_yds.push(recYd);
-    out.receptions.push(rec); out.any_td.push(tds > 0 ? 1 : 0);
+  for (const e of events) {
+    out.pass_yds.push(e.passYd); out.rush_yds.push(e.rushYd); out.rec_yds.push(e.recYd);
+    out.receptions.push(e.rec); out.any_td.push(anytimeTdHit(e));
   }
   return out;
 }
+
+/** Sportsbook anytime-TD markets exclude passing touchdowns. */
+export const anytimeTdHit = event => (event?.rushTd ?? 0) + (event?.recTd ?? 0) > 0 ? 1 : 0;
 
 const MARKET_STAT = {
   player_pass_yds: 'pass_yds', player_rush_yds: 'rush_yds',
@@ -200,22 +465,38 @@ function noVig(a, b) {
 
 /** Every projectable player for a week, with distribution percentiles. */
 export function projectWeek(season, week, { minVolume = 2 } = {}) {
-  const ids = [...new Set(
-    playerWeeks().filter(p => p.season === season ? p.week < week : p.season === season - 1).map(p => p.player_id)
-  )];
+  const engine = buildPlayerWeekEngine({ season, week });
   const out = [];
-  for (const id of ids) {
-    const p = projectPlayer(season, week, id);
+  const teamSamples = new Map();
+  for (const team of new Set([...engine.values()].map(p => p.team).filter(Boolean))) {
+    const gs = gameScriptFor(team, season, week);
+    const mult = gs?.line ? { pass: gs.pass_mult, rush: gs.rush_mult } : 1;
+    let seed = 2166136261;
+    for (const ch of `${season}|${week}|${team}`) seed = Math.imul(seed ^ ch.charCodeAt(0), 16777619);
+    teamSamples.set(team, sampleTeamWeekEvents(engine, team, { runs: 3000, mult, seed: seed >>> 0 }));
+  }
+  for (const projection of engine.values()) {
+    const p = propView(projection, season, week);
     if (!p) continue;
+    const eligibility = playerPropEligibility(engine, projection);
+    if (!eligibility.eligible) continue;
     const vol = p.volume.targets + p.volume.carries + p.volume.attempts;
     if (vol < minVolume) continue;
-    const sims = simulatePlayer(p, 3000);
+    const events = teamSamples.get(projection.team)?.get(projection.player_id);
+    if (!events?.length) continue;
+    const sims = propSamples(events);
     out.push({
-      ...p,
+      player_id: p.player_id, espn_id: projection.espn_id, sleeper_id: projection.sleeper_id,
+      name: p.name, team: p.team, position: p.position,
+      opponent: p.opponent, game_script: p.game_script,
+      volume: p.volume, eligibility, engine_version: p.engine_version, cutoff: p.cutoff,
+      signal_quality: playerSignalTrace({ projection, eligibility,
+        gameScript: p.game_script, eventState: p }),
       projection: {
         pass_yds: r3(mean(sims.pass_yds)), rush_yds: r3(mean(sims.rush_yds)),
         rec_yds: r3(mean(sims.rec_yds)), receptions: r3(mean(sims.receptions)),
-        any_td_prob: r3(mean(sims.any_td))
+        any_td_prob_raw: r3(mean(sims.any_td)),
+        any_td_prob: r3(calibrateAnytimeTd(mean(sims.any_td), { position: p.position }))
       },
       percentiles: {
         rec_yds: [10, 50, 90].map(q => r3(quantile(sims.rec_yds, q / 100))),
@@ -253,6 +534,7 @@ export async function propBoard(season, week, {
 
   if (fetchMarket && hasKey()) {
     try {
+      const capturedAt = new Date().toISOString();
       const evs = await events();
       const all = (evs ?? []).filter(e => withinWeek(e.commence_time, season, week));
       // Earliest kickoffs first, so a capped fetch covers the games closest to
@@ -261,7 +543,11 @@ export async function propBoard(season, week, {
       for (const e of wk) {
         const before = market.length;
         const payload = await playerProps(e.id, { markets });
-        if (payload) market.push(...flattenProps(payload));
+        if (payload) {
+          const quotes = flattenProps(payload);
+          market.push(...quotes);
+          persistPropQuotes(quotes, capturedAt);
+        }
         if (market.length !== before) creditsSpent += markets.length;
       }
       marketStatus = market.length
@@ -290,7 +576,9 @@ export async function propBoard(season, week, {
     const stat = MARKET_STAT[m.market];
     if (!stat) continue;
     const line = m.line ?? 0.5;
-    const modelP = pOver(proj._sims[stat], line);
+    const rawModelP = pOver(proj._sims[stat], line);
+    const modelP = m.market === 'player_anytime_td'
+      ? calibrateAnytimeTd(rawModelP, { position: proj.position }) : rawModelP;
     const marketP = m.market === 'player_anytime_td'
       ? (m.over != null ? americanToProb(m.over) : null)
       : noVig(m.over, m.under);
@@ -298,6 +586,7 @@ export async function propBoard(season, week, {
     board.push({
       market: m.market, market_label: MARKET_LABEL[m.market],
       player: m.player, team: proj.team, position: proj.position,
+      espn_id: proj.espn_id, sleeper_id: proj.sleeper_id,
       matchup: `${m.away_team} at ${m.home_team}`, line,
       side: m.market === 'player_anytime_td' ? 'Yes' : (overIsBetter ? 'Over' : 'Under'),
       american_price: overIsBetter ? m.over : m.under,
@@ -316,11 +605,14 @@ export async function propBoard(season, week, {
     .filter(p => p.projection.rec_yds > 20 || p.projection.rush_yds > 20 || p.projection.pass_yds > 100)
     .map(p => ({
       player: p.name, team: p.team, position: p.position, opponent: p.opponent,
+      espn_id: p.espn_id, sleeper_id: p.sleeper_id, eligibility: p.eligibility,
+      engine_version: p.engine_version, cutoff: p.cutoff,
       pass_yds: p.projection.pass_yds, rush_yds: p.projection.rush_yds,
       rec_yds: p.projection.rec_yds, receptions: p.projection.receptions,
       any_td_prob: p.projection.any_td_prob,
       percentiles: p.percentiles,
-      game_script: p.game_script
+      game_script: p.game_script,
+      signal_quality: p.signal_quality
     }))
     .sort((a, b) =>
       (b.pass_yds + b.rush_yds + b.rec_yds) - (a.pass_yds + a.rush_yds + a.rec_yds))

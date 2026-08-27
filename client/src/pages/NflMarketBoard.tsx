@@ -12,6 +12,7 @@ import Training from './betting/Training';
 const EnsemblePage = lazy(() => import('./betting/Ensemble'));
 const LineShop = lazy(() => import('./betting/LineShop'));
 const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
+const NflProps = lazy(() => import('./betting/NflProps'));
 
 interface BoardRow {
   market: 'moneyline' | 'spread' | 'total';
@@ -71,19 +72,25 @@ const STATUS_STYLE: Record<string, string> = {
   Pending: 'bg-white text-slate-600 border-slate-300'
 };
 
-type HubTool = 'board' | 'ensemble' | 'training' | 'lines' | 'variables' | 'operations' | 'info';
+type HubTool = 'board' | 'model' | 'audit';
+type InitialTool = HubTool | 'ensemble' | 'training' | 'lines' | 'variables' | 'operations' | 'info' | 'props';
 const HUB_TOOLS: { id: HubTool; label: string; note: string }[] = [
-  { id: 'board', label: 'Decision desk', note: 'Eligible picks' },
-  { id: 'ensemble', label: 'Model room', note: 'Votes + lines' },
-  { id: 'training', label: 'Dev replay', note: 'Outcome-blind audit' },
-  { id: 'lines', label: 'Line shop', note: 'Best price' },
-  { id: 'variables', label: 'Variables', note: 'Data catalog' },
-  { id: 'operations', label: 'Operations', note: 'Promotion gates' },
-  { id: 'info', label: 'Method', note: 'Rules + limits' }
+  { id: 'board', label: 'Decisions', note: 'Games · props · prices' },
+  { id: 'model', label: 'Model', note: 'Ensemble · variables · method' },
+  { id: 'audit', label: 'Audit', note: 'Blind replay · promotion gates' }
 ];
+const normalizeInitial = (tool: InitialTool): HubTool =>
+  ['ensemble', 'variables', 'info', 'model'].includes(tool) ? 'model'
+    : ['training', 'operations', 'audit'].includes(tool) ? 'audit' : 'board';
 
-export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?: HubTool }) {
-  const [tool, setTool] = useState<HubTool>(initialTool);
+export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?: InitialTool }) {
+  const [tool, setTool] = useState<HubTool>(() => normalizeInitial(initialTool));
+  const [decisionView, setDecisionView] = useState<'games' | 'props' | 'lines'>(() =>
+    initialTool === 'props' ? 'props' : initialTool === 'lines' ? 'lines' : 'games');
+  const [modelView, setModelView] = useState<'ensemble' | 'variables' | 'method'>(() =>
+    initialTool === 'variables' ? 'variables' : initialTool === 'info' ? 'method' : 'ensemble');
+  const [auditView, setAuditView] = useState<'replay' | 'operations'>(() =>
+    initialTool === 'operations' ? 'operations' : 'replay');
   const [week, setWeek] = useState(1);
   const [marketFilter, setMarketFilter] = useState('all');
   const [boardLimit, setBoardLimit] = useState(8);
@@ -98,13 +105,13 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const { data: system, loading: systemLoading } = useApi<SystemStatus>('/nfl-betting/status');
   const { data: calibrationPayload, loading: calibrationLoading } = useApi<{ calibration: CoverCalibration | null }>('/nfl-betting/calibration/cover');
   const { data: pregamePayload, loading: pregameLoading } = useApi<{ coverage: PregameCoverage[] }>('/nfl-betting/pregame/snapshots');
-  const boardVisible = tool === 'board';
-  const { data: acc } = useApi<Accuracy>(boardVisible || tool === 'info' ? '/nfl-market/accuracy' : null);
+  const boardVisible = tool === 'board' && decisionView === 'games';
+  const { data: acc } = useApi<Accuracy>(boardVisible || (tool === 'model' && modelView === 'method') ? '/nfl-market/accuracy' : null);
   const historyApi = useApi<{ results: Graded[]; standing: Standing }>(boardVisible ? '/nfl-market/picks/history' : null);
   const boardApi = useApi<{ season: number; week: number; board: BoardRow[] }>(
     boardVisible ? `/nfl-betting/board/explained?week=${week}&limit=60` : null);
   const candidateApi = useApi<CandidatePayload>(boardVisible ? `/nfl-market/picks/candidates?season=2026&week=${week}` : null);
-  const { data: catalog, loading: catalogLoading } = useApi<EnsembleCatalog>(boardVisible || tool === 'info' ? '/nfl-betting/ensemble/models' : null);
+  const { data: catalog, loading: catalogLoading } = useApi<EnsembleCatalog>(boardVisible || (tool === 'model' && modelView === 'method') ? '/nfl-betting/ensemble/models' : null);
 
   const refreshLines = async () => {
     setRefreshing(true); setRefreshMsg(null);
@@ -146,7 +153,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         title="Auto Picks Command Center"
         description="The production decision is separated from the research board. A pick appears here only after the ensemble clears the edge and disagreement guards."
         status={<StatusPill tone="warn">Provisional edge</StatusPill>}
-        actions={tool === 'board' ? <>
+        actions={tool === 'board' && decisionView === 'games' ? <>
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <span>Week</span>
             <select aria-label="NFL week" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900"
@@ -166,7 +173,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         <StatusPill tone={calibrationLoading ? 'neutral' : calibration?.metrics.forward_gate_passed ? 'good' : 'warn'}>{calibrationLoading ? 'Checking calibration…' : calibration?.metrics.forward_gate_passed ? 'Cover calibration passed' : 'Probability edge suppressed'}</StatusPill>
       </BettingHero>
 
-      <nav aria-label="NFL Auto Picks tools" className="card grid grid-cols-2 gap-1 p-1.5 sm:grid-cols-4 xl:grid-cols-7">
+      <nav aria-label="NFL Auto Picks tools" className="card grid grid-cols-3 gap-1 p-1.5">
         {HUB_TOOLS.map(t => (
           <button key={t.id} role="tab" aria-selected={tool === t.id} onClick={() => setTool(t.id)}
             className={`rounded-xl px-3 py-2.5 text-left transition-colors ${tool === t.id
@@ -177,14 +184,25 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         ))}
       </nav>
 
-      {tool === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
-      {tool === 'training' && <Training />}
-      {tool === 'lines' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading line shop', 'Checking quote cache', 'Rendering market view']} />}><LineShop /></Suspense>}
-      {tool === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}
-      {tool === 'operations' && <NflModelOperations />}
-      {tool === 'info' && <ModelInfo accuracy={acc} catalog={catalog} pbpRows={pbpRows} />}
+      {tool === 'board' && <FeatureTabs value={decisionView} onChange={setDecisionView} items={[
+        ['games', 'Game picks'], ['props', 'Player props'], ['lines', 'Line shopping']
+      ]} />}
+      {tool === 'model' && <FeatureTabs value={modelView} onChange={setModelView} items={[
+        ['ensemble', '21-model ensemble'], ['variables', 'Variable catalog'], ['method', 'Method & limits']
+      ]} />}
+      {tool === 'audit' && <FeatureTabs value={auditView} onChange={setAuditView} items={[
+        ['replay', 'Blind replay'], ['operations', 'Promotion gates']
+      ]} />}
 
-      {tool === 'board' && <>
+      {tool === 'board' && decisionView === 'props' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading shared player engine', 'Simulating joint events', 'Rendering prop board']} />}><NflProps /></Suspense>}
+      {tool === 'board' && decisionView === 'lines' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading line shop', 'Checking quote cache', 'Rendering market view']} />}><LineShop /></Suspense>}
+      {tool === 'model' && modelView === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
+      {tool === 'model' && modelView === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}
+      {tool === 'model' && modelView === 'method' && <ModelInfo accuracy={acc} catalog={catalog} pbpRows={pbpRows} />}
+      {tool === 'audit' && auditView === 'replay' && <Training />}
+      {tool === 'audit' && auditView === 'operations' && <NflModelOperations />}
+
+      {tool === 'board' && decisionView === 'games' && <>
         {refreshMsg && <Notice title="Line refresh" tone="info">{refreshMsg}</Notice>}
         {runError && <Notice title="Weekly analysis failed" tone="bad">{runError}</Notice>}
         {running && <Notice title="Evaluating the production policy" tone="info">Lines are refreshing and the walk-forward ensemble is scoring every game. Only eligible spread picks will be locked.</Notice>}
@@ -298,6 +316,16 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
       </>}
     </div>
   );
+}
+
+function FeatureTabs<T extends string>({ value, onChange, items }: {
+  value: T; onChange: (value: T) => void; items: [T, string][];
+}) {
+  return <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+    {items.map(([id, label]) => <button key={id} onClick={() => onChange(id)}
+      className={`rounded-lg px-3 py-2 text-sm font-bold transition-colors ${value === id
+        ? 'bg-white text-sky-900 shadow-sm ring-1 ring-sky-200' : 'text-slate-500 hover:bg-white hover:text-slate-900'}`}>{label}</button>)}
+  </div>;
 }
 
 function CandidateList({ rows }: { rows: AutoPick[] }) {

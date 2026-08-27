@@ -1,73 +1,49 @@
 /**
  * The bridge between the betting model and the fantasy projections.
  *
- * These were solving the same problem twice. A prop projection says "we expect
- * 78 receiving yards from him this week"; a fantasy projection says "we expect
- * 13.4 points". They are the same forecast in different units, and when they
- * disagree, one of them is wrong.
- *
- * So the prop simulation is converted straight into fantasy points using the
- * league's own scoring, and the two are compared. The interesting output is not
- * the agreement — it is the gap. A player the props model loves but the fantasy
- * projection is cool on is exactly the start/sit call worth a second look.
- *
- * Nothing here overwrites a fantasy projection. It annotates, and says why.
+ * Props and fantasy now consume one player-week event state. This module is an
+ * agreement assertion and explanation layer, not a second projection model.
  */
-import { rows } from '../db/index.js';
-import { playerFeatureVector } from './nfl-features.js';
-import { playerWeeks } from './nfl-pbp.js';
 import { gameScriptFor } from './gamescript.js';
 import { rolesFor, injuryFor } from './nfl-advanced.js';
 import { PPR } from './scoring.js';
+import {
+  buildPlayerWeekEngine, playerWeekEventExpectation, playerWeekProjection
+} from './player-week-engine.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 
-/** Turns a projected stat line into fantasy points under the given scoring. */
-function statsToPoints(s, scoring = PPR) {
-  return (s.pass_yds ?? 0) * (scoring.pass_yd ?? 0.04)
-    + (s.pass_td ?? 0) * (scoring.pass_td ?? 4)
-    + (s.rush_yds ?? 0) * (scoring.rush_yd ?? 0.1)
-    + (s.rec_yds ?? 0) * (scoring.rec_yd ?? 0.1)
-    + (s.receptions ?? 0) * (scoring.rec ?? 1)
-    + (s.tds ?? 0) * 6;
-}
-
 /**
- * The betting model's fantasy-point view of a player's week, alongside the
- * signals that produced it.
+ * The shared event model's fantasy-point view, alongside the exact signals
+ * that produced it.
  */
 export function bettingViewOf(season, week, playerId, scoring = PPR) {
-  const pv = playerFeatureVector(season, week, playerId);
-  if (!pv) return null;
-  const f = pv.features;
-
-  const gs = pv.team ? gameScriptFor(pv.team, season, week) : null;
+  const projection = playerWeekProjection(buildPlayerWeekEngine({ season, week, scoring }), playerId);
+  if (!projection) return null;
+  const gs = projection.team ? gameScriptFor(projection.team, season, week) : null;
   const line = gs?.line ?? null;
-  const mPass = gs?.line ? gs.pass_mult : 1;
-  const mRush = gs?.line ? gs.rush_mult : 1;
-
-  const blend = (recent, all) => (recent == null ? all : all == null ? recent : 0.65 * recent + 0.35 * all);
-  const targets = (blend(f.targets_last3, f.targets) ?? 0) * mPass;
-  const carries = (blend(f.carries_last3, f.carries) ?? 0) * mRush;
-  const attempts = (f.pass_attempts ?? 0) * mPass;
-
+  const mult = line ? { pass: gs.pass_mult, rush: gs.rush_mult } : 1;
+  const state = playerWeekEventExpectation(projection, { mult, scoring });
+  const e = state.events;
   const stats = {
-    pass_yds: attempts * (f.yards_per_attempt ?? 7),
-    pass_td: attempts * (f.pass_td_rate ?? 0.045),
-    rush_yds: carries * (f.yards_per_carry ?? 4.2),
-    rec_yds: targets * (f.yards_per_target ?? 7.5),
-    receptions: targets * (f.catch_rate ?? 0.65),
-    tds: carries * (f.rush_td_rate ?? 0.03) + targets * (f.rec_td_rate ?? 0.05)
+    pass_yds: e.passYd, pass_td: e.passTd, interceptions: e.int,
+    rush_yds: e.rushYd, rush_td: e.rushTd,
+    rec_yds: e.recYd, receptions: e.rec, rec_td: e.recTd,
+    tds: e.rushTd + e.recTd
   };
-
-  const points = statsToPoints(stats, scoring);
+  const points = state.structural_fantasy_points;
   const injury = injuryFor(season, week, playerId);
-  const roles = pv.team ? rolesFor(season, week, pv.team) : [];
+  const roles = projection.team ? rolesFor(season, week, projection.team) : [];
   const role = roles.find(r => r.gsis_id === playerId) ?? null;
 
   return {
-    player_id: playerId, name: pv.name, team: pv.team, position: pv.position,
+    player_id: playerId, name: projection.name, team: projection.team, position: projection.position,
     betting_points: r2(points),
+    structural_fantasy_points: r2(points),
+    calibrated_fantasy_points: r2(projection.ppg),
+    calibration_shift: r2(projection.ensemble_shift),
+    engine_version: state.engine_version,
+    cutoff: state.cutoff,
     projected_stats: Object.fromEntries(Object.entries(stats).map(([k, v]) => [k, r2(v)])),
     role: role ? { listed: role.role, by_snaps: role.snap_role, snap_pct: role.snap_pct,
       matches_usage: role.role_matches_usage } : null,
@@ -77,8 +53,10 @@ export function bettingViewOf(season, week, playerId, scoring = PPR) {
     } : null,
     injury: injury ? { status: injury.report_status, practice: injury.practice_status, injury: injury.injury } : null,
     opportunity: {
-      targets: r2(targets), carries: r2(carries), attempts: r2(attempts),
-      target_share: f.target_share, wopr: f.wopr, opportunity_share: f.opportunity_share
+      targets: r2(state.volume.targets), carries: r2(state.volume.carries), attempts: r2(state.volume.attempts),
+      target_share: projection.volume?.target_share,
+      wopr: null,
+      opportunity_share: projection.volume?.carry_share
     }
   };
 }
@@ -91,8 +69,9 @@ export function reconcile(season, week, playerId, fantasyPoints, scoring = PPR) 
   const view = bettingViewOf(season, week, playerId, scoring);
   if (!view) return null;
 
-  const delta = fantasyPoints == null ? null : r2(view.betting_points - fantasyPoints);
-  const pctGap = fantasyPoints ? r2((view.betting_points - fantasyPoints) / fantasyPoints) : null;
+  const expectedFantasy = fantasyPoints == null ? view.calibrated_fantasy_points : fantasyPoints;
+  const delta = expectedFantasy == null ? null : r2(view.betting_points - expectedFantasy);
+  const pctGap = expectedFantasy ? r2((view.betting_points - expectedFantasy) / expectedFantasy) : null;
 
   const reasons = [];
   if (view.game_script) {
@@ -109,10 +88,6 @@ export function reconcile(season, week, playerId, fantasyPoints, scoring = PPR) 
   if (view.injury?.status) {
     reasons.push(`Injury report: ${view.injury.status}${view.injury.injury ? ` (${view.injury.injury})` : ''}.`);
   }
-  if (view.opportunity.wopr != null && view.opportunity.wopr >= 0.6) {
-    reasons.push(`A ${view.opportunity.wopr.toFixed(2)} weighted opportunity rating puts him among the primary options in this offense.`);
-  }
-
   // Always state the underlying volume case. The conditional notes above only
   // fire on notable situations, and a flagged gap with no explanation next to
   // it is worse than no flag at all.
@@ -127,18 +102,21 @@ export function reconcile(season, week, playerId, fantasyPoints, scoring = PPR) 
     } — this is the opportunity the ${view.betting_points} point estimate is built from.`);
   }
 
-  let verdict = 'aligned';
-  if (pctGap != null && pctGap >= 0.15) verdict = 'betting model is higher';
-  else if (pctGap != null && pctGap <= -0.15) verdict = 'betting model is lower';
+  const structuralGap = r2(view.betting_points - view.structural_fantasy_points);
+  const structurallyAligned = Math.abs(structuralGap ?? 0) <= 0.01;
+  let verdict = 'structurally aligned';
+  if (pctGap != null && pctGap >= 0.15) verdict = 'event state above calibrated fantasy head';
+  else if (pctGap != null && pctGap <= -0.15) verdict = 'event state below calibrated fantasy head';
 
   return {
     ...view,
-    fantasy_points: fantasyPoints == null ? null : r2(fantasyPoints),
-    delta, pct_gap: pctGap, verdict,
+    fantasy_points: expectedFantasy == null ? null : r2(expectedFantasy),
+    delta, pct_gap: pctGap, structural_gap: structuralGap,
+    structurally_aligned: structurallyAligned, verdict,
     reasons,
-    note: verdict === 'aligned'
-      ? 'The prop-side simulation and the fantasy projection agree within 15%.'
-      : 'The two models disagree by more than 15%. They use the same usage data but weight recent form and game script differently — worth a look before starting or sitting.'
+    note: structurallyAligned
+      ? 'Props and fantasy are identical at the event layer. Any remaining gap is the explicit fantasy calibration head or game-script adjustment, not a competing player model.'
+      : 'Invariant failed: the props conversion does not equal the shared structural fantasy state.'
   };
 }
 
@@ -155,7 +133,7 @@ export function reconcileRoster(season, week, players, scoring = PPR) {
 
 /** Every player the betting model is unusually high on this week. */
 export function standouts(season, week, { minPoints = 8, limit = 25, scoring = PPR } = {}) {
-  const ids = [...new Set(playerWeeks(season).filter(p => p.week < week).map(p => p.player_id))];
+  const ids = [...buildPlayerWeekEngine({ season, week, scoring }).keys()];
   const out = [];
   for (const id of ids) {
     const v = bettingViewOf(season, week, id, scoring);

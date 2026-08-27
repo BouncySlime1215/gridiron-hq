@@ -103,6 +103,8 @@ export function replaySeason(season, {
   maxDisagreement = NFL_PRODUCTION_POLICY.maxDisagreement,
   markets = NFL_PRODUCTION_POLICY.markets,
   maxPicksPerWeek = NFL_PRODUCTION_POLICY.maxPicksPerWeek,
+  startWeek = 1,
+  endWeek = 22,
   modelOptions = {},
   label = null
 } = {}) {
@@ -116,9 +118,10 @@ export function replaySeason(season, {
            gl.source, gl.fetched_at
     FROM game_lines gl
     LEFT JOIN game_lines away ON away.season=gl.season AND away.week=gl.week AND away.team=gl.opponent
-    WHERE gl.season = ? AND gl.home = 1 AND gl.team_score IS NOT NULL AND gl.spread IS NOT NULL
+    WHERE gl.season = ? AND gl.week BETWEEN ? AND ?
+      AND gl.home = 1 AND gl.team_score IS NOT NULL AND gl.spread IS NOT NULL
     ORDER BY gl.week
-  `, season);
+  `, season, startWeek, endWeek);
   if (!slate.length) return { error: `no completed games stored for ${season}` };
 
   const bets = [], decisions = [];
@@ -208,7 +211,7 @@ export function replaySeason(season, {
     // Historical payouts use each stored price; there is no synthetic -110.
     break_even_needed: r2(averageBreakEven),
     beat_vig: bets.length ? units > 0 : null,
-    config: { policy, modelOptions },
+    config: { policy, modelOptions, startWeek, endWeek },
     decision_audit: {
       candidates: decisions.length,
       selected: bets.length,

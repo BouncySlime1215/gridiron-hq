@@ -11,6 +11,7 @@ import { db, row, rows, run } from '../db/index.js';
 import { buildPlayerWeekEngine, playerWeekDistribution, clearPlayerWeekEngineCache } from './player-week-engine.js';
 import { PPR, scoreLine } from './scoring.js';
 import { WEEKLY_ENSEMBLE_HEADS } from './weekly-ensemble.js';
+import { PLAYER_HEADS, PLAYER_HEAD_REGISTRY_VERSION } from './player-head-registry.js';
 import { activeWeeklyWeightSet, saveWeeklyFit, weeklyFitHistory } from './weekly-weight-store.js';
 import { spearman } from './backtest.js';
 
@@ -40,6 +41,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_weekly_snapshots_settlement
     ON weekly_prediction_snapshots(actual, season, week);
 `);
+
+const snapshotColumns = new Set(db.prepare('PRAGMA table_info(weekly_prediction_snapshots)').all().map(x => x.name));
+if (!snapshotColumns.has('candidate_version')) {
+  db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN candidate_version TEXT');
+}
+if (!snapshotColumns.has('candidate_heads_json')) {
+  db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN candidate_heads_json TEXT');
+}
 
 const predict = (weights, observation) => WEEKLY_ENSEMBLE_HEADS.reduce(
   (sum, head, index) => sum + weights[index] * observation[head], 0);
@@ -72,17 +81,10 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
   if (outcomes > 0) return { captured: 0, blocked: true, reason: 'week already has outcomes; pregame snapshot cannot be rewritten' };
   const projections = buildPlayerWeekEngine({ season, week, scoring });
   const now = new Date().toISOString();
-  const upsert = db.prepare(`INSERT INTO weekly_prediction_snapshots
+  const insert = db.prepare(`INSERT OR IGNORE INTO weekly_prediction_snapshots
     (season,week,player_id,position,as_of,cutoff,engine_version,structural,season_to_date,last3,last1,median,
-     prediction,lower_80,upper_80,weights_json,weight_fit)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(season,week,player_id) DO UPDATE SET
-      as_of=excluded.as_of, cutoff=excluded.cutoff, engine_version=excluded.engine_version,
-      structural=excluded.structural, season_to_date=excluded.season_to_date,
-      last3=excluded.last3, last1=excluded.last1, median=excluded.median,
-      prediction=excluded.prediction, lower_80=excluded.lower_80, upper_80=excluded.upper_80,
-      weights_json=excluded.weights_json, weight_fit=excluded.weight_fit
-    WHERE weekly_prediction_snapshots.actual IS NULL`);
+     prediction,lower_80,upper_80,weights_json,weight_fit,candidate_version,candidate_heads_json)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   let captured = 0;
   db.exec('BEGIN');
   try {
@@ -90,15 +92,65 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
       const engine = projection.player_week_engine;
       if (!engine?.heads) continue;
       const dist = playerWeekDistribution(projection, { scoring, runs });
-      upsert.run(season, week, projection.player_id, projection.position, now, engine.cutoff,
+      captured += insert.run(season, week, projection.player_id, projection.position, now, engine.cutoff,
         engine.version, engine.heads.structural, engine.heads.season_to_date, engine.heads.last3,
         engine.heads.last1, engine.heads.median, projection.ppg, dist.p10, dist.p90,
-        JSON.stringify(engine.weights), engine.weight_fit);
-      captured++;
+        JSON.stringify(engine.weights), engine.weight_fit, projection.candidate_head_version,
+        JSON.stringify(projection.candidate_heads)).changes;
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
   return { captured, season, week, as_of: now };
+}
+
+function candidateForwardScoreboard() {
+  const settled = rows(`SELECT position,prediction,actual,candidate_version,candidate_heads_json
+                        FROM weekly_prediction_snapshots
+                        WHERE actual IS NOT NULL AND candidate_heads_json IS NOT NULL
+                        ORDER BY season,week,player_id`);
+  const baselinePairs = settled.map(x => ({ pred: Number(x.prediction), act: Number(x.actual) }));
+  const baselineMae = settled.length
+    ? settled.reduce((sum, x) => sum + Math.abs(Number(x.prediction) - Number(x.actual)), 0) / settled.length
+    : null;
+  const baselineRank = settled.length ? spearman(baselinePairs) : null;
+  const candidates = PLAYER_HEADS.map(head => {
+    const use = settled.flatMap(x => {
+      try {
+        const values = JSON.parse(x.candidate_heads_json);
+        if (!Object.prototype.hasOwnProperty.call(values, head.id)) return [];
+        const pred = Number(values[head.id]);
+        return Number.isFinite(pred) ? [{ pred, act: Number(x.actual) }] : [];
+      } catch { return []; }
+    });
+    const candidateMae = use.length
+      ? use.reduce((sum, x) => sum + Math.abs(x.pred - x.act), 0) / use.length
+      : null;
+    const candidateRank = use.length ? spearman(use) : null;
+    return {
+      id: head.id, name: head.name, family: head.family, n: use.length,
+      mae: candidateMae == null ? null : +candidateMae.toFixed(4),
+      mae_delta_vs_champion: candidateMae == null || baselineMae == null
+        ? null : +(candidateMae - baselineMae).toFixed(4),
+      spearman: candidateRank,
+      rank_delta_vs_champion: candidateRank == null || baselineRank == null
+        ? null : +(candidateRank - baselineRank).toFixed(4),
+      eligible_for_review: use.length >= 250 && candidateMae <= baselineMae - 0.005
+        && candidateRank >= baselineRank - 0.002,
+      authority: 'shadow_only'
+    };
+  }).sort((a, b) => (a.mae ?? Infinity) - (b.mae ?? Infinity));
+  return {
+    registry_version: PLAYER_HEAD_REGISTRY_VERSION,
+    settled: settled.length,
+    minimum_before_review: 250,
+    champion: {
+      n: settled.length,
+      mae: baselineMae == null ? null : +baselineMae.toFixed(4),
+      spearman: baselineRank
+    },
+    candidates,
+    note: 'Forward snapshots are first-write immutable. A review-eligible challenger is not automatically promoted.'
+  };
 }
 
 export function settleWeeklyPredictions() {
@@ -169,7 +221,8 @@ export function weeklyLearningStatus() {
     snapshots: row(`SELECT COUNT(*) AS total, SUM(actual IS NOT NULL) AS settled,
                            MAX(as_of) AS latest_capture FROM weekly_prediction_snapshots`),
     champion: activeWeeklyWeightSet(),
-    fits: weeklyFitHistory(10)
+    fits: weeklyFitHistory(10),
+    candidate_heads: candidateForwardScoreboard()
   };
 }
 

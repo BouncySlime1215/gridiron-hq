@@ -7,7 +7,9 @@
  * props head will consume the same event parameters in Stage 2.2.
  */
 import { rows } from '../db/index.js';
-import { buildProjections, sampleWeeks } from './projections.js';
+import {
+  buildProjections, sampleAllocatedWeekEvents, sampleWeekEvents, sampleWeeks
+} from './projections.js';
 import { PPR, scoreLine } from './scoring.js';
 import {
   WEEKLY_ROLE_RECENCY,
@@ -15,11 +17,19 @@ import {
 } from './weekly-ensemble.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { roleChangepoints } from './role-changepoint.js';
-import { percentiles, withRandomSeed } from './stats-util.js';
+import {
+  candidatePlayerHeads, PLAYER_HEAD_REGISTRY_VERSION
+} from './player-head-registry.js';
+import { playerSignalTrace } from './model-signal-quality.js';
+import {
+  percentiles, randBinomial, randNegBinomial, random, withRandomSeed
+} from './stats-util.js';
 
-export const PLAYER_WEEK_ENGINE_VERSION = 'player-week-v1.1.0';
+export const PLAYER_WEEK_ENGINE_VERSION = 'player-week-v2.1.0-game-state-reconciliation';
 const engineCache = new Map();
 const distributionCache = new Map();
+const qbShareCache = new Map();
+let primaryQbCache = new WeakMap();
 const MAX_ENGINE_CACHE = 32;
 const MAX_DISTRIBUTION_CACHE = 1200;
 
@@ -33,6 +43,58 @@ function remember(cache, key, value, limit) {
 export function clearPlayerWeekEngineCache() {
   engineCache.clear();
   distributionCache.clear();
+  qbShareCache.clear();
+  primaryQbCache = new WeakMap();
+}
+
+/** Resolve either the app's numeric player id or nflverse's GSIS id. */
+export function playerWeekProjection(engine, playerId) {
+  if (!engine || playerId == null) return null;
+  const direct = engine.get(playerId) ?? engine.get(Number(playerId));
+  if (direct) return direct;
+  const id = String(playerId);
+  for (const projection of engine.values()) {
+    if (projection.gsis_id === id) return projection;
+  }
+  return null;
+}
+
+const descending = key => (a, b) => (b.params?.[key] ?? 0) - (a.params?.[key] ?? 0);
+
+/**
+ * Pregame-only market eligibility. This never looks at the target week's box
+ * score. It approximates what a sportsbook could reasonably list and reports
+ * uncertainty instead of letting backup cameos make the model look worse—or
+ * filtering them after the result to make it look better.
+ */
+export function playerPropEligibility(engine, projection) {
+  if (!projection?.team || !projection.params) return { eligible: false, reason: 'missing team or event state' };
+  const teammates = [...engine.values()].filter(p => p.team === projection.team);
+  const rawQbs = teammates.filter(p => p.position === 'QB').sort(descending('attempts'));
+  const primary = projectedPrimaryQb(engine, projection.team, rawQbs);
+  const qbs = primary
+    ? [primary, ...rawQbs.filter(p => p.player_id !== primary.player_id)]
+    : rawQbs;
+  const qbRank = qbs.findIndex(p => p.player_id === projection.player_id) + 1;
+  const qbGap = qbRank === 1 ? projection.params.attempts - (qbs[1]?.params.attempts ?? 0) : null;
+  const clearQb1 = projection.position === 'QB' && qbRank === 1
+    && projection.params.attempts >= 15;
+  const touches = projection.params.carries + projection.params.targets;
+  return {
+    eligible: clearQb1 || projection.params.targets >= 2 || projection.params.carries >= 4,
+    markets: {
+      player_pass_yds: clearQb1,
+      player_rush_yds: projection.params.carries >= 4,
+      player_reception_yds: projection.params.targets >= 2,
+      player_receptions: projection.params.targets >= 2,
+      player_anytime_td: touches >= 4
+    },
+    qb_rank: qbRank || null,
+    qb_attempt_gap: qbGap == null ? null : +qbGap.toFixed(2),
+    state: clearQb1 ? 'cutoff_primary_qb'
+      : projection.position === 'QB' ? 'uncertain_or_backup_qb'
+        : touches >= 4 ? 'market_plausible_role' : 'thin_role'
+  };
 }
 
 function priorScores(season, week, scoring) {
@@ -63,9 +125,10 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
   const roleChanges = roleChangepoints(season, week);
   const out = new Map();
   for (const [playerId, projection] of structural) {
+    const priorWeeks = history.get(playerId) ?? [];
     const context = weeklyEnsembleContext({
       structural: projection.ppg,
-      priorWeeks: history.get(playerId) ?? [],
+      priorWeeks,
       position: projection.position
     });
     const weights = weightChampion.weights[projection.position];
@@ -81,17 +144,303 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
       weight_source: weightChampion.source,
       role_change: roleChanges.get(playerId) ?? null
     };
+    const roleChange = roleChanges.get(playerId) ?? null;
     out.set(playerId, {
       ...projection,
       ppg: +ppg.toFixed(2),
       structural_ppg: projection.ppg,
       ensemble_shift: +(ppg - projection.ppg).toFixed(4),
+      candidate_head_version: PLAYER_HEAD_REGISTRY_VERSION,
+      candidate_heads: candidatePlayerHeads({ structural: projection.ppg, priorWeeks,
+        evidenceGames: projection.evidence_games, roleChange }),
       player_week_engine: engine,
       model_reasoning: explainPlayerWeek({ ...projection, ppg, structural_ppg: projection.ppg,
         ensemble_shift: ppg - projection.ppg, player_week_engine: engine })
     });
   }
+  // The truth ledger is part of the shared engine so fantasy and betting inspect
+  // the same evidence state. Context-specific consumers may enrich it with
+  // opponent, market and weather data, but they cannot replace this foundation.
+  for (const [playerId, projection] of out) {
+    const eligibility = playerPropEligibility(out, projection);
+    out.set(playerId, {
+      ...projection,
+      signal_quality: playerSignalTrace({ projection, eligibility,
+        eventState: playerWeekEventExpectation(projection) })
+    });
+  }
   return useCache ? remember(engineCache, cacheKey, out, MAX_ENGINE_CACHE) : out;
+}
+
+function opportunityMultipliers(mult = 1) {
+  return typeof mult === 'object'
+    ? { pass: mult.pass ?? 1, rush: mult.rush ?? 1 }
+    : { pass: mult, rush: mult };
+}
+
+/**
+ * Deterministic event expectation shared by props and fantasy.
+ *
+ * This is the canonical boundary of the model: every downstream product sees
+ * the same attempts, targets, carries and efficiency rates. Game script may
+ * move pass and rush opportunity in opposite directions, but it cannot create
+ * a second player model.
+ */
+export function playerWeekEventExpectation(projection, { mult = 1, scoring = PPR } = {}) {
+  if (!projection?.params) return null;
+  const p = projection.params;
+  const m = opportunityMultipliers(mult);
+  const attempts = Math.max(0, p.attempts * m.pass);
+  const carries = Math.max(0, p.carries * m.rush);
+  const targets = Math.max(0, p.targets * m.pass);
+  return eventExpectationFromVolume(projection, { attempts, carries, targets }, scoring);
+}
+
+function eventExpectationFromVolume(projection, { attempts, carries, targets }, scoring = PPR) {
+  const p = projection.params;
+  const events = {
+    passYd: attempts * p.ypa,
+    passTd: attempts * p.pass_td_rate,
+    int: attempts * p.int_rate,
+    rushYd: carries * p.ypc,
+    rushTd: carries * p.rush_td_rate,
+    rec: targets * p.catch_rate,
+    recYd: targets * p.ypt,
+    recTd: targets * p.rec_td_rate
+  };
+  return {
+    player_id: projection.player_id,
+    name: projection.name,
+    team: projection.team,
+    position: projection.position,
+    volume: { attempts, carries, targets },
+    efficiency: {
+      ypa: p.ypa, ypc: p.ypc, ypt: p.ypt, catch_rate: p.catch_rate,
+      pass_td_rate: p.pass_td_rate, rush_td_rate: p.rush_td_rate,
+      rec_td_rate: p.rec_td_rate, int_rate: p.int_rate
+    },
+    events,
+    structural_fantasy_points: scoreLine({
+      passing_yards: events.passYd, passing_tds: events.passTd, interceptions: events.int,
+      rushing_yards: events.rushYd, rushing_tds: events.rushTd,
+      receptions: events.rec, receiving_yards: events.recYd, receiving_tds: events.recTd
+    }, scoring),
+    engine_version: projection.player_week_engine?.version ?? PLAYER_WEEK_ENGINE_VERSION,
+    cutoff: projection.player_week_engine?.cutoff ?? null
+  };
+}
+
+function historicalPrimaryQbShare(season, week) {
+  const key = `${season ?? 'all'}|${week ?? 'all'}`;
+  if (qbShareCache.has(key)) return qbShareCache.get(key);
+  const cutoff = Number.isInteger(season) && Number.isInteger(week)
+    ? `AND (season < ? OR (season = ? AND week < ?))`
+    : '';
+  const args = cutoff ? [season, season, week] : [];
+  const games = rows(`SELECT season,week,team,attempts FROM player_week_usage
+                      WHERE position='QB' AND attempts > 0 ${cutoff}
+                      ORDER BY season,week,team`, ...args);
+  const grouped = new Map();
+  for (const game of games) {
+    const key = `${game.season}|${game.week}|${game.team}`;
+    const state = grouped.get(key) ?? { total: 0, top: 0 };
+    state.total += game.attempts;
+    state.top = Math.max(state.top, game.attempts);
+    grouped.set(key, state);
+  }
+  const shares = [...grouped.values()].filter(x => x.total >= 10).map(x => x.top / x.total);
+  // A tiny early-season sample should not claim certainty. The prior is itself
+  // measured from the complete pre-cutoff population available to the model.
+  const prior = shares.length ? shares.reduce((sum, x) => sum + x, 0) / shares.length : 0.96;
+  const recent = shares.slice(-256);
+  const observed = recent.length ? recent.reduce((sum, x) => sum + x, 0) / recent.length : prior;
+  const result = Math.max(0.88, Math.min(0.995,
+    (observed * recent.length + prior * 64) / (recent.length + 64)));
+  qbShareCache.set(key, result);
+  return result;
+}
+
+function recentPrimaryQb(engine, team, qbs) {
+  if (!qbs.length) return null;
+  const reference = qbs[0]?.player_week_engine;
+  const season = reference?.season;
+  const week = reference?.week;
+  if (!Number.isInteger(season) || !Number.isInteger(week)) return qbs[0];
+  const candidates = new Set(qbs.map(p => p.player_id));
+  const recent = rows(`SELECT player_id,week,attempts FROM player_week_usage
+                       WHERE season=? AND week<? AND team=? AND position='QB' AND attempts>0
+                       ORDER BY week DESC,attempts DESC`, season, week, team);
+  const latestWeek = recent[0]?.week;
+  const latest = recent.find(x => x.week === latestWeek && candidates.has(x.player_id));
+  if (latest?.attempts >= 10) return qbs.find(p => p.player_id === latest.player_id) ?? qbs[0];
+  return qbs[0];
+}
+
+function projectedPrimaryQb(engine, team, qbs = null) {
+  let cache = primaryQbCache.get(engine);
+  if (!cache) { cache = new Map(); primaryQbCache.set(engine, cache); }
+  if (cache.has(team)) return cache.get(team);
+  const candidates = qbs ?? [...engine.values()]
+    .filter(p => p.team === team && p.position === 'QB').sort(descending('attempts'));
+  const result = recentPrimaryQb(engine, team, candidates);
+  cache.set(team, result);
+  return result;
+}
+
+function teamProjectionSet(engine, team, mult = 1) {
+  const all = [...engine.values()].filter(p => p.team === team && p.params);
+  if (!all.length) return null;
+  const allQbs = all.filter(p => p.position === 'QB').sort(descending('attempts'));
+  const recentQb = projectedPrimaryQb(engine, team, allQbs);
+  // Resolve the cutoff-safe starter before pruning the roster. Per-start volume
+  // alone keeps departed or backup QBs near 30 attempts and previously excluded
+  // the actual current starter from the two-player candidate set.
+  const qbs = recentQb
+    ? [recentQb, ...allQbs.filter(p => p.player_id !== recentQb.player_id)].slice(0, 3)
+    : allQbs.slice(0, 3);
+  const receivers = all.filter(p => p.params.targets > 0).sort(descending('targets')).slice(0, 8);
+  const rushers = all.filter(p => p.params.carries > 0).sort(descending('carries')).slice(0, 6);
+  const participants = [...new Map([...qbs, ...receivers, ...rushers].map(p => [p.player_id, p])).values()];
+  const base = all[0].volume ?? {};
+  const m = opportunityMultipliers(mult);
+  const passMean = Math.max(1, (base.team_pass_att ?? 33) * m.pass);
+  const rushMean = Math.max(1, (base.team_rush_att ?? 26) * m.rush);
+  const targetRate = Math.max(0.72, Math.min(0.98,
+    receivers.reduce((sum, p) => sum + p.params.targets, 0) / Math.max(1, base.team_pass_att ?? 33)));
+  const primaryQb = recentQb ?? qbs[0];
+  const reference = primaryQb?.player_week_engine;
+  const primaryQbShare = historicalPrimaryQbShare(reference?.season, reference?.week);
+  return {
+    all, qbs, receivers, rushers, participants, passMean, rushMean, targetRate,
+    primaryQb, primaryQbShare
+  };
+}
+
+function proportional(total, players, weightOf) {
+  const weight = players.reduce((sum, p) => sum + Math.max(0, weightOf(p)), 0);
+  return new Map(players.map(p => [p.player_id,
+    weight > 0 ? total * Math.max(0, weightOf(p)) / weight : 0]));
+}
+
+function reconciledVolume(total, players, rawOf, strength) {
+  const bottomTotal = players.reduce((sum, p) => sum + Math.max(0, rawOf(p)), 0);
+  if (!players.length || bottomTotal <= 0) return new Map(players.map(p => [p.player_id, 0]));
+  const ratio = total / bottomTotal;
+  const adjustment = 1 + Math.max(0, Math.min(1, strength)) * (ratio - 1);
+  return new Map(players.map(p => [p.player_id, Math.max(0, rawOf(p)) * adjustment]));
+}
+
+function qbExpectedAttempts(set, { conditionalPrimary = false } = {}) {
+  const out = new Map(set.qbs.map(p => [p.player_id, 0]));
+  if (!set.primaryQb) return out;
+  const primaryShare = conditionalPrimary ? 1 : set.primaryQbShare;
+  out.set(set.primaryQb.player_id, set.passMean * primaryShare);
+  const backups = set.qbs.filter(p => p.player_id !== set.primaryQb.player_id);
+  const residual = set.passMean * (1 - primaryShare);
+  const allocation = proportional(residual, backups,
+    p => Math.max(0.01, (p.expected_games ?? 1) * Math.max(1, p.params.attempts)));
+  for (const p of backups) out.set(p.player_id, allocation.get(p.player_id) ?? 0);
+  return out;
+}
+
+/**
+ * Deterministic mean of the same constrained team opportunity process used by
+ * production Monte Carlo. This is the point-estimate path for fast replay and
+ * prevents the audit from grading a different standalone-volume model.
+ */
+export function teamWeekEventExpectations(engine, team, {
+  mult = 1, scoring = PPR, reconciliationStrength = 0,
+  conditionalPrimary = false
+} = {}) {
+  const set = teamProjectionSet(engine, team, mult);
+  if (!set) return new Map();
+  const attempts = qbExpectedAttempts(set, { conditionalPrimary });
+  const carries = reconciledVolume(set.rushMean, set.rushers,
+    p => p.params.carries, reconciliationStrength);
+  const targets = reconciledVolume(set.passMean * set.targetRate, set.receivers,
+    p => p.params.targets, reconciliationStrength);
+  return new Map(set.all.map(p => [p.player_id, eventExpectationFromVolume(p, {
+    attempts: attempts.get(p.player_id) ?? 0,
+    carries: carries.get(p.player_id) ?? 0,
+    targets: targets.get(p.player_id) ?? 0
+  }, scoring)]));
+}
+
+/** Joint event draws from the same distribution fantasy scoring consumes. */
+export function samplePlayerWeekEvents(projection, { runs = 2000, mult = 1, seed = null } = {}) {
+  if (!projection?.params) return [];
+  const draw = () => Array.from({ length: runs }, () => sampleWeekEvents(projection.params, mult));
+  return seed == null ? draw() : withRandomSeed(seed >>> 0, draw);
+}
+
+function allocateCount(total, players, weightOf) {
+  const out = new Map(players.map(p => [p.player_id, 0]));
+  let remaining = Math.max(0, Math.round(total));
+  let weight = players.reduce((sum, p) => sum + Math.max(0, weightOf(p)), 0);
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (i === players.length - 1) { out.set(p.player_id, remaining); break; }
+    const own = Math.max(0, weightOf(p));
+    const n = weight > 0 ? randBinomial(remaining, Math.min(1, own / weight)) : 0;
+    out.set(p.player_id, n); remaining -= n; weight -= own;
+  }
+  return out;
+}
+
+/**
+ * Joint team simulation: one pass/rush total is drawn, then constrained among
+ * players. The sum of player attempts/carries can therefore never exceed the
+ * offense's sampled opportunity. Targets are a subset of pass attempts.
+ */
+export function sampleTeamWeekEvents(engine, team, {
+  runs = 2000, mult = 1, seed = null, reconciliationStrength = 0,
+  conditionalPrimary = false
+} = {}) {
+  const set = teamProjectionSet(engine, team, mult);
+  if (!set) return new Map();
+  const { qbs, receivers, rushers, participants, passMean, rushMean, targetRate,
+    primaryQb, primaryQbShare } = set;
+  const samples = new Map(participants.map(p => [p.player_id, []]));
+
+  const carryMeans = reconciledVolume(rushMean, rushers, p => p.params.carries, reconciliationStrength);
+  const targetMeans = reconciledVolume(passMean * targetRate, receivers,
+    p => p.params.targets, reconciliationStrength);
+  const reconciledCarryMean = [...carryMeans.values()].reduce((sum, x) => sum + x, 0);
+  const reconciledTargetRate = Math.max(0, Math.min(0.98,
+    [...targetMeans.values()].reduce((sum, x) => sum + x, 0) / Math.max(1, passMean)));
+
+  const draw = () => {
+    for (let run = 0; run < runs; run++) {
+      const teamAttempts = randNegBinomial(passMean, 12);
+      const teamCarries = randNegBinomial(reconciledCarryMean, 12);
+      const teamTargets = randBinomial(teamAttempts, reconciledTargetRate);
+      // Quarterback participation is a game state, not independent noise on
+      // every attempt. Select the active passer once; never fabricate a weekly
+      // 65/35 split merely because two QBs have historical starts.
+      let activeQb = primaryQb;
+      if (!conditionalPrimary && qbs.length > 1 && random() > primaryQbShare) {
+        const backups = qbs.filter(p => p.player_id !== primaryQb?.player_id);
+        const backupWeights = backups.map(p => Math.max(0.01,
+          (p.expected_games ?? 1) * Math.max(1, p.params.attempts)));
+        const totalWeight = backupWeights.reduce((sum, x) => sum + x, 0);
+        let drawWeight = random() * totalWeight;
+        activeQb = backups.find((_, i) => (drawWeight -= backupWeights[i]) <= 0) ?? backups.at(-1);
+      }
+      const attempts = new Map(qbs.map(p => [p.player_id,
+        p.player_id === activeQb?.player_id ? teamAttempts : 0]));
+      const carries = allocateCount(teamCarries, rushers, p => carryMeans.get(p.player_id) ?? 0);
+      const targets = allocateCount(teamTargets, receivers, p => targetMeans.get(p.player_id) ?? 0);
+      for (const p of participants) {
+        samples.get(p.player_id).push(sampleAllocatedWeekEvents(p.params, {
+          attempts: attempts.get(p.player_id) ?? 0,
+          carries: carries.get(p.player_id) ?? 0,
+          targets: targets.get(p.player_id) ?? 0
+        }));
+      }
+    }
+  };
+  if (seed == null) draw(); else withRandomSeed(seed >>> 0, draw);
+  return samples;
 }
 
 /**

@@ -25,6 +25,10 @@ import { PPR } from './scoring.js';
 import { buildProjections, sampleWeeks } from './projections.js';
 import { actuals, spearman } from './backtest.js';
 import { random, withRandomSeed } from './stats-util.js';
+import { candidatePlayerHeads } from './player-head-registry.js';
+import {
+  WEEKLY_ENSEMBLE_WEIGHTS, WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction
+} from './weekly-ensemble.js';
 
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
 
@@ -125,6 +129,10 @@ function replayImpl(season, {
         last1: priorWeeks.at(-1), median: sortedPrior[Math.floor(sortedPrior.length / 2)],
         position: p.position, prior_weeks: priorWeeks.length, player_id: pid, week
       };
+      context.candidate_heads = candidatePlayerHeads({
+        structural: rawModelPred, priorWeeks, evidenceGames: p.evidence_games
+      });
+      context.candidate_heads.active_champion = weeklyEnsemblePrediction(context, WEEKLY_ENSEMBLE_WEIGHTS);
       const modelPred = predictionHead ? predictionHead(context) : rawModelPred;
       // Keep this comparator tied to the structural head, so a candidate
       // ensemble cannot move the baseline it is required to beat.

@@ -26,18 +26,107 @@ import { loadIdentity } from './ingest.js';
 import { row } from '../db/index.js';
 import { watchTweetForLineMove } from '../services/nfl-tweet-line-correlation.js';
 
-/** Accounts with a real, checkable record of first-breaking NFL news — not a popularity list. */
-export const INSIDER_HANDLES = Object.freeze([
+/**
+ * National insiders — verified live (not from training-data memory) before
+ * being wired into a paid pipeline. `AdamCaplan` was dropped: research
+ * turned up several candidate handles (@adamcaplan, @caplannfl, @Adcaplan,
+ * @AdMasterCaplan) with no single one clearly the real, current account —
+ * better to skip a source than pay to ingest the wrong person's tweets.
+ * `TomPelissero` and `MikeGarafolo` are kept (handles confirmed live) but
+ * flagged: as of the 2026 ESPN/NFL Network consolidation, Pelissero's
+ * outlet affiliation is reported to have changed and Garafolo's new deal
+ * was unconfirmed at verification time — their reporting may be less
+ * central than it was, not their identity.
+ *
+ * `caplannfl` (not `adamcaplan`, a different unrelated person) confirmed via
+ * `verifyHandle()`: real, blue-verified, 182K followers, bio explicitly
+ * reads "NFL Insider" with real broadcast credentials (SiriusXM, Fox Sports
+ * Radio). The bare-name variant is a lecturer with 1.5K followers and no NFL
+ * connection — exactly the kind of mistake ingesting from an unverified
+ * guess would have paid to make.
+ */
+export const NATIONAL_INSIDER_HANDLES = Object.freeze([
   'AdamSchefter', 'RapSheet', 'TomPelissero', 'MikeGarafolo', 'JayGlazer',
-  'FieldYates', 'JosinaAnderson', 'AdamCaplan'
+  'FieldYates', 'JosinaAnderson', 'caplannfl'
 ]);
+
+/**
+ * Official team accounts — all 32 verified live. These carry the highest
+ * possible confidence for team attribution: an official account's own tweet
+ * about its own team needs no entity-resolution guess, unlike inferring team
+ * from a reporter's beat.
+ */
+export const TEAM_HANDLES = Object.freeze({
+  ARI: 'AZCardinals', ATL: 'AtlantaFalcons', BAL: 'Ravens', BUF: 'BuffaloBills',
+  CAR: 'Panthers', CHI: 'ChicagoBears', CIN: 'Bengals', CLE: 'Browns',
+  DAL: 'dallascowboys', DEN: 'Broncos', DET: 'Lions', GB: 'packers',
+  HOU: 'HoustonTexans', IND: 'Colts', JAX: 'Jaguars', KC: 'Chiefs',
+  LAC: 'Chargers', LAR: 'RamsNFL', LV: 'Raiders', MIA: 'MiamiDolphins',
+  MIN: 'Vikings', NE: 'Patriots', NO: 'Saints', NYG: 'Giants', NYJ: 'nyjets',
+  PHI: 'Eagles', PIT: 'steelers', SEA: 'Seahawks', SF: '49ers',
+  TB: 'Buccaneers', TEN: 'Titans', WAS: 'Commanders'
+});
+
+/**
+ * Beat reporters — verified via `twitterapi-io.js:verifyHandle()` against
+ * the live platform, NOT trusted from the aggregator that supplied the
+ * candidate list. That verification cost $0.011 total (61 profile reads at
+ * $0.00018 each) and caught three real errors an unverified list would have
+ * silently shipped:
+ *
+ *   Kyle_Youmans listed under DAL   -> real account, but bio reads "Voice of
+ *                                      the @Ravens" — a Baltimore broadcaster,
+ *                                      not a Cowboys beat writer. Dropped.
+ *   JohnHCrumpler (HOU)             -> account does not exist. Dropped.
+ *   PGutierrezESPN (LV)             -> account does not exist. Dropped.
+ *
+ * GMbremer (IND) is kept but flagged: exists, but the bio is a generic radio
+ * bio ("Woof Boom Radio... Anderson Journal") with no clear Colts beat
+ * confirmation — worth a second look before trusting it as highly as the
+ * others. Every other entry's bio explicitly named the correct team.
+ */
+export const BEAT_REPORTER_HANDLES = Object.freeze({
+  ARI: ['Cardschatter', 'azbobbymac'], ATL: ['DOrlandoLED', 'Tori_McElhaney'],
+  BAL: ['jamisonhensley', 'jeffzrebiec'], BUF: ['SalMaiorana', 'SalSports'],
+  CAR: ['JosephPerson', 'DarinGantt'], CHI: ['BradBiggs', 'kfishbain'],
+  CIN: ['PaulDehnerJr', 'KelseyLConway'], CLE: ['MaryKayCabot', 'AkronJackson'],
+  DAL: ['ClarenceHillJr'],   // Kyle_Youmans dropped — verified as a Ravens broadcaster, not Cowboys
+  DEN: ['mikeklis', 'TroyRenck'], DET: ['colton_pouncy', 'ttwentyman'],
+  GB: ['AndyHermanNFL', 'mattschneidman'], HOU: ['AaronWilson_NFL'],   // JohnHCrumpler dropped — does not exist
+  IND: ['mchappell51', 'GMbremer'],   // GMbremer: exists, bio unconfirmed as Colts-specific
+  JAX: ['Demetrius82', '_John_Shipley'], KC: ['mattderrick', 'ByNateTaylor'],
+  LAC: ['danielrpopper', 'krisrhim1'], LAR: ['JourdanRodrigue'],
+  LV: ['VicTafur'],   // PGutierrezESPN dropped — does not exist
+  MIA: ['DavidFurones_', 'schadjoe'], MIN: ['alec_lewis', 'BenGoessling'],
+  NE: ['MikeReiss', 'ezlazar'], NO: ['nick_underhill', 'MikeTriplett'],
+  NYG: ['JordanRaanan', 'NYPost_Schwartz'], NYJ: ['BrianCoz', 'RichCimini'],
+  PHI: ['Jeff_McLane', 'EliotShorrParks'], PIT: ['MarkKaboly', 'Alex_Kozora'],
+  SEA: ['Gbellseattle', 'bcondotta'], SF: ['LombardiHimself', 'Eric_Branch'],
+  TB: ['NFLSTROUD', 'GregAuman'], TEN: ['nicksuss', 'terrymc13'],
+  WAS: ['BenStandig', 'John_Keim']
+});
+
+/** Back-compat export name; national insiders are the account family actually swept. */
+export const INSIDER_HANDLES = NATIONAL_INSIDER_HANDLES;
 
 const MAX_TWEETS_PER_RUN = 5;   // handles per sync call, cost-bounded
 
+const TEAM_HANDLE_LOOKUP = new Map(Object.entries(TEAM_HANDLES).map(([abbr, h]) => [h.toLowerCase(), abbr]));
+
+/**
+ * A tweet from a verified official team account needs no entity-resolution
+ * guess about which team it concerns — the account IS the team. Tagged with
+ * a distinct source_type and the team's real reliability tier (an official
+ * statement outranks even a top insider's report of the same fact) so
+ * `TEAM_HANDLE_LOOKUP` is queryable output, not dead config.
+ */
 function tweetToRawNews(tweet) {
+  const userName = tweet.author?.userName ?? 'unknown';
+  const officialTeam = TEAM_HANDLE_LOOKUP.get(userName.toLowerCase());
   return {
-    source: `Twitter/${tweet.author?.userName ?? 'unknown'}`, source_type: 'social',
-    author: tweet.author?.name ?? tweet.author?.userName ?? null,
+    source: officialTeam ? `${officialTeam} (official)` : `Twitter/${userName}`,
+    source_type: officialTeam ? 'team_official' : 'social',
+    author: tweet.author?.name ?? userName,
     source_url: tweet.url ?? tweet.twitterUrl,
     canonical_url: tweet.url ?? tweet.twitterUrl,
     headline: tweet.text?.slice(0, 280) ?? '',
@@ -46,8 +135,10 @@ function tweetToRawNews(tweet) {
     // Real engagement is a weak but real reliability proxy for whether an
     // insider's own audience is treating this as a confirmed report versus a
     // half-formed rumor — not used for anything beyond the reliability cap
-    // that already exists for every other news source.
-    reliability: { tier: 'social_insider', score: 0.75 }
+    // that already exists for every other news source. An official team
+    // account is not a rumor at all, so it gets a materially higher score.
+    reliability: officialTeam ? { tier: 'team_official', score: 0.95 } : { tier: 'social_insider', score: 0.75 },
+    _officialTeamAbbr: officialTeam ?? null
   };
 }
 
@@ -81,8 +172,12 @@ export async function ingestTwitterInsiders({ maxHandles = MAX_TWEETS_PER_RUN } 
         // Only store tweets that actually name a tracked player — an
         // unresolved tweet is exactly the noise this curation exists to avoid.
         if (!normalized.entities.players.length) { skipped++; continue; }
-        const teamEntity = normalized.entities.teams[0]
-          ? row('SELECT id, abbr FROM nfl_teams WHERE id = ?', normalized.entities.teams[0].id) : null;
+        // An official account's own team is known with certainty; only fall
+        // back to entity-extracted guesswork when the tweet isn't from one.
+        const officialAbbr = raw._officialTeamAbbr;
+        const teamEntity = officialAbbr
+          ? row('SELECT id, abbr FROM nfl_teams WHERE abbr = ?', officialAbbr)
+          : normalized.entities.teams[0] ? row('SELECT id, abbr FROM nfl_teams WHERE id = ?', normalized.entities.teams[0].id) : null;
         const { id: newsId } = upsertNormalizedNewsItem(normalized,
           { teamId: teamEntity?.id ?? null, date: normalized.published_at.slice(0, 10) });
         stored++;

@@ -81,6 +81,28 @@ export async function searchRecentTweets(query, { purpose = null, maxResults = 2
     { kind: 'tweets', purpose, query, estimatedItems: maxResults });
 }
 
+/**
+ * Verify a candidate handle actually exists and looks like the account it
+ * claims to be — cheaply. A profile read is $0.18/1000, i.e. $0.00018 per
+ * check, three orders of magnitude cheaper than re-running web research to
+ * eyeball a search result. This is the real fix for "we have an unverified
+ * handle list": check it against the platform itself before spending real
+ * ingestion budget on a dead or wrong account.
+ */
+export async function verifyHandle(handle, { expectBioContains = [] } = {}) {
+  const result = await guardedFetch(`/twitter/user/info?userName=${encodeURIComponent(handle)}`,
+    { kind: 'profiles', purpose: 'handle-verification', query: handle, estimatedItems: 1 });
+  if (result.skipped || result.error) return { handle, exists: false, ...result };
+  const u = result.body?.data ?? result.body;
+  if (!u?.id) return { handle, exists: false, cost_usd: result.cost_usd };
+  const bio = `${u.name ?? ''} ${u.description ?? ''}`.toLowerCase();
+  const bioMatch = !expectBioContains.length || expectBioContains.some(term => bio.includes(term.toLowerCase()));
+  return {
+    handle, exists: true, name: u.name, verified: !!u.isBlueVerified, followers: u.followers,
+    bio: u.description, bio_matches_expectation: bioMatch, cost_usd: result.cost_usd
+  };
+}
+
 export function twitterSpendHistory(limit = 50) {
   return rows(`SELECT * FROM twitterapi_io_usage ORDER BY called_at DESC LIMIT ?`, limit);
 }

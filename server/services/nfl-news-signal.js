@@ -44,6 +44,14 @@ const parse = (value, fallback) => { try { return JSON.parse(value) ?? fallback;
 const clamp = (value, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, value));
 
 const STATUS_RULES = [
+  // Transaction-wire language. Distinct from an injury-driven "out": a
+  // release changes the ROSTER, not just this week's availability — the
+  // player may sign elsewhere within days, which "out for season" would
+  // misstate. Ordered before the season-ending rule so a released player
+  // whose team also mentions "injured reserve" in the same sentence
+  // ("released from injured reserve") resolves to the transaction, not a
+  // fresh season-ending claim.
+  { re: /\b(?:waived|released|cut|terminated)\b/i, status: 'released', unavailable: 1.0, confidence: 0.95 },
   { re: /(?:out for (?:the )?season|season[- ]ending|torn acl|torn achilles|placed on (?:injured reserve|ir))\b/i, status: 'out_for_season', unavailable: 0.995, confidence: 0.97 },
   { re: /(?:ruled out|will not play|won['’]t play|to miss|expected to miss|sidelined)\b/i, status: 'out', unavailable: 0.94, confidence: 0.9 },
   { re: /\bdoubtful\b/i, status: 'doubtful', unavailable: 0.76, confidence: 0.92 },

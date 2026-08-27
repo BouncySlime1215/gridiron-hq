@@ -210,6 +210,33 @@ async function refreshTwitterInsiders() {
   return ingested;
 }
 
+/**
+ * Official practice reports. syncInjuries() already existed — pulling
+ * nflverse's injuries_{season}.csv.gz release, the real weekly practice
+ * report — but was never scheduled, so it only ever ran when someone
+ * remembered to trigger it manually. Verified live: 2026's file doesn't
+ * exist upstream yet (404) because the season hasn't reached Week 1 —
+ * nflverse publishes it once real practice reports start, so this job
+ * starts returning real rows the moment that happens, with no code change
+ * needed then.
+ */
+async function refreshNflInjuries() {
+  const { syncInjuries } = await import('./nfl-advanced.js');
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  return syncInjuries([season]);
+}
+
+/** The transaction wire — signings, releases, IR moves, from ESPN's public transactions API. */
+async function refreshNflTransactions() {
+  const { syncTransactions } = await import('./nfl-transactions.js');
+  const result = await syncTransactions();
+  if (result.stored > 0) {
+    const { syncStructuredNewsSignals } = await import('./nfl-news-signal.js');
+    result.typed = syncStructuredNewsSignals({ sinceDays: 1 });
+  }
+  return result;
+}
+
 /** Capture the live prop market, and settle anything the week has now decided. */
 async function refreshPropCapture() {
   const { capturePropMarket, settlePropQuotes, finalizeClosingSnapshots, propClvStatus,
@@ -285,7 +312,11 @@ export const JOBS = {
   nfl_model_watch: { run: refreshModelWatch, maxAgeMinutes: 24 * 60,
     label: 'Model drift watch and candidate discovery (report only)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60,
-    label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' }
+    label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
+  nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60,
+    label: 'Official practice reports (nflverse injuries release)' },
+  nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30,
+    label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

@@ -17,6 +17,7 @@ import {
 } from './weekly-ensemble.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { roleChangepoints } from './role-changepoint.js';
+import { opportunityContextMultiplier } from './nfl-player-context.js';
 import {
   candidatePlayerHeads, PLAYER_HEAD_REGISTRY_VERSION
 } from './player-head-registry.js';
@@ -145,6 +146,31 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
       role_change: roleChanges.get(playerId) ?? null
     };
     const roleChange = roleChanges.get(playerId) ?? null;
+    /*
+     * Age and injury are surfaced as CONTEXT, not applied as an adjustment.
+     *
+     * Both validated out of sample against a naive baseline (injury: MAE
+     * 3.285 -> 3.276, CI [-0.0139,-0.0044], better in 2000/2000 resamples;
+     * age: 1.816 -> 1.736, CI [-0.149,-0.0091]) and both still made the
+     * shipped pipeline worse when actually applied, measured by ablation:
+     *
+     *   raw factors        rush MAE 21.107 -> 21.149, bias -1.214 -> -2.248
+     *   age re-centered    rush MAE 21.107 -> 21.162, bias -1.214 -> -1.348
+     *
+     * The naive baseline they beat does not regress at all; the structural
+     * model does, and its shrinkage toward positional priors already encodes
+     * most of the aging and availability decline. Applying the factor on top
+     * double counts it — the same failure as the opponent-on-volume attempt,
+     * and it is exactly the "just adding bias" outcome to avoid.
+     *
+     * The information is still worth showing a human ("Questionable, limited
+     * in practice" is decision-relevant even when it should not move the
+     * number), so it rides along as metadata with no effect on any forecast.
+     */
+    engine.opportunity_context = { ...opportunityContextMultiplier({
+      playerName: projection.name, gsisId: projection.gsis_id, season, week
+    }), applied: false,
+    why_not_applied: 'validated against a non-regressing baseline; degrades the shipped model because structural shrinkage already encodes it' };
     out.set(playerId, {
       ...projection,
       ppg: +ppg.toFixed(2),

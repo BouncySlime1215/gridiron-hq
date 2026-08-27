@@ -209,6 +209,82 @@ outcome seasons into their own grade. `propAccuracy().probability_calibration`
 now reports the discrepancy, what is graded, and why, rather than silently
 picking a side.
 
+### 7. Adaptation: week-to-week is solid, offseason was a blind spot
+
+**Week-to-week already works** and needed no change. Role/volume memory decays
+on a five-week half-life within the season, prior seasons are discounted 95%
+(`WEEKLY_ROLE_RECENCY.seasonDecay = 0.05`), the weekly ensemble reweights per
+position, and `role-changepoint.js` promotes a sustained usage shift only once
+**snap share corroborates it** — it will not chase two loud box scores.
+
+**Correction to an earlier claim in this log:** snap-share data is NOT missing.
+`player_week_snaps` has 26,647 rows and `nfl_snaps` 101,290. It is used as
+corroboration inside role-change detection but never as a direct input to the
+volume model, which is a real gap — but a different one from "we don't have
+the data."
+
+**Offseason was genuinely unmodelled.** The engine reads a player's current
+team label and heavily discounts old seasons, but nothing asked what his new
+offense implies. Heavy decay is a blunt substitute: it distrusts a returning
+three-year starter exactly as much as a player who just changed teams, and
+says nothing about opportunity a departing teammate left behind.
+
+`nfl-offseason-change.js` derives both from `player_week_usage` (no new data
+source): who changed teams, and each team's **vacated** target/carry share.
+The spread is large and entirely ignored today — entering 2025, Houston had
+50.5% of its targets leave the building; the Giants had 0%.
+
+Measured effect on opportunity per game, season over season (median ratio):
+
+| position | changed teams | stayed | n moved / stayed |
+|---|---:|---:|---|
+| WR | 0.743 | 0.956 | 126 / 306 |
+| RB | 0.776 | 0.948 | 59 / 198 |
+| TE | 0.821 | 0.986 | 52 / 181 |
+| QB | 0.897 | 0.981 | 40 / 90 |
+
+Every skill position, same direction. First-year players (no prior-season
+usage) also receive materially less opportunity than returning players at
+every position except TE in 2025.
+
+**It was then validated rather than assumed**, factors fit on 2023+2024 and
+applied to 2025 weeks 2–5 (narrow by design: with season decay at 0.05, an
+offseason signal can only act before current-season history accumulates):
+
+| | unadjusted MAE | adjusted MAE | 90% CI | improves |
+|---|---:|---:|---|---|
+| all players | 3.202 | 3.169 | [-0.064, -0.0008] | yes |
+| movers only | 4.404 | 4.255 | [-0.295, -0.0018] | yes |
+
+**This is the first candidate signal in this whole effort that passed** — but
+it passed narrowly: both CI upper bounds sit within 0.002 of zero. Real, small,
+early-season only. Fit factors put the effect in WR (0.76) and RB (0.80); QB
+and TE come out ≈1.0, and the FB factor (1.79) is small-sample noise that
+should not be shipped.
+
+**Not wired into production.** It is validated as an opportunity forecast, not
+yet as a projection adjustment, and given how narrow the margin is it should
+go through the normal head-registry gate before it touches a user-facing
+number.
+
+#### Coaching changes cannot be measured on this data
+
+`nfl_teams` carries `head_coach` / `oc_name` / `off_scheme`, but as a single
+current snapshot with **no season dimension** — there is no record of who
+coordinated which offense in 2022, so no historical coaching-change effect is
+computable. `coachingSnapshot()` records the current staff so a change history
+starts accumulating; until two snapshots exist an offseason apart, it reports
+`comparable: false` and nothing should apply a coaching adjustment. An effect
+that cannot be measured does not get a coefficient.
+
+#### Schedule / opponent change
+
+`schedule_games` holds 2026 only (544 rows), so historical schedule strength
+comes from usage data. Opponent strength was already tested directly (§3b,
+defense-vs-position across 80 weight/shrinkage variants) and **actively
+degraded** point prediction. Schedule difficulty remains useful for the
+fantasy decision surfaces; it is not a prediction-accuracy input.
+
 ## Open
 
 1. **Walk-forward TD calibrator** — the honest fix for §6b: fit per season on

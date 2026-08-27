@@ -133,6 +133,12 @@ structural.
 
 ### 3.1 Scheduled retraining jobs
 All 8 current jobs are ingestion. Add refit jobs to `scheduler.js`.
+- **Status:** foundation shipped. `nfl_weekly_learning` captures immutable
+  pregame player-week forecasts, settles them only after outcomes arrive, and
+  trains a challenger every six hours when new settled evidence exists. The
+  fit ledger preserves both promotions and rejections. The frozen 2023
+  champion remains active until at least 250 forward snapshots exist and a
+  challenger improves newest-window MAE without damaging rank or coverage.
 - **Effort:** ~3 days
 - **Gate:** ≥4 retraining jobs running on cadence; `sync_log` shows them
 
@@ -175,6 +181,11 @@ red-zone), inside-5 carry share, goal-line back identity, designed QB rushes.
 Locally reduce `k` when usage genuinely shifts. This is the real answer to
 "adapt week-to-week without absorbing bias" — fast when justified, anchored
 otherwise.
+- **Status:** first layer shipped. Two consecutive opportunity changes must be
+  material, point the same direction, and be corroborated by an eight-point
+  offensive-snap shift. Confirmed changes are exposed in typed model evidence
+  and already flow through the five-week role-memory and recent-outcome heads;
+  no unvalidated second multiplier is applied.
 - **Effort:** ~1 week
 - **Gate:** faster reaction to real role changes with **no increase** in signed
   bias

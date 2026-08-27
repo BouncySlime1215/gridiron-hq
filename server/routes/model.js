@@ -10,7 +10,7 @@ import { Router } from 'express';
 import { db, row, rows, run } from '../db/index.js';
 import { scoringFor, PPR } from '../services/scoring.js';
 import { buildProjections, seasonDistribution } from '../services/projections.js';
-import { buildPlayerWeekEngine, playerWeekDistribution } from '../services/player-week-engine.js';
+import { buildPlayerWeekEngine, playerWeekDistribution, clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { compare, actuals, gradePoint, gradeDistribution, baselines, weeklyDecisionBacktest } from '../services/backtest.js';
 import { simulateSeason, tradeImpact } from '../services/season-sim.js';
 import { fitCorrelations, correlationTable, clearCorrelationCache } from '../services/correlation.js';
@@ -29,6 +29,7 @@ import { ModelRegistry } from '../modeling/registry.js';
 import { SqliteModelStore, recordModelAudit, registrySnapshot } from '../modeling/sqlite-store.js';
 import { requireModelPermission } from '../modeling/authz.js';
 import { runWalkForward, openFinalHoldout } from '../modeling/walk-forward.js';
+import { weeklyLearningStatus, runWeeklyLearningCycle } from '../services/weekly-learning.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -99,9 +100,17 @@ const memo = (key, fn) => {
   if (!cache.has(key)) cache.set(key, fn());
   return cache.get(key);
 };
-export function clearModelCache() { cache.clear(); }
+export function clearModelCache() { cache.clear(); clearPlayerWeekEngineCache(); }
 
 /* ------------------------------------------------ persisted model registry */
+
+r.get('/weekly-learning/status', requireModelPermission('model:train'), (_req, res, next) => {
+  try { res.json(weeklyLearningStatus()); } catch (error) { next(error); }
+});
+
+r.post('/weekly-learning/run', requireModelPermission('model:execute'), (_req, res, next) => {
+  try { res.json(runWeeklyLearningCycle()); } catch (error) { next(error); }
+});
 
 r.get('/registry', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(registrySnapshot()); } catch (e) { next(e); }

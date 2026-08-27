@@ -16,8 +16,8 @@ export const WEEKLY_ENSEMBLE_WEIGHTS = Object.freeze({
   TE: Object.freeze([0.80, 0.20, 0.00, 0.00, 0.00])
 });
 
-export function weeklyEnsemblePrediction(context) {
-  const weights = WEEKLY_ENSEMBLE_WEIGHTS[context.position];
+export function weeklyEnsemblePrediction(context, weightSet = WEEKLY_ENSEMBLE_WEIGHTS) {
+  const weights = weightSet[context.position];
   if (!weights) return context.structural;
   return WEEKLY_ENSEMBLE_HEADS.reduce((sum, head, index) => {
     const value = Number(context[head]);

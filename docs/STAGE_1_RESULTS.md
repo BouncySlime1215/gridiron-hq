@@ -170,6 +170,25 @@ This is validation, not the Stage 6 blind audit. The 2025 outcomes had already
 been inspected during diagnosis. The final weights themselves were fit on 2023
 and architecture-selected on 2024, but no claim of a never-seen audit is made.
 
+### Foundation hardening after promotion
+
+- `player-week-engine.js` now has bounded, cutoff/version-aware caches. On the
+  local production database a repeated full-week build fell from ~134 ms to
+  **0.09 ms**, and a repeated 4,000-draw player distribution from ~12 ms to
+  **0.02 ms**. Cache invalidation is coupled to model/data refresh.
+- Weekly explanations are deterministic typed evidence, not generated prose.
+  They expose the exact cutoff, head values, weights, structural estimate,
+  ensemble shift, and any snap-confirmed role change.
+- Every Claude call now receives a global evidence-only system contract and
+  temperature 0. The player BUY/SELL/HOLD layer may select a verdict and valid
+  evidence IDs only; the server renders the explanation from stored facts and
+  discards invented IDs or prose.
+- Forward learning is additive. Pregame snapshots are frozen before outcomes,
+  then settled and used by a versioned champion/challenger trainer. Promotion
+  requires lower newest-window MAE, non-degraded Spearman, and 80% coverage in
+  [.78, .82]. No learner can rewrite the structural, uncertainty, role-memory,
+  or deterministic evidence layers.
+
 ---
 
 ## Known limitations

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { trendPct } from './aggregates.js';
-import { unitRoster, computeSOS } from './nfldata.js';
+import { computeSOS } from './nfldata.js';
 import { statsFor, fetchGameLog } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 
@@ -114,6 +114,36 @@ function heuristicVerdict(m) {
   return { verdict: 'HOLD', why: `market value is stable (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% in 30 days)` };
 }
 
+function playerEvidenceFacts({ player, metrics, news, depth, sos }) {
+  const facts = [];
+  const add = (id, text, source) => { if (text) facts.push({ id, text, source }); };
+  const trend = trendPct(metrics.fc_value, metrics.fc_trend30);
+  if (trend != null) add('market.trend', `FantasyCalc value changed ${trend >= 0 ? '+' : ''}${trend.toFixed(1)}% over 30 days.`, 'FantasyCalc');
+  if (metrics.ffc_adp ?? metrics.fc_adp) add('market.adp', `Current ADP is ${Number(metrics.ffc_adp ?? metrics.fc_adp).toFixed(1)}.`, 'fantasy market feed');
+  if (metrics.sleeper_rank) add('market.sleeper_rank', `Sleeper rank is ${Math.round(metrics.sleeper_rank)}.`, 'Sleeper');
+  if (metrics.injury_flag) add('availability.flag', 'The structured player feed currently carries an injury flag.', 'player metrics');
+  if (sos) add('schedule.rank', `Remaining schedule ranks ${sos.rank}/32 where 1 is easiest.`, 'computed schedule model');
+  if (player.off_scheme) add('team.scheme', `${player.team_name} lists its offense as ${player.off_scheme}.`, 'team profile');
+  const competitors = depth.filter(x => x.name !== player.name && x.position === player.position).map(x => x.name).slice(0, 4);
+  if (competitors.length) add('depth.competition', `Same-position depth-chart competition: ${competitors.join(', ')}.`, 'synced depth chart');
+  news.slice(0, 4).forEach((item, index) => add(`news.${index + 1}`, `[${item.date}] ${item.headline}`, item.source ?? 'news feed'));
+  return facts;
+}
+
+export function groundPlayerVerdict(selection, facts, fallback = 'HOLD') {
+  const allowed = new Map(facts.map(fact => [fact.id, fact]));
+  const verdict = new Set(['BUY', 'SELL', 'HOLD']).has(selection?.verdict) ? selection.verdict : fallback;
+  const ids = Array.isArray(selection?.evidence_ids)
+    ? [...new Set(selection.evidence_ids)].filter(id => allowed.has(id)).slice(0, 4) : [];
+  const selected = (ids.length ? ids : facts.slice(0, 3).map(fact => fact.id)).map(id => allowed.get(id)).filter(Boolean);
+  return {
+    verdict,
+    reasoning: selected.length ? selected.map(fact => fact.text).join(' ') : 'No structured evidence is currently available.',
+    evidence: selected,
+    grounding: { unsupported_claims_allowed: false, prose_source: 'deterministic_evidence_renderer' }
+  };
+}
+
 // AI buy/sell verdict grounded in this year's roster, scheme, market trend and news.
 r.post('/:id/analyze', async (req, res, next) => {
   try {
@@ -137,40 +167,25 @@ r.post('/:id/analyze', async (req, res, next) => {
     const depth = rows(`SELECT name, position, slot_code FROM players
                         WHERE team_id = ? AND slot_code IS NOT NULL AND phase = 'offense'
                         ORDER BY slot_code`, player.team_id ?? -1);
-    const units = player.team_id ? unitRoster(player.team_id) : { OL: [] };
-    const olText = units.OL.length
-      ? units.OL.slice(0, 8).map(p => `${p.name} (${p.position}${p.age ? `, ${p.age}` : ''})`).join(', ')
-      : '(not synced)';
     const sos = player.team_abbr ? computeSOS().find(s => s.abbr === player.team_abbr) : null;
+    const facts = playerEvidenceFacts({ player, metrics: m, news, depth, sos });
+    const fallback = heuristicVerdict(m)?.verdict ?? 'HOLD';
 
     const msg = await callClaude({
       feature: 'player-verdict',
-      maxTokens: 700,
-      prompt: `Fantasy football buy/sell call for THIS season (2026 redraft).
-
-PLAYER: ${player.name}, ${player.position}, ${player.team_name ?? 'free agent'}
-TEAM CONTEXT: HC ${player.head_coach ?? '?'}, OC ${player.oc_name ?? '?'}. Offense: ${player.off_scheme ?? '?'} — ${player.off_scheme_detail ?? ''}
-O-LINE (actual roster): ${olText}
-O-LINE SCOUTING: ${player.ol_analysis ?? 'n/a'}
-${sos ? `STRENGTH OF SCHEDULE: ranks ${sos.rank}/32 (1 = easiest).` : ''}
-CURRENT DEPTH CHART (source of truth — only these players are on the team):
-${depth.map(d => `${d.slot_code}: ${d.name}`).join('\n') || 'n/a'}
-
-MARKET SIGNALS: ${JSON.stringify({ fantasycalc_value: m.fc_value, trend_30day_pct: m.fc_trend30, adp: m.ffc_adp ?? m.fc_adp, sleeper_rank: m.sleeper_rank, injury_flag: m.injury_flag })}
-
-RECENT NEWS:
-${news.map(n => `[${n.date}] ${n.headline}${n.body ? ' — ' + n.body : ''}`).join('\n') || '(none)'}
-
-Give a BUY, SELL, or HOLD call for this season. Ground it in scheme fit, target/touch competition from the depth chart above, the market trend, and the news. Never mention players who aren't on the depth chart. Be specific and opinionated, 3-4 sentences.
-
-Respond with ONLY JSON: {"verdict":"BUY|SELL|HOLD","reasoning":"..."}`
+      maxTokens: 180,
+      prompt: `Select a 2026 redraft verdict for ${player.name} (${player.position}).
+You may ONLY select evidence IDs from this packet; you do not write the explanation.
+EVIDENCE: ${JSON.stringify(facts)}
+Respond with ONLY JSON: {"verdict":"BUY|SELL|HOLD","evidence_ids":["id", "id"]}
+Choose 1-4 IDs that genuinely support the verdict. If evidence conflicts or is thin, choose HOLD.`
     });
-    const out = parseJson(msg);
+    const out = groundPlayerVerdict(parseJson(msg), facts, fallback);
     run(`INSERT INTO player_analysis (player_id, verdict, reasoning, generated_at)
          VALUES (?,?,?,datetime('now'))
          ON CONFLICT(player_id) DO UPDATE SET verdict=excluded.verdict, reasoning=excluded.reasoning, generated_at=excluded.generated_at`,
       player.id, out.verdict, out.reasoning);
-    res.json({ ...out, source: 'ai' });
+    res.json({ ...out, source: 'ai_evidence_selection' });
   } catch (e) { next(e); }
 });
 

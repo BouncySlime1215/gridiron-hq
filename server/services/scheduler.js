@@ -166,6 +166,12 @@ async function runEvidenceDaemon() {
   return capture();
 }
 
+/** Capture pregame fantasy forecasts, settle old ones, and test a challenger. */
+async function refreshWeeklyLearning() {
+  const { runWeeklyLearningCycle } = await import('./weekly-learning.js');
+  return runWeeklyLearningCycle();
+}
+
 /**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
@@ -179,7 +185,9 @@ export const JOBS = {
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' },
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, label: 'Multi-book line snapshots (CLV)' },
-  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' }
+  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' },
+  nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60,
+    label: 'NFL weekly snapshot, settlement, and challenger retraining' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */
@@ -248,7 +256,7 @@ export function startScheduler({ intervalMinutes = 30, bootDelayMs = 20000 } = {
   // on the main thread twenty seconds after boot made every API request hang.
   // The boot pass is restricted to light network jobs. Heavy jobs still run on
   // the interval and through explicit refresh controls.
-  const bootJobs = ['mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'evidence_daemon'];
+  const bootJobs = ['mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'evidence_daemon', 'nfl_weekly_learning'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

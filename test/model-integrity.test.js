@@ -34,6 +34,9 @@ const {
   WEEKLY_ENSEMBLE_HEADS, WEEKLY_ENSEMBLE_WEIGHTS,
   weeklyEnsemblePrediction, weeklyEnsembleContext
 } = await import('../server/services/weekly-ensemble.js');
+const { activeWeeklyWeightSet, saveWeeklyFit } = await import('../server/services/weekly-weight-store.js');
+const { groundPlayerVerdict } = await import('../server/routes/players.js');
+const { detectRoleChange } = await import('../server/services/role-changepoint.js');
 
 test.after(() => {
   db.close();
@@ -72,6 +75,52 @@ test('weekly ensemble is convex, position-aware, and uses only supplied prior we
   });
   assert.ok(Math.abs(weeklyEnsemblePrediction(context) - 11.6) < 1e-12);
   assert.equal(weeklyEnsembleContext({ structural: 14, priorWeeks: [], position: 'RB' }), null);
+});
+
+test('adaptive weekly weights cannot leak into the week they were trained through', () => {
+  const candidate = {
+    QB: [1, 0, 0, 0, 0], RB: [1, 0, 0, 0, 0],
+    WR: [1, 0, 0, 0, 0], TE: [1, 0, 0, 0, 0]
+  };
+  saveWeeklyFit({
+    data_hash: 'cutoff-test', through_season: 2025, through_week: 10,
+    weights: candidate, sample_size: 500, validation_size: 100,
+    candidate_mae: 4.1, champion_mae: 4.2, candidate_spearman: 0.68,
+    champion_spearman: 0.67, coverage_80: 0.8, promoted: true
+  });
+  assert.equal(activeWeeklyWeightSet({ season: 2025, week: 10 }).source, 'frozen');
+  assert.equal(activeWeeklyWeightSet({ season: 2025, week: 11 }).source, 'adaptive');
+});
+
+test('AI verdict renderer drops invented evidence and never accepts invented prose', () => {
+  const facts = [
+    { id: 'market.trend', text: 'Market value fell 8.0%.', source: 'test' },
+    { id: 'schedule.rank', text: 'Schedule ranks 4/32.', source: 'test' }
+  ];
+  const out = groundPlayerVerdict({
+    verdict: 'BUY', evidence_ids: ['market.trend', 'invented.injury'],
+    reasoning: 'A fabricated player is injured.'
+  }, facts);
+  assert.equal(out.verdict, 'BUY');
+  assert.equal(out.reasoning, 'Market value fell 8.0%.');
+  assert.deepEqual(out.evidence.map(x => x.id), ['market.trend']);
+  assert.equal(out.grounding.unsupported_claims_allowed, false);
+});
+
+test('role changepoint requires two sustained games and corroborating snap movement', () => {
+  const games = [
+    ...[1, 2, 3, 4].map(week => ({ week, position: 'WR', targets: 4, carries: 0 })),
+    { week: 5, position: 'WR', targets: 9, carries: 0 },
+    { week: 6, position: 'WR', targets: 10, carries: 0 }
+  ];
+  const confirmed = detectRoleChange(games, [
+    ...[1, 2, 3, 4].map(week => ({ week, offense_pct: 0.42 })),
+    { week: 5, offense_pct: 0.69 }, { week: 6, offense_pct: 0.73 }
+  ], 7);
+  assert.equal(confirmed.status, 'confirmed_role_increase');
+  assert.equal(confirmed.extra_multiplier_applied, false);
+  assert.equal(detectRoleChange(games, games.map(game => ({ week: game.week, offense_pct: 0.42 })), 7), null,
+    'box-score spikes without snap confirmation remain noise');
 });
 
 test('AI replay refuses to spend before a Claude key is configured', () => {

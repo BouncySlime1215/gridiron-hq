@@ -285,19 +285,76 @@ defense-vs-position across 80 weight/shrinkage variants) and **actively
 degraded** point prediction. Schedule difficulty remains useful for the
 fantasy decision surfaces; it is not a prediction-accuracy input.
 
+### 8. What actually improved the model, and what did not
+
+Two real defects were found and fixed. Everything else tested was rejected on
+evidence.
+
+**Fixed — a biased estimator behind every rate prior.** `positionalPriors`
+averaged per-game ratios, giving a 5-attempt game the same weight as a
+45-attempt game. Rates are bounded at zero below and unbounded above, so noisy
+low-volume games pulled every prior upward. Now opportunity-weighted
+(events/opportunities), which is both unbiased and the maximum-likelihood
+pooled rate. Improved **every** probability metric, and roughly halved
+rushing/receiving bias. This was the root cause of the negative-skill
+interception probability: the INT prior sat at 0.0250 against a true 0.0219,
+and since int_rate shrinks ~85% toward the prior, every QB inherited it.
+
+**Fixed — the calibrated path is now gradeable.** `walkForwardTdCalibration`
+fits a calibrator per season on earlier seasons only, including which head to
+use. Improves in all three gradeable seasons (Brier skill 0.037 → 0.049, ECE
+roughly halved). 2022 is skipped, not silently graded as raw.
+
+**Rejected on evidence** — each measured, each real, none improving the model:
+
+| candidate | measured effect | why rejected |
+|---|---|---|
+| 24 player-history heads × 4 stats | best ~1.4% MAE | zero survivors under Holm |
+| 141 context candidates × 4 stats | — | zero survivors; DvP actively harmful |
+| opponent on volume | MAE 70.6 → 90.8 | double-counts the betting line |
+| opponent on efficiency | harm removed | no usable gain |
+| scheme change | detection correct (NYJ −3.05 z) | CI straddles zero |
+| teammate competition | corr 0.005–0.03 | own share already measures it |
+| age | validated, CI [-0.149,-0.009] | **degrades shipped model** |
+| injury | validated, 2000/2000 resamples | **degrades shipped model** |
+| team change | validated, narrow | not wired; margin too thin |
+
+**The recurring lesson, now seen five times:** a signal that beats a naive
+baseline does not necessarily improve *this* model. The structural model
+already regresses toward positional priors, and that shrinkage implicitly
+encodes aging, availability, opponent difficulty and role competition. Adding
+an explicit factor on top double counts it. Every failure above has the same
+shape, and the ablation switch (`GRIDIRON_NO_CONTEXT_ADJ`) exists so the claim
+stays checkable rather than asserted.
+
+**Where the remaining error actually lives.** Passing yards is the weak stat
+(r² 0.075, Spearman 0.27, within 40 yards 41% of the time) while rushing,
+receiving and receptions are materially better (r² 0.28–0.34). Per-game NFL
+outcomes are close to structurally unpredictable; the model beats every naive
+baseline on every stat in every season, by 4–6%. That is the honest ceiling
+for this class of model on this data.
+
 ## Open
 
-1. **Walk-forward TD calibrator** — the honest fix for §6b: fit per season on
-   prior seasons only, so the shipped calibrated path can be graded without
-   leakage. Real work, not a flag flip.
-2. **Interception probability has negative skill** (§6a) — it is actively
-   worse than the base rate and is currently surfaced to users. Either fix or
-   stop showing it.
-3. **New signal families** — per §3, the next real accuracy gain requires
-   participation/snap-share, injury designations, or personnel data, not more
-   reweighting of existing history.
-4. **Draft Room / Trade Lab Phase 4+** — draft queue, waiver prescription,
+1. ~~Walk-forward TD calibrator~~ — **done** (§8). Improves in all three
+   gradeable seasons.
+2. ~~Interception negative skill~~ — **fixed** (§8). Root cause was the biased
+   rate prior, not interceptions. Now ≈0 skill, the honest ceiling for an
+   event whose year-over-year correlation is 0.023.
+3. ~~New signal families~~ — **tested and rejected** (§8). Snap share already
+   existed; age, injury, scheme, opponent and teammate competition were all
+   built and measured. Each is real; none improves the shipped model, because
+   structural shrinkage already encodes them.
+4. **Passing yards specifically** — the one genuinely weak stat (r² 0.075 vs
+   0.28–0.34 for the others). Further accuracy work should target passing
+   volume and efficiency rather than the model as a whole; broad-brush signals
+   have been exhausted.
+5. **Wiring the team-change signal** — the only unrejected candidate (§7). It
+   passed narrowly and is deliberately not applied; given every other
+   narrowly-passing signal degraded the pipeline when wired, it should be
+   ablation-tested end to end before being trusted.
+6. **Draft Room / Trade Lab Phase 4+** — draft queue, waiver prescription,
    trade counteroffers, mobile navigation, saved views, model registry. Listed
    as open in the superseded handoff docs and still untouched.
-5. **Spreads** — 0/21 component models clear the materiality gate. Settled
+7. **Spreads** — 0/21 component models clear the materiality gate. Settled
    finding (the market has no exploitable edge here), not an open task.

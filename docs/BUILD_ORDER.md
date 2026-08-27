@@ -4,6 +4,9 @@ Companion to `docs/MODEL_ROADMAP.md`. Sequenced by **dependency first, then
 value-per-effort**. Every step has a gate — a measurement that says whether it
 worked. Do not start a step until the previous gate is green.
 
+The operational path from model quality to a defensible betting-profit claim
+is specified separately in `docs/PROFITABILITY_PLAN.md`.
+
 Baselines to beat, measured 2026-08-26:
 
 | Metric | Current |

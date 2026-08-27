@@ -300,6 +300,76 @@ export function auditTdCalibration({ trainRows, discoveryRows, validationRows = 
   return audit;
 }
 
+/**
+ * Grade the calibrated path the way production actually runs it.
+ *
+ * The accuracy audit measures RAW simulated probabilities, but `propBoard`
+ * and the pick generator both route anytime-TD through `calibrateAnytimeTd`.
+ * So every "TD calibration" number described a model no user ever saw. The
+ * obvious shortcut — apply the active calibrator to the replay — is invalid:
+ * it is fit through 2025, so grading it on 2022-2025 would score it on its
+ * own training data.
+ *
+ * This does it honestly. For each season, a calibrator is fit ONLY on earlier
+ * seasons and applied to that season's rows, which is exactly the information
+ * a calibrator would have had in real time. The first season has nothing
+ * before it and is skipped rather than quietly falling back to identity,
+ * because silently grading uncalibrated rows as if they were calibrated is
+ * the bug this function exists to fix.
+ *
+ * Returns raw vs walk-forward-calibrated Brier/log-loss/ECE on identical
+ * rows, plus skill against each population's own climatology, since Brier
+ * alone is not comparable across populations with different base rates.
+ */
+export function walkForwardTdCalibration(replayRows, { minTrain = 500 } = {}) {
+  const all = tdRows(replayRows);
+  const seasons = [...new Set(all.map(r => r.season))].sort((a, b) => a - b);
+  const graded = [], perSeason = [];
+  for (const season of seasons) {
+    const train = all.filter(r => r.season < season);
+    const test = all.filter(r => r.season === season);
+    if (train.length < minTrain || !test.length) {
+      perSeason.push({ season, skipped: true, n: test.length, train_n: train.length,
+        why: `only ${train.length} prior-season rows available (need ${minTrain})` });
+      continue;
+    }
+    // Same selection discipline as the sealed audit, but the choice is made
+    // on prior seasons only, so the test season never informs which head wins.
+    const fitted = TD_CALIBRATION_HEADS.map(spec => ({ spec, model: fitHead(train, spec) }));
+    const scoredOnTrain = fitted.map(x => ({ ...x, m: calibrationMetrics(train, x.model) }))
+      .sort((a, b) => a.m.brier - b.m.brier);
+    const chosen = scoredOnTrain[0];
+    const rowsOut = test.map(r => ({ ...r, calibrated: applyTdCalibrator(chosen.model, r.p, r) }));
+    graded.push(...rowsOut);
+    const rawM = calibrationMetrics(test, { type: 'identity' });
+    const calM = calibrationMetrics(test, chosen.model);
+    perSeason.push({ season, n: test.length, train_n: train.length,
+      chosen_head: chosen.spec.id, raw: rawM, calibrated: calM,
+      improves: calM.brier < rawM.brier });
+  }
+  if (!graded.length) {
+    return { error: 'no season had enough prior data to fit a walk-forward calibrator', per_season: perSeason };
+  }
+  const base = mean(graded.map(r => r.y));
+  const clim = base * (1 - base);
+  const brier = list => mean(list);
+  const rawBrier = brier(graded.map(r => (r.p - r.y) ** 2));
+  const calBrier = brier(graded.map(r => (r.calibrated - r.y) ** 2));
+  return {
+    graded_seasons: perSeason.filter(x => !x.skipped).map(x => x.season),
+    skipped_seasons: perSeason.filter(x => x.skipped).map(x => x.season),
+    n: graded.length, base_rate: +base.toFixed(4),
+    raw: { brier: +rawBrier.toFixed(4), brier_skill: +(1 - rawBrier / clim).toFixed(4) },
+    calibrated: { brier: +calBrier.toFixed(4), brier_skill: +(1 - calBrier / clim).toFixed(4) },
+    improvement: +(rawBrier - calBrier).toFixed(5),
+    per_season: perSeason,
+    note: 'Each season calibrated by a head fit on EARLIER seasons only, including the choice of ' +
+      'which head. This is what production would have shipped in real time, so it is the honest ' +
+      'grade for the calibrated path. Seasons without enough prior data are skipped, not ' +
+      'silently graded as raw.'
+  };
+}
+
 export function activeTdCalibration() {
   const fit = rows(`SELECT * FROM nfl_prop_calibration_fits
                     WHERE market='player_anytime_td' AND active=1 ORDER BY created_at DESC LIMIT 1`)[0];

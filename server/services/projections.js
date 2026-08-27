@@ -47,7 +47,27 @@ const K = {
   yards_per: 34,     // yards per opportunity — regress hard
   catch_rate: 26,
   td_rate: 70,       // the most regression-prone number in fantasy
-  games: 8           // availability
+  games: 8,          // availability
+  /*
+   * Interceptions are very close to random, and treating them otherwise was
+   * an active defect rather than a missed opportunity: the anytime-INT
+   * probability scored -6.2% Brier skill, i.e. measurably WORSE than ignoring
+   * the player and quoting the league base rate.
+   *
+   * Measured directly: the correlation between a quarterback's prior INT rate
+   * and his next game's INT rate is 0.023 over 1,552 starts (2022-2025).
+   * That is indistinguishable from zero. The old value (td_rate/10 = 7,
+   * against n = attempts/10) let a QB with ~700 prior attempts carry ~91%
+   * weight on his own rate — nearly full trust in noise.
+   *
+   * 160 is swept, not chosen: K in {0.7, 2.5, 5, 10, 20, 40, 80, 160, 320, inf}
+   * on 2022-2025, scoring Brier skill against each population's own
+   * climatology. Skill rises monotonically from -6.2% at the old value to
+   * +2.6% here, then falls again. Note it also beats pure league mean
+   * (+2.4%), so a small amount of real quarterback signal does exist — just
+   * an order of magnitude less than the model previously assumed.
+   */
+  int_rate: 160
 };
 
 // Recency weights. A role two years ago is weak evidence about this year's role.
@@ -224,39 +244,72 @@ function teamVolume(log, through, kOverride, throughWeek = null, recency = RECEN
   return { teams: out, league: { pass_att: +passLg.toFixed(2), rush_att: +rushLg.toFixed(2) } };
 }
 
-/** Positional priors — what an unknown player at this position looks like. */
+/**
+ * Positional priors — what an unknown player at this position looks like.
+ *
+ * These are OPPORTUNITY-WEIGHTED rates (total events / total opportunities),
+ * not the average of per-game rates. The distinction is not cosmetic; the old
+ * form was measurably biased.
+ *
+ * Averaging per-game ratios gives a five-attempt game exactly as much say as
+ * a forty-five-attempt game. Rates are bounded below by zero and unbounded
+ * above, so the noisy low-volume games are asymmetric — one interception on
+ * five attempts reads as a 0.200 rate and drags the mean up, while the best
+ * possible low-volume game only reaches 0.000. Every rate prior inherited
+ * that upward pull.
+ *
+ * Measured effect on interceptions, where it mattered most because the rate
+ * compounds over ~33 attempts into a probability: the prior sat at 0.0250
+ * against a true opportunity-weighted league rate of 0.0219, about 14% high.
+ * Since int_rate is shrunk ~85% toward this prior, essentially every
+ * quarterback inherited the inflation, and anytime-interception probability
+ * came out near 0.55 against an actual base rate of 0.489 — scoring WORSE
+ * than simply quoting the base rate (-1.6% Brier skill).
+ *
+ * Weighting by opportunity is also just the correct estimator for a rate:
+ * it is the maximum-likelihood pooled rate, and it is what "league average
+ * yards per attempt" means when anyone says it out loud.
+ */
 function positionalPriors(log) {
   const byPos = {};
   for (const u of log) {
     const p = (byPos[u.pos] ??= {
-      tgtShare: [], carShare: [], ypt: [], ypc: [], ypa: [],
-      catchRate: [], recTd: [], rushTd: [], passTd: [], intRate: []
+      tgtShare: [], carShare: [],
+      recYds: 0, receptions: 0, recTds: 0, targets: 0,
+      rushYds: 0, rushTds: 0, carries: 0,
+      passYds: 0, passTds: 0, ints: 0, attempts: 0
     });
     if (u.target_share != null && u.target_share > 0) p.tgtShare.push(u.target_share);
     if (u.targets > 0) {
-      p.ypt.push((u.receiving_yards ?? 0) / u.targets);
-      p.catchRate.push((u.receptions ?? 0) / u.targets);
-      p.recTd.push((u.receiving_tds ?? 0) / u.targets);
+      p.recYds += u.receiving_yards ?? 0;
+      p.receptions += u.receptions ?? 0;
+      p.recTds += u.receiving_tds ?? 0;
+      p.targets += u.targets;
     }
     if (u.carries > 0) {
-      p.ypc.push((u.rushing_yards ?? 0) / u.carries);
-      p.rushTd.push((u.rushing_tds ?? 0) / u.carries);
+      p.rushYds += u.rushing_yards ?? 0;
+      p.rushTds += u.rushing_tds ?? 0;
+      p.carries += u.carries;
     }
     if (u.attempts > 0) {
-      p.ypa.push((u.passing_yards ?? 0) / u.attempts);
-      p.passTd.push((u.passing_tds ?? 0) / u.attempts);
-      p.intRate.push((u.interceptions ?? 0) / u.attempts);
+      p.passYds += u.passing_yards ?? 0;
+      p.passTds += u.passing_tds ?? 0;
+      p.ints += u.interceptions ?? 0;
+      p.attempts += u.attempts;
     }
   }
+  const rate = (num, den) => (den > 0 ? num / den : null);
   const out = {};
   for (const [pos, p] of Object.entries(byPos)) {
     out[pos] = {
-      ypt: mean(p.ypt) || 7.5, ypc: mean(p.ypc) || 4.3, ypa: mean(p.ypa) || 7.0,
-      catch_rate: mean(p.catchRate) || 0.63,
-      rec_td_rate: mean(p.recTd) || 0.05,
-      rush_td_rate: mean(p.rushTd) || 0.025,
-      pass_td_rate: mean(p.passTd) || 0.045,
-      int_rate: mean(p.intRate) || 0.024
+      ypt: rate(p.recYds, p.targets) || 7.5,
+      ypc: rate(p.rushYds, p.carries) || 4.3,
+      ypa: rate(p.passYds, p.attempts) || 7.0,
+      catch_rate: rate(p.receptions, p.targets) || 0.63,
+      rec_td_rate: rate(p.recTds, p.targets) || 0.05,
+      rush_td_rate: rate(p.rushTds, p.carries) || 0.025,
+      pass_td_rate: rate(p.passTds, p.attempts) || 0.045,
+      int_rate: rate(p.ints, p.attempts) || 0.024
     };
   }
   return out;
@@ -380,7 +433,7 @@ export function buildProjections({
     const passTdK = pickK(k, 'pass_td_rate', a.pos, a.attempts, a.attempts / 10, K.td_rate / 10);
     const passTdRate = shrinkSafe(a.attempts > 0 ? a.passTd / a.attempts : prior.pass_td_rate,
       prior.pass_td_rate, passTdK.n, passTdK.k);
-    const intRateK = pickK(k, 'int_rate', a.pos, a.attempts, a.attempts / 10, K.td_rate / 10);
+    const intRateK = pickK(k, 'int_rate', a.pos, a.attempts, a.attempts / 10, K.int_rate);
     const intRate = shrinkSafe(a.attempts > 0 ? a.ints / a.attempts : prior.int_rate,
       prior.int_rate, intRateK.n, intRateK.k);
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { api, headshotUrl, useApi } from '../api';
 import { Headshot, TIER_COLORS } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
@@ -345,8 +345,8 @@ export default function Players() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.slice(0, limit).map(p => (
-                <>
-                <tr key={p.id}
+                <Fragment key={p.id}>
+                <tr
                   className={`hover:bg-emerald-50/50 transition-colors ${expanded === p.id ? 'bg-emerald-50/70' : ''}`}>
                   <td className="px-2">
                     <input type="checkbox" className="accent-emerald-600"
@@ -435,7 +435,7 @@ export default function Players() {
                     </td>
                   </tr>
                 )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

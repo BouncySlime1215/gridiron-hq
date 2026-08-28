@@ -437,6 +437,14 @@ single 272-event snapshot across ~6.4 books per market: spread lines differ by
 and taking the best available price rather than a median one is worth
 **2.566% per bet**.
 
+> **Correction, 2026-08-27.** The 0.813 average did not reproduce. Re-measured
+> against the same `nfl_line_snapshots` table — 8 books, 272 events, verified
+> captured in the same instant — the mean gap is **0.289 points**. The
+> conclusion is unchanged and arguably stronger: the mean was always the wrong
+> statistic, because line-shopping value lives entirely in the tail, and the
+> tail here runs to 2.5–3.0 points. See `docs/PATH_TO_PROFIT.md`. The edge is
+> now surfaced by `nfl-shopping-board.js` rather than left unread.
+
 **The real break-even is 51.38%, not 52.38%.** The universally-quoted figure
 assumes every spread is priced −110 both ways. Measured over 11,134 games
 carrying real `spread_odds` (2006–2025), only **13.2%** actually were. A full
@@ -569,6 +577,25 @@ work on volume and efficiency, not another general-purpose head.
 and `fantasy_impact` already populated. This is the one signal family a
 numeric model structurally cannot reach. It goes through the same gate as
 everything else — "an LLM found it" is not evidence it helps.
+
+### Retained but unwired — this is deliberate
+
+A cleanup pass on 2026-08-28 found eight service modules that nothing imports.
+They were checked individually and **kept**, because they are not dead weight —
+they are the evidence behind the "do not redo these" list directly below, and
+several are cited by filename in this log and in `NFL_MODEL_STATUS.md`.
+Deleting them would leave dangling references and make a documented negative
+result unreproducible.
+
+`nfl-coaches.js` · `nfl-offseason-change.js` · `nfl-opponent.js` ·
+`nfl-prop-grading.js` · `nfl-props-replay.js` · `nfl-rookies.js` ·
+`nfl-specialists.js` · `nfl-teammate-competition.js`
+
+Unwired is the correct state for all of them: each was built, measured, and
+failed to improve the shipped pipeline. `nfl-coaches.js` is worth singling out —
+it records a *correction* to an earlier claim in this log, which is exactly the
+kind of thing that must not be quietly deleted. If any is ever retired for real,
+retire the doc references in the same commit.
 
 ### Do not redo these
 

@@ -24,7 +24,11 @@ db.exec(`
 
 for (const [name, type] of [
   ['policy_id', 'TEXT'], ['policy_version', 'TEXT'], ['book', 'TEXT'], ['quote_at', 'TEXT'],
-  ['quote_source', 'TEXT'], ['feature_snapshot_json', 'TEXT']
+  ['quote_source', 'TEXT'], ['feature_snapshot_json', 'TEXT'],
+  // A locked pick is a ledger entry and must never silently vanish, but a pick
+  // locked under a policy that no longer exists is not a live position either.
+  // Voiding keeps the row and its history while removing it from the standing.
+  ['voided_at', 'TEXT'], ['void_reason', 'TEXT']
 ]) {
   const cols = db.prepare('PRAGMA table_info(nfl_auto_picks)').all().map(c => c.name);
   if (!cols.includes(name)) db.exec(`ALTER TABLE nfl_auto_picks ADD COLUMN ${name} ${type}`);
@@ -200,6 +204,9 @@ const americanToDecimal = odds => (odds > 0 ? 1 + odds / 100 : 1 + 100 / Math.ab
  * spread `line` belongs to (the model may have preferred either side).
  */
 function gradePick(p) {
+  // Checked before the score lookup: a voided pick stays voided even once the
+  // game finishes, otherwise it would quietly rejoin the record on Sunday.
+  if (p.voided_at) return { status: 'Void', units: 0 };
   const result = rows(
     `SELECT team, team_score, opp_score FROM game_lines
      WHERE season = ? AND week = ? AND team = ?`,
@@ -229,7 +236,9 @@ export function allPickResults() {
 
 /** Record / units across everything settled so far — "where we stand". */
 export function standing() {
-  const graded = allPickResults();
+  // Voided picks are excluded from the record entirely — not counted as losses,
+  // not counted as pending. They are history, not positions.
+  const graded = allPickResults().filter(g => g.status !== 'Void');
   const settled = graded.filter(g => g.status === 'Won' || g.status === 'Lost');
   const wins = settled.filter(g => g.status === 'Won').length;
   const losses = settled.filter(g => g.status === 'Lost').length;

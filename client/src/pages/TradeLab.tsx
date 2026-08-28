@@ -7,6 +7,7 @@ import { usePlayerCard } from '../components/PlayerCard';
 const TABS = [
   { id: 'news', label: 'News edge', hint: 'Act on news your league has not seen yet' },
   { id: 'find', label: 'Find deals', hint: 'Every realistic trade in your league, ranked' },
+  { id: 'title', label: 'Title impact', hint: 'Ranked by championship odds, not points' },
   { id: 'target', label: 'Target a player', hint: 'Name him — get the offer that lands him' },
   { id: 'targetMany', label: 'Go get them', hint: 'Pick multiple players — build the packages that land them' },
   { id: 'mock', label: 'Mock a trade', hint: 'Build any deal, see who wins' },
@@ -85,6 +86,7 @@ export default function TradeLab() {
       {!active && <div className="card p-6 text-sm text-slate-500">Connect a league in League Hub first.</div>}
       {active && tab === 'news' && <NewsEdge leagueId={active} teamId={me} />}
       {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {active && tab === 'title' && <TitleTrades leagueId={active} teamId={me} />}
       {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'targetMany' && <TargetMany leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
@@ -177,6 +179,74 @@ function NewsEdge({ leagueId, teamId }: { leagueId: number; teamId: string | nul
                 </div>
                 <div className="mt-1 text-[11px] text-slate-500 italic">
                   “{o.evidence}” <span className="not-italic text-slate-400">· {o.source} · confidence {o.confidence}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {data?.note && <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">{data.note}</p>}
+    </div>
+  );
+}
+
+/**
+ * Deals scored in championship probability rather than points per week.
+ *
+ * The headline case for this tab is when the two disagree — a trade can add
+ * three points a week and still leave you less likely to win the league.
+ */
+function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
+  const { data, loading } = useApi<any>(
+    teamId ? `/trades/${leagueId}/title-trades?team_id=${teamId}&shortlist=6` : null);
+
+  if (loading) return (
+    <div className="card p-6 text-sm text-slate-500">
+      Simulating each deal twice under the same season… this takes a moment on the first run.
+    </div>
+  );
+  if (data?.error) return <div className="card p-6 text-sm text-rose-600">{data.error}</div>;
+  const deals = data?.deals ?? [];
+
+  return (
+    <div>
+      <div className={`card p-4 mb-3 ${data?.objectives_disagree ? 'border-amber-300 bg-amber-50/50' : ''}`}>
+        <h2 className="text-sm font-bold text-slate-800 mb-1">
+          {data?.simulated ?? 0} deals simulated · ranked by championship odds
+        </h2>
+        <p className="text-xs text-slate-700 leading-relaxed">{data?.disagreement_note}</p>
+      </div>
+
+      {!deals.length ? (
+        <div className="card p-6 text-sm text-slate-500">
+          No plausible deals to simulate — the finder returned nothing that clears its acceptance bar.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {deals.map((d: any, i: number) => {
+            const good = (d.title_delta ?? 0) > 0;
+            return (
+              <div key={i} className={`card p-4 border ${good ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200'}`}>
+                <div className="flex items-baseline gap-3 flex-wrap mb-2">
+                  <span className={`text-xl font-black tabular-nums ${good ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {good ? '+' : ''}{((d.title_delta ?? 0) * 100).toFixed(2)}%
+                  </span>
+                  <span className="text-[11px] text-slate-500">championship odds</span>
+                  <span className={`text-xs font-bold tabular-nums ml-auto ${(d.ppg_delta ?? 0) > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
+                    {(d.ppg_delta ?? 0) > 0 ? '+' : ''}{d.ppg_delta} ppg
+                  </span>
+                </div>
+                <div className="text-sm text-slate-700">
+                  <span className="text-rose-700">give</span> {d.i_give.map((p: any) => p.name).join(' + ')}
+                  <span className="text-slate-400 mx-2">→</span>
+                  <span className="text-emerald-700">get</span> {d.i_get.map((p: any) => p.name).join(' + ')}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1.5">
+                  with <b className="text-slate-700">{d.partner}</b> · {d.fairness}
+                  {d.their_title_delta != null && (
+                    <> · their title {(d.their_title_delta * 100).toFixed(2)}%
+                      {d.mutual_title_gain && <b className="text-emerald-700"> · both gain</b>}</>
+                  )}
                 </div>
               </div>
             );

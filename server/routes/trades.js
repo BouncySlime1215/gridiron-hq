@@ -16,6 +16,7 @@ import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js'
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
+import { titleOddsTrades } from '../services/title-odds-trades.js';
 
 const r = Router();
 
@@ -75,6 +76,21 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
       objective: req.query.objective === 'mean' ? 'mean' : 'ceiling',
       target: req.query.target ? Number(req.query.target) : null,
       trials: Math.min(8000, Number(req.query.trials) || 3000)
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Trades ranked by championship odds instead of points. Cached and slow on a
+ * cold call — each shortlisted deal is a paired season simulation.
+ */
+r.get('/:leagueId/title-trades', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(titleOddsTrades(lg.id, {
+      teamId: req.query.team_id,
+      shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
+      runs: Math.min(2000, Number(req.query.runs) || 800)
     }));
   } catch (e) { next(e); }
 });

@@ -21,6 +21,7 @@ import { findTeaserLegs } from '../services/nfl-teasers.js';
 import { sgpAnalysis, propCorrelationTable, fitPropCorrelations } from '../services/nfl-prop-correlation.js';
 import { requireModelPermission } from '../modeling/authz.js';
 import { latestCoverCalibration } from '../services/nfl-cover-calibration.js';
+import { abstentionAudit } from '../services/nfl-abstention-audit.js';
 
 const r = Router();
 
@@ -219,6 +220,14 @@ r.get('/teasers/candidates', (req, res, next) => {
         'Check the price at your book and re-query with ?price= to see whether it still clears.'
     });
   } catch (e) { next(e); }
+});
+
+/**
+ * What happened on the games the policy refused. Cached, because a five-season
+ * replay is over a minute of blocking CPU.
+ */
+r.get('/abstentions', (_req, res, next) => {
+  try { res.json(abstentionAudit()); } catch (e) { next(e); }
 });
 
 /** Fitted prop-stat correlations — the input to same-game parlay pricing. */

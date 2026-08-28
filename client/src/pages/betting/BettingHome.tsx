@@ -23,6 +23,14 @@ interface Summary {
   };
 }
 
+interface HubStatus {
+  edges: { id: string; label: string; live: boolean; headline: string; detail: string; blocked_by: string | null }[];
+  model: { calibration_gate: string; calibration_detail: string; sizing_allowed: boolean };
+  data: { credits_remaining: number | null; credits_used: number | null;
+    free_detector: { events_tracked: number; moves: number; last_poll: string | null; worth_capturing: number };
+    capture_stale: boolean; latest_multibook_capture: string | null };
+}
+
 const pct = (v: number | null | undefined) =>
   v == null || !Number.isFinite(v) ? '—' : `${(v * 100).toFixed(1)}%`;
 const units = (v: number | null | undefined) =>
@@ -38,6 +46,9 @@ const units = (v: number | null | undefined) =>
  */
 export default function BettingHome() {
   const { data, loading, error } = useApi<Summary>('/betting/summary');
+  // Same endpoint the Edge Desk hero reads, deliberately: two pages describing
+  // the same edges from two different sources is how they drift apart.
+  const { data: hub } = useApi<HubStatus>('/betting/status');
 
   if (loading) return <div className="card p-6 text-sm text-slate-500">Loading…</div>;
   if (error) return <div className="card p-6 text-sm text-rose-600">{error}</div>;
@@ -50,10 +61,11 @@ export default function BettingHome() {
     <div>
       <h1 className="text-2xl font-bold mb-1">Betting</h1>
       <p className="text-sm text-slate-500 mb-5">
-        Model versus market across two sports, plus execution edges the model doesn't need to predict anything to earn.
+        Structural edges first — the ones that pay without predicting anything. The forecasting model
+        is tracked below as research; it has never beaten a closing line.
       </p>
 
-      <EdgeStrip edges={data?.edges} />
+      <LiveEdges status={hub} />
 
       <div className="grid md:grid-cols-2 gap-4 mb-6">
         <SportCard
@@ -87,57 +99,86 @@ export default function BettingHome() {
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">
-        <div className="card p-4">
-          <h2 className="text-sm font-bold text-slate-700 mb-2">NFL model health</h2>
-          {data?.nfl.model ? (
-            <div className="space-y-1.5 text-xs text-slate-600">
-              <Row label="Straight-up accuracy" value={pct(data.nfl.model.win_accuracy)} />
-              <Row label="Margin error" value={`${data.nfl.model.margin_mae} pts`} />
-              <Row label="Total error" value={`${data.nfl.model.total_mae} pts`} />
-              <Row label="Games graded" value={data.nfl.model.games_graded.toLocaleString()} />
-              <p className="text-[10px] text-slate-400 pt-1">
-                Walk-forward — every prediction used only games played before it.
+        {/*
+          Was "NFL model health", leading with a 63.8% straight-up accuracy —
+          a number that sounds like success and is not one, because it never
+          said the market still predicts covers better. The gate result is the
+          fact that actually governs whether this model may size a bet.
+        */}
+        <div className={`card p-4 ${hub && !hub.model.sizing_allowed ? 'border-amber-300' : ''}`}>
+          <h2 className="text-sm font-bold text-slate-700 mb-2">Forecasting model</h2>
+          {hub ? (
+            <>
+              <div className={`text-lg font-black ${hub.model.sizing_allowed ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {hub.model.sizing_allowed ? 'Cleared to size' : 'Blocked from sizing'}
+              </div>
+              <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">{hub.model.calibration_detail}</p>
+              <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                Staking refuses model-derived edges until the calibration gate passes. That is the code
+                working, not a missing feature.
               </p>
+            </>
+          ) : <p className="text-xs text-slate-500">Checking the calibration gate…</p>}
+          {data?.nfl.model && (
+            <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+              <Row label="Margin error" value={`${data.nfl.model.margin_mae} pts`} />
+              <Row label="Games graded" value={data.nfl.model.games_graded.toLocaleString()} />
             </div>
-          ) : <p className="text-xs text-slate-500">Model not fitted yet.</p>}
+          )}
         </div>
 
+        {/*
+          Replaces a "328 variables tracked" counter. Variable count measures
+          effort, not edge — and a bigger number would have been read as better.
+          The break-even is the number that decides whether any bet is worth
+          making, and it is not the one everybody quotes.
+        */}
         <div className="card p-4">
-          <h2 className="text-sm font-bold text-slate-700 mb-2">Variables tracked</h2>
-          <div className="text-3xl font-black text-slate-800">{data?.nfl.variables.total ?? 0}</div>
-          <div className="text-[11px] text-slate-500 mb-2">
-            {data?.nfl.variables.team} team · {data?.nfl.variables.player} player
-          </div>
-          <div className="space-y-0.5 max-h-32 overflow-y-auto">
-            {Object.entries(data?.nfl.variables.by_group ?? {}).map(([g, n]) => (
-              <div key={g} className="flex justify-between text-[10px] text-slate-500">
-                <span className="truncate pr-2">{g}</span><span className="tabular-nums font-semibold">{n}</span>
+          <h2 className="text-sm font-bold text-slate-700 mb-2">What you actually need to hit</h2>
+          {data?.edges?.break_even ? (
+            <>
+              <div className="text-3xl font-black text-slate-800 tabular-nums">
+                {pct(data.edges.break_even.real_breakeven)}
               </div>
-            ))}
-          </div>
-          <Link to="/betting/catalog" className="text-[11px] text-emerald-600 hover:underline mt-2 inline-block">
-            Browse the full catalog →
+              <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                Not the {pct(data.edges.break_even.convention_breakeven)} everyone quotes — that assumes
+                every spread is priced −110, and only {pct(data.edges.break_even.share_priced_at_minus_110)} of
+                recorded games actually were.
+              </p>
+            </>
+          ) : <p className="text-xs text-slate-500">Measuring from stored prices…</p>}
+          <Link to="/betting/nfl/picks" className="text-[11px] text-emerald-600 hover:underline mt-2 inline-block">
+            Open the Edge Desk →
           </Link>
         </div>
 
+        {/*
+          Credits are the binding constraint on every remaining edge, so the
+          metered feed and the free one that conserves it belong side by side.
+        */}
         <div className="card p-4">
-          <h2 className="text-sm font-bold text-slate-700 mb-2">Odds feed</h2>
-          {data?.odds_api.has_key ? (
+          <h2 className="text-sm font-bold text-slate-700 mb-2">Data budget</h2>
+          {hub ? (
             <div className="space-y-1.5 text-xs text-slate-600">
-              <Row label="Status" value={<span className="text-emerald-700 font-semibold">connected</span>} />
-              <Row label="Credits left" value={data.odds_api.requests_remaining ?? '—'} />
-              <Row label="Used" value={data.odds_api.requests_used ?? 0} />
-              <p className="text-[10px] text-slate-400 pt-1">
-                Player props are fetched only when you ask for them, and cached for six hours, so
-                browsing never spends credits.
+              <Row label="Paid credits left"
+                value={<span className={(hub.data.credits_remaining ?? 0) < 200 ? 'text-amber-700 font-bold' : 'font-semibold'}>
+                  {hub.data.credits_remaining ?? '—'}
+                </span>} />
+              <Row label="Used" value={hub.data.credits_used ?? 0} />
+              <div className="pt-1.5 mt-1.5 border-t border-slate-100">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 mb-1">
+                  Free detector
+                </div>
+                <Row label="Games watched" value={hub.data.free_detector.events_tracked} />
+                <Row label="Moves seen" value={hub.data.free_detector.moves} />
+                <Row label="Worth a credit" value={hub.data.free_detector.worth_capturing} />
+              </div>
+              <p className="text-[10px] text-slate-400 pt-1 leading-relaxed">
+                ESPN&apos;s public scoreboard costs nothing and runs every 15 minutes. Paid multi-book
+                capture is spent only where it has moved.
               </p>
             </div>
-          ) : (
-            <p className="text-xs text-slate-500">
-              No odds key configured. Everything runs model-only; set <code>ODDS_API_KEY</code> to
-              light up market prices and edges.
-            </p>
-          )}
+          ) : <p className="text-xs text-slate-500">Reading the budget…</p>}
         </div>
       </div>
 
@@ -158,54 +199,40 @@ export default function BettingHome() {
  * the closing line); these three numbers are properties of the MARKET, not a
  * forecast, so they get their own strip rather than being buried as footnotes.
  */
-function EdgeStrip({ edges }: { edges?: Summary['edges'] }) {
-  if (!edges) return null;
-  const t = edges.teaser, be = edges.break_even, pe = edges.prop_edge;
-  const teaserGood = t?.ev_at_110?.verdict?.includes('significant');
+/**
+ * What is actually working right now, read from the same /betting/status the
+ * Edge Desk hero uses. This replaced a hand-assembled strip that recomputed the
+ * same three facts from a different payload — the surest way for two pages to
+ * start disagreeing about the same edge.
+ *
+ * Each card says plainly whether the edge is live and, when it is not, the one
+ * thing it is waiting on.
+ */
+function LiveEdges({ status }: { status?: HubStatus | null }) {
+  if (!status) {
+    return (
+      <div className="card p-4 mb-4 text-sm text-slate-500">Checking which edges are live…</div>
+    );
+  }
   return (
-    <div className="grid md:grid-cols-3 gap-4 mb-6">
-      <div className={`card p-4 border-l-4 ${teaserGood ? 'border-l-emerald-500' : 'border-l-slate-300'}`}>
-        <h2 className="text-sm font-bold text-slate-700 mb-1">Wong teasers</h2>
-        {t ? (
-          <>
-            <div className="text-2xl font-black text-slate-800">
-              {(t.win_rate * 100).toFixed(1)}%
-              <span className="text-xs font-normal text-slate-400 ml-1.5">of {t.legs} legs, 1999&ndash;2025</span>
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+      {status.edges.map(e => (
+        <div key={e.id} className={`card p-4 ${e.live ? 'border-emerald-200' : ''}`}>
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${e.live ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+            <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{e.label}</h3>
+          </div>
+          <div className={`text-lg font-black leading-tight ${e.live ? 'text-slate-900' : 'text-slate-400'}`}>
+            {e.headline}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{e.detail}</p>
+          {e.blocked_by && (
+            <div className="mt-2 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+              waiting on {e.blocked_by}
             </div>
-            <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-              <b className={teaserGood ? 'text-emerald-700' : 'text-slate-500'}>
-                {(t.ev_at_110.ev_per_bet * 100).toFixed(2)}% EV at &minus;110
-              </b>{t.ev_at_130.ev_per_bet < 0 && <> · negative at &minus;130 — the edge is entirely the price you get</>}
-            </p>
-            <p className="text-[10px] text-slate-400 mt-1">z={t.ev_at_110.z.toFixed(2)} — clears a one-sided 5% bar, not a sure thing.</p>
-          </>
-        ) : <p className="text-xs text-slate-500">Not computed.</p>}
-      </div>
-
-      <div className="card p-4">
-        <h2 className="text-sm font-bold text-slate-700 mb-1">Real break-even</h2>
-        {be ? (
-          <>
-            <div className="text-2xl font-black text-slate-800">{(be.real_breakeven * 100).toFixed(2)}%</div>
-            <p className="text-xs text-slate-600 mt-1.5">
-              vs the {(be.convention_breakeven * 100).toFixed(2)}% everyone quotes for &minus;110 —
-              only {(be.share_priced_at_minus_110 * 100).toFixed(1)}% of recorded games were actually priced there.
-            </p>
-          </>
-        ) : <p className="text-xs text-slate-500">Not computed.</p>}
-      </div>
-
-      <div className="card p-4">
-        <h2 className="text-sm font-bold text-slate-700 mb-1">Prop edge evidence</h2>
-        {pe ? (
-          <>
-            <div className="text-2xl font-black text-slate-800">
-              {pe.settled_bets ?? 0}<span className="text-sm font-normal text-slate-400">/200</span>
-            </div>
-            <p className="text-xs text-slate-600 mt-1.5">{pe.captured_quotes} quotes captured. {pe.verdict}</p>
-          </>
-        ) : <p className="text-xs text-slate-500">Not computed.</p>}
-      </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

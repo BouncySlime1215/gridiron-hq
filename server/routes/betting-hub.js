@@ -16,7 +16,8 @@ import { realBreakEven } from '../services/nfl-execution-edge.js';
 import { wongHistory, teaserEV } from '../services/nfl-teasers.js';
 import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
 import { shoppingBoard, findMiddles, executionBoardSummary } from '../services/nfl-shopping-board.js';
-import { recentMoves, capturesWorthSpending, espnWatchStatus } from '../services/nfl-espn-line-watch.js';
+import { recentMoves, capturesWorthSpending, espnWatchStatus, currentSlate } from '../services/nfl-espn-line-watch.js';
+import { findTeaserLegs } from '../services/nfl-teasers.js';
 import { sgpAnalysis, propCorrelationTable, fitPropCorrelations } from '../services/nfl-prop-correlation.js';
 import { requireModelPermission } from '../modeling/authz.js';
 
@@ -126,6 +127,30 @@ r.get('/execution/movement', (req, res, next) => {
       status: espnWatchStatus(),
       moves: recentMoves({ hours: Math.min(336, Number(req.query.hours) || 72) }),
       worth_capturing: capturesWorthSpending()
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Wong teaser candidates on the live slate, fed from the free ESPN reference
+ * lines rather than the paid API.
+ *
+ * `price` is a query parameter and defaults to the -110 the historical +6.50%
+ * EV was measured at, because the price is the whole edge: the identical bet is
+ * -1.30% at -130. Nothing here can see what your book is actually offering, so
+ * the honest contract is "tell me your price and I will tell you if it clears".
+ */
+r.get('/teasers/candidates', (req, res, next) => {
+  try {
+    const price = Number.isFinite(Number(req.query.price)) ? Number(req.query.price) : -110;
+    const slate = currentSlate();
+    const out = findTeaserLegs(slate.sides, { americanPrice: price });
+    res.json({
+      season: slate.season, week: slate.week, games_on_slate: slate.games,
+      quoted_price: price, source: 'ESPN reference lines (free)',
+      ...out,
+      price_note: 'Teasers are not quoted by the odds API, so this cannot verify availability. ' +
+        'Check the price at your book and re-query with ?price= to see whether it still clears.'
     });
   } catch (e) { next(e); }
 });

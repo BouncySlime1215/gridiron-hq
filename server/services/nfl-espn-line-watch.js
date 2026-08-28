@@ -185,6 +185,32 @@ export function capturesWorthSpending({ hours = 24, minMoveValue = 0.01 } = {}) 
     .sort((a, b) => (b.max_move_value ?? 0) - (a.max_move_value ?? 0));
 }
 
+/**
+ * The current slate as one row per SIDE, which is the shape a teaser leg check
+ * needs — a Wong leg is defined from the bettor's own side (favourite −7.5 to
+ * −8.5, or underdog +1.5 to +2.5), so a game has to be split in two before it
+ * can be tested. Free: this reads the movement log, not the paid API.
+ */
+export function currentSlate({ season = SEASON, week = null } = {}) {
+  const wk = week ?? currentWeek();
+  const latest = rows(
+    `SELECT event_id, home_team, away_team, commence_time, home_spread, total
+     FROM espn_line_moves
+     WHERE season = ? AND week = ?
+       AND id IN (SELECT MAX(id) FROM espn_line_moves WHERE season = ? AND week = ? GROUP BY event_id)`,
+    season, wk, season, wk);
+
+  const sides = [];
+  for (const g of latest) {
+    if (g.home_spread == null) continue;
+    const base = { event_id: g.event_id, matchup: `${g.away_team} at ${g.home_team}`,
+      commence_time: g.commence_time, total: g.total };
+    sides.push({ ...base, team: g.home_team, opponent: g.away_team, home: true, spread: g.home_spread });
+    sides.push({ ...base, team: g.away_team, opponent: g.home_team, home: false, spread: -g.home_spread });
+  }
+  return { season, week: wk, games: latest.length, sides };
+}
+
 export function espnWatchStatus() {
   const total = rows('SELECT COUNT(*) AS n FROM espn_line_moves')[0]?.n ?? 0;
   const moves = rows('SELECT COUNT(*) AS n FROM espn_line_moves WHERE first_sighting = 0')[0]?.n ?? 0;

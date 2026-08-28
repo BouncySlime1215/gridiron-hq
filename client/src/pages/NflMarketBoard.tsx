@@ -11,6 +11,7 @@ import Training from './betting/Training';
 // tab opens substantially shortens the initial NFL board/model route payload.
 const EnsemblePage = lazy(() => import('./betting/Ensemble'));
 const LineShop = lazy(() => import('./betting/LineShop'));
+const Edges = lazy(() => import('./betting/Edges'));
 const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 const NflProps = lazy(() => import('./betting/NflProps'));
 
@@ -100,7 +101,7 @@ const normalizeInitial = (tool: InitialTool): HubTool =>
 
 export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?: InitialTool }) {
   const [tool, setTool] = useState<HubTool>(() => normalizeInitial(initialTool));
-  const [decisionView, setDecisionView] = useState<'games' | 'props' | 'lines'>(() =>
+  const [decisionView, setDecisionView] = useState<'games' | 'props' | 'lines' | 'edges'>(() =>
     initialTool === 'props' ? 'props' : initialTool === 'lines' ? 'lines' : 'games');
   const [modelView, setModelView] = useState<'ensemble' | 'variables' | 'method'>(() =>
     initialTool === 'variables' ? 'variables' : initialTool === 'info' ? 'method' : 'ensemble');
@@ -235,7 +236,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
       </nav>
 
       {tool === 'board' && <FeatureTabs value={decisionView} onChange={setDecisionView} items={[
-        ['games', 'Game picks'], ['props', 'Player props'], ['lines', 'Line shopping']
+        ['games', 'Game picks'], ['props', 'Player props'], ['lines', 'Line shopping'], ['edges', 'Edges']
       ]} />}
       {tool === 'model' && <FeatureTabs value={modelView} onChange={setModelView} items={[
         ['ensemble', '21-model ensemble'], ['variables', 'Variable catalog'], ['method', 'Method & limits']
@@ -246,6 +247,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
 
       {tool === 'board' && decisionView === 'props' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading shared player engine', 'Simulating joint events', 'Rendering prop board']} />}><NflProps /></Suspense>}
       {tool === 'board' && decisionView === 'lines' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading line shop', 'Checking quote cache', 'Rendering market view']} />}><LineShop /></Suspense>}
+      {tool === 'board' && decisionView === 'edges' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading structural edges', 'Fitting parlay correlations', 'Reading the movement log']} />}><Edges /></Suspense>}
       {tool === 'model' && modelView === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
       {tool === 'model' && modelView === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}
       {tool === 'model' && modelView === 'method' && <ModelInfo accuracy={acc} catalog={catalog} pbpRows={pbpRows} />}

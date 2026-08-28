@@ -73,6 +73,13 @@ interface SystemStatus {
 interface CoverCalibration { created_at: string; sample_size: number; trained_from: number; trained_through: number;
   metrics: { walk_forward_n: number; walk_forward_calibrated_brier: number | null; walk_forward_market_brier: number | null; forward_gate_passed: boolean }; }
 interface PregameCoverage { season: number; week: number; teams: number; first_capture: string; last_capture: string; }
+interface HubStatus {
+  edges: { id: string; label: string; live: boolean; headline: string; detail: string; blocked_by: string | null }[];
+  model: { calibration_gate: string; calibration_detail: string; sizing_allowed: boolean };
+  data: { credits_remaining: number | null; credits_used: number | null;
+    free_detector: { events_tracked: number; moves: number; last_poll: string | null; worth_capturing: number };
+    capture_stale: boolean; latest_multibook_capture: string | null };
+}
 interface TrackedBet {
   id: number; season: number; week: number; matchup: string; market: string; selection: string;
   side: string | null; line: number; american_price: number; model_probability: number | null;
@@ -88,20 +95,26 @@ const STATUS_STYLE: Record<string, string> = {
   Pending: 'bg-white text-slate-600 border-slate-300'
 };
 
-type HubTool = 'board' | 'model' | 'audit';
-type InitialTool = HubTool | 'ensemble' | 'training' | 'lines' | 'variables' | 'operations' | 'info' | 'props';
+type HubTool = 'edges' | 'board' | 'model' | 'audit';
+type InitialTool = HubTool | 'ensemble' | 'training' | 'lines' | 'variables' | 'operations' | 'info' | 'props' | 'edges';
 const HUB_TOOLS: { id: HubTool; label: string; note: string }[] = [
-  { id: 'board', label: 'Decisions', note: 'Games · props · prices' },
+  // Edges leads because it is the part that works. The auto-pick model sits
+  // second and is labelled research: 0 of 21 component models beat the closing
+  // line, and leading a hub with the one measured-negative component was the
+  // clearest thing wrong with the old information architecture.
+  { id: 'edges', label: 'Edges', note: 'Shopping · teasers · correlation' },
+  { id: 'board', label: 'Board', note: 'Games · props · prices' },
   { id: 'model', label: 'Model', note: 'Ensemble · variables · method' },
   { id: 'audit', label: 'Audit', note: 'Blind replay · promotion gates' }
 ];
 const normalizeInitial = (tool: InitialTool): HubTool =>
   ['ensemble', 'variables', 'info', 'model'].includes(tool) ? 'model'
-    : ['training', 'operations', 'audit'].includes(tool) ? 'audit' : 'board';
+    : ['training', 'operations', 'audit'].includes(tool) ? 'audit'
+    : tool === 'edges' ? 'edges' : 'board';
 
 export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?: InitialTool }) {
   const [tool, setTool] = useState<HubTool>(() => normalizeInitial(initialTool));
-  const [decisionView, setDecisionView] = useState<'games' | 'props' | 'lines' | 'edges'>(() =>
+  const [decisionView, setDecisionView] = useState<'games' | 'props' | 'lines'>(() =>
     initialTool === 'props' ? 'props' : initialTool === 'lines' ? 'lines' : 'games');
   const [modelView, setModelView] = useState<'ensemble' | 'variables' | 'method'>(() =>
     initialTool === 'variables' ? 'variables' : initialTool === 'info' ? 'method' : 'ensemble');
@@ -119,8 +132,11 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   // Cheap integrity endpoints mount first so the server can paint factual
   // evidence before the CPU-heavy ensemble request begins.
   const { data: system, loading: systemLoading } = useApi<SystemStatus>('/nfl-betting/status');
-  const { data: calibrationPayload, loading: calibrationLoading } = useApi<{ calibration: CoverCalibration | null }>('/nfl-betting/calibration/cover');
+  const { data: calibrationPayload } = useApi<{ calibration: CoverCalibration | null }>('/nfl-betting/calibration/cover');
   const { data: pregamePayload, loading: pregameLoading } = useApi<{ coverage: PregameCoverage[] }>('/nfl-betting/pregame/snapshots');
+  // One honest read on what works and what is blocked. Cheap and free of credits,
+  // so it loads on every tab rather than only where it happens to be rendered.
+  const { data: hub } = useApi<HubStatus>('/betting/status');
   const boardVisible = tool === 'board' && decisionView === 'games';
   const { data: acc } = useApi<Accuracy>(boardVisible || (tool === 'model' && modelView === 'method') ? '/nfl-market/accuracy' : null);
   const historyApi = useApi<{ results: Graded[]; standing: Standing }>(boardVisible ? '/nfl-market/picks/history' : null);
@@ -200,10 +216,12 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   return (
     <div className="mx-auto max-w-[1440px] space-y-5">
       <BettingHero
-        eyebrow="NFL betting intelligence"
-        title="Auto Picks Command Center"
-        description="The production decision is separated from the research board. A pick appears here only after the ensemble clears the edge and disagreement guards."
-        status={<StatusPill tone="warn">Provisional edge</StatusPill>}
+        eyebrow="NFL betting"
+        title="Edge Desk"
+        description="Structural edges first, because those are the ones that work. The forecasting model sits under Board and is research — it has never beaten a closing line, and it is not allowed to size a bet until it does."
+        status={<StatusPill tone={hub?.model.sizing_allowed ? 'good' : 'warn'}>
+          {hub ? (hub.model.sizing_allowed ? 'Model cleared to size' : 'Model sizing blocked') : 'Checking…'}
+        </StatusPill>}
         actions={tool === 'board' && decisionView === 'games' ? <>
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <span>Week</span>
@@ -219,12 +237,18 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         </> : undefined}
       >
         <StatusPill tone="neutral">2026 · Week {week}</StatusPill>
+        {hub?.edges.map(e => (
+          <StatusPill key={e.id} tone={e.live ? 'good' : 'warn'}>
+            {e.live ? '● ' : '○ '}{e.label}{e.blocked_by ? ` · needs ${e.blocked_by}` : ''}
+          </StatusPill>
+        ))}
+        <StatusPill tone={(hub?.data.credits_remaining ?? 0) < 200 ? 'warn' : 'neutral'}>
+          {hub?.data.credits_remaining ?? '—'} API credits left
+        </StatusPill>
         <StatusPill tone={systemLoading ? 'neutral' : pbpRows > 0 ? 'good' : 'warn'}>{systemLoading ? 'Checking play-by-play…' : pbpRows > 0 ? 'Play-by-play ready' : 'Play-by-play unavailable'}</StatusPill>
-        <StatusPill tone="info">Policy: 3+ edge · ≤4.5 disagreement</StatusPill>
-        <StatusPill tone={calibrationLoading ? 'neutral' : calibration?.metrics.forward_gate_passed ? 'good' : 'warn'}>{calibrationLoading ? 'Checking calibration…' : calibration?.metrics.forward_gate_passed ? 'Cover calibration passed' : 'Probability edge suppressed'}</StatusPill>
       </BettingHero>
 
-      <nav aria-label="NFL Auto Picks tools" className="card grid grid-cols-3 gap-1 p-1.5">
+      <nav aria-label="NFL betting tools" className="card grid grid-cols-2 gap-1 p-1.5 sm:grid-cols-4">
         {HUB_TOOLS.map(t => (
           <button key={t.id} role="tab" aria-selected={tool === t.id} onClick={() => setTool(t.id)}
             className={`rounded-xl px-3 py-2.5 text-left transition-colors ${tool === t.id
@@ -236,7 +260,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
       </nav>
 
       {tool === 'board' && <FeatureTabs value={decisionView} onChange={setDecisionView} items={[
-        ['games', 'Game picks'], ['props', 'Player props'], ['lines', 'Line shopping'], ['edges', 'Edges']
+        ['games', 'Game picks'], ['props', 'Player props'], ['lines', 'Line shopping']
       ]} />}
       {tool === 'model' && <FeatureTabs value={modelView} onChange={setModelView} items={[
         ['ensemble', '21-model ensemble'], ['variables', 'Variable catalog'], ['method', 'Method & limits']
@@ -247,7 +271,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
 
       {tool === 'board' && decisionView === 'props' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading shared player engine', 'Simulating joint events', 'Rendering prop board']} />}><NflProps /></Suspense>}
       {tool === 'board' && decisionView === 'lines' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading line shop', 'Checking quote cache', 'Rendering market view']} />}><LineShop /></Suspense>}
-      {tool === 'board' && decisionView === 'edges' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading structural edges', 'Fitting parlay correlations', 'Reading the movement log']} />}><Edges /></Suspense>}
+      {tool === 'edges' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading structural edges', 'Fitting parlay correlations', 'Reading the movement log']} />}><Edges /></Suspense>}
       {tool === 'model' && modelView === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
       {tool === 'model' && modelView === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}
       {tool === 'model' && modelView === 'method' && <ModelInfo accuracy={acc} catalog={catalog} pbpRows={pbpRows} />}

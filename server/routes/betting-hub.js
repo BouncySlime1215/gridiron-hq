@@ -20,6 +20,7 @@ import { recentMoves, capturesWorthSpending, espnWatchStatus, currentSlate } fro
 import { findTeaserLegs } from '../services/nfl-teasers.js';
 import { sgpAnalysis, propCorrelationTable, fitPropCorrelations } from '../services/nfl-prop-correlation.js';
 import { requireModelPermission } from '../modeling/authz.js';
+import { latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 
 const r = Router();
 
@@ -116,6 +117,68 @@ r.get('/execution/board', (req, res, next) => {
       summary: executionBoardSummary(),
       sides: shoppingBoard({ market, limit: Math.min(60, Number(req.query.limit) || 25) }),
       middles: market === 'spreads' ? findMiddles({ limit: 12 }) : []
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * One honest read on operational health.
+ *
+ * The hub used to lead with the auto-pick model, which is the one component
+ * measured as settled-negative. This is the strip that replaces that framing:
+ * what is actually working, what is blocked, and on what. Every field is a
+ * live measurement, not a status someone typed in.
+ */
+r.get('/status', (_req, res, next) => {
+  try {
+    const odds = oddsUsage();
+    const board = executionBoardSummary();
+    const movement = espnWatchStatus();
+    const props = propEdgeEvidence();
+    const cal = latestCoverCalibration(Number(process.env.NFL_SEASON) || 2026);
+    const teaserHist = wongHistory();
+    const teaser110 = teaserEV({ americanPrice: -110, legRate: teaserHist.win_rate,
+      standardError: teaserHist.standard_error });
+
+    const credits = odds.requests_remaining;
+    return res.json({
+      // Ordered the way the plan orders them: structural edges first, because
+      // those are the ones that do not require beating the market.
+      edges: [
+        { id: 'execution', label: 'Line shopping', live: board.shoppable_sides > 0,
+          headline: board.shoppable_sides > 0
+            ? `${board.shoppable_sides} shoppable sides · best ${(board.best_edge * 100).toFixed(1)}%` : 'No stored quotes',
+          detail: board.stale ? 'Stored snapshots are stale — fresh capture needs credits.'
+            : 'Priced from simultaneous multi-book quotes.',
+          blocked_by: board.stale ? 'credits' : null },
+        { id: 'teasers', label: 'Wong teasers', live: teaser110.ev_per_bet > 0,
+          headline: `${(teaser110.ev_per_bet * 100).toFixed(2)}% EV at -110`,
+          detail: `${teaserHist.win_rate ? (teaserHist.win_rate * 100).toFixed(1) : '—'}% on ${teaserHist.legs?.toLocaleString?.() ?? '—'} legs. The price is the whole edge.`,
+          blocked_by: null },
+        { id: 'correlation', label: 'Parlay correlation', live: true,
+          headline: 'Copula priced', detail: 'Fitted on local usage history; owes forward CLV before sizing.',
+          blocked_by: null },
+        { id: 'props', label: 'Prop edge', live: false,
+          headline: `${props.captured_quotes ?? 0} quotes · ${props.settled ?? 0} settled`,
+          detail: props.verdict, blocked_by: 'settled sample' }
+      ],
+      model: {
+        // Stated plainly rather than buried: this is the component that does not work.
+        calibration_gate: cal?.metrics?.forward_gate_passed ? 'passed' : 'blocked',
+        calibration_detail: cal
+          ? `walk-forward slope ${cal.metrics.walk_forward_calibration_slope ?? '—'} (gate 0.7–1.3); model Brier ${cal.metrics.walk_forward_calibrated_brier ?? '—'} vs market ${cal.metrics.walk_forward_market_brier ?? '—'}`
+          : 'no fitted calibration on record',
+        sizing_allowed: !!cal?.metrics?.forward_gate_passed
+      },
+      data: {
+        credits_remaining: credits,
+        credits_used: odds.requests_used,
+        // The free detector is what keeps a small budget usable, so it is
+        // reported next to the metered one rather than hidden on another page.
+        free_detector: { events_tracked: movement.events_tracked, moves: movement.moves_detected,
+          last_poll: movement.last_poll, worth_capturing: movement.worth_capturing },
+        capture_stale: board.stale, latest_multibook_capture: board.latest_capture
+      }
     });
   } catch (e) { next(e); }
 });

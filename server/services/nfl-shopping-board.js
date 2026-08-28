@@ -65,26 +65,42 @@ export function signedMarginDistribution() {
  * reported with an empty comparison — one book is not a shopping decision, and
  * silently showing it as "best available" would overstate what we know.
  */
+let _quoteCache = new Map();
+export function clearShoppingBoardCache() { _quoteCache = new Map(); }
+
 export function simultaneousQuotes(market = 'spreads') {
-  const latest = rows(
-    `SELECT event_id, MAX(captured_at) AS captured_at
-     FROM nfl_line_snapshots WHERE market = ?
-     GROUP BY event_id`, market);
-  if (!latest.length) return [];
+  if (_quoteCache.has(market)) return _quoteCache.get(market);
+
+  // One query, grouped in memory. This used to run a SELECT per event, which on
+  // a hundred-event board meant a hundred round trips — and because both the
+  // shopping board and the middle finder call it, the hub status endpoint paid
+  // that cost twice and took 17 seconds to answer.
+  const all = rows(
+    `SELECT s.event_id, s.captured_at, s.book, s.side, s.line, s.price AS american_price,
+            s.commence_time, s.home_team, s.away_team
+     FROM nfl_line_snapshots s
+     JOIN (SELECT event_id, MAX(captured_at) AS captured_at
+           FROM nfl_line_snapshots WHERE market = ? GROUP BY event_id) latest
+       ON latest.event_id = s.event_id AND latest.captured_at = s.captured_at
+     WHERE s.market = ?`, market, market);
+
+  const byEvent = new Map();
+  for (const q of all) {
+    if (!byEvent.has(q.event_id)) {
+      byEvent.set(q.event_id, { event_id: q.event_id, captured_at: q.captured_at, market,
+        home_team: q.home_team ?? null, away_team: q.away_team ?? null,
+        commence_time: q.commence_time ?? null, quotes: [] });
+    }
+    byEvent.get(q.event_id).quotes.push(q);
+  }
 
   const out = [];
-  for (const { event_id, captured_at } of latest) {
-    const quotes = rows(
-      `SELECT book, side, line, price AS american_price, commence_time, home_team, away_team
-       FROM nfl_line_snapshots
-       WHERE market = ? AND event_id = ? AND captured_at = ?`,
-      market, event_id, captured_at);
-    const books = new Set(quotes.map(q => q.book));
-    if (books.size < 2) continue;
-    out.push({ event_id, captured_at, market, quotes,
-      home_team: quotes[0]?.home_team ?? null, away_team: quotes[0]?.away_team ?? null,
-      commence_time: quotes[0]?.commence_time ?? null, books: books.size });
+  for (const ev of byEvent.values()) {
+    const books = new Set(ev.quotes.map(q => q.book));
+    if (books.size < 2) continue;      // one book is not a shopping decision
+    out.push({ ...ev, books: books.size });
   }
+  _quoteCache.set(market, out);
   return out;
 }
 
@@ -185,6 +201,10 @@ export function priceMiddle({ homeLine, awayLine, homePrice, awayPrice }) {
  */
 export function findMiddles({ limit = 20 } = {}) {
   const events = simultaneousQuotes('spreads');
+  // Hoisted: the distribution is identical for every event, and rebuilding the
+  // window scan per game was pure waste on a full board.
+  const { pmf } = signedMarginDistribution();
+  const marginKeys = [...pmf.keys()];
   const found = [];
 
   for (const ev of events) {
@@ -204,8 +224,7 @@ export function findMiddles({ limit = 20 } = {}) {
     });
     if (!priced) continue;
 
-    const { pmf } = signedMarginDistribution();
-    const window = [...pmf.keys()]
+    const window = marginKeys
       .filter(m => m > -home.line && m < away.line)
       .sort((a, b) => a - b);
 

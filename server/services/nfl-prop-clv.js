@@ -249,7 +249,34 @@ export async function capturePropMarket({ season, week, maxEvents = 12, schedule
   if (eventLimit < 1) return { skipped: true,
     reason: `credit reserve protected (${budget.requests_remaining ?? 'unknown'} remaining; ${PROP_CREDIT_RESERVE} reserved)`,
     usage: budget };
-  selected = selected.sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time)).slice(0, eventLimit);
+  // Spend the scarcest resource on the most informative capture.
+  //
+  // CLV is measured against the CLOSING line, so a T-1h capture is worth
+  // strictly more than a T-24h one — if the budget only stretches to half the
+  // slate, it should be the closing halves of every game rather than both ends
+  // of half the games. Within that, prefer events whose free reference line has
+  // actually moved: a book that is re-pricing is a book more likely to be out of
+  // step with the rest, and a quiet market teaches us very little per credit.
+  const moved = new Set();
+  try {
+    const { capturesWorthSpending } = await import('./nfl-espn-line-watch.js');
+    for (const m of capturesWorthSpending({ hours: 48 })) {
+      if (m.home_team) moved.add(m.home_team);
+      if (m.away_team) moved.add(m.away_team);
+    }
+  } catch { /* the detector is an optimisation; capture still works without it */ }
+
+  const priorityOf = event => {
+    const hoursOut = (new Date(event.commence_time).getTime() - Date.now()) / HOUR;
+    const closing = hoursOut <= Math.min(...PROP_CAPTURE_HORIZONS_HOURS) * 2 ? 0 : 1;
+    const teams = `${event.home_team ?? ''} ${event.away_team ?? ''}`;
+    const quiet = [...moved].some(t => teams.includes(t)) ? 0 : 1;
+    return closing * 2 + quiet;
+  };
+  selected = selected
+    .sort((a, b) => priorityOf(a) - priorityOf(b)
+      || new Date(a.commence_time) - new Date(b.commence_time))
+    .slice(0, eventLimit);
   const insert = db.prepare(`INSERT OR IGNORE INTO nfl_prop_clv
     (captured_at,event_id,book,market,player,side,line,american_price,
      model_probability,implied_probability,edge,season,week,commence_time,home_team,away_team,
@@ -348,8 +375,18 @@ export function settlePropQuotes({ season, week } = {}) {
   }
   const upd = db.prepare(`UPDATE nfl_prop_clv SET settled=1, actual_value=?, won=?, settlement_reason=?
                           WHERE captured_at=? AND event_id=? AND book=? AND market=? AND player=? AND side=?`);
-  let settled = 0, unmatched = 0;
+  let settled = 0, unmatched = 0, unsettleable = 0;
   for (const q of pending) {
+    // A team defence quoted in an anytime-TD market is not a player and will
+    // never appear in a player-week result. Left pending it would sit in
+    // `unmatched` forever, making that number unreadable — you could not tell
+    // "waiting on Sunday" from "will never settle". Retire it explicitly.
+    if (/\bD\/ST\b|\bDefense\b/i.test(q.player)) {
+      upd.run(null, null, 'unsettleable: team defence is not a player-week participant',
+        q.captured_at, q.event_id, q.book, q.market, q.player, q.side);
+      unsettleable++;
+      continue;
+    }
     const f = actuals.get(normalizeName(q.player));
     if (!f) { unmatched++; continue; }
     const actual = q.market === 'player_anytime_td'
@@ -362,7 +399,9 @@ export function settlePropQuotes({ season, week } = {}) {
       q.captured_at, q.event_id, q.book, q.market, q.player, q.side);
     settled++;
   }
-  return { settled, unmatched };
+  // `unmatched` now means only "a real player whose result has not landed yet",
+  // which is the number that should fall to zero after a slate finishes.
+  return { settled, unmatched, unsettleable };
 }
 
 /**

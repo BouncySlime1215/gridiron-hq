@@ -71,7 +71,40 @@ export function ensurePicksFor(season, week, board, count = 5) {
  * replay. This closes the old gap where the Training page graded the ensemble
  * but the Auto Picks button silently used a separate single-ratings board.
  */
+/**
+ * The decision board is deterministic given the week's lines and the fitted
+ * models, but computing it walks the whole ensemble per game and takes 15-30
+ * seconds. Node is single-threaded, so that is not merely a slow page — it
+ * blocks the event loop and every other request on the server queues behind it.
+ * Opening the hub while it ran froze the entire app, including endpoints that
+ * answer in milliseconds on their own.
+ *
+ * Keyed on a fingerprint of the underlying rows rather than a TTL, so it is
+ * correct by construction: any line sync changes `fetched_at`, the key misses,
+ * and the board recomputes. A TTL would have had to choose between serving a
+ * stale board and recomputing needlessly.
+ */
+const _boardCache = new Map();
+export function clearAutoPickBoardCache() { _boardCache.clear(); }
+
+function boardFingerprint(season, week) {
+  const g = rows(`SELECT COUNT(*) n, COALESCE(MAX(fetched_at),'') fetched, COALESCE(SUM(spread),0) s
+                  FROM game_lines WHERE season = ? AND week = ?`, season, week)[0];
+  return `${g.n}:${g.fetched}:${g.s}`;
+}
+
 export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY) {
+  const key = `${season}:${week}:${policy.id}:${policy.version}:${boardFingerprint(season, week)}`;
+  if (_boardCache.has(key)) return _boardCache.get(key);
+  const computed = computeDecisionBoard(season, week, policy);
+  // One week at a time is all that is ever asked for; keeping the map small
+  // matters more than keeping history nobody reads.
+  if (_boardCache.size > 8) _boardCache.clear();
+  _boardCache.set(key, computed);
+  return computed;
+}
+
+function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY) {
   const prices = new Map(rows(`SELECT team, opponent, spread, spread_odds, source, fetched_at
                                FROM game_lines WHERE season=? AND week=?`, season, week)
     .map(x => [x.team, x]));

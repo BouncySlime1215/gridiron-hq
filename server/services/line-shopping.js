@@ -66,6 +66,13 @@ export async function snapshotLines({ markets = 'h2h,spreads,totals' } = {}) {
       }
     }
   }
+  // The shopping board memoises the latest simultaneous quote set per market.
+  // A fresh capture is exactly the event that makes that memo wrong, so drop it
+  // here rather than relying on a TTL that would serve a stale board in the
+  // window right after a snapshot — the one moment the board matters most.
+  const { clearShoppingBoardCache } = await import('./nfl-shopping-board.js');
+  clearShoppingBoardCache();
+
   return { captured_at: at, games: data.length, quotes: n };
 }
 

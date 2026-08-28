@@ -16,6 +16,9 @@ import { realBreakEven } from '../services/nfl-execution-edge.js';
 import { wongHistory, teaserEV } from '../services/nfl-teasers.js';
 import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
 import { shoppingBoard, findMiddles, executionBoardSummary } from '../services/nfl-shopping-board.js';
+import { recentMoves, capturesWorthSpending, espnWatchStatus } from '../services/nfl-espn-line-watch.js';
+import { sgpAnalysis, propCorrelationTable, fitPropCorrelations } from '../services/nfl-prop-correlation.js';
+import { requireModelPermission } from '../modeling/authz.js';
 
 const r = Router();
 
@@ -114,6 +117,37 @@ r.get('/execution/board', (req, res, next) => {
       middles: market === 'spreads' ? findMiddles({ limit: 12 }) : []
     });
   } catch (e) { next(e); }
+});
+
+/** Reference-line movement log. Free to read and free to fill — no credits involved. */
+r.get('/execution/movement', (req, res, next) => {
+  try {
+    res.json({
+      status: espnWatchStatus(),
+      moves: recentMoves({ hours: Math.min(336, Number(req.query.hours) || 72) }),
+      worth_capturing: capturesWorthSpending()
+    });
+  } catch (e) { next(e); }
+});
+
+/** Fitted prop-stat correlations — the input to same-game parlay pricing. */
+r.get('/sgp/correlations', (req, res, next) => {
+  try { res.json({ correlations: propCorrelationTable({ limit: Math.min(120, Number(req.query.limit) || 40) }) }); }
+  catch (e) { next(e); }
+});
+
+/**
+ * Price a same-game parlay against the joint distribution. Read-only maths on
+ * data already local — no credits, no model promotion, nothing persisted.
+ */
+r.post('/sgp/price', (req, res, next) => {
+  try { res.json(sgpAnalysis({ legs: req.body?.legs, trials: Math.min(200000, Number(req.body?.trials) || 40000) })); }
+  catch (e) { next(e); }
+});
+
+/** Refit from local usage history. Cheap, but a write, so it stays gated. */
+r.post('/sgp/fit', requireModelPermission('model:train'), (_req, res, next) => {
+  try { res.json(fitPropCorrelations()); } catch (e) { next(e); }
 });
 
 export default r;

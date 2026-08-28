@@ -314,6 +314,11 @@ export const JOBS = {
     label: 'Player team assignments — the actual fix for stale roster spots' },
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' },
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, label: 'Multi-book line snapshots (CLV)' },
+  // Free — ESPN's public scoreboard, no key and no quota — so this runs far more
+  // often than the metered jobs. It is the trigger that tells the paid capture
+  // above when a credit is actually worth spending.
+  espn_line_watch: { run: () => import('./nfl-espn-line-watch.js').then(m => m.refreshEspnLineWatch()),
+    maxAgeMinutes: 15, label: 'Reference-line movement detector (free, no quota)' },
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60,
     label: 'NFL weekly snapshot, settlement, and challenger retraining' },

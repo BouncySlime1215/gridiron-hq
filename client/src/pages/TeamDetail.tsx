@@ -1,13 +1,44 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, Team, useApi } from '../api';
-import FormationView from '../components/FormationView';
+import { api, Team, headshotUrl, useApi } from '../api';
+import { Headshot } from '../components/PlayerRow';
+import FormationView, { type SlotPlayer } from '../components/FormationView';
 import { usePlayerCard } from '../components/PlayerCard';
 import OffseasonPanel from '../components/OffseasonPanel';
 import TeamSchedule from '../components/TeamSchedule';
 import SidePanel from '../components/SidePanel';
 
 type Phase = 'offense' | 'defense' | 'special_teams' | 'schedule' | 'offseason';
+
+const PHASE_POSITIONS: Partial<Record<Phase, string[]>> = {
+  offense: ['QB', 'RB', 'FB', 'WR', 'TE', 'C', 'G', 'OT'],
+  defense: ['DE', 'DT', 'LB', 'CB', 'S'],
+  special_teams: ['LS', 'P', 'PK']
+};
+
+/**
+ * Depth beyond the single starter FormationView already draws per slot.
+ * depth_multi is ordered starter-first (see server/routes/teams.js), so index 0
+ * everywhere is already on the diagram — this is everyone after that, deduped
+ * across slots (a player only ever occupies one) and filtered to this phase's
+ * real NFL positions rather than slot codes.
+ */
+function benchFor(depthMulti: Record<string, SlotPlayer[]> | undefined, phase: Phase): SlotPlayer[] {
+  const wanted = new Set(PHASE_POSITIONS[phase] ?? []);
+  if (!depthMulti || !wanted.size) return [];
+  const seen = new Set<number>();
+  const out: SlotPlayer[] = [];
+  for (const list of Object.values(depthMulti)) {
+    for (let i = 1; i < list.length; i++) {
+      const p = list[i];
+      if (!p.position || !wanted.has(p.position)) continue;
+      if (p.player_id == null || seen.has(p.player_id)) continue;
+      seen.add(p.player_id);
+      out.push(p);
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
 
 const PHASE_TABS: { key: Phase; label: string }[] = [
   { key: 'offense', label: 'Offense' },
@@ -118,6 +149,28 @@ export default function TeamDetail() {
           </span>
           <span className="text-slate-400">green = Pro Bowl / All-Pro / 1st-round / top-50 market · red = AI stat review</span>
         </div>
+
+        {(() => {
+          const bench = benchFor((team as any).depth_multi, phase as Phase);
+          return bench.length > 0 && (
+            <div className="card p-3 mt-3">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Bench / depth</h3>
+              <div className="flex flex-wrap gap-2">
+                {bench.map(p => (
+                  <button key={p.player_id} onClick={() => p.player_id && openCard(p.player_id)}
+                    disabled={!p.player_id}
+                    className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 py-1 pl-1 pr-3 text-left hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-slate-50">
+                    <Headshot src={headshotUrl(p)} pos={p.position ?? ''} size={26} />
+                    <span>
+                      <span className="block text-xs font-semibold text-slate-800 leading-tight">{p.name}</span>
+                      <span className="block text-[10px] text-slate-400 leading-tight">{p.position}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {(team as any).grades?.units && (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">

@@ -289,7 +289,8 @@ export default function MyTeam() {
                       {scout.lineup.bench.map((p: any) => (
                         <div key={p.id} className="flex items-center gap-2.5 py-1">
                           <Headshot src={headshotUrl(p)} pos={p.position} size={28} />
-                          <span className="text-sm text-[var(--ink)]/85 truncate">{p.name}</span>
+                          <span className={`text-sm truncate ${p.available === false ? 'text-slate-400 line-through' : 'text-[var(--ink)]/85'}`}>{p.name}</span>
+                          {p.available === false && <span className="text-[9px] font-bold uppercase tracking-wide text-rose-600">Out for season</span>}
                           <span className={`ml-auto text-[10px] font-semibold pos-${p.position}`}>{p.position}</span>
                         </div>
                       ))}

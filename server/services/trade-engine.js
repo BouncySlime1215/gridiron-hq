@@ -24,6 +24,7 @@ import { pickInventory } from './picks.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 import { scheduleOutlook, relevantSplits, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { SLOT_NAME } from './espn-draft.js';
+import { seasonEndingEspnIds } from './player-availability.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -77,6 +78,10 @@ export function assetUniverse(lg, formatKey) {
                                     WHERE rp.age IS NOT NULL`).map(x => [x.id, x.age]));
   const injured = new Set(rows(`SELECT player_id FROM player_metrics WHERE source='injury_flag' AND value > 0`)
     .map(x => x.player_id));
+  // Same season-ending/released detection the X's&O's depth chart uses — without
+  // this, a player out for the year keeps getting picked as the optimal starter
+  // here even after the roster page correctly benches him.
+  const seasonEnding = seasonEndingEspnIds();
   const trending = new Map(rows('SELECT player_id, kind, count FROM trending_players')
     .map(t => [t.player_id, t]));
 
@@ -107,6 +112,7 @@ export function assetUniverse(lg, formatKey) {
       boom: w?.boom_rate ?? null, bust: w?.bust_rate ?? null,
       consistency: w?.consistency ?? null, logged_games: w?.games ?? null,
       injury: injured.has(p.id) ? 1 : 0,
+      available: !(p.espn_id && seasonEnding.has(p.espn_id)),
       trend_kind: tr?.kind ?? null, trend_count: tr?.count ?? null,
       // Schedule-adjusted: the number the lineup solver actually optimises.
       sos: sched.sos, playoff_sos: sched.playoff_sos, bye: sched.bye,
@@ -179,7 +185,11 @@ export function lineupSlots(lg) {
  * @param key which projection to optimise: 'adj_ppg' (season) or 'playoff_ppg'
  */
 export function bestLineup(players, slots, key = 'adj_ppg') {
-  const pool = players.filter(p => SCORED.has(p.position)).sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0));
+  // Season-ending/released players (see player-availability.js) never fill a
+  // starting slot — but they still belong on the bench list, not vanished
+  // entirely, so the roster view can show why that slot moved to someone else.
+  const eligible = players.filter(p => SCORED.has(p.position));
+  const pool = eligible.filter(p => p.available !== false).sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0));
   const used = new Set();
   const filled = [];
 
@@ -199,7 +209,7 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
   return {
     points: +points.toFixed(2),
     slots: filled,
-    bench: pool.filter(p => !used.has(p.id)),
+    bench: eligible.filter(p => !used.has(p.id)),
     holes: filled.filter(f => !f.player).map(f => f.slot)
   };
 }
@@ -321,7 +331,7 @@ const slim = p => ({
   id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
   espn_id: p.espn_id, sleeper_id: p.sleeper_id,
   value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
-  age: p.age, bye: p.bye, injury: p.injury,
+  age: p.age, bye: p.bye, injury: p.injury, available: p.available !== false,
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
   sos: p.sos, playoff_sos: p.playoff_sos
 });

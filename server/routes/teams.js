@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { unitGrades } from './nfldata.js';
+import { SEASON_ENDING_RE, RELEASED_RE } from '../services/player-availability.js';
 
 const EDITABLE = ['head_coach', 'oc_name', 'dc_name', 'off_scheme', 'off_scheme_detail',
   'def_scheme', 'def_scheme_detail', 'st_coordinator', 'ol_analysis', 'dl_analysis',
@@ -28,9 +29,6 @@ r.get('/', (req, res) => {
  * so this scans recent team news directly against every rostered name using
  * the same out-of-season/released language, independent of fantasy scoping.
  */
-const SEASON_ENDING_RE = /(?:out for (?:the )?season|season[- ]ending|torn (?:acl|achilles|triceps|pector\w*|pec|quad(?:riceps)?|bicep|patella|meniscus)|ruptured \w+|placed on (?:injured reserve|ir))\b/i;
-const RELEASED_RE = /\b(?:waived|released|cut|terminated)\b/i;
-
 function seasonEndingPlayerIds(teamId) {
   const roster = rows(`SELECT DISTINCT rp.espn_id, rp.name FROM roster_players rp
                        WHERE rp.team_id = ? AND rp.espn_id IS NOT NULL`, teamId);

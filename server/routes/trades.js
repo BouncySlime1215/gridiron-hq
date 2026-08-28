@@ -15,6 +15,7 @@ import {
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
+import { ceilingLineup } from '../services/ceiling-lineup.js';
 
 const r = Router();
 
@@ -55,6 +56,25 @@ r.get('/:leagueId/news-edge', (req, res, next) => {
     res.json(newsOpportunities(lg.id, {
       myTeamId: req.query.team_id,
       hours: Math.min(24 * 21, Number(req.query.hours) || 72)
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The lineup built for the outcome you need rather than the highest average.
+ *
+ * `objective=mean` reproduces the classic optimiser so the two can be compared
+ * on identical draws — which is the entire point of the feature.
+ */
+r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(ceilingLineup(lg.id, {
+      teamId: req.query.team_id,
+      week: Math.min(18, Math.max(1, Number(req.query.week) || 1)),
+      objective: req.query.objective === 'mean' ? 'mean' : 'ceiling',
+      target: req.query.target ? Number(req.query.target) : null,
+      trials: Math.min(8000, Number(req.query.trials) || 3000)
     }));
   } catch (e) { next(e); }
 });

@@ -25,7 +25,7 @@ export default function MyTeam() {
   const { leagues, active, refetch: refetchLeagues } = useLeague();
   const { data: lg, loading: lgLoading, error: lgError, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
   const [teamOverride, setTeamOverride] = useState<string | null>(null);
-  const [tab, setTab] = useState<'scout' | 'roster'>('scout');
+  const [tab, setTab] = useState<'scout' | 'roster' | 'ceiling'>('scout');
   const [syncing, setSyncing] = useState(false);
 
   // A "my team" pick only means something within the league it was made in — carrying
@@ -242,7 +242,7 @@ export default function MyTeam() {
       {synced && (
         <>
           <div className="flex gap-1 border-b border-slate-200 mb-4">
-            {([['scout', 'Scouting report'], ['roster', 'Roster & lineup']] as const).map(([id, label]) => (
+            {([['scout', 'Scouting report'], ['roster', 'Roster & lineup'], ['ceiling', 'Ceiling lineup']] as const).map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)}
                 className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                   tab === id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -253,6 +253,8 @@ export default function MyTeam() {
           </div>
 
           {tab === 'scout' && active && <TeamScout leagueId={active.id} teamId={myTeamId} />}
+
+          {tab === 'ceiling' && active && <CeilingLineup leagueId={active.id} teamId={myTeamId} />}
 
           {tab === 'roster' && scout && !scout.error && (
             <div className="grid lg:grid-cols-[1fr_320px] gap-4">
@@ -324,6 +326,121 @@ export default function MyTeam() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The lineup for the outcome you need, not the highest average.
+ *
+ * Shown next to the classic highest-mean lineup on purpose: the case for this
+ * feature is the DIFFERENCE, and when a roster has no ceiling lever the honest
+ * answer is to say so rather than to invent one.
+ */
+function CeilingLineup({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
+  const { data, loading } = useApi<any>(
+    teamId ? `/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=1&trials=3000` : null);
+
+  if (loading) return <div className="card p-6 text-sm text-slate-500">Simulating correlated outcomes…</div>;
+  if (!data) return null;
+  if (data.error) return <div className="card p-6 text-sm text-amber-700">{data.error}</div>;
+
+  const v = data.versus_highest_mean;
+  const gained = v.hit_probability_gained ?? 0;
+  const noLever = Math.abs(v.ceiling_gained ?? 0) < 0.01 && Math.abs(gained) < 0.001;
+
+  return (
+    <div className="grid lg:grid-cols-[1fr_320px] gap-4 items-start">
+      <div>
+        <div className="card p-4 mb-3">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <h2 className="text-sm font-bold text-slate-800">Built to beat {data.target} points</h2>
+            <span className="text-[11px] text-slate-500">{data.trials.toLocaleString()} correlated draws</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+            Optimised for the chance of a big week rather than the highest average. A quarterback and
+            his own receiver have their good weeks together, so stacking them fattens the right tail —
+            which is what wins a week you are not favoured in.
+          </p>
+        </div>
+
+        <div className="card overflow-hidden mb-3">
+          <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 text-sm font-bold text-slate-800">
+            Ceiling lineup
+          </div>
+          <div className="divide-y divide-slate-100">
+            {data.lineup.map((s: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-2">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 w-12">{s.slot}</span>
+                <span className="text-sm font-semibold text-slate-800">{s.player}</span>
+                <span className="text-[10px] font-bold text-slate-400">{s.position}</span>
+                <span className="text-[11px] text-slate-400">{s.team}</span>
+                <span className="ml-auto text-xs tabular-nums text-slate-500">{s.mean_points} avg</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {data.stacks?.length > 0 && (
+          <div className="card p-3 mb-3 border-emerald-200 bg-emerald-50/50">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 mb-1">Stacks it chose</div>
+            {data.stacks.map((st: any) => (
+              <div key={st.team} className="text-xs text-slate-700">
+                <b>{st.team}</b> — {st.players.join(' + ')}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <div className="card p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">Outcome shape</div>
+          {[['Floor (10th)', data.distribution.floor], ['Median', data.distribution.median],
+            ['Ceiling (90th)', data.distribution.ceiling], ['Best case (99th)', data.distribution.p99]].map(([k, val]) => (
+            <div key={String(k)} className="flex justify-between text-xs py-0.5">
+              <span className="text-slate-500">{k}</span>
+              <span className="font-bold tabular-nums text-slate-800">{val}</span>
+            </div>
+          ))}
+          <div className="mt-2 pt-2 border-t border-slate-100">
+            <div className="text-2xl font-black text-emerald-700 tabular-nums">
+              {((data.distribution.hit_probability ?? 0) * 100).toFixed(1)}%
+            </div>
+            <div className="text-[11px] text-slate-500">chance of clearing {data.target}</div>
+          </div>
+        </div>
+
+        <div className={`card p-4 ${noLever ? '' : 'border-emerald-200'}`}>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">
+            vs. the highest-average lineup
+          </div>
+          {noLever ? (
+            <p className="text-xs text-slate-600 leading-relaxed">
+              No difference. Your best-average lineup already has whatever correlation this roster
+              offers, so there is no ceiling lever to pull this week — which is a real answer, not a
+              failure to find one.
+            </p>
+          ) : (
+            <>
+              <div className="text-xl font-black text-emerald-700 tabular-nums">
+                +{(gained * 100).toFixed(2)}pp
+              </div>
+              <div className="text-[11px] text-slate-500 mb-2">more likely to clear the target</div>
+              <div className="flex justify-between text-xs py-0.5">
+                <span className="text-slate-500">Ceiling gained</span>
+                <span className="font-bold tabular-nums text-slate-800">+{v.ceiling_gained}</span>
+              </div>
+              <div className="flex justify-between text-xs py-0.5">
+                <span className="text-slate-500">Average {v.mean_given_up > 0 ? 'given up' : 'also gained'}</span>
+                <span className="font-bold tabular-nums text-slate-800">
+                  {v.mean_given_up > 0 ? '−' : '+'}{Math.abs(v.mean_given_up)}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

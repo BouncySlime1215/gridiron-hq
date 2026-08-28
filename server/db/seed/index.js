@@ -55,7 +55,7 @@ export function seedIfEmpty() {
     for (const [abbr, slots] of Object.entries(DEPTH)) {
       for (const [slot, name] of Object.entries(slots)) {
         const depthRank = /2$/.test(slot) ? 2 : /3$/.test(slot) ? 3 : 1;
-        let player = row('SELECT id FROM players WHERE team_id=? AND slot_code=? ORDER BY id LIMIT 1', teamIds[abbr], slot);
+        let player = row('SELECT id, espn_id FROM players WHERE team_id=? AND slot_code=? ORDER BY id LIMIT 1', teamIds[abbr], slot);
         if (!player) {
           // slot_code is not a stable key: the ESPN player sync clears every offensive
           // and special-teams slot_code before rebuilding depth charts from ownership,
@@ -73,7 +73,16 @@ export function seedIfEmpty() {
           const result = insertPlayer.run(name, SLOT_POS[slot], teamIds[abbr], depthRank, slot, SLOT_PHASE[slot], FANTASY_SLOT.has(slot) ? 1 : 0);
           player = { id: Number(result.lastInsertRowid) };
           knownPlayers.push({ id: player.id, name, position: SLOT_POS[slot], team_id: teamIds[abbr], espn_id: null });
-        } else {
+        } else if (player.espn_id == null) {
+          // Only a row ESPN has never actually identified is fair game for this
+          // static bootstrap snapshot. Once a row carries a real espn_id, the live
+          // sync owns its identity — this hardcoded depth chart is a preseason
+          // snapshot and goes stale the moment a trade or a rookie promotion
+          // happens, so blindly re-applying its `name` here on every boot is
+          // exactly how a real player's row gets silently renamed back to
+          // whoever used to hold that slot (this is how a user ended up with a
+          // real Harold Fannin Jr. roster spot permanently displayed as "David
+          // Njoku" — the CLE TE1 name in this file predates that depth change).
           run(`UPDATE players SET name=?,position=?,depth_rank=?,phase=?,fantasy_relevant=? WHERE id=?`,
             name, SLOT_POS[slot], depthRank, SLOT_PHASE[slot], FANTASY_SLOT.has(slot) ? 1 : 0, player.id);
         }

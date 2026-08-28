@@ -15,6 +15,34 @@ interface Disagreement {
 }
 interface Clv { available: boolean; snapshots?: number; captures?: number; tracked?: number; note?: string; }
 
+/** Stored-snapshot execution board — no API credits, works with the quota exhausted. */
+interface BoardSide {
+  event_id: string; matchup: string; side: string; captured_at: string;
+  books_compared: number; best_book: string; best_line: number | null; best_price: number;
+  median_line: number | null; line_edge: number | null; price_edge: number | null; edge_vs_median: number;
+}
+interface Middle {
+  matchup: string; width: number; hit_probability: number; push_probability: number;
+  ev_per_unit: number; arbitrage: boolean; winning_margins: number[];
+  home: { team: string; book: string; line: number; price: number };
+  away: { team: string; book: string; line: number; price: number };
+}
+interface BoardResp {
+  market: string;
+  summary: {
+    sides_priced: number; events: number; shoppable_sides: number;
+    mean_edge_when_shoppable: number | null; best_edge: number | null;
+    middles_found: number; positive_ev_middles: number; arbitrage_found: number;
+    latest_capture: string | null; stale: boolean; note: string;
+  };
+  sides: BoardSide[];
+  middles: Middle[];
+}
+
+/** Signed percentage — an edge of exactly zero should read as neutral, not as a gain. */
+const spct = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`);
+const sgn = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}`);
+
 const american = (v: number | null | undefined) =>
   v == null ? '—' : v > 0 ? `+${v}` : `${v}`;
 const pct = (v: number | null | undefined) =>
@@ -34,13 +62,20 @@ const MARKET_LABEL: Record<string, string> = { h2h: 'Moneyline', spreads: 'Sprea
  * model was chasing and does not decay when the market gets sharper.
  */
 export default function LineShop() {
-  const [tab, setTab] = useState<'prices' | 'numbers' | 'clv'>('prices');
+  const [tab, setTab] = useState<'board' | 'prices' | 'numbers' | 'clv'>('board');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const { data: shop, loading, error, refetch } = useApi<Shop>('/nfl-betting/lines/shop');
-  const { data: dis } = useApi<{ disagreements: Disagreement[] }>('/nfl-betting/lines/disagreement');
-  const { data: clv, refetch: refetchClv } = useApi<Clv>('/nfl-betting/lines/clv');
+  // `/lines/shop` and `/lines/disagreement` both hit the paid Odds API. Fetching
+  // them on mount burned credits every time this page was opened, even when the
+  // visitor never left the free stored-snapshot board. With the free tier at a
+  // few hundred credits a month that is a real leak, so the paid calls are
+  // deferred until their own tab is actually selected.
+  const { data: shop, loading, error, refetch } = useApi<Shop>(tab === 'prices' ? '/nfl-betting/lines/shop' : null);
+  const { data: dis } = useApi<{ disagreements: Disagreement[] }>(tab === 'numbers' ? '/nfl-betting/lines/disagreement' : null);
+  const { data: clv, refetch: refetchClv } = useApi<Clv>(tab === 'clv' ? '/nfl-betting/lines/clv' : null);
+  // Free: reads snapshots already on disk, so it always loads.
+  const { data: board, loading: boardLoading } = useApi<BoardResp>('/betting/execution/board?limit=25');
 
   const snapshot = async () => {
     setBusy(true); setMsg(null);
@@ -73,8 +108,9 @@ export default function LineShop() {
       {msg && <div className="card p-3 mb-4 text-xs text-slate-600">{msg}</div>}
 
       <div className="flex gap-1 border-b border-slate-200 mb-4">
-        {([['prices', `Best prices (${opps.length})`],
-           ['numbers', `Number gaps (${dis?.disagreements?.length ?? 0})`],
+        {([['board', `Execution board (${board?.summary.shoppable_sides ?? 0})`],
+           ['prices', tab === 'prices' ? `Best prices (${opps.length})` : 'Best prices · live'],
+           ['numbers', tab === 'numbers' ? `Number gaps (${dis?.disagreements?.length ?? 0})` : 'Number gaps · live'],
            ['clv', 'Closing line value']] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id as any)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -82,6 +118,122 @@ export default function LineShop() {
             }`}>{label}</button>
         ))}
       </div>
+
+      {tab === 'board' && (
+        boardLoading ? <div className="card p-6 text-sm text-slate-500">Pricing stored quotes…</div>
+        : !board || !board.sides.length ? (
+          <div className="card p-6 text-sm text-slate-500">
+            No multi-book snapshots stored yet. This board reads captures already on disk, so it costs
+            no API credits — but it needs at least two books quoting the same side at the same instant.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+              {[['Shoppable sides', `${board.summary.shoppable_sides}/${board.summary.sides_priced}`,
+                 `across ${board.summary.events} games`],
+                ['Avg edge when shoppable', spct(board.summary.mean_edge_when_shoppable),
+                 'vs the median book'],
+                ['Best single edge', spct(board.summary.best_edge), 'top of the board'],
+                ['+EV middles', `${board.summary.positive_ev_middles}/${board.summary.middles_found}`,
+                 board.summary.arbitrage_found ? `${board.summary.arbitrage_found} true arb` : 'most lose to vig']
+              ].map(([k, v, d]) => (
+                <div key={k} className="card p-3">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{k}</div>
+                  <div className="text-lg font-black text-slate-900 tabular-nums">{v}</div>
+                  <div className="text-[10px] text-slate-500">{d}</div>
+                </div>
+              ))}
+            </div>
+
+            {board.summary.stale && board.summary.latest_capture && (
+              <div className="card p-3 mb-3 border-amber-300 bg-amber-50">
+                <p className="text-xs text-amber-800">
+                  Latest multi-book capture is {new Date(board.summary.latest_capture).toLocaleString()} — over a
+                  day old. These are real historical gaps, not bettable right now. Fresh capture needs Odds API credits.
+                </p>
+              </div>
+            )}
+
+            {board.middles.length > 0 && (
+              <div className="card p-4 mb-3">
+                <h2 className="text-sm font-bold text-slate-700 mb-0.5">Middles</h2>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Both sides bet at different books. Priced against the real margin distribution — a middle
+                  only pays if the gap lands on a margin that actually happens.
+                </p>
+                <div className="space-y-2">
+                  {board.middles.slice(0, 6).map((m, i) => (
+                    <div key={i} className={`rounded-lg border p-2.5 ${m.ev_per_unit > 0 ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200'}`}>
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-sm font-bold text-slate-800">{m.matchup}</span>
+                        <span className={`text-xs font-black tabular-nums ${m.ev_per_unit > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                          {spct(m.ev_per_unit)}/unit
+                        </span>
+                        {m.arbitrage && <span className="text-[10px] font-black text-emerald-700">ARB</span>}
+                        <span className="text-[11px] text-slate-500 ml-auto tabular-nums">
+                          hits {(m.hit_probability * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-600 mt-1 tabular-nums">
+                        {m.home.team} {sgn(m.home.line)} @{american(m.home.price)} <span className="text-slate-400">({m.home.book})</span>
+                        {'  +  '}
+                        {m.away.team} {sgn(m.away.line)} @{american(m.away.price)} <span className="text-slate-400">({m.away.book})</span>
+                      </div>
+                      {m.winning_margins.length > 0 && (
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          Both win when the margin is {m.winning_margins.join(' or ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="card overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50">
+                <div className="text-sm font-bold text-slate-800">Best book per side</div>
+                <div className="text-[11px] text-slate-500">
+                  Ranked by what shopping is worth against the median book — the honest counterfactual.
+                </div>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {board.sides.map((s, i) => (
+                  <div key={`${s.event_id}-${s.side}-${i}`}
+                    className="grid gap-2 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate">{s.side}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{s.matchup}</div>
+                    </div>
+                    <div className="flex gap-4 sm:text-right tabular-nums">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Best</div>
+                        <div className="text-sm font-black text-slate-900">{sgn(s.best_line)} @{american(s.best_price)}</div>
+                        <div className="text-[10px] text-slate-500">{s.best_book}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Median</div>
+                        <div className="text-sm font-semibold text-slate-500">{sgn(s.median_line)}</div>
+                        <div className="text-[10px] text-slate-400">{s.books_compared} books</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Edge</div>
+                        <div className={`text-sm font-black ${s.edge_vs_median > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                          {spct(s.edge_vs_median)}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          line {spct(s.line_edge)} · px {spct(s.price_edge)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">{board.summary.note}</p>
+          </>
+        )
+      )}
 
       {tab === 'prices' && (
         loading ? <div className="card p-6 text-sm text-slate-500">Fetching every book…</div>

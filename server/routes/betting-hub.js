@@ -15,6 +15,7 @@ import { rows } from '../db/index.js';
 import { realBreakEven } from '../services/nfl-execution-edge.js';
 import { wongHistory, teaserEV } from '../services/nfl-teasers.js';
 import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
+import { shoppingBoard, findMiddles, executionBoardSummary } from '../services/nfl-shopping-board.js';
 
 const r = Router();
 
@@ -94,6 +95,23 @@ r.get('/summary', (req, res, next) => {
       mlb: { standing: mlbStanding() },
       odds_api: oddsUsage(),
       edges: edgeSnapshot()
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * The shopping board. Deliberately a plain GET with no permission gate: it
+ * reads snapshots already captured and forecasts nothing, so there is no model
+ * to protect and no credits to spend.
+ */
+r.get('/execution/board', (req, res, next) => {
+  try {
+    const market = ['spreads', 'totals', 'h2h'].includes(req.query.market) ? req.query.market : 'spreads';
+    res.json({
+      market,
+      summary: executionBoardSummary(),
+      sides: shoppingBoard({ market, limit: Math.min(60, Number(req.query.limit) || 25) }),
+      middles: market === 'spreads' ? findMiddles({ limit: 12 }) : []
     });
   } catch (e) { next(e); }
 });

@@ -82,12 +82,29 @@ export function marginDistribution() {
 export function lineMoveValue(from, to) {
   if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return 0;
   const { pmf } = marginDistribution();
-  const lo = Math.min(Math.abs(from), Math.abs(to));
-  const hi = Math.max(Math.abs(from), Math.abs(to));
+
+  // Work on the SIGNED number line. An earlier version took Math.abs() of both
+  // endpoints, which silently collapsed sign and priced every zero-crossing
+  // move at zero: moving -1.5 → +1.5 is a three-point swing that flips margins
+  // 0 and ±1, and it was being reported as worth nothing. That inverted the
+  // ranking whenever books disagreed about which team was favoured at all.
+  //
+  // A side taking `line` points covers when its own signed margin exceeds
+  // -line, so the result changes exactly for margins between -hi and -lo.
+  const lo = Math.min(from, to), hi = Math.max(from, to);
+
+  // The stored distribution is over |margin|. Absent knowing whether this bet
+  // is on the favourite or the underdog, split each magnitude symmetrically —
+  // the neutral assumption, and a close one near a pick'em where these
+  // disagreements actually occur.
   let mass = 0;
-  for (const [margin, p] of pmf) {
-    if (margin > lo && margin < hi) mass += p;         // outcome flips outright
-    else if (margin === lo || margin === hi) mass += p * 0.5;  // push boundary
+  for (const [absMargin, p] of pmf) {
+    const signed = absMargin === 0 ? [0] : [absMargin, -absMargin];
+    const share = absMargin === 0 ? p : p / 2;
+    for (const m of signed) {
+      if (m > -hi && m < -lo) mass += share;                 // outcome flips outright
+      else if (m === -hi || m === -lo) mass += share * 0.5;  // push boundary
+    }
   }
   return r4(mass);
 }

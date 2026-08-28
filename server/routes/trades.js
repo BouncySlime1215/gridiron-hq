@@ -14,6 +14,7 @@ import {
 } from '../services/trade-engine.js';
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
 import { deriveFormat } from '../services/format.js';
+import { newsOpportunities } from '../services/news-lag-trader.js';
 
 const r = Router();
 
@@ -38,6 +39,23 @@ r.get('/:leagueId/scout', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     res.json(selfScout(lg, req.query.team_id));
+  } catch (e) { next(e); }
+});
+
+/**
+ * News the league has not reacted to yet, turned into actions.
+ *
+ * The only surface in this app where we hold a structural advantage over our
+ * opponents rather than a hoped-for one — this pipeline runs on a timer and
+ * your leaguemates do not.
+ */
+r.get('/:leagueId/news-edge', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(newsOpportunities(lg.id, {
+      myTeamId: req.query.team_id,
+      hours: Math.min(24 * 21, Number(req.query.hours) || 72)
+    }));
   } catch (e) { next(e); }
 });
 

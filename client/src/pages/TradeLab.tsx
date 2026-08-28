@@ -5,6 +5,7 @@ import TradeCard, { PlayerPill, num } from '../components/TradeCard';
 import { usePlayerCard } from '../components/PlayerCard';
 
 const TABS = [
+  { id: 'news', label: 'News edge', hint: 'Act on news your league has not seen yet' },
   { id: 'find', label: 'Find deals', hint: 'Every realistic trade in your league, ranked' },
   { id: 'target', label: 'Target a player', hint: 'Name him — get the offer that lands him' },
   { id: 'targetMany', label: 'Go get them', hint: 'Pick multiple players — build the packages that land them' },
@@ -26,7 +27,7 @@ export default function TradeLab() {
   // Which league is active now lives in the header, shared with My Team and the
   // Prediction Engine — this page just follows it rather than keeping its own.
   const { activeId: active } = useLeague();
-  const [tab, setTab] = useState<Tab>('find');
+  const [tab, setTab] = useState<Tab>('news');
   const { data: rosters } = useApi<any>(active ? `/trades/${active}/rosters` : null);
   const [teamId, setTeamId] = useState<string | null>(null);
   // A "which team is me" pick only means something within the league it was made in.
@@ -82,11 +83,107 @@ export default function TradeLab() {
       </div>
 
       {!active && <div className="card p-6 text-sm text-slate-500">Connect a league in League Hub first.</div>}
+      {active && tab === 'news' && <NewsEdge leagueId={active} teamId={me} />}
       {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'targetMany' && <TargetMany leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'matchups' && <Matchups />}
+    </div>
+  );
+}
+
+/**
+ * News the league has not priced in yet.
+ *
+ * The pitch on every other tab is "here is a good trade". The pitch here is
+ * different and stronger: the app read this before your leaguemates did, and
+ * the tradeable asset is usually the player who INHERITS the snaps rather than
+ * the one in the headline.
+ */
+const ACTION_STYLE: Record<string, { label: string; cls: string }> = {
+  claim_waiver:     { label: 'Claim now',     cls: 'border-emerald-300 bg-emerald-50' },
+  buy_beneficiary:  { label: 'Buy the backup', cls: 'border-emerald-300 bg-emerald-50' },
+  buy_low:          { label: 'Buy low',       cls: 'border-sky-300 bg-sky-50' },
+  hold_or_sell:     { label: 'Hold or sell',  cls: 'border-amber-300 bg-amber-50' },
+  already_held:     { label: 'You have him',  cls: 'border-slate-200 bg-white' }
+};
+
+function NewsEdge({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
+  const [hours, setHours] = useState(168);
+  const { data, loading } = useApi<any>(
+    teamId ? `/trades/${leagueId}/news-edge?team_id=${teamId}&hours=${hours}` : null);
+
+  if (loading) return <div className="card p-6 text-sm text-slate-500">Reading the wire…</div>;
+  if (data?.error) return <div className="card p-6 text-sm text-rose-600">{data.error}</div>;
+
+  const opps = data?.opportunities ?? [];
+  return (
+    <div>
+      <div className="card p-4 mb-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div>
+            <h2 className="text-sm font-bold text-slate-800">Your league has not read this yet</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {data?.signals_considered ?? 0} typed signals scanned. The move is usually the player who
+              inherits the snaps, not the one in the headline.
+            </p>
+          </div>
+          <div className="flex gap-1 ml-auto">
+            {[24, 72, 168, 336].map(h => (
+              <button key={h} onClick={() => setHours(h)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${
+                  hours === h ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300'}`}>
+                {h < 48 ? `${h}h` : `${h / 24}d`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {!opps.length ? (
+        <div className="card p-6 text-sm text-slate-500">
+          Nothing actionable in this window. Either the wire is quiet, or every affected player is
+          already owned by you and there is no inheritor to chase.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {opps.map((o: any, i: number) => {
+            const st = ACTION_STYLE[o.action.kind] ?? { label: o.action.kind, cls: 'border-slate-200 bg-white' };
+            return (
+              <div key={i} className={`card p-4 border ${st.cls}`}>
+                <div className="flex items-baseline gap-2 flex-wrap mb-1">
+                  <span className="text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded bg-white border border-slate-200">
+                    {st.label}
+                  </span>
+                  {o.action.target && (
+                    <span className="text-base font-black text-slate-900">{o.action.target}</span>
+                  )}
+                  {o.action.target_position && (
+                    <span className="text-[10px] font-bold text-slate-500">{o.action.target_position}</span>
+                  )}
+                  <span className="text-[11px] text-slate-500 ml-auto tabular-nums">
+                    {o.age_hours < 48 ? `${o.age_hours}h ago` : `${(o.age_hours / 24).toFixed(1)}d ago`}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-700">{o.action.why}</p>
+                <div className="mt-2 pt-2 border-t border-slate-200/70 text-[11px] text-slate-500">
+                  <b className="text-slate-700">{o.subject.name}</b> · {String(o.subject.status).replace(/_/g, ' ')} ·
+                  held by {o.subject.owned_by}
+                  {o.action.target_owned_by && o.action.target_owned_by !== o.subject.owned_by && (
+                    <> · target held by <b className="text-slate-700">{o.action.target_owned_by}</b></>
+                  )}
+                </div>
+                <div className="mt-1 text-[11px] text-slate-500 italic">
+                  “{o.evidence}” <span className="not-italic text-slate-400">· {o.source} · confidence {o.confidence}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {data?.note && <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">{data.note}</p>}
     </div>
   );
 }

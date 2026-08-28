@@ -27,8 +27,14 @@ interface Middle {
   home: { team: string; book: string; line: number; price: number };
   away: { team: string; book: string; line: number; price: number };
 }
+interface BookHold {
+  books: { book: string; markets_measured: number; hold: number; break_even: number; cost_per_100_units: number }[];
+  best_book?: string; worst_book?: string;
+  spread_in_hold?: number; win_rate_saved?: number; note: string;
+}
 interface BoardResp {
   market: string;
+  hold: BookHold;
   summary: {
     sides_priced: number; events: number; shoppable_sides: number;
     mean_edge_when_shoppable: number | null; best_edge: number | null;
@@ -128,6 +134,46 @@ export default function LineShop() {
           </div>
         ) : (
           <>
+            {board.hold?.books?.length > 1 && (
+              <div className="card p-4 mb-3 border-emerald-200">
+                <div className="flex items-baseline gap-2 flex-wrap mb-1">
+                  <h2 className="text-sm font-bold text-slate-800">The vig — what each book charges</h2>
+                  <span className="text-[11px] text-slate-500">measured from two-sided prices, not assumed</span>
+                </div>
+                <p className="text-[11px] text-slate-600 mb-3 leading-relaxed">
+                  Using <b className="text-emerald-700">{board.hold.best_book}</b> instead of{' '}
+                  <b>{board.hold.worst_book}</b> lowers the win rate you need by{' '}
+                  <b className="text-emerald-700">{spct(board.hold.win_rate_saved)}</b>. No forecast involved —
+                  this is the largest cost you control, and the only lever here guaranteed to work.
+                </p>
+                <div className="space-y-1">
+                  {board.hold.books.map((b, i) => {
+                    const worst = board.hold.books[board.hold.books.length - 1].hold;
+                    const best = board.hold.books[0].hold;
+                    const frac = worst > best ? (b.hold - best) / (worst - best) : 0;
+                    return (
+                      <div key={b.book} className="flex items-center gap-2 text-xs">
+                        <span className={`w-24 truncate font-semibold ${i === 0 ? 'text-emerald-700' : 'text-slate-700'}`}>{b.book}</span>
+                        <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                          <div className={`h-full rounded-full ${i === 0 ? 'bg-emerald-500' : frac > 0.75 ? 'bg-rose-400' : 'bg-slate-400'}`}
+                            style={{ width: `${Math.max(6, frac * 100)}%` }} />
+                        </div>
+                        <span className="w-14 text-right tabular-nums font-bold text-slate-800">{(b.hold * 100).toFixed(2)}%</span>
+                        <span className="w-16 text-right tabular-nums text-slate-500">{(b.break_even * 100).toFixed(2)}%</span>
+                        <span className="w-10 text-right tabular-nums text-[10px] text-slate-400">n={b.markets_measured}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2 mt-2 text-[10px] text-slate-400">
+                  <span className="w-24" /><span className="flex-1" />
+                  <span className="w-14 text-right">hold</span>
+                  <span className="w-16 text-right">break-even</span>
+                  <span className="w-10" />
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
               {[['Shoppable sides', `${board.summary.shoppable_sides}/${board.summary.sides_priced}`,
                  `across ${board.summary.events} games`],

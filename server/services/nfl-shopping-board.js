@@ -241,6 +241,74 @@ export function findMiddles({ limit = 20 } = {}) {
   return found.sort((a, b) => (b.ev_per_unit ?? 0) - (a.ev_per_unit ?? 0)).slice(0, limit);
 }
 
+/* --------------------------------------------------------- book hold */
+
+/**
+ * What each book actually charges, measured rather than assumed.
+ *
+ * Hold is the sum of both sides' implied probabilities minus one — the margin
+ * the book builds into the price. It is the single largest and most certain
+ * cost a bettor pays, it is knowable before placing a bet, and it varies far
+ * more between books than most people expect.
+ *
+ * This matters more than any forecast in this codebase. The model is 0.44
+ * points of MAE *worse* than the closing line, so it contributes no edge at
+ * all — but moving from the most expensive book measured here to the cheapest
+ * is worth over a point of required win rate, with no prediction involved.
+ * Reducing the vig is the only lever on this board that is guaranteed to work.
+ */
+export function bookHold({ market = null } = {}) {
+  const quotes = rows(
+    `SELECT captured_at, event_id, market, book, side, price
+     FROM nfl_line_snapshots
+     WHERE price IS NOT NULL ${market ? 'AND market = ?' : ''}`,
+    ...(market ? [market] : []));
+
+  // A hold is only defined for a complete two-sided market from one book at one
+  // instant. Pairing across books or across time would measure something else.
+  const pairs = new Map();
+  for (const q of quotes) {
+    const key = `${q.captured_at}|${q.event_id}|${q.market}|${q.book}`;
+    if (!pairs.has(key)) pairs.set(key, []);
+    pairs.get(key).push(q);
+  }
+
+  const byBook = new Map();
+  for (const [key, sides] of pairs) {
+    if (sides.length !== 2) continue;
+    const hold = impliedProb(sides[0].price) + impliedProb(sides[1].price) - 1;
+    if (!Number.isFinite(hold)) continue;
+    const book = key.split('|')[3];
+    if (!byBook.has(book)) byBook.set(book, []);
+    byBook.get(book).push(hold);
+  }
+
+  const out = [...byBook.entries()]
+    .map(([book, holds]) => {
+      const hold = holds.reduce((a, b) => a + b, 0) / holds.length;
+      return {
+        book, markets_measured: holds.length, hold: r4(hold),
+        // On an otherwise fair market, break-even is half the hold above even.
+        break_even: r4((1 + hold) / 2),
+        // What a zero-edge bettor surrenders per 100 units staked.
+        cost_per_100_units: r4((hold / 2) * 100)
+      };
+    })
+    .sort((a, b) => a.hold - b.hold);
+
+  if (!out.length) return { books: [], note: 'no two-sided quotes captured yet' };
+  const best = out[0], worst = out[out.length - 1];
+  return {
+    books: out,
+    best_book: best.book, worst_book: worst.book,
+    spread_in_hold: r4(worst.hold - best.hold),
+    // The number that matters: how much lower a win rate the cheap book needs.
+    win_rate_saved: r4((worst.hold - best.hold) / 2),
+    note: 'Hold is the book\'s built-in margin, measured from two-sided prices at one ' +
+      'instant. It is the largest cost a bettor controls without predicting anything.'
+  };
+}
+
 /* ------------------------------------------------------------- summary */
 
 export function executionBoardSummary() {

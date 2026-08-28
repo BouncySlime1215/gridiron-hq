@@ -15,7 +15,7 @@ import { rows } from '../db/index.js';
 import { realBreakEven } from '../services/nfl-execution-edge.js';
 import { wongHistory, teaserEV } from '../services/nfl-teasers.js';
 import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
-import { shoppingBoard, findMiddles, executionBoardSummary } from '../services/nfl-shopping-board.js';
+import { shoppingBoard, findMiddles, executionBoardSummary, bookHold } from '../services/nfl-shopping-board.js';
 import { recentMoves, capturesWorthSpending, espnWatchStatus, currentSlate } from '../services/nfl-espn-line-watch.js';
 import { findTeaserLegs } from '../services/nfl-teasers.js';
 import { sgpAnalysis, propCorrelationTable, fitPropCorrelations } from '../services/nfl-prop-correlation.js';
@@ -116,7 +116,10 @@ r.get('/execution/board', (req, res, next) => {
       market,
       summary: executionBoardSummary(),
       sides: shoppingBoard({ market, limit: Math.min(60, Number(req.query.limit) || 25) }),
-      middles: market === 'spreads' ? findMiddles({ limit: 12 }) : []
+      middles: market === 'spreads' ? findMiddles({ limit: 12 }) : [],
+      // The largest cost a bettor actually controls, and the only lever on this
+      // board that works without any forecast being correct.
+      hold: bookHold()
     });
   } catch (e) { next(e); }
 });

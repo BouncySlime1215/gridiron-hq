@@ -174,6 +174,14 @@ r.post('/:id/sync', async (req, res, next) => {
     const { syncDynastyValues } = await import('./aggregates.js');
     const values = await syncDynastyValues().catch(e => ({ error: e.message }));
 
+    // The season simulator (title odds on My Team) is cached in-process with no TTL,
+    // keyed only on league id/runs/week — without this, a roster change (trade,
+    // waiver claim, injury) never shows up in "Your title odds right now" until the
+    // whole server restarts, silently disconnecting that card from the roster it's
+    // supposed to describe.
+    const { clearModelCache } = await import('./model.js');
+    clearModelCache();
+
     res.json({ ok: true, ...result, values });
   } catch (e) {
     run(`UPDATE leagues SET connection_status='sync_failed', sync_error=? WHERE id=?`,

@@ -97,11 +97,18 @@ export async function syncPlayersFromESPN() {
           teamChanges.push({ player_id: playerId, player_name: pl.fullName,
             from_team: teamAbbrById[match.team_id] ?? null, to_team: teamAbbrById[teamId] ?? null });
         }
-        run('UPDATE players SET team_id = ?, fantasy_relevant = 1, espn_id = ? WHERE id = ?', teamId, pl.id ?? null, playerId);
+        // ESPN's own fullName is authoritative for whatever espn_id it just sent —
+        // when a row is bound (or re-bound) by that id, its name has to move with it.
+        // Leaving the old name in place is exactly how a rookie who takes over a
+        // reused/rebound row ends up permanently displayed under a different real
+        // player's name everywhere in the app (roster, lineup solver, projections).
+        run('UPDATE players SET team_id = ?, fantasy_relevant = 1, espn_id = ?, name = ? WHERE id = ?',
+          teamId, pl.id ?? null, pl.fullName, playerId);
         // Keep the in-memory view current so a later row in this same batch can't
         // re-match the row we just bound.
         match.espn_id = pl.id ?? null;
         match.team_id = teamId;
+        match.name = pl.fullName;
         updated++;
       } else {
         const result = run('INSERT INTO players (name, position, team_id, depth_rank, phase, fantasy_relevant, espn_id) VALUES (?,?,?,?,?,1,?)',

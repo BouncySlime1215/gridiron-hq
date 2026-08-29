@@ -257,18 +257,29 @@ export function findMiddles({ limit = 20 } = {}) {
  * is worth over a point of required win rate, with no prediction involved.
  * Reducing the vig is the only lever on this board that is guaranteed to work.
  */
-export function bookHold({ market = null } = {}) {
-  const quotes = rows(
-    `SELECT captured_at, event_id, market, book, side, price
-     FROM nfl_line_snapshots
-     WHERE price IS NOT NULL ${market ? 'AND market = ?' : ''}`,
-    ...(market ? [market] : []));
+export function bookHold({ market = null, sport = 'nfl' } = {}) {
+  // The engine does not know or care what sport it is looking at — a hold is a
+  // property of two prices, not of football. `sport` only selects which table
+  // the quotes come from and what identifies a single market within it.
+  //
+  // MLB quotes are player props, so a market is identified by the PLAYER as
+  // well as the event; grouping on event alone would pool every batter in a
+  // game into one "market" and compute a hold across unrelated bets.
+  const quotes = sport === 'mlb'
+    ? rows(`SELECT captured_at, event_id, market, book, side, price, selection
+            FROM mlb_market_quotes
+            WHERE price IS NOT NULL ${market ? 'AND market = ?' : ''}`,
+      ...(market ? [market] : []))
+    : rows(`SELECT captured_at, event_id, market, book, side, price, NULL AS selection
+            FROM nfl_line_snapshots
+            WHERE price IS NOT NULL ${market ? 'AND market = ?' : ''}`,
+      ...(market ? [market] : []));
 
   // A hold is only defined for a complete two-sided market from one book at one
   // instant. Pairing across books or across time would measure something else.
   const pairs = new Map();
   for (const q of quotes) {
-    const key = `${q.captured_at}|${q.event_id}|${q.market}|${q.book}`;
+    const key = `${q.captured_at}|${q.event_id}|${q.market}|${q.selection ?? ''}|${q.book}`;
     if (!pairs.has(key)) pairs.set(key, []);
     pairs.get(key).push(q);
   }
@@ -278,7 +289,11 @@ export function bookHold({ market = null } = {}) {
     if (sides.length !== 2) continue;
     const hold = impliedProb(sides[0].price) + impliedProb(sides[1].price) - 1;
     if (!Number.isFinite(hold)) continue;
-    const book = key.split('|')[3];
+    // Book is the LAST key segment. It moved when `selection` was added to
+    // support player-prop markets, and reading a fixed index silently reported
+    // batter names as sportsbooks.
+    const parts = key.split('|');
+    const book = parts[parts.length - 1];
     if (!byBook.has(book)) byBook.set(book, []);
     byBook.get(book).push(hold);
   }
@@ -296,9 +311,10 @@ export function bookHold({ market = null } = {}) {
     })
     .sort((a, b) => a.hold - b.hold);
 
-  if (!out.length) return { books: [], note: 'no two-sided quotes captured yet' };
+  if (!out.length) return { sport, books: [], note: 'no two-sided quotes captured yet' };
   const best = out[0], worst = out[out.length - 1];
   return {
+    sport,
     books: out,
     best_book: best.book, worst_book: worst.book,
     spread_in_hold: r4(worst.hold - best.hold),

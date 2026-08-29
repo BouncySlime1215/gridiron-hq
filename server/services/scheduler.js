@@ -331,6 +331,13 @@ export const JOBS = {
   prediction_markets: { run: () => import('./prediction-markets.js').then(async m => ({
     quotes: await m.captureKalshi({}), flow: await m.captureKalshiFlow({}) })),
   maxAgeMinutes: 20, tier: 'live', label: 'Prediction market quotes and trade tape (free)' },
+  // Free, no key. Polymarket is the only venue measured cheaper than Kalshi,
+  // and its hourly price history is the only source here that can show how a
+  // price moved around a news event after the fact.
+  polymarket: { run: () => import('./polymarket.js').then(async m => ({
+    markets: await m.ingestPolymarketNfl({ maxPages: 4 }),
+    books: await m.captureOrderBooks({ minVolume: 1000, limit: 40 }) })),
+  maxAgeMinutes: 30, tier: 'live', label: 'Polymarket NFL markets and order books (free)' },
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'NFL weekly snapshot, settlement, and challenger retraining' },

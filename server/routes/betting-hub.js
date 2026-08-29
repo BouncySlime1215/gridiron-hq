@@ -421,4 +421,68 @@ r.get('/prediction/cost', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* --------------------------------------------- polymarket and live edge */
+
+/** Ingest NFL markets, real order books, and hourly price history. */
+r.post('/polymarket/ingest', async (req, res, next) => {
+  try {
+    const m = await import('../services/polymarket.js');
+    const markets = await m.ingestPolymarketNfl({});
+    const books = await m.captureOrderBooks({ minVolume: Number(req.query.min_volume) || 1000 });
+    const history = req.query.history === '1' ? await m.ingestPriceHistory({}) : { skipped: true };
+    res.json({ markets, books, history, status: m.polymarketStatus() });
+  } catch (e) { next(e); }
+});
+
+/** What Polymarket costs, conditional on depth. */
+r.get('/polymarket/cost', async (req, res, next) => {
+  try {
+    const { polymarketCost } = await import('../services/polymarket.js');
+    res.json(polymarketCost({}));
+  } catch (e) { next(e); }
+});
+
+r.get('/polymarket/status', async (req, res, next) => {
+  try {
+    const { polymarketStatus } = await import('../services/polymarket.js');
+    res.json(polymarketStatus());
+  } catch (e) { next(e); }
+});
+
+/** Do prices move after news, and how fast? */
+r.get('/polymarket/news-response', async (req, res, next) => {
+  try {
+    const { newsPriceResponse } = await import('../services/polymarket.js');
+    res.json(newsPriceResponse({ windowHours: Number(req.query.hours) || 6 }));
+  } catch (e) { next(e); }
+});
+
+/** Live in-game board: ESPN state, validated model, tradeable price. */
+r.get('/live/board', async (req, res, next) => {
+  try {
+    const { liveBoard } = await import('../services/live-edge.js');
+    res.json(await liveBoard({}));
+  } catch (e) { next(e); }
+});
+
+/** Price one hypothetical live state against a market probability. */
+r.get('/live/edge', async (req, res, next) => {
+  try {
+    const { liveEdge } = await import('../services/live-edge.js');
+    res.json(liveEdge({
+      homeScore: Number(req.query.home) || 0, awayScore: Number(req.query.away) || 0,
+      secondsLeft: Number(req.query.seconds) || 900,
+      marketProbability: req.query.market == null ? null : Number(req.query.market),
+      depth: req.query.depth == null ? null : Number(req.query.depth),
+      secondsSinceStateChange: req.query.since == null ? null : Number(req.query.since) }));
+  } catch (e) { next(e); }
+});
+
+r.get('/live/status', async (req, res, next) => {
+  try {
+    const { liveEdgeStatus } = await import('../services/live-edge.js');
+    res.json(liveEdgeStatus());
+  } catch (e) { next(e); }
+});
+
 export default r;

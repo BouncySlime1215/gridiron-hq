@@ -338,6 +338,22 @@ export const JOBS = {
     markets: await m.ingestPolymarketNfl({ maxPages: 4 }),
     books: await m.captureOrderBooks({ minVolume: 1000, limit: 40 }) })),
   maxAgeMinutes: 30, tier: 'live', label: 'Polymarket NFL markets and order books (free)' },
+  // Free and keyless for discovery. Transcription shells out to yt-dlp, which
+  // is why this sits on a slow cadence rather than the 90-second tick.
+  press_conferences: { run: () => import('./press-conference.js').then(async m => {
+    const teams = Object.keys(m.TEAM_CHANNEL_HANDLES);
+    let pressers = 0, statements = 0;
+    for (const t of teams) {
+      const d = await m.discoverVideos(t);
+      if (d.error) continue;
+      pressers += d.pressers ?? 0;
+      for (const v of (d.found ?? []).filter(x => x.is_presser).slice(0, 1)) {
+        const tr = await m.fetchTranscript(v.video_id);
+        if (!tr.error) statements += (m.extractAvailability(v.video_id).statements ?? 0);
+      }
+    }
+    return { teams: teams.length, pressers, statements };
+  }), maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'Team press conferences (YouTube, transcribed)' },
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'NFL weekly snapshot, settlement, and challenger retraining' },

@@ -1199,4 +1199,53 @@ r.get('/system/cache', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- press conferences */
+
+/** Resolve and validate every team YouTube channel. */
+r.post('/press/channels', async (req, res, next) => {
+  try {
+    const { resolveAllChannels } = await import('../services/press-conference.js');
+    res.json(await resolveAllChannels());
+  } catch (e) { next(e); }
+});
+
+/** Discover recent videos and transcribe the press conferences among them. */
+r.post('/press/ingest', async (req, res, next) => {
+  try {
+    const m = await import('../services/press-conference.js');
+    const teams = req.query.team ? [req.query.team]
+      : Object.keys(m.TEAM_CHANNEL_HANDLES).slice(0, Number(req.query.limit) || 8);
+    const out = [];
+    for (const t of teams) {
+      const d = await m.discoverVideos(t);
+      if (d.error) { out.push({ team: t, error: d.error }); continue; }
+      let transcribed = 0, statements = 0;
+      for (const v of (d.found ?? []).filter(x => x.is_presser).slice(0, 2)) {
+        const tr = await m.fetchTranscript(v.video_id);
+        if (tr.error) continue;
+        transcribed++;
+        statements += (m.extractAvailability(v.video_id).statements ?? 0);
+      }
+      out.push({ team: t, videos: d.videos, pressers: d.pressers, transcribed, statements });
+    }
+    res.json({ teams: out, status: m.pressStatus() });
+  } catch (e) { next(e); }
+});
+
+/** What coaches have said about availability, by team. */
+r.get('/press/:team', async (req, res, next) => {
+  try {
+    const { pressAvailabilityFor } = await import('../services/press-conference.js');
+    res.json(pressAvailabilityFor(req.params.team, { days: Number(req.query.days) || 14 }));
+  } catch (e) { next(e); }
+});
+
+/** Pipeline status, including whether transcription is even possible here. */
+r.get('/press', async (req, res, next) => {
+  try {
+    const m = await import('../services/press-conference.js');
+    res.json({ ...m.pressStatus(), transcript_tool: await m.transcriptToolAvailable() });
+  } catch (e) { next(e); }
+});
+
 export default r;

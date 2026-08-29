@@ -375,4 +375,50 @@ r.get('/system/connectivity', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- prediction markets */
+
+/** Snapshot Kalshi + Polymarket NFL markets and the public trade tape. */
+r.post('/prediction/capture', async (req, res, next) => {
+  try {
+    const m = await import('../services/prediction-markets.js');
+    const [kalshi, flow, poly] = await Promise.all([
+      m.captureKalshi({}), m.captureKalshiFlow({}), m.capturePolymarket({})
+    ]);
+    res.json({ kalshi, flow, polymarket: poly, status: m.predictionMarketStatus() });
+  } catch (e) { next(e); }
+});
+
+/** What the prediction-market corpus holds. */
+r.get('/prediction/status', async (req, res, next) => {
+  try {
+    const { predictionMarketStatus } = await import('../services/prediction-markets.js');
+    res.json(predictionMarketStatus());
+  } catch (e) { next(e); }
+});
+
+/** Where the exchange disagrees with the sportsbook reference line. */
+r.get('/prediction/divergence', async (req, res, next) => {
+  try {
+    const { exchangeVsBook } = await import('../services/prediction-markets.js');
+    res.json(exchangeVsBook({ minGap: Number(req.query.min_gap) || 0.02 }));
+  } catch (e) { next(e); }
+});
+
+/** Large aggressive orders — the closest thing to a public whale tape. */
+r.get('/prediction/flow', async (req, res, next) => {
+  try {
+    const { whaleFlow } = await import('../services/prediction-markets.js');
+    res.json(whaleFlow({ hours: Number(req.query.hours) || 48,
+      minNotional: Number(req.query.min_notional) || 500 }));
+  } catch (e) { next(e); }
+});
+
+/** What each venue really costs once the exchange's trading fee is included. */
+r.get('/prediction/cost', async (req, res, next) => {
+  try {
+    const { venueCostComparison } = await import('../services/prediction-markets.js');
+    res.json(venueCostComparison({}));
+  } catch (e) { next(e); }
+});
+
 export default r;

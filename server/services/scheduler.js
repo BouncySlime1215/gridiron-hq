@@ -325,6 +325,12 @@ export const JOBS = {
   // it stores also sharpens the team profiles the pregame model runs on.
   nfl_play_by_play: { run: () => import('./nfl-espn-pbp.js').then(m => m.pollLiveGames({})),
     maxAgeMinutes: 3, tier: 'live', label: 'Live NFL play-by-play (free, no quota)' },
+  // Free and unauthenticated, like the ESPN feeds. Kalshi is an order book
+  // rather than a bookmaker's number, and its trade tape carries size and
+  // aggressor side — information no sportsbook feed exposes.
+  prediction_markets: { run: () => import('./prediction-markets.js').then(async m => ({
+    quotes: await m.captureKalshi({}), flow: await m.captureKalshiFlow({}) })),
+  maxAgeMinutes: 20, tier: 'live', label: 'Prediction market quotes and trade tape (free)' },
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'NFL weekly snapshot, settlement, and challenger retraining' },

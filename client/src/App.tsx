@@ -28,6 +28,7 @@ const PropsAutoPicks = lazy(() => import('./pages/props/PropsAutoPicks'));
 const NflMarketBoard = lazy(() => import('./pages/NflMarketBoard'));
 const BettingHome = lazy(() => import('./pages/betting/BettingHome'));
 const MlbBoard = lazy(() => import('./pages/betting/MlbBoard'));
+const MlbHub = lazy(() => import('./pages/betting/MlbHub'));
 const MlbAutoPicks = lazy(() => import('./pages/betting/MlbAutoPicks'));
 
 type NavItem = { to: string; label: string; icon: string; end?: boolean; live?: boolean };
@@ -109,7 +110,14 @@ export default function App() {
           <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />
           <Route path="/betting/nfl/operations" element={<NflMarketBoard initialTool="operations" />} /><Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} />
           <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} /><Route path="/betting/training" element={<NflMarketBoard initialTool="training" />} /><Route path="/betting/catalog" element={<NflMarketBoard initialTool="variables" />} />
-          <Route path="/betting/mlb" element={<MlbBoard />} /><Route path="/betting/mlb/legacy" element={<PropsBoard />} /><Route path="/betting/mlb/auto" element={<MlbAutoPicks />} /><Route path="/betting/mlb/auto-legacy" element={<PropsAutoPicks />} /><Route path="/betting/mlb/picks" element={<PropsPicks />} /><Route path="/betting/mlb/model" element={<PropsModel />} />
+          {/* One MLB hub instead of six routes, two of which were named "legacy"
+              and all of which were reachable with nothing saying which was current. */}
+          <Route path="/betting/mlb" element={<MlbHub />} />
+          <Route path="/betting/mlb/auto" element={<MlbHub initialTab="auto" />} />
+          <Route path="/betting/mlb/picks" element={<MlbHub initialTab="picks" />} />
+          <Route path="/betting/mlb/model" element={<MlbHub initialTab="model" />} />
+          <Route path="/betting/mlb/legacy" element={<MlbHub initialTab="legacy" />} />
+          <Route path="/betting/mlb/auto-legacy" element={<MlbHub initialTab="auto" />} />
 
           {/* Compatibility: old bookmarks resolve to the new domain hubs. */}
           <Route path="/my-team" element={<Navigate to="/league?view=team" replace />} /><Route path="/leagues" element={<Navigate to="/league?view=connections" replace />} />

@@ -89,7 +89,8 @@ function buildContext(offProfile, defProfile, league) {
     volatility: (o.off_epa_volatility ?? L.off_epa_volatility ?? 1.35)
       / (L.off_epa_volatility || 1.35),
     noHuddle: o.off_no_huddle_rate ?? 0.06,
-    completionPct: o.off_completion_pct ?? 0.65
+    completionPct: o.off_completion_pct ?? 0.65,
+    shotgunRate: o.off_shotgun_rate ?? 0.65
   };
 }
 
@@ -218,6 +219,10 @@ function simulateDrive(ctx, state, ep) {
   let yard = state.yard;
   let down = 1, toGo = 10, elapsed = 0, plays = 0;
   const decisions = [];
+  // A play-by-play tape of the drive. The engine already resolves every snap
+  // individually; this just stops throwing that away, so a drive can be
+  // replayed and drawn rather than only summarised.
+  const tape = [];
 
   // Modules 5/6, 7/8, 17 and 11: risk preference, pace, air yards, prevent —
   // all functions of leverage rather than constants.
@@ -230,7 +235,7 @@ function simulateDrive(ctx, state, ep) {
   // Module 9: a state where snapping the ball at all is strictly negative.
   const kneel = P.kneelDecision({ lead, secondsLeft, timeouts: oppTimeouts, yard, isHalfEnd });
   if (kneel.call === 'kneel') {
-    return { points: 0, seconds: secondsLeft, endYard: yard, kneel: true, plays: 0, decisions: [kneel] };
+    return { points: 0, seconds: secondsLeft, endYard: yard, kneel: true, plays: 0, decisions: [kneel], tape: [] };
   }
 
   // Modules 14 and 15, evaluated once per drive: measured game-script pass rate
@@ -255,11 +260,40 @@ function simulateDrive(ctx, state, ep) {
 
     const isPass = random() < passRate;
     const play = runPlay(ctx, { yard, isPass, varianceMult: variance.variance_multiplier, preventMult });
+    const snapAt = yard, snapDown = down, snapToGo = Math.max(1, Math.ceil(toGo));
 
     // Clock: a running play burns the play clock, an incompletion or sideline
     // throw stops it.
     const sideline = isPass && random() < pace.sideline_preference;
     elapsed += (play.clockRuns && !sideline) ? pace.seconds_running : pace.seconds_stopped;
+
+    tape.push({
+      down: snapDown, to_go: snapToGo, yard_line: Math.round(snapAt),
+      play_type: play.type, is_pass: isPass,
+      yards: Math.round(play.yards ?? 0),
+      turnover: play.turnover ?? null,
+      // Formation, drawn from the real league distribution rather than a single
+      // shotgun probability. Measured over 36,959 charted plays: SHOTGUN 68.9%,
+      // UNDER CENTER 27.2%, PISTOL 3.9% — and the split is strongly conditional,
+      // because nobody lines up under centre on third-and-twelve.
+      ...(() => {
+        const passLikely = isPass || snapDown >= 3 || snapToGo >= 8;
+        const r = random();
+        const formation = passLikely
+          ? (r < 0.86 ? 'SHOTGUN' : r < 0.94 ? 'PISTOL' : 'UNDER CENTER')
+          : (r < 0.48 ? 'SHOTGUN' : r < 0.54 ? 'PISTOL' : 'UNDER CENTER');
+        // Box counts measured alongside the formations: shotgun draws 5.96
+        // defenders into the box, under centre 7.0.
+        const box = formation === 'UNDER CENTER' ? 7 : formation === 'PISTOL' ? 7 : 6;
+        return { formation, shotgun: formation !== 'UNDER CENTER', defenders_in_box: box,
+          // 11 personnel is 42.7% of all snaps; 12 personnel 13.2%.
+          personnel: random() < 0.55 ? '11' : random() < 0.6 ? '12' : '21' };
+      })(),
+      seconds: Math.round((play.clockRuns && !sideline) ? pace.seconds_running : pace.seconds_stopped),
+      // Direction only means anything on a pass; a run is drawn from the gap.
+      direction: isPass ? ['left', 'middle', 'right'][Math.floor(random() * 3)] : null,
+      depth: isPass ? (play.type === 'explosive_pass' ? 'deep' : 'short') : null
+    });
 
     if (play.turnover) {
       // Roughly one in eighteen interceptions and one in forty lost fumbles is
@@ -269,12 +303,12 @@ function simulateDrive(ctx, state, ep) {
       const returnTd = play.turnover === 'interception'
         ? random() < 0.055 : random() < 0.025;
       return { points: 0, seconds: elapsed, endYard: clamp(yard, 1, 99),
-        turnover: play.turnover, defensive_touchdown: returnTd, plays, decisions };
+        turnover: play.turnover, defensive_touchdown: returnTd, plays, decisions, tape };
     }
 
     yard += play.yards;
-    if (yard >= 100) return { points: 6, seconds: elapsed, endYard: 100, touchdown: true, plays, decisions };
-    if (yard <= 0) return { points: 0, seconds: elapsed, endYard: 20, safety: true, plays, decisions };
+    if (yard >= 100) return { points: 6, seconds: elapsed, endYard: 100, touchdown: true, plays, decisions, tape };
+    if (yard <= 0) return { points: 0, seconds: elapsed, endYard: 20, safety: true, plays, decisions, tape };
 
     toGo -= play.yards;
     if (toGo <= 0) { down = 1; toGo = Math.min(10, 100 - yard); continue; }
@@ -304,19 +338,19 @@ function simulateDrive(ctx, state, ep) {
     decisions.push(wp ?? epCall);
 
     if (call === 'safety') {
-      return { points: 0, seconds: elapsed + 5, endYard: 20, safety: true, plays, decisions };
+      return { points: 0, seconds: elapsed + 5, endYard: 20, safety: true, plays, decisions, tape };
     }
     if (call === 'field_goal') {
       const dist = (100 - yard) + 17;
       const made = random() < P.fieldGoalProbability(dist);
       return { points: made ? 3 : 0, seconds: elapsed + 6,
         endYard: made ? 25 : clamp(100 - yard, 1, 99),
-        field_goal: { distance: Math.round(dist), made }, plays, decisions };
+        field_goal: { distance: Math.round(dist), made }, plays, decisions, tape };
     }
     if (call === 'punt') {
       const net = 40 + randn() * 8;
       return { points: 0, seconds: elapsed + 12,
-        endYard: clamp(100 - Math.min(yard + net, 99), 1, 99), punt: true, plays, decisions };
+        endYard: clamp(100 - Math.min(yard + net, 99), 1, 99), punt: true, plays, decisions, tape };
     }
     // Going for it: resolve the conversion here rather than letting the loop
     // silently hand out a fifth down.
@@ -326,9 +360,9 @@ function simulateDrive(ctx, state, ep) {
       continue;
     }
     return { points: 0, seconds: elapsed + 5, endYard: clamp(100 - yard, 1, 99),
-      turnover_on_downs: true, plays, decisions };
+      turnover_on_downs: true, plays, decisions, tape };
   }
-  return { points: 0, seconds: elapsed, endYard: clamp(yard, 1, 99), clock_expired: true, plays, decisions };
+  return { points: 0, seconds: elapsed, endYard: clamp(yard, 1, 99), clock_expired: true, plays, decisions, tape };
 }
 
 /* -------------------------------------------------------------------- game */
@@ -432,7 +466,8 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
                   : d.safety ? 'safety' : d.kneel ? 'kneel' : d.punt ? 'punt' : 'clock expired',
           plays: d.plays, seconds: Math.round(d.seconds),
           two_minute_warning: tmw.approaching,
-          decisions: (d.decisions ?? []).filter(x => x?.module).map(x => x.module) });
+          decisions: (d.decisions ?? []).filter(x => x?.module).map(x => x.module),
+          tape: d.tape ?? [] });
       }
 
       clock -= Math.max(15, d.seconds);

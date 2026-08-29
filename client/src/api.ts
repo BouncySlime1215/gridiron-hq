@@ -80,9 +80,13 @@ export function useApi<T = any>(path: string | null) {
     inFlight.current++;
     return api<T>(path, { signal: abort.signal })
       .then(d => {
-        // Only the newest request may write data — an older response arriving
-        // late must not overwrite a newer one.
-        if (id !== requestId.current) return;
+        // Stale-response protection matters only once there is something to
+        // protect. Discarding every response whose id is not the newest is
+        // correct for an overwrite and wrong for a first paint: under repeated
+        // mount/abort cycles the request that actually SUCCEEDS is often an
+        // older one, and dropping it left the page with no data and a loading
+        // flag that never cleared.
+        if (id !== requestId.current && hasData.current) return;
         hasData.current = true; setData(d); setError(null);
       })
       .catch(e => {

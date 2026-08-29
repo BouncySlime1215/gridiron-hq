@@ -1062,4 +1062,57 @@ r.post('/lines/opening/supercontest', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * A single simulated drive, play by play, for the field animation.
+ *
+ * The engine already resolves every snap individually — down, distance, field
+ * position, play type, yardage, formation. This exposes that tape so a drive can
+ * be drawn and stepped through rather than only summarised.
+ */
+r.get('/sim/drive', async (req, res, next) => {
+  try {
+    const { simulateMatchup } = await import('../services/nfl-drive-sim.js');
+    const out = simulateMatchup({
+      home: req.query.home, away: req.query.away, trials: 1, sampleDrives: true,
+      seed: req.query.seed ? Number(req.query.seed) : Math.floor(Math.random() * 1e6),
+      spread: req.query.spread == null ? null : Number(req.query.spread) });
+    if (out.error) return res.json(out);
+    const drives = (out.example_drives ?? []).filter(d => (d.tape ?? []).length > 0);
+    res.json({ home: out.home, away: out.away, drives_with_plays: drives.length,
+      drives: drives.slice(0, 24),
+      note: 'One simulated game. Each drive carries its own play tape — the same snaps the scoring ' +
+        'came from, not a separate illustrative sequence.' });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------- formations and charting */
+
+/** Ingest nflverse participation and FTN charting for a season. */
+r.post('/formations/ingest', async (req, res, next) => {
+  try {
+    const m = await import('../services/nfl-formations.js');
+    const season = Number(req.query.season) || 2023;
+    res.json({ formations: await m.ingestFormations(season),
+      charting: await m.ingestCharting(season), status: m.formationStatus() });
+  } catch (e) { next(e); }
+});
+
+/** How offences actually line up — the real distribution, not a shotgun rate. */
+r.get('/formations', async (req, res, next) => {
+  try {
+    const { formationDistribution } = await import('../services/nfl-formations.js');
+    res.json(formationDistribution({
+      season: req.query.season ? Number(req.query.season) : null,
+      team: req.query.team ?? null }));
+  } catch (e) { next(e); }
+});
+
+/** Hand-charted play detail: play action, motion, RPO, screens. */
+r.get('/formations/charting', async (req, res, next) => {
+  try {
+    const { chartingSummary } = await import('../services/nfl-formations.js');
+    res.json(chartingSummary({ season: req.query.season ? Number(req.query.season) : null }));
+  } catch (e) { next(e); }
+});
+
 export default r;

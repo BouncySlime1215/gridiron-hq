@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApi } from '../../api';
+import FieldSim from './FieldSim';
 
 /**
  * The play-by-play simulator.
@@ -63,7 +64,7 @@ const TEAMS = ['ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE', 'DAL', 'D
   'HOU', 'IND', 'JAX', 'KC', 'LAC', 'LAR', 'LV', 'MIA', 'MIN', 'NE', 'NO', 'NYG', 'NYJ', 'PHI',
   'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WSH'];
 
-type View = 'run' | 'honesty' | 'modules' | 'feed';
+type View = 'run' | 'field' | 'honesty' | 'modules' | 'feed';
 
 export default function GameSimulator() {
   const [view, setView] = useState<View>('run');
@@ -104,7 +105,7 @@ export default function GameSimulator() {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
-        {([['run', 'Simulate a game'], ['honesty', 'Does it work?'],
+        {([['run', 'Simulate a game'], ['field', 'Drive board'], ['honesty', 'Does it work?'],
           ['modules', 'Decision modules'], ['feed', 'Live play feed']] as [View, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setView(id)}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -113,6 +114,8 @@ export default function GameSimulator() {
           </button>
         ))}
       </div>
+
+      {view === 'field' && <FieldSim />}
 
       {view === 'run' && (
         <div className="space-y-4">

@@ -50,7 +50,7 @@ const pct2 = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`);
 
 export default function Edges() {
-  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement' | 'hold' | 'abstentions' | 'pipeline'>('live');
+  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement' | 'hold'>('live');
   const [price, setPrice] = useState(-110);
 
   const { data: teasers, loading: tLoading } = useApi<Teasers>(
@@ -59,9 +59,8 @@ export default function Edges() {
   const { data: live } = useApi<any>(tab === 'live' ? '/nfl-betting/live' : null);
   // Both of these were built, tested and left unreachable — routes with no page.
   const { data: hold } = useApi<any>(tab === 'hold' ? '/betting/hold' : null);
-  const { data: abst } = useApi<any>(tab === 'abstentions' ? '/betting/abstentions' : null);
-  const { data: pipe } = useApi<any>(tab === 'pipeline' ? '/betting/pipeline' : null);
-  const { data: lat } = useApi<any>(tab === 'pipeline' ? '/betting/latency' : null);
+  // Abstentions and pipeline health moved to Audit > Diagnostics — they are
+  // measurements of the system, not edges anyone can act on.
 
   return (
     <div>
@@ -76,7 +75,7 @@ export default function Edges() {
       </p>
 
       <div className="flex gap-1 border-b border-slate-200 mb-4">
-        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement'], ['hold', 'Book hold'], ['abstentions', 'Abstention audit'], ['pipeline', 'Data pipeline']] as const)
+        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement'], ['hold', 'Venue costs']] as const)
           .map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -358,165 +357,6 @@ export default function Edges() {
         )
       )}
 
-      {tab === 'abstentions' && (
-        !abst ? <div className="card p-6 text-sm text-slate-500">Grading the games the policy refused…</div>
-        : abst.error ? <div className="card p-6 text-sm text-rose-600">{abst.error}</div>
-        : (
-          <>
-            <div className="card p-4 mb-3">
-              <h2 className="font-semibold text-slate-900">Did declining actually help?</h2>
-              <p className="text-sm text-slate-600 mt-1">
-                Every abstention is a claim of skill — that the policy knew which games not to touch. This
-                grades the refused games anyway and compares them to the ones it took. If the two rates
-                are the same, the filter is costing opportunities and buying nothing.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(['taken', 'declined'] as const).map(k => abst[k] && (
-                <div key={k} className="card p-4">
-                  <div className="text-xs uppercase tracking-wide text-slate-400">{k}</div>
-                  <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
-                    {abst[k].win_rate == null ? '—' : (abst[k].win_rate * 100).toFixed(1) + '%'}
-                  </div>
-                  <div className="mt-0.5 text-xs text-slate-500">
-                    {abst[k].wins}-{abst[k].losses} · {abst[k].settled} settled
-                    {abst[k].win_rate_95 && ` · 95% CI ${(abst[k].win_rate_95[0] * 100).toFixed(1)}–${(abst[k].win_rate_95[1] * 100).toFixed(1)}%`}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {abst.selection_works && (
-              <div className="card p-4 mt-3">
-                <p className="text-sm text-slate-700">
-                  {abst.selection_works.verdict ?? (abst.selection_works.significant
-                    ? 'The games the policy took beat the ones it declined by more than chance.'
-                    : 'Taken and declined games are statistically indistinguishable — the filter is not buying selection skill.')}
-                </p>
-                {abst.selection_works.p_value != null && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    Two-proportion test p = {abst.selection_works.p_value.toFixed(3)} · break-even {(abst.break_even * 100).toFixed(2)}%
-                  </p>
-                )}
-              </div>
-            )}
-            {Array.isArray(abst.by_reason) && abst.by_reason.length > 0 && (
-              <div className="card p-4 mt-3 overflow-x-auto">
-                <h3 className="text-sm font-semibold text-slate-900">Why each game was declined</h3>
-                <table className="w-full text-sm mt-2">
-                  <thead className="text-xs uppercase tracking-wide text-slate-400">
-                    <tr><th className="py-1 text-left">Reason</th><th className="text-right">Settled</th>
-                      <th className="text-right">Record</th><th className="text-right">Win rate</th></tr>
-                  </thead>
-                  <tbody>
-                    {abst.by_reason.map((r: any) => (
-                      <tr key={r.reason} className="border-t border-slate-100">
-                        <td className="py-1.5 text-slate-700">{String(r.reason).replace(/_/g, ' ')}</td>
-                        <td className="text-right tabular-nums text-slate-500">{r.settled}</td>
-                        <td className="text-right tabular-nums text-slate-600">{r.wins}-{r.losses}</td>
-                        <td className="text-right tabular-nums text-slate-900">
-                          {r.win_rate == null ? '—' : (r.win_rate * 100).toFixed(1) + '%'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {abst.note && <p className="mt-2 text-xs text-slate-500">{abst.note}</p>}
-          </>
-        )
-      )}
-
-      {tab === 'pipeline' && (
-        <>
-          <div className="card p-4 mb-3">
-            <h2 className="font-semibold text-slate-900">Do we learn things before the market does?</h2>
-            <p className="text-sm text-slate-600 mt-1">
-              Five seasons say the closing line cannot be out-forecast with public data. What is not
-              settled is <em>latency</em>: a line ten minutes after a beat reporter tweets has not
-              absorbed that tweet. Edge there is not “we predict better”, it is “we knew at 14:02 and
-              the number did not move until 14:40”. This grades signals against subsequent movement,
-              which is observable in hours instead of seasons — and costs nothing, because it uses the
-              free ESPN reference line rather than the metered odds feed.
-            </p>
-          </div>
-
-          {lat && (
-            <div className={`card p-4 mb-3 ${lat.sufficient_evidence ? '' : 'border-amber-200 bg-amber-50/50'}`}>
-              <div className="grid gap-3 sm:grid-cols-4">
-                <Stat label="Signals examined" value={String(lat.signals_examined ?? '—')} />
-                <Stat label="Moves in log" value={String(lat.line_moves_in_log ?? '—')} />
-                <Stat label="Directional matches" value={String(lat.directional_signals ?? '—')} />
-                <Stat label="Agreement rate"
-                  value={lat.agreement_rate == null ? '—' : (lat.agreement_rate * 100).toFixed(0) + '%'} />
-              </div>
-              <p className="mt-3 text-sm text-slate-800">{lat.verdict}</p>
-              <p className="mt-2 text-xs text-slate-500">{lat.note}</p>
-            </div>
-          )}
-
-          {pipe && (
-            <>
-              <div className="card p-4 mb-3">
-                <h3 className="text-sm font-semibold text-slate-900">What is actually running</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Free feeds poll on a 90-second tick; metered ones on 30 minutes so credits are not
-                  burned; heavy compute stays off unless explicitly enabled.
-                  {' '}Scheduler {pipe.scheduler?.running ? 'running' : 'stopped'} ·
-                  {' '}live timer {pipe.scheduler?.live_timer_running ? 'on' : 'off'}.
-                </p>
-                <div className="mt-3 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="text-xs uppercase tracking-wide text-slate-400">
-                      <tr><th className="py-1 text-left">Job</th><th className="text-left">Tier</th>
-                        <th className="text-right">Runs</th><th className="text-right">Age</th>
-                        <th className="text-right">State</th></tr>
-                    </thead>
-                    <tbody>
-                      {(pipe.scheduler?.jobs ?? []).map((j: any) => (
-                        <tr key={j.job} className="border-t border-slate-100">
-                          <td className="py-1.5 text-slate-700">{j.job}</td>
-                          <td>
-                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
-                              j.tier === 'live' ? 'bg-emerald-50 text-emerald-700'
-                                : j.tier === 'metered' ? 'bg-amber-50 text-amber-700'
-                                : 'bg-slate-100 text-slate-500'}`}>{j.tier}</span>
-                          </td>
-                          <td className="text-right tabular-nums text-slate-600">{j.runs ?? 0}</td>
-                          <td className="text-right tabular-nums text-slate-500">
-                            {j.age_minutes == null ? 'never'
-                              : j.age_minutes < 60 ? `${j.age_minutes}m`
-                              : `${(j.age_minutes / 60).toFixed(1)}h`}</td>
-                          <td className={`text-right text-xs font-medium ${
-                            j.runs === 0 ? 'text-rose-700' : j.stale ? 'text-amber-700' : 'text-emerald-700'}`}>
-                            {j.runs === 0 ? 'never run' : j.stale ? 'stale' : 'fresh'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="card p-4">
-                <h3 className="text-sm font-semibold text-slate-900">What has actually landed</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Row counts matter more than run counts — a job that runs on time into a table nothing
-                  reads is a log, not a pipeline.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {Object.entries(pipe.row_counts ?? {}).map(([t, n]) => (
-                    <div key={t} className="rounded-lg bg-slate-50 px-3 py-2">
-                      <div className="text-xs text-slate-500">{t}</div>
-                      <div className="text-sm font-semibold tabular-nums text-slate-900">
-                        {n == null ? '—' : Number(n).toLocaleString()}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </>
-      )}
-
     </div>
   );
 }
@@ -611,14 +451,5 @@ function SgpCalculator() {
         </div>
       )}
     </>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
-      <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900">{value}</div>
-    </div>
   );
 }

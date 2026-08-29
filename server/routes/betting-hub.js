@@ -485,4 +485,31 @@ r.get('/live/status', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- decision basis */
+
+/** Compile every recorded decision: what the model leans on, and does it work. */
+r.get('/decisions', async (req, res, next) => {
+  try {
+    const { compileDecisionBases } = await import('../services/decision-basis.js');
+    res.json(compileDecisionBases({ minDecisions: Number(req.query.min) || 5 }));
+  } catch (e) { next(e); }
+});
+
+/** Individual decisions with their deterministic, token-free explanations. */
+r.get('/decisions/detail', async (req, res, next) => {
+  try {
+    const { decisionDetail } = await import('../services/decision-basis.js');
+    res.json(decisionDetail({ season: req.query.season ? Number(req.query.season) : null,
+      week: req.query.week ? Number(req.query.week) : null, home: req.query.home ?? null }));
+  } catch (e) { next(e); }
+});
+
+/** Record decision bases for a season. */
+r.post('/decisions/record', async (req, res, next) => {
+  try {
+    const { recordSeasonBases } = await import('../services/decision-basis.js');
+    res.json(await recordSeasonBases({ season: Number(req.query.season) || 2025 }));
+  } catch (e) { next(e); }
+});
+
 export default r;

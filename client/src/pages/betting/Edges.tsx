@@ -50,7 +50,7 @@ const pct2 = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`);
 
 export default function Edges() {
-  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement' | 'hold' | 'abstentions'>('live');
+  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement' | 'hold' | 'abstentions' | 'pipeline'>('live');
   const [price, setPrice] = useState(-110);
 
   const { data: teasers, loading: tLoading } = useApi<Teasers>(
@@ -60,6 +60,8 @@ export default function Edges() {
   // Both of these were built, tested and left unreachable — routes with no page.
   const { data: hold } = useApi<any>(tab === 'hold' ? '/betting/hold' : null);
   const { data: abst } = useApi<any>(tab === 'abstentions' ? '/betting/abstentions' : null);
+  const { data: pipe } = useApi<any>(tab === 'pipeline' ? '/betting/pipeline' : null);
+  const { data: lat } = useApi<any>(tab === 'pipeline' ? '/betting/latency' : null);
 
   return (
     <div>
@@ -74,7 +76,7 @@ export default function Edges() {
       </p>
 
       <div className="flex gap-1 border-b border-slate-200 mb-4">
-        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement'], ['hold', 'Book hold'], ['abstentions', 'Abstention audit']] as const)
+        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement'], ['hold', 'Book hold'], ['abstentions', 'Abstention audit'], ['pipeline', 'Data pipeline']] as const)
           .map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -424,6 +426,97 @@ export default function Edges() {
         )
       )}
 
+      {tab === 'pipeline' && (
+        <>
+          <div className="card p-4 mb-3">
+            <h2 className="font-semibold text-slate-900">Do we learn things before the market does?</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              Five seasons say the closing line cannot be out-forecast with public data. What is not
+              settled is <em>latency</em>: a line ten minutes after a beat reporter tweets has not
+              absorbed that tweet. Edge there is not “we predict better”, it is “we knew at 14:02 and
+              the number did not move until 14:40”. This grades signals against subsequent movement,
+              which is observable in hours instead of seasons — and costs nothing, because it uses the
+              free ESPN reference line rather than the metered odds feed.
+            </p>
+          </div>
+
+          {lat && (
+            <div className={`card p-4 mb-3 ${lat.sufficient_evidence ? '' : 'border-amber-200 bg-amber-50/50'}`}>
+              <div className="grid gap-3 sm:grid-cols-4">
+                <Stat label="Signals examined" value={String(lat.signals_examined ?? '—')} />
+                <Stat label="Moves in log" value={String(lat.line_moves_in_log ?? '—')} />
+                <Stat label="Directional matches" value={String(lat.directional_signals ?? '—')} />
+                <Stat label="Agreement rate"
+                  value={lat.agreement_rate == null ? '—' : (lat.agreement_rate * 100).toFixed(0) + '%'} />
+              </div>
+              <p className="mt-3 text-sm text-slate-800">{lat.verdict}</p>
+              <p className="mt-2 text-xs text-slate-500">{lat.note}</p>
+            </div>
+          )}
+
+          {pipe && (
+            <>
+              <div className="card p-4 mb-3">
+                <h3 className="text-sm font-semibold text-slate-900">What is actually running</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Free feeds poll on a 90-second tick; metered ones on 30 minutes so credits are not
+                  burned; heavy compute stays off unless explicitly enabled.
+                  {' '}Scheduler {pipe.scheduler?.running ? 'running' : 'stopped'} ·
+                  {' '}live timer {pipe.scheduler?.live_timer_running ? 'on' : 'off'}.
+                </p>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-400">
+                      <tr><th className="py-1 text-left">Job</th><th className="text-left">Tier</th>
+                        <th className="text-right">Runs</th><th className="text-right">Age</th>
+                        <th className="text-right">State</th></tr>
+                    </thead>
+                    <tbody>
+                      {(pipe.scheduler?.jobs ?? []).map((j: any) => (
+                        <tr key={j.job} className="border-t border-slate-100">
+                          <td className="py-1.5 text-slate-700">{j.job}</td>
+                          <td>
+                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
+                              j.tier === 'live' ? 'bg-emerald-50 text-emerald-700'
+                                : j.tier === 'metered' ? 'bg-amber-50 text-amber-700'
+                                : 'bg-slate-100 text-slate-500'}`}>{j.tier}</span>
+                          </td>
+                          <td className="text-right tabular-nums text-slate-600">{j.runs ?? 0}</td>
+                          <td className="text-right tabular-nums text-slate-500">
+                            {j.age_minutes == null ? 'never'
+                              : j.age_minutes < 60 ? `${j.age_minutes}m`
+                              : `${(j.age_minutes / 60).toFixed(1)}h`}</td>
+                          <td className={`text-right text-xs font-medium ${
+                            j.runs === 0 ? 'text-rose-700' : j.stale ? 'text-amber-700' : 'text-emerald-700'}`}>
+                            {j.runs === 0 ? 'never run' : j.stale ? 'stale' : 'fresh'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="card p-4">
+                <h3 className="text-sm font-semibold text-slate-900">What has actually landed</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Row counts matter more than run counts — a job that runs on time into a table nothing
+                  reads is a log, not a pipeline.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {Object.entries(pipe.row_counts ?? {}).map(([t, n]) => (
+                    <div key={t} className="rounded-lg bg-slate-50 px-3 py-2">
+                      <div className="text-xs text-slate-500">{t}</div>
+                      <div className="text-sm font-semibold tabular-nums text-slate-900">
+                        {n == null ? '—' : Number(n).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
     </div>
   );
 }
@@ -518,5 +611,14 @@ function SgpCalculator() {
         </div>
       )}
     </>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900">{value}</div>
+    </div>
   );
 }

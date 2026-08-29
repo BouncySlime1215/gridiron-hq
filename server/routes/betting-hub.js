@@ -277,4 +277,28 @@ r.post('/sgp/fit', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(fitPropCorrelations()); } catch (e) { next(e); }
 });
 
+/**
+ * Do our signals lead the market, or follow it?
+ *
+ * The one question modelling cannot answer and latency can. Free — measured
+ * against the ESPN reference line, not the metered odds feed.
+ */
+r.get('/latency', async (req, res, next) => {
+  try {
+    const { signalLeadTimes } = await import('../services/signal-latency.js');
+    res.json(signalLeadTimes({
+      windowHours: Math.min(168, Number(req.query.window_hours) || 48),
+      sinceDays: Math.min(365, Number(req.query.since_days) || 60) }));
+  } catch (e) { next(e); }
+});
+
+/** Which feeds are actually running, and does anything downstream read them. */
+r.get('/pipeline', async (req, res, next) => {
+  try {
+    const { pipelineHealth } = await import('../services/signal-latency.js');
+    const { schedulerStatus } = await import('../services/scheduler.js');
+    res.json({ ...pipelineHealth(), scheduler: schedulerStatus() });
+  } catch (e) { next(e); }
+});
+
 export default r;

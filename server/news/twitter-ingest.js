@@ -46,8 +46,15 @@ import { watchTweetForLineMove } from '../services/nfl-tweet-line-correlation.js
  * guess would have paid to make.
  */
 export const NATIONAL_INSIDER_HANDLES = Object.freeze([
+  // Verified live against the profile API, not recalled from memory. Four other
+  // candidates in the same pass did not exist and four more resolved to
+  // accounts with under 200 followers squatting on a reporter's name.
   'AdamSchefter', 'RapSheet', 'TomPelissero', 'MikeGarafolo', 'JayGlazer',
-  'FieldYates', 'JosinaAnderson', 'caplannfl'
+  'FieldYates', 'JosinaAnderson', 'caplannfl',
+  'AlbertBreer',        // 740k
+  'NFL_DovKleiman',     // 405k
+  'Rotoworld_FB',       // 349k — aggregator, fast on inactives
+  'FantasyPtsData'      // 47k  — snap and route data, useful for role changes
 ]);
 
 /**
@@ -90,13 +97,13 @@ export const BEAT_REPORTER_HANDLES = Object.freeze({
   BAL: ['jamisonhensley', 'jeffzrebiec'], BUF: ['SalMaiorana', 'SalSports'],
   CAR: ['JosephPerson', 'DarinGantt'], CHI: ['BradBiggs', 'kfishbain'],
   CIN: ['PaulDehnerJr', 'KelseyLConway'], CLE: ['MaryKayCabot', 'AkronJackson'],
-  DAL: ['ClarenceHillJr'],   // Kyle_Youmans dropped — verified as a Ravens broadcaster, not Cowboys
+  DAL: ['ClarenceHillJr', 'toddarcher', 'calvinwatkins'],   // Kyle_Youmans dropped — verified as a Ravens broadcaster, not Cowboys
   DEN: ['mikeklis', 'TroyRenck'], DET: ['colton_pouncy', 'ttwentyman'],
-  GB: ['AndyHermanNFL', 'mattschneidman'], HOU: ['AaronWilson_NFL'],   // JohnHCrumpler dropped — does not exist
+  GB: ['AndyHermanNFL', 'mattschneidman'], HOU: ['AaronWilson_NFL', 'DannyVietti'],   // JohnHCrumpler dropped — does not exist
   IND: ['mchappell51', 'GMbremer'],   // GMbremer: exists, bio unconfirmed as Colts-specific
   JAX: ['Demetrius82', '_John_Shipley'], KC: ['mattderrick', 'ByNateTaylor'],
   LAC: ['danielrpopper', 'krisrhim1'], LAR: ['JourdanRodrigue'],
-  LV: ['VicTafur'],   // PGutierrezESPN dropped — does not exist
+  LV: ['VicTafur', 'TashanReed'],   // PGutierrezESPN dropped — does not exist
   MIA: ['DavidFurones_', 'schadjoe'], MIN: ['alec_lewis', 'BenGoessling'],
   NE: ['MikeReiss', 'ezlazar'], NO: ['nick_underhill', 'MikeTriplett'],
   NYG: ['JordanRaanan', 'NYPost_Schwartz'], NYJ: ['BrianCoz', 'RichCimini'],

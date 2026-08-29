@@ -3,6 +3,7 @@
  * pick reasoning, role tracking and the combined hub summary.
  */
 import { Router } from 'express';
+import { cached, fingerprint } from '../services/compute-cache.js';
 import { requireModelPermission } from '../modeling/authz.js';
 import { catalog, countVariables, teamFeatureVector, playerFeatureVector, bettingTrends } from '../services/nfl-features.js';
 import {
@@ -269,10 +270,14 @@ r.get('/board/explained', (req, res, next) => {
     const board = boardFor(ssn(req), wk(req));
     if (board?.error) return res.status(409).json(board);
     const filtered = req.query.market ? board.filter(b => b.market === req.query.market) : board;
-    res.json({
-      season: ssn(req), week: wk(req),
-      board: explainBoard(ssn(req), wk(req), filtered.slice(0, Number(req.query.limit) || 20))
-    });
+    const limit = Number(req.query.limit) || 20;
+    // 29 seconds cold: the reasoning pass re-walks the ensemble per game. Same
+    // data in, same explanation out, so it is cached on the data rather than
+    // regenerated for every page view.
+    res.json(cached(`board_explained:${ssn(req)}:${wk(req)}:${req.query.market ?? 'all'}:${limit}`,
+      fingerprint([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_team_week_features']),
+      () => ({ season: ssn(req), week: wk(req),
+        board: explainBoard(ssn(req), wk(req), filtered.slice(0, limit)) })));
   } catch (e) { next(e); }
 });
 
@@ -1147,6 +1152,50 @@ r.get('/gbm', async (req, res, next) => {
       trees: Math.min(200, Number(req.query.trees) || 60),
       maxDepth: Math.min(6, Number(req.query.depth) || 3),
       learningRate: Number(req.query.lr) || 0.05 }));
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------- availability and sources */
+
+/** Who plays for one team this week, from every source, with conflicts shown. */
+r.get('/who-plays/:team', async (req, res, next) => {
+  try {
+    const { whoPlays } = await import('../services/who-plays.js');
+    res.json(whoPlays(Number(req.query.season) || 2025, Number(req.query.week) || 1,
+      req.params.team));
+  } catch (e) { next(e); }
+});
+
+/** The whole slate, ranked by expected snaps lost rather than headcount. */
+r.get('/who-plays', async (req, res, next) => {
+  try {
+    const m = await import('../services/who-plays.js');
+    res.json({ ...m.slateAvailability(Number(req.query.season) || 2025, Number(req.query.week) || 1),
+      sources: m.availabilitySources() });
+  } catch (e) { next(e); }
+});
+
+/** Verify every configured news handle against the live API. Costs budget. */
+r.post('/news/sources/validate', async (req, res, next) => {
+  try {
+    const { validateAllSources } = await import('../services/source-validation.js');
+    res.json(await validateAllSources({ limit: Math.min(200, Number(req.query.limit) || 200) }));
+  } catch (e) { next(e); }
+});
+
+/** Which sources are trustworthy, without spending anything. */
+r.get('/news/sources', async (req, res, next) => {
+  try {
+    const m = await import('../services/source-validation.js');
+    res.json({ ...m.sourceStatus(), trusted: m.trustedHandles({}) });
+  } catch (e) { next(e); }
+});
+
+/** How much the compute cache is saving. */
+r.get('/system/cache', async (req, res, next) => {
+  try {
+    const { cacheStatus } = await import('../services/compute-cache.js');
+    res.json(cacheStatus());
   } catch (e) { next(e); }
 });
 

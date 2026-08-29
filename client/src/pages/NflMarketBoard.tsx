@@ -235,7 +235,12 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         title="Edge Desk"
         description="Structural edges first, because those are the ones that work. The forecasting model sits under Board and is research — it has never beaten a closing line, and it is not allowed to size a bet until it does."
         status={<StatusPill tone={hub?.model.sizing_allowed ? 'good' : 'warn'}>
-          {hub ? (hub.model.sizing_allowed ? 'Model cleared to size' : 'Model sizing blocked') : 'Checking…'}
+          {/* "Blocked" on its own says nothing. The badge now names the reason,
+              because a status a person cannot act on is just decoration. */}
+          {!hub ? 'Checking…'
+            : hub.model.sizing_allowed
+              ? 'Model may size bets'
+              : 'Model can\'t size bets — no proven edge'}
         </StatusPill>}
         actions={tool === 'board' && decisionView === 'games' ? <>
           <label className="flex items-center gap-2 text-sm text-slate-600">

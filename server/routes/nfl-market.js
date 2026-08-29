@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { cached, fingerprint } from '../services/compute-cache.js';
 import { boardFor, accuracy, predictGame, clearNflMarketCache } from '../services/nfl-market.js';
 import { syncCurrentLines } from '../services/gamescript.js';
 import { autoPickDecisionBoard, persistPickDecisions, ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
@@ -29,7 +30,14 @@ r.get('/board', (req, res, next) => {
 });
 
 r.get('/accuracy', (req, res, next) => {
-  try { res.json(accuracy()); } catch (e) { next(e); }
+  try {
+    // 26 seconds cold: a nested rolling holdout across five seasons, recomputed
+    // on every hub load. It is a pure function of the games and features it
+    // reads, so it only has to run again when those change.
+    res.json(cached('nfl_market_accuracy',
+      fingerprint([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_team_week_features']),
+      () => accuracy()));
+  } catch (e) { next(e); }
 });
 
 r.get('/operations', (_req, res, next) => {

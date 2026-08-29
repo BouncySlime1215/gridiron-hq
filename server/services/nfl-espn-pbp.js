@@ -28,6 +28,7 @@
  */
 import { rows, row, run } from '../db/index.js';
 import { withRandomSeed } from './stats-util.js';
+import { liveWinProbability } from './nfl-live.js';
 
 const SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=';
 const SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
@@ -509,4 +510,101 @@ export function pbpStatus() {
   return { plays: total, games, last_fetched: last, by_season: bySeason, by_type: byType,
     source: 'ESPN public summary endpoint — free, keyless, unmetered.',
     ready_for_audit: total >= 200 };
+}
+
+/**
+ * Does the live win-probability model actually work?
+ *
+ * The in-game simulator has never been validated. It was built, wired to a
+ * route, and trusted — which is the exact pattern that produced twenty-two
+ * failed forecasting models here, and it is worse for a live model because
+ * in-game prices move fast enough to lose money quickly.
+ *
+ * The play corpus makes a real test possible without waiting for a live game.
+ * Every completed game in it is a sequence of states with a known outcome, so
+ * the model can be asked "who wins from here?" at hundreds of points across
+ * hundreds of games and graded against what actually happened.
+ *
+ * The right grading is CALIBRATION, not accuracy. A live model that says 90% at
+ * some state should be right about 90% of the time — not more, not less. Being
+ * right 97% of the time when you claimed 90% is not a better model, it is a
+ * model that will size bets wrongly in the other direction. Buckets are
+ * reported so over- and under-confidence are visible separately, along with a
+ * Brier score and the base-rate baseline it has to beat.
+ */
+export function liveModelValidation({ season = null, maxGames = 120, sampleEvery = 12 } = {}) {
+  const where = season ? `WHERE season = ${Number(season)}` : '';
+  const events = rows(`SELECT DISTINCT event_id FROM nfl_play_by_play ${where} LIMIT ?`, maxGames)
+    .map(r => r.event_id);
+  if (!events.length) return { error: 'no play-by-play stored', hint: 'run the backfill first' };
+
+  const samples = [];
+  for (const eventId of events) {
+    const plays = rows(
+      `SELECT period, clock_seconds, home_score, away_score, offense, defense
+       FROM nfl_play_by_play
+       WHERE event_id = ? AND clock_seconds IS NOT NULL
+         AND home_score IS NOT NULL AND away_score IS NOT NULL
+       ORDER BY sequence`, eventId);
+    if (plays.length < 40) continue;
+
+    // The final score is the last play's, which is the outcome every earlier
+    // state is graded against.
+    const last = plays[plays.length - 1];
+    const homeWon = last.home_score > last.away_score ? 1 : last.home_score < last.away_score ? 0 : null;
+    if (homeWon == null) continue;   // ties carry no signal for a binary model
+
+    for (let i = 0; i < plays.length; i += sampleEvery) {
+      const p = plays[i];
+      const lead = p.home_score - p.away_score;
+      const left = p.clock_seconds;
+      if (!Number.isFinite(left) || left <= 0) continue;
+      samples.push({ lead, seconds_left: left, home_won: homeWon,
+        predicted: liveWinProbability(lead, left, null) });
+    }
+  }
+  if (samples.length < 100) return { error: `only ${samples.length} usable states` };
+
+  // Calibration buckets: what we claimed against what happened.
+  const buckets = Array.from({ length: 10 }, (_, i) => {
+    const lo = i / 10, hi = (i + 1) / 10;
+    const list = samples.filter(s => s.predicted >= lo && s.predicted < (i === 9 ? 1.01 : hi));
+    const claimed = list.length ? mean(list.map(s => s.predicted)) : null;
+    const actual = list.length ? mean(list.map(s => s.home_won)) : null;
+    return { range: `${(lo * 100).toFixed(0)}-${(hi * 100).toFixed(0)}%`, n: list.length,
+      claimed: r4(claimed), actual: r4(actual),
+      gap: claimed == null || actual == null ? null : r4(actual - claimed) };
+  });
+
+  const brier = mean(samples.map(s => (s.predicted - s.home_won) ** 2));
+  const baseRate = mean(samples.map(s => s.home_won));
+  // The score a model gets by ignoring the game state entirely and always
+  // predicting the base rate. Beating it is the minimum bar.
+  const baselineBrier = mean(samples.map(s => (baseRate - s.home_won) ** 2));
+  const ece = mean(buckets.filter(b => b.n).map(b => Math.abs(b.gap ?? 0) * b.n)) / (samples.length / 10);
+  const weightedEce = buckets.filter(b => b.n)
+    .reduce((acc, b) => acc + b.n * Math.abs(b.gap ?? 0), 0) / samples.length;
+
+  return {
+    season: season ?? 'all stored', games_used: events.length, states_graded: samples.length,
+    brier_score: r4(brier),
+    baseline_brier_always_base_rate: r4(baselineBrier),
+    beats_baseline: brier < baselineBrier,
+    skill_score: r4(1 - brier / baselineBrier),
+    base_rate_home_wins: r4(baseRate),
+    expected_calibration_error: r4(weightedEce),
+    calibration: buckets,
+    well_calibrated: weightedEce < 0.05,
+    verdict: brier >= baselineBrier
+      ? 'The live model is no better than ignoring the game entirely and always predicting the base ' +
+        'rate. It should not be used.'
+      : weightedEce < 0.05
+        ? `Calibrated and skilful: Brier ${r4(brier)} against a ${r4(baselineBrier)} baseline, ` +
+          `calibration error ${r4(weightedEce)}. Stated probabilities match observed frequencies.`
+        : `Skilful but miscalibrated: it beats the baseline, but stated probabilities are off by ` +
+          `${r4(weightedEce)} on average. Usable for ranking states, not for sizing bets.`,
+    note: 'Graded on calibration rather than accuracy. A model claiming 90% should be right 90% of ' +
+      'the time — being right 97% is not better, it is wrong in the other direction and will size ' +
+      'bets incorrectly. States are sampled from real completed games, so the outcome is known.'
+  };
 }

@@ -56,6 +56,27 @@ const ALIAS = { LA: 'LAR', SD: 'LAC', OAK: 'LV', STL: 'LAR', WSH: 'WAS', WFT: 'W
 const norm = t => ALIAS[t] ?? t;
 
 /**
+ * Team codes, resolved for the season being written.
+ *
+ * This database stores era-correct abbreviations — 2013 has OAK, SD and STL;
+ * 2020 has LV, LAC and LAR — while the nflverse line files use modern codes
+ * throughout. Normalising to today's names silently dropped every relocated
+ * franchise's game before its move, which was 214 of 2,043 rows on the first
+ * run and would have quietly biased coverage toward three fewer teams.
+ */
+const RELOCATIONS = [
+  { modern: 'LV', legacy: 'OAK', movedIn: 2020 },
+  { modern: 'LAR', legacy: 'STL', movedIn: 2016 },
+  { modern: 'LAC', legacy: 'SD', movedIn: 2017 }
+];
+function normForSeason(team, season) {
+  const t = norm(team);
+  if (!Number.isFinite(season)) return t;
+  const rel = RELOCATIONS.find(r => r.modern === t);
+  return rel && season < rel.movedIn ? rel.legacy : t;
+}
+
+/**
  * Download and store opening lines.
  *
  * Writes into the `open_spread` / `open_total` columns that have been sitting
@@ -237,5 +258,90 @@ export function openingLineCoverage() {
       ? 'Opening lines are the benchmark a bet is actually placed into. The closing line is the ' +
         'benchmark for forecasting skill, and this project has only ever had the latter.'
       : 'No opening lines stored. Run ingestOpeningLines().'
+  };
+}
+
+const SC_LINES_URL = 'https://github.com/nflverse/nfldata/raw/master/data/sc_lines.csv';
+
+/**
+ * A second, much larger source of early lines.
+ *
+ * `initial_lines.csv` covers one book and one season — 272 games. `sc_lines.csv`
+ * carries 2013 through 2021, roughly 2,040 games, which is the difference
+ * between a CLV test that can only say "not obviously wrong" and one that can
+ * actually resolve a small edge.
+ *
+ * HONEST ABOUT WHAT THESE ARE. They are Westgate SuperContest lines, posted
+ * early in the week rather than the true first number a book hangs. So they are
+ * an EARLY line, not strictly an opening one, and the gap to the close will be
+ * narrower than a genuine opener's. That makes any CLV measured against them
+ * conservative rather than flattering, which is the right direction for a
+ * benchmark to err.
+ *
+ * The sign convention matches this database exactly, verified against a known
+ * game: 2013 week 1 has DEN at -7.5 as the home side, and the stored closing
+ * spread for that row is also -7.5.
+ */
+export async function ingestSuperContestLines({ url = SC_LINES_URL } = {}) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(120000) });
+  if (!res.ok) return { error: `nflverse returned ${res.status} for sc_lines.csv` };
+  const text = await res.text();
+  const lines = text.trim().split('\n');
+  const header = lines[0].split(',').map(h => h.trim());
+  const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+  for (const need of ['season', 'week', 'away_team', 'home_team', 'side', 'line']) {
+    if (idx[need] == null) return { error: `sc_lines.csv is missing column "${need}"` };
+  }
+
+  // Keep only the home side's number; the away row is its mirror and carries no
+  // extra information.
+  const byGame = new Map();
+  for (const raw of lines.slice(1)) {
+    const p = raw.split(',');
+    const season = Number(p[idx.season]), week = Number(p[idx.week]);
+    const away = normForSeason(p[idx.away_team], season);
+    const home = normForSeason(p[idx.home_team], season);
+    const side = normForSeason(p[idx.side], season), line = Number(p[idx.line]);
+    if (!Number.isFinite(season) || !Number.isFinite(week) || !Number.isFinite(line)) continue;
+    if (side !== home) continue;
+    const key = `${season}|${week}|${away}|${home}`;
+    // A handful of games appear twice; first observation wins rather than last,
+    // so a re-run is stable.
+    if (!byGame.has(key)) byGame.set(key, { season, week, away, home, open_spread: line });
+  }
+
+  let matched = 0, unmatched = 0, skippedExisting = 0, updated = 0;
+  const misses = [];
+  for (const g of byGame.values()) {
+    const existing = row(
+      `SELECT open_spread FROM game_lines
+       WHERE season = ? AND week = ? AND team = ? AND opponent = ? AND home = 1`,
+      g.season, g.week, g.home, g.away);
+    if (!existing) {
+      unmatched++;
+      if (misses.length < 8) misses.push(`${g.season} wk${g.week} ${g.away}@${g.home}`);
+      continue;
+    }
+    matched++;
+    // Never overwrite a true opening line with an early-week one.
+    if (existing.open_spread != null) { skippedExisting++; continue; }
+    run(`UPDATE game_lines SET open_spread = ?
+         WHERE season = ? AND week = ? AND team = ? AND opponent = ? AND home = 1`,
+    g.open_spread, g.season, g.week, g.home, g.away);
+    run(`UPDATE game_lines SET open_spread = ?
+         WHERE season = ? AND week = ? AND team = ? AND opponent = ? AND home = 0`,
+    -g.open_spread, g.season, g.week, g.away, g.home);
+    updated += 2;
+  }
+
+  return {
+    source: 'nflverse sc_lines.csv (Westgate SuperContest early lines)',
+    games_in_file: byGame.size, matched, unmatched,
+    skipped_already_had_opener: skippedExisting, rows_updated: updated,
+    unmatched_examples: misses,
+    coverage_now: row(`SELECT COUNT(*) AS n FROM game_lines
+                       WHERE home = 1 AND open_spread IS NOT NULL`)?.n ?? 0,
+    note: 'Early-week lines rather than true openers, so the move to close is narrower than a real ' +
+      'opener would show. That makes any CLV measured against them conservative.'
   };
 }

@@ -1044,4 +1044,22 @@ r.get('/research/:topic', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/** Does the live win-probability model work? Graded on completed games. */
+r.get('/pbp/live-validation', async (req, res, next) => {
+  try {
+    const { liveModelValidation } = await import('../services/nfl-espn-pbp.js');
+    res.json(liveModelValidation({
+      season: req.query.season ? Number(req.query.season) : null,
+      maxGames: Math.min(400, Number(req.query.games) || 150) }));
+  } catch (e) { next(e); }
+});
+
+/** Backfill early-week lines for 2013-2021 from nflverse. */
+r.post('/lines/opening/supercontest', async (req, res, next) => {
+  try {
+    const { ingestSuperContestLines } = await import('../services/nfl-opening-lines.js');
+    res.json(await ingestSuperContestLines({}));
+  } catch (e) { next(e); }
+});
+
 export default r;

@@ -301,4 +301,78 @@ r.get('/pipeline', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- execution and auditing */
+
+/**
+ * Route a decided bet to the book that pays most for it.
+ *
+ * The only surface here built on a measured positive: book hold spans 3.09% to
+ * 5.54%, worth 1.22 points off the win rate you need, and it requires being
+ * right about nothing.
+ */
+r.get('/execution/route', async (req, res, next) => {
+  try {
+    const { routeBet } = await import('../services/nfl-execution.js');
+    res.json(routeBet({ eventId: req.query.event_id ?? null, matchup: req.query.matchup ?? null,
+      market: req.query.market ?? 'spreads', side: req.query.side,
+      stakeUnits: Number(req.query.units) || 1 }));
+  } catch (e) { next(e); }
+});
+
+/** Route the whole slate and report what the routing is worth in aggregate. */
+r.get('/execution/slate', async (req, res, next) => {
+  try {
+    const { routeSlate } = await import('../services/nfl-execution.js');
+    res.json(routeSlate({ market: req.query.market ?? 'spreads',
+      limit: Math.min(80, Number(req.query.limit) || 40) }));
+  } catch (e) { next(e); }
+});
+
+/** Record a routing decision so the shopping claim stays checkable. */
+r.post('/execution/log', async (req, res, next) => {
+  try {
+    const { routeBet, logExecution } = await import('../services/nfl-execution.js');
+    const route = routeBet({ eventId: req.query.event_id ?? null, matchup: req.query.matchup ?? null,
+      market: req.query.market ?? 'spreads', side: req.query.side,
+      stakeUnits: Number(req.query.units) || 1 });
+    if (route.error) return res.json(route);
+    res.json({ ...logExecution(route, { note: req.query.note ?? null }), route });
+  } catch (e) { next(e); }
+});
+
+/** Cumulative realised savings from routing. */
+r.get('/execution/ledger', async (req, res, next) => {
+  try {
+    const { executionLedger } = await import('../services/nfl-execution.js');
+    res.json(executionLedger({ limit: Math.min(500, Number(req.query.limit) || 100) }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The audit registry: preregistered, sealed-on-first-run, and counted against a
+ * multiple-comparisons correction so repeated testing cannot quietly manufacture
+ * a discovery.
+ */
+r.get('/audits', async (req, res, next) => {
+  try {
+    const { auditHistory } = await import('../services/audit-registry.js');
+    res.json(auditHistory({ alpha: Number(req.query.alpha) || 0.05 }));
+  } catch (e) { next(e); }
+});
+
+r.get('/audits/:id', async (req, res, next) => {
+  try {
+    const { auditDetail } = await import('../services/audit-registry.js');
+    res.json(auditDetail(Number(req.params.id)));
+  } catch (e) { next(e); }
+});
+
+/** Is every built module actually wired into the running application? */
+r.get('/system/connectivity', async (req, res, next) => {
+  try {
+    const { connectivityAudit } = await import('../services/system-connectivity.js');
+    res.json(connectivityAudit({ expectedOrphans: [] }));
+  } catch (e) { next(e); }
+});
+
 export default r;

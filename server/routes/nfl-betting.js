@@ -951,4 +951,83 @@ r.get('/availability', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- research modules, wired */
+
+/**
+ * Eleven analytics modules — roughly 2,500 lines — were built, tested and left
+ * unreachable: nothing imported them and no route could trigger them. That is
+ * this project's most expensive recurring failure, and it is invisible in
+ * normal use because unused code does not error, it just sits there.
+ *
+ * These expose them. Several are validators that report whether an adjustment
+ * is worth making at all, which is exactly the sort of thing that should be
+ * runnable rather than assumed.
+ */
+r.get('/research/:topic', async (req, res, next) => {
+  try {
+    const topic = String(req.params.topic);
+    // Several of these read the play-by-play feature table, which lags the
+    // current season — defaulting to SEASON (2026) asks for data that does not
+    // exist yet and fails at the SQL layer rather than saying so.
+    const { rows: dbRows } = await import('../db/index.js');
+    const latestFeatureSeason = dbRows(
+      `SELECT MAX(season) AS s FROM nfl_team_week_features`)[0]?.s ?? SEASON;
+    const season = Number(req.query.season) || latestFeatureSeason;
+    switch (topic) {
+      case 'coaches': {
+        const m = await import('../services/nfl-coaches.js');
+        return res.json({ changes: m.coachChanges(season), status: m.coachHistoryStatus() });
+      }
+      case 'opponent': {
+        const m = await import('../services/nfl-opponent.js');
+        return res.json(m.validateOpponentEfficiency({}));
+      }
+      case 'rookies': {
+        const m = await import('../services/nfl-rookies.js');
+        return res.json(m.measureRookiePriors());
+      }
+      case 'scheme': {
+        const m = await import('../services/nfl-scheme.js');
+        return res.json({ archetypes: Object.fromEntries(m.schemeArchetypes(season)),
+          changes: Object.fromEntries(m.allSchemeChanges(season)),
+          validation: m.validateSchemeAdjustment({}) });
+      }
+      case 'competition': {
+        const m = await import('../services/nfl-teammate-competition.js');
+        return res.json(m.validateCompetitionAdjustment({}));
+      }
+      case 'offseason': {
+        const m = await import('../services/nfl-offseason-change.js');
+        return res.json({ changes: m.offseasonChanges(season),
+          validation: m.validateTeamChangeAdjustment({}) });
+      }
+      case 'passing': {
+        const m = await import('../services/nfl-passing-diagnostic.js');
+        return res.json(m.passingComponentDiagnostic());
+      }
+      case 'prop-grades': {
+        const m = await import('../services/nfl-prop-grading.js');
+        return res.json(m.allPropGrades([season - 2, season - 1, season]));
+      }
+      case 'prop-replay': {
+        const m = await import('../services/nfl-props-replay.js');
+        return res.json(m.replayPropsBySeason());
+      }
+      case 'specialists': {
+        const m = await import('../services/nfl-specialists.js');
+        return res.json(m.evaluate({}));
+      }
+      case 'context-heads': {
+        // This one audits a single named metric rather than the whole family.
+        const m = await import('../services/nfl-context-heads.js');
+        return res.json(m.auditContextHeads(String(req.query.metric ?? 'rec_yds'), {}));
+      }
+      default:
+        return res.status(404).json({ error: `unknown research topic "${topic}"`,
+          available: ['coaches', 'opponent', 'rookies', 'scheme', 'competition', 'offseason',
+            'passing', 'prop-grades', 'prop-replay', 'specialists', 'context-heads'] });
+    }
+  } catch (e) { next(e); }
+});
+
 export default r;

@@ -17,14 +17,27 @@ import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
+import { weekPostmortem } from '../services/week-postmortem.js';
 
 const r = Router();
+
+/**
+ * `?ids=1,2,3` -> a numeric array, empty when the param is absent.
+ *
+ * The obvious version — `String(x ?? '').split(',').map(Number).filter(Number.isFinite)`
+ * — is wrong, because ''.split(',') is [''] and Number('') is 0, not NaN. An
+ * absent parameter therefore parsed as the id list [0], which silently became
+ * "player 0 was started" in the post-mortem (attributing a 0-point lineup) and
+ * "one pick has been made" in the draft simulator (shifting every pick by one).
+ */
+const idList = raw => String(raw ?? '').split(',')
+  .map(s => s.trim()).filter(Boolean).map(Number).filter(Number.isFinite);
 
 /** `?exclude=id1,id2` -> a Set of numeric player ids, or null when empty. */
 function excludeSet(req) {
   const raw = String(req.query.exclude ?? '').trim();
   if (!raw) return null;
-  const ids = raw.split(',').map(Number).filter(Number.isFinite);
+  const ids = idList(raw);
   return ids.length ? new Set(ids) : null;
 }
 
@@ -91,6 +104,23 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
       teamId: req.query.team_id,
       shortlist: Math.min(12, Math.max(3, Number(req.query.shortlist) || 6)),
       runs: Math.min(2000, Number(req.query.runs) || 800)
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Was I wrong, or unlucky? Separates decision cost from projection error from
+ * variance for a completed week.
+ */
+r.get('/:leagueId/postmortem', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const lineup = idList(req.query.lineup);
+    res.json(weekPostmortem(lg.id, {
+      teamId: req.query.team_id,
+      season: Number(req.query.season) || undefined,
+      week: Math.min(18, Math.max(1, Number(req.query.week) || 1)),
+      lineup: lineup.length ? lineup : null
     }));
   } catch (e) { next(e); }
 });

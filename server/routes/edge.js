@@ -67,7 +67,11 @@ export function vorBoard(teams = 12) {
  */
 r.get('/draft-survival', (req, res, next) => {
   try {
-    const taken = String(req.query.taken ?? '').split(',').map(Number).filter(Number.isFinite);
+    // Not `.split(',').map(Number)` — ''.split(',') is [''] and Number('') is 0,
+    // so an absent parameter would parse as "player 0 is taken" and shift every
+    // pick in the simulated draft by one.
+    const taken = String(req.query.taken ?? '').split(',')
+      .map(x => x.trim()).filter(Boolean).map(Number).filter(Number.isFinite);
     res.json(draftSurvival({
       seat: Math.max(1, Number(req.query.seat) || 1),
       teams: Math.min(16, Math.max(4, Number(req.query.teams) || 10)),

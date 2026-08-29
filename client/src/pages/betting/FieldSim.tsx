@@ -23,19 +23,31 @@ interface Play {
   formation?: 'SHOTGUN' | 'UNDER CENTER' | 'PISTOL';
   personnel?: '11' | '12' | '21';
   defenders_in_box?: number;
+  play_number?: number; quarter?: number; quarter_seconds?: number; game_clock?: string;
 }
 interface Drive {
-  half: number | string; possession: string; start_yard: number; points: number;
+  id?: number; half: number | string; possession: string; team_drive_number?: number;
+  start_yard: number; points: number;
   result: string; plays: number; seconds: number; tape: Play[];
+  clock_start?: { quarter: number; quarter_seconds: number; game_clock: string };
+  clock_end?: { quarter: number; quarter_seconds: number; game_clock: string };
+  score_before?: { home: number; away: number }; score_after?: { home: number; away: number };
 }
 interface DriveSet {
   home: string; away: string; drives_with_plays: number; drives: Drive[];
+  season?: number; profile_fell_back?: boolean;
+  play_model?: { version: string; formation_sampling: string; state_tracking: string };
   note: string; error?: string;
+}
+
+interface FieldSimProps {
+  home?: string; away?: string;
+  onHomeChange?: (team: string) => void; onAwayChange?: (team: string) => void;
 }
 
 const TEAMS = ['ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE', 'DAL', 'DEN', 'DET', 'GB',
   'HOU', 'IND', 'JAX', 'KC', 'LAC', 'LAR', 'LV', 'MIA', 'MIN', 'NE', 'NO', 'NYG', 'NYJ', 'PHI',
-  'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WAS'];
+  'PIT', 'SEA', 'SF', 'TB', 'TEN', 'WSH'];
 
 /*
  * Field geometry, vertical. The offence attacks UPWARD, which is the view a
@@ -132,10 +144,14 @@ const RESULT_TONE: Record<string, string> = {
   interception: 'text-rose-700', fumble: 'text-rose-700', safety: 'text-rose-700'
 };
 
-export default function FieldSim() {
-  const [home, setHome] = useState('KC');
-  const [away, setAway] = useState('BUF');
+export default function FieldSim({ home: selectedHome, away: selectedAway,
+  onHomeChange, onAwayChange }: FieldSimProps = {}) {
+  const [localHome, setLocalHome] = useState('KC');
+  const [localAway, setLocalAway] = useState('BUF');
+  const home = selectedHome ?? localHome;
+  const away = selectedAway ?? localAway;
   const [seed, setSeed] = useState(7);
+  const [focus, setFocus] = useState('all');
   const [driveIdx, setDriveIdx] = useState(0);
   const [playIdx, setPlayIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -146,6 +162,9 @@ export default function FieldSim() {
     `/nfl-betting/sim/drive?home=${home}&away=${away}&seed=${seed}`);
 
   const drives = data?.drives ?? [];
+  const eligibleDriveIndexes = useMemo(() => drives.map((drive, index) => ({ drive, index }))
+    .filter(({ drive }) => focus === 'all' || (drive.possession === 'home' ? home : away) === focus)
+    .map(({ index }) => index), [drives, focus, home, away]);
   const drive = drives[driveIdx];
   const tape = drive?.tape ?? [];
   const play = tape[playIdx];
@@ -175,6 +194,19 @@ export default function FieldSim() {
   }, [playing, playIdx, play, tape.length]);
 
   useEffect(() => { setPlayIdx(0); setProgress(0); setPlaying(false); }, [driveIdx, seed, home, away]);
+  useEffect(() => {
+    if (!eligibleDriveIndexes.includes(driveIdx)) setDriveIdx(eligibleDriveIndexes[0] ?? 0);
+  }, [eligibleDriveIndexes, driveIdx]);
+
+  const setHome = (team: string) => { setLocalHome(team); onHomeChange?.(team); };
+  const setAway = (team: string) => { setLocalAway(team); onAwayChange?.(team); };
+  const finalScore = drives.at(-1)?.score_after;
+  const teamSummary = useMemo(() => [
+    { team: away, side: 'away', drives: drives.filter(d => d.possession === 'away').length,
+      plays: drives.filter(d => d.possession === 'away').reduce((sum, d) => sum + d.plays, 0), score: finalScore?.away ?? 0 },
+    { team: home, side: 'home', drives: drives.filter(d => d.possession === 'home').length,
+      plays: drives.filter(d => d.possession === 'home').reduce((sum, d) => sum + d.plays, 0), score: finalScore?.home ?? 0 }
+  ], [drives, away, home, finalScore?.away, finalScore?.home]);
 
   const snapY = play ? toY(play.yard_line) : toY(25);
   const endY = play ? toY(Math.max(0, Math.min(100, play.yard_line + play.yards))) : snapY;
@@ -203,44 +235,56 @@ export default function FieldSim() {
   return (
     <div className="space-y-4">
       <div className="card p-4">
-        <h2 className="font-semibold text-slate-900">Drive board</h2>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><div className="text-[10px] font-black uppercase tracking-[.14em] text-emerald-700">Team-selected field replay</div>
+            <h2 className="mt-1 text-xl font-black tracking-tight text-slate-950">Play-by-play game room</h2></div>
+          {data?.play_model && <div className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold text-slate-500">{data.play_model.version}</div>}
+        </div>
         <p className="mt-1 text-sm text-slate-600">
-          The play simulator resolves every snap individually — down, distance, field position, play
-          type, yardage, formation — and that tape was previously discarded once the drive was scored.
-          This draws it. Formations come from nflverse participation data — 36,959 charted plays where
-          the league lined up in shotgun 68.9% of the time, under centre 27.2% and pistol 3.9%, drawing
-          5.96 and 7.0 defenders into the box respectively. Personnel groupings and box counts are real,
-          so this is a diagram rather than a drawing.
+          Pick the matchup, then focus the tape on either offense or keep every possession. Team
+          shotgun tendency, down, distance, game script and the called play now determine the formation;
+          every snap retains its score, quarter, clock and field position.
         </p>
-        <div className="mt-3 flex flex-wrap items-end gap-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[110px_110px_180px_minmax(240px,1fr)_auto_auto]">
           <label className="text-xs font-medium text-slate-500">Home
-            <select value={home} onChange={e => setHome(e.target.value)}
-              className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+            <select value={home} onChange={e => setHome(e.target.value)} aria-label="Home team"
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-2 py-2 text-sm">
               {TEAMS.map(t => <option key={t}>{t}</option>)}
             </select>
           </label>
           <label className="text-xs font-medium text-slate-500">Away
-            <select value={away} onChange={e => setAway(e.target.value)}
-              className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+            <select value={away} onChange={e => setAway(e.target.value)} aria-label="Away team"
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-2 py-2 text-sm">
               {TEAMS.map(t => <option key={t}>{t}</option>)}
             </select>
           </label>
-          <label className="text-xs font-medium text-slate-500">Drive
+          <label className="text-xs font-medium text-slate-500">Show plays for
+            <select value={focus} onChange={e => setFocus(e.target.value)} aria-label="Show play-by-play for team"
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-900">
+              <option value="all">Both teams</option>
+              <option value={away}>{away} offense</option>
+              <option value={home}>{home} offense</option>
+            </select>
+          </label>
+          <label className="text-xs font-medium text-slate-500">Possession
             <select value={driveIdx} onChange={e => setDriveIdx(Number(e.target.value))}
-              className="mt-1 block rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
-              {drives.map((d, i) => (
+              aria-label="Select possession" className="mt-1 block w-full rounded-lg border border-slate-300 px-2 py-2 text-sm">
+              {eligibleDriveIndexes.map(i => {
+                const d = drives[i];
+                return (
                 <option key={i} value={i}>
-                  {i + 1}. {d.possession === 'home' ? home : away} — {d.result}
+                  {i + 1}. {d.clock_start ? `Q${d.clock_start.quarter} ${d.clock_start.game_clock}` : `H${d.half}`} · {d.possession === 'home' ? home : away} · {d.result}
                 </option>
-              ))}
+                );
+              })}
             </select>
           </label>
           <button onClick={() => setSeed(Math.floor(Math.random() * 1e6))}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+            className="self-end rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             New game
           </button>
           <button onClick={() => { setPlaying(p => !p); }} disabled={!tape.length}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40">
+            className="self-end rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40">
             {playing ? 'Pause' : 'Play drive'}
           </button>
         </div>
@@ -251,13 +295,28 @@ export default function FieldSim() {
 
       {drive && (
         <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {teamSummary.map(team => <button key={team.side} onClick={() => setFocus(team.team)}
+              className={`rounded-2xl border p-4 text-left transition ${focus === team.team ? 'border-emerald-300 bg-emerald-50 ring-2 ring-emerald-100' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+              <div className="flex items-center justify-between"><span className="text-xs font-black uppercase tracking-wide text-slate-500">{team.side}</span><span className="text-3xl font-black tabular-nums text-slate-950">{team.score}</span></div>
+              <div className="mt-1 text-lg font-black text-slate-900">{team.team}</div>
+              <div className="text-xs text-slate-500">{team.drives} possessions · {team.plays} recorded snaps</div>
+            </button>)}
+          </div>
+
           <div className="card overflow-x-auto p-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+              <div><div className="text-xs font-black uppercase tracking-wide text-emerald-700">{drive.possession === 'home' ? home : away} ball</div>
+                <div className="text-sm font-semibold text-slate-900">{drive.clock_start ? `Q${drive.clock_start.quarter} · ${drive.clock_start.game_clock}` : `Half ${drive.half}`} · {formatFieldPosition(drive.start_yard)}</div></div>
+              <div className="rounded-xl bg-slate-950 px-3 py-2 font-mono text-sm font-black text-white">{away} {drive.score_after?.away ?? 0} · {home} {drive.score_after?.home ?? 0}</div>
+            </div>
             <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block" style={{ maxHeight: 620 }}
               role="img" aria-label="Simulated football play">
               <rect x={0} y={0} width={W} height={H} fill="#14532d" />
               {/* End zones: the one being attacked is at the top. */}
               <rect x={0} y={0} width={W} height={EZ} fill="#166534" />
               <rect x={0} y={H - EZ} width={W} height={EZ} fill="#166534" />
+              <text x={W / 2} y={43} fill="#dcfce7" fontSize={18} fontWeight={900} textAnchor="middle" letterSpacing={3}>{drive.possession === 'home' ? home : away}</text>
 
               {/* Yard lines run across the field. */}
               {Array.from({ length: 21 }, (_, i) => i * 5).map(y => (
@@ -322,15 +381,15 @@ export default function FieldSim() {
             <div className="card p-4 lg:col-span-2">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900">
-                  Drive {driveIdx + 1} · {drive.possession === 'home' ? home : away}
+                  Possession {driveIdx + 1} · {drive.possession === 'home' ? home : away}
                 </h3>
-                <span className={`text-sm font-semibold ${RESULT_TONE[drive.result.split(' ')[0]] ?? 'text-slate-600'}`}>
+                <span className={`text-sm font-semibold ${resultTone(drive.result)}`}>
                   {drive.result} {drive.points > 0 && `(${drive.points})`}
                 </span>
               </div>
               {play && (
                 <p className="mt-2 font-mono text-sm text-slate-800">
-                  {play.down} &amp; {play.to_go} at the {play.yard_line <= 50 ? play.yard_line : 100 - play.yard_line}
+                  {play.game_clock && `Q${play.quarter} ${play.game_clock} · `}{play.down} &amp; {play.to_go} · {formatFieldPosition(play.yard_line)}
                   {' · '}{(play.formation ?? '').toLowerCase() || (play.shotgun ? 'shotgun' : 'under centre')}
                   {' · '}{play.personnel ?? '11'} personnel
                   {' · '}{box} in the box
@@ -359,18 +418,48 @@ export default function FieldSim() {
             <div className="card p-4">
               <h3 className="text-sm font-semibold text-slate-900">This drive</h3>
               <dl className="mt-2 space-y-1 text-sm">
-                <Row k="Started" v={`own ${drive.start_yard}`} />
+                <Row k="Started" v={formatFieldPosition(drive.start_yard)} />
                 <Row k="Plays" v={String(drive.plays)} />
                 <Row k="Elapsed" v={`${Math.floor(drive.seconds / 60)}:${String(drive.seconds % 60).padStart(2, '0')}`} />
                 <Row k="Result" v={drive.result} />
+                {drive.score_after && <Row k="Score after" v={`${away} ${drive.score_after.away} · ${home} ${drive.score_after.home}`} />}
               </dl>
               <p className="mt-3 text-xs text-slate-500">{data?.note}</p>
+            </div>
+          </div>
+
+          <div className="card overflow-hidden">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="font-black text-slate-900">Play-by-play · {drive.possession === 'home' ? home : away} possession {drive.team_drive_number ?? driveIdx + 1}</div>
+              <div className="text-xs text-slate-500">Select any snap to move the field to that down and distance.</div>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {tape.map((p, i) => <button key={i} onClick={() => { setPlayIdx(i); setProgress(0); setPlaying(false); }}
+                className={`grid w-full grid-cols-[58px_76px_minmax(0,1fr)_70px] items-center gap-2 px-4 py-3 text-left text-xs transition ${i === playIdx ? 'bg-sky-50 ring-inset ring-1 ring-sky-200' : 'hover:bg-slate-50'}`}>
+                <span className="font-mono font-black text-slate-500">{p.game_clock ?? `#${i + 1}`}</span>
+                <span className="font-bold text-slate-700">{p.down} &amp; {p.to_go}</span>
+                <span className="min-w-0"><b className="text-slate-900">{p.play_type.replaceAll('_', ' ')}</b><span className="ml-2 text-slate-500">{formatFieldPosition(p.yard_line)} · {(p.formation ?? (p.shotgun ? 'SHOTGUN' : 'UNDER CENTER')).toLowerCase()} · {p.personnel ?? '11'}</span></span>
+                <span className={`text-right font-mono font-black ${p.turnover || p.yards < 0 ? 'text-rose-700' : p.yards >= 10 ? 'text-emerald-700' : 'text-slate-700'}`}>{p.turnover ?? `${p.yards > 0 ? '+' : ''}${p.yards} yd`}</span>
+              </button>)}
             </div>
           </div>
         </>
       )}
     </div>
   );
+}
+
+function formatFieldPosition(yard: number) {
+  if (yard <= 0) return 'own goal line';
+  if (yard < 50) return `own ${Math.round(yard)}`;
+  if (yard === 50) return 'midfield';
+  if (yard >= 100) return 'goal line';
+  return `opponent ${100 - Math.round(yard)}`;
+}
+
+function resultTone(result: string) {
+  const key = Object.keys(RESULT_TONE).find(value => result.startsWith(value));
+  return key ? RESULT_TONE[key] : 'text-slate-600';
 }
 
 function Row({ k, v }: { k: string; v: string }) {

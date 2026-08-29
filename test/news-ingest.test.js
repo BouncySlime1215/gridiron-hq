@@ -150,6 +150,16 @@ test('POST /ingest requires authentication', async () => {
   assert.equal(anonymous.status, 401);
 });
 
+test('ranked news desk requires authentication and returns a bounded freshness summary', async () => {
+  assert.equal((await request('/desk')).status, 401);
+  const desk = await request('/desk?limit=20', { token: 'news-ingest-token' });
+  assert.equal(desk.status, 200);
+  assert.ok(Array.isArray(desk.payload.stories));
+  assert.ok(desk.payload.stories.length <= 20);
+  assert.ok(Number.isInteger(desk.payload.stats.stories));
+  assert.ok('latest_ingest_age_minutes' in desk.payload.stats);
+});
+
 test('news mutation and API-spending routes reject anonymous callers', async () => {
   assert.equal((await request('/', { method: 'POST', body: { date: '2026-08-25', headline: 'x' } })).status, 401);
   assert.equal((await request('/1', { method: 'DELETE' })).status, 401);
@@ -163,7 +173,7 @@ test('POST /ingest runs the pipeline for an authenticated caller', async () => {
   globalThis.fetch = async () => ({ ok: true, text: async () => '<rss><channel></channel></rss>' });
   try {
     const authenticated = await request('/ingest', { method: 'POST', token: 'news-ingest-token' });
-    assert.equal(authenticated.status, 200);
+    assert.equal(authenticated.status, 200, JSON.stringify(authenticated.payload));
   } finally {
     globalThis.fetch = originalFetch;
   }

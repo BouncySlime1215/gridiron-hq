@@ -45,6 +45,29 @@ const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 const sd = a => { const m = mean(a); return Math.sqrt(mean(a.map(x => (x - m) ** 2))); };
 
 const HALF = 1800;
+export const PLAY_MODEL_VERSION = 'pbp-drive-v2';
+
+/**
+ * Turn a measured team shotgun rate into a situation-aware formation mix.
+ * The previous tape ignored `ctx.shotgunRate` and drew every offense from the
+ * same 68.9% league rate. That made two team selections look different on the
+ * scoreboard but suspiciously identical on the field.
+ */
+export function formationProbabilities({ shotgunRate = 0.65, isPass = false, down = 1, toGo = 10 } = {}) {
+  const passLikely = isPass || down >= 3 || (down >= 2 && toGo >= 8);
+  const shotgun = clamp(shotgunRate + (passLikely ? 0.16 : -0.17), 0.12, 0.95);
+  const pistol = clamp(0.035 + (passLikely ? 0.015 : 0.025), 0.02, 0.08);
+  return { shotgun: r4(shotgun), pistol: r4(pistol), under_center: r4(1 - shotgun - pistol) };
+}
+
+export function driveClockState({ half = 1, halfSeconds = HALF } = {}) {
+  const seconds = clamp(Math.round(halfSeconds), 0, HALF);
+  const firstQuarterOfHalf = seconds > 900;
+  const quarter = (Number(half) === 2 ? 3 : 1) + (firstQuarterOfHalf ? 0 : 1);
+  const quarterSeconds = firstQuarterOfHalf ? seconds - 900 : seconds;
+  return { quarter, quarter_seconds: quarterSeconds,
+    game_clock: `${Math.floor(quarterSeconds / 60)}:${String(quarterSeconds % 60).padStart(2, '0')}` };
+}
 
 /* --------------------------------------------------------------- matchup */
 
@@ -250,7 +273,14 @@ function simulateDrive(ctx, state, ep) {
     // Module 18: spend a down to stop the clock, but only inside the window
     // where that trade actually pays.
     const spike = P.spikeDecision({ secondsLeft: secondsLeft - elapsed, timeouts, yard, down });
-    if (spike.call === 'spike') { elapsed += 2; down++; decisions.push(spike); continue; }
+    if (spike.call === 'spike') {
+      tape.push({ down, to_go: Math.max(1, Math.ceil(toGo)), yard_line: Math.round(yard),
+        play_type: 'spike', is_pass: true, yards: 0, turnover: null,
+        formation: 'SHOTGUN', shotgun: true, defenders_in_box: 6, personnel: '11',
+        seconds: 2, half_seconds_remaining: Math.max(0, Math.round(secondsLeft - elapsed)),
+        direction: null, depth: null });
+      elapsed += 2; down++; decisions.push(spike); continue;
+    }
 
     // Down and distance dominate every other consideration: third-and-9 is a pass.
     let passRate = basePassRate;
@@ -265,7 +295,20 @@ function simulateDrive(ctx, state, ep) {
     // Clock: a running play burns the play clock, an incompletion or sideline
     // throw stops it.
     const sideline = isPass && random() < pace.sideline_preference;
-    elapsed += (play.clockRuns && !sideline) ? pace.seconds_running : pace.seconds_stopped;
+    const snapClock = Math.max(0, Math.round(secondsLeft - elapsed));
+    const playSeconds = (play.clockRuns && !sideline) ? pace.seconds_running : pace.seconds_stopped;
+    elapsed += playSeconds;
+
+    const formationMix = formationProbabilities({ shotgunRate: ctx.shotgunRate,
+      isPass, down: snapDown, toGo: snapToGo });
+    const formationRoll = random();
+    const formation = formationRoll < formationMix.shotgun ? 'SHOTGUN'
+      : formationRoll < formationMix.shotgun + formationMix.pistol ? 'PISTOL' : 'UNDER CENTER';
+    const passLikely = isPass || snapDown >= 3 || (snapDown >= 2 && snapToGo >= 8);
+    const personnelRoll = random();
+    const personnel = passLikely
+      ? (personnelRoll < 0.70 ? '11' : personnelRoll < 0.90 ? '12' : '21')
+      : (personnelRoll < 0.36 ? '11' : personnelRoll < 0.70 ? '12' : '21');
 
     tape.push({
       down: snapDown, to_go: snapToGo, yard_line: Math.round(snapAt),
@@ -276,20 +319,10 @@ function simulateDrive(ctx, state, ep) {
       // shotgun probability. Measured over 36,959 charted plays: SHOTGUN 68.9%,
       // UNDER CENTER 27.2%, PISTOL 3.9% — and the split is strongly conditional,
       // because nobody lines up under centre on third-and-twelve.
-      ...(() => {
-        const passLikely = isPass || snapDown >= 3 || snapToGo >= 8;
-        const r = random();
-        const formation = passLikely
-          ? (r < 0.86 ? 'SHOTGUN' : r < 0.94 ? 'PISTOL' : 'UNDER CENTER')
-          : (r < 0.48 ? 'SHOTGUN' : r < 0.54 ? 'PISTOL' : 'UNDER CENTER');
-        // Box counts measured alongside the formations: shotgun draws 5.96
-        // defenders into the box, under centre 7.0.
-        const box = formation === 'UNDER CENTER' ? 7 : formation === 'PISTOL' ? 7 : 6;
-        return { formation, shotgun: formation !== 'UNDER CENTER', defenders_in_box: box,
-          // 11 personnel is 42.7% of all snaps; 12 personnel 13.2%.
-          personnel: random() < 0.55 ? '11' : random() < 0.6 ? '12' : '21' };
-      })(),
-      seconds: Math.round((play.clockRuns && !sideline) ? pace.seconds_running : pace.seconds_stopped),
+      formation, shotgun: formation !== 'UNDER CENTER',
+      defenders_in_box: formation === 'UNDER CENTER' || formation === 'PISTOL' ? 7 : 6,
+      personnel,
+      seconds: Math.round(playSeconds), half_seconds_remaining: snapClock,
       // Direction only means anything on a pass; a run is drawn from the gap.
       direction: isPass ? ['left', 'middle', 'right'][Math.floor(random() * 3)] : null,
       depth: isPass ? (play.type === 'explosive_pass' ? 'deep' : 'short') : null
@@ -412,6 +445,7 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
   let home = 0, away = 0;
   const timeouts = { home: 3, away: 3 };
   const drives = [];
+  const teamDriveCount = { home: 0, away: 0 };
   const receivingSecondHalf = random() < 0.5 ? 'home' : 'away';
   let possession = receivingSecondHalf === 'home' ? 'away' : 'home';
 
@@ -424,6 +458,8 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
     while (clock > 0) {
       const off = possession === 'home' ? homeCtx : awayCtx;
       const lead = possession === 'home' ? home - away : away - home;
+      const clockBefore = clock;
+      const scoreBefore = { home, away };
 
       // Module 20: a free stoppage that reshapes the four minutes before it.
       const tmw = P.twoMinuteWarning({ lead, secondsLeft: clock,
@@ -457,20 +493,29 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
       }
       if (possession === 'home') home += Math.max(0, scored); else away += Math.max(0, scored);
 
+      clock -= Math.max(15, d.seconds);
+      const clockAfter = Math.max(0, clock);
+
       if (collectLog) {
-        drives.push({ half, possession, start_yard: Math.round(yard), points: Math.max(0, scored),
+        teamDriveCount[possession]++;
+        drives.push({ id: drives.length + 1, half, possession,
+          team_drive_number: teamDriveCount[possession], start_yard: Math.round(yard), points: Math.max(0, scored),
           result: d.touchdown ? 'touchdown'
             : d.field_goal ? (d.field_goal.made ? `field goal ${d.field_goal.distance}yd` : `missed FG ${d.field_goal.distance}yd`)
               : d.turnover ? d.turnover
                 : d.turnover_on_downs ? 'turnover on downs'
                   : d.safety ? 'safety' : d.kneel ? 'kneel' : d.punt ? 'punt' : 'clock expired',
           plays: d.plays, seconds: Math.round(d.seconds),
+          clock_start_seconds: Math.round(clockBefore), clock_end_seconds: Math.round(clockAfter),
+          clock_start: driveClockState({ half, halfSeconds: clockBefore }),
+          clock_end: driveClockState({ half, halfSeconds: clockAfter }),
+          score_before: scoreBefore, score_after: { home, away },
           two_minute_warning: tmw.approaching,
           decisions: (d.decisions ?? []).filter(x => x?.module).map(x => x.module),
-          tape: d.tape ?? [] });
+          tape: (d.tape ?? []).map((play, playIndex) => ({ ...play, play_number: playIndex + 1,
+            ...driveClockState({ half, halfSeconds: play.half_seconds_remaining ?? clockBefore }) })) });
       }
 
-      clock -= Math.max(15, d.seconds);
       if (clock <= 0) break;
 
       // Module 4: onside only when the clock genuinely cannot supply possessions.
@@ -616,6 +661,8 @@ export function simulateMatchup({
     spread: spread == null ? null : { line: spread, ...cover },
     total: total == null ? null : { line: total, ...ou },
     example_drives: exampleDrives,
+    play_model: { version: PLAY_MODEL_VERSION, formation_sampling: 'team shotgun rate + down, distance and play call',
+      state_tracking: 'score, quarter, game clock, possession, down, distance and field position' },
     policy_modules: P.MODULES.length,
     note: 'Scores are simulated play by play, not forecast. Moneyline, spread and total are read off ' +
       'the SAME simulated games, so they are mutually consistent by construction. Calibration ' +
@@ -1133,4 +1180,3 @@ export function clvReport({ season = 2021, trials = 300, maxGames = 300 } = {}) 
       'a reason to capture lines going forward, not a reason to size a bet.'
   };
 }
-

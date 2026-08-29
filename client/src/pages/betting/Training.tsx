@@ -87,7 +87,7 @@ const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+'
  * model is wrong across many games, not individual losses. Chasing individual
  * losses is how a model ends up perfect on last season and useless on the next.
  */
-export default function Training() {
+export default function Training({ focus = 'replay' }: { focus?: 'replay' | 'ai' }) {
   const [seasons, setSeasons] = useState('2021,2022,2023,2024,2025');
   const [data, setData] = useState<Training | null>(null);
   const [busy, setBusy] = useState(false);
@@ -183,6 +183,39 @@ export default function Training() {
 
   const o = data?.overall;
 
+  const aiReview = (
+    <div className="card border-blue-200 bg-blue-50/40 p-5">
+      <div className="flex flex-wrap gap-3 items-start">
+        <div className="flex-1 min-w-[16rem]">
+          <div className="text-xs font-black uppercase tracking-wide text-blue-700">AI pregame risk gate</div>
+          <div className="mt-1 text-lg font-black text-slate-900">Outcome-blind review · complete decision trace</div>
+          <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-600">The AI sees a locked pregame packet plus learning from strictly earlier weeks. It can press to 2u, approve 1u, reduce to 0.5u, or abstain—never the target, same-week, or future result. Historical seasons are development evidence, not proof of future profit.</p>
+        </div>
+        {activeAiPayload?.run?.status === 'running' && aiRun?.id !== activeAiPayload.run.id && <button className="btn-secondary text-xs" onClick={reattachAi} disabled={aiBusy}>Reattach live run</button>}
+        <button className="btn-primary text-xs" onClick={runAi} disabled={aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running'}>
+          {aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running' ? 'AI review running…' : 'Run another 5-year AI review ($1 max)'}
+        </button>
+      </div>
+      {aiErr && <div className="mt-3 text-xs text-rose-700">{aiErr}</div>}
+      {activeAiPayload?.run?.status === 'running' && <div className="mt-3 rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs text-blue-900">A paid replay is active. Replay controls stay locked until it completes or fails; use <b>Reattach live run</b> after a reload.</div>}
+      {aiRun && <div className="mt-4 flex items-center justify-between gap-3 text-xs text-slate-500"><span>Saved review <b className="text-slate-800">#{aiRun.id}</b> · {aiRun.status}</span><span>{aiLogs.length} trace rows loaded</span></div>}
+      {aiRun && <AiReplayPanel run={aiRun} logs={aiLogs} />}
+      {!aiRun && <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">No saved AI review was found. Run one to produce a budget-capped, outcome-blind report.</div>}
+    </div>
+  );
+
+  if (focus === 'ai') return (
+    <div className="space-y-5">
+      <SectionHeading eyebrow="Proof & AI" title="AI blind-audit review"
+        description="The saved verdict, stake decisions and evidence trace are here—not buried below the historical replay." />
+      {aiRun?.status === 'complete' && aiRun.result?.kept === 0 && <Notice title="AI verdict: abstain from every candidate" tone="warn">
+        The latest review examined {aiRun.result.reviewed} candidates and kept none. That is a valid risk-gate result: the evidence packet did not justify a stake. It does not authorize betting and it does not imply the report failed.
+      </Notice>}
+      {aiReview}
+      {firewall && <ForwardProof firewall={firewall} />}
+    </div>
+  );
+
   return (
     <div>
       <div className="flex items-end gap-3 mb-4 flex-wrap">
@@ -204,7 +237,7 @@ export default function Training() {
       <section className="my-5">
         <SectionHeading eyebrow="Sealed audit controller" title="One irreversible week at a time"
           description="The controller hashes the committed code, exact model-input tables, model registry and policy. It refuses the next week if any frozen input changes." />
-        {blindError && <Notice title="Blind audit action blocked" tone="bad">{blindError}</Notice>}
+        {blindError && <Notice title="Blind audit action unavailable" tone="bad">{blindError}</Notice>}
         <div className="card overflow-hidden">
           <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
             <div>
@@ -238,26 +271,14 @@ export default function Training() {
         <Metric label="Recorded research trials" value={firewall.total_recorded_trials.toLocaleString()} />
         <Metric label="Forward decisions" value={firewall.forward.decisions.toLocaleString()} />
         <Metric label="Forward settled" value={`${firewall.forward.settled}/${firewall.forward.target}`} />
-        <Metric label="Untouched gate" value={firewall.untouched_gate_passed ? 'Passed' : 'Blocked'} tone={firewall.untouched_gate_passed ? 'good' : 'bad'} />
-      </div>}
-
-      <div className="card my-5 border-slate-300 bg-slate-50 p-4">
-        <div className="flex flex-wrap gap-3 items-start">
-          <div className="flex-1 min-w-[16rem]">
-            <div className="text-xs font-black uppercase tracking-wide text-slate-600">Claude pregame risk-gate replay</div>
-            <div className="text-sm font-semibold text-slate-900 mt-1">Outcome-blind agent review · hard $1 maximum</div>
-            <p className="text-xs leading-5 text-slate-600 mt-1">The agent sees a locked pregame packet plus aggregate learning from strictly earlier weeks. It can press to 2u, approve 1u, reduce to 0.5u, or abstain—never see the target, same-week, or future result. Because the seasons are opened development data, this tests workflow behavior rather than proving future profit.</p>
+        <div className="card p-3">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Forward proof</div>
+          <div className={`text-lg font-bold ${firewall.untouched_gate_passed ? 'text-emerald-700' : 'text-amber-700'}`}>
+            {firewall.untouched_gate_passed ? 'Target reached' : `${Math.max(0, firewall.forward.target - firewall.forward.settled)} settlements left`}
           </div>
-          {activeAiPayload?.run?.status === 'running' && aiRun?.id !== activeAiPayload.run.id && <button className="btn-secondary text-xs" onClick={reattachAi} disabled={aiBusy}>Reattach live run</button>}
-          <button className="btn-primary text-xs" onClick={runAi} disabled={aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running'}>
-            {aiBusy || aiRun?.status === 'running' || activeAiPayload?.run?.status === 'running' ? 'Agent replay running…' : '✦ Run 5-year AI report ($1 max)'}
-          </button>
+          <div className="mt-1 text-[11px] leading-4 text-slate-500">Only frozen, pre-kickoff 2026 decisions count.</div>
         </div>
-        {aiErr && <div className="mt-3 text-xs text-rose-700">{aiErr}</div>}
-        {activeAiPayload?.run?.status === 'running' && <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">A paid replay is active. Every replay control is locked until it completes or fails; use <b>Reattach live run</b> to reopen its trace after a reload.</div>}
-        {aiRun && <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500"><span>Showing saved run <b className="text-slate-800">#{aiRun.id}</b> · {aiRun.status}</span><span>{aiLogs.length} trace rows loaded</span></div>}
-        {aiRun && <AiReplayPanel run={aiRun} logs={aiLogs} />}
-      </div>
+      </div>}
 
       {protocol && (
         <div className="card my-5 border-slate-300 bg-slate-50 p-4">
@@ -470,6 +491,19 @@ const Metric = ({ label, value, tone }: { label: string; value: string; tone?: '
   </div>
 );
 
+function ForwardProof({ firewall }: { firewall: ValidationFirewall }) {
+  const remaining = Math.max(0, firewall.forward.target - firewall.forward.settled);
+  return <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+    <div className="flex flex-wrap items-center gap-3">
+      <div className="text-xs font-black uppercase tracking-wide text-amber-800">What still has to happen</div>
+      <StatusPill tone={firewall.untouched_gate_passed ? 'good' : 'warn'}>
+        {firewall.untouched_gate_passed ? 'Forward target reached' : `${remaining} settled decisions remaining`}
+      </StatusPill>
+    </div>
+    <p className="mt-2 text-sm leading-6 text-amber-950">The AI review is visible and complete, but historical replay cannot become untouched proof after those seasons informed development. Promotion requires {firewall.forward.target} frozen, pre-kickoff 2026 decisions; {firewall.forward.settled} have settled so far.</p>
+  </div>;
+}
+
 function EquityCurve({ points }: { points: Training['equity_curve'] }) {
   const width = 900, height = 210, pad = 24;
   const values = points.map(p => p.cumulative_units);
@@ -501,7 +535,7 @@ function CalibrationPanel({ calibration: c }: { calibration: Calibration }) {
       <Metric label="Walk-forward sample" value={m.walk_forward_n?.toLocaleString() ?? '—'} />
       <Metric label="Calibrated Brier" value={m.walk_forward_calibrated_brier?.toFixed(4) ?? '—'} />
       <Metric label="Market Brier" value={m.walk_forward_market_brier?.toFixed(4) ?? '—'} />
-      <Metric label="Production gate" value={m.forward_gate_passed ? 'Passed' : 'Blocked'} tone={m.forward_gate_passed ? 'good' : 'bad'} />
+      <Metric label="Model staking" value={m.forward_gate_passed ? 'Eligible' : 'Off — edge unproven'} tone={m.forward_gate_passed ? 'good' : 'bad'} />
     </div>
     <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       <Metric label="Model log loss" value={m.walk_forward_calibrated_log_loss?.toFixed(4) ?? '—'} />

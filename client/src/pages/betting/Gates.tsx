@@ -94,7 +94,7 @@ export default function Gates() {
         <div className="flex flex-wrap items-center gap-3">
           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
             m.forward_gate_passed ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'}`}>
-            {m.forward_gate_passed ? 'Sizing permitted' : 'Blocked from sizing'}
+            {m.forward_gate_passed ? 'Model staking eligible' : 'Model staking is off'}
           </span>
           <span className="text-sm text-slate-700">
             {checks.length - failing.length} of {checks.length} conditions pass
@@ -104,9 +104,12 @@ export default function Gates() {
           {m.forward_gate_passed
             ? 'Every calibration condition is satisfied. Staking will size model-derived edges.'
             : failing.length === 1
-              ? `Blocked on one condition: ${failing[0].name.toLowerCase()}. ${failing[0].why}`
-              : `Blocked on ${failing.length} conditions.`}
+              ? `Why it is off: ${failing[0].name.toLowerCase()} failed. ${failing[0].why}`
+              : `Why it is off: ${failing.map(check => check.name.toLowerCase()).join(', ')} failed.`}
         </p>
+        {!m.forward_gate_passed && <p className="mt-2 rounded-lg border border-amber-200 bg-white/70 px-3 py-2 text-sm text-amber-950">
+          The fix is new forward evidence that larger claimed edges win more often—not bypassing the gate. Until then, use Profit for the model-free teaser workflow and keep these forecasts on paper.
+        </p>}
         <p className="mt-2 text-xs text-slate-600">
           Model {cal.model_version} · trained {cal.trained_from}–{cal.trained_through} ·
           {' '}{cal.sample_size.toLocaleString()} priced covers · walk-forward and cutoff-safe.

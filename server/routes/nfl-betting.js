@@ -11,7 +11,7 @@ import {
   gradeTotalPicks, totalPicksStanding
 } from '../services/nfl-props.js';
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
-import { callClaude, getApiKey } from '../services/claude.js';
+import { callClaude, getApiKey, parseJson } from '../services/claude.js';
 import { liveGames } from '../services/nfl-live.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
@@ -45,6 +45,7 @@ import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '.
 import { reconcilePropQuoteMatches, settlePropQuotes } from '../services/nfl-prop-clv.js';
 import { newsSignalCoverage, syncAiNewsSignals, syncStructuredNewsSignals, teamNewsSignals } from '../services/nfl-news-signal.js';
 import { passingSpecialistAudit } from '../services/nfl-passing-specialists.js';
+import { recordPickExplanation, recentPickExplanations } from '../services/nfl-pick-explanation-audit.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
@@ -304,6 +305,7 @@ r.post('/explain/ai', async (req, res, next) => {
     });
 
     const fmtFactor = f => `${f.label}: ${pickTeam} ${f.pick_display} vs ${oppTeam} ${f.opponent_display}`;
+    const availableFactorKeys = [...reasoning.supporting, ...reasoning.opposing].map(factor => factor.key);
     const prompt = `You are translating an NFL betting model's already-computed reasoning into plain English for someone debugging the model. You are NOT making a betting recommendation and must NOT introduce any fact, stat, injury, or weather detail that is not listed below.
 
 GAME: ${b.matchup ?? `${b.away_team ?? ''} at ${b.home_team ?? ''}`}, ${market} — model likes ${b.selection ?? pickTeam} ${b.side ?? ''}
@@ -316,12 +318,35 @@ News context — ${pickTeam}: ${reasoning.news_context?.pick_team?.length ? reas
 News context — ${oppTeam}: ${reasoning.news_context?.opponent?.length ? reasoning.news_context.opponent.map(n => n.headline).join('; ') : 'nothing typed/extracted'}
 Model's own confidence label: ${reasoning.confidence}
 
-Write ONE paragraph (4-6 sentences) explaining, in plain English, what actually drove this number — which factors pulled which direction and how strong the evidence really is. If a category above is empty (e.g. no news, no history), say so plainly rather than skipping it silently; an empty input is itself useful for debugging where the model is weak. Do not recommend betting the pick or not.`;
+Return ONLY JSON with:
+{
+  "paragraph": "4-6 sentences explaining what drove the number, what opposed it, and how thin the evidence is",
+  "factor_keys_used": ${JSON.stringify(availableFactorKeys)},
+  "limitations": ["short evidence limitation stated in the paragraph"]
+}
+
+factor_keys_used may contain only keys from the supplied array and only when that factor is actually discussed. If a category above is empty (no news, no history, no movement), state that limitation rather than skipping it. Do not recommend betting the pick or not.`;
 
     const msg = await callClaude({ feature: 'nfl-pick-explain-ai', maxTokens: 500, prompt });
-    const text = msg?.content?.find?.(item => item.type === 'text')?.text?.trim() ?? '';
-    res.json({ paragraph: text, reasoning });
+    const translated = parseJson(msg);
+    if (typeof translated.paragraph !== 'string' || !translated.paragraph.trim()) {
+      return res.status(502).json({ error: 'AI translation did not return a grounded paragraph' });
+    }
+    const factorKeys = Array.isArray(translated.factor_keys_used)
+      ? translated.factor_keys_used.filter(key => availableFactorKeys.includes(key)) : [];
+    const limitations = Array.isArray(translated.limitations)
+      ? translated.limitations.filter(value => typeof value === 'string').slice(0, 5) : [];
+    const translation = { paragraph: translated.paragraph.trim(), factor_keys_used: factorKeys, limitations };
+    const audit = recordPickExplanation({ season, week,
+      matchup: b.matchup ?? `${b.away_team ?? ''} at ${b.home_team ?? ''}`,
+      market, selection: b.selection ?? pickTeam, reasoning, translation });
+    res.json({ ...translation, reasoning, audit });
   } catch (e) { next(e); }
+});
+
+r.get('/explain/ai/audits', (req, res, next) => {
+  try { res.json({ explanations: recentPickExplanations({ limit: req.query.limit }) }); }
+  catch (e) { next(e); }
 });
 
 /** Live scoreboard and in-game win probability. Free — no key, no quota. */
@@ -1090,6 +1115,7 @@ r.get('/sim/drive', async (req, res, next) => {
     const drives = (out.example_drives ?? []).filter(d => (d.tape ?? []).length > 0);
     res.json({ home: out.home, away: out.away, drives_with_plays: drives.length,
       drives: drives.slice(0, 24),
+      play_model: out.play_model, season: out.season, profile_fell_back: out.profile_fell_back,
       note: 'One simulated game. Each drive carries its own play tape — the same snaps the scoring ' +
         'came from, not a separate illustrative sequence.' });
   } catch (e) { next(e); }

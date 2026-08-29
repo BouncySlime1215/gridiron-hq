@@ -444,6 +444,12 @@ test('unsupported candidate name is rejected and lists what is actually supporte
 });
 
 test('latest migration down and re-up are transactional and reproducible', async () => {
+  assert.equal(await rollbackMigration('014_profit_execution_triggers'), '014_profit_execution_triggers');
+  assert.equal(row(`SELECT name FROM sqlite_master WHERE type='table' AND name='nfl_capture_triggers'`), undefined);
+  assert.equal(await rollbackMigration('013_news_read_path_indexes'), '013_news_read_path_indexes');
+  assert.equal(row(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_news_items_published_priority'`), undefined);
+  assert.equal(await rollbackMigration('012_teaser_execution_ledger'), '012_teaser_execution_ledger');
+  assert.equal(row(`SELECT name FROM sqlite_master WHERE type='table' AND name='nfl_teaser_executions'`), undefined);
   assert.equal(await rollbackMigration('011_league_connection_integrity'), '011_league_connection_integrity');
   assert.equal(await rollbackMigration('010_news_provenance_and_dedup'), '010_news_provenance_and_dedup');
   assert.equal(row(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_news_items_duplicate_group'`), undefined);
@@ -454,14 +460,19 @@ test('latest migration down and re-up are transactional and reproducible', async
     'validate_draft_team_owner_update', 'validate_draft_ownership_parent_update']) {
     assert.equal(row(`SELECT name FROM sqlite_master WHERE type='trigger' AND name=?`, trigger), undefined, trigger);
   }
-  assert.deepEqual(await runMigrations(), ['009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup', '011_league_connection_integrity']);
+  assert.deepEqual(await runMigrations(), ['009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup', '011_league_connection_integrity', '012_teaser_execution_ledger', '013_news_read_path_indexes', '014_profit_execution_triggers']);
   for (const trigger of ['model_experiments_promoter_required_insert', 'model_experiments_promoter_required_update',
     'validate_draft_team_owner_update', 'validate_draft_ownership_parent_update']) {
     assert.equal(row(`SELECT name FROM sqlite_master WHERE type='trigger' AND name=?`, trigger).name, trigger);
   }
   assert.ok(db.prepare(`PRAGMA table_info(news_items)`).all().some(c => c.name === 'duplicate_group_id'));
   assert.ok(row(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_news_items_duplicate_group'`));
+  assert.ok(row(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_news_items_published_priority'`));
+  assert.ok(row(`SELECT name FROM sqlite_master WHERE type='table' AND name='nfl_capture_triggers'`));
 
+  assert.equal(await rollbackMigration('014_profit_execution_triggers'), '014_profit_execution_triggers');
+  assert.equal(await rollbackMigration('013_news_read_path_indexes'), '013_news_read_path_indexes');
+  assert.equal(await rollbackMigration('012_teaser_execution_ledger'), '012_teaser_execution_ledger');
   assert.equal(await rollbackMigration('011_league_connection_integrity'), '011_league_connection_integrity');
   assert.equal(await rollbackMigration('010_news_provenance_and_dedup'), '010_news_provenance_and_dedup');
   assert.equal(await rollbackMigration('009_authoritative_actor_and_ownership_guards'), '009_authoritative_actor_and_ownership_guards');
@@ -474,7 +485,7 @@ test('latest migration down and re-up are transactional and reproducible', async
   assert.equal(await rollbackMigration('002_platform_audit_log'), '002_platform_audit_log');
   assert.equal(await rollbackMigration('001_baseline_marker'), '001_baseline_marker');
   assert.equal(row(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='model_dataset_versions'`).n, 0);
-  assert.deepEqual(await runMigrations(), ['001_baseline_marker', '002_platform_audit_log', '003_draft_state_machine', '004_model_lab', '005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup', '011_league_connection_integrity']);
+  assert.deepEqual(await runMigrations(), ['001_baseline_marker', '002_platform_audit_log', '003_draft_state_machine', '004_model_lab', '005_model_registry_integrity', '006_identity_and_draft_authorization', '007_model_permissions_and_upgrade_guard', '008_model_actor_foreign_keys', '009_authoritative_actor_and_ownership_guards', '010_news_provenance_and_dedup', '011_league_connection_integrity', '012_teaser_execution_ledger', '013_news_read_path_indexes', '014_profit_execution_triggers']);
   assert.ok(row(`SELECT name FROM schema_migrations WHERE name='005_model_registry_integrity'`));
   assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);

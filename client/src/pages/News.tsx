@@ -116,12 +116,12 @@ function SignalFeed() {
 }
 
 export default function News() {
-  const [view, setView] = useState<'log' | 'feed' | 'signals'>('log');
+  const [view, setView] = useState<'log' | 'feed' | 'signals'>('feed');
   const [date, setDate] = useState<string>('');
   const [teamFilter, setTeamFilter] = useState('');
   const { data: dates, refetch: refetchDates } = useApi<string[]>('/news/dates');
   const { data: teams } = useApi<any[]>('/teams');
-  const query = `/news?${date ? `date=${date}&` : ''}${teamFilter ? `team=${teamFilter}` : ''}`;
+  const query = `/news?${date ? `date=${date}&` : ''}${teamFilter ? `team=${teamFilter}&` : ''}limit=160`;
   const { data: items, refetch } = useApi<any[]>(query);
 
   const [showAdd, setShowAdd] = useState(false);
@@ -204,17 +204,17 @@ export default function News() {
       <div className="mb-3 flex gap-1 border-b border-slate-200" role="tablist" aria-label="News view">
         <button role="tab" aria-selected={view === 'log'}
           className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'log' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setView('log')}>Camp Log</button>
+          onClick={() => setView('log')}>Archive & Tools</button>
         <button role="tab" aria-selected={view === 'feed'}
           className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'feed' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setView('feed')}>Attributed Feed</button>
+          onClick={() => setView('feed')}>Intelligence Desk</button>
         <button role="tab" aria-selected={view === 'signals'}
           className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'signals' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setView('signals')} title="Typed, evidence-quoted claims — not freshly-generated prose">Signal Feed</button>
+          onClick={() => setView('signals')} title="Typed, evidence-quoted claims — not freshly-generated prose">Typed Signals</button>
       </div>
       {view === 'feed' ? <ConnectedNewsHub /> : view === 'signals' ? <SignalFeed /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <h1 className="text-2xl font-bold">Training Camp News</h1>
+        <div><h1 className="text-2xl font-bold">News archive and tools</h1><p className="mt-0.5 text-xs text-slate-500">Manual research, source pulls and historical stories. The ranked live desk is the default view.</p></div>
         <select className="input" value={date} onChange={e => setDate(e.target.value)}>
           <option value="">All days</option>
           {dates?.map(d => <option key={d} value={d}>{d}</option>)}
@@ -237,6 +237,7 @@ export default function News() {
       </div>
 
       {roundupErr && <p className="text-sm text-rose-600 mb-3">{roundupErr}</p>}
+      {ingestErr && <p className="text-sm text-rose-600 mb-3">{ingestErr}</p>}
       {roundup && (
         <div className="card p-5 mb-6 border-emerald-200 bg-emerald-50/30">
           <div className="flex items-center gap-2 mb-2">

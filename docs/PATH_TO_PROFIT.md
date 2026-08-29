@@ -1,5 +1,24 @@
 # Path to profit — a re-examination
 
+## 2026-08-29 execution update
+
+Phase 1's teaser executor is now shipped. The Edges → Wong teasers surface no
+longer accepts one reference spread plus an assumed payout as an actionable
+bet. It builds two-leg tickets only when both qualifying legs are posted at the
+same book in different games, chooses the best recently verified teaser payout,
+and rejects stale lines, stale prices, mathematically negative prices, and any
+price worse than the stricter −115 operating gate.
+
+Paper and manually placed tickets now enter a separate forward ledger with the
+exact spread and teased number for both legs. Final scores grade legs and
+tickets, report placed-only profit units, and keep the forward leg rate separate
+from the frozen 1,391-leg historical result. Gridiron HQ records execution; it
+does not transmit wagers.
+
+The startup corruption risk is also closed: the API port is checked before any
+SQLite module, migration, seed reconciliation, scheduler, or draft clock is
+started. A second server exits with the owning PID and command.
+
 Written 2026-08-27, after re-measuring the actual state of the system rather than trusting the prior write-ups. Every number below was pulled fresh from this database or a live API call today; where a figure disagrees with an older doc, the fresh number is the one to trust and the disagreement is called out.
 
 ---
@@ -143,6 +162,11 @@ Right now this pipeline's entire output is *prose explanations on a picks page*.
 
 ## The plan, ordered by value per unit of effort
 
+The product now enforces this ordering in the interface: NFL opens at the
+teaser execution gate, forecasting opens as a paper research board, and the AI
+audit has a dedicated proof tab. "Blocked" is never presented as a KPI without
+the failed condition, current measurement and next action.
+
 ### Phase 0 — Unblock (do this first; nothing else moves without it)
 
 1. **Upgrade the Odds API tier.** This is a spending decision only you can make, so I am not making it — but the arithmetic is unambiguous: the free tier cannot finish one week of the capture protocol already written, and it has already killed multi-book snapshots. Check current pricing; the entry paid tier has historically been ~$30/month for 20,000 credits, which is roughly 40× current headroom and comfortably covers a full season of both capture jobs.
@@ -190,3 +214,57 @@ The realistic failure modes, in order of likelihood:
 4. **Books limit or restrict the account** once consistent line-shopping and steam-following behaviour is detected. This is the standard endgame for a winning execution-based bettor and should be planned for, not discovered.
 
 The one thing I would not bet on is the prediction model suddenly starting to work. That question has been asked and answered more rigorously here than in any of the reference material, and the answer was no.
+
+---
+
+## Live readiness snapshot — 2026-08-29
+
+The product now calculates this snapshot from the ledgers instead of relying on
+the plan text:
+
+- Historical blind audit: 70/70 opened, 157 bets, −10.43% ROI. Complete as a
+  diagnostic and not untouched profit proof.
+- Untouched forward proof: 0/250 settled decisions.
+- AI outcome-blind review: 203 reviewed, 0 kept, 0u; research-only because the
+  historical quote/snapshot timestamps needed for promotion were not preserved.
+- Wong teasers: historical leg edge measured; zero forward tickets. The next
+  concrete action is one reachable same-book payout check at −115 or better,
+  followed by paper tracking and 100 graded forward legs.
+- News latency: 1/68 registered watches resolved; at least 30 timestamped
+  responses are required before estimating a lag edge.
+- Props: 64 independent shadow decisions and 876 quotes, but 0/200 decisions
+  with preserved closing-price evidence. Quote identity coverage is 95.43%; that
+  is data hygiene, not profit evidence.
+- Forecast-model staking: retired as a current path. It returns only after 250
+  frozen forward decisions and positive CLV, not after another historical tune.
+
+Therefore the honest answer to “how close are we?” is: one manual price check
+away from starting the only measured-positive pilot, but still zero forward
+proof away from claiming the system is profitable.
+
+## Implementation closure — 2026-08-29
+
+Every code-side phase in this plan is now connected to a measurable ledger:
+
+- The free ESPN movement detector and typed-news triggers enqueue durable
+  capture requests. The dispatcher collapses them into one paid multi-book
+  snapshot only when credits exceed the protected reserve and the cooldown has
+  expired. With one credit currently remaining, requests defer instead of
+  silently exhausting the account.
+- Best-price routing, line-value comparison, middle detection and per-book
+  response-lag distributions are live in the execution workspace.
+- Wong teaser candidates are paired only across different games at the same
+  book. A ticket cannot be logged without a fresh quote and a manually verified
+  reachable payout at the conservative price gate.
+- Prop-market residual correlations now feed the copula SGP calculator. Offered
+  candidate and closing prices can be preserved as paired evidence; sizing stays
+  off until 50 paired quotes establish positive forward CLV.
+- NFL props, spreads, teasers, SGPs and MLB picks all end in forward ledgers that
+  distinguish paper, placed, settled, reconstructed and quarantined evidence.
+- The blind AI review is visible in the NFL proof room. It reviewed 203
+  historical candidates and kept zero. That result is not hidden or overridden.
+
+What remains is external evidence, not another UI or model feature: verify one
+reachable teaser payout, fund enough legitimate multi-book capture capacity to
+collect the season, and let the forward ledgers settle. No software change can
+truthfully manufacture the required 50, 100, 200 or 250 future observations.

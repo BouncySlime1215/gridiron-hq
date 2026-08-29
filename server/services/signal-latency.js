@@ -181,6 +181,58 @@ export function signalLeadTimes({ windowHours = 48, sinceDays = 60 } = {}) {
 }
 
 /**
+ * The same latency question, separated by sportsbook once triggered multi-book
+ * snapshots exist. A book only gets an observation when we preserved a quote
+ * immediately before the signal and its first different quote afterward.
+ */
+export function bookLagDistribution({ sinceDays = 60, windowHours = 48 } = {}) {
+  const since = new Date(Date.now() - sinceDays * 86400000).toISOString();
+  const signals = rows(`SELECT news_id,team,published_at FROM nfl_news_signals
+    WHERE published_at>=? AND team IS NOT NULL ORDER BY published_at`, since);
+  const names = new Map(rows('SELECT abbr,name FROM nfl_teams').map(team => [team.abbr, team.name]));
+  const snapshots = rows(`SELECT captured_at,event_id,home_team,away_team,book,side,line
+    FROM nfl_line_snapshots WHERE market='spreads' AND captured_at>=datetime(?,'-24 hours')
+    ORDER BY captured_at`, since);
+  const observations = [];
+  for (const signal of signals) {
+    const teamName = names.get(signal.team) ?? signal.team;
+    const cutoff = new Date(new Date(signal.published_at).getTime() + windowHours * 3600000).toISOString();
+    const relevant = snapshots.filter(s => (s.home_team === teamName || s.away_team === teamName
+      || s.home_team === signal.team || s.away_team === signal.team) && s.captured_at <= cutoff);
+    const groups = new Map();
+    for (const snap of relevant) {
+      const key = `${snap.event_id}|${snap.book}|${snap.side}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(snap);
+    }
+    for (const list of groups.values()) {
+      const baseline = [...list].reverse().find(s => s.captured_at <= signal.published_at && s.line != null);
+      if (!baseline) continue;
+      const moved = list.find(s => s.captured_at > signal.published_at && s.line != null && s.line !== baseline.line);
+      if (!moved) continue;
+      observations.push({ book: moved.book, event_id: moved.event_id, news_id: signal.news_id,
+        lag_minutes: Math.round((new Date(moved.captured_at) - new Date(signal.published_at)) / 60000),
+        from: baseline.line, to: moved.line });
+    }
+  }
+  const byBook = new Map();
+  for (const item of observations) {
+    if (!byBook.has(item.book)) byBook.set(item.book, []);
+    byBook.get(item.book).push(item.lag_minutes);
+  }
+  const books = [...byBook].map(([book, lags]) => {
+    const sorted = [...lags].sort((a, b) => a - b);
+    return { book, observations: lags.length,
+      median_lag_minutes: sorted[Math.floor(sorted.length / 2)],
+      mean_lag_minutes: Math.round(lags.reduce((sum, lag) => sum + lag, 0) / lags.length),
+      sufficient_evidence: lags.length >= 10 };
+  }).sort((a, b) => a.median_lag_minutes - b.median_lag_minutes);
+  return { books, observations: observations.length, target_per_book: 10,
+    note: books.length ? 'Lower lag means the book repriced sooner after a typed signal. Correlation is not causation.'
+      : 'No book has a preserved before/after quote around a typed signal yet. Event-triggered captures now accumulate this.' };
+}
+
+/**
  * What the pipeline is currently capable of noticing.
  *
  * Freshness per source, and — more usefully — whether anything downstream

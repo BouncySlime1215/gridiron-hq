@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { api, useApi } from '../../api';
-import { BettingHero, EmptyState, Notice, SectionHeading, SignalCard, StatusPill } from '../../components/betting/BettingUI';
+import { EmptyState, Notice, SectionHeading, StatusPill } from '../../components/betting/BettingUI';
 import { MlbModelOperations } from '../../components/betting/ModelOperations';
 import { ModelLoadingSignature } from '../../components/betting/ModelLoadingSignature';
 
@@ -142,17 +142,30 @@ export default function MlbAutoPicks() {
 
   return (
     <div className="mx-auto max-w-[1440px] space-y-5">
-      <BettingHero eyebrow="MLB projection lab" title="Daily Picks Tracker"
-        description="Pregame-only selections with preserved starters, lineups and real book quotes. Anything reconstructed or missing cutoff evidence is visibly quarantined."
-        status={<StatusPill tone={data?.economics.available ? 'good' : 'warn'}>{data?.economics.available ? 'Priced forward ledger' : 'Forward evidence pending'}</StatusPill>}
-        actions={<><button className="btn-ghost text-sm" onClick={() => setShowOperations(v => !v)}>{showOperations ? 'Hide model operations' : 'Model operations'}</button><button className="btn-ghost text-sm" onClick={updateResults} disabled={settling}>{settling ? 'Updating results…' : 'Update results now'}</button><button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture pregame slate'}</button><button className="btn-primary text-sm" onClick={prepareTomorrow} disabled={busy}>{busy ? 'Preparing…' : 'Prepare tomorrow’s slate'}</button><button className="btn-primary text-sm"
-          onClick={runAudit} disabled={auditBusy}>{auditBusy ? 'Auditing…' : 'Run calibration audit'}</button></>}
-      >
-        <StatusPill tone="neutral">Local slate · {fmtDate(localDate)}</StatusPill>
-        <StatusPill tone={pregameApi.data?.odds_api.has_key ? 'good' : 'warn'}>{pregameApi.data?.odds_api.has_key ? 'Odds feed connected' : 'Odds key unavailable'}</StatusPill>
-        <StatusPill tone={latestCapture ? 'info' : 'warn'}>{latestCapture ? `Fresh ${new Date(latestCapture).toLocaleString()}` : 'No pregame snapshot'}</StatusPill>
-        <StatusPill tone={audit && audit.overall.n >= 30 ? 'info' : 'warn'}>{marketStatus}</StatusPill>
-      </BettingHero>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><div className="text-[10px] font-black uppercase tracking-[.15em] text-emerald-700">Forward capture console</div><h2 className="mt-1 text-2xl font-black text-slate-950">{fmtDate(localDate)}</h2><p className="mt-1 max-w-2xl text-sm leading-5 text-slate-500">Capture context first, preserve the offered price, then let the model lock the row. Reconstructed history stays quarantined.</p></div>
+            <input aria-label="MLB slate date" type="date" className="input" value={localDate} onChange={event => setLocalDate(event.target.value)} />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button data-prepare-mlb className="btn-primary text-sm" onClick={prepareTomorrow} disabled={busy}>{busy ? 'Preparing…' : 'Capture tomorrow + build slate'}</button>
+            <button className="btn-ghost text-sm" onClick={capturePregame} disabled={busy}>{busy ? 'Capturing…' : 'Capture selected date'}</button>
+            <button className="btn-ghost text-sm" onClick={updateResults} disabled={settling}>{settling ? 'Updating…' : 'Settle available results'}</button>
+            <button className="btn-ghost text-sm" onClick={runAudit} disabled={auditBusy}>{auditBusy ? 'Auditing…' : 'Run calibration audit'}</button>
+            <button className="btn-ghost text-sm" onClick={() => setShowOperations(value => !value)}>{showOperations ? 'Hide operations' : 'Data operations'}</button>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white">
+          <div className="text-[10px] font-black uppercase tracking-[.15em] text-emerald-300">Capture readiness</div>
+          <div className="mt-3 space-y-3 text-sm">
+            <Readiness label="Odds feed" value={pregameApi.data?.odds_api.has_key ? 'Connected' : 'Unavailable'} ready={!!pregameApi.data?.odds_api.has_key} />
+            <Readiness label="Pregame state" value={latestCapture ? new Date(latestCapture).toLocaleString() : 'No snapshot'} ready={!!latestCapture} />
+            <Readiness label="Economics" value={data?.economics.available ? 'Real prices stored' : 'Awaiting forward prices'} ready={!!data?.economics.available} />
+            <Readiness label="Calibration" value={marketStatus} ready={!!audit && audit.overall.n >= 30} />
+          </div>
+        </div>
+      </section>
 
       {showOperations && <MlbModelOperations through={localDate} />}
 
@@ -181,16 +194,15 @@ export default function MlbAutoPicks() {
       </section>
 
       <section>
-        <SectionHeading eyebrow="Evidence ledger" title="What has actually been measured"
-          description="Retrospective backfills and forward selections are counted separately so historical reconstruction cannot masquerade as a live record." />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
-          <SignalCard label="Graded predictions" value={settled.toLocaleString()} detail={`${s?.wins ?? 0} correct · ${s?.losses ?? 0} incorrect`} />
-          <SignalCard label="Directional hit rate" value={pct(s?.win_rate)} detail="Does not include price or break-even" tone="info" />
-          <SignalCard label="All-time priced units" value={s?.units == null ? '—' : `${s.units >= 0 ? '+' : ''}${s.units.toFixed(2)}u`} detail={s?.priced_settled ? `${s.priced_settled} settled forward picks only` : 'No settled forward real-price picks'} tone={(s?.units ?? 0) > 0 ? 'good' : s?.units == null ? 'info' : 'bad'} />
-          <SignalCard label="Retrospective rows" value={retrospective.toLocaleString()} detail="Generated after the historical slate date" tone={retrospective ? 'warn' : 'good'} />
-          <SignalCard label="Forward rows" value={forward.toLocaleString()} detail="Selected on or before the slate date" />
-          <SignalCard label="Pending" value={(s?.pending ?? 0).toLocaleString()} detail={`${s?.voids ?? 0} void · ${s?.pushes ?? 0} push`} />
-          <SignalCard label="Quarantined" value={(s?.quarantined ?? 0).toLocaleString()} detail="Excluded: missing price, snapshot, or current model version" tone={(s?.quarantined ?? 0) ? 'warn' : 'good'} />
+        <SectionHeading eyebrow="Evidence ledger" title="What has actually been measured" description="Forward-priced results and reconstructed research are separated at the row level." />
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+            <LedgerFact label="Forward record" value={`${s?.wins ?? 0}-${s?.losses ?? 0}`} detail={`${settled} graded · ${s?.pending ?? 0} pending`} />
+            <LedgerFact label="Priced units" value={s?.units == null ? 'Not measured' : `${s.units >= 0 ? '+' : ''}${s.units.toFixed(2)}u`} detail={`${s?.priced_settled ?? 0} settled real-price picks`} />
+            <LedgerFact label="Forward rows" value={forward.toLocaleString()} detail="Captured on or before slate date" />
+            <LedgerFact label="Research quarantine" value={(retrospective + (s?.quarantined ?? 0)).toLocaleString()} detail={`${retrospective} reconstructed · ${s?.quarantined ?? 0} incomplete`} />
+          </div>
+          <div className="flex flex-wrap gap-4 border-t border-slate-200 px-4 py-3 text-xs text-slate-500"><span>Directional hit rate <b className="text-slate-900">{pct(s?.win_rate)}</b></span><span>Pushes <b className="text-slate-900">{s?.pushes ?? 0}</b></span><span>Voids <b className="text-slate-900">{s?.voids ?? 0}</b></span></div>
         </div>
       </section>
 
@@ -272,4 +284,12 @@ function DayLedger({ date, picks }: { date: string; picks: Pick[] }) {
     <summary className="flex cursor-pointer list-none items-center gap-3 bg-slate-50 px-4 py-3"><span className="font-black text-slate-800">{fmtDate(date)}</span><StatusPill tone={picks.some(p => p.tracking_mode === 'retrospective') ? 'warn' : 'neutral'}>{picks[0]?.tracking_mode ?? 'unknown'}</StatusPill><span className="ml-auto text-sm font-bold text-slate-500">{wins}-{losses}</span></summary>
     <div className="overflow-x-auto"><table className="w-full text-sm"><tbody className="divide-y divide-slate-100">{picks.sort((a, b) => a.rank - b.rank).map(p => <tr key={p.rank}><td className="px-4 py-3 text-slate-400">{p.rank}</td><td className="px-4 py-3"><div className="font-bold text-slate-900">{p.selection}</div><div className="text-xs text-slate-500">{MARKET_LABEL[p.market] ?? p.market}{p.projection != null ? ` · projection ${p.projection.toFixed(2)}` : ''}</div></td><td className="whitespace-nowrap px-4 py-3 font-bold">{p.side}{p.line != null ? ` ${p.line}` : ''}</td><td className="px-4 py-3">{pct(p.model_probability)}</td><td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs font-bold ${STATUS_STYLE[p.status]}`}>{p.status}</span></td><td className="px-4 py-3 text-slate-500">{p.detail}</td></tr>)}</tbody></table></div>
   </details>;
+}
+
+function Readiness({ label, value, ready }: { label: string; value: string; ready: boolean }) {
+  return <div className="flex items-center gap-3"><span className={`h-2 w-2 rounded-full ${ready ? 'bg-emerald-400' : 'bg-amber-400'}`} /><span className="text-slate-400">{label}</span><span className="ml-auto max-w-44 text-right font-bold text-white">{value}</span></div>;
+}
+
+function LedgerFact({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return <div className="bg-white p-4"><div className="text-[10px] font-black uppercase tracking-[.13em] text-slate-400">{label}</div><div className="mt-1 text-xl font-black text-slate-950">{value}</div><div className="mt-1 text-xs text-slate-500">{detail}</div></div>;
 }

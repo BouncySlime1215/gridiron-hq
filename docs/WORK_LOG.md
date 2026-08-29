@@ -749,3 +749,101 @@ game-state and expected-opportunity ideas are independently implemented shadow
 benchmarks and still face the same promotion gates. The source archive has no
 trustworthy multi-book historical opener, so opening-line and CLV claims remain
 forward-only.
+
+---
+
+## 2026-08-29 — teaser execution and forward accountability
+
+The only historically positive NFL bet in the repository now has an operational
+loop. Per-book spread snapshots are screened for Wong windows, paired only
+across different games at one book, and joined to the latest manually verified
+two-team six-point teaser payout. The server refuses stale quotes, expired price
+checks, negative-EV prices, and anything worse than the conservative −115 gate.
+
+Every accepted paper or manually placed ticket persists its two exact legs,
+expected ticket probability, expected EV, price timestamp, line timestamp and
+stake. Final scores grade each teased line and roll into a forward-only leg rate;
+placed profit units remain separate from paper results. No sportsbook order is
+transmitted.
+
+The repeated-server failure was fixed at the true boundary. Port availability is
+now checked before database imports and background jobs, and an occupied port
+names its PID/command before the process exits. This prevents a failed second
+boot from becoming a second SQLite writer.
+
+### Betting desk redesign and AI audit visibility
+
+The NFL route now opens on the executable Wong-teaser workflow instead of the
+unvalidated prediction board. A three-card control strip names the next action
+for teaser pricing, line execution and the saved AI review; raw internal status
+codes and unexplained `Blocked` KPIs were removed. The research board now says
+`Paper track`, treats the largest model disagreement as research rather than a
+"best bet", and cannot imply staking authority.
+
+`Proof & AI` now opens directly to the saved outcome-blind AI review. Run #1 is
+reported plainly: 203 candidates reviewed, 0 kept, 0 units staked, with 80 trace
+rows available. The untouched-evidence card now reports the actual deficit—0 of
+250 frozen 2026 decisions settled—instead of a context-free status.
+
+MLB is labeled research-only until priced forward evidence exists. Its four
+current surfaces are market board, forward ledger, paper picks and model lab;
+the 41-day-old legacy board is a secondary research archive rather than an
+equal primary tab.
+
+---
+
+## 2026-08-29 — profitability phases, auditable AI wording, and news command center
+
+The profitability endpoint now reports the real distance to evidence instead
+of collapsing unrelated failures into `blocked`. The sealed historical blind
+audit is complete at 70/70 windows and 157 bets (72–83, −16.38u, −10.43% ROI),
+while the untouched forward ledger remains 0/250 settled. AI replay #1 reviewed
+203 historical candidates and kept zero; it is research-only because historical
+decision-time quote timestamps were not preserved. Five independent phase cards
+now name the current measurement and next action. The Wong-teaser pilot is the
+closest path, but it still requires a reachable two-team six-point price at −115
+or better and forward grading before any profit claim.
+
+Post-pick AI explanation now has a strict authority boundary. The server selects
+the pick deterministically, freezes and hashes the factor packet, asks the model
+only for structured wording, filters cited factor keys against that packet, and
+stores an immutable translation audit marked `wording_only`. The model cannot
+change the side, introduce a new factor, or turn research evidence into staking
+authority. A compact audit endpoint exposes the sequence and reasoning hash.
+
+News now opens on a bounded Intelligence Desk rather than the full archive. The
+server ranks a maximum first paint of 80 from 500 recent candidates by roster
+match, availability/role materiality, freshness, official provenance,
+reliability, and importance; the current store contains 1,322 stories from eight
+sources, with 34 published in the last 24 hours and 47 typed claims. Duplicate
+player identities are collapsed before rendering. Feed ingestion fans out in
+parallel with per-source failure isolation, and deterministic signal typing runs
+immediately after refresh instead of waiting for the hourly scheduler. Migration
+013 adds the published-priority, team-date, and ingest-time read indexes.
+
+### Connected betting workbench and play-by-play v2
+
+The Betting Hub, NFL Auto and MLB Auto page hierarchies were replaced by one
+shared operating sequence: **scan → price → review → track**. The overview now
+names the next executable action, links directly into each sport desk, and keeps
+the calibration restriction beside the execution state. Internal `blocked`
+codes are no longer presented as unexplained KPIs.
+
+The NFL workbench connects the model decision queue, paper ledger, price and
+venue tools, proof room and saved blind AI review. AI remains wording-only: a
+selection and factor packet are frozen and hashed before translation. The old
+multi-panel play-by-play dashboard was removed. Its only surviving presentation
+is the team-selected field replay, with matchup, offense and possession
+selectors and a clickable snap tape.
+
+The underlying drive engine is now `pbp-drive-v2`. Team shotgun tendency,
+down-and-distance, play call and game script jointly determine formation and
+personnel. Every recorded snap carries possession, score, quarter, clock, field
+position and play number; every drive carries before/after score and clock
+state. The score shown by the UI is generated from that same tape.
+
+The MLB workbench connects the local model slate to forward capture, settlement
+and calibration. Its forward console preserves the actual pregame state and
+price before creating evidence. Current forward results and priced units are
+shown separately from retrospective and incomplete rows, which remain visibly
+quarantined.

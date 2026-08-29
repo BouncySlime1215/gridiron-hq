@@ -134,7 +134,14 @@ export async function pollEspnLines({ season = SEASON, week = 1 } = {}) {
 /** Scheduler entry point — polls whichever week is live. */
 export async function refreshEspnLineWatch() {
   const week = Number(process.env.NFL_WEEK) || currentWeek();
-  return pollEspnLines({ season: SEASON, week });
+  const result = await pollEspnLines({ season: SEASON, week });
+  if (result.error) return result;
+  const dispatch = await import('./nfl-capture-dispatch.js');
+  result.triggers = dispatch.enqueueEspnMoveTriggers(result.detected, result.polled_at);
+  // This is the only paid step, guarded inside the dispatcher by the configured
+  // key, a 50-credit reserve and a cooldown that collapses simultaneous moves.
+  result.capture = await dispatch.dispatchTriggeredCapture();
+  return result;
 }
 
 /**

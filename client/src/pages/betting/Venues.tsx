@@ -236,7 +236,7 @@ export default function Venues() {
                           <span>market {g.market_probability ?? '—'}</span>
                           <span>edge {g.raw_edge ?? '—'}</span>
                           <span className={g.actionable ? 'text-emerald-700' : 'text-slate-400'}>
-                            {g.actionable ? 'actionable' : 'blocked'}
+                            {g.actionable ? 'actionable' : 'not eligible'}
                           </span>
                         </div>
                         {g.blockers?.length > 0 && (

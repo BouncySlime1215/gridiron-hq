@@ -24,6 +24,15 @@ interface ProfitabilityOps {
   external_sources: { id: string; repo: string; url: string; role: string; integration: string; pinned_commit: string; copied_code: boolean }[];
   market_scorecards: MarketScorecard[];
   odds_api: { requests_remaining: number | null };
+  readiness: {
+    closest_path: string; verdict: string;
+    blind_audit: { id: number | null; status: string; opened: number; total: number;
+      classification: string | null; final: { betting?: { bets: number; wins: number; losses: number; units: number; roi: number | null } } | null;
+      forward: { decisions: number; settled: number; target: number } };
+    ai_review: { id: number | null; status: string; reviewed: number; kept: number; staked: number; evidence_status: string | null };
+    phases: { id: string; order: number; title: string; state: string; completed: number; total: number;
+      headline: string; detail: string; next_action: string }[];
+  };
 }
 interface PassingAudit { candidates_tested: number; rows: number; promoted: string[]; verdict: string;
   candidates: { id: string; validation: { delta_mae: number; candidate_spearman: number; champion_spearman: number; coverage_80: number };
@@ -76,6 +85,7 @@ export function ProfitabilityControl() {
   return <section className="space-y-5">
     <SectionHeading eyebrow="Profitability plan" title="Forward edge control room"
       description="Prediction quality, market edge and execution are separate gates. Historical diagnostics can reject ideas; only the frozen 2026 ledger can authorize a model-derived stake." />
+    <ProfitReadiness readiness={d.readiness} />
     <div className="flex flex-wrap items-center gap-2">
       <StatusPill tone={d.state === 'review_eligible' ? 'good' : 'warn'}>{d.state.replaceAll('_', ' ')}</StatusPill>
       <StatusPill tone="neutral">policy {d.policy.version} · {d.policy.hash.slice(0, 10)}</StatusPill>
@@ -100,7 +110,7 @@ export function ProfitabilityControl() {
     <div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
       <div className="card overflow-hidden">
         <div className="border-b border-slate-200 bg-slate-50 px-4 py-3"><div className="font-black text-slate-900">Forward promotion gates</div><div className="text-xs text-slate-500">Every gate must pass at the same frozen cutoff.</div></div>
-        <div className="grid gap-2 p-4 md:grid-cols-2">{d.gates.map(gate => <div key={gate.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center gap-2"><StatusPill tone={gate.passed ? 'good' : 'warn'}>{gate.passed ? 'pass' : 'blocked'}</StatusPill><span className="text-sm font-bold text-slate-800">{gate.label}</span></div><div className="mt-2 text-xs text-slate-500">Actual {gate.actual == null ? 'not measurable yet' : gate.actual}</div></div>)}</div>
+        <div className="grid gap-2 p-4 md:grid-cols-2">{d.gates.map(gate => <div key={gate.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center gap-2"><StatusPill tone={gate.passed ? 'good' : 'warn'}>{gate.passed ? 'pass' : 'waiting'}</StatusPill><span className="text-sm font-bold text-slate-800">{gate.label}</span></div><div className="mt-2 text-xs text-slate-500">Actual {gate.actual == null ? 'not measurable yet' : gate.actual}</div></div>)}</div>
       </div>
       <div className="card p-4">
         <div className="font-black text-slate-900">Reachable teaser price</div>
@@ -123,4 +133,38 @@ export function ProfitabilityControl() {
     <Notice title={`${d.historical_lines.rows.toLocaleString()} historical team-lines sourced`} tone="info">{d.historical_lines.min_season}–{d.historical_lines.max_season} closing spreads and totals are available from nflverse. {d.historical_lines.limitation}</Notice>
     <Notice title="External opportunity benchmark connected" tone="info">ffopportunity contributes {d.external_benchmarks.ffopportunity.rows.toLocaleString()} cutoff-safe player-week rows across {d.external_benchmarks.ffopportunity.seasons} seasons. It remains a zero-authority shadow comparator until chronological validation proves it improves the shared engine.</Notice>
   </section>;
+}
+
+function ProfitReadiness({ readiness: r }: { readiness: ProfitabilityOps['readiness'] }) {
+  return <section className="space-y-4">
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+      <div className="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Honest distance to profit</div>
+      <div className="mt-1 text-xl font-black tracking-tight text-amber-950">{r.verdict}</div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <MiniReadout label="Historical blind audit" value={`${r.blind_audit.opened}/${r.blind_audit.total || '—'} · ${r.blind_audit.status}`} />
+        <MiniReadout label="Untouched forward proof" value={`${r.blind_audit.forward.settled}/${r.blind_audit.forward.target} settled`} />
+        <MiniReadout label="AI risk review" value={`${r.ai_review.reviewed} reviewed · ${r.ai_review.kept} kept · ${r.ai_review.staked}u`} />
+      </div>
+    </div>
+    <div className="grid gap-3 lg:grid-cols-5">
+      {r.phases.map(phase => {
+        const progress = phase.total > 0 ? Math.min(100, (phase.completed / phase.total) * 100) : 0;
+        const retired = phase.state === 'retired';
+        return <div key={phase.id} className={`card overflow-hidden ${phase.id === r.closest_path ? 'ring-2 ring-emerald-300' : ''}`}>
+          <div className="p-4">
+            <div className="flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-full bg-slate-100 text-[10px] font-black text-slate-600">{phase.order + 1}</span><StatusPill tone={retired ? 'neutral' : phase.state === 'complete' || phase.state === 'ready' ? 'good' : 'warn'}>{phase.state.replaceAll('_', ' ')}</StatusPill></div>
+            <div className="mt-3 text-sm font-black text-slate-900">{phase.title}</div>
+            <div className="mt-1 text-xs font-semibold leading-5 text-slate-700">{phase.headline}</div>
+            <p className="mt-1 text-[11px] leading-4 text-slate-500">{phase.detail}</p>
+            {!retired && <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${progress}%` }} /></div>}
+          </div>
+          <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 text-[11px] leading-4 text-slate-600"><b>Next:</b> {phase.next_action}</div>
+        </div>;
+      })}
+    </div>
+  </section>;
+}
+
+function MiniReadout({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-amber-200 bg-white/70 px-3 py-2"><div className="text-[10px] font-bold uppercase tracking-wide text-amber-700">{label}</div><div className="mt-0.5 text-sm font-black text-slate-900">{value}</div></div>;
 }

@@ -83,7 +83,11 @@ export async function ingestRssSource(source, { fetchImpl = fetch } = {}) {
 }
 
 export async function ingestAllSources(opts) {
-  const out = [];
-  for (const source of RSS_SOURCES) out.push(await ingestRssSource(source, opts));
-  return out;
+  // Sources are independent. A slow or degraded feed must not serialize the
+  // entire intelligence refresh or prevent healthy feeds from being stored.
+  const settled = await Promise.allSettled(RSS_SOURCES.map(source => ingestRssSource(source, opts)));
+  return settled.map((result, index) => result.status === 'fulfilled' ? result.value : {
+    source: RSS_SOURCES[index].name, fetched: 0, inserted: 0, updated: 0,
+    failed: [{ headline: null, error: result.reason?.message ?? String(result.reason) }]
+  });
 }

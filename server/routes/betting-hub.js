@@ -19,10 +19,12 @@ import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
 import { shoppingBoard, findMiddles, executionBoardSummary, bookHold } from '../services/nfl-shopping-board.js';
 import { recentMoves, capturesWorthSpending, espnWatchStatus, currentSlate } from '../services/nfl-espn-line-watch.js';
 import { findTeaserLegs } from '../services/nfl-teasers.js';
-import { sgpAnalysis, propCorrelationTable, fitPropCorrelations } from '../services/nfl-prop-correlation.js';
+import { sgpAnalysis, propCorrelationTable, fitPropCorrelations, recordSgpQuote,
+  sgpQuoteEvidence } from '../services/nfl-prop-correlation.js';
 import { requireModelPermission } from '../modeling/authz.js';
 import { latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 import { abstentionAudit } from '../services/nfl-abstention-audit.js';
+import { teaserExecutionBoard } from '../services/nfl-teaser-execution.js';
 
 const r = Router();
 
@@ -144,6 +146,7 @@ r.get('/status', (_req, res, next) => {
     const teaserHist = wongHistory();
     const teaser110 = teaserEV({ americanPrice: -110, legRate: teaserHist.win_rate,
       standardError: teaserHist.standard_error });
+    const teaserExecution = teaserExecutionBoard();
 
     const credits = odds.requests_remaining;
     return res.json({
@@ -156,13 +159,17 @@ r.get('/status', (_req, res, next) => {
           detail: board.stale ? 'Stored snapshots are stale — fresh capture needs credits.'
             : 'Priced from simultaneous multi-book quotes.',
           blocked_by: board.stale ? 'credits' : null },
-        { id: 'teasers', label: 'Wong teasers', live: teaser110.ev_per_bet > 0,
-          headline: `${(teaser110.ev_per_bet * 100).toFixed(2)}% EV at -110`,
-          detail: `${teaserHist.win_rate ? (teaserHist.win_rate * 100).toFixed(1) : '—'}% on ${teaserHist.legs?.toLocaleString?.() ?? '—'} legs. The price is the whole edge.`,
-          blocked_by: null },
-        { id: 'correlation', label: 'Parlay correlation', live: true,
+        { id: 'teasers', label: 'Wong teasers', live: teaserExecution.eligible_candidates > 0,
+          headline: teaserExecution.eligible_candidates > 0
+            ? `${teaserExecution.eligible_candidates} executable ticket${teaserExecution.eligible_candidates === 1 ? '' : 's'}`
+            : `${(teaser110.ev_per_bet * 100).toFixed(2)}% historical EV at -110`,
+          detail: teaserExecution.eligible_candidates > 0
+            ? 'Same-book, different-game pairs passed live price and freshness gates.'
+            : 'Historical edge only. A fresh multi-book line and verified reachable teaser payout are still required.',
+          blocked_by: teaserExecution.eligible_candidates > 0 ? null : teaserExecution.status },
+        { id: 'correlation', label: 'Parlay correlation', live: false,
           headline: 'Copula priced', detail: 'Fitted on local usage history; owes forward CLV before sizing.',
-          blocked_by: null },
+          blocked_by: 'forward CLV' },
         { id: 'props', label: 'Prop edge', live: false,
           headline: `${props.captured_quotes ?? 0} quotes · ${props.settled ?? 0} settled`,
           detail: props.verdict, blocked_by: 'settled sample' }
@@ -216,12 +223,15 @@ r.get('/hold', (req, res, next) => {
 });
 
 /** Reference-line movement log. Free to read and free to fill — no credits involved. */
-r.get('/execution/movement', (req, res, next) => {
+r.get('/execution/movement', async (req, res, next) => {
   try {
+    const { captureTriggerStatus } = await import('../services/nfl-capture-dispatch.js');
+    const { bookLagDistribution } = await import('../services/signal-latency.js');
     res.json({
       status: espnWatchStatus(),
       moves: recentMoves({ hours: Math.min(336, Number(req.query.hours) || 72) }),
-      worth_capturing: capturesWorthSpending()
+      worth_capturing: capturesWorthSpending(),
+      capture_triggers: captureTriggerStatus(), book_latency: bookLagDistribution()
     });
   } catch (e) { next(e); }
 });
@@ -247,6 +257,46 @@ r.get('/teasers/candidates', (req, res, next) => {
       price_note: 'Teasers are not quoted by the odds API, so this cannot verify availability. ' +
         'Check the price at your book and re-query with ?price= to see whether it still clears.'
     });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Executable teaser tickets, built from per-book spread quotes and the latest
+ * manually verified teaser payout at each book. Unlike /candidates, this never
+ * treats two legs at different books as one ticket and never trusts a stale or
+ * negative-EV price.
+ */
+r.get('/teasers/execution-board', async (_req, res, next) => {
+  try {
+    const { teaserExecutionBoard } = await import('../services/nfl-teaser-execution.js');
+    res.json(teaserExecutionBoard());
+  } catch (e) { next(e); }
+});
+
+/** Log a paper or manually placed ticket after re-validating every gate. */
+r.post('/teasers/executions', async (req, res, next) => {
+  try {
+    const { recordTeaserExecution } = await import('../services/nfl-teaser-execution.js');
+    const out = recordTeaserExecution(req.body ?? {});
+    if (out.error) return res.status(out.reasons ? 409 : 400).json(out);
+    res.status(201).json(out);
+  } catch (e) { next(e); }
+});
+
+/** Forward ticket and leg results, kept separate from historical backtests. */
+r.get('/teasers/executions', async (req, res, next) => {
+  try {
+    const { teaserExecutionLedger } = await import('../services/nfl-teaser-execution.js');
+    res.json(teaserExecutionLedger({ limit: Math.min(500, Number(req.query.limit) || 100) }));
+  } catch (e) { next(e); }
+});
+
+r.post('/teasers/executions/:id/settle', async (req, res, next) => {
+  try {
+    const { settleTeaserExecution } = await import('../services/nfl-teaser-execution.js');
+    const out = settleTeaserExecution(req.params.id, req.body ?? {});
+    if (out.error) return res.status(400).json(out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 
@@ -277,8 +327,22 @@ r.get('/sgp/correlations', (req, res, next) => {
  * data already local — no credits, no model promotion, nothing persisted.
  */
 r.post('/sgp/price', (req, res, next) => {
-  try { res.json(sgpAnalysis({ legs: req.body?.legs, trials: Math.min(200000, Number(req.body?.trials) || 40000) })); }
+  try { res.json(sgpAnalysis({ legs: req.body?.legs, offeredOdds: req.body?.offered_odds,
+    trials: Math.min(200000, Number(req.body?.trials) || 40000) })); }
   catch (e) { next(e); }
+});
+
+/** Preserve a manually observed SGP candidate or close; this records but never transmits a wager. */
+r.post('/sgp/quotes', requireModelPermission('model:execute'), (req, res, next) => {
+  try {
+    const out = recordSgpQuote(req.body ?? {});
+    if (out.error) return res.status(400).json(out);
+    res.status(201).json(out);
+  } catch (e) { next(e); }
+});
+
+r.get('/sgp/quotes', (_req, res, next) => {
+  try { res.json(sgpQuoteEvidence()); } catch (e) { next(e); }
 });
 
 /** Refit from local usage history. Cheap, but a write, so it stays gated. */

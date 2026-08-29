@@ -1,36 +1,48 @@
-import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db } from './db/index.js';
-import { runMigrations } from './db/migrate.js';
-import { seedIfEmpty } from './db/seed/index.js';
-import teamsRouter from './routes/teams.js';
-import playersRouter from './routes/players.js';
-import rankingsRouter from './routes/rankings.js';
-import draftsRouter, { startDraftClockJob } from './routes/drafts.js';
-import espnRouter from './routes/espn.js';
-import newsRouter from './routes/news.js';
-import aggregatesRouter from './routes/aggregates.js';
-import analysisRouter from './routes/analysis.js';
-import leaguesRouter from './routes/leagues.js';
-import nfldataRouter from './routes/nfldata.js';
-import statsRouter from './routes/stats.js';
-import devRouter from './routes/dev.js';
-import accoladesRouter from './routes/accolades.js';
-import edgeRouter from './routes/edge.js';
-import tradelabRouter from './routes/tradelab.js';
-import tradesRouter from './routes/trades.js';
-import espnConnectRouter from './routes/espn-connect.js';
-import modelRouter from './routes/model.js';
-import propsRouter from './routes/props.js';
-import mlbRouter from './routes/mlb.js';
-import nflMarketRouter from './routes/nfl-market.js';
-import nflBettingRouter from './routes/nfl-betting.js';
-import bettingHubRouter from './routes/betting-hub.js';
-import localAuthRouter from './routes/local-auth.js';
-import { startScheduler } from './services/scheduler.js';
-import { legacyAuthenticated, legacyAdmin } from './platform/legacy-access.js';
+import { assertPortAvailable } from './platform/port-guard.js';
+
+const PORT = Number(process.env.API_PORT) || 5177;
+try {
+  await assertPortAvailable(PORT);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
+// Keep every database-opening import below the port guard. Static imports are
+// evaluated before any top-level code, which was why the previous EADDRINUSE
+// crash still ran migrations, seed reconciliation and schedulers first.
+const { default: express } = await import('express');
+const { runMigrations } = await import('./db/migrate.js');
+const { seedIfEmpty } = await import('./db/seed/index.js');
+const { default: teamsRouter } = await import('./routes/teams.js');
+const { default: playersRouter } = await import('./routes/players.js');
+const { default: rankingsRouter } = await import('./routes/rankings.js');
+const { default: draftsRouter, startDraftClockJob } = await import('./routes/drafts.js');
+const { default: espnRouter } = await import('./routes/espn.js');
+const { default: newsRouter } = await import('./routes/news.js');
+const { default: aggregatesRouter } = await import('./routes/aggregates.js');
+const { default: analysisRouter } = await import('./routes/analysis.js');
+const { default: leaguesRouter } = await import('./routes/leagues.js');
+const { default: nfldataRouter } = await import('./routes/nfldata.js');
+const { default: statsRouter } = await import('./routes/stats.js');
+const { default: devRouter } = await import('./routes/dev.js');
+const { default: accoladesRouter } = await import('./routes/accolades.js');
+const { default: edgeRouter } = await import('./routes/edge.js');
+const { default: tradelabRouter } = await import('./routes/tradelab.js');
+const { default: tradesRouter } = await import('./routes/trades.js');
+const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
+const { default: modelRouter } = await import('./routes/model.js');
+const { default: propsRouter } = await import('./routes/props.js');
+const { default: mlbRouter } = await import('./routes/mlb.js');
+const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
+const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
+const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
+const { default: localAuthRouter } = await import('./routes/local-auth.js');
+const { startScheduler } = await import('./services/scheduler.js');
+const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 
 const app = express();
 app.use(express.json());
@@ -97,5 +109,4 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
   app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
 }
 
-const PORT = process.env.API_PORT || 5177;
 app.listen(PORT, () => console.log(`Gridiron HQ listening on http://localhost:${PORT}`));

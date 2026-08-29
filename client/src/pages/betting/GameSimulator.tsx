@@ -105,7 +105,7 @@ export default function GameSimulator() {
       </div>
 
       <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
-        {([['run', 'Simulate a game'], ['field', 'Drive board'], ['honesty', 'Does it work?'],
+        {([['run', 'Simulate a game'], ['field', 'Team play-by-play'], ['honesty', 'Does it work?'],
           ['modules', 'Decision modules'], ['feed', 'Live play feed']] as [View, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setView(id)}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -115,7 +115,7 @@ export default function GameSimulator() {
         ))}
       </div>
 
-      {view === 'field' && <FieldSim />}
+      {view === 'field' && <FieldSim home={home} away={away} onHomeChange={setHome} onAwayChange={setAway} />}
 
       {view === 'run' && (
         <div className="space-y-4">
@@ -154,6 +154,11 @@ export default function GameSimulator() {
 
           {sim && !sim.error && (
             <>
+              <button onClick={() => setView('field')}
+                className="flex w-full items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-100/60">
+                <span><span className="block text-[10px] font-black uppercase tracking-[.14em] text-emerald-700">Interactive game tape</span><span className="mt-1 block font-black text-emerald-950">Open {sim.away} at {sim.home} team play-by-play</span><span className="mt-1 block text-xs text-emerald-800">Choose either offense, select a possession, and move the field snap by snap.</span></span>
+                <span className="text-2xl text-emerald-700">→</span>
+              </button>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Card label="Simulated score" value={`${sim.projection.away_score} – ${sim.projection.home_score}`}
                   sub={`${sim.away} at ${sim.home} · ${sim.trials.toLocaleString()} games`} />

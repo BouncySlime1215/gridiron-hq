@@ -4,7 +4,7 @@ import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ingestAllSources } from '../news/ingest.js';
 import { requireAuthenticated } from '../platform/auth.js';
 import { recordAudit } from '../platform/audit.js';
-import { newsSignalCoverage } from '../services/nfl-news-signal.js';
+import { newsSignalCoverage, syncStructuredNewsSignals } from '../services/nfl-news-signal.js';
 import { normalizePlayerName } from '../services/player-identity.js';
 
 const r = Router();
@@ -15,6 +15,7 @@ const r = Router();
 // individual users.
 const INGEST_COOLDOWN_MS = 60_000;
 let lastIngestAt = 0;
+let lastIngestResult = null;
 
 /**
  * Pull every documented RSS source through normalize.js's provenance/dedup pipeline.
@@ -29,18 +30,86 @@ r.post('/ingest', requireAuthenticated, async (req, res, next) => {
       return res.status(429).json({ error: 'ingestion was run recently', retry_after_ms: INGEST_COOLDOWN_MS - elapsed });
     }
     lastIngestAt = now;
-    res.json({ ok: true, sources: await ingestAllSources() });
+    const started = performance.now();
+    const sources = await ingestAllSources();
+    // Deterministic typing is cheap and belongs in the same refresh transaction
+    // from the user's perspective. New injury/role reporting should not wait for
+    // an hourly scheduler before becoming actionable in the Signal Feed.
+    const typing = syncStructuredNewsSignals({ sinceDays: 14, limit: 1500 });
+    const { enqueueRecentNewsTriggers } = await import('../services/nfl-capture-dispatch.js');
+    const capture_triggers = enqueueRecentNewsTriggers();
+    lastIngestResult = { ok: true, sources, typing, capture_triggers,
+      duration_ms: Math.round(performance.now() - started), refreshed_at: new Date().toISOString() };
+    res.json(lastIngestResult);
   } catch (e) { next(e); }
+});
+
+const safeJson = (value, fallback) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
+const materialNews = text => /\b(?:injur|ruled out|doubtful|questionable|practice|starter|benched|released|waived|role|trade|suspend)\w*\b/i.test(text);
+
+/**
+ * A bounded, user-ranked news desk. The old feed returned all 1,300+ rows and
+ * made React render the archive before the useful stories. This endpoint caps
+ * the first paint, ranks roster/material/fresh reporting first, and returns the
+ * freshness metrics needed to tell whether "latest" is actually current.
+ */
+r.get('/desk', requireAuthenticated, (req, res) => {
+  const limit = Math.min(120, Math.max(20, Number(req.query.limit) || 80));
+  const mine = new Set(myRosterNames(req.auth.userId).map(normalizePlayerName).filter(Boolean));
+  const candidates = rows(`SELECT n.*,t.abbr AS team_abbr,t.name AS team_name,t.primary_color
+    FROM news_items n LEFT JOIN nfl_teams t ON t.id=n.team_id
+    ORDER BY COALESCE(n.published_at,n.date) DESC,n.id DESC LIMIT 500`);
+  const now = Date.now();
+  const ranked = candidates.map(story => {
+    const entities = safeJson(story.entities_json, {});
+    const uniquePlayers = [...new Map((entities.players ?? []).map(player => [normalizePlayerName(player.name), player])).values()];
+    const reliability = safeJson(story.reliability_json, {});
+    const rosterPlayers = uniquePlayers.filter(player => mine.has(normalizePlayerName(player.name)));
+    const text = `${story.headline} ${story.body ?? ''}`;
+    const published = Date.parse(story.published_at ?? story.date);
+    const ageMinutes = Number.isFinite(published) ? Math.max(0, Math.round((now - published) / 60000)) : null;
+    const material = materialNews(text);
+    const fresh = ageMinutes != null && ageMinutes <= 24 * 60;
+    const official = story.source_type === 'official';
+    const priority = rosterPlayers.length * 60 + Number(material) * 24 + Number(fresh) * 14
+      + Number(official) * 8 + Number(story.importance ?? 2) * 4
+      + (Number.isFinite(reliability.score) ? reliability.score * 10 : 0)
+      - Math.min(20, (ageMinutes ?? 28800) / 1440);
+    const reasons = [];
+    if (rosterPlayers.length) reasons.push(`your roster: ${rosterPlayers.map(player => player.name).join(', ')}`);
+    if (material) reasons.push('availability or role impact');
+    if (fresh) reasons.push('published in the last 24h');
+    if (official) reasons.push('official source');
+    return { ...story, entities_json: JSON.stringify({ ...entities, players: uniquePlayers }), age_minutes: ageMinutes,
+      priority_score: +priority.toFixed(2), priority_reasons: reasons, my_player: rosterPlayers.length > 0 };
+  }).sort((a, b) => b.priority_score - a.priority_score || Number(b.id) - Number(a.id)).slice(0, limit);
+
+  const summary = rows(`SELECT COUNT(*) stories,COUNT(DISTINCT source) sources,
+      SUM(COALESCE(published_at,date)>=datetime('now','-24 hours')) fresh_24h,
+      SUM(ai_analysis IS NOT NULL) analyzed,MAX(ingested_at) latest_ingest,
+      MAX(COALESCE(published_at,date)) latest_published,
+      AVG(CASE WHEN ingested_at IS NOT NULL AND published_at IS NOT NULL
+        THEN (julianday(ingested_at)-julianday(published_at))*1440 END) mean_ingest_lag_minutes
+    FROM news_items`)[0];
+  res.json({
+    stories: ranked,
+    stats: { ...summary, returned: ranked.length, roster_players: mine.size,
+      latest_ingest_age_minutes: summary.latest_ingest ? Math.max(0, Math.round((now - Date.parse(summary.latest_ingest)) / 60000)) : null,
+      signals: newsSignalCoverage() },
+    refresh: { cooldown_ms: INGEST_COOLDOWN_MS, last_result: lastIngestResult }
+  });
 });
 
 r.get('/', (req, res) => {
   const { date, team } = req.query;
+  const limit = Math.min(500, Math.max(20, Number(req.query.limit) || 160));
   let sql = `SELECT n.*, t.abbr AS team_abbr, t.name AS team_name, t.primary_color
              FROM news_items n LEFT JOIN nfl_teams t ON t.id = n.team_id WHERE 1=1`;
   const params = [];
   if (date) { sql += ' AND n.date = ?'; params.push(date); }
   if (team) { sql += ' AND t.abbr = ?'; params.push(team.toUpperCase()); }
-  sql += ' ORDER BY n.date DESC, n.importance DESC, n.id DESC';
+  sql += ' ORDER BY n.date DESC, n.importance DESC, n.id DESC LIMIT ?';
+  params.push(limit);
   res.json(rows(sql, ...params));
 });
 

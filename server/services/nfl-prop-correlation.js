@@ -24,8 +24,11 @@
  * does not assert that the disagreement is profitable. That requires forward
  * CLV against real SGP prices, exactly like every other candidate signal.
  */
+import { createHash } from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
-import { cholesky, correlatedNormals, normalCdf } from './stats-util.js';
+import { cholesky, correlatedNormals, normalCdf, withRandomSeed } from './stats-util.js';
+
+export const SGP_MODEL_VERSION = 'prop-sgp-copula-v1';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS prop_correlation_estimates (
@@ -34,6 +37,18 @@ db.exec(`
     correlation REAL, pairs INTEGER, fitted_at TEXT
   );
 `);
+
+function ensureSgpQuoteTable() {
+  db.exec(`CREATE TABLE IF NOT EXISTS nfl_sgp_quotes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,captured_at TEXT NOT NULL,event_key TEXT NOT NULL,
+    book TEXT NOT NULL,stage TEXT NOT NULL,legs_hash TEXT NOT NULL,legs_json TEXT NOT NULL,
+    offered_odds INTEGER NOT NULL,correlated_probability REAL NOT NULL,fair_odds INTEGER,
+    expected_value REAL NOT NULL,model_version TEXT NOT NULL,
+    UNIQUE(event_key,book,stage,legs_hash,captured_at)
+  );
+  CREATE INDEX IF NOT EXISTS idx_sgp_quotes_route
+    ON nfl_sgp_quotes(event_key,book,legs_hash,captured_at);`);
+}
 
 /** Prop market → the column in player_week_usage it settles against. */
 export const MARKET_STAT = {
@@ -292,7 +307,7 @@ function conditioned(matrix) {
  *   assumption hold", which isolates the correlation from any disagreement
  *   about the individual legs.
  */
-export function sgpAnalysis({ legs, trials = 40000 } = {}) {
+export function sgpAnalysis({ legs, trials = 40000, offeredOdds = null, seed = 517 } = {}) {
   const usable = (legs ?? []).filter(l => Number.isFinite(l.probability) && l.probability > 0 && l.probability < 1);
   if (usable.length < 2) return { error: 'at least two priced legs are required' };
 
@@ -318,17 +333,22 @@ export function sgpAnalysis({ legs, trials = 40000 } = {}) {
   // given and only the dependence between them comes from the copula.
   const thresholds = usable.map(l => probit(1 - l.probability));
   let hits = 0;
-  for (let t = 0; t < trials; t++) {
-    const z = correlatedNormals(L);
-    let all = true;
-    for (let i = 0; i < n; i++) { if (z[i] <= thresholds[i]) { all = false; break; } }
-    if (all) hits++;
-  }
+  withRandomSeed(seed, () => {
+    for (let t = 0; t < trials; t++) {
+      const z = correlatedNormals(L);
+      let all = true;
+      for (let i = 0; i < n; i++) { if (z[i] <= thresholds[i]) { all = false; break; } }
+      if (all) hits++;
+    }
+  });
   const correlated = hits / trials;
 
   const toAmerican = p => (p <= 0 || p >= 1 ? null
     : p >= 0.5 ? Math.round(-100 * p / (1 - p)) : Math.round(100 * (1 - p) / p));
 
+  const offered = Number(offeredOdds);
+  const profit = offered > 0 ? offered / 100 : offered < 0 ? 100 / Math.abs(offered) : null;
+  const offeredImplied = profit == null ? null : 1 / (1 + profit);
   return {
     legs: usable.map(l => ({ player: l.player, stat: l.stat, side: l.side,
       probability: r4(l.probability) })),
@@ -344,11 +364,59 @@ export function sgpAnalysis({ legs, trials = 40000 } = {}) {
       b: `${b.player ?? b.position} ${b.stat} ${b.side}`,
       correlation: r4(matrix[i][i + 1 + k])
     }))),
-    trials,
+    trials, model_version: SGP_MODEL_VERSION,
+    offered_odds: Number.isInteger(offered) && offered !== 0 ? offered : null,
+    offered_implied_probability: offeredImplied == null ? null : r4(offeredImplied),
+    expected_value_at_offer: profit == null ? null : r4(correlated * profit - (1 - correlated)),
     note: 'Marginals are taken as given; only the dependence between legs is modelled. ' +
       'A multiplier far from 1 is where a blanket book haircut is most likely to be wrong — ' +
       'it is a measured disagreement, not yet a proven edge.'
   };
+}
+
+const legsHash = legs => createHash('sha256').update(JSON.stringify((legs ?? []).map(leg => ({
+  player_id: leg.player_id ?? null, player: leg.player ?? null, team: leg.team ?? null,
+  position: leg.position, stat: leg.stat, side: leg.side, probability: Number(leg.probability)
+})))).digest('hex');
+
+export function recordSgpQuote({ event_key, book, stage = 'candidate', legs, offered_odds } = {}) {
+  ensureSgpQuoteTable();
+  const eventKey = String(event_key ?? '').trim(), bookKey = String(book ?? '').trim().toLowerCase();
+  const offered = Number(offered_odds);
+  if (!eventKey || !bookKey || !['candidate', 'close'].includes(stage) || !Number.isInteger(offered) || offered === 0) {
+    return { error: 'event_key, book, candidate/close stage and non-zero integer offered_odds are required' };
+  }
+  const analysis = sgpAnalysis({ legs, offeredOdds: offered });
+  if (analysis.error) return analysis;
+  const capturedAt = new Date().toISOString(), hash = legsHash(legs);
+  const result = run(`INSERT INTO nfl_sgp_quotes
+    (captured_at,event_key,book,stage,legs_hash,legs_json,offered_odds,correlated_probability,
+     fair_odds,expected_value,model_version) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  capturedAt, eventKey, bookKey, stage, hash, JSON.stringify(legs), offered,
+  analysis.correlated_probability, analysis.fair_odds_correlated, analysis.expected_value_at_offer,
+  SGP_MODEL_VERSION);
+  return { id: result.lastInsertRowid, captured_at: capturedAt, stage, analysis, evidence: sgpQuoteEvidence() };
+}
+
+export function sgpQuoteEvidence() {
+  ensureSgpQuoteTable();
+  const quotes = rows(`SELECT * FROM nfl_sgp_quotes ORDER BY captured_at,id`);
+  const candidates = quotes.filter(q => q.stage === 'candidate');
+  const paired = [];
+  for (const candidate of candidates) {
+    const close = quotes.find(q => q.stage === 'close' && q.event_key === candidate.event_key
+      && q.book === candidate.book && q.legs_hash === candidate.legs_hash && q.captured_at > candidate.captured_at);
+    if (!close) continue;
+    const implied = odds => odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100);
+    paired.push({ candidate_id: candidate.id, close_id: close.id,
+      probability_clv: r4(implied(close.offered_odds) - implied(candidate.offered_odds)) });
+  }
+  const meanClv = paired.length ? r4(paired.reduce((sum, pair) => sum + pair.probability_clv, 0) / paired.length) : null;
+  return { quotes: quotes.length, candidates: candidates.length, paired_closes: paired.length,
+    mean_probability_clv: meanClv, target: 50,
+    promotion_eligible: paired.length >= 50 && meanClv > 0,
+    staking_authority: '0u until at least 50 candidate/close pairs preserve positive CLV',
+    recent: quotes.slice(-20).reverse(), paired: paired.slice(-20).reverse() };
 }
 
 export function propCorrelationTable({ limit = 40 } = {}) {

@@ -5,6 +5,7 @@ import { propClvStatus, propDecisionPolicyHash, PROP_DECISION_POLICY,
   propMatchCoverage, propSettlementHealth } from './nfl-prop-clv.js';
 import { usage as oddsUsage } from './odds-api.js';
 import { ffOpportunityStatus } from './ffopportunity.js';
+import { validationFirewall } from './nfl-evidence.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_teaser_price_ledger (
@@ -104,12 +105,103 @@ function historicalLineCoverage() {
   };
 }
 
+const tableExists = name => Boolean(rows(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, name)[0]);
+const parse = (value, fallback = null) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
+
+/**
+ * A progress plan built from live ledgers, not hand-authored percentages.
+ * Completion never means "profitable": each phase names the economic evidence
+ * it still owes, and historically failed forecasting remains visibly retired.
+ */
+function profitabilityPhases({ matches, horizons, settlements, edge, teaser }) {
+  const firewall = validationFirewall();
+  const blindRow = tableExists('nfl_blind_audit_runs')
+    ? rows(`SELECT id,status,next_ordinal,spec_json,final_json,created_at
+            FROM nfl_blind_audit_runs ORDER BY id DESC LIMIT 1`)[0] : null;
+  const blindSpec = parse(blindRow?.spec_json, {}), blindFinal = parse(blindRow?.final_json, null);
+  const blindTotal = blindSpec?.schedule?.length ?? 0;
+  const aiRow = tableExists('nfl_ai_replay_runs')
+    ? rows(`SELECT id,status,result_json,created_at FROM nfl_ai_replay_runs ORDER BY id DESC LIMIT 1`)[0] : null;
+  const aiResult = parse(aiRow?.result_json, null);
+  const teaserExecutions = tableExists('nfl_teaser_executions')
+    ? rows(`SELECT COUNT(*) tickets,
+        SUM(mode='paper') paper,SUM(mode='placed') placed,
+        SUM(status!='open') settled,COALESCE(SUM(CASE WHEN mode='placed' THEN profit_units ELSE 0 END),0) profit
+        FROM nfl_teaser_executions`)[0] : { tickets: 0, paper: 0, placed: 0, settled: 0, profit: 0 };
+  const teaserLegs = tableExists('nfl_teaser_execution_legs')
+    ? rows(`SELECT COUNT(*) graded FROM nfl_teaser_execution_legs WHERE result IS NOT NULL`)[0]?.graded ?? 0 : 0;
+  const watches = tableExists('nfl_tweet_line_watch')
+    ? rows(`SELECT COUNT(*) watches,SUM(resolved=1) resolved FROM nfl_tweet_line_watch`)[0]
+    : { watches: 0, resolved: 0 };
+  const pricedCloses = Number(edge.settled_bets ?? 0);
+
+  const phases = [
+    {
+      id: 'integrity', order: 0, title: 'Evidence integrity', state: blindRow?.status === 'complete' ? 'complete' : 'in_progress',
+      completed: Number(blindRow?.next_ordinal ?? 0), total: blindTotal || 70,
+      headline: blindRow?.status === 'complete' ? 'Historical audit sealed' : 'Historical audit still opening weeks',
+      detail: blindFinal?.betting
+        ? `${blindFinal.betting.bets} historical bets · ${blindFinal.betting.roi == null ? 'ROI unavailable' : `${(blindFinal.betting.roi * 100).toFixed(1)}% ROI`}. Diagnostic evidence only.`
+        : 'The week-chain freezes code, inputs and policy before each historical week opens.',
+      next_action: firewall.forward.settled
+        ? `Keep settling frozen 2026 decisions (${firewall.forward.settled}/${firewall.forward.target}).`
+        : 'Start the frozen 2026 pre-kickoff shadow ledger; historical data cannot become untouched proof.'
+    },
+    {
+      id: 'teaser', order: 1, title: 'Model-free teaser pilot',
+      state: teaserExecutions.settled > 0 ? 'measuring' : teaser.wong_price_gate_passed ? 'ready' : 'action_required',
+      completed: 1 + Number(teaser.wong_price_gate_passed) + Number(teaserExecutions.tickets > 0) + Number(teaserLegs >= 100), total: 4,
+      headline: teaser.wong_price_gate_passed ? `${teaserExecutions.tickets} forward tickets logged` : 'Closest path: verify a reachable price',
+      detail: 'Historical leg edge is measured. Profit still depends on same-book execution at −115 or better and forward replication.',
+      next_action: !teaser.wong_price_gate_passed ? 'Enter the current two-team, six-point teaser payout from a reachable book.'
+        : teaserExecutions.tickets === 0 ? 'Paper-track the first server-validated cross-game ticket.'
+        : `Accumulate 100 graded forward legs (${teaserLegs}/100) before treating the historical rate as durable.`
+    },
+    {
+      id: 'news_latency', order: 2, title: 'News-to-line latency', state: Number(watches.resolved ?? 0) >= 30 ? 'review_ready' : 'measuring',
+      completed: Math.min(Number(watches.resolved ?? 0), 30), total: 30,
+      headline: `${Number(watches.resolved ?? 0)}/${Number(watches.watches ?? 0)} watches resolved`,
+      detail: 'Typed news is useful only if a reachable book consistently moves after the source arrives.',
+      next_action: 'Keep the free reference-line watcher running and resolve at least 30 timestamped news responses before estimating a lag edge.'
+    },
+    {
+      id: 'props', order: 3, title: 'Props and correlation CLV', state: pricedCloses >= 200 ? 'review_ready' : 'measuring',
+      completed: pricedCloses, total: 200,
+      headline: `${edge.shadow_decisions ?? 0} decisions · ${pricedCloses}/200 priced closes`,
+      detail: `${matches.rate == null ? '—' : `${(matches.rate * 100).toFixed(1)}%`} quote resolution; capture and settlement gates remain independent.`,
+      next_action: pricedCloses === 0
+        ? 'Preserve the first closing prices; settled outcomes without a close do not measure edge.'
+        : 'Continue until mean and median CLV are positive and the week-clustered interval clears zero.'
+    },
+    {
+      id: 'forecast_model', order: 4, title: 'Forecast-model staking', state: 'retired',
+      completed: firewall.forward.settled, total: firewall.forward.target,
+      headline: 'Retired as a current profit path',
+      detail: 'The historical model failed its economic tests. AI translation and additional features do not repair an unproven edge.',
+      next_action: 'Keep forecasts paper-only. Reconsider only after 250 frozen forward decisions and positive CLV, not after another historical tune.'
+    }
+  ];
+
+  return {
+    closest_path: 'teaser',
+    verdict: teaser.wong_price_gate_passed
+      ? 'Execution-ready for a capped paper pilot; forward profitability is not yet proven.'
+      : 'One manual price check away from testing the only measured-positive strategy; zero forward profit proof so far.',
+    blind_audit: { id: blindRow?.id ?? null, status: blindRow?.status ?? 'not_started', opened: Number(blindRow?.next_ordinal ?? 0), total: blindTotal,
+      classification: blindSpec?.classification ?? null, final: blindFinal, forward: firewall.forward },
+    ai_review: { id: aiRow?.id ?? null, status: aiRow?.status ?? 'not_started', reviewed: aiResult?.reviewed ?? 0,
+      kept: aiResult?.kept ?? 0, staked: aiResult?.total_units_staked ?? 0, evidence_status: aiResult?.evidence_status ?? null },
+    phases
+  };
+}
+
 export function profitabilityOperations() {
   const matches = propMatchCoverage();
   const horizons = propHorizonCoverage();
   const settlements = propSettlementHealth();
   const edge = propEdgeEvidence();
   const teaser = teaserPriceLedger();
+  const readiness = profitabilityPhases({ matches, horizons, settlements, edge, teaser });
   const gates = [
     { id: 'model_match', label: 'Supported quote coverage ≥95%', passed: matches.passed,
       actual: matches.rate, target: 0.95 },
@@ -135,6 +227,7 @@ export function profitabilityOperations() {
     message: 'The running process cannot read ODDS_API_KEY, so scheduled prop capture will not continue.' });
   return {
     generated_at: new Date().toISOString(), state: gates.every(gate => gate.passed) ? 'review_eligible' : 'shadow_only',
+    readiness,
     policy: { ...PROP_DECISION_POLICY, hash: propDecisionPolicyHash() },
     gates, alerts, prop_quotes: propClvStatus(), match_coverage: matches,
     capture_horizons: horizons, settlement: settlements, edge, teaser,

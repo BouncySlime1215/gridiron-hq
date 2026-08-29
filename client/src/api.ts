@@ -61,6 +61,7 @@ export function useApi<T = any>(path: string | null) {
   const hasData = useRef(false);
   const prevPath = useRef<string | null>(null);
   const requestId = useRef(0);
+  const inFlight = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const refetch = useCallback(() => {
@@ -76,8 +77,11 @@ export function useApi<T = any>(path: string | null) {
     const abort = new AbortController();
     controller.current = abort;
     const id = ++requestId.current;
+    inFlight.current++;
     return api<T>(path, { signal: abort.signal })
       .then(d => {
+        // Only the newest request may write data — an older response arriving
+        // late must not overwrite a newer one.
         if (id !== requestId.current) return;
         hasData.current = true; setData(d); setError(null);
       })
@@ -85,7 +89,17 @@ export function useApi<T = any>(path: string | null) {
         if (e?.name !== 'AbortError' && id === requestId.current) setError(e.message);
       })
       .finally(() => {
-        if (id === requestId.current) { setLoading(false); setRefreshing(false); }
+        inFlight.current = Math.max(0, inFlight.current - 1);
+        // Clearing `loading` is a DIFFERENT question from who may write data, and
+        // conflating the two is what left pages spinning forever with a 200 in
+        // the network tab. React's StrictMode mounts, cleans up, and mounts
+        // again; the cleanup aborts the first request, so whether the surviving
+        // response still matches `requestId` depends on a race. Loading is now
+        // tied to whether anything is still in flight, which is what the flag
+        // actually means, and to whether data has arrived by any route.
+        if (inFlight.current === 0 || hasData.current) {
+          setLoading(false); setRefreshing(false);
+        }
       });
   }, [path]);
 

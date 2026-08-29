@@ -612,4 +612,42 @@ r.post('/sync', requireModelPermission('model:train'), async (req, res, next) =>
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- Vegas game script */
+
+/**
+ * What the market implies about every offence this week, applied to fantasy.
+ *
+ * The market cannot be beaten on sides — 22 models and ~2,600 graded bets say
+ * so — but that is a statement about efficiency, not about ignorance. Its
+ * implied team total is the best public estimate of how many points an offence
+ * will score, which is most of what fantasy scoring measures.
+ */
+r.get('/game-script', async (req, res, next) => {
+  try {
+    const { slateGameScript } = await import('../services/vegas-fantasy.js');
+    const season = Number(req.query.season) || Number(process.env.NFL_SEASON) || 2026;
+    const week = Number(req.query.week) || 1;
+    res.json(slateGameScript({ season, week }));
+  } catch (e) { next(e); }
+});
+
+/** One team's multipliers, with the market's reasoning in plain English. */
+r.get('/game-script/:team', async (req, res, next) => {
+  try {
+    const { gameScriptFor } = await import('../services/vegas-fantasy.js');
+    const season = Number(req.query.season) || Number(process.env.NFL_SEASON) || 2026;
+    const week = Number(req.query.week) || 1;
+    res.json(gameScriptFor(season, week, req.params.team));
+  } catch (e) { next(e); }
+});
+
+/** The fit itself, and whether it beats a no-knowledge baseline out of sample. */
+r.get('/game-script-fit', async (req, res, next) => {
+  try {
+    const m = await import('../services/vegas-fantasy.js');
+    res.json({ fit: m.fitGameScript({}),
+      validation: m.validateGameScript({ testSeason: Number(req.query.test_season) || 2025 }) });
+  } catch (e) { next(e); }
+});
+
 export default r;

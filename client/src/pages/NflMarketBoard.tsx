@@ -16,6 +16,8 @@ const GameSimulator = lazy(() => import('./betting/GameSimulator'));
 const Gates = lazy(() => import('./betting/Gates'));
 const Decisions = lazy(() => import('./betting/Decisions'));
 const Diagnostics = lazy(() => import('./betting/Diagnostics'));
+const Venues = lazy(() => import('./betting/Venues'));
+const GameScript = lazy(() => import('./betting/GameScript'));
 const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 const NflProps = lazy(() => import('./betting/NflProps'));
 
@@ -99,25 +101,29 @@ const STATUS_STYLE: Record<string, string> = {
   Pending: 'bg-white text-slate-600 border-slate-300'
 };
 
-type HubTool = 'edges' | 'board' | 'simulator' | 'model' | 'audit';
+type HubTool = 'edges' | 'board' | 'venues' | 'simulator' | 'model' | 'audit';
 type InitialTool = HubTool | 'ensemble' | 'training' | 'lines' | 'variables' | 'operations' | 'info' | 'props' | 'edges';
 const HUB_TOOLS: { id: HubTool; label: string; note: string }[] = [
   // Edges leads because it is the part that works. The auto-pick model sits
   // second and is labelled research: 0 of 21 component models beat the closing
   // line, and leading a hub with the one measured-negative component was the
   // clearest thing wrong with the old information architecture.
-  { id: 'edges', label: 'Edges', note: 'Venue costs · teasers · correlation' },
+  { id: 'edges', label: 'Edges', note: 'Teasers · correlation · movement' },
   { id: 'board', label: 'Board', note: 'Games · props · prices' },
+  // Execution is the only measured-positive surface in this hub, so it gets a
+  // slot of its own rather than living as a tab under something else.
+  { id: 'venues', label: 'Venues', note: 'Routing · true cost · live board' },
   // The play simulator is a genuinely different kind of model — it plays games
   // rather than predicting margins — so it gets its own slot instead of being
   // buried as a tab under a margin model it does not resemble.
   { id: 'simulator', label: 'Simulator', note: 'Play-by-play · totals · live' },
-  { id: 'model', label: 'Model', note: 'Ensemble · variables · method' },
+  { id: 'model', label: 'Model', note: 'Ensemble · game script · method' },
   { id: 'audit', label: 'Audit', note: 'Blind replay · decisions · gates' }
 ];
 const normalizeInitial = (tool: InitialTool): HubTool =>
   ['ensemble', 'variables', 'info', 'model'].includes(tool) ? 'model'
     : ['training', 'operations', 'audit'].includes(tool) ? 'audit'
+    : tool === 'venues' ? 'venues'
     : tool === 'simulator' ? 'simulator'
     : tool === 'edges' ? 'edges' : 'board';
 
@@ -125,7 +131,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
   const [tool, setTool] = useState<HubTool>(() => normalizeInitial(initialTool));
   const [decisionView, setDecisionView] = useState<'games' | 'props' | 'lines'>(() =>
     initialTool === 'props' ? 'props' : initialTool === 'lines' ? 'lines' : 'games');
-  const [modelView, setModelView] = useState<'ensemble' | 'variables' | 'method'>(() =>
+  const [modelView, setModelView] = useState<'ensemble' | 'gamescript' | 'variables' | 'method'>(() =>
     initialTool === 'variables' ? 'variables' : initialTool === 'info' ? 'method' : 'ensemble');
   const [auditView, setAuditView] = useState<'replay' | 'gates' | 'decisions' | 'diagnostics' | 'operations'>(() =>
     initialTool === 'operations' ? 'operations' : 'replay');
@@ -272,7 +278,8 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         ['games', 'Game picks'], ['props', 'Player props'], ['lines', 'Line shopping']
       ]} />}
       {tool === 'model' && <FeatureTabs value={modelView} onChange={setModelView} items={[
-        ['ensemble', '21-model ensemble'], ['variables', 'Variable catalog'], ['method', 'Method & limits']
+        ['ensemble', '22-model ensemble'], ['gamescript', 'Vegas game script'],
+        ['variables', 'Variable catalog'], ['method', 'Method & limits']
       ]} />}
       {tool === 'audit' && <FeatureTabs value={auditView} onChange={setAuditView} items={[
         ['replay', 'Blind replay'], ['decisions', 'Decision basis'],
@@ -281,9 +288,11 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
 
       {tool === 'board' && decisionView === 'props' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading shared player engine', 'Simulating joint events', 'Rendering prop board']} />}><NflProps /></Suspense>}
       {tool === 'board' && decisionView === 'lines' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading line shop', 'Checking quote cache', 'Rendering market view']} />}><LineShop /></Suspense>}
+      {tool === 'venues' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Reading order books', 'Comparing venue costs', 'Checking live games']} />}><Venues /></Suspense>}
       {tool === 'simulator' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading team rates', 'Building expected-points surface', 'Simulating games']} />}><GameSimulator /></Suspense>}
       {tool === 'edges' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading structural edges', 'Fitting parlay correlations', 'Reading the movement log']} />}><Edges /></Suspense>}
       {tool === 'model' && modelView === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
+      {tool === 'model' && modelView === 'gamescript' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Fitting game script', 'Reading the week\'s lines', 'Applying multipliers']} />}><GameScript /></Suspense>}
       {tool === 'model' && modelView === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}
       {tool === 'model' && modelView === 'method' && <ModelInfo accuracy={acc} catalog={catalog} pbpRows={pbpRows} />}
       {tool === 'audit' && auditView === 'replay' && <Training />}

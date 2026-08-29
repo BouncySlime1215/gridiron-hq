@@ -50,15 +50,15 @@ const pct2 = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`);
 
 export default function Edges() {
-  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement' | 'hold'>('live');
+  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement'>('live');
   const [price, setPrice] = useState(-110);
 
   const { data: teasers, loading: tLoading } = useApi<Teasers>(
     tab === 'teasers' ? `/betting/teasers/candidates?price=${price}` : null);
   const { data: movement } = useApi<Movement>(tab === 'movement' ? '/betting/execution/movement' : null);
   const { data: live } = useApi<any>(tab === 'live' ? '/nfl-betting/live' : null);
-  // Both of these were built, tested and left unreachable — routes with no page.
-  const { data: hold } = useApi<any>(tab === 'hold' ? '/betting/hold' : null);
+  // Venue costs moved to their own hub surface, where routing and live pricing
+  // sit alongside them — they belong together, not buried as a tab.
   // Abstentions and pipeline health moved to Audit > Diagnostics — they are
   // measurements of the system, not edges anyone can act on.
 
@@ -75,7 +75,7 @@ export default function Edges() {
       </p>
 
       <div className="flex gap-1 border-b border-slate-200 mb-4">
-        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement'], ['hold', 'Venue costs']] as const)
+        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement']] as const)
           .map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -298,65 +298,6 @@ export default function Edges() {
           </>
         )
       )}
-      {tab === 'hold' && (
-        !hold ? <div className="card p-6 text-sm text-slate-500">Measuring book hold…</div>
-        : hold.error ? <div className="card p-6 text-sm text-rose-600">{hold.error}</div>
-        : (
-          <>
-            <div className="card p-4 mb-3">
-              <h2 className="font-semibold text-slate-900">What each book charges you</h2>
-              <p className="text-sm text-slate-600 mt-1">
-                Hold is the book's cut: the two sides' implied probabilities summed, minus one. It is the
-                most reliable edge on this whole page because it needs no opinion about any game — the
-                spread between the cheapest and dearest book comes straight off your required win rate.
-              </p>
-            </div>
-            <div className="card p-4 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-xs uppercase tracking-wide text-slate-400">
-                  <tr><th className="py-1 text-left">Book</th><th className="text-right">Hold</th>
-                    <th className="text-right">Break-even</th><th className="text-right">Markets</th></tr>
-                </thead>
-                <tbody>
-                  {(hold.hold?.books ?? []).map((b: any) => (
-                    <tr key={b.book} className="border-t border-slate-100">
-                      <td className="py-1.5 font-medium text-slate-800">{b.book}</td>
-                      <td className="text-right tabular-nums text-slate-900">
-                        {b.hold == null ? '—' : (b.hold * 100).toFixed(2) + '%'}</td>
-                      <td className="text-right tabular-nums text-slate-600">
-                        {b.break_even == null ? '—' : (b.break_even * 100).toFixed(2) + '%'}</td>
-                      <td className="text-right tabular-nums text-slate-400">{b.markets_measured ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {hold.hold?.spread_in_hold != null && (
-                <p className="mt-3 text-sm text-slate-700">
-                  Cheapest is <strong>{hold.hold.best_book}</strong>, dearest is <strong>{hold.hold.worst_book}</strong> —
-                  a spread of <strong>{(hold.hold.spread_in_hold * 100).toFixed(2)}pp</strong> in hold, worth
-                  {' '}<strong>{(hold.hold.win_rate_saved * 100).toFixed(2)}pp</strong> off the win rate you need.
-                  That is free, today, and requires being right about nothing.
-                </p>
-              )}
-              {hold.hold?.note && <p className="mt-2 text-xs text-slate-500">{hold.hold.note}</p>}
-            </div>
-            {hold.comparison && (
-              <div className="card p-4 mt-3">
-                <h3 className="text-sm font-semibold text-slate-900">Sides vs player props</h3>
-                <p className="mt-1 text-sm text-slate-700">
-                  Cheapest NFL side is <strong>{hold.comparison.nfl_cheapest.book}</strong> at{' '}
-                  {(hold.comparison.nfl_cheapest.hold * 100).toFixed(2)}%; cheapest MLB prop is{' '}
-                  <strong>{hold.comparison.mlb_cheapest.book}</strong> at{' '}
-                  {(hold.comparison.mlb_cheapest.hold * 100).toFixed(2)}% — a prop premium of{' '}
-                  <strong>{(hold.comparison.prop_premium * 100).toFixed(2)}pp</strong>.
-                </p>
-                <p className="mt-2 text-xs text-slate-500">{hold.comparison.note}</p>
-              </div>
-            )}
-          </>
-        )
-      )}
-
     </div>
   );
 }

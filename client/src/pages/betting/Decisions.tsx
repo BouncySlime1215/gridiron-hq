@@ -46,10 +46,9 @@ export default function Decisions() {
   const { data, loading } = useApi<Compiled>('/betting/decisions');
   const { data: detail } = useApi<Detail[]>('/betting/decisions/detail');
 
-  // Gate on the DATA, not on the loading flag. Under repeated mounts the flag
-  // can stay true after the response has already arrived — the request that
-  // resolves is no longer the one the hook is tracking — and the page then sits
-  // on a spinner forever with a 200 in the network tab.
+  // Gate on data as well as the flag. The underlying race was fixed in useApi,
+  // but a page should still render the moment it has something to show rather
+  // than waiting on a boolean.
   if (!data && loading) {
     return <div className="card p-6 text-sm text-slate-500">Compiling decision bases…</div>;
   }

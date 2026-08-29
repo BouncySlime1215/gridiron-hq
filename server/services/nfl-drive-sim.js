@@ -961,3 +961,131 @@ export function edgeHunt({ season = 2025, trials = 300, maxGames = 140 } = {}) {
       `result here as a reason to test more seasons, never as a reason to size a bet.`
   };
 }
+
+/**
+ * Closing-line value: does our disagreement with the OPENING line predict which
+ * way the number then moves?
+ *
+ * This is the test that has been impossible here until opening lines were
+ * sourced, and it is a different question from every other backtest in this
+ * file. Those ask "do we forecast the game better than the closing line", and
+ * the answer is a settled no. This asks "do we see something the market has not
+ * priced YET" — and those two can both be true, because a closing line is the
+ * market's final word while an opening line is its first guess.
+ *
+ * Why it matters more than win rate: line movement is far less noisy than game
+ * outcomes. A model with a genuine 2% edge needs thousands of settled bets
+ * before that edge separates from variance, but the same model shows up in CLV
+ * within a couple of hundred games, because the market is aggregating
+ * information rather than flipping coins. CLV is how professionals grade a bet
+ * they have already placed, and it is the only edge measurement that returns a
+ * verdict on a useful timescale.
+ *
+ * Walk-forward and cutoff-safe: profiles come from seasons strictly earlier.
+ */
+export function clvReport({ season = 2021, trials = 300, maxGames = 300 } = {}) {
+  const games = rows(
+    `SELECT season, week, team, opponent, spread, open_spread, total, open_total,
+            team_score, opp_score
+     FROM game_lines
+     WHERE home = 1 AND season = ? AND open_spread IS NOT NULL AND spread IS NOT NULL
+       AND team_score IS NOT NULL AND opp_score IS NOT NULL
+     ORDER BY week LIMIT ?`, season, maxGames);
+  if (games.length < 20) {
+    return { error: `only ${games.length} games with both opening and closing lines for ${season}`,
+      hint: 'Run ingestOpeningLines() in nfl-opening-lines.js first.' };
+  }
+
+  const prof = blendedProfiles({ season: season - 1 });
+  const surface = epFor(prof.league);
+  const ep = y => expectedPoints(surface, y);
+
+  const recs = [];
+  withRandomSeed(2468, () => {
+    for (const g of games) {
+      const H = prof.teams.get(g.team), A = prof.teams.get(g.opponent);
+      if (!H || !A) continue;
+      const hc = buildContext(H, A, prof.league), ac = buildContext(A, H, prof.league);
+      let sum = 0;
+      for (let i = 0; i < trials; i++) {
+        const s = simulateGame(hc, ac, ep, { homeFieldPoints: 1.6, spread: g.open_spread });
+        sum += s.home - s.away;
+      }
+      const simMargin = sum / trials;
+      // Market-implied margins. A -3 home spread implies a 3-point home win.
+      const openMargin = -g.open_spread, closeMargin = -g.spread;
+      const lineMove = closeMargin - openMargin;          // + = moved toward home
+      const ourLean = simMargin - openMargin;             // + = we like home more than the open
+      const actual = g.team_score - g.opp_score;
+
+      recs.push({
+        week: g.week, matchup: `${g.opponent} at ${g.team}`,
+        open: g.open_spread, close: g.spread,
+        sim_margin: r2(simMargin), our_lean: r2(ourLean), line_move: r2(lineMove),
+        // Did the line move the way we leaned? Games where it did not move are
+        // excluded rather than scored as wrong — there was nothing to be right about.
+        clv_correct: Math.abs(lineMove) < 0.5 ? null
+          : (Math.sign(ourLean) === Math.sign(lineMove)),
+        // How many points of CLV the bet actually captured.
+        clv_points: r2(Math.sign(ourLean) * lineMove),
+        // ATS against the OPENING number — the one a bettor actually faces.
+        ats_open: actual + g.open_spread === 0 ? null : ((simMargin > openMargin) === (actual + g.open_spread > 0)),
+        ats_close: actual + g.spread === 0 ? null : ((simMargin > closeMargin) === (actual + g.spread > 0))
+      });
+    }
+  });
+  if (!recs.length) return { error: 'no games could be simulated from prior-season profiles' };
+
+  const rate = (list, key) => {
+    const g = list.filter(r => r[key] != null);
+    const w = g.filter(r => r[key]).length;
+    const n = g.length;
+    const p = n ? w / n : null;
+    // Standard error on a proportion, so a result is never read without its noise.
+    const se = n ? Math.sqrt(0.25 / n) : null;
+    return { n, wins: w, losses: n - w, rate: r4(p),
+      standard_error: r4(se), z_vs_coinflip: p != null && se ? r2((p - 0.5) / se) : null };
+  };
+
+  const clv = rate(recs, 'clv_correct');
+  const atsOpen = rate(recs, 'ats_open');
+  const atsClose = rate(recs, 'ats_close');
+  const clvPoints = recs.filter(r => r.clv_points != null).map(r => r.clv_points);
+  const meanClv = mean(clvPoints);
+
+  // Does the size of our disagreement predict the size of the move? A real
+  // signal should show a positive slope, not just a coin-flip beating rate.
+  const xs = recs.map(r => r.our_lean), ys = recs.map(r => r.line_move);
+  const mx = mean(xs), my = mean(ys);
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < xs.length; i++) {
+    sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2;
+  }
+  const slope = sxx > 0 ? sxy / sxx : null;
+  const rsq = sxx > 0 && syy > 0 ? (sxy * sxy) / (sxx * syy) : null;
+
+  return {
+    season, games_tested: recs.length, trials_each: trials,
+    profiles_from_season: prof.season,
+    clv: { ...clv, mean_points_captured: r2(meanClv),
+      beat_the_close: meanClv != null && meanClv > 0 },
+    ats_vs_opening_line: atsOpen,
+    ats_vs_closing_line: atsClose,
+    lean_predicts_move: { slope: r4(slope), r_squared: r4(rsq) },
+    verdict: clv.z_vs_coinflip != null && clv.z_vs_coinflip > 2
+      ? `Our lean predicts line movement ${(clv.rate * 100).toFixed(1)}% of the time ` +
+        `(z=${clv.z_vs_coinflip}), capturing ${r2(meanClv)} points of CLV per game. That is a real ` +
+        `signal and the first positive edge measurement in this project — worth capturing lines ` +
+        `prospectively to confirm on a larger sample.`
+      : `Our lean predicts line movement ${(clv.rate * 100).toFixed(1)}% of the time ` +
+        `(z=${clv.z_vs_coinflip}), capturing ${r2(meanClv)} points per game. Not distinguishable ` +
+        `from chance at this sample size.`,
+    biggest_leans: [...recs].sort((a, b) => Math.abs(b.our_lean) - Math.abs(a.our_lean)).slice(0, 8),
+    note: 'CLV is graded only on games where the line actually moved half a point or more — a game ' +
+      'that never moved offered nothing to be right or wrong about. ATS is reported against BOTH ' +
+      'the opening and closing number, because the opening line is what a bettor faces and the ' +
+      'closing line is what measures forecasting skill. Sample is one season; a positive result is ' +
+      'a reason to capture lines going forward, not a reason to size a bet.'
+  };
+}
+

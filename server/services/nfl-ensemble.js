@@ -22,6 +22,7 @@
  * rather than imported.
  */
 import { db, rows, run } from '../db/index.js';
+import { availabilityDeficit } from './nfl-availability.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { mean } from './stats-util.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
@@ -289,6 +290,24 @@ function featureAggregates(season, week) {
  * return null for either when it has no opinion on that quantity.
  */
 const MODELS = [
+  /* ---- availability ---- */
+  {
+    id: 'availability', name: 'Injury availability', family: 'Roster availability',
+    note: 'Weighted share of each team\'s playing time that is unavailable, from the official ' +
+      'injury report. The first model here to read the injury table at all.',
+    predict: (c) => {
+      const h = c.avail?.get(String(c.home).toUpperCase()) ?? null;
+      const a = c.avail?.get(String(c.away).toUpperCase()) ?? null;
+      // No injury report is missing evidence, not a healthy team. Returning zero
+      // would hand this model real ensemble weight for saying nothing, which is
+      // the mistake the feature-differential models were already fixed for.
+      if (h == null && a == null) return { margin: null, total: null };
+      const raw = (a ?? 0) - (h ?? 0);
+      const cal = c.cal?.availability;
+      if (cal) return { margin: cal.b0 + cal.b1 * raw, total: null };
+      return { margin: raw * 1.2 + c.hfa, total: null };
+    }
+  },
   /* ---- rating systems ---- */
   {
     id: 'massey', name: 'Massey least squares', family: 'Rating systems',
@@ -567,6 +586,9 @@ function sharedContext(g, hist) {
     agg, recent,
     massey: massey(hist), colley: colley(hist), melo: meloRatings(hist), dynamic: dynamicStrength(hist),
     feat: featureAggregates(g.season, g.week),
+    // Injury availability. The forecasting model has never had this — seventeen
+    // thousand injury rows sat in a table nfl-ensemble.js never referenced.
+    avail: availabilityDeficit(g.season, g.week),
     reg: marketRegression(hist)
   };
   _sharedContextCache.set(key, shared);
@@ -596,6 +618,10 @@ function buildContext(g, hist, restMap) {
 function calibrate(all, restMap, evalFrom) {
   const train = all.filter(g => g.season < evalFrom);
   const ids = ['epa_net', 'epa_neutral', 'success_rate', 'explosive', 'drive_eff', 'situational', 'trenches'];
+  // Availability is calibrated separately because its raw differential comes
+  // from the injury report rather than the play-by-play feature table, and it
+  // is only available from 2023 on.
+  const availPairs = [];
   const pairs = Object.fromEntries(ids.map(i => [i, []]));
 
   const weeks = [...new Set(train.map(g => `${g.season}|${g.week}`))];
@@ -612,6 +638,12 @@ function calibrate(all, restMap, evalFrom) {
       const actual = g.home_score - g.away_score;
       const raw = rawDifferentials(feat, g.home, g.away);
       for (const id of ids) if (raw[id] != null) pairs[id].push([raw[id], actual]);
+      const def = availabilityDeficit(season, week);
+      if (def.size) {
+        const hd = def.get(String(g.home).toUpperCase()) ?? 0;
+        const ad = def.get(String(g.away).toUpperCase()) ?? 0;
+        if (hd || ad) availPairs.push([ad - hd, actual]);
+      }
     }
   }
 
@@ -631,6 +663,8 @@ function calibrate(all, restMap, evalFrom) {
     const f = fitLine(pairs[id]);
     if (f) out[id] = f;
   }
+  const availFit = fitLine(availPairs);
+  if (availFit) out.availability = availFit;
 
   // Rest differential, fitted on the same era. The replay found short-week
   // games were the largest systematic miss, so how much a day of rest is

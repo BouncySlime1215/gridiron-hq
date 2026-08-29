@@ -911,4 +911,44 @@ r.get('/pbp/formations', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- opening lines and CLV */
+
+/** Backfill opening lines from nflverse — the columns that shipped empty. */
+r.post('/lines/opening/ingest', async (req, res, next) => {
+  try {
+    const { ingestOpeningLines } = await import('../services/nfl-opening-lines.js');
+    res.json(await ingestOpeningLines({}));
+  } catch (e) { next(e); }
+});
+
+/** What opening-line coverage exists, and how far the number moves before close. */
+r.get('/lines/opening', async (req, res, next) => {
+  try {
+    const m = await import('../services/nfl-opening-lines.js');
+    const season = Number(req.query.season) || 2021;
+    res.json({ coverage: m.openingLineCoverage(), movement: m.closingLineValue({ season }) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Closing-line value: does our disagreement with the opening number predict
+ * which way the line then moves? The only edge test that returns a verdict in
+ * weeks rather than seasons.
+ */
+r.get('/clv', async (req, res, next) => {
+  try {
+    const { clvReport } = await import('../services/nfl-drive-sim.js');
+    res.json(clvReport({ season: Number(req.query.season) || 2021,
+      trials: Math.min(500, Number(req.query.trials) || 250) }));
+  } catch (e) { next(e); }
+});
+
+/** The injury availability feature the spread model never had. */
+r.get('/availability', async (req, res, next) => {
+  try {
+    const { availabilityAudit } = await import('../services/nfl-availability.js');
+    res.json(availabilityAudit({ season: Number(req.query.season) || 2024 }));
+  } catch (e) { next(e); }
+});
+
 export default r;

@@ -319,6 +319,12 @@ export const JOBS = {
   // above when a credit is actually worth spending.
   espn_line_watch: { run: () => import('./nfl-espn-line-watch.js').then(m => m.refreshEspnLineWatch()),
     maxAgeMinutes: 15, label: 'Reference-line movement detector (free, no quota)' },
+  // Also free and unmetered. It only fetches games that are actually in
+  // progress, so on a Tuesday this costs one scoreboard request and stops. On a
+  // Sunday it keeps the live simulator fed with real game state, and every play
+  // it stores also sharpens the team profiles the pregame model runs on.
+  nfl_play_by_play: { run: () => import('./nfl-espn-pbp.js').then(m => m.pollLiveGames({})),
+    maxAgeMinutes: 3, label: 'Live NFL play-by-play (free, no quota)' },
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60,
     label: 'NFL weekly snapshot, settlement, and challenger retraining' },

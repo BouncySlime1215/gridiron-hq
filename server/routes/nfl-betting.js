@@ -775,4 +775,140 @@ r.post('/lines/sync-now', async (req, res, next) => {
   catch (e) { next(e); }
 });
 
+/* ------------------------------------------------ play-by-play simulator */
+
+/**
+ * Simulate a matchup play by play. The joint score distribution this returns is
+ * what makes moneyline, spread and total mutually consistent — they are all
+ * counted off the same simulated games.
+ */
+r.get('/sim/matchup', async (req, res, next) => {
+  try {
+    const { simulateMatchup } = await import('../services/nfl-drive-sim.js');
+    res.json(simulateMatchup({
+      home: req.query.home, away: req.query.away,
+      trials: Math.min(20000, Number(req.query.trials) || 8000),
+      spread: req.query.spread == null ? null : Number(req.query.spread),
+      total: req.query.total == null ? null : Number(req.query.total),
+      season: req.query.season ? Number(req.query.season) : null,
+      sampleDrives: req.query.drives === '1'
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Does the engine reproduce real NFL scoring? Reported pass or fail. */
+r.get('/sim/calibration', async (req, res, next) => {
+  try {
+    const { calibrationReport } = await import('../services/nfl-drive-sim.js');
+    res.json(calibrationReport({ trials: Math.min(600, Number(req.query.trials) || 250),
+      games: Math.min(60, Number(req.query.games) || 35) }));
+  } catch (e) { next(e); }
+});
+
+/** The only question that matters: does it beat the closing line? */
+r.get('/sim/backtest', async (req, res, next) => {
+  try {
+    const { backtest } = await import('../services/nfl-drive-sim.js');
+    res.json(backtest({ season: Number(req.query.season) || 2025,
+      trials: Math.min(500, Number(req.query.trials) || 250),
+      maxGames: Math.min(200, Number(req.query.games) || 90) }));
+  } catch (e) { next(e); }
+});
+
+/** The twenty strategic decision modules, and where each one comes from. */
+r.get('/sim/modules', async (req, res, next) => {
+  try {
+    const { moduleCatalog } = await import('../services/nfl-sim-policy.js');
+    res.json(moduleCatalog());
+  } catch (e) { next(e); }
+});
+
+/** How hard each learned rate is shrunk, and the minimax diagnostic. */
+r.get('/sim/learning', async (req, res, next) => {
+  try {
+    const L = await import('../services/nfl-sim-learn.js');
+    res.json({
+      shrinkage: L.shrinkageReport({}),
+      minimax: L.minimaxDiagnostic({}),
+      play_influence: L.playInfluenceReport({})
+    });
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------- ESPN play-by-play feed */
+
+/** What the play corpus holds right now. */
+r.get('/pbp/status', async (req, res, next) => {
+  try {
+    const { pbpStatus } = await import('../services/nfl-espn-pbp.js');
+    res.json(pbpStatus());
+  } catch (e) { next(e); }
+});
+
+/** Ingest completed games to grow the corpus the model learns from. */
+r.post('/pbp/ingest', async (req, res, next) => {
+  try {
+    const { ingestCompleted } = await import('../services/nfl-espn-pbp.js');
+    res.json(await ingestCompleted({ date: req.query.date ?? null,
+      limit: Math.min(20, Number(req.query.limit) || 16) }));
+  } catch (e) { next(e); }
+});
+
+/** Poll games currently in progress. Free — ESPN charges nothing for this. */
+r.post('/pbp/poll', async (req, res, next) => {
+  try {
+    const { pollLiveGames } = await import('../services/nfl-espn-pbp.js');
+    res.json(await pollLiveGames({ date: req.query.date ?? null }));
+  } catch (e) { next(e); }
+});
+
+/** Does the engine's play distribution match the real play log? */
+r.get('/pbp/audit', async (req, res, next) => {
+  try {
+    const { playDistributionAudit } = await import('../services/nfl-espn-pbp.js');
+    res.json(await playDistributionAudit({
+      season: req.query.season ? Number(req.query.season) : null }));
+  } catch (e) { next(e); }
+});
+
+/** Finish a live game from its actual current state, thousands of times. */
+r.get('/pbp/live/:eventId', async (req, res, next) => {
+  try {
+    const { simulateLiveGame } = await import('../services/nfl-espn-pbp.js');
+    res.json(await simulateLiveGame(req.params.eventId, {
+      trials: Math.min(10000, Number(req.query.trials) || 4000),
+      spread: req.query.spread == null ? null : Number(req.query.spread),
+      total: req.query.total == null ? null : Number(req.query.total) }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Backfill whole seasons of play-by-play from ESPN.
+ *
+ * Free and unmetered, but long-running — five seasons is roughly 1,400 games —
+ * so it answers immediately and keeps working in the background rather than
+ * holding a request open for ten minutes.
+ */
+r.post('/pbp/backfill', async (req, res, next) => {
+  try {
+    const { backfillSeasons } = await import('../services/nfl-espn-pbp.js');
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025')
+      .split(',').map(Number).filter(Number.isFinite);
+    if (req.query.wait === '1') {
+      return res.json(await backfillSeasons({ seasons }));
+    }
+    backfillSeasons({ seasons }).catch(() => {});
+    res.json({ started: true, seasons,
+      note: 'Running in the background. Poll GET /nfl-betting/pbp/status to watch the corpus grow.' });
+  } catch (e) { next(e); }
+});
+
+/** Shotgun, no-huddle and pass-depth splits measured from real play text. */
+r.get('/pbp/formations', async (req, res, next) => {
+  try {
+    const { formationReport } = await import('../services/nfl-espn-pbp.js');
+    res.json(formationReport({ season: req.query.season ? Number(req.query.season) : null }));
+  } catch (e) { next(e); }
+});
+
 export default r;

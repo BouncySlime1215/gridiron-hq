@@ -12,6 +12,7 @@ import Training from './betting/Training';
 const EnsemblePage = lazy(() => import('./betting/Ensemble'));
 const LineShop = lazy(() => import('./betting/LineShop'));
 const Edges = lazy(() => import('./betting/Edges'));
+const GameSimulator = lazy(() => import('./betting/GameSimulator'));
 const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 const NflProps = lazy(() => import('./betting/NflProps'));
 
@@ -95,7 +96,7 @@ const STATUS_STYLE: Record<string, string> = {
   Pending: 'bg-white text-slate-600 border-slate-300'
 };
 
-type HubTool = 'edges' | 'board' | 'model' | 'audit';
+type HubTool = 'edges' | 'board' | 'simulator' | 'model' | 'audit';
 type InitialTool = HubTool | 'ensemble' | 'training' | 'lines' | 'variables' | 'operations' | 'info' | 'props' | 'edges';
 const HUB_TOOLS: { id: HubTool; label: string; note: string }[] = [
   // Edges leads because it is the part that works. The auto-pick model sits
@@ -104,12 +105,17 @@ const HUB_TOOLS: { id: HubTool; label: string; note: string }[] = [
   // clearest thing wrong with the old information architecture.
   { id: 'edges', label: 'Edges', note: 'Shopping · teasers · correlation' },
   { id: 'board', label: 'Board', note: 'Games · props · prices' },
+  // The play simulator is a genuinely different kind of model — it plays games
+  // rather than predicting margins — so it gets its own slot instead of being
+  // buried as a tab under a margin model it does not resemble.
+  { id: 'simulator', label: 'Simulator', note: 'Play-by-play · totals · live' },
   { id: 'model', label: 'Model', note: 'Ensemble · variables · method' },
   { id: 'audit', label: 'Audit', note: 'Blind replay · promotion gates' }
 ];
 const normalizeInitial = (tool: InitialTool): HubTool =>
   ['ensemble', 'variables', 'info', 'model'].includes(tool) ? 'model'
     : ['training', 'operations', 'audit'].includes(tool) ? 'audit'
+    : tool === 'simulator' ? 'simulator'
     : tool === 'edges' ? 'edges' : 'board';
 
 export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?: InitialTool }) {
@@ -271,6 +277,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
 
       {tool === 'board' && decisionView === 'props' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading shared player engine', 'Simulating joint events', 'Rendering prop board']} />}><NflProps /></Suspense>}
       {tool === 'board' && decisionView === 'lines' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading line shop', 'Checking quote cache', 'Rendering market view']} />}><LineShop /></Suspense>}
+      {tool === 'simulator' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading team rates', 'Building expected-points surface', 'Simulating games']} />}><GameSimulator /></Suspense>}
       {tool === 'edges' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading structural edges', 'Fitting parlay correlations', 'Reading the movement log']} />}><Edges /></Suspense>}
       {tool === 'model' && modelView === 'ensemble' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading model room', 'Hydrating ensemble controls', 'Ready for live inputs']} />}><EnsemblePage /></Suspense>}
       {tool === 'model' && modelView === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}

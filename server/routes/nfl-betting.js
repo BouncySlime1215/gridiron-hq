@@ -1115,4 +1115,39 @@ r.get('/formations/charting', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- officials and GBM */
+
+/** Ingest every referee assignment nflverse has. */
+r.post('/officials/ingest', async (req, res, next) => {
+  try {
+    const { ingestOfficials } = await import('../services/nfl-officials.js');
+    res.json(await ingestOfficials());
+  } catch (e) { next(e); }
+});
+
+/** Does the referee crew move a total? Corrected for having examined them all. */
+r.get('/officials/totals', async (req, res, next) => {
+  try {
+    const { refereeTotals, officialsStatus } = await import('../services/nfl-officials.js');
+    res.json({ ...refereeTotals({ minGames: Number(req.query.min_games) || 25 }),
+      corpus: officialsStatus() });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Gradient-boosted trees on the residual the market leaves behind.
+ *
+ * A different model class from everything else here, aimed at the only target
+ * that can pay: what the closing line MISSED, rather than the margin itself.
+ */
+r.get('/gbm', async (req, res, next) => {
+  try {
+    const { gbmWalkForward } = await import('../services/nfl-gbm.js');
+    res.json(gbmWalkForward({
+      trees: Math.min(200, Number(req.query.trees) || 60),
+      maxDepth: Math.min(6, Number(req.query.depth) || 3),
+      learningRate: Number(req.query.lr) || 0.05 }));
+  } catch (e) { next(e); }
+});
+
 export default r;

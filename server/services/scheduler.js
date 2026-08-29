@@ -305,30 +305,30 @@ async function refreshModelWatch() {
  * slate, box scores only settle after games end, and NFL lines move all week.
  */
 export const JOBS = {
-  mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, label: 'MLB schedule and results' },
-  mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, label: 'MLB player game logs' },
-  mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, label: 'MLB final boxscore settlement' },
-  mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, label: 'MLB probable starters' },
-  mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, label: "Tomorrow's MLB picks" },
-  player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60,
+  mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, tier: 'live', label: 'MLB schedule and results' },
+  mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'MLB player game logs' },
+  mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, tier: 'live', label: 'MLB final boxscore settlement' },
+  mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, tier: 'live', label: 'MLB probable starters' },
+  mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, tier: 'heavy', label: "Tomorrow's MLB picks" },
+  player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live',
     label: 'Player team assignments — the actual fix for stale roster spots' },
-  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, label: 'NFL betting lines' },
-  nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, label: 'Multi-book line snapshots (CLV)' },
+  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, tier: 'metered', label: 'NFL betting lines' },
+  nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, tier: 'metered', label: 'Multi-book line snapshots (CLV)' },
   // Free — ESPN's public scoreboard, no key and no quota — so this runs far more
   // often than the metered jobs. It is the trigger that tells the paid capture
   // above when a credit is actually worth spending.
   espn_line_watch: { run: () => import('./nfl-espn-line-watch.js').then(m => m.refreshEspnLineWatch()),
-    maxAgeMinutes: 15, label: 'Reference-line movement detector (free, no quota)' },
+    maxAgeMinutes: 15, tier: 'live', label: 'Reference-line movement detector (free, no quota)' },
   // Also free and unmetered. It only fetches games that are actually in
   // progress, so on a Tuesday this costs one scoreboard request and stops. On a
   // Sunday it keeps the live simulator fed with real game state, and every play
   // it stores also sharpens the team profiles the pregame model runs on.
   nfl_play_by_play: { run: () => import('./nfl-espn-pbp.js').then(m => m.pollLiveGames({})),
-    maxAgeMinutes: 3, label: 'Live NFL play-by-play (free, no quota)' },
-  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, label: 'Forward evidence capture windows' },
-  nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60,
+    maxAgeMinutes: 3, tier: 'live', label: 'Live NFL play-by-play (free, no quota)' },
+  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', label: 'Forward evidence capture windows' },
+  nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'NFL weekly snapshot, settlement, and challenger retraining' },
-  nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60,
+  nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'NFL chronological prop calibration registry' },
   /*
    * Prop quote capture. Every hour during a slate, because a prop line that is
@@ -340,24 +340,24 @@ export const JOBS = {
    * never been measured against a real price at all, because this archive has
    * always been empty. No key configured means it no-ops harmlessly.
    */
-  nfl_prop_capture: { run: refreshPropCapture, maxAgeMinutes: 60,
+  nfl_prop_capture: { run: refreshPropCapture, maxAgeMinutes: 60, tier: 'metered',
     label: 'NFL prop market capture (CLV evidence)' },
-  nfl_news_signals: { run: refreshNflNewsSignals, maxAgeMinutes: 60,
+  nfl_news_signals: { run: refreshNflNewsSignals, maxAgeMinutes: 60, tier: 'live',
     label: 'Typed NFL news, injury and role signals' },
   /*
    * The evaluation loop. Proposes and reports; cannot promote. Daily is the
    * right cadence — it is watching for drift and for candidates that start
    * clearing the bar as data accumulates, neither of which moves hourly.
    */
-  nfl_model_watch: { run: refreshModelWatch, maxAgeMinutes: 24 * 60,
+  nfl_model_watch: { run: refreshModelWatch, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'Model drift watch and candidate discovery (report only)' },
-  twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60,
+  twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
-  nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60,
+  nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live',
     label: 'Official practice reports (nflverse injuries release)' },
-  nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30,
+  nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30, tier: 'live',
     label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' },
-  team_analyses: { run: refreshTeamAnalyses, maxAgeMinutes: 4 * 60,
+  team_analyses: { run: refreshTeamAnalyses, maxAgeMinutes: 4 * 60, tier: 'heavy',
     label: "X's & O's writeups — self-limited to teams with news newer than their analysis" }
 };
 
@@ -414,45 +414,93 @@ export function refreshInBackground(jobs = ['mlb_schedule']) {
 /* ------------------------------------------------------------------- timer */
 
 let timer = null;
+let liveTimer = null;
 
 /**
  * Starts the background timer. Runs a catch-up pass shortly after boot — an app
  * that has been closed for a week should not wait for the first interval — then
  * settles into a regular check.
  */
-export function startScheduler({ intervalMinutes = 30, bootDelayMs = 20000 } = {}) {
+const jobsInTier = tier => Object.entries(JOBS).filter(([, j]) => j.tier === tier).map(([n]) => n);
+
+/**
+ * Starts the background timers.
+ *
+ * There are two, deliberately, because the jobs in this file have wildly
+ * different costs and the previous single-timer design could not express that.
+ * It ran a hardcoded list of six jobs every thirty minutes and everything else
+ * only when AUTO_HEAVY_SYNC was set — which in practice meant never. The free
+ * ESPN feeds were the casualties: the reference-line movement detector had run
+ * three times in the life of the database despite declaring a fifteen-minute
+ * cadence, and the live play-by-play poller had never run at all. A model
+ * cannot react to information it is not being given.
+ *
+ * LIVE tier — free, keyless, fast, and the only tier where latency matters.
+ * Play-by-play during a game, line movement, the transaction wire. Polled on a
+ * short tick, because a fifteen-minute job on a thirty-minute timer is a
+ * thirty-minute job, and a three-minute job on it is useless.
+ *
+ * METERED tier — costs API credits or counts against a spend cap. Runs on the
+ * slow tick and each job still enforces its own budget internally.
+ *
+ * HEAVY tier — long compute (season simulations, retraining, LLM writeups).
+ * Still gated behind AUTO_HEAVY_SYNC so a laptop is not silently pinned.
+ *
+ * Every tier goes through `runIfStale`, so a short tick never re-runs a job
+ * before its own `maxAgeMinutes` allows it. The tick is an upper bound on
+ * responsiveness, not a schedule.
+ */
+export function startScheduler({
+  intervalMinutes = 30, liveIntervalSeconds = 90, bootDelayMs = 20000
+} = {}) {
   if (timer) return { already_running: true };
-  // Keep launch interactive. MLB player-log ingestion can process thousands of
+
+  // Keep launch interactive. MLB player-log ingestion processes thousands of
   // responses and tomorrow-pick generation runs large simulations; doing either
   // on the main thread twenty seconds after boot made every API request hang.
-  // The boot pass is restricted to light network jobs. Heavy jobs still run on
-  // the interval and through explicit refresh controls.
-  const bootJobs = ['mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'evidence_daemon', 'nfl_weekly_learning'];
+  const bootJobs = ['mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
+    'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);
-  const scheduledJobs = process.env.AUTO_HEAVY_SYNC === '1' ? Object.keys(JOBS) : bootJobs;
+
+  const live = jobsInTier('live');
+  const metered = jobsInTier('metered');
+  const heavy = process.env.AUTO_HEAVY_SYNC === '1' ? jobsInTier('heavy') : [];
+
+  liveTimer = setInterval(() => {
+    (async () => { for (const j of live) await runIfStale(j); })().catch(() => {});
+  }, liveIntervalSeconds * 1000);
+  liveTimer.unref?.();
+
   timer = setInterval(() => {
-    (async () => { for (const j of scheduledJobs) await runIfStale(j); })().catch(() => {});
+    (async () => { for (const j of [...metered, ...heavy]) await runIfStale(j); })().catch(() => {});
   }, intervalMinutes * 60000);
   timer.unref?.();  // never hold the process open just for this
-  return { started: true, interval_minutes: intervalMinutes };
+
+  return { started: true, interval_minutes: intervalMinutes,
+    live_interval_seconds: liveIntervalSeconds,
+    live_jobs: live.length, metered_jobs: metered.length, heavy_jobs: heavy.length,
+    heavy_enabled: process.env.AUTO_HEAVY_SYNC === '1' };
 }
 
 export function stopScheduler() {
   if (timer) { clearInterval(timer); timer = null; }
+  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
   return { stopped: true };
 }
 
 export function schedulerStatus() {
   return {
     running: Boolean(timer),
+    live_timer_running: Boolean(liveTimer),
+    heavy_enabled: process.env.AUTO_HEAVY_SYNC === '1',
     today: today(),
     jobs: Object.entries(JOBS).map(([name, j]) => {
       const l = lastRun(name);
       const age = minutesSince(name);
       return {
-        job: name, label: j.label,
+        job: name, label: j.label, tier: j.tier ?? 'heavy',
         max_age_minutes: j.maxAgeMinutes,
         last_run_at: l?.last_run_at ?? null,
         age_minutes: Number.isFinite(age) ? Math.round(age) : null,

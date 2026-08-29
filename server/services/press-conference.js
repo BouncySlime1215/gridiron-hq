@@ -74,7 +74,7 @@ export const TEAM_CHANNEL_HANDLES = Object.freeze({
   CAR: 'carolinapanthers', CHI: 'chicagobears', CIN: 'Bengals', CLE: 'Browns',
   DAL: 'DallasCowboys', DEN: 'Broncos', DET: 'detroitlionsnfl', GB: 'Packers',
   HOU: 'houstontexans', IND: 'Colts', JAX: 'Jaguars',
-  KC: 'KansasCityChiefs', LAC: 'Chargers', LAR: 'RamsNFL', LV: 'Raiders',
+  KC: 'KansasCityChiefs', LAC: 'Chargers', LAR: 'LARams', LV: 'Raiders',
   MIA: 'miamidolphins', MIN: 'Vikings', NE: 'Patriots', NO: 'neworleanssaints',
   NYG: 'nygiants', NYJ: 'nyjets', PHI: 'eagles', PIT: 'Steelers',
   SEA: 'seahawks', SF: '49ers', TB: 'Buccaneers',

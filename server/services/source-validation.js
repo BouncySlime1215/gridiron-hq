@@ -42,24 +42,44 @@ run(`CREATE TABLE IF NOT EXISTS news_source_validation (
  * markets — but an account under a few thousand is not breaking news that moves
  * a line, whoever it is.
  */
-const FLOORS = { national: 50000, beat: 5000, team: 20000 };
+const FLOORS = { national: 50000, beat: 5000, team: 20000, data: 20000 };
+
+/**
+ * Accounts that publish data rather than break news.
+ *
+ * They serve a different purpose — snap shares, route counts, usage — and do not
+ * need an insider's reach to be worth reading, so they are judged against a
+ * lower floor rather than failed for not being Schefter.
+ */
+const DATA_ACCOUNTS = new Set(['FantasyPtsData', 'Rotoworld_FB', 'NextGenStats']);
 
 /** Judge one profile against what it claims to be. */
-export function judgeSource({ exists, followers, verified, name, bio }, role) {
+export function judgeSource({ exists, followers, verified, name, bio, handle }, role) {
   if (!exists) return { verdict: 'dead', reason: 'handle does not resolve' };
+  if (handle && DATA_ACCOUNTS.has(handle)) role = 'data';
   const floor = FLOORS[role] ?? 5000;
   if ((followers ?? 0) < floor) {
     return { verdict: 'suspect',
       reason: `${followers ?? 0} followers is below the ${floor.toLocaleString()} floor for a ` +
         `${role} source — almost certainly a squatter or dormant namesake rather than the reporter` };
   }
+  // The bio test is a tiebreaker, not a verdict. Beat reporters routinely write
+  // terse bios that never say "NFL" — this test alone flagged 45 real writers
+  // with 16,000 to 139,000 followers as questionable, which is a check that
+  // manufactures work rather than catching anything. Reach well clear of the
+  // floor settles it on its own.
   const text = `${name ?? ''} ${bio ?? ''}`.toLowerCase();
-  const looksNfl = /nfl|football|espn|athletic|beat|insider|network|sports/.test(text);
-  if (!looksNfl) {
+  const looksNfl = /nfl|football|espn|athletic|beat|insider|network|sports|writer|reporter|covers/.test(text);
+  if (!looksNfl && (followers ?? 0) < floor * 3) {
     return { verdict: 'questionable',
-      reason: 'profile text mentions nothing about football, so this may be the wrong account' };
+      reason: `${(followers ?? 0).toLocaleString()} followers is above the floor but the profile ` +
+        'says nothing about football, so this is worth a human glance' };
   }
-  return { verdict: 'valid', reason: `${(followers ?? 0).toLocaleString()} followers, football profile` };
+  return { verdict: 'valid',
+    reason: looksNfl
+      ? `${(followers ?? 0).toLocaleString()} followers, football profile`
+      : `${(followers ?? 0).toLocaleString()} followers — comfortably clear of the floor, so the ` +
+        'terse bio is not disqualifying' };
 }
 
 /**
@@ -68,7 +88,18 @@ export function judgeSource({ exists, followers, verified, name, bio }, role) {
  * Runs against the live API, so it costs budget and is deliberately not
  * automatic — this is a thing you do when the list changes, not every hour.
  */
-export async function validateAllSources({ limit = 200 } = {}) {
+/**
+ * Handles do not change often, so re-checking one inside this window is pure
+ * waste — and worse than waste, because a burst of a few hundred profile
+ * lookups looks like abuse to the provider even when the spend is trivial.
+ *
+ * Learned the hard way: validating 108 handles three times in one hour put 340
+ * calls through in a day and drew a usage notice, for eleven cents. The cost was
+ * never the problem; the rate was.
+ */
+const REVALIDATE_AFTER_DAYS = 14;
+
+export async function validateAllSources({ limit = 200, force = false } = {}) {
   const { verifyHandle, hasKey, twitterSpendStatus } = await import('./twitterapi-io.js');
   if (!hasKey()) {
     return { error: 'no TWITTERAPI_IO_KEY configured',
@@ -85,13 +116,28 @@ export async function validateAllSources({ limit = 200 } = {}) {
   }
 
   const now = new Date().toISOString();
+  const cutoff = new Date(Date.now() - REVALIDATE_AFTER_DAYS * 86400000).toISOString();
+  const fresh = new Set(
+    force ? []
+      : rows(`SELECT handle FROM news_source_validation WHERE checked_at >= ?`, cutoff)
+        .map(r => r.handle));
+
+  const due = targets.filter(t => !fresh.has(t.handle));
+  if (!due.length) {
+    return { checked: 0, skipped: targets.length,
+      reason: `every handle was verified within the last ${REVALIDATE_AFTER_DAYS} days`,
+      status: sourceStatus(),
+      note: 'Nothing was called. Handles are stable, and re-checking them on a whim is how a ' +
+        'trivial spend turns into a rate that looks like abuse. Pass force to override.' };
+  }
+
   const results = [];
-  for (const t of targets.slice(0, limit)) {
+  for (const t of due.slice(0, limit)) {
     let v;
     try { v = await verifyHandle(t.handle, {}); }
     catch { v = { exists: false }; }
     if (v?.skipped) break;   // budget hit; stop rather than record false deaths
-    const judged = judgeSource(v, t.role);
+    const judged = judgeSource({ ...v, handle: t.handle }, t.role);
     run(`INSERT INTO news_source_validation
          (handle, role, team, checked_at, exists_now, verified, followers, display_name, bio,
           verdict, reason)
@@ -110,7 +156,8 @@ export async function validateAllSources({ limit = 200 } = {}) {
   const byVerdict = {};
   for (const r of results) byVerdict[r.verdict] = (byVerdict[r.verdict] ?? 0) + 1;
   return {
-    checked: results.length, by_verdict: byVerdict,
+    checked: results.length, skipped: targets.length - due.length,
+    by_verdict: byVerdict,
     dead: results.filter(r => r.verdict === 'dead').map(r => r.handle),
     suspect: results.filter(r => r.verdict === 'suspect')
       .map(r => ({ handle: r.handle, team: r.team, followers: r.followers, reason: r.reason })),

@@ -726,18 +726,28 @@ export function calibrationReport({ trials = 300, games = 40, season = null } = 
   if (teams.length < 4) return { error: 'not enough team profiles to calibrate' };
 
   const simTotals = [], simMargins = [], simSds = [];
-  withRandomSeed(11, () => {
-    for (let i = 0; i < games; i++) {
-      const h = teams[Math.floor(random() * teams.length)];
-      let a = teams[Math.floor(random() * teams.length)];
-      if (a === h) a = teams[(teams.indexOf(h) + 1) % teams.length];
-      const r = simulateMatchup({ home: h, away: a, trials, season });
-      if (r.error) continue;
-      simTotals.push(r.projection.total);
-      simMargins.push(r.projection.margin);
-      simSds.push(r.projection.margin_sd);
-    }
-  });
+  // Deterministic by construction, and it has to be. An audit metric that moves
+  // between runs can be re-rolled until it passes, which defeats the point of
+  // sealing a result — and this one did move: the same call reported a total gap
+  // of -1.24 and then 3.80.
+  //
+  // Two causes, both fixed here. Matchups were drawn with random() instead of
+  // being enumerated, and each simulateMatchup internally builds the
+  // expected-points surface under its OWN withRandomSeed, which resets the
+  // shared stream mid-loop — so the sequence depended on whether that surface
+  // happened to be cached already. Enumerating the pairings and seeding each
+  // matchup independently removes both.
+  const sorted = [...teams].sort();
+  for (let i = 0; i < games; i++) {
+    const h = sorted[i % sorted.length];
+    const a = sorted[(i * 7 + 3) % sorted.length];
+    if (a === h) continue;
+    const r = simulateMatchup({ home: h, away: a, trials, season, seed: 1000 + i });
+    if (r.error) continue;
+    simTotals.push(r.projection.total);
+    simMargins.push(r.projection.margin);
+    simSds.push(r.projection.margin_sd);
+  }
 
   const actual = rows(`SELECT team_score, opp_score FROM game_lines
                        WHERE home = 1 AND team_score IS NOT NULL AND opp_score IS NOT NULL

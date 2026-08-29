@@ -43,6 +43,9 @@ run(`CREATE TABLE IF NOT EXISTS audit_registry (
   code_hash      TEXT NOT NULL,
   data_signature TEXT NOT NULL,
   status         TEXT NOT NULL,
+  require_significance INTEGER DEFAULT 0,
+  require_deterministic INTEGER DEFAULT 0,
+  significant    INTEGER,
   ran_at         TEXT,
   observed       REAL,
   passed         INTEGER,
@@ -53,6 +56,14 @@ run(`CREATE TABLE IF NOT EXISTS audit_registry (
 )`);
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
+
+// Columns added after the table shipped. CREATE TABLE IF NOT EXISTS does
+// nothing to an existing table, so an install that filed even one audit before
+// this change would keep the old schema and fail every insert.
+for (const col of ['require_significance INTEGER DEFAULT 0',
+  'require_deterministic INTEGER DEFAULT 0', 'significant INTEGER']) {
+  try { run(`ALTER TABLE audit_registry ADD COLUMN ${col}`); } catch { /* already present */ }
+}
 
 /**
  * A hash of the code that will produce the answer.
@@ -95,7 +106,8 @@ function dataSignature() {
  *
  * @param direction  'above' or 'below'; which side of `threshold` passes
  */
-export function preregister({ name, hypothesis, metric, direction = 'above', threshold } = {}) {
+export function preregister({ name, hypothesis, metric, direction = 'above', threshold,
+  requireSignificance = false, requireDeterministic = false } = {}) {
   if (!name || !hypothesis || !metric) {
     return { error: 'name, hypothesis and metric are all required — an audit without a stated ' +
       'hypothesis is just a number' };
@@ -111,12 +123,14 @@ export function preregister({ name, hypothesis, metric, direction = 'above', thr
   const res = row(
     `INSERT INTO audit_registry
      (name, hypothesis, metric, direction, threshold, preregistered_at, code_hash,
-      data_signature, status)
-     VALUES (?,?,?,?,?,?,?,?,'preregistered') RETURNING id`,
+      data_signature, status, require_significance, require_deterministic)
+     VALUES (?,?,?,?,?,?,?,?,'preregistered',?,?) RETURNING id`,
     name, hypothesis, metric, direction, threshold,
-    new Date().toISOString(), codeHash(), dataSignature());
+    new Date().toISOString(), codeHash(), dataSignature(),
+    requireSignificance ? 1 : 0, requireDeterministic ? 1 : 0);
 
   return { audit_id: res?.id, name, hypothesis, metric, direction, threshold,
+    require_significance: requireSignificance, require_deterministic: requireDeterministic,
     status: 'preregistered',
     note: 'The pass criterion is now locked. Running this audit will seal its result permanently; ' +
       'it cannot be re-run, and a second look requires a new preregistration that the registry will ' +
@@ -158,6 +172,25 @@ export async function runAudit(auditId, producer) {
     return { error: `audit producer threw: ${e.message}` };
   }
 
+  // A metric that moves between runs can be re-rolled until it passes, which is
+  // the same hole sealing was meant to close. When determinism is claimed, it is
+  // checked rather than trusted — this caught a calibration metric whose value
+  // depended on whether a cache happened to be warm.
+  let reproducible = null;
+  if (a.require_deterministic) {
+    try {
+      const second = await producer();
+      reproducible = Math.abs(Number(second?.observed) - Number(result?.observed)) < 1e-9;
+    } catch { reproducible = false; }
+    if (!reproducible) {
+      run(`UPDATE audit_registry SET status='void', void_reason=? WHERE id=?`,
+        'metric is not reproducible: two runs of the producer disagreed', auditId);
+      return { error: 'void: this audit declared a deterministic metric and it is not',
+        note: 'A metric that changes between runs can be retried until it passes. Fix the source of ' +
+          'randomness, or drop the determinism claim and accept that the result is one draw.' };
+    }
+  }
+
   const observed = Number(result?.observed);
   if (!Number.isFinite(observed)) {
     run(`UPDATE audit_registry SET status='error', void_reason=? WHERE id=?`,
@@ -165,22 +198,39 @@ export async function runAudit(auditId, producer) {
     return { error: 'the audit produced no finite observed value' };
   }
 
-  const passed = a.direction === 'above' ? observed > a.threshold : observed < a.threshold;
+  const meetsThreshold = a.direction === 'above' ? observed > a.threshold : observed < a.threshold;
   const dataMoved = nowData !== a.data_signature;
 
+  // Significance is judged against the correction for every hypothesis tested
+  // so far, not against a bare 0.05 — clearing a nominal threshold on the
+  // fourteenth attempt is not evidence of anything.
+  const priorTests = row(`SELECT COUNT(*) AS n FROM audit_registry WHERE status='sealed'`)?.n ?? 0;
+  const correctedAlpha = 1 - Math.pow(1 - 0.05, 1 / Math.max(1, priorTests + 1));
+  const p = Number.isFinite(result?.p_value) ? result.p_value : null;
+  const significant = p == null ? null : p < correctedAlpha;
+  const passed = a.require_significance
+    ? (meetsThreshold && significant === true)
+    : meetsThreshold;
+
   run(`UPDATE audit_registry SET status='sealed', ran_at=?, observed=?, passed=?, p_value=?,
-       sample_size=?, detail_json=?, void_reason=? WHERE id=?`,
+       sample_size=?, detail_json=?, void_reason=?, significant=? WHERE id=?`,
   new Date().toISOString(), observed, passed ? 1 : 0,
   Number.isFinite(result?.p_value) ? result.p_value : null,
   Number.isFinite(result?.sample_size) ? result.sample_size : null,
   JSON.stringify(result?.detail ?? null),
   dataMoved ? 'data signature changed since preregistration (result kept, flagged)' : null,
+  significant == null ? null : (significant ? 1 : 0),
   auditId);
 
   return {
     audit_id: auditId, name: a.name, hypothesis: a.hypothesis,
     metric: a.metric, direction: a.direction, threshold: a.threshold,
-    observed: r4(observed), passed, sample_size: result?.sample_size ?? null,
+    observed: r4(observed), passed,
+    meets_threshold: meetsThreshold,
+    significance_required: !!a.require_significance,
+    significant, corrected_alpha: r4(correctedAlpha),
+    reproducible,
+    sample_size: result?.sample_size ?? null,
     p_value: r4(result?.p_value),
     data_changed_since_registration: dataMoved,
     status: 'sealed',

@@ -645,11 +645,25 @@ r.get('/stake', (req, res, next) => {
     if (!Number.isFinite(winProb) || !Number.isFinite(odds)) {
       return res.status(400).json({ error: 'prob and odds query params required' });
     }
-    res.json(stakeFor({
+    // The RAW Kelly calculator. It applies no validation gate at all, which is
+    // fine for a calculator and dangerous if read as advice — it will happily
+    // size a model probability that /stake/safe and the execution-edge staking
+    // path both refuse, because neither spreads nor props have ever recorded
+    // positive closing-line value here. Saying so in the payload is the
+    // difference between a tool and a trap.
+    const sized = stakeFor({
       winProb, americanOdds: odds,
       bankroll: Number(req.query.bankroll) || 100,
       multiplier: Number(req.query.kelly) || 0.25
-    }));
+    });
+    res.json({
+      ...sized,
+      validation_gate_applied: false,
+      warning: 'Raw Kelly arithmetic on the probability you supplied. No gate was applied: this ' +
+        'endpoint does not check whether the probability came from a model that has ever beaten a ' +
+        'closing line, and none here has. Use /stake/safe for the sized-with-safeguards figure.',
+      safe_endpoint: '/api/nfl-betting/stake/safe'
+    });
   } catch (e) { next(e); }
 });
 

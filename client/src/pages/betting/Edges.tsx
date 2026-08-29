@@ -50,13 +50,16 @@ const pct2 = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`);
 
 export default function Edges() {
-  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement'>('live');
+  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement' | 'hold' | 'abstentions'>('live');
   const [price, setPrice] = useState(-110);
 
   const { data: teasers, loading: tLoading } = useApi<Teasers>(
     tab === 'teasers' ? `/betting/teasers/candidates?price=${price}` : null);
   const { data: movement } = useApi<Movement>(tab === 'movement' ? '/betting/execution/movement' : null);
   const { data: live } = useApi<any>(tab === 'live' ? '/nfl-betting/live' : null);
+  // Both of these were built, tested and left unreachable — routes with no page.
+  const { data: hold } = useApi<any>(tab === 'hold' ? '/betting/hold' : null);
+  const { data: abst } = useApi<any>(tab === 'abstentions' ? '/betting/abstentions' : null);
 
   return (
     <div>
@@ -71,7 +74,7 @@ export default function Edges() {
       </p>
 
       <div className="flex gap-1 border-b border-slate-200 mb-4">
-        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement']] as const)
+        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement'], ['hold', 'Book hold'], ['abstentions', 'Abstention audit']] as const)
           .map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -294,6 +297,133 @@ export default function Edges() {
           </>
         )
       )}
+      {tab === 'hold' && (
+        !hold ? <div className="card p-6 text-sm text-slate-500">Measuring book hold…</div>
+        : hold.error ? <div className="card p-6 text-sm text-rose-600">{hold.error}</div>
+        : (
+          <>
+            <div className="card p-4 mb-3">
+              <h2 className="font-semibold text-slate-900">What each book charges you</h2>
+              <p className="text-sm text-slate-600 mt-1">
+                Hold is the book's cut: the two sides' implied probabilities summed, minus one. It is the
+                most reliable edge on this whole page because it needs no opinion about any game — the
+                spread between the cheapest and dearest book comes straight off your required win rate.
+              </p>
+            </div>
+            <div className="card p-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase tracking-wide text-slate-400">
+                  <tr><th className="py-1 text-left">Book</th><th className="text-right">Hold</th>
+                    <th className="text-right">Break-even</th><th className="text-right">Markets</th></tr>
+                </thead>
+                <tbody>
+                  {(hold.hold?.books ?? []).map((b: any) => (
+                    <tr key={b.book} className="border-t border-slate-100">
+                      <td className="py-1.5 font-medium text-slate-800">{b.book}</td>
+                      <td className="text-right tabular-nums text-slate-900">
+                        {b.hold == null ? '—' : (b.hold * 100).toFixed(2) + '%'}</td>
+                      <td className="text-right tabular-nums text-slate-600">
+                        {b.break_even == null ? '—' : (b.break_even * 100).toFixed(2) + '%'}</td>
+                      <td className="text-right tabular-nums text-slate-400">{b.markets_measured ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {hold.hold?.spread_in_hold != null && (
+                <p className="mt-3 text-sm text-slate-700">
+                  Cheapest is <strong>{hold.hold.best_book}</strong>, dearest is <strong>{hold.hold.worst_book}</strong> —
+                  a spread of <strong>{(hold.hold.spread_in_hold * 100).toFixed(2)}pp</strong> in hold, worth
+                  {' '}<strong>{(hold.hold.win_rate_saved * 100).toFixed(2)}pp</strong> off the win rate you need.
+                  That is free, today, and requires being right about nothing.
+                </p>
+              )}
+              {hold.hold?.note && <p className="mt-2 text-xs text-slate-500">{hold.hold.note}</p>}
+            </div>
+            {hold.comparison && (
+              <div className="card p-4 mt-3">
+                <h3 className="text-sm font-semibold text-slate-900">Sides vs player props</h3>
+                <p className="mt-1 text-sm text-slate-700">
+                  Cheapest NFL side is <strong>{hold.comparison.nfl_cheapest.book}</strong> at{' '}
+                  {(hold.comparison.nfl_cheapest.hold * 100).toFixed(2)}%; cheapest MLB prop is{' '}
+                  <strong>{hold.comparison.mlb_cheapest.book}</strong> at{' '}
+                  {(hold.comparison.mlb_cheapest.hold * 100).toFixed(2)}% — a prop premium of{' '}
+                  <strong>{(hold.comparison.prop_premium * 100).toFixed(2)}pp</strong>.
+                </p>
+                <p className="mt-2 text-xs text-slate-500">{hold.comparison.note}</p>
+              </div>
+            )}
+          </>
+        )
+      )}
+
+      {tab === 'abstentions' && (
+        !abst ? <div className="card p-6 text-sm text-slate-500">Grading the games the policy refused…</div>
+        : abst.error ? <div className="card p-6 text-sm text-rose-600">{abst.error}</div>
+        : (
+          <>
+            <div className="card p-4 mb-3">
+              <h2 className="font-semibold text-slate-900">Did declining actually help?</h2>
+              <p className="text-sm text-slate-600 mt-1">
+                Every abstention is a claim of skill — that the policy knew which games not to touch. This
+                grades the refused games anyway and compares them to the ones it took. If the two rates
+                are the same, the filter is costing opportunities and buying nothing.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(['taken', 'declined'] as const).map(k => abst[k] && (
+                <div key={k} className="card p-4">
+                  <div className="text-xs uppercase tracking-wide text-slate-400">{k}</div>
+                  <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
+                    {abst[k].win_rate == null ? '—' : (abst[k].win_rate * 100).toFixed(1) + '%'}
+                  </div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {abst[k].wins}-{abst[k].losses} · {abst[k].settled} settled
+                    {abst[k].win_rate_95 && ` · 95% CI ${(abst[k].win_rate_95[0] * 100).toFixed(1)}–${(abst[k].win_rate_95[1] * 100).toFixed(1)}%`}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {abst.selection_works && (
+              <div className="card p-4 mt-3">
+                <p className="text-sm text-slate-700">
+                  {abst.selection_works.verdict ?? (abst.selection_works.significant
+                    ? 'The games the policy took beat the ones it declined by more than chance.'
+                    : 'Taken and declined games are statistically indistinguishable — the filter is not buying selection skill.')}
+                </p>
+                {abst.selection_works.p_value != null && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Two-proportion test p = {abst.selection_works.p_value.toFixed(3)} · break-even {(abst.break_even * 100).toFixed(2)}%
+                  </p>
+                )}
+              </div>
+            )}
+            {Array.isArray(abst.by_reason) && abst.by_reason.length > 0 && (
+              <div className="card p-4 mt-3 overflow-x-auto">
+                <h3 className="text-sm font-semibold text-slate-900">Why each game was declined</h3>
+                <table className="w-full text-sm mt-2">
+                  <thead className="text-xs uppercase tracking-wide text-slate-400">
+                    <tr><th className="py-1 text-left">Reason</th><th className="text-right">Settled</th>
+                      <th className="text-right">Record</th><th className="text-right">Win rate</th></tr>
+                  </thead>
+                  <tbody>
+                    {abst.by_reason.map((r: any) => (
+                      <tr key={r.reason} className="border-t border-slate-100">
+                        <td className="py-1.5 text-slate-700">{String(r.reason).replace(/_/g, ' ')}</td>
+                        <td className="text-right tabular-nums text-slate-500">{r.settled}</td>
+                        <td className="text-right tabular-nums text-slate-600">{r.wins}-{r.losses}</td>
+                        <td className="text-right tabular-nums text-slate-900">
+                          {r.win_rate == null ? '—' : (r.win_rate * 100).toFixed(1) + '%'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {abst.note && <p className="mt-2 text-xs text-slate-500">{abst.note}</p>}
+          </>
+        )
+      )}
+
     </div>
   );
 }

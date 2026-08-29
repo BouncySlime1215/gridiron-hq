@@ -13,6 +13,7 @@ const EnsemblePage = lazy(() => import('./betting/Ensemble'));
 const LineShop = lazy(() => import('./betting/LineShop'));
 const Edges = lazy(() => import('./betting/Edges'));
 const GameSimulator = lazy(() => import('./betting/GameSimulator'));
+const Gates = lazy(() => import('./betting/Gates'));
 const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 const NflProps = lazy(() => import('./betting/NflProps'));
 
@@ -124,7 +125,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
     initialTool === 'props' ? 'props' : initialTool === 'lines' ? 'lines' : 'games');
   const [modelView, setModelView] = useState<'ensemble' | 'variables' | 'method'>(() =>
     initialTool === 'variables' ? 'variables' : initialTool === 'info' ? 'method' : 'ensemble');
-  const [auditView, setAuditView] = useState<'replay' | 'operations'>(() =>
+  const [auditView, setAuditView] = useState<'replay' | 'gates' | 'operations'>(() =>
     initialTool === 'operations' ? 'operations' : 'replay');
   const [week, setWeek] = useState(1);
   const [marketFilter, setMarketFilter] = useState('all');
@@ -272,7 +273,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
         ['ensemble', '21-model ensemble'], ['variables', 'Variable catalog'], ['method', 'Method & limits']
       ]} />}
       {tool === 'audit' && <FeatureTabs value={auditView} onChange={setAuditView} items={[
-        ['replay', 'Blind replay'], ['operations', 'Promotion gates']
+        ['replay', 'Blind replay'], ['gates', 'Staking gates'], ['operations', 'Promotion gates']
       ]} />}
 
       {tool === 'board' && decisionView === 'props' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading shared player engine', 'Simulating joint events', 'Rendering prop board']} />}><NflProps /></Suspense>}
@@ -283,6 +284,7 @@ export default function NflMarketBoard({ initialTool = 'board' }: { initialTool?
       {tool === 'model' && modelView === 'variables' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading variable catalog', 'Checking source contracts', 'Rendering catalog']} />}><VariableCatalog /></Suspense>}
       {tool === 'model' && modelView === 'method' && <ModelInfo accuracy={acc} catalog={catalog} pbpRows={pbpRows} />}
       {tool === 'audit' && auditView === 'replay' && <Training />}
+      {tool === 'audit' && auditView === 'gates' && <Suspense fallback={<ModelLoadingSignature sport="NFL" compact stages={['Loading calibration', 'Reading walk-forward metrics', 'Rendering gate status']} />}><Gates /></Suspense>}
       {tool === 'audit' && auditView === 'operations' && <NflModelOperations />}
 
       {tool === 'board' && decisionView === 'games' && <>

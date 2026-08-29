@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 
+import { draftSurvival } from '../services/draft-survival.js';
+
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 
@@ -58,6 +60,23 @@ export function vorBoard(teams = 12) {
   })).sort((a, b) => b.vor - a.vor)
     .map((p, i) => ({ ...p, vor_rank: i + 1, adp_edge: p.adp != null ? +(p.adp - (i + 1)).toFixed(1) : null }));
 }
+
+/**
+ * Who survives to your next pick. Simulates the rest of the draft rather than
+ * ranking the board, because "best available" is rarely the actual decision.
+ */
+r.get('/draft-survival', (req, res, next) => {
+  try {
+    const taken = String(req.query.taken ?? '').split(',').map(Number).filter(Number.isFinite);
+    res.json(draftSurvival({
+      seat: Math.max(1, Number(req.query.seat) || 1),
+      teams: Math.min(16, Math.max(4, Number(req.query.teams) || 10)),
+      rounds: Math.min(20, Math.max(3, Number(req.query.rounds) || 15)),
+      trials: Math.min(8000, Number(req.query.trials) || 3000),
+      taken
+    }));
+  } catch (e) { next(e); }
+});
 
 r.get('/vor', (req, res) => res.json(vorBoard(Number(req.query.teams) || 12)));
 

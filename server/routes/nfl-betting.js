@@ -819,8 +819,13 @@ r.get('/sim/matchup', async (req, res, next) => {
 r.get('/sim/calibration', async (req, res, next) => {
   try {
     const { calibrationReport } = await import('../services/nfl-drive-sim.js');
-    res.json(calibrationReport({ trials: Math.min(600, Number(req.query.trials) || 250),
-      games: Math.min(60, Number(req.query.games) || 35) }));
+    const { cached: c3, fingerprint: f3 } = await import('../services/compute-cache.js');
+    const trials = Math.min(600, Number(req.query.trials) || 250);
+    const games = Math.min(60, Number(req.query.games) || 35);
+    // Deterministic since the matchup enumeration was fixed, so it caches cleanly.
+    res.json(c3(`sim_calibration:${trials}:${games}`,
+      f3([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_team_week_features']),
+      () => calibrationReport({ trials, games })));
   } catch (e) { next(e); }
 });
 
@@ -1148,6 +1153,17 @@ r.get('/officials/totals', async (req, res, next) => {
 r.get('/gbm', async (req, res, next) => {
   try {
     const { gbmWalkForward } = await import('../services/nfl-gbm.js');
+    const { cached: c2, fingerprint: f2 } = await import('../services/compute-cache.js');
+    const trees = Math.min(200, Number(req.query.trees) || 60);
+    const depth = Math.min(6, Number(req.query.depth) || 3);
+    const lr = Number(req.query.lr) || 0.05;
+    // Eight seconds to fit sixty trees across three walk-forward seasons. The
+    // fit is deterministic given the data and the hyperparameters, so the key
+    // carries both.
+    return res.json(c2(`gbm:${trees}:${depth}:${lr}`,
+      f2([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_team_week_features']),
+      () => gbmWalkForward({ trees, maxDepth: depth, learningRate: lr })));
+    /* eslint-disable-next-line no-unreachable */
     res.json(gbmWalkForward({
       trees: Math.min(200, Number(req.query.trees) || 60),
       maxDepth: Math.min(6, Number(req.query.depth) || 3),

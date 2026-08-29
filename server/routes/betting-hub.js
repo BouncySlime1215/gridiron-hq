@@ -6,6 +6,7 @@
  * single consistent snapshot instead of five independently-loading cards.
  */
 import { Router } from 'express';
+import { cached, fingerprint } from '../services/compute-cache.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { totalPicksStanding, gradeTotalPicks } from '../services/nfl-props.js';
 import { accuracy } from '../services/nfl-market.js';
@@ -254,7 +255,15 @@ r.get('/teasers/candidates', (req, res, next) => {
  * replay is over a minute of blocking CPU.
  */
 r.get('/abstentions', (_req, res, next) => {
-  try { res.json(abstentionAudit()); } catch (e) { next(e); }
+  try {
+    // 66 seconds cold: replays five seasons of decisions on every request. Same
+    // treatment as accuracy and board/explained — fingerprinted on the tables it
+    // reads, so it recomputes when the data moves and not before.
+    res.json(cached('abstention_audit',
+      fingerprint([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_pick_decisions',
+        'nfl_team_week_features']),
+      () => abstentionAudit()));
+  } catch (e) { next(e); }
 });
 
 /** Fitted prop-stat correlations — the input to same-game parlay pricing. */

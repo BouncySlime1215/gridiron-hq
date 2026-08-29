@@ -172,6 +172,8 @@ export default function TeamDetail() {
           );
         })()}
 
+        <Tendencies abbr={team.abbr} />
+
         {(team as any).grades?.units && (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">
             {Object.entries((team as any).grades.units).map(([unit, g]: any) => (
@@ -292,6 +294,81 @@ export default function TeamDetail() {
         </>)}
       </div>
       <SidePanel />
+    </div>
+  );
+}
+
+/**
+ * What the team measurably does, from play-by-play.
+ *
+ * Sits directly above the written scheme note on purpose. When the two
+ * disagree, the measurement is the one to trust — prose goes stale the moment
+ * a coordinator changes, and 5,278 team-weeks of play-by-play do not.
+ */
+function Tendencies({ abbr }: { abbr: string }) {
+  const [open, setOpen] = useState(false);
+  const { data } = useApi<any>(`/teams/${abbr}/tendencies`);
+  if (!data || data.error) return null;
+
+  const bar = (pct: number) => Math.max(3, Math.min(100, pct * 100));
+
+  return (
+    <div className="card p-4 mt-3">
+      <div className="flex items-baseline gap-2 flex-wrap mb-2">
+        <h3 className="text-sm font-bold text-slate-700">Measured identity</h3>
+        <span className="text-[11px] text-slate-400">
+          {data.weeks_measured} weeks of play-by-play · {data.season}
+          {data.is_prior_season && <span className="text-amber-600"> (prior season)</span>}
+        </span>
+        <button className="btn-ghost text-xs ml-auto" onClick={() => setOpen(o => !o)}>
+          {open ? 'Show top signals' : 'Show all tendencies'}
+        </button>
+      </div>
+
+      {!open ? (
+        <div className="space-y-1.5">
+          {data.identity.map((t: any) => (
+            <div key={t.key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-center">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-slate-800 truncate">
+                  {t.reads_as}
+                  <span className="font-normal text-slate-400"> · {t.label}</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-slate-100 mt-1 overflow-hidden">
+                  <div className={`h-full rounded-full ${t.percentile >= 0.5 ? 'bg-emerald-500' : 'bg-sky-500'}`}
+                    style={{ width: `${bar(t.percentile)}%` }} />
+                </div>
+              </div>
+              <div className="text-right tabular-nums">
+                <div className="text-sm font-black text-slate-900">{t.value}{t.unit}</div>
+                <div className="text-[10px] text-slate-400">#{t.rank}/{t.of} · lg {t.league_mean}{t.unit}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {Object.entries(data.groups).map(([group, items]: any) => (
+            <div key={group}>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">{group}</div>
+              <div className="space-y-0.5">
+                {items.map((t: any) => (
+                  <div key={t.key} className="flex items-center gap-2 text-xs">
+                    <span className="w-44 truncate text-slate-600">{t.label}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className={`h-full rounded-full ${t.notable ? (t.percentile >= 0.5 ? 'bg-emerald-500' : 'bg-sky-500') : 'bg-slate-300'}`}
+                        style={{ width: `${bar(t.percentile)}%` }} />
+                    </div>
+                    <span className="w-16 text-right tabular-nums font-semibold text-slate-800">{t.value}{t.unit}</span>
+                    <span className="w-14 text-right tabular-nums text-[10px] text-slate-400">#{t.rank}/{t.of}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">{data.note}</p>
     </div>
   );
 }

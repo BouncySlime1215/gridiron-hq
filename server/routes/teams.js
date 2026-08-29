@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { unitGrades } from './nfldata.js';
 import { SEASON_ENDING_RE, RELEASED_RE } from '../services/player-availability.js';
+import { teamTendencies } from '../services/nfl-team-tendencies.js';
 
 const EDITABLE = ['head_coach', 'oc_name', 'dc_name', 'off_scheme', 'off_scheme_detail',
   'def_scheme', 'def_scheme_detail', 'st_coordinator', 'ol_analysis', 'dl_analysis',
@@ -83,6 +84,16 @@ r.get('/:abbr', (req, res) => {
   }
 
   res.json({ ...team, players, depth, depth_multi: multi, grades: unitGrades(team.id) });
+});
+
+/**
+ * Measured tendencies from play-by-play — what the team actually does, as
+ * opposed to what the written scheme note claims it does.
+ */
+r.get('/:abbr/tendencies', (req, res) => {
+  res.json(teamTendencies(req.params.abbr, {
+    season: Number(req.query.season) || undefined
+  }));
 });
 
 r.put('/:abbr', (req, res) => {

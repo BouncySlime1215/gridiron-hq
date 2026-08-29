@@ -50,12 +50,13 @@ const pct2 = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`);
 
 export default function Edges() {
-  const [tab, setTab] = useState<'teasers' | 'sgp' | 'movement'>('teasers');
+  const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement'>('live');
   const [price, setPrice] = useState(-110);
 
   const { data: teasers, loading: tLoading } = useApi<Teasers>(
     tab === 'teasers' ? `/betting/teasers/candidates?price=${price}` : null);
   const { data: movement } = useApi<Movement>(tab === 'movement' ? '/betting/execution/movement' : null);
+  const { data: live } = useApi<any>(tab === 'live' ? '/nfl-betting/live' : null);
 
   return (
     <div>
@@ -70,7 +71,7 @@ export default function Edges() {
       </p>
 
       <div className="flex gap-1 border-b border-slate-200 mb-4">
-        {([['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement']] as const)
+        {([['live', 'Live board'], ['teasers', 'Wong teasers'], ['sgp', 'Parlay correlation'], ['movement', 'Line movement']] as const)
           .map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -78,6 +79,63 @@ export default function Edges() {
             }`}>{label}</button>
         ))}
       </div>
+
+      {tab === 'live' && (
+        !live ? <div className="card p-6 text-sm text-slate-500">Reading the scoreboard…</div>
+        : live.error ? <div className="card p-6 text-sm text-rose-600">{live.error}</div>
+        : (
+          <>
+            <div className="card p-3 mb-3 border-emerald-200 bg-emerald-50/40">
+              <p className="text-xs text-emerald-900">
+                {live.cost} · {live.live_count > 0
+                  ? `${live.live_count} game${live.live_count === 1 ? '' : 's'} in progress`
+                  : 'No games in progress — showing the slate with pregame win probability'}
+              </p>
+            </div>
+            <div className="card overflow-hidden">
+              <div className="divide-y divide-slate-100">
+                {live.games.map((g: any) => (
+                  <div key={g.event_id} className="grid gap-3 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-black text-slate-900">{g.matchup}</span>
+                        {g.state === 'in' && (
+                          <span className="text-[10px] font-black uppercase tracking-wide text-rose-600">● live</span>
+                        )}
+                        <span className="text-[11px] text-slate-500">{g.status}</span>
+                      </div>
+                      {g.down_distance && (
+                        <div className="text-[11px] text-slate-500 mt-0.5">{g.possession} · {g.down_distance}</div>
+                      )}
+                    </div>
+                    <div className="text-right tabular-nums">
+                      <div className="text-sm font-bold text-slate-800">
+                        {g.away_score != null ? `${g.away_score} – ${g.home_score}` : '—'}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {g.pregame_spread != null ? `line ${g.pregame_spread}` : 'no line'}
+                      </div>
+                    </div>
+                    <div className="text-right w-24">
+                      <div className={`text-base font-black tabular-nums ${g.probability_reliable ? 'text-slate-900' : 'text-slate-400'}`}>
+                        {(g.home_win_probability * 100).toFixed(0)}%
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-1">
+                        <div className="h-full rounded-full bg-emerald-500"
+                          style={{ width: `${Math.max(2, g.home_win_probability * 100)}%` }} />
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {g.home_team} win{!g.probability_reliable && g.state === 'in' ? ' · rough' : ''}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">{live.note}</p>
+          </>
+        )
+      )}
 
       {tab === 'teasers' && (
         tLoading || !teasers ? <div className="card p-6 text-sm text-slate-500">Checking the slate…</div> : (

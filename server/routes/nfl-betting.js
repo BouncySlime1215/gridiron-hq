@@ -11,6 +11,7 @@ import {
 } from '../services/nfl-props.js';
 import { explainPick, explainBoard, publicSignal } from '../services/nfl-reasoning.js';
 import { callClaude, getApiKey } from '../services/claude.js';
+import { liveGames } from '../services/nfl-live.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
 import { boardFor, accuracy, clearNflMarketCache } from '../services/nfl-market.js';
@@ -315,6 +316,16 @@ Write ONE paragraph (4-6 sentences) explaining, in plain English, what actually 
     const msg = await callClaude({ feature: 'nfl-pick-explain-ai', maxTokens: 500, prompt });
     const text = msg?.content?.find?.(item => item.type === 'text')?.text?.trim() ?? '';
     res.json({ paragraph: text, reasoning });
+  } catch (e) { next(e); }
+});
+
+/** Live scoreboard and in-game win probability. Free — no key, no quota. */
+r.get('/live', async (req, res, next) => {
+  try {
+    res.json(await liveGames({
+      season: Number(req.query.season) || undefined,
+      week: req.query.week ? Number(req.query.week) : null
+    }));
   } catch (e) { next(e); }
 });
 

@@ -221,3 +221,19 @@ a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important;
 .pos-TE { @apply text-amber-600; }
 .pos-K  { @apply text-violet-600; }
 .pos-DEF, .pos-EDGE, .pos-DL, .pos-LB, .pos-CB, .pos-S { @apply text-slate-500; }
+
+/* Entrance motion for content that arrives after a fetch.
+   Staggered via inline animation-delay at the call site, so a list reveals in
+   sequence rather than snapping in as one block. Kept to opacity and transform
+   only — those are the two properties a browser can animate on the compositor,
+   and anything else here would jank on a page that also draws sparklines. */
+@keyframes tr-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.tr-rise {
+  animation: tr-rise 420ms cubic-bezier(.22, 1, .36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tr-rise { animation: none; }
+}

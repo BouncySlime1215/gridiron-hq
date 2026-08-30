@@ -17,6 +17,11 @@ import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, brainPlan, managerProfiles, setManagerProfile } from '../services/league-brain.js';
 import { waiverUpgrades, sellHigh, freeAgents } from '../services/waiver-brain.js';
+import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
+import { positionLiquidity } from '../services/position-liquidity.js';
+import { trendExploits } from '../services/trend-exploits.js';
+import { teamTrends, playerTrends } from '../services/weekly-trends.js';
+import { scanTrends, conflicts, trendHistory } from '../services/trend-watch.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { weekPostmortem } from '../services/week-postmortem.js';
@@ -119,6 +124,101 @@ r.get('/:leagueId/brain/free-agents', (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     const list = freeAgents(lg, { limit: Math.min(200, Number(req.query.limit) || 60) });
     res.json({ count: list.length, players: list });
+  } catch (e) { next(e); }
+});
+
+/** Which future weeks already cost you points, and who on the wire fixes them. */
+r.get('/:leagueId/brain/bye-risk', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(byePatches(lg.id, { myTeamId: req.query.team_id ?? null }));
+  } catch (e) { next(e); }
+});
+
+/** Where one injury ends the season, weighted by how often each player misses time. */
+r.get('/:leagueId/brain/fragility', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(fragility(lg.id, { myTeamId: req.query.team_id ?? null }));
+  } catch (e) { next(e); }
+});
+
+/** What the other rosters can actually spare, position by position. */
+r.get('/:leagueId/brain/liquidity', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(positionLiquidity(lg.id, { myTeamId: req.query.team_id ?? null }));
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------------ weekly trends */
+
+/**
+ * What has changed lately, crossed against what you can do about it.
+ *
+ * The statistics live in weekly-trends.js and refuse to say anything that does
+ * not clear a corrected significance bar; this is the join onto your roster,
+ * the wire, and the schedule.
+ */
+r.get('/:leagueId/trends', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(trendExploits(lg.id, {
+      myTeamId: req.query.team_id ?? null,
+      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
+    }));
+  } catch (e) { next(e); }
+});
+
+/** One team's trajectory across its recent games. */
+r.get('/trends/team/:team', (req, res, next) => {
+  try {
+    const season = Number(req.query.season) || null;
+    const latest = season ?? row('SELECT MAX(season) AS s FROM nfl_team_week_features')?.s;
+    res.json(teamTrends(String(req.params.team).toUpperCase(), latest, {
+      throughWeek: Number(req.query.week) || null,
+      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
+    }));
+  } catch (e) { next(e); }
+});
+
+/** One player's usage trajectory — share rather than points, on purpose. */
+r.get('/trends/player/:playerId', (req, res, next) => {
+  try {
+    const latest = Number(req.query.season) || row('SELECT MAX(season) AS s FROM player_week_usage')?.s;
+    res.json(playerTrends(Number(req.params.playerId), latest, {
+      throughWeek: Number(req.query.week) || null,
+      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Sweep every offence and report the DIFFERENCE against the last sweep.
+ *
+ * The diff is the product: a trend reported every week forever is wallpaper.
+ * New ones are the alert, faded ones are the signal to stop acting on an old
+ * read, and ongoing ones are context the league has already priced.
+ */
+r.post('/trends/scan', (req, res, next) => {
+  try {
+    res.json(scanTrends({
+      season: Number(req.body?.season) || null,
+      throughWeek: Number(req.body?.through_week) || null,
+      lookback: Math.max(2, Math.min(6, Number(req.body?.lookback) || 3))
+    }));
+  } catch (e) { next(e); }
+});
+
+/** The stored picture, without running a sweep. */
+r.get('/trends/watch', (req, res, next) => {
+  try {
+    const lookback = Math.max(2, Math.min(6, Number(req.query.lookback) || 3));
+    const history = trendHistory({ season: Number(req.query.season) || null, lookback });
+    res.json({
+      ...history,
+      conflicts: history.season ? conflicts(history.season, null, lookback).conflicts : []
+    });
   } catch (e) { next(e); }
 });
 

@@ -152,6 +152,27 @@ export default function LeagueBrain() {
             </section>
           )}
 
+          {/* Losses already on the calendar. Deliberately above the trade list:
+              a guaranteed zero in week 7 outranks a marginal season upgrade,
+              and it has a deadline the trade board does not. */}
+          {d?.bye_risk_detail?.weeks?.length > 0 && <ByeRisk risk={d.bye_risk_detail} />}
+
+          {d?.fragility?.critical?.length > 0 && (
+            <section className="rounded-2xl border border-rose-200 bg-rose-50/60 p-4">
+              <h2 className="text-lg font-black tracking-tight text-slate-950">One injury from an empty slot</h2>
+              <div className="mt-2 space-y-2">
+                {d.fragility.critical.slice(0, 3).map((c: any, i: number) => (
+                  <p key={i} className="text-sm leading-6 text-slate-700">
+                    <b className="text-slate-900">{c.name}</b> — {c.reading}
+                    <span className="ml-1 text-slate-500">
+                      He plays about {Math.round((c.active_probability ?? 0.92) * 100)}% of weeks.
+                    </span>
+                  </p>
+                ))}
+              </div>
+            </section>
+          )}
+
           {d?.all_moves?.length > 1 && (
             <section>
               <SectionHead title="Everything else, ranked together"
@@ -264,6 +285,76 @@ export default function LeagueBrain() {
         data={managers.data}
         refetch={() => { managers.refetch(); plan.refetch(); }} />}
     </div>
+  );
+}
+
+/**
+ * The bye-week calendar, with the fix attached.
+ *
+ * Weeks are rendered as a strip rather than a list because the shape of the
+ * damage is the information — one catastrophic week among several mild ones
+ * reads instantly as a bar chart and not at all as prose.
+ */
+function ByeRisk({ risk }: { risk: any }) {
+  const worst = Math.max(...risk.weeks.map((w: any) => w.points_lost), 1);
+  const patchFor = (week: number) => risk.patches?.find((p: any) => p.week === week);
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-black tracking-tight text-slate-950">Weeks that already cost you</h2>
+        <span className="text-xs text-slate-400">
+          {risk.total_points_lost} points across the rest of the regular season
+        </span>
+      </div>
+      <p className="mt-0.5 max-w-3xl text-sm leading-6 text-slate-500">
+        Each week is solved, not counted — the lineup is re-optimised without the players on bye.
+        Three bye-week receivers on a deep bench costs almost nothing; one quarterback on a roster
+        carrying exactly one costs everything.
+      </p>
+
+      <div className="mt-3 space-y-2">
+        {risk.weeks.map((w: any) => {
+          const patch = patchFor(w.week);
+          const tone = w.severity === 'critical' ? 'border-rose-300 bg-rose-50'
+            : w.severity === 'severe' ? 'border-amber-300 bg-amber-50'
+              : 'border-slate-200 bg-slate-50';
+          return (
+            <div key={w.week} className={`rounded-xl border p-3 ${tone}`}>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-xs font-black text-slate-900 ring-1 ring-slate-200">
+                  W{w.week}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black tabular-nums text-slate-900">−{w.points_lost} pts</span>
+                    <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">{w.severity}</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white">
+                    <div className={`h-full rounded-full ${w.severity === 'critical' ? 'bg-rose-600' : w.severity === 'severe' ? 'bg-amber-500' : 'bg-slate-400'}`}
+                      style={{ width: `${Math.max(4, (w.points_lost / worst) * 100)}%` }} />
+                  </div>
+                </div>
+                <span className="text-xs text-slate-500">
+                  out: {w.players_out.map((p: any) => p.name).join(', ')}
+                </span>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-slate-700">{w.reading}</p>
+              {patch?.candidates?.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/70 pt-2">
+                  <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">Fix it with</span>
+                  {patch.candidates.slice(0, 3).map((c: any, i: number) => (
+                    <span key={i} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-800 ring-1 ring-slate-200">
+                      {c.name} <span className="text-slate-400">{c.position}</span>
+                      <span className="ml-1 font-black text-emerald-700">+{c.recovers}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

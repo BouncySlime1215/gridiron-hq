@@ -74,6 +74,7 @@ import {
 } from './trade-engine.js';
 import { waiverUpgrades, sellHigh } from './waiver-brain.js';
 import { positionLiquidity, shoppingGuidance } from './position-liquidity.js';
+import { byePatches, fragility } from './roster-risk.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -613,6 +614,15 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
   try { waiver = waiverUpgrades(leagueId, { myTeamId, limit: 6 }); } catch { /* optional */ }
   try { selling = sellHigh(leagueId, { myTeamId, limit: 4 }); } catch { /* optional */ }
 
+  // Losses you can already see coming. Kept separate from `all_moves` on
+  // purpose: a bye-week patch is not competing with a trade for the same slot,
+  // it is a different kind of decision on a different clock, and merging them
+  // into one ranking would bury a guaranteed week-7 zero underneath a marginal
+  // season-long upgrade.
+  let risk = null, fragile = null;
+  try { risk = byePatches(leagueId, { myTeamId }); } catch { /* optional */ }
+  try { fragile = fragility(leagueId, { myTeamId }); } catch { /* optional */ }
+
   const tradeMoves = spread.slice(0, limit).map(m => ({ ...m, kind: 'trade' }));
   const waiverMoves = (waiver.upgrades ?? []).map(u => ({
     kind: 'waiver',
@@ -640,6 +650,8 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
     moves_considered: moves.length,
     all_moves: allMoves,
     liquidity: liquidity?.error ? null : liquidity,
+    bye_risk_detail: risk?.error ? null : risk,
+    fragility: fragile?.error ? null : fragile,
     shopping: guidance?.error ? null : guidance,
     // What was considered and refused, with the gate that stopped it. Ranked by
     // how close it came, so the top of this list is the deal to go and negotiate

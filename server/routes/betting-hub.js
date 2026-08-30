@@ -13,7 +13,7 @@ import { accuracy } from '../services/nfl-market.js';
 import { countVariables } from '../services/nfl-features.js';
 import { usage as oddsUsage } from '../services/odds-api.js';
 import { rows } from '../db/index.js';
-import { realBreakEven } from '../services/nfl-execution-edge.js';
+import { realBreakEven, riskModes } from '../services/nfl-execution-edge.js';
 import { wongHistory, teaserEV } from '../services/nfl-teasers.js';
 import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
 import { shoppingBoard, findMiddles, executionBoardSummary, bookHold } from '../services/nfl-shopping-board.js';
@@ -124,6 +124,30 @@ r.get('/execution/board', (req, res, next) => {
       // The largest cost a bettor actually controls, and the only lever on this
       // board that works without any forecast being correct.
       hold: bookHold({ sport: 'nfl' })
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * How hard to bet, and what each setting costs.
+ *
+ * Defaults to the two-leg Wong teaser rate because that is the only edge here
+ * that has ever measured positive, and therefore the only thing any staking
+ * ladder legitimately applies to.
+ */
+r.get('/risk-modes', (req, res, next) => {
+  try {
+    const hist = wongHistory();
+    const p = Number(req.query.win_probability) || (hist.win_rate ? hist.win_rate ** 2 : null);
+    res.json({
+      ...riskModes({
+        winProbability: p,
+        americanPrice: Number(req.query.price) || -110,
+        bankrollUnits: Number(req.query.bankroll) || 100
+      }),
+      priced_on: Number(req.query.win_probability)
+        ? 'the win probability you supplied'
+        : `a two-leg Wong teaser at ${(hist.win_rate * 100).toFixed(2)}% per leg over ${hist.legs} legs`
     });
   } catch (e) { next(e); }
 });

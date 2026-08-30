@@ -238,6 +238,109 @@ export function stakeFor({ winProbability, americanPrice, source = 'model',
 }
 
 /**
+ * Risk modes, with the price of each one attached.
+ *
+ * This exists because of a reasonable question that has an unreasonable answer:
+ * "the model says it is too cautious — can we turn the caution down and see how
+ * it does?" No, and the reason is worth stating exactly, because the intuition
+ * behind the question is sound and only the mechanism is wrong.
+ *
+ * The calibration slope is not a caution setting. It is a measurement of how
+ * well the model's stated probabilities match reality. A slope of 1.37 does not
+ * mean a dial is turned to "cautious"; it means the numbers are mis-scaled, and
+ * the fix is to rescale them (which the calibration layer already does) rather
+ * than to multiply them by something bigger. Turning a "risk" knob on a model
+ * that is no more accurate than the betting line does not produce more profit at
+ * more risk. It produces the same negative expectation with more variance — you
+ * lose the same money, faster and less predictably. There is no setting that
+ * converts a coin flip into an edge.
+ *
+ * What IS a real dial is how hard to bet an edge you have already proven. That
+ * is the Kelly fraction, and unlike the calibration slope it genuinely trades
+ * growth against drawdown along a curve with known closed form:
+ *
+ *   growth, as a share of the maximum:      f(2 − f)
+ *   chance of EVER falling to a fraction a: a^(2/f − 1)
+ *
+ * Both are standard results for fractional Kelly, and together they are why
+ * quarter-Kelly is the default everywhere serious. The second one is the reason
+ * this function exists: full Kelly gives up nothing in growth and carries a 50%
+ * chance of halving the bankroll at some point, which nobody consents to when it
+ * is written down, and almost everybody consents to when it is not.
+ *
+ * Note the asymmetry at the top end — doubling past full Kelly does not double
+ * anything. At f = 2 the growth term f(2 − f) is exactly zero: a bettor with a
+ * real edge, betting twice Kelly, has no long-run growth at all. That is the
+ * cliff this ladder deliberately stops short of.
+ *
+ * These modes apply ONLY to edges measured at bet time — a better price than the
+ * market, a teaser through the key numbers. They are not a route around the
+ * staking gate: a model-derived probability with no proven closing-line value
+ * stakes zero in every mode, including the aggressive ones.
+ */
+export const RISK_MODES = {
+  cautious: {
+    label: 'Cautious', fraction: 0.25,
+    plan: 'The default, and the right one until real money has run through the ledger.'
+  },
+  aggressive: {
+    label: 'Aggressive', fraction: 0.5,
+    plan: 'Three quarters of the growth for sixteen times the chance of halving. Defensible ' +
+      'once an edge has held up over a few hundred settled bets.'
+  },
+  ultra: {
+    label: 'Ultra', fraction: 1.0,
+    plan: 'Growth-optimal only if the win probability is exactly right, which it never is. ' +
+      'Overestimate the edge here and the over-betting is multiplicative, not additive.'
+  }
+};
+
+/**
+ * What each mode actually costs, computed rather than asserted.
+ *
+ * @param edgeWinRate the win rate of the edge being staked; defaults to the
+ *   measured Wong teaser leg rate squared, since that is the only positive
+ *   edge in this codebase and therefore the only one any of this applies to.
+ */
+export function riskModes({ winProbability = null, americanPrice = -110, bankrollUnits = 100 } = {}) {
+  const p = Number.isFinite(winProbability) ? winProbability : null;
+  const modes = Object.entries(RISK_MODES).map(([id, m]) => {
+    const growth = +(m.fraction * (2 - m.fraction)).toFixed(3);
+    // a^(2/f − 1) for a = 0.5 and a = 0.25.
+    const exponent = 2 / m.fraction - 1;
+    const halve = +Math.pow(0.5, exponent).toFixed(4);
+    const quarter = +Math.pow(0.25, exponent).toFixed(4);
+    const stake = p != null
+      ? kellyFraction({ winProbability: p, americanPrice, fraction: m.fraction })
+      : null;
+    return {
+      id, label: m.label, kelly_fraction: m.fraction, plan: m.plan,
+      growth_share_of_max: growth,
+      chance_of_ever_halving: halve,
+      chance_of_ever_losing_three_quarters: quarter,
+      stake_units: stake?.stake_fraction != null ? +(stake.stake_fraction * bankrollUnits).toFixed(2) : null,
+      // Said in words, because a probability of 0.5 for "you will at some point
+      // halve your bankroll" is the kind of number people skim past.
+      reads_as: `${Math.round(growth * 100)}% of the best possible growth, and a ` +
+        `${halve >= 0.01 ? `${Math.round(halve * 100)}%` : 'well under 1%'} chance of halving your ` +
+        'bankroll at some point along the way.'
+    };
+  });
+  return {
+    modes,
+    applies_to: 'Edges measured at bet time — a better price than the market, or a teaser through ' +
+      'the key numbers. Model forecasts stake zero in every mode until they show closing-line value.',
+    the_question_this_answers:
+      'Turning down the model\'s "caution" is not available, because the calibration slope is a ' +
+      'measurement rather than a setting. A model no sharper than the betting line does not become ' +
+      'profitable when bet harder — it loses at the same rate with more variance. What can be ' +
+      'turned up is how hard a PROVEN edge is bet, and that is this ladder.',
+    the_cliff: 'At twice full Kelly the growth term f(2 − f) is exactly zero: a real edge, bet that ' +
+      'hard, compounds to nothing. This ladder stops at 1.0 for that reason.'
+  };
+}
+
+/**
  * The real break-even, measured from actual recorded prices rather than the
  * -110 convention.
  *

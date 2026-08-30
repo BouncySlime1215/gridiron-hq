@@ -2,6 +2,11 @@
  * NFL betting API: the feature catalog, prop projections, weekly totals,
  * pick reasoning, role tracking and the combined hub summary.
  */
+import { footballFirstLean, residualModel, FEATURES as FF_FEATURES } from '../services/football-first.js';
+import { footballContext, quarterbackPicture, rosterContinuity } from '../services/football-context.js';
+import { pickConfidence, confidenceCalibration } from '../services/pick-confidence.js';
+import { walkForward } from '../services/weekly-walkforward.js';
+import { forwardLedger, recordThisWeek, settleForwardPicks } from '../services/forward-ledger.js';
 import { spreadContext, atsProfile, efficiencyGap, fantasyContext } from '../services/nfl-spread-context.js';
 // Aliased: nfl-reasoning.js exports its own explainPick, which answers a
 // different question (which team is better on which variable). This one
@@ -1376,4 +1381,92 @@ r.post('/reasoning/explain', (req, res, next) => {
     if (out.error) return res.status(400).json(out);
     res.json(out);
   } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------------ football-first model */
+
+/** The football read on one game, decomposed into the facts that produced it. */
+r.get('/football-first/:season/:week/:home/:away', (req, res, next) => {
+  try {
+    const season = Number(req.params.season), week = Number(req.params.week);
+    const home = String(req.params.home).toUpperCase(), away = String(req.params.away).toUpperCase();
+    const lean = footballFirstLean(season, week, home, away);
+    res.json({
+      ...lean,
+      confidence: lean.abstains || lean.error ? null : pickConfidence({
+        season, market: 'spread',
+        model_margin: (lean.market_number ?? 0) + (lean.lean_points ?? 0),
+        market_margin: lean.market_number ?? 0
+      }, { season }),
+      football: footballContext(season, week, home, away)
+    });
+  } catch (e) { next(e); }
+});
+
+/** Which football facts the fit currently weights, and how heavily. */
+r.get('/football-first/coefficients', (req, res, next) => {
+  try {
+    const season = Number(req.query.season) || new Date().getFullYear();
+    const m = residualModel(season, 'margin');
+    res.json({ ...m, features: FF_FEATURES });
+  } catch (e) { next(e); }
+});
+
+/** The weekly walk-forward: refit every week, predict the next. */
+r.get('/walk-forward', (req, res, next) => {
+  try {
+    res.json(walkForward({
+      minLean: Math.max(0.25, Math.min(5, Number(req.query.min_lean) || 1.0))
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Whether the confidence number means what it says. */
+r.get('/confidence/calibration', (_req, res, next) => {
+  try { res.json(confidenceCalibration({})); } catch (e) { next(e); }
+});
+
+/** Quarterback room and replacement value for one team. */
+r.get('/quarterback/:season/:week/:team', (req, res, next) => {
+  try {
+    res.json(quarterbackPicture(String(req.params.team).toUpperCase(),
+      Number(req.params.season), Number(req.params.week)));
+  } catch (e) { next(e); }
+});
+
+/** How much of last season's production is still on a roster. */
+r.get('/continuity/:season/:team', (req, res, next) => {
+  try {
+    res.json(rosterContinuity(String(req.params.team).toUpperCase(), Number(req.params.season)));
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------- forward ledger */
+
+/** The running forward record — the only evidence that cannot be re-sliced. */
+r.get('/forward', (req, res, next) => {
+  try {
+    res.json(forwardLedger({
+      source: req.query.source ?? null,
+      season: Number(req.query.season) || null
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Log this week's leans before kickoff. */
+r.post('/forward/record', async (req, res, next) => {
+  try {
+    const season = Number(req.body?.season);
+    const week = Number(req.body?.week);
+    if (!Number.isInteger(season) || !Number.isInteger(week)) {
+      return res.status(400).json({ error: 'season and week are required integers' });
+    }
+    res.json(await recordThisWeek({ season, week,
+      minLean: Math.max(0.25, Math.min(5, Number(req.body?.min_lean) || 1.0)) }));
+  } catch (e) { next(e); }
+});
+
+/** Grade everything that has finished. */
+r.post('/forward/settle', (_req, res, next) => {
+  try { res.json(settleForwardPicks()); } catch (e) { next(e); }
 });

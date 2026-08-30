@@ -15,12 +15,13 @@ const FieldSim = lazy(() => import('./betting/FieldSim'));
 const Gates = lazy(() => import('./betting/Gates'));
 const Decisions = lazy(() => import('./betting/Decisions'));
 const Ensemble = lazy(() => import('./betting/Ensemble'));
+const FootballFirst = lazy(() => import('./betting/FootballFirst'));
 
 type Section = 'decide' | 'execute' | 'replay' | 'proof';
 type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info';
 type DecideView = 'games' | 'props' | 'prices';
 type ExecuteView = 'edge' | 'shop' | 'venues';
-type ProofView = 'ai' | 'blind' | 'gates' | 'decisions' | 'model' | 'operations';
+type ProofView = 'model' | 'ai' | 'gates' | 'operations';
 
 interface AllGameRow {
   matchup: string; market: string; selection: string; side: string | null; home_team: string; away_team: string;
@@ -55,7 +56,7 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
   const [section, setSection] = useState<Section>(() => normalizeSection(initialTool));
   const [decideView, setDecideView] = useState<DecideView>(initialTool === 'props' ? 'props' : initialTool === 'lines' ? 'prices' : 'games');
   const [executeView, setExecuteView] = useState<ExecuteView>(initialTool === 'venues' ? 'venues' : initialTool === 'lines' ? 'shop' : 'edge');
-  const [proofView, setProofView] = useState<ProofView>(initialTool === 'operations' ? 'operations' : initialTool === 'ensemble' ? 'model' : initialTool === 'training' ? 'blind' : 'ai');
+  const [proofView, setProofView] = useState<ProofView>(initialTool === 'operations' ? 'operations' : initialTool === 'ensemble' ? 'model' : initialTool === 'training' ? 'ai' : 'ai');
   const [week, setWeek] = useState(1);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -149,12 +150,14 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
         <NextAction eyebrow="Blind-audit answer" title={!latestAi ? 'Run the first saved AI review' : latestAi.status === 'complete' && latestAi.result ? `${latestAi.result.reviewed} reviewed · ${latestAi.result.kept} survived` : `Review #${latestAi.id} is ${latestAi.status}`} detail={latestAi?.result ? `${latestAi.result.abstained} candidates were rejected. Open the trace to see exactly why each pick survived or failed.` : 'The review lives here with its evidence verdict and decision trace.'} action={() => setProofView('ai')} />
         <div className="rounded-2xl border border-slate-200 bg-white p-5"><div className="text-[10px] font-black uppercase tracking-[.14em] text-slate-400">AI authority</div><div className="mt-2 text-xl font-black text-slate-950">Explanation only</div><p className="mt-1 text-sm leading-5 text-slate-500">Selection happens first. The factor packet is frozen and hashed. AI translates that packet afterward and cannot change the pick, line, price, stake, or audit verdict.</p></div>
       </div>
-      <Subnav value={proofView} onChange={setProofView} items={[['ai', 'AI review'], ['blind', 'Blind replay'], ['gates', 'Promotion gates'], ['decisions', 'Decision bases'], ['model', 'Model room'], ['operations', 'Data operations']]} />
-      {proofView === 'ai' && <Training focus="ai" />}
-      {proofView === 'blind' && <Training focus="replay" />}
-      {proofView === 'gates' && <Panel fallback="Reading promotion gates…"><Gates /></Panel>}
-      {proofView === 'decisions' && <Panel fallback="Compiling decision bases…"><Decisions /></Panel>}
-      {proofView === 'model' && <Panel fallback="Loading model room…"><Ensemble /></Panel>}
+      {/* Four tabs, not six. "AI review" and "Blind replay" are both the audit;
+          "Promotion gates" and "Decision bases" are both what the model is
+          allowed to claim. Splitting each pair bought nothing but another click
+          and another thing to scan. */}
+      <Subnav value={proofView} onChange={setProofView} items={[['model', 'The model'], ['ai', 'Audit'], ['gates', 'What it may claim'], ['operations', 'Data operations']]} />
+      {proofView === 'model' && <Panel fallback="Loading the model…"><FootballFirst embedded /><Ensemble /></Panel>}
+      {proofView === 'ai' && <><Training focus="ai" /><Training focus="replay" /></>}
+      {proofView === 'gates' && <><Panel fallback="Reading promotion gates…"><Gates /></Panel><Panel fallback="Compiling decision bases…"><Decisions /></Panel></>}
       {proofView === 'operations' && <NflModelOperations />}
     </>}
   </BettingWorkspace>;

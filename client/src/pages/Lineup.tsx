@@ -166,6 +166,35 @@ function Slot({ c, index }: { c: any; index: number }) {
 
       <p className="mt-2 text-sm leading-6 text-slate-600">{c.why}</p>
 
+      {/* The football case. This is the part that was missing — the page used to
+          say "0.31 points ahead" and stop, which is true and decides nothing. */}
+      {c.football?.factors?.length > 0 && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+              The football{c.football.opponent ? ` · vs ${c.football.opponent}` : ''}
+            </span>
+            <span className={`text-xs font-bold ${
+              c.football.net_lean > 0.8 ? 'text-emerald-700'
+                : c.football.net_lean < -0.8 ? 'text-rose-700' : 'text-slate-500'}`}>
+              {c.football.verdict}
+            </span>
+          </div>
+          <div className="mt-2 space-y-2">
+            {c.football.factors.map((f: any, i: number) => (
+              <div key={i} className="flex gap-2">
+                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                  f.direction === 'positive' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-900">{f.headline}</div>
+                  <div className="text-xs leading-5 text-slate-600">{f.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {(c.vegas || c.caution || c.upside) && (
         <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2">
           {c.vegas && (

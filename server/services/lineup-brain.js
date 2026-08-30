@@ -40,6 +40,7 @@ import {
 import { vegasLift } from './waiver-brain.js';
 import { regressionCandidates } from './td-regression.js';
 import { fantasyContext } from './nfl-spread-context.js';
+import { playerCase } from './player-case.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 
@@ -148,6 +149,12 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean' } = {
   }
 
   // Every start, with what it beat and by how much.
+  // One failure must not take the lineup down with it — a missing opponent or a
+  // thin week should cost the football case, not the page.
+  const safeCase = (p, yr, wk) => {
+    try { return playerCase(p, yr, wk); } catch { return null; }
+  };
+
   const calls = optimal.slots.filter(s => s.player).map(s => {
     const p = s.player;
     // The best benched player who could legally fill this slot.
@@ -168,6 +175,11 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean' } = {
       margin, confidence,
       vegas: p.vegas?.reading ?? null,
       vegas_multiplier: p.vegas?.applied ? p.vegas.multiplier : null,
+      // The football case: who is throwing, what defence he faces, what his own
+      // staff calls, who else is hurt, the weather, his usage trend and his
+      // touchdown luck — ordered by how much each actually moves the decision.
+      // The whole reason this page was shallow is that it had none of this.
+      football: safeCase(p, season, week),
       // Only flags that touch this player's position, so a receiver is not told
       // about a running back's game script.
       conditions: (teamCtx.get(p.team_abbr)?.flags ?? [])

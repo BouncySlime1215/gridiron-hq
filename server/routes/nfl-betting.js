@@ -2,7 +2,7 @@
  * NFL betting API: the feature catalog, prop projections, weekly totals,
  * pick reasoning, role tracking and the combined hub summary.
  */
-import { footballFirstLean, residualModel, FEATURES as FF_FEATURES } from '../services/football-first.js';
+import { footballFirstLean, residualModel, peekResidualModel, FEATURES as FF_FEATURES } from '../services/football-first.js';
 import { footballContext, quarterbackPicture, rosterContinuity } from '../services/football-context.js';
 import { pickConfidence, confidenceCalibration } from '../services/pick-confidence.js';
 import { walkForward } from '../services/weekly-walkforward.js';
@@ -1403,12 +1403,43 @@ r.get('/football-first/:season/:week/:home/:away', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Which football facts the fit currently weights, and how heavily. */
+/**
+ * Which football facts the fit currently weights, and how heavily.
+ *
+ * The fit walks about a thousand games and computes injury, efficiency and
+ * tendency features for each, which takes roughly ninety seconds cold. Doing
+ * that inside a request handler blocks the entire Node event loop for that
+ * whole time — the page never loads, and neither does anything else on the
+ * server. It is cached after the first run, but somebody has to pay for the
+ * first run and it must not be a web request.
+ *
+ * So this answers immediately either way: the cached coefficients if they exist,
+ * or an honest "not computed yet" plus the command that computes it. No fake
+ * progress bar over work that has not started.
+ */
 r.get('/football-first/coefficients', (req, res, next) => {
   try {
     const season = Number(req.query.season) || new Date().getFullYear();
+    const cachedFit = peekResidualModel(season, 'margin');
+    if (cachedFit) return res.json({ ...cachedFit, features: FF_FEATURES, cached: true });
+    res.status(202).json({
+      fitted: false, computing: false, features: FF_FEATURES, season,
+      why: 'The coefficient fit has not been computed for this season yet. It walks about a ' +
+        'thousand games building injury, efficiency and tendency features and takes roughly ninety ' +
+        'seconds, which is far too long to hold a request open — doing it here would block every ' +
+        'other route on the server for the duration.',
+      how: 'POST /api/nfl-betting/football-first/fit to compute and cache it once.'
+    });
+  } catch (e) { next(e); }
+});
+
+/** Compute the fit once, deliberately out of band. */
+r.post('/football-first/fit', (req, res, next) => {
+  try {
+    const season = Number(req.body?.season) || new Date().getFullYear();
+    const started = Date.now();
     const m = residualModel(season, 'margin');
-    res.json({ ...m, features: FF_FEATURES });
+    res.json({ ...m, features: FF_FEATURES, took_ms: Date.now() - started });
   } catch (e) { next(e); }
 });
 

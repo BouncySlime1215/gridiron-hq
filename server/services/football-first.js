@@ -80,7 +80,7 @@
  * where no closing line has to be beaten.
  */
 import { rows, row } from '../db/index.js';
-import { cached, fingerprint } from './compute-cache.js';
+import { cached, fingerprint, peek } from './compute-cache.js';
 import { availabilityPicture, coachingProfile, quarterbackPicture, rosterContinuity } from './football-context.js';
 import { efficiencyGap } from './nfl-spread-context.js';
 
@@ -328,6 +328,16 @@ function solve(A, b) {
     }
   }
   return M.map((row_, i) => row_[n] / M[i][i]);
+}
+
+/**
+ * The cached fit if it exists, without triggering one.
+ *
+ * A request handler needs to be able to ask "is this ready" without paying
+ * ninety seconds to find out that it is not.
+ */
+export function peekResidualModel(beforeSeason, target = 'margin') {
+  return peek(`football-first:${target}:${beforeSeason}`);
 }
 
 /** Cached per cutoff; the fit walks several hundred games and rarely changes. */

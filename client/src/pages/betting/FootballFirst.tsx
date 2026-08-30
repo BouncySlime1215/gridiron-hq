@@ -27,6 +27,15 @@ export default function FootballFirst({ embedded = false }: { embedded?: boolean
   const coef = useApi<any>(`/nfl-betting/football-first/coefficients?season=${season}`);
   const [recording, setRecording] = useState(false);
   const [recorded, setRecorded] = useState<any>(null);
+  const [fitting, setFitting] = useState(false);
+
+  // The fit is ninety seconds of work, so it is never done inside a page load.
+  // The panel asks for it explicitly and says how long it will take.
+  const runFit = async () => {
+    setFitting(true);
+    try { await api('/nfl-betting/football-first/fit', { method: 'POST', body: JSON.stringify({ season }) }); coef.refetch(); }
+    finally { setFitting(false); }
+  };
 
   const record = async () => {
     setRecording(true);
@@ -61,6 +70,16 @@ export default function FootballFirst({ embedded = false }: { embedded?: boolean
 
       {/* What the fit currently weights. */}
       {coef.data?.fitted && <Coefficients c={coef.data} />}
+      {coef.data && !coef.data.fitted && (
+        <section className="tr-rise rounded-2xl border border-slate-200 bg-white p-4" style={{ animationDelay: '90ms' }}>
+          <h2 className="text-lg font-black tracking-tight text-slate-950">What the model weights</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{coef.data.why}</p>
+          <button onClick={runFit} disabled={fitting}
+            className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-50">
+            {fitting ? 'Fitting — about 90 seconds…' : 'Compute the fit once'}
+          </button>
+        </section>
+      )}
 
       {/* The forward ledger — the only evidence that cannot be re-sliced. */}
       <section className="tr-rise" style={{ animationDelay: '120ms' }}>

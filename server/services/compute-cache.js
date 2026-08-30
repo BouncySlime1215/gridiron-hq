@@ -55,6 +55,22 @@ export function fingerprint(tables = [], extra = '') {
  * @param key    a stable name for this computation
  * @param print  the data fingerprint it depends on
  */
+/**
+ * The cached value if one is stored, without computing anything.
+ *
+ * Exists so a request handler can ask "is this ready" without paying for the
+ * answer. `cached()` computes on a miss, which is right for a background job and
+ * wrong inside a route — a ninety-second fit called from an Express handler
+ * blocks the whole event loop and takes every other endpoint down with it.
+ *
+ * Deliberately ignores the fingerprint: this reports what is stored, and a stale
+ * entry is still a real answer to "has this ever been computed". Callers that
+ * need freshness use `cached()`.
+ */
+export function peek(key) {
+  return store.get(key)?.value ?? null;
+}
+
 export function cached(key, print, compute) {
   const hit = store.get(key);
   if (hit && hit.print === print) {

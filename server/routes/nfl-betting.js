@@ -2,6 +2,12 @@
  * NFL betting API: the feature catalog, prop projections, weekly totals,
  * pick reasoning, role tracking and the combined hub summary.
  */
+import { spreadContext, atsProfile, efficiencyGap, fantasyContext } from '../services/nfl-spread-context.js';
+// Aliased: nfl-reasoning.js exports its own explainPick, which answers a
+// different question (which team is better on which variable). This one
+// attributes the number to the component models that produced it and folds the
+// factor analysis in — see pick-reasoning.js.
+import { explainPick as explainPickTrace, explainWeek } from '../services/pick-reasoning.js';
 import { Router } from 'express';
 import { cached, fingerprint } from '../services/compute-cache.js';
 import { requireModelPermission } from '../modeling/authz.js';
@@ -1291,3 +1297,83 @@ r.get('/press', async (req, res, next) => {
 });
 
 export default r;
+
+/* ------------------------------------------------- spread context + reasoning */
+
+/** One team's relationship with the number, cutoff-safe. */
+r.get('/ats/:team', (req, res, next) => {
+  try {
+    const season = Number(req.query.season) || new Date().getFullYear();
+    res.json(atsProfile(String(req.params.team).toUpperCase(), season, {
+      throughWeek: Number(req.query.week) || null,
+      lookback: Number(req.query.lookback) || null
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Whether a team's record is keeping up with how it has played. */
+r.get('/efficiency/:team', (req, res, next) => {
+  try {
+    const season = Number(req.query.season) || new Date().getFullYear();
+    res.json(efficiencyGap(String(req.params.team).toUpperCase(), season, {
+      throughWeek: Number(req.query.week) || null
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Everything about one matchup, assembled for a reasoning trace. */
+r.get('/spread-context/:season/:week/:home/:away', (req, res, next) => {
+  try {
+    res.json(spreadContext(Number(req.params.season), Number(req.params.week),
+      String(req.params.home).toUpperCase(), String(req.params.away).toUpperCase(),
+      { lookback: Number(req.query.lookback) || null }));
+  } catch (e) { next(e); }
+});
+
+/** The same context aimed at a fantasy lineup rather than at a bet. */
+r.get('/fantasy-context/:season/:week/:team', (req, res, next) => {
+  try {
+    res.json(fantasyContext(String(req.params.team).toUpperCase(),
+      Number(req.params.season), Number(req.params.week)));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Every pick of one week, in English.
+ *
+ * Separates what CAUSED the number — component models and their weights, which
+ * is exact arithmetic on a weighted mean — from what was merely true at the
+ * time, which the model never read.
+ */
+r.get('/reasoning/:season/:week', async (req, res, next) => {
+  try {
+    const season = Number(req.params.season), week = Number(req.params.week);
+    if (!Number.isInteger(season) || !Number.isInteger(week)) {
+      return res.status(400).json({ error: 'season and week must be integers' });
+    }
+    const { replaySeason } = await import('../services/nfl-replay.js');
+    const { ensembleLine } = await import('../services/nfl-ensemble.js');
+    const replay = replaySeason(season, { startWeek: week, endWeek: week });
+    if (replay.error) return res.status(404).json({ error: replay.error });
+
+    const modelsByGame = new Map();
+    for (const b of replay.bets) {
+      const key = `${b.home}|${b.away}`;
+      if (modelsByGame.has(key)) continue;
+      try {
+        const line = ensembleLine(season, week, b.home, b.away, { includeEvidence: false });
+        if (!line.error) modelsByGame.set(key, line.models);
+      } catch { /* explained without attribution rather than not at all */ }
+    }
+    res.json({ season, week, ...explainWeek(replay.bets, { modelsByGame }) });
+  } catch (e) { next(e); }
+});
+
+/** Explain a single supplied pick, for inspecting one decision. */
+r.post('/reasoning/explain', (req, res, next) => {
+  try {
+    const out = explainPickTrace(req.body?.pick, { models: req.body?.models ?? null });
+    if (out.error) return res.status(400).json(out);
+    res.json(out);
+  } catch (e) { next(e); }
+});

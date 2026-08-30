@@ -18,6 +18,8 @@ import { replaySeason } from './nfl-replay.js';
 import { PLAYER_HEAD_REGISTRY_VERSION, PLAYER_HEADS } from './player-head-registry.js';
 import { PLAYER_WEEK_ENGINE_VERSION } from './player-week-engine.js';
 import { NFL_PRODUCTION_POLICY } from './nfl-policy.js';
+import { explainPick } from './pick-reasoning.js';
+import { ensembleLine } from './nfl-ensemble.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_blind_audit_runs (
@@ -162,7 +164,39 @@ function playerWeekResult(season, week) {
 
 function bettingWeekResult(season, week) {
   const replay = replaySeason(season, { startWeek: week, endWeek: week });
-  if (replay.error) return { metrics: { error: replay.error }, faults: [] };
+  if (replay.error) return { metrics: { error: replay.error }, faults: [], picks: [] };
+
+  // Every pick, translated. A hundred recorded losses tell you the model is bad
+  // without telling you why, and why is the only part that leads anywhere. The
+  // trace separates what CAUSED the number — component models and their weights,
+  // which is exact arithmetic on a weighted mean — from what was merely true at
+  // the time, which the model never read.
+  //
+  // Reasoning is generated from the same cutoff-safe context the pick had. It
+  // adds one ensemble call per game, which is cached, and no tokens.
+  const picks = [];
+  for (const b of replay.bets) {
+    let models = null;
+    try {
+      const line = ensembleLine(season, week, b.home, b.away, { includeEvidence: false });
+      if (!line.error) models = line.models;
+    } catch { /* explain without attribution rather than not at all */ }
+    const explained = explainPick(b, { models });
+    picks.push({
+      matchup: `${b.away} at ${b.home}`, market: b.market, selection: b.side, line: b.line,
+      result: b.result, units: b.units,
+      model_number: b.model_margin, market_number: b.market_margin, edge: b.edge,
+      reasoning: explained.error ? null : {
+        english: explained.english,
+        drove_it: explained.what_drove_it.contributions?.slice(0, 3) ?? [],
+        component_scatter: explained.what_drove_it.spread_points ?? null,
+        attribution_verified: explained.what_drove_it.reconstruction_matches ?? null,
+        context_net: explained.what_was_true.net,
+        context_disagreed: explained.what_was_true.disagrees_with_pick
+      }
+    });
+  }
+
   const misses = [...replay.bets]
     .map(x => ({ market: x.market, matchup: `${x.away} at ${x.home}`, selection: x.side,
       model: x.model_margin, market_line: x.market_margin, actual_margin: x.actual_margin,
@@ -171,7 +205,45 @@ function bettingWeekResult(season, week) {
         ? +Math.abs(x.model_margin - x.actual_margin).toFixed(3)
         : +Math.abs(x.model_margin - x.actual_total).toFixed(3) }))
     .sort((a, b) => b.miss_size - a.miss_size).slice(0, 10);
-  return { metrics: replay.summary, faults: misses };
+
+  return { metrics: replay.summary, faults: misses, picks };
+}
+
+/**
+ * The floor below which a win-rate split says nothing.
+ *
+ * Thirty settled bets a side is still a small sample — the standard error on a
+ * 50% rate at n=30 is about nine points — but it is the point below which the
+ * difference between two arms is essentially guaranteed to be noise. Set high
+ * enough that the template stays quiet through a partial season, which is when
+ * the temptation to read something into it is strongest.
+ */
+const MIN_READ_SAMPLE = 30;
+const MIN_READ_SAMPLE_UNMET = (a, b) =>
+  a.length < MIN_READ_SAMPLE || b.length < MIN_READ_SAMPLE;
+
+/**
+ * Is the difference between two arms bigger than sampling noise?
+ *
+ * A sample floor alone is not enough, and the measured data proved it: across
+ * five seasons the component-agreement split came in at 49.4% against 40.6% on
+ * 79 and 32 settled bets. Both arms cleared the floor, the gap is nearly nine
+ * points, and it is still nothing — a two-proportion test puts it at z = 0.84,
+ * which is the kind of number that becomes a strategy if the template is allowed
+ * to say "beat" without checking.
+ *
+ * Two-sided, pooled, because there is no prior direction worth assuming.
+ */
+function splitSignificance(a, b) {
+  const wins = list => list.filter(p => p.result === 'Won').length;
+  const na = a.length, nb = b.length;
+  if (!na || !nb) return { z: null, significant: false };
+  const pa = wins(a) / na, pb = wins(b) / nb;
+  const pooled = (wins(a) + wins(b)) / (na + nb);
+  const se = Math.sqrt(pooled * (1 - pooled) * (1 / na + 1 / nb));
+  if (!(se > 1e-9)) return { z: null, significant: false };
+  const z = (pa - pb) / se;
+  return { z: +z.toFixed(2), significant: Math.abs(z) >= 1.96, diff_pp: +((pa - pb) * 100).toFixed(1) };
 }
 
 function aggregate(weeks) {
@@ -179,12 +251,76 @@ function aggregate(weeks) {
   const bets = weeks.flatMap(x => x.result.betting?.metrics?.bets ? [x.result.betting.metrics] : []);
   const totalBets = bets.reduce((sum, x) => sum + x.bets, 0);
   const units = bets.reduce((sum, x) => sum + x.units, 0);
+  // What the reasoning traces say across the whole run, which is the part that
+  // can actually change the model. Two questions matter:
+  //   - When the model's components agreed with each other, did it do better?
+  //     If not, the disagreement measure is not carrying information.
+  //   - When the descriptive context disagreed with the pick, was the context
+  //     right? A feature that beats the model repeatedly is a feature that
+  //     should be an input rather than a footnote.
+  const allPicks = weeks.flatMap(x => x.result.betting?.picks ?? []);
+  const settled = allPicks.filter(p => p.result === 'Won' || p.result === 'Lost');
+  const rate = list => (list.length
+    ? +(list.filter(p => p.result === 'Won').length / list.length).toFixed(4) : null);
+
+  const tight = settled.filter(p => (p.reasoning?.component_scatter ?? Infinity) <= Math.abs(p.edge ?? 0));
+  const loose = settled.filter(p => (p.reasoning?.component_scatter ?? Infinity) > Math.abs(p.edge ?? 0));
+  const ctxAgainst = settled.filter(p => (p.reasoning?.context_net ?? 0) < 0);
+  const ctxFor = settled.filter(p => (p.reasoning?.context_net ?? 0) > 0);
+  const agreementSplit = splitSignificance(tight, loose);
+  const contextSplit = splitSignificance(ctxFor, ctxAgainst);
+
   return {
     weeks_opened: weeks.length,
     player_faults_recorded: player.length,
     betting: { bets: totalBets, wins: bets.reduce((s, x) => s + x.wins, 0),
       losses: bets.reduce((s, x) => s + x.losses, 0), units: +units.toFixed(3),
       roi: totalBets ? +(units / totalBets).toFixed(4) : null },
+    reasoning: {
+      picks_explained: allPicks.length,
+      attribution_verified: allPicks.filter(p => p.reasoning?.attribution_verified).length,
+      when_components_agreed: { n: tight.length, win_rate: rate(tight) },
+      when_components_scattered: { n: loose.length, win_rate: rate(loose) },
+      when_context_agreed: { n: ctxFor.length, win_rate: rate(ctxFor) },
+      when_context_disagreed: { n: ctxAgainst.length, win_rate: rate(ctxAgainst) },
+      component_split_test: agreementSplit,
+      context_split_test: contextSplit,
+      // Nothing is claimed below a sample that could support it. On a seven-week
+      // slice this split produced 33% against 67% on twelve bets versus six, in
+      // the OPPOSITE direction to the hypothesis — which is what noise looks
+      // like, and exactly the sort of number that becomes a confident sentence
+      // if the template does not refuse to write one.
+      reads: [
+        MIN_READ_SAMPLE_UNMET(tight, loose)
+          ? `Not enough settled bets to read the component-agreement split ` +
+            `(${tight.length} against ${loose.length}; ${MIN_READ_SAMPLE} a side is the floor). ` +
+            'A win-rate difference on samples this size is noise, and stating it as a finding is ' +
+            'how a replay manufactures a strategy.'
+          : (agreementSplit.significant
+            ? (agreementSplit.diff_pp > 0
+              ? `Picks where the component models agreed with each other beat picks where they ` +
+                `scattered by ${agreementSplit.diff_pp} points (z = ${agreementSplit.z}). The ` +
+                'disagreement measure is carrying information and is worth preregistering as a ' +
+                'selection filter.'
+              : `Picks where the components scattered actually did BETTER, by ` +
+                `${Math.abs(agreementSplit.diff_pp)} points (z = ${agreementSplit.z}). That is the ` +
+                'opposite of the hypothesis and worth understanding before any filter is built on it.')
+            : `The component-agreement split is ${agreementSplit.diff_pp} points ` +
+              `(z = ${agreementSplit.z}), which is inside sampling noise. The disagreement measure ` +
+              'is not demonstrably carrying information, and filtering on it would be fitting noise.'),
+        MIN_READ_SAMPLE_UNMET(ctxFor, ctxAgainst)
+          ? `Not enough settled bets to read whether the descriptive context beats the model ` +
+            `(${ctxFor.length} against ${ctxAgainst.length}).`
+          : (contextSplit.significant
+            ? `Picks the descriptive context disagreed with fared ${Math.abs(contextSplit.diff_pp)} ` +
+              `points ${contextSplit.diff_pp > 0 ? 'better' : 'worse'} (z = ${contextSplit.z}). ` +
+              'Cover records and efficiency gaps are beating the model on its own picks, which makes ' +
+              'them candidates to become actual inputs — preregister that before believing it.'
+            : `Context agreement moved the win rate by ${contextSplit.diff_pp} points ` +
+              `(z = ${contextSplit.z}), inside noise. Those descriptive features are not ` +
+              'demonstrably worth promoting to inputs on this evidence.')
+      ].filter(Boolean)
+    },
     interpretation: 'Historical chronological replay only. Profitability promotion still requires forward priced decisions and positive CLV.'
   };
 }

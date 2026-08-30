@@ -39,6 +39,7 @@ import {
 } from './trade-engine.js';
 import { vegasLift } from './waiver-brain.js';
 import { regressionCandidates } from './td-regression.js';
+import { fantasyContext } from './nfl-spread-context.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 
@@ -132,6 +133,20 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean' } = {
     }
   } catch { /* the call stands without it */ }
 
+  // Situational context per team, computed once rather than per player.
+  //
+  // This is the same module the betting audit reads, pointed at a lineup. Wind
+  // above about 15 mph is the clearest example of why it belongs here: it moves
+  // passing volume enough to change a start/sit and barely moves a spread,
+  // because the market prices it into the total while the fantasy projection
+  // never saw it at all.
+  const teamCtx = new Map();
+  for (const p of annotated) {
+    if (!p.team_abbr || teamCtx.has(p.team_abbr)) continue;
+    try { teamCtx.set(p.team_abbr, fantasyContext(p.team_abbr, season, week)); }
+    catch { teamCtx.set(p.team_abbr, null); }
+  }
+
   // Every start, with what it beat and by how much.
   const calls = optimal.slots.filter(s => s.player).map(s => {
     const p = s.player;
@@ -153,6 +168,12 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean' } = {
       margin, confidence,
       vegas: p.vegas?.reading ?? null,
       vegas_multiplier: p.vegas?.applied ? p.vegas.multiplier : null,
+      // Only flags that touch this player's position, so a receiver is not told
+      // about a running back's game script.
+      conditions: (teamCtx.get(p.team_abbr)?.flags ?? [])
+        .filter(f => f.affects === 'everyone' || f.affects === p.position
+          || (f.affects === 'passing' && ['QB', 'WR', 'TE'].includes(p.position)))
+        .map(f => ({ kind: f.kind, severity: f.severity, note: f.note })),
       caution: ev?.kind === 'hot' ? ev.text : null,
       upside: ev?.kind === 'cold' ? ev.text : null,
       why: margin == null
@@ -182,6 +203,10 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean' } = {
     })),
     submitted,
     unavailable,
+    team_conditions: [...teamCtx.entries()]
+      .filter(([, c]) => c && !c.insufficient && c.flags.length)
+      .map(([team, c]) => ({ team, opponent: c.opponent, home: c.home,
+        market: c.market, conditions: c.conditions, flags: c.flags })),
     coin_flips: coinFlips.length,
     warnings: risky.map(c => ({
       player: c.player.name,

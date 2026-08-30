@@ -85,6 +85,26 @@ function beneficiaryOf(playerName, teamAbbr) {
 }
 
 /**
+ * Was this player actually marked down before this good news arrived?
+ *
+ * The window is 45 days because that is roughly how long a fantasy market keeps
+ * discounting someone after an injury tag — beyond that the price has re-formed
+ * around his absence and "buy low" stops describing anything real.
+ *
+ * Returns the most recent negative signal preceding the given timestamp, or null
+ * if the player was never tagged, in which case he was never cheap.
+ */
+function priorDiscount(playerName, before) {
+  const wanted = normalizePlayerName(playerName);
+  return rows(
+    `SELECT player_name, status, published_at FROM nfl_news_signals
+     WHERE status IN ('out_for_season','out','doubtful','ir','released')
+       AND published_at < ? AND published_at >= datetime(?, '-45 days')
+     ORDER BY published_at DESC`, before, before)
+    .find(x => normalizePlayerName(x.player_name) === wanted) ?? null;
+}
+
+/**
  * Recent typed signals turned into concrete league actions.
  *
  * @param leagueId  the league whose rosters decide who owns whom
@@ -160,10 +180,36 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
           why: 'No clear inheritor on the depth chart, so there is no beneficiary to buy. This is a hold-or-sell call on the player himself.' };
       }
     } else if (positive && held && !mine) {
-      // A recovery reported before the market re-rates him.
-      action = { kind: 'buy_low', target: s.player_name,
-        target_owned_by: held.team.owner, target_value: held.player.value,
-        why: `Positive availability news on a player ${held.team.owner} may still be discounting.` };
+      // A recovery reported before the market re-rates him — but ONLY if there
+      // was something to recover from.
+      //
+      // This branch used to fire on any positive signal about any rostered
+      // player, which produced advice like "buy low on Ja'Marr Chase" off a
+      // routine "full participant in practice" note. Chase was never cheap;
+      // nobody discounted him; there is no low to buy. The recommendation was
+      // not merely useless, it was self-contradicting — the same row announced
+      // good news about an expensive player and then called him underpriced.
+      //
+      // A buy-low needs a discount to exist first. The discount is the earlier
+      // negative signal, and this positive one is the news that reverses it
+      // before the rest of the league notices. No prior injury, no trade.
+      const discount = priorDiscount(s.player_name, s.published_at);
+      if (discount) {
+        action = { kind: 'buy_low', target: s.player_name,
+          target_owned_by: held.team.owner, target_value: held.player.value,
+          discounted_by: discount.status, discounted_at: discount.published_at,
+          discount_age_days: r2((new Date(s.published_at).getTime()
+            - new Date(discount.published_at).getTime()) / (24 * HOUR)),
+          why: `${held.team.owner} has been holding him through a "${discount.status}" tag since ` +
+            `${discount.published_at.slice(0, 10)}. This clears it, and the price has not caught up yet.` };
+      } else {
+        // Worth saying out loud rather than dropping silently, because "why
+        // isn't this player here" is the obvious next question.
+        action = { kind: 'no_edge', target: s.player_name,
+          target_owned_by: held.team.owner, target_value: held.player.value,
+          why: 'Good news, but he was never marked down — no prior injury tag to recover from, ' +
+            'so there is no discount to exploit. His owner is not selling cheap.' };
+      }
     } else if (positive && !held) {
       action = { kind: 'claim_waiver', target: s.player_name,
         target_owned_by: 'free agent',
@@ -184,10 +230,17 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
   // Freshest first: the whole premise is that value decays as the news spreads.
   opportunities.sort((a, b) => a.age_hours - b.age_hours);
 
+  // Rows that were considered and rejected are kept, but kept apart. Mixing
+  // "here is a trade" with "here is a player you cannot get cheap" in one list
+  // is what made this page feel like it was talking nonsense.
+  const dismissed = opportunities.filter(o => o.action.kind === 'no_edge');
+  const actionable = opportunities.filter(o => o.action.kind !== 'no_edge');
+
   return {
     league: lg.name, my_team: me?.owner ?? null,
     signals_considered: signals.length,
-    opportunities,
+    opportunities: actionable,
+    considered_and_dismissed: dismissed,
     note: 'Ranked by how recently the claim was published. There is deliberately no countdown — ' +
       'we cannot know when your leaguemates read the news, only that this pipeline runs on a timer ' +
       'and they do not. Every row carries the verbatim evidence span it was extracted from.'

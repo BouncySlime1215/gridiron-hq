@@ -129,6 +129,60 @@ r.get('/execution/board', (req, res, next) => {
 });
 
 /**
+ * Say what the calibration result means, in words, before saying it in numbers.
+ *
+ * The hub used to lead with "walk-forward slope 1.3698 (gate 0.7–1.3); model
+ * Brier 0.2497 vs market 0.2497". Every term in that sentence is precise and
+ * none of it tells the person reading it whether they should bet. It is the
+ * house style of a paper, not of a tool someone operates.
+ *
+ * So the plain sentence comes first and the numbers stay underneath it, because
+ * the numbers are still what makes the claim checkable — the fix is ordering and
+ * translation, not hiding the evidence.
+ *
+ * Two distinct failures live in this one gate and they read very differently:
+ *   slope < 0.7  the model commits harder than it has earned — a stated 70%
+ *                lands nearer 60%, and that is the dangerous direction, because
+ *                every bet is sized off the overstated number.
+ *   slope > 1.3  the model is too timid — the honest answer is further from
+ *                50/50 than it is willing to say. Wasteful, not dangerous.
+ * Brier is just average squared error on a probability: lower is better, and the
+ * only comparison that matters is against the betting line itself.
+ */
+function plainCalibration(cal) {
+  const m = cal?.metrics;
+  if (!m) {
+    return { calibration_plain: 'The model has never been scored against finished games, so there is no reason yet to trust a number it prints.',
+      calibration_numbers: null,
+      calibration_detail: 'no fitted calibration on record' };
+  }
+  const slope = m.walk_forward_calibration_slope;
+  const mine = m.walk_forward_calibrated_brier;
+  const mkt = m.walk_forward_market_brier;
+  const numbers = `Calibration slope ${slope ?? '—'} (needs to land between 0.7 and 1.3). ` +
+    `Model error ${mine ?? '—'} vs the betting line's ${mkt ?? '—'} — lower is better.`;
+
+  let plain;
+  if (m.forward_gate_passed) {
+    plain = 'The model\'s confidence now matches how often it is actually right, so it is allowed to size real bets.';
+  } else if (slope != null && slope < 0.7) {
+    plain = 'The model is overconfident. When it says a team wins 70% of the time, it happens closer to ' +
+      `${Math.round(50 + 20 * slope)}%. Betting on numbers that overstate themselves is how a bankroll goes to zero, so it stays on fake money.`;
+  } else if (slope != null && slope > 1.3) {
+    plain = 'The model is too cautious — the true answer is further from a coin flip than it is willing to say. ' +
+      'That loses opportunity rather than money, but it is still not calibrated, so it stays on fake money.';
+  } else {
+    plain = 'The model has not cleared its accuracy check, so it stays on fake money.';
+  }
+  // The comparison that actually settles it. A model that is merely as good as
+  // the line cannot beat the line, because the line charges vig and it doesn't.
+  if (mine != null && mkt != null && mine >= mkt - 0.0005) {
+    plain += ' It is also no more accurate than the betting line itself, and the line takes a cut — matching it means losing slowly.';
+  }
+  return { calibration_plain: plain, calibration_numbers: numbers, calibration_detail: numbers };
+}
+
+/**
  * One honest read on operational health.
  *
  * The hub used to lead with the auto-pick model, which is the one component
@@ -153,33 +207,37 @@ r.get('/status', (_req, res, next) => {
       // Ordered the way the plan orders them: structural edges first, because
       // those are the ones that do not require beating the market.
       edges: [
-        { id: 'execution', label: 'Line shopping', live: board.shoppable_sides > 0,
+        { id: 'execution', label: 'Shop for the best price', live: board.shoppable_sides > 0,
           headline: board.shoppable_sides > 0
-            ? `${board.shoppable_sides} shoppable sides · best ${(board.best_edge * 100).toFixed(1)}%` : 'No stored quotes',
-          detail: board.stale ? 'Stored snapshots are stale — fresh capture needs credits.'
-            : 'Priced from simultaneous multi-book quotes.',
+            ? `${board.shoppable_sides} bets where one book pays more · best is ${(board.best_edge * 100).toFixed(1)}% better`
+            : 'No saved prices to compare',
+          detail: board.stale
+            ? 'The saved prices are old. Comparing books only works if every price was read at the same moment, so this needs a fresh pull.'
+            : 'Books disagree on the same game. This finds the one paying most — it needs no opinion about who wins.',
           blocked_by: board.stale ? 'credits' : null },
-        { id: 'teasers', label: 'Wong teasers', live: teaserExecution.eligible_candidates > 0,
+        { id: 'teasers', label: 'Teasers', live: teaserExecution.eligible_candidates > 0,
           headline: teaserExecution.eligible_candidates > 0
-            ? `${teaserExecution.eligible_candidates} executable ticket${teaserExecution.eligible_candidates === 1 ? '' : 's'}`
-            : `${(teaser110.ev_per_bet * 100).toFixed(2)}% historical EV at -110`,
+            ? `${teaserExecution.eligible_candidates} ticket${teaserExecution.eligible_candidates === 1 ? '' : 's'} you can actually place`
+            : `Won ${(teaserHist.win_rate * 100).toFixed(1)}% historically — enough to profit only at the right price`,
           detail: teaserExecution.eligible_candidates > 0
-            ? 'Same-book, different-game pairs passed live price and freshness gates.'
-            : 'Historical edge only. A fresh multi-book line and verified reachable teaser payout are still required.',
+            ? 'Two games, one book, both moved through the key numbers 3 and 7. Priced and fresh.'
+            : `Moving a spread across 3 and 7 won ${(teaserHist.win_rate * 100).toFixed(1)}% of the time over ` +
+              `${teaserHist.legs.toLocaleString()} legs — worth ${(teaser110.ev_per_bet * 100).toFixed(1)}¢ per dollar at -110, ` +
+              'and a loss at the -130 most books charge. The whole edge is the price your book offers, and nobody has checked it yet.',
           blocked_by: teaserExecution.eligible_candidates > 0 ? null : teaserExecution.status },
-        { id: 'correlation', label: 'Parlay correlation', live: false,
-          headline: 'Copula priced', detail: 'Fitted on local usage history; owes forward CLV before sizing.',
+        { id: 'correlation', label: 'Parlay pricing', live: false,
+          headline: 'Priced, never tested live',
+          detail: 'Legs in one parlay rise and fall together, and books price them as if they do not. The math is fitted, ' +
+            'but it has never been checked against a real closing price, so it is not trusted yet.',
           blocked_by: 'forward CLV' },
-        { id: 'props', label: 'Prop edge', live: false,
-          headline: `${props.captured_quotes ?? 0} quotes · ${props.settled ?? 0} settled`,
+        { id: 'props', label: 'Player props', live: false,
+          headline: `${props.captured_quotes ?? 0} prices saved · ${props.settled ?? 0} finished`,
           detail: props.verdict, blocked_by: 'settled sample' }
       ],
       model: {
         // Stated plainly rather than buried: this is the component that does not work.
         calibration_gate: cal?.metrics?.forward_gate_passed ? 'passed' : 'blocked',
-        calibration_detail: cal
-          ? `walk-forward slope ${cal.metrics.walk_forward_calibration_slope ?? '—'} (gate 0.7–1.3); model Brier ${cal.metrics.walk_forward_calibrated_brier ?? '—'} vs market ${cal.metrics.walk_forward_market_brier ?? '—'}`
-          : 'no fitted calibration on record',
+        ...plainCalibration(cal),
         sizing_allowed: !!cal?.metrics?.forward_gate_passed
       },
       data: {

@@ -155,8 +155,11 @@ function createShortcut() {
       `@echo off\r\n` +
       `title Gridiron HQ\r\n` +
       `cd /d "${ROOT}"\r\n` +
+      // The installer may have put Node in the user's profile rather than on the
+      // system PATH; without this the shortcut fails on a working install.
+      `if exist "%USERPROFILE%\\.gridiron\\node\\node.exe" set "PATH=%USERPROFILE%\\.gridiron\\node;%PATH%"\r\n` +
       `echo Starting Gridiron HQ...\r\n` +
-      `npm start\r\n` +
+      `call npm start\r\n` +
       `pause\r\n`);
     return file;
   }
@@ -165,6 +168,7 @@ function createShortcut() {
   fs.writeFileSync(file,
     `#!/bin/bash\n` +
     `cd "${ROOT}" || exit 1\n` +
+    `[ -x "$HOME/.gridiron/node/bin/node" ] && export PATH="$HOME/.gridiron/node/bin:$PATH"\n` +
     `echo "Starting Gridiron HQ…"\n` +
     `npm start\n`);
   fs.chmodSync(file, 0o755);

@@ -35,27 +35,74 @@ if (-not (Test-NodeOk)) {
     Write-Host "  ! Node.js is not installed yet." -ForegroundColor Yellow
   }
 
-  $winget = Get-Command winget -ErrorAction SilentlyContinue
-  if ($winget) {
-    Write-Host "  Installing Node with winget (a Windows security prompt may appear - click Yes)..."
-    try { winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements | Out-Null } catch {}
+  # A private, per-user copy of Node rather than a system install.
+  #
+  # This is deliberately preferred over winget. winget needs a UAC prompt, and
+  # worse, it updates the *system* PATH which this already-running PowerShell
+  # process cannot see - which is why this used to end in "close this window and
+  # double-click again". Unpacking the official zip into the user's own profile
+  # needs no admin, and the PATH change applies immediately, so the install
+  # actually finishes on the first double-click.
+  #
+  # It writes only to %USERPROFILE%\.gridiron. Uninstalling is deleting that.
+  $privateRoot = Join-Path $env:USERPROFILE '.gridiron'
+  $privateNode = Join-Path $privateRoot 'node'
+  if (Test-Path (Join-Path $privateNode 'node.exe')) {
+    $env:Path = "$privateNode;$env:Path"
   }
 
-  # winget updates the system PATH, but this already-running PowerShell process
-  # won't see it until it restarts - rather than fight that, ask for one more
-  # double-click, which is still far short of anything resembling a terminal.
+  if (-not (Test-NodeOk)) {
+    Write-Host "  No usable Node.js - fetching a private copy (about 30 MB, one time)..."
+    try {
+      $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+      # Resolve the current LTS instead of pinning a version that quietly rots;
+      # the pin below is only the fallback for when that lookup fails.
+      $ver = 'v22.20.0'
+      try {
+        $idx = Invoke-RestMethod -Uri 'https://nodejs.org/dist/index.json' -TimeoutSec 20
+        $lts = $idx | Where-Object { $_.lts -is [string] } | Select-Object -First 1
+        if ($lts.version) { $ver = $lts.version }
+      } catch {}
+
+      $zipName = "node-$ver-win-$arch"
+      $tmp = Join-Path $env:TEMP "gridiron-node-$([guid]::NewGuid().ToString('N'))"
+      New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+      $zip = Join-Path $tmp 'node.zip'
+
+      $ProgressPreference = 'SilentlyContinue'   # the progress bar makes this ~10x slower
+      Invoke-WebRequest -Uri "https://nodejs.org/dist/$ver/$zipName.zip" -OutFile $zip -TimeoutSec 600
+      Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
+
+      New-Item -ItemType Directory -Path $privateRoot -Force | Out-Null
+      if (Test-Path $privateNode) { Remove-Item -LiteralPath $privateNode -Recurse -Force }
+      Move-Item -LiteralPath (Join-Path $tmp $zipName) -Destination $privateNode
+      Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+
+      $env:Path = "$privateNode;$env:Path"
+      Write-Host "  + Installed Node $ver privately (~\.gridiron\node)" -ForegroundColor Green
+    } catch {
+      Write-Host "  ! Private Node download failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+  }
+
+  # Last resort only, because of the UAC prompt and the PATH problem above.
+  if (-not (Test-NodeOk)) {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+      Write-Host "  Trying winget (a Windows security prompt may appear - click Yes)..."
+      try { winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements | Out-Null } catch {}
+    }
+  }
+
   if (Test-NodeOk) {
-    Write-Host "  + Node installed." -ForegroundColor Green
+    Write-Host "  + Node $(node -v)" -ForegroundColor Green
   } else {
     Write-Host ""
-    if ($winget) {
-      Write-Host "  Node is installing in the background. Once it finishes, close this" -ForegroundColor Yellow
-      Write-Host "  window and double-click 'Install Gridiron HQ' again." -ForegroundColor Yellow
-    } else {
-      Write-Host "  x Opening the download page - grab the LTS installer, run it, then" -ForegroundColor Red
-      Write-Host "    double-click 'Install Gridiron HQ' again." -ForegroundColor Red
-      Start-Process "https://nodejs.org/en/download"
-    }
+    Write-Host "  x Could not get a working Node.js automatically." -ForegroundColor Red
+    Write-Host "    This usually means no internet, or a network that blocks nodejs.org."
+    Write-Host "    Opening the download page - grab the LTS installer, run it, then"
+    Write-Host "    double-click 'Install Gridiron HQ' again."
+    Start-Process "https://nodejs.org/en/download"
     Write-Host ""
     exit 1
   }

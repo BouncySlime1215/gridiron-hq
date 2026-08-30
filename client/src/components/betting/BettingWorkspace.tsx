@@ -6,7 +6,11 @@ type Stage = 'scan' | 'price' | 'review' | 'track';
 
 interface HubStatus {
   edges: { id: string; label: string; live: boolean; headline: string; detail: string; blocked_by: string | null }[];
-  model: { calibration_gate: string; calibration_detail: string; sizing_allowed: boolean };
+  model: {
+    calibration_gate: string; calibration_detail: string; sizing_allowed: boolean;
+    /** The same result in a sentence, which is what the strip actually shows. */
+    calibration_plain?: string; calibration_numbers?: string | null;
+  };
   data: {
     credits_remaining: number | null;
     free_detector: { events_tracked: number; moves: number; worth_capturing: number };
@@ -14,11 +18,12 @@ interface HubStatus {
   };
 }
 
+/** The four steps, named for what you do at each one rather than for its module. */
 const stages: { id: Stage; label: string; detail: string }[] = [
-  { id: 'scan', label: 'Scan', detail: 'Free market + news signals' },
-  { id: 'price', label: 'Price', detail: 'Best reachable quote' },
-  { id: 'review', label: 'Review', detail: 'Rules, model and AI audit' },
-  { id: 'track', label: 'Track', detail: 'CLV and settled result' }
+  { id: 'scan', label: 'Find', detail: 'Which games moved, and why' },
+  { id: 'price', label: 'Price', detail: 'Which book pays the most' },
+  { id: 'review', label: 'Check', detail: 'Does it survive the rules' },
+  { id: 'track', label: 'Record', detail: 'What the bet actually did' }
 ];
 
 export function BettingWorkspace({ sport, title, description, activeStage, actions, children }: {
@@ -59,15 +64,25 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
             <span className={`grid h-5 w-5 place-items-center rounded-full text-[10px] font-black ${stage.id === activeStage ? 'bg-emerald-400 text-slate-950' : 'bg-white/10 text-slate-300'}`}>{index + 1}</span>
             <span className={stage.id === activeStage ? 'text-sm font-bold text-white' : 'text-sm font-semibold text-slate-300'}>{stage.label}</span>
           </div>
-          <div className="mt-1 pl-7 text-[11px] text-slate-500">{stage.detail}</div>
+          <div className="mt-1 pl-7 text-[11px] text-slate-400">{stage.detail}</div>
         </div>)}
       </div>
     </section>
 
     {status && <div className="grid gap-2 sm:grid-cols-3">
-      <TruthChip label="Free scan" value={`${status.data.free_detector.events_tracked} games · ${status.data.free_detector.moves} moves`} detail={`${status.data.free_detector.worth_capturing} worth a paid capture`} />
-      <TruthChip label="Quote state" value={status.data.capture_stale ? 'Refresh before acting' : 'Simultaneous quotes ready'} detail={`${status.data.credits_remaining ?? '—'} paid credits remain`} warn={status.data.capture_stale} />
-      <TruthChip label="Stake authority" value={status.model.sizing_allowed ? 'Model can size' : 'Model stays at paper stakes'} detail={status.model.calibration_detail} warn={!status.model.sizing_allowed} />
+      <TruthChip label="Watching for free"
+        value={`${status.data.free_detector.events_tracked} games · ${status.data.free_detector.moves} lines moved`}
+        detail={status.data.free_detector.worth_capturing > 0
+          ? `${status.data.free_detector.worth_capturing} moved enough to be worth spending a price check on`
+          : 'Nothing moved enough to be worth spending a price check on'} />
+      <TruthChip label="Prices"
+        value={status.data.capture_stale ? 'Too old to bet on' : 'Fresh and comparable'}
+        detail={`${status.data.credits_remaining ?? '—'} paid price checks left this month`}
+        warn={status.data.capture_stale} />
+      <TruthChip label="Real money"
+        value={status.model.sizing_allowed ? 'Model is cleared to bet' : 'Fake money only'}
+        detail={status.model.calibration_plain ?? status.model.calibration_detail}
+        warn={!status.model.sizing_allowed} />
     </div>}
 
     {children}
@@ -78,7 +93,7 @@ function TruthChip({ label, value, detail, warn = false }: { label: string; valu
   return <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
     <div className="text-[10px] font-black uppercase tracking-[.13em] text-slate-400">{label}</div>
     <div className={`mt-1 text-sm font-black ${warn ? 'text-amber-800' : 'text-slate-900'}`}>{value}</div>
-    <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500">{detail}</div>
+    <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{detail}</div>
   </div>;
 }
 
@@ -98,7 +113,7 @@ export function NextAction({ eyebrow, title, detail, to, action, tone = 'dark' }
   eyebrow: string; title: string; detail: string; to?: string; action?: () => void; tone?: 'dark' | 'light';
 }) {
   const className = tone === 'dark'
-    ? 'border-slate-900 bg-slate-950 text-white'
+    ? 'surface-deep border-slate-900 text-white'
     : 'border-slate-200 bg-white text-slate-950';
   const content = <>
     <div className={`text-[10px] font-black uppercase tracking-[.15em] ${tone === 'dark' ? 'text-emerald-300' : 'text-emerald-700'}`}>{eyebrow}</div>

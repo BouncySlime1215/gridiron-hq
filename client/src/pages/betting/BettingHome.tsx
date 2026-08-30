@@ -10,7 +10,11 @@ interface Summary {
 }
 interface HubStatus {
   edges: { id: string; label: string; live: boolean; headline: string; detail: string; blocked_by: string | null }[];
-  model: { calibration_gate: string; calibration_detail: string; sizing_allowed: boolean };
+  model: {
+    calibration_gate: string; calibration_detail: string; sizing_allowed: boolean;
+    /** The same verdict as a sentence, which is what the page leads with. */
+    calibration_plain?: string; calibration_numbers?: string | null;
+  };
   data: { credits_remaining: number | null; capture_stale: boolean; latest_multibook_capture: string | null };
 }
 
@@ -24,47 +28,80 @@ export default function BettingHome() {
   const teaser = status.data?.edges.find(edge => edge.id === 'teasers');
   const execution = status.data?.edges.find(edge => edge.id === 'execution');
   const next = teaser?.live
-    ? { title: 'Build the next qualified teaser ticket', detail: teaser.detail }
-    : { title: 'Verify a reachable teaser payout', detail: teaser?.detail ?? 'The model has candidate legs; execution still needs a real same-book price.' };
+    ? { title: 'Build the teaser ticket that qualified', detail: teaser.detail }
+    : { title: 'Go check what your book pays for a teaser',
+        detail: teaser?.detail ?? 'The candidates exist. What is missing is the one number that decides whether they are worth betting: the actual price.' };
 
   return <BettingWorkspace sport="all" title="Path to Profit"
-    description="One operating view for what can be executed, what still needs proof, and what data should be collected next. Nothing advances because it looks impressive; it advances only when the ledger supports it."
+    description="What you can bet today, what still isn't good enough to bet, and what to do next. Nothing gets promoted here for looking clever — only for winning money on record."
     activeStage="scan">
     {(summary.error || status.error) && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{summary.error ?? status.error}</div>}
 
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,.7fr)]">
       <NextAction eyebrow="Do this next" title={next.title} detail={next.detail} to="/betting/nfl" />
       <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="text-[10px] font-black uppercase tracking-[.15em] text-slate-400">Current operating rule</div>
-        <div className="mt-2 text-xl font-black text-slate-950">{status.data?.model.sizing_allowed ? 'Model staking is unlocked' : 'Execution edges only'}</div>
-        <p className="mt-1 text-sm leading-5 text-slate-500">{status.data?.model.calibration_detail ?? 'Reading the latest calibration gate…'}</p>
+        <div className="text-[10px] font-black uppercase tracking-[.15em] text-slate-400">The rule right now</div>
+        <div className="mt-2 text-xl font-black text-slate-950">
+          {status.data?.model.sizing_allowed ? 'The model may bet real money' : 'Only bet things that need no prediction'}
+        </div>
+        <p className="mt-1 text-sm leading-5 text-slate-600">
+          {status.data?.model.calibration_plain ?? 'Checking how accurate the model has been…'}
+        </p>
+        {status.data?.model.calibration_numbers &&
+          <p className="mt-2 border-t border-slate-100 pt-2 text-[11px] leading-4 text-slate-400">
+            {status.data.model.calibration_numbers}
+          </p>}
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-2/4 rounded-full bg-emerald-600" /></div>
-        <div className="mt-2 flex justify-between text-[11px] font-bold text-slate-400"><span>Infrastructure</span><span>Forward proof</span><span>Capital</span></div>
+        <div className="mt-2 flex justify-between text-[11px] font-bold text-slate-400">
+          <span>Built</span><span>Proven live</span><span>Funded</span>
+        </div>
       </section>
     </div>
 
     <section>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <div><div className="text-[10px] font-black uppercase tracking-[.15em] text-emerald-700">Connected desks</div><h2 className="text-2xl font-black">Same workflow, sport-specific evidence</h2></div>
-        <div className="text-xs text-slate-500">Every pick must end in a priced, auditable ledger row.</div>
+        <div><div className="text-[10px] font-black uppercase tracking-[.15em] text-emerald-700">Two desks</div><h2 className="text-2xl font-black">Same rules, different sport</h2></div>
+        <div className="text-xs text-slate-500">Every pick ends as a row with a real price on it, or it doesn't count.</div>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <SportDesk sport="NFL" to="/betting/nfl" kicker="Best current path" title={teaser?.headline ?? 'Teaser execution + line shopping'} detail={teaser?.detail ?? 'Reading the structural-edge ledger…'} facts={[
-          ['Paper record', nfl ? `${nfl.wins}-${nfl.losses}-${nfl.pushes}` : '—'], ['Paper units', units(nfl?.units)], ['Teaser sample', `${summary.data?.edges?.teaser?.legs ?? 0} legs`], ['Quote state', execution?.live && !status.data?.data.capture_stale ? 'Fresh' : 'Refresh needed']
-        ]} />
-        <SportDesk sport="MLB" to="/betting/mlb/auto" kicker="Evidence collection" title="Forward-priced daily ledger" detail="Use the local model to form candidates, then preserve the actual pregame state and price before calling anything evidence." facts={[
-          ['Tracked picks', String(mlb?.tracked_picks ?? 0)], ['Days tracked', String(mlb?.days_tracked ?? 0)], ['Latest slate', mlb?.latest_slate ?? '—'], ['Economics', 'Real prices only']
-        ]} />
+        <SportDesk sport="NFL" to="/betting/nfl" kicker="Closest thing to an edge"
+          title={teaser?.headline ?? 'Teasers and price shopping'}
+          detail={teaser?.detail ?? 'Reading the ledger…'} facts={[
+            ['Record on fake money', nfl ? `${nfl.wins}-${nfl.losses}-${nfl.pushes}` : '—'],
+            ['Up or down', units(nfl?.units)],
+            ['Teaser legs measured', `${summary.data?.edges?.teaser?.legs ?? 0}`],
+            ['Prices', execution?.live && !status.data?.data.capture_stale ? 'Fresh' : 'Need refreshing']
+          ]} />
+        <SportDesk sport="MLB" to="/betting/mlb/auto" kicker="Still collecting proof"
+          title="Recording picks at real prices"
+          detail="Picks get written down before the game with the price you could actually have gotten. No going back later to find a version that looks good."
+          facts={[
+            ['Picks recorded', String(mlb?.tracked_picks ?? 0)],
+            ['Days running', String(mlb?.days_tracked ?? 0)],
+            ['Last slate', mlb?.latest_slate ?? '—'],
+            ['Prices used', 'Real ones only']
+          ]} />
       </div>
     </section>
 
     <section className="grid gap-4 lg:grid-cols-3">
-      <QueueCard step="01" label="Capture only when useful" title={`${status.data?.data.credits_remaining ?? '—'} paid credits left`} detail="The free detector watches every slate. A paid multi-book snapshot fires only after a material move or news signal and preserves the reserve." />
-      <QueueCard step="02" label="Make reasoning inspectable" title="AI translates; rules decide" detail="A pick is frozen first. AI receives that factor packet afterward, writes the explanation, and stores a hash so wording cannot change the selection." />
-      <QueueCard step="03" label="Promote on proof" title="CLV before profit claims" detail="Candidate and close prices live in the same ledger. Promotion requires enough forward observations and a positive signal—not a backfilled win rate." />
+      <QueueCard step="01" label="Why prices cost money"
+        title={`${status.data?.data.credits_remaining ?? '—'} paid price checks left`}
+        detail="Watching which lines move is free. Reading every book's price at the same instant is not, and that's the only way to know who pays most. So it spends one only when a line actually moved." />
+      <QueueCard step="02" label="Why the AI can't pick"
+        title="The rules choose, the AI explains"
+        detail="The pick is locked in first. Only then does the AI see it and write up the reasoning — and the wording is hashed, so an explanation can never quietly become the reason." />
+      <QueueCard step="03" label="What counts as proof"
+        title="Beating the closing price"
+        detail="If you take +3 and the line closes at +2.5, you got the better number — that shows up in weeks. Win rate takes seasons and lies in the meantime, so nothing gets promoted on it." />
     </section>
 
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600"><b className="text-slate-900">Honest distance to profit:</b> the execution stack is built, but the bankroll gate remains intentionally closed until real forward prices accumulate. The shortest path is NFL teaser price verification plus fresh multi-book captures; MLB remains a data-collection program.</div>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">
+      <b className="text-slate-900">Where this actually stands:</b> everything needed to place a bet works — comparing books,
+      routing to the best price, recording results. What doesn't work is predicting games; the model is no sharper than the
+      betting line, so it isn't allowed to risk money. The one plausible edge is teasers, and it lives or dies on whether your
+      book prices them at -110 or -130. That's the next thing to check.
+    </div>
   </BettingWorkspace>;
 }
 

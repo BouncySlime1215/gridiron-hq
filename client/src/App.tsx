@@ -6,6 +6,7 @@ import LeagueSwitcher from './components/LeagueSwitcher';
 import DevHub from './components/DevHub';
 import RefreshAll from './components/RefreshAll';
 import QuickJump, { destinationLabel } from './components/QuickJump';
+import EspnConnectGate from './components/EspnConnectGate';
 import { Skeleton } from './components/ui/DesignSystem';
 
 const Home = lazy(() => import('./pages/Home'));
@@ -18,6 +19,7 @@ const LeagueHub = lazy(() => import('./pages/LeagueHub'));
 const PlayerDetail = lazy(() => import('./pages/PlayerDetail'));
 const Players = lazy(() => import('./pages/Players'));
 const TradeLab = lazy(() => import('./pages/TradeLab'));
+const LeagueBrain = lazy(() => import('./pages/LeagueBrain'));
 const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
 const FantasyLab = lazy(() => import('./pages/FantasyLab'));
@@ -38,7 +40,8 @@ const NAV_GROUPS: { label: string; question: string; items: NavItem[] }[] = [
     { to: '/league', label: 'League Hub', icon: 'L' },
     { to: '/draft', label: 'Draft', icon: 'D', live: true },
     { to: '/players', label: 'Players', icon: 'P' },
-    { to: '/trade-lab', label: 'Trade Lab', icon: 'T' }
+    { to: '/trade-lab', label: 'Trade Lab', icon: 'T' },
+    { to: '/brain', label: 'League Brain', icon: 'B' }
   ]},
   { label: 'Intelligence', question: 'Understand football', items: [
     { to: '/news', label: 'News', icon: 'N' },
@@ -89,6 +92,9 @@ export default function App() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* Renders nothing once a league is connected; a slim bar if the modal
+            was dismissed for this sitting; the modal itself otherwise. */}
+        <EspnConnectGate />
         <header className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
           <button onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><rect x="1" y="2" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" /><line x1="5.5" y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" /></svg>
@@ -104,7 +110,7 @@ export default function App() {
           <Route path="/matchups" element={<FantasyLab />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} /><Route path="/players" element={<Players />} />
-          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/news" element={<News />} />
+          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/brain" element={<LeagueBrain />} /><Route path="/news" element={<News />} />
           <Route path="/settings" element={<Settings />} /><Route path="/lab" element={<FantasyLab />} />
           <Route path="/betting" element={<BettingHome />} /><Route path="/betting/nfl" element={<NflMarketBoard initialTool="edges" />} />
           <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />

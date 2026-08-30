@@ -23,6 +23,10 @@
   --bg-0: var(--bg); --bg-1: var(--surface); --bg-2: var(--surface);
   --card-bg: var(--bg); --edge: var(--line);
   --accent-strong: #047857; --accent-tint: #ecfdf5;
+  /* Deep surfaces for structural panels. Not pure black and not the accent — a
+     near-neutral carrying a faint green bias, so a dark header sits in the same
+     world as the accent without becoming a second block of it. */
+  --panel: #0c1613; --panel-soft: #18241f;
   --good: var(--accent); --good-tint: #ecfdf5;
   --crit: var(--danger); --crit-tint: #fef2f2;
 }
@@ -128,14 +132,39 @@ main tbody tr:hover { background: rgb(0 0 0 / .025); }
 .hover\:border-emerald-400:hover, .hover\:border-emerald-500:hover, .hover\:border-emerald-700:hover { border-color: var(--accent) !important; }
 .hover\:bg-emerald-500:hover, .hover\:bg-emerald-600:hover { background-color: var(--accent-strong) !important; }
 
-/* Selected/active pills and primary buttons: solid and dark, not washed out. */
-.bg-slate-700, .bg-slate-800, .bg-slate-900, .bg-slate-950 {
+/* Selected/active pills and primary buttons: solid and dark, not washed out.
+   Scoped to controls on purpose. This mapping used to match any element, which
+   meant a structural panel that reached for a dark slate surface — a hub header,
+   a scoreboard, a stat tile — came back as a slab of solid accent green, and its
+   children were dragged to white by the `color: inherit` rule below. That is how
+   the betting workbench header turned into a green billboard with an invisible
+   white-on-white nav pill sitting in it.
+   The accent belongs on things you press, not on the surfaces behind them. */
+button.bg-slate-700, button.bg-slate-800, button.bg-slate-900, button.bg-slate-950,
+a.bg-slate-700, a.bg-slate-800, a.bg-slate-900, a.bg-slate-950 {
   background-color: var(--accent) !important;
   color: #fff !important;
   border-color: var(--accent) !important;
 }
-.bg-slate-700 *, .bg-slate-800 *, .bg-slate-900 *, .bg-slate-950 * { color: inherit; }
-.border-slate-800, .border-slate-900 { border-color: var(--accent) !important; }
+button.bg-slate-700 *, button.bg-slate-800 *, button.bg-slate-900 *, button.bg-slate-950 *,
+a.bg-slate-700 *, a.bg-slate-800 *, a.bg-slate-900 *, a.bg-slate-950 * { color: inherit; }
+/* A control can still be a large structural surface — a full-width "do this next"
+   card is clickable but is not a pill, and painting it solid accent produces a
+   green billboard. Such surfaces opt out by name. */
+.surface-deep, a.surface-deep, button.surface-deep {
+  background-color: var(--panel) !important;
+  border-color: rgb(255 255 255 / .10) !important;
+  color: #fff !important;
+}
+/* Structural dark surfaces keep a real slate, one step off pure black so it reads
+   as a considered panel rather than a hole in the page. */
+.bg-slate-950:not(button):not(a) { background-color: var(--panel) !important; }
+.bg-slate-900:not(button):not(a) { background-color: var(--panel-soft) !important; }
+.border-slate-800:not(button):not(a), .border-slate-900:not(button):not(a) {
+  border-color: rgb(255 255 255 / .10) !important;
+}
+button.border-slate-800, button.border-slate-900,
+a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important; }
 .hover\:bg-slate-800:hover, .hover\:bg-slate-900:hover, .hover\:bg-slate-950:hover { background-color: var(--accent-strong) !important; }
 .bg-sky-600, .bg-blue-500 { background-color: var(--accent) !important; color: #fff !important; }
 .bg-sky-600 *, .bg-blue-500 * { color: inherit; }

@@ -15,6 +15,7 @@ import {
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
+import { brainState, brainPlan, managerProfiles, setManagerProfile } from '../services/league-brain.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { weekPostmortem } from '../services/week-postmortem.js';
@@ -54,6 +55,53 @@ r.get('/:leagueId/scout', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
     res.json(selfScout(lg, req.query.team_id));
+  } catch (e) { next(e); }
+});
+
+/* ----------------------------------------------------------------- the brain */
+
+/** Where you stand: rank, holes, and which hole is worth paying to fix. */
+r.get('/:leagueId/brain/state', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(brainState(lg.id, req.query.team_id ?? null));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The plan: ranked by acceptance probability times gain, not by gain.
+ *
+ * See league-brain.js — a deal nobody signs is worth nothing, and sorting by
+ * how much a trade helps you is sorting by how unacceptable it is.
+ */
+r.get('/:leagueId/brain/plan', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(brainPlan(lg.id, {
+      myTeamId: req.query.team_id ?? null,
+      limit: Math.min(20, Number(req.query.limit) || 8)
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Who will actually trade with you. Read, and write. */
+r.get('/:leagueId/brain/managers', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(managerProfiles(lg.id));
+  } catch (e) { next(e); }
+});
+
+r.post('/:leagueId/brain/managers/:rosterId', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const out = setManagerProfile(lg.id, req.params.rosterId, {
+      tradeability: req.body?.tradeability,
+      notes: req.body?.notes ?? null,
+      owner: req.body?.owner ?? null
+    });
+    if (out.error) return res.status(400).json(out);
+    res.json(out);
   } catch (e) { next(e); }
 });
 

@@ -20,6 +20,7 @@ import { waiverUpgrades, sellHigh, freeAgents } from '../services/waiver-brain.j
 import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
 import { positionLiquidity } from '../services/position-liquidity.js';
 import { trendExploits } from '../services/trend-exploits.js';
+import { lineupCall } from '../services/lineup-brain.js';
 import { teamTrends, playerTrends } from '../services/weekly-trends.js';
 import { scanTrends, conflicts, trendHistory } from '../services/trend-watch.js';
 import { regressionCandidates, regressionForLeague, touchdownRates } from '../services/td-regression.js';
@@ -255,6 +256,22 @@ r.get('/regression/board', (req, res, next) => {
 /** The fitted conversion rates themselves, per position group. */
 r.get('/regression/rates', (_req, res, next) => {
   try { res.json(touchdownRates()); } catch (e) { next(e); }
+});
+
+/**
+ * Who to start this week, with every call graded by how close it was.
+ *
+ * `objective` chooses what to maximise: the average, the ceiling when you are an
+ * underdog and need a tail, or the floor when you are favoured and variance can
+ * only cost you.
+ */
+r.get('/:leagueId/lineup', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const objective = ['mean', 'ceiling', 'floor'].includes(req.query.objective)
+      ? req.query.objective : 'mean';
+    res.json(lineupCall(lg.id, { myTeamId: req.query.team_id ?? null, objective }));
+  } catch (e) { next(e); }
 });
 
 /** Who will actually trade with you. Read, and write. */

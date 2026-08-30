@@ -21,6 +21,7 @@ const Players = lazy(() => import('./pages/Players'));
 const TradeLab = lazy(() => import('./pages/TradeLab'));
 const LeagueBrain = lazy(() => import('./pages/LeagueBrain'));
 const Trends = lazy(() => import('./pages/Trends'));
+const Lineup = lazy(() => import('./pages/Lineup'));
 const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
 const FantasyLab = lazy(() => import('./pages/FantasyLab'));
@@ -42,6 +43,7 @@ const NAV_GROUPS: { label: string; question: string; items: NavItem[] }[] = [
     { to: '/draft', label: 'Draft', icon: 'D', live: true },
     { to: '/players', label: 'Players', icon: 'P' },
     { to: '/trade-lab', label: 'Trade Lab', icon: 'T' },
+    { to: '/lineup', label: 'Start/Sit', icon: 'S' },
     { to: '/brain', label: 'League Brain', icon: 'B' },
     { to: '/trends', label: 'Trends', icon: 'W' }
   ]},
@@ -112,7 +114,7 @@ export default function App() {
           <Route path="/matchups" element={<FantasyLab />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} /><Route path="/players" element={<Players />} />
-          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/brain" element={<LeagueBrain />} /><Route path="/trends" element={<Trends />} /><Route path="/news" element={<News />} />
+          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/brain" element={<LeagueBrain />} /><Route path="/trends" element={<Trends />} /><Route path="/lineup" element={<Lineup />} /><Route path="/news" element={<News />} />
           <Route path="/settings" element={<Settings />} /><Route path="/lab" element={<FantasyLab />} />
           <Route path="/betting" element={<BettingHome />} /><Route path="/betting/nfl" element={<NflMarketBoard initialTool="edges" />} />
           <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />

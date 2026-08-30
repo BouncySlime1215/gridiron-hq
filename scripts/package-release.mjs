@@ -34,7 +34,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'dist');
 const STAGE = path.join(OUT, 'GridironHQ');
-const ZIP = path.join(OUT, 'GridironHQ.zip');
+const MAC_ONLY = process.argv.includes('--mac');
+const ZIP = path.join(OUT, MAC_ONLY ? 'GridironHQ-Mac.zip' : 'GridironHQ.zip');
 
 /** Anything that is private, huge, or rebuilt on install. */
 const EXCLUDE = new Set([
@@ -71,6 +72,22 @@ developer certificate. The read-me inside your platform's folder
 tells you exactly how to get past it, and it only happens once.
 `;
 
+const MAC_START_HERE = `GRIDIRON HQ FOR MAC
+====================
+
+1. Open the mac folder.
+2. Double-click "Install Gridiron HQ.command".
+3. Leave the installer window open. It downloads its own private Node.js,
+   installs every package, builds the app, starts localhost, and opens your
+   browser automatically. No Homebrew, Xcode, or administrator password needed.
+
+Afterward, use the "Gridiron HQ" shortcut created on your Desktop. Keep its
+window open while using the app; closing it stops the local server.
+
+If macOS blocks the first launch, read "If macOS blocks this - read me.txt" in
+the mac folder. The installer does not disable or bypass macOS security.
+`;
+
 const MAC_HELP = `IF MACOS BLOCKS "INSTALL GRIDIRON HQ"
 =====================================
 
@@ -99,8 +116,8 @@ How to get past it — macOS 14 or older:
   2. Choose Open from the menu.
   3. Click Open in the dialog.
 
-After you approve the installer once, it clears the download flag only
-from this extracted Gridiron HQ folder so future launches open normally.
+The installer does not disable Gatekeeper, clear quarantine attributes, or
+change system security settings.
 
 If you would rather read the script before running it, open it in
 TextEdit — it is plain text and about sixty lines.
@@ -170,18 +187,23 @@ for (const rel of files) {
 }
 console.log(`  ✓ Staged ${copied} files`);
 
+if (MAC_ONLY) {
+  fs.rmSync(path.join(STAGE, 'windows'), { recursive: true, force: true });
+  fs.rmSync(path.join(STAGE, 'install.ps1'), { force: true });
+}
+
 // Created explicitly rather than assumed: on a fresh checkout where the
 // launchers are not yet tracked by git, the copy loop above leaves these
 // directories missing and the writes below fail on a technicality.
 fs.mkdirSync(path.join(STAGE, 'mac'), { recursive: true });
-fs.mkdirSync(path.join(STAGE, 'windows'), { recursive: true });
+if (!MAC_ONLY) fs.mkdirSync(path.join(STAGE, 'windows'), { recursive: true });
 
-fs.writeFileSync(path.join(STAGE, 'START HERE.txt'), START_HERE);
+fs.writeFileSync(path.join(STAGE, 'START HERE.txt'), MAC_ONLY ? MAC_START_HERE : START_HERE);
 // Plain ASCII in the filename on purpose. An em-dash here survives macOS fine
 // but arrives mojibake'd through some Windows unzip tools, and a help file with
 // a corrupted name is the last thing a stuck user should meet.
 fs.writeFileSync(path.join(STAGE, 'mac', 'If macOS blocks this - read me.txt'), MAC_HELP);
-fs.writeFileSync(path.join(STAGE, 'windows', 'If Windows blocks this - read me.txt'), WIN_HELP);
+if (!MAC_ONLY) fs.writeFileSync(path.join(STAGE, 'windows', 'If Windows blocks this - read me.txt'), WIN_HELP);
 for (const f of fs.readdirSync(path.join(STAGE, 'mac'))) {
   if (EXECUTABLE.test(f)) fs.chmodSync(path.join(STAGE, 'mac', f), 0o755);
 }
@@ -193,7 +215,7 @@ execSync(`zip -r -X -q "${ZIP}" GridironHQ`, { cwd: OUT });
 const mb = (fs.statSync(ZIP).size / 1e6).toFixed(1);
 fs.rmSync(STAGE, { recursive: true, force: true });
 
-console.log(`  ✓ Built dist/GridironHQ.zip (${mb} MB)\n`);
+console.log(`  ✓ Built ${path.relative(ROOT, ZIP)} (${mb} MB)\n`);
 console.log('  Attach it to a GitHub release:');
 console.log(`    gh release create v1.0.0 "${ZIP}" --title "Gridiron HQ" --notes "Unzip, open your platform's folder, double-click Install."\n`);
 

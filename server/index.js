@@ -109,4 +109,4 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
   app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
 }
 
-app.listen(PORT, () => console.log(`Gridiron HQ listening on http://localhost:${PORT}`));
+app.listen(PORT, '127.0.0.1', () => console.log(`Gridiron HQ listening on http://localhost:${PORT}`));

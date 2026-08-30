@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "node scripts/lint.mjs",
     "start:smoke": "node scripts/start-smoke.mjs",
+    "package:mac": "node scripts/package-release.mjs --mac",
     "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run start:smoke",
     "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "node --watch --env-file-if-exists=.env server/index.js",

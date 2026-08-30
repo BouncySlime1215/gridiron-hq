@@ -14,8 +14,8 @@ local SQLite file.
 No command line needed:
 
 1. On this page, click **Code → Download ZIP**, then unzip it.
-2. **macOS**: double-click **`Install Gridiron HQ.command`**.
-   **Windows**: double-click **`Install Gridiron HQ.cmd`**.
+2. **macOS**: open the **`mac`** folder and double-click **`Install Gridiron HQ.command`**.
+   **Windows**: open the **`windows`** folder and double-click **`Install Gridiron HQ.cmd`**.
 3. The first time, your OS will warn that the file is from an unidentified source. This is
    normal for anything downloaded from the internet that isn't from a paid Apple/Microsoft
    developer account, and it only happens once — after this one-time step, every future
@@ -28,7 +28,8 @@ No command line needed:
 A window opens and does everything: installs Node.js if you don't have it, installs every
 package, builds the interface, seeds the database, pulls live NFL data, and puts a **Gridiron HQ**
 icon on your Desktop. Double-click that icon any time afterward to start the app — the installer
-is only for the first run.
+is only for the first run. The installer also starts `localhost:5177`, verifies it is responding,
+and opens the app in your browser as soon as setup finishes.
 
 If Node had to be installed fresh, you may need to double-click the installer file a second time
 to pick it up.

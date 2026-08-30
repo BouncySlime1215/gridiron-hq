@@ -60,7 +60,9 @@ export default function EspnConnect() {
       const d = await api<any>('/espn-connect/discover');
       setDiscovered(d.leagues);
       if (!silent && !d.leagues.length) setMsg('Connected, but no fantasy football leagues found on this account for this season.');
-    } catch (e: any) { if (!silent) setMsg(e.message); }
+    } catch (e: any) {
+      setMsg(silent ? `ESPN could not refresh your leagues: ${e.message}` : e.message);
+    }
     finally { setBusy(false); }
   };
 

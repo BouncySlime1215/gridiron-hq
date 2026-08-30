@@ -13,6 +13,7 @@ set -e
 cd "$(dirname "$0")"
 
 BOLD=$'\033[1m'; GREEN=$'\033[32m'; RED=$'\033[31m'; YELLOW=$'\033[33m'; OFF=$'\033[0m'
+GRIDIRON_RUNTIME_ROOT=${GRIDIRON_RUNTIME_ROOT:-"$HOME/.gridiron"}
 echo ""
 echo "${BOLD}  Gridiron HQ — 2026 Fantasy Command Center${OFF}"
 echo "  Installing for $(uname -s)…"
@@ -41,7 +42,7 @@ if ! node_ok; then
   # touches nothing system-wide, and is the same tarball nodejs.org serves from
   # its own installer — so uninstalling is `rm -rf ~/.gridiron`.
   if ! node_ok; then
-    PRIVATE_NODE="$HOME/.gridiron/node"
+    PRIVATE_NODE="$GRIDIRON_RUNTIME_ROOT/node"
     if [ -x "$PRIVATE_NODE/bin/node" ]; then
       export PATH="$PRIVATE_NODE/bin:$PATH"
       hash -r
@@ -80,10 +81,10 @@ if ! node_ok; then
         exit 1
       fi
       tar -xzf "$TMP/node.tar.gz" -C "$TMP"
-      mkdir -p "$HOME/.gridiron"
-      rm -rf "$HOME/.gridiron/node"
-      mv "$TMP/node-${NODE_VER}-${PLAT}-${ARCH}" "$HOME/.gridiron/node"
-      export PATH="$HOME/.gridiron/node/bin:$PATH"
+      mkdir -p "$GRIDIRON_RUNTIME_ROOT"
+      rm -rf "$GRIDIRON_RUNTIME_ROOT/node"
+      mv "$TMP/node-${NODE_VER}-${PLAT}-${ARCH}" "$GRIDIRON_RUNTIME_ROOT/node"
+      export PATH="$GRIDIRON_RUNTIME_ROOT/node/bin:$PATH"
       hash -r
       echo "${GREEN}  ✓${OFF} Installed Node ${NODE_VER} privately (~/.gridiron/node)"
     fi
@@ -102,5 +103,11 @@ if ! node_ok; then
   fi
 fi
 echo "${GREEN}  ✓${OFF} Node $(node -v)"
+
+# Internal packaging smoke test: verify the zero-prerequisite Node bootstrap
+# without downloading every npm package or creating user data.
+if [ "${GRIDIRON_BOOTSTRAP_ONLY:-0}" = "1" ]; then
+  exit 0
+fi
 
 exec node scripts/install.mjs "$@"

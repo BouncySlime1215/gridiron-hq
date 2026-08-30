@@ -218,6 +218,27 @@ test('a paste with nothing usable in it is a clear 400, not a silent success', a
   assert.match((await res.json()).error, /espn_s2 and SWID/);
 });
 
+test('discover loads the current account leagues from stored cookies', async () => {
+  resetState();
+  run(`INSERT INTO app_settings (key,value) VALUES ('espn_s2',?),('swid',?)`, GOOD_S2, GOOD_SWID);
+  stubEspn({ leagues: [{ league_id: '24680', name: 'Loaded League', team_id: '7' }] });
+  const res = await realFetch(`${base}/discover`);
+  const body = await res.json();
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.leagues.map(l => [l.league_id, l.name, l.team_id]),
+    [['24680', 'Loaded League', '7']]);
+});
+
+test('discover reports expired ESPN credentials instead of pretending the account has zero leagues', async () => {
+  resetState();
+  run(`INSERT INTO app_settings (key,value) VALUES ('espn_s2',?),('swid',?)`, GOOD_S2, GOOD_SWID);
+  stubEspn({ ok: false, status: 401 });
+  const res = await realFetch(`${base}/discover`);
+  const body = await res.json();
+  assert.equal(res.status, 400);
+  assert.match(body.error, /didn't recognise those cookies/);
+});
+
 /* ------------------------------------------------------------------- portability */
 
 test('the bookmarklet targets the host the request actually came in on, not a hardcoded port', async () => {

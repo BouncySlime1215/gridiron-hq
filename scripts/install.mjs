@@ -7,9 +7,9 @@
  * constraint is why everything here uses node: builtins only.
  *
  * Steps: check Node -> install packages -> write .env -> build the client ->
- * seed the database -> drop a launcher on the Desktop.
+ * seed the database -> drop a launcher on the Desktop -> start the app.
  *
- * Usage:  node scripts/install.mjs [--no-shortcut] [--key sk-ant-...]
+ * Usage:  node scripts/install.mjs [--no-shortcut] [--no-start] [--key sk-ant-...]
  */
 import { execSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -53,14 +53,16 @@ const npm = IS_WIN ? 'npm.cmd' : 'npm';
 // `npm ci` needs a lockfile in sync with package.json; fall back to install so a
 // user on a fork with edited deps is not stuck.
 const hasLock = fs.existsSync(path.join(ROOT, 'package-lock.json'));
-let res = spawnSync(npm, [hasLock ? 'ci' : 'install', '--no-audit', '--no-fund'],
+let res = spawnSync(npm, [hasLock ? 'ci' : 'install', '--include=dev', '--no-audit', '--no-fund'],
   { cwd: ROOT, stdio: 'inherit', shell: IS_WIN });
 if (res.status !== 0 && hasLock) {
   warn('npm ci failed — retrying with npm install');
-  res = spawnSync(npm, ['install', '--no-audit', '--no-fund'], { cwd: ROOT, stdio: 'inherit', shell: IS_WIN });
+  res = spawnSync(npm, ['install', '--include=dev', '--no-audit', '--no-fund'], { cwd: ROOT, stdio: 'inherit', shell: IS_WIN });
 }
 if (res.status !== 0) die('Package install failed. Scroll up for the npm error.');
-ok('Dependencies installed');
+res = spawnSync(npm, ['ls', '--depth=0'], { cwd: ROOT, stdio: 'inherit', shell: IS_WIN });
+if (res.status !== 0) die('One or more required packages are missing. Scroll up for the npm report.');
+ok('Every required runtime and build package is installed');
 
 /* ------------------------------------------------------------- 3. .env key */
 step('Configuring your Claude API key');
@@ -137,6 +139,19 @@ console.log(`  ${c.b('Next:')} connect your league on the ${c.b('My Leagues')} p
 console.log(`  ${c.dim('Public ESPN leagues need only the league ID. Private ones also need your')}`);
 console.log(`  ${c.dim('espn_s2 and SWID cookies — the Settings page walks you through finding them.')}\n`);
 
+/* ------------------------------------------------------------ 8. launch app */
+if (!flag('--no-start')) {
+  step('Starting Gridiron HQ');
+  console.log(c.dim('  Keep this window open while you use the app. Closing it stops localhost.'));
+  const started = spawnSync(process.execPath, ['scripts/start.mjs'], {
+    cwd: ROOT,
+    stdio: 'inherit'
+  });
+  if (started.status && started.status !== 0) {
+    warn('The automatic launch stopped. Double-click the Gridiron HQ Desktop shortcut to retry.');
+  }
+}
+
 /* ---------------------------------------------------------------- helpers */
 
 /**
@@ -172,11 +187,6 @@ function createShortcut() {
     `echo "Starting Gridiron HQ…"\n` +
     `npm start\n`);
   fs.chmodSync(file, 0o755);
-  if (IS_MAC) {
-    // Without this the Finder shows the "unidentified developer" prompt on a file
-    // the user just generated locally.
-    try { execSync(`xattr -d com.apple.quarantine "${file}"`, { stdio: 'ignore' }); } catch { /* not quarantined */ }
-  }
   return file;
 }
 

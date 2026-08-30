@@ -322,7 +322,9 @@ r.get('/discover', async (req, res, next) => {
   try {
     const { s2, swid } = getCookies();
     if (!s2 || !swid) return res.status(400).json({ error: 'no ESPN cookies stored yet — connect below first' });
-    res.json({ leagues: await fetchFanLeagues(s2, swid).catch(() => []) });
+    const checked = await validateCookies(s2, swid);
+    if (!checked.ok) return res.status(400).json({ error: checked.reason });
+    res.json({ leagues: checked.leagues });
   } catch (e) { next(e); }
 });
 

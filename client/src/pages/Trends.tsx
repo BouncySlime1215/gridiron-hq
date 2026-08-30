@@ -86,6 +86,17 @@ export default function Trends() {
         </div>
       </header>
 
+      {/* Tested, and it does not transfer. Stated on the page rather than left
+          for someone to assume, because "my model found a real trend" is exactly
+          the thought that precedes a bad bet. */}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
+        <b className="text-slate-900">These trends are for fantasy, not for betting.</b> The same
+        signal was tested against closing totals across 2016–2025 as a sealed, pre-registered audit:
+        194 bets, 85–109, a 43.8% win rate against a 52.4% break-even — significantly worse than
+        break-even, not merely unprofitable. Sportsbooks price pace and efficiency changes already.
+        Nine people in your league reading box scores do not.
+      </div>
+
       {scanning && <Sweeping lookback={lookback} />}
 
       {/* Newly emerged trends: the only ones that are still an edge. */}

@@ -30,6 +30,13 @@ research pool for online-learner inputs, disagreement/regime detection,
 simulation shape, and shadow challengers. A changed use can earn authority again
 through a fresh cutoff-safe replay and forward validation gate.
 
+The restricted pool now runs three advanced prequential challengers from the
+same frozen pregame vector: a five-member nonlinear neural ensemble, an online
+Bayesian residual model with predictive uncertainty, and a contextual
+mixture-of-experts that learns which model family is useful in each regime.
+They are intentionally allowed to be aggressive in research and are permanently
+locked to zero staking units until their own weekly-clustered forward gates pass.
+
 This makes the model adaptive. It does **not** prove an edge. The neural head is
 shadow-only until at least 128 forward games across eight weeks and the lower
 bound of its week-clustered MAE improvement interval clears zero.

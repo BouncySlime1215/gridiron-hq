@@ -8,6 +8,7 @@ import { ffOpportunityStatus } from './ffopportunity.js';
 import { validationFirewall } from './nfl-evidence.js';
 import { nflModelGrowthStatus } from './nfl-model-growth.js';
 import { nflOnlineNeuralStatus } from './nfl-online-neural.js';
+import { nflRiskLabStatus } from './nfl-risk-lab.js';
 import { weeklyLearningStatus } from './weekly-learning.js';
 import { nflEngineStatus } from './nfl-engine-registry.js';
 
@@ -212,6 +213,7 @@ export function profitabilityOperations() {
   const teaser = teaserPriceLedger();
   const growth = nflModelGrowthStatus();
   const neural = nflOnlineNeuralStatus();
+  const riskLab = nflRiskLabStatus();
   const playerLearning = weeklyLearningStatus();
   const engine = nflEngineStatus(growth.season, Math.max(1, growth.finalized_week + 1));
   const readiness = profitabilityPhases({ matches, horizons, settlements, edge, teaser, growth });
@@ -249,6 +251,7 @@ export function profitabilityOperations() {
     model_growth: growth,
     gridiron_engine: engine,
     online_neural: neural,
+    advanced_risk_lab: riskLab,
     balanced_online_system: {
       policy: 'Fast weekly adaptation inside bounded challengers; slow promotion into champion behavior; every market keeps its own scorecard.',
       layers: [
@@ -263,7 +266,9 @@ export function profitabilityOperations() {
         { id: 'props', label: 'Player prop heads', state: 'inherits_player_engine',
           detail: 'Passing, rushing, receiving, receptions and TD share the updated player state but retain separate calibration gates.' },
         { id: 'neural_residual', label: 'Online neural residual', state: neural.production_eligible ? 'review_eligible' : 'adaptive_shadow',
-          detail: `${neural.trained_weeks} complete weeks trained; it cannot size a bet before its clustered forward gate passes.` }
+          detail: `${neural.trained_weeks} complete weeks trained; it cannot size a bet before its clustered forward gate passes.` },
+        { id: 'advanced_risk_lab', label: 'Advanced ML challenger lab', state: 'restricted_research',
+          detail: `${riskLab.models.length} models: deep ensemble, Bayesian online learner, and contextual mixture-of-experts. All are frozen pregame and locked to 0 units.` }
       ]
     },
     external_benchmarks: { ffopportunity: ffOpportunityStatus() },

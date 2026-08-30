@@ -56,6 +56,8 @@ import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '.
 import { runNflModelGrowthCycle } from '../services/nfl-model-growth.js';
 import { captureOnlineNeuralWeek, nflOnlineNeuralStatus, settleOnlineNeuralExamples,
   trainOnlineNeuralThroughSettled } from '../services/nfl-online-neural.js';
+import { captureRiskLabWeek, nflRiskLabStatus, settleRiskLabPredictions,
+  trainRiskLabThroughSettled } from '../services/nfl-risk-lab.js';
 import { reconcilePropQuoteMatches, settlePropQuotes } from '../services/nfl-prop-clv.js';
 import { newsSignalCoverage, syncAiNewsSignals, syncStructuredNewsSignals, teamNewsSignals } from '../services/nfl-news-signal.js';
 import { passingSpecialistAudit } from '../services/nfl-passing-specialists.js';
@@ -69,7 +71,7 @@ const r = Router();
 // Mutations are split between research/training and live operational execution.
 // A training grant must not authorize spending API/AI resources, locking picks,
 // or writing/grading bets.
-const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/online-neural\/train|\/engine\/(?:backfill|learning-epoch)|\/sync$)/;
+const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/(?:online-neural|risk-lab)\/train|\/engine\/(?:backfill|learning-epoch)|\/sync$)/;
 const resourceSpendingGet = /^(\/lines\/(?:shop|disagreement)|\/sharp\/(?:board|divergence))$/;
 r.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
@@ -214,14 +216,31 @@ r.post('/engine/learning-epoch', (req, res, next) => {
 });
 
 r.post('/online-neural/capture', (req, res, next) => {
-  try { res.json(captureOnlineNeuralWeek(ssn(req), wk(req), { horizons: ['manual'] })); }
+  try {
+    const neural = captureOnlineNeuralWeek(ssn(req), wk(req), { horizons: ['manual'] });
+    res.json({ ...neural, risk_lab: captureRiskLabWeek(ssn(req), wk(req), { horizons: ['manual'] }) });
+  }
   catch (e) { next(e); }
 });
 
 r.post('/online-neural/train', (_req, res, next) => {
   try {
     const settlement = settleOnlineNeuralExamples();
-    res.json({ settlement, ...trainOnlineNeuralThroughSettled() });
+    const riskSettlement = settleRiskLabPredictions();
+    res.json({ settlement, ...trainOnlineNeuralThroughSettled(),
+      risk_lab: { settlement: riskSettlement, ...trainRiskLabThroughSettled() } });
+  } catch (e) { next(e); }
+});
+
+r.get('/risk-lab', (_req, res, next) => {
+  try { res.json(nflRiskLabStatus()); }
+  catch (e) { next(e); }
+});
+
+r.post('/risk-lab/train', (_req, res, next) => {
+  try {
+    const settlement = settleRiskLabPredictions();
+    res.json({ settlement, ...trainRiskLabThroughSettled() });
   } catch (e) { next(e); }
 });
 

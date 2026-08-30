@@ -15,6 +15,7 @@ import { captureMlbPregame } from './mlb-pregame.js';
 import { appDate, nflKickoffDate } from './date-util.js';
 import { recordNflShadowBoard } from './shadow-ledger.js';
 import { captureOnlineNeuralWeek } from './nfl-online-neural.js';
+import { captureRiskLabWeek } from './nfl-risk-lab.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS evidence_capture_windows (
@@ -117,9 +118,12 @@ export async function runEvidenceDaemon({ force = false } = {}) {
         const neural = captureOnlineNeuralWeek(season, week, {
           horizons: windows.map(window => window.horizon)
         });
+        const riskLab = captureRiskLabWeek(season, week, {
+          horizons: windows.map(window => window.horizon)
+        });
         const complete = !odds.error;
-        mark(windows, complete ? 'captured' : 'partial', { context, odds, shadow, neural, mode: 'forward_shadow' });
-        detail.nfl.push({ season, week, windows: windows.length, context, odds, shadow, neural });
+        mark(windows, complete ? 'captured' : 'partial', { context, odds, shadow, neural, risk_lab: riskLab, mode: 'forward_shadow' });
+        detail.nfl.push({ season, week, windows: windows.length, context, odds, shadow, neural, risk_lab: riskLab });
       } catch (error) {
         mark(windows, 'partial', { error: error.message, mode: 'source_quarantined' });
         detail.nfl.push({ season, week, windows: windows.length, error: error.message });

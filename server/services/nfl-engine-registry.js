@@ -85,6 +85,13 @@ export function nflEngineComponents(season, predictsWeek) {
     FROM nfl_online_neural_artifacts WHERE epoch_id=? AND (trained_through_season<?
       OR (trained_through_season=? AND trained_through_week<?)
     ) ORDER BY id DESC LIMIT 1`, epoch?.id ?? 1, season, season, predictsWeek);
+  const riskFits = optionalRows('nfl_risk_lab_artifacts', `SELECT a.model_id,a.version,a.state_hash,
+      a.trained_through_season,a.trained_through_week,a.created_at
+    FROM nfl_risk_lab_artifacts a JOIN (
+      SELECT model_id,MAX(id) id FROM nfl_risk_lab_artifacts WHERE epoch_id=?
+        AND (trained_through_season<? OR (trained_through_season=? AND trained_through_week<?))
+      GROUP BY model_id
+    ) latest ON latest.id=a.id ORDER BY a.model_id`, epoch?.id ?? 1, season, season, predictsWeek);
   return {
     learning_epoch: epoch,
     cutoff: { season, predicts_week: predictsWeek, trained_through_week: Math.max(0, predictsWeek - 1) },
@@ -95,7 +102,12 @@ export function nflEngineComponents(season, predictsWeek) {
         ? { model_version: `weekly-fit-${playerFit.id}`, ...playerFit }
         : { model_version: 'player-week-v2.1-frozen-weights' },
       player_props: { model_version: 'shared-player-events-v1', inherits: 'player_usage_fantasy' },
-      online_residual: neuralFit ?? { version: 'online-spread-v1-cold-start', authority: 'shadow' }
+      online_residual: neuralFit ?? { version: 'online-spread-v1-cold-start', authority: 'shadow' },
+      advanced_risk_lab: riskFits.length ? riskFits : [
+        { model_id: 'deep_ensemble', version: 'cold-start' },
+        { model_id: 'bayesian_online', version: 'cold-start' },
+        { model_id: 'contextual_moe', version: 'cold-start' }
+      ]
     },
     capability_authority: (() => {
       const map = tableExists('audit_registry') ? modelMap()
@@ -140,10 +152,10 @@ export function activeLearningEpoch() {
 
 /** Start a cold adaptive epoch while retaining all evidence and failed runs. */
 export function startLearningEpoch({ reason, confirmed = false,
-  reset = ['online_residual', 'adaptive_player_weights'] } = {}) {
+  reset = ['online_residual', 'adaptive_player_weights', 'risk_lab'] } = {}) {
   if (!confirmed) throw new Error('learning reset requires confirmed=true');
   if (!String(reason ?? '').trim()) throw new Error('learning reset requires a recorded reason');
-  const allowed = new Set(['online_residual', 'adaptive_player_weights']);
+  const allowed = new Set(['online_residual', 'adaptive_player_weights', 'risk_lab']);
   if (!Array.isArray(reset) || reset.some(component => !allowed.has(component))) {
     throw new Error(`unsupported reset component; allowed: ${[...allowed].join(', ')}`);
   }
@@ -199,7 +211,8 @@ export function nflEngineStatus(season = Number(process.env.NFL_SEASON) || 2026,
       { head: 'roster_availability', cadence: 'each evidence capture', consumes: 'injury, depth, snaps, PFR, NGS' },
       { head: 'player_usage_fantasy', cadence: 'weekly guarded challenger', consumes: 'shared player event state' },
       { head: 'player_props', cadence: 'shared state + market-specific calibration', consumes: 'player usage and game script' },
-      { head: 'online_residual', cadence: 'whole-week prequential update', consumes: 'all upstream heads + evidence masks' }
+      { head: 'online_residual', cadence: 'whole-week prequential update', consumes: 'all upstream heads + evidence masks' },
+      { head: 'advanced_risk_lab', cadence: 'whole-week prequential competition', consumes: 'frozen vectors + restricted model-family signals' }
     ],
     rule: 'One cutoff, learning epoch and engine version; many specialized heads. Heads may adapt weekly but only independently validated challengers can replace champion behavior.',
     reset_rule: 'A failed preregistered profitability gate may start a new cold epoch by explicit action. Evidence is never erased and resets never happen automatically.'

@@ -16,8 +16,9 @@ import { db, row, rows, run } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { activeLearningEpoch, nflEngineVersionFor } from './nfl-engine-registry.js';
+import { teamNewsSignals } from './nfl-news-signal.js';
 
-export const ONLINE_NEURAL_SCHEMA = 'nfl-online-neural-features-v1';
+export const ONLINE_NEURAL_SCHEMA = 'nfl-online-neural-features-v2-verified-news';
 export const ONLINE_NEURAL_HEADS = Object.freeze({
   spread_residual: {
     state: 'active_shadow', target: 'actual home margin minus pregame market margin',
@@ -150,7 +151,7 @@ const mean = values => values.length ? values.reduce((sum, value) => sum + value
 const deviation = values => values.length > 1
   ? Math.sqrt(mean(values.map(value => (value - mean(values)) ** 2))) : 0;
 
-export function spreadFeatureVector(line) {
+export function spreadFeatureVector(line, { before = null } = {}) {
   const ensemble = line.ensemble;
   const marketMargin = ensemble.market_spread == null ? null : -ensemble.market_spread;
   if (!Number.isFinite(marketMargin)) return null;
@@ -177,6 +178,18 @@ export function spreadFeatureVector(line) {
   add('away_snap_coverage', availability?.away?.coverage?.prior_snap_match_rate ?? 0);
   add('home_replacement_coverage', availability?.home?.coverage?.replacement_match_rate ?? 0);
   add('away_replacement_coverage', availability?.away?.coverage?.replacement_match_rate ?? 0);
+  // Only verified typed claims enter semantic features. Quarantine pressure is
+  // a missingness/attack flag and never adopts the quarantined claim's meaning.
+  const homeNews = teamNewsSignals(line.home, { before });
+  const awayNews = teamNewsSignals(line.away, { before });
+  add('home_verified_news_burden', scaled(homeNews.unavailable_burden, 0, 2));
+  add('away_verified_news_burden', scaled(awayNews.unavailable_burden, 0, 2));
+  add('home_verified_role_pressure', scaled(homeNews.role_pressure, 0, 0.5));
+  add('away_verified_role_pressure', scaled(awayNews.role_pressure, 0, 0.5));
+  add('home_verified_news_coverage', clamp(homeNews.claims.length / 5, 0, 1));
+  add('away_verified_news_coverage', clamp(awayNews.claims.length / 5, 0, 1));
+  add('home_news_quarantine_pressure', clamp(homeNews.quarantined_claims / 5, 0, 1));
+  add('away_news_quarantine_pressure', clamp(awayNews.quarantined_claims / 5, 0, 1));
   return { names, values, market_margin: marketMargin, market_total: ensemble.market_total ?? null };
 }
 
@@ -212,7 +225,7 @@ export function captureOnlineNeuralWeek(season, week, { horizons = ['manual'] } 
     if (at && at.getTime() <= Date.now()) { skipped++; continue; }
     const line = ensembleLine(season, week, game.home, game.away, { includeEvidence: true });
     if (line.error) { skipped++; continue; }
-    const features = spreadFeatureVector(line);
+    const features = spreadFeatureVector(line, { before: at?.toISOString() ?? capturedAt });
     if (!features) { skipped++; continue; }
     const active = activeNetwork(features.values.length);
     const residual = predictNetwork(active.network, features.values);
@@ -349,7 +362,7 @@ export function nflOnlineNeuralStatus() {
   const metrics = performanceMetrics();
   return {
     head: HEAD, mode: 'online_prequential_shadow', schema_version: ONLINE_NEURAL_SCHEMA, epoch_id: epochId,
-    architecture: `27 inputs → ${HIDDEN} tanh units → bounded market-residual output`,
+    architecture: `35 inputs → ${HIDDEN} tanh units → bounded market-residual output`,
     active_version: artifact?.version ?? 'online-spread-v1-cold-start',
     trained_through: artifact ? { season: artifact.trained_through_season, week: artifact.trained_through_week } : null,
     captured: Number(counts.captured ?? 0), settled: Number(counts.settled ?? 0),
@@ -360,7 +373,8 @@ export function nflOnlineNeuralStatus() {
       { id: 'market_state', fields: 2, sources: ['game_lines'], purpose: 'spread and total baseline' },
       { id: 'ensemble_residuals', fields: 17, sources: ['team play-by-play', 'ratings', 'weather', 'rest', 'market'], purpose: 'nonlinear disagreement and family interactions' },
       { id: 'roster_units', fields: 4, sources: ['injuries', 'depth charts', 'offense/defense snaps', 'PFR charting', 'Next Gen tracking'], purpose: 'starter-to-replacement loss by unit' },
-      { id: 'evidence_coverage', fields: 4, sources: ['pregame snapshots'], purpose: 'teach missingness instead of treating unknown as healthy' }
+      { id: 'evidence_coverage', fields: 4, sources: ['pregame snapshots'], purpose: 'teach missingness instead of treating unknown as healthy' },
+      { id: 'verified_news', fields: 8, sources: ['source-verified typed news', 'quarantine counts'], purpose: 'availability and role context plus explicit fake-news pressure without trusting quarantined prose' }
     ],
     production_eligible: metrics.production_eligible,
     staking_authority: '0 units until the forward weekly-clustered promotion gate passes',

@@ -24,6 +24,7 @@ import { fitEnsemble, invalidateEnsembleCaches } from './nfl-ensemble.js';
 import { clearPlayerWeekEngineCache } from './player-week-engine.js';
 import { clearPlayerValueCache } from './nfl-player-value.js';
 import { settleOnlineNeuralExamples, trainOnlineNeuralThroughSettled } from './nfl-online-neural.js';
+import { settleRiskLabPredictions, trainRiskLabThroughSettled } from './nfl-risk-lab.js';
 import { captureWeeklyPredictions, retrainWeeklyWeights, settleWeeklyPredictions } from './weekly-learning.js';
 import { clearNflEngineRegistryCache, recordNflEngineArtifact } from './nfl-engine-registry.js';
 
@@ -143,9 +144,10 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
     settlement: {
       shadow: settleNflShadowDecisions(),
       forward: settleForwardPicks(),
-      online_neural: settleOnlineNeuralExamples()
+      online_neural: settleOnlineNeuralExamples(),
+      risk_lab: settleRiskLabPredictions()
     },
-    ingestion: {}, fit: null, online_neural: null, player_learning: null, engine: null
+    ingestion: {}, fit: null, online_neural: null, risk_lab: null, player_learning: null, engine: null
   };
   try {
     const coreLag = before.sources.some(source => source.required && !source.current);
@@ -192,6 +194,7 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
     // retry after the ensemble artifact has already been persisted.
     if (afterIngest.finalized_week > 0 && coreCurrent) {
       detail.online_neural = trainOnlineNeuralThroughSettled();
+      detail.risk_lab = trainRiskLabThroughSettled();
       const playerSettlement = settleWeeklyPredictions();
       const playerTraining = retrainWeeklyWeights();
       clearPlayerWeekEngineCache();

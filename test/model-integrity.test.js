@@ -54,6 +54,7 @@ const { reconcileOutcomeWeights } = await import('../server/services/nfl-drive-s
 const { newsSourceVerification } = await import('../server/services/nfl-news-signal.js');
 const { activeLearningEpoch, nflEngineComponents, startLearningEpoch } = await import('../server/services/nfl-engine-registry.js');
 const { nflBackfillPlan } = await import('../server/services/nfl-engine-backfill.js');
+const { RISK_MODELS, predictRiskModel, trainRiskState, __test: riskLab } = await import('../server/services/nfl-risk-lab.js');
 
 test.after(() => {
   db.close();
@@ -845,4 +846,38 @@ test('learning reset is explicit, reversible by lineage, and deletes no evidence
   assert.equal(reset.prior_epoch.id, before.id);
   assert.equal(reset.active_epoch.parent_epoch_id, before.id);
   assert.equal(reset.deleted_rows, 0);
+});
+
+test('restricted ML lab contains uncertainty-aware and regime-aware challengers', () => {
+  assert.deepEqual(Object.keys(RISK_MODELS), ['deep_ensemble', 'bayesian_online', 'contextual_moe']);
+  const deep = riskLab.coldState('deep_ensemble', 2);
+  const prediction = predictRiskModel('deep_ensemble', deep, { names: ['a', 'b'], values: [1, -1] });
+  assert.equal(prediction.residual, 0, 'cold residual must equal the market');
+  assert.ok(prediction.uncertainty >= 1);
+  const examples = Array.from({ length: 20 }, () => ({ payload: { names: ['a', 'b'], values: [1, -1] }, target: 3 }));
+  const trained = trainRiskState('deep_ensemble', deep, examples);
+  assert.ok(predictRiskModel('deep_ensemble', trained, examples[0].payload).residual > 1);
+});
+
+test('Bayesian risk challenger adapts online while retaining predictive uncertainty', () => {
+  const source = riskLab.coldState('bayesian_online', 2);
+  const examples = Array.from({ length: 40 }, () => ({ payload: { names: ['a', 'b'], values: [1, 0.5] }, target: 4 }));
+  const trained = trainRiskState('bayesian_online', source, examples);
+  const before = predictRiskModel('bayesian_online', source, examples[0].payload);
+  const after = predictRiskModel('bayesian_online', trained, examples[0].payload);
+  assert.ok(Math.abs(4 - after.residual) < Math.abs(4 - before.residual));
+  assert.ok(after.uncertainty > 0);
+});
+
+test('contextual mixture learns when a restricted expert is useful', () => {
+  const payload = { names: ['market_margin_scaled', 'market_total_scaled', 'ensemble_edge_scaled',
+    'model_disagreement_scaled', 'rating_systems_mean_residual', 'roster_margin_adjustment'],
+  values: [0.2, 0, 1, 0.3, -1, 0] };
+  const source = riskLab.coldState('contextual_moe', payload.values.length);
+  const before = predictRiskModel('contextual_moe', source, payload);
+  const trained = trainRiskState('contextual_moe', source,
+    Array.from({ length: 80 }, () => ({ payload, target: 6 })));
+  const after = predictRiskModel('contextual_moe', trained, payload);
+  assert.ok(after.residual > before.residual + 1, `${before.residual} -> ${after.residual}`);
+  assert.ok(after.detail.weights.some(weight => weight > 0.5));
 });

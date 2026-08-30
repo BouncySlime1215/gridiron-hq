@@ -54,6 +54,8 @@ import { tdCalibrationCatalog } from '../services/nfl-prop-calibration.js';
 import { signalQualityCatalog } from '../services/model-signal-quality.js';
 import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '../services/nfl-profitability.js';
 import { runNflModelGrowthCycle } from '../services/nfl-model-growth.js';
+import { captureOnlineNeuralWeek, nflOnlineNeuralStatus, settleOnlineNeuralExamples,
+  trainOnlineNeuralThroughSettled } from '../services/nfl-online-neural.js';
 import { reconcilePropQuoteMatches, settlePropQuotes } from '../services/nfl-prop-clv.js';
 import { newsSignalCoverage, syncAiNewsSignals, syncStructuredNewsSignals, teamNewsSignals } from '../services/nfl-news-signal.js';
 import { passingSpecialistAudit } from '../services/nfl-passing-specialists.js';
@@ -63,7 +65,7 @@ const r = Router();
 // Mutations are split between research/training and live operational execution.
 // A training grant must not authorize spending API/AI resources, locking picks,
 // or writing/grading bets.
-const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/sync$)/;
+const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/online-neural\/train|\/sync$)/;
 const resourceSpendingGet = /^(\/lines\/(?:shop|disagreement)|\/sharp\/(?:board|divergence))$/;
 r.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
@@ -171,6 +173,23 @@ r.post('/profitability/model-growth/run', async (req, res, next) => {
       season: Number(req.body?.season) || undefined,
       force: req.body?.force === true
     }));
+  } catch (e) { next(e); }
+});
+
+r.get('/online-neural', (_req, res, next) => {
+  try { res.json(nflOnlineNeuralStatus()); }
+  catch (e) { next(e); }
+});
+
+r.post('/online-neural/capture', (req, res, next) => {
+  try { res.json(captureOnlineNeuralWeek(ssn(req), wk(req), { horizons: ['manual'] })); }
+  catch (e) { next(e); }
+});
+
+r.post('/online-neural/train', (_req, res, next) => {
+  try {
+    const settlement = settleOnlineNeuralExamples();
+    res.json({ settlement, ...trainOnlineNeuralThroughSettled() });
   } catch (e) { next(e); }
 });
 

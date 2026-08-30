@@ -2,6 +2,13 @@
 
 **Version 1.0 · 2026-08-26**
 
+> **Implementation update — 2026-08-30:** Part I is the diagnostic baseline,
+> not the current runtime state. Scheduled weekly learning, immutable player
+> prediction snapshots, player-weight challenger fits, finalized-week NFL
+> ingestion/refits, roster-wide replacement value, and a persistent online
+> neural residual challenger are now implemented. The original measurements
+> remain useful evidence for why these loops were required.
+
 Every number in Part I was measured on this machine against this database on
 2026-08-26. Nothing is recalled or estimated. Where a claim is inherited from an
 earlier document rather than re-measured, it says so — and in two places below,

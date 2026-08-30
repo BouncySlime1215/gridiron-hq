@@ -29,9 +29,14 @@ interface Ensemble {
 }
 interface AvailabilityTeam {
   team: string; estimated_points_lost: number; evidence_state: string;
-  coverage: { injury_rows: number; prior_snap_match_rate: number | null; depth_match_rate: number | null };
+  points_lost_by_unit: { offense: number; defense: number; special_teams: number };
+  coverage: { injury_rows: number; prior_snap_match_rate: number | null; defensive_snap_match_rate: number | null;
+    replacement_match_rate: number | null; depth_match_rate: number | null };
   material_players: { player: string; position: string; report_status: string | null; practice_status: string | null;
-    estimated_point_impact: number; uncertainty: string }[];
+    estimated_point_impact: number; uncertainty: string;
+    replacement: { player: string; prior_snap_share: number | null; coverage: number } | null }[];
+  roster_value_chart: { player: string; position: string; full_loss_point_value: number;
+    replacement: { player: string } | null }[];
 }
 interface Game { season: number; week: number; home: string; away: string; ensemble: Ensemble; models: ModelRow[]; }
 interface Catalog {
@@ -219,7 +224,8 @@ function AvailabilityPanel({ availability: a }: { availability: Ensemble['player
   return <div className="rounded-xl border border-slate-200 bg-white p-4">
     <div className="flex items-center gap-2"><div className="text-sm font-black text-slate-900">Replacement-value shadow</div><StatusPill tone="warn">not in production</StatusPill></div>
     <div className="mt-2 flex items-center gap-4 text-xs text-slate-600"><span>Shadow adjustment <b className="text-slate-900">{signed(a.shadow_margin_adjustment)} home</b></span><span>Uncertainty <b>{a.uncertainty}</b></span></div>
-    {players.length ? <div className="mt-3 space-y-2">{players.map((p, i) => <div key={`${p.team}-${p.player}-${i}`} className="flex items-center gap-2 text-xs"><span className="w-8 font-black text-slate-400">{p.team}</span><span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{p.player} · {p.position}</span><span className="text-slate-500">{p.report_status ?? p.practice_status ?? 'reported'}</span><span className="tabular-nums font-bold text-slate-700">{p.estimated_point_impact.toFixed(2)} pts</span></div>)}</div>
+    <div className="mt-3 grid grid-cols-2 gap-2">{[a.away, a.home].map(team => <div key={team.team} className="rounded-lg bg-slate-50 p-2 text-[10px] text-slate-500"><b className="text-xs text-slate-900">{team.team} · {num(team.estimated_points_lost, 2)} pts lost</b><div className="mt-1">O {num(team.points_lost_by_unit.offense, 2)} · D {num(team.points_lost_by_unit.defense, 2)} · ST {num(team.points_lost_by_unit.special_teams, 2)}</div></div>)}</div>
+    {players.length ? <div className="mt-3 space-y-2">{players.map((p, i) => <div key={`${p.team}-${p.player}-${i}`} className="flex items-center gap-2 text-xs"><span className="w-8 font-black text-slate-400">{p.team}</span><span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{p.player} · {p.position}{p.replacement ? ` → ${p.replacement.player}` : ''}</span><span className="text-slate-500">{p.report_status ?? p.practice_status ?? 'reported'}</span><span className="tabular-nums font-bold text-slate-700">{p.estimated_point_impact.toFixed(2)} pts</span></div>)}</div>
       : <p className="mt-3 text-xs text-slate-500">No material report rows are available. That means unknown—not automatically healthy.</p>}
     <p className="mt-3 text-[11px] leading-4 text-slate-500">{a.note}</p>
   </div>;

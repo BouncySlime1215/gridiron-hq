@@ -1,5 +1,27 @@
 # NFL Betting Model — Status and Evidence
 
+## 2026-08-30: balanced online learning is now armed
+
+The historical results below remain the baseline and have not been relabeled.
+The live system now has a weekly outcome-to-learning path:
+
+- the team spread/total ensemble is refit at the next-week cutoff after a full
+  finalized week is ingested;
+- the shared player engine freezes pregame player predictions, settles them
+  from weekly usage, and may promote new position weights only on its newest
+  validation slice;
+- roster availability values every offensive, defensive and special-teams
+  starter against the observed next depth-chart option, using offensive and
+  defensive snaps, PFR charting and Next Gen tracking where available;
+- a persistent neural challenger learns bounded market residuals. It scores a
+  complete week before updating, retains replay examples to limit forgetting,
+  and starts at a zero residual so cold-start predictions equal the market;
+- fantasy projections and player props consume the same updated player engine.
+
+This makes the model adaptive. It does **not** prove an edge. The neural head is
+shadow-only until at least 128 forward games across eight weeks and the lower
+bound of its week-clustered MAE improvement interval clears zero.
+
 Measured 2026-08-07 against `game_lines` (1999–2026, 15,000+ team-rows, closing
 spreads and totals with final scores).
 

@@ -7,6 +7,8 @@ import { usage as oddsUsage } from './odds-api.js';
 import { ffOpportunityStatus } from './ffopportunity.js';
 import { validationFirewall } from './nfl-evidence.js';
 import { nflModelGrowthStatus } from './nfl-model-growth.js';
+import { nflOnlineNeuralStatus } from './nfl-online-neural.js';
+import { weeklyLearningStatus } from './weekly-learning.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_teaser_price_ledger (
@@ -208,6 +210,8 @@ export function profitabilityOperations() {
   const edge = propEdgeEvidence();
   const teaser = teaserPriceLedger();
   const growth = nflModelGrowthStatus();
+  const neural = nflOnlineNeuralStatus();
+  const playerLearning = weeklyLearningStatus();
   const readiness = profitabilityPhases({ matches, horizons, settlements, edge, teaser, growth });
   const gates = [
     { id: 'model_match', label: 'Supported quote coverage ≥95%', passed: matches.passed,
@@ -241,6 +245,24 @@ export function profitabilityOperations() {
     market_scorecards: propMarketScorecards(),
     historical_lines: historicalLineCoverage(), external_sources: EXTERNAL_MODEL_SOURCES,
     model_growth: growth,
+    online_neural: neural,
+    balanced_online_system: {
+      policy: 'Fast weekly adaptation inside bounded challengers; slow promotion into champion behavior; every market keeps its own scorecard.',
+      layers: [
+        { id: 'feature_warehouse', label: 'Gameplay and advanced data', state: growth.state,
+          detail: `Cutoff-safe team, player, snap, depth, injury, PFR and NGS rows through Week ${growth.learned_through_week}.` },
+        { id: 'team_ensemble', label: 'Spread and total ensemble', state: growth.active_fit ? 'adaptive' : 'waiting',
+          detail: growth.active_fit ? `Next-week fit ${growth.active_fit.model_version}.` : 'The first finalized week will create the current-season fit.' },
+        { id: 'roster_value', label: 'Whole-roster injury value', state: 'adaptive_shadow',
+          detail: 'Offense, defense and special teams are valued against the observed next man up.' },
+        { id: 'player_engine', label: 'Fantasy and usage engine', state: playerLearning.champion.source === 'adaptive' ? 'adaptive' : 'collecting',
+          detail: `${Number(playerLearning.snapshots?.settled ?? 0)} frozen player outcomes settled; ${playerLearning.champion.id} is active.` },
+        { id: 'props', label: 'Player prop heads', state: 'inherits_player_engine',
+          detail: 'Passing, rushing, receiving, receptions and TD share the updated player state but retain separate calibration gates.' },
+        { id: 'neural_residual', label: 'Online neural residual', state: neural.production_eligible ? 'review_eligible' : 'adaptive_shadow',
+          detail: `${neural.trained_weeks} complete weeks trained; it cannot size a bet before its clustered forward gate passes.` }
+      ]
+    },
     external_benchmarks: { ffopportunity: ffOpportunityStatus() },
     odds_api: oddsUsage(),
     staking_authority: gates.every(gate => gate.passed) ? 'human-reviewed capped pilot only' : '0 model-derived units'

@@ -37,7 +37,8 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS nfl_snaps (
     season INTEGER, week INTEGER, player TEXT, team TEXT, position TEXT,
-    offense_snaps INTEGER, offense_pct REAL, st_pct REAL,
+    offense_snaps INTEGER, offense_pct REAL,
+    defense_snaps INTEGER, defense_pct REAL, st_pct REAL,
     PRIMARY KEY (season, week, player, team)
   );
   CREATE INDEX IF NOT EXISTS idx_snaps_team ON nfl_snaps(season, week, team);
@@ -53,6 +54,13 @@ db.exec(`
     PRIMARY KEY (season, week, gsis_id)
   );
 `);
+
+// Older databases captured only offensive participation. nflverse publishes
+// both sides of the ball; without these columns a CB1 and a reserve corner both
+// fell back to the same guessed 15% role in the injury model.
+const snapColumns = new Set(db.prepare('PRAGMA table_info(nfl_snaps)').all().map(x => x.name));
+if (!snapColumns.has('defense_snaps')) db.exec('ALTER TABLE nfl_snaps ADD COLUMN defense_snaps INTEGER');
+if (!snapColumns.has('defense_pct')) db.exec('ALTER TABLE nfl_snaps ADD COLUMN defense_pct REAL');
 
 /* ------------------------------------------------------------ csv plumbing */
 
@@ -185,10 +193,12 @@ export async function syncPfrAdv(seasons) {
 
 export async function syncSnaps(seasons) {
   const stmt = db.prepare(`INSERT INTO nfl_snaps
-      (season, week, player, team, position, offense_snaps, offense_pct, st_pct)
-    VALUES (?,?,?,?,?,?,?,?)
+      (season, week, player, team, position, offense_snaps, offense_pct,defense_snaps,defense_pct,st_pct)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(season, week, player, team) DO UPDATE SET
-      offense_snaps=excluded.offense_snaps, offense_pct=excluded.offense_pct, st_pct=excluded.st_pct`);
+      offense_snaps=excluded.offense_snaps, offense_pct=excluded.offense_pct,
+      defense_snaps=excluded.defense_snaps, defense_pct=excluded.defense_pct,
+      st_pct=excluded.st_pct`);
   let total = 0;
   for (const season of seasons) {
     const batch = [];
@@ -198,7 +208,7 @@ export async function syncSnaps(seasons) {
         const week = n(r.week);
         if (!week || !r.player) return;
         batch.push([season, week, r.player, r.team, r.position,
-          n(r.offense_snaps), n(r.offense_pct), n(r.st_pct)]);
+          n(r.offense_snaps), n(r.offense_pct), n(r.defense_snaps), n(r.defense_pct), n(r.st_pct)]);
       });
     } catch { continue; }
     db.exec('BEGIN');

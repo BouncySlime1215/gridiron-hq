@@ -22,6 +22,9 @@ import { clearAutoPickBoardCache } from './nfl-auto-picks.js';
 import { clearNflMarketCache } from './nfl-market.js';
 import { fitEnsemble, invalidateEnsembleCaches } from './nfl-ensemble.js';
 import { clearPlayerWeekEngineCache } from './player-week-engine.js';
+import { clearPlayerValueCache } from './nfl-player-value.js';
+import { settleOnlineNeuralExamples, trainOnlineNeuralThroughSettled } from './nfl-online-neural.js';
+import { captureWeeklyPredictions, retrainWeeklyWeights, settleWeeklyPredictions } from './weekly-learning.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_growth_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,11 +65,17 @@ function warehouseSnapshot(season) {
       rows: count('player_week_usage', season), through_week: through('player_week_usage', season) },
     { id: 'snap_counts', table: 'nfl_snaps', required: false,
       rows: count('nfl_snaps', season), through_week: through('nfl_snaps', season) },
+    { id: 'next_gen_tracking', table: 'nfl_ngs', required: false,
+      rows: count('nfl_ngs', season), through_week: through('nfl_ngs', season) },
+    { id: 'pfr_player_charting', table: 'nfl_pfr_adv', required: false,
+      rows: count('nfl_pfr_adv', season), through_week: through('nfl_pfr_adv', season) },
     { id: 'depth_charts', table: 'nfl_depth', required: false,
       rows: count('nfl_depth', season), through_week: through('nfl_depth', season) },
     { id: 'injury_reports', table: 'nfl_injuries', required: false,
       rows: count('nfl_injuries', season), through_week: through('nfl_injuries', season) }
   ].map(source => ({ ...source,
+    prior_season_rows: count(source.table, season - 1),
+    prior_season_through_week: through(source.table, season - 1),
     lag_weeks: Math.max(0, finalizedWeek - source.through_week),
     current: finalizedWeek === 0 || source.through_week >= finalizedWeek
   }));
@@ -132,9 +141,10 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
   const detail = {
     settlement: {
       shadow: settleNflShadowDecisions(),
-      forward: settleForwardPicks()
+      forward: settleForwardPicks(),
+      online_neural: settleOnlineNeuralExamples()
     },
-    ingestion: {}, fit: null
+    ingestion: {}, fit: null, online_neural: null, player_learning: null
   };
   try {
     const coreLag = before.sources.some(source => source.required && !source.current);
@@ -147,7 +157,10 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       await attempt('play_by_play', () => syncPbpSeason(season), detail.ingestion);
       await attempt('next_gen_stats', () => syncNgs([season]), detail.ingestion);
       await attempt('pfr_advanced', () => syncPfrAdv([season]), detail.ingestion);
-      await attempt('snap_counts', () => syncSnaps([season]), detail.ingestion);
+      // The prior season supplies the Week 1 replacement baseline. Re-reading
+      // it also backfills defensive participation into databases created before
+      // that field was stored.
+      await attempt('snap_counts', () => syncSnaps([season - 1, season]), detail.ingestion);
       await attempt('depth_charts', () => syncDepthCharts([season]), detail.ingestion);
       await attempt('injury_reports', () => syncInjuries([season]), detail.ingestion);
     }
@@ -161,12 +174,31 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       clearNflMarketCache();
       clearAutoPickBoardCache();
       clearPlayerWeekEngineCache();
+      clearPlayerValueCache();
       const fitted = fitEnsemble({ beforeSeason: season, beforeWeek: afterIngest.finalized_week + 1 });
       detail.fit = fitted.error ? { error: fitted.error } : {
         cutoff: `${season}|${afterIngest.finalized_week + 1}`,
         games: fitted.games, evaluated_weeks: fitted.evaluated_weeks,
         models: fitted.models.length,
         residual_models_passing: fitted.models.filter(model => model.residual_gate_passed).map(model => model.id)
+      };
+    }
+
+    // The neural challenger learns only after every game in a week was scored
+    // under the old artifact and the same week's feature warehouse is current.
+    // This remains outside the refit branch so a transient neural failure can
+    // retry after the ensemble artifact has already been persisted.
+    if (afterIngest.finalized_week > 0 && coreCurrent) {
+      detail.online_neural = trainOnlineNeuralThroughSettled();
+      const playerSettlement = settleWeeklyPredictions();
+      const playerTraining = retrainWeeklyWeights();
+      clearPlayerWeekEngineCache();
+      const nextWeek = afterIngest.finalized_week + 1;
+      const playerCapture = nextWeek <= 18
+        ? captureWeeklyPredictions(season, nextWeek) : { captured: 0, blocked: true, reason: 'regular season complete' };
+      detail.player_learning = {
+        settlement: playerSettlement, training: playerTraining, next_week_capture: playerCapture,
+        downstream: 'The shared player engine feeds fantasy projections and every player-prop market.'
       };
     }
 

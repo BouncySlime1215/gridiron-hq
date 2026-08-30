@@ -22,12 +22,24 @@ interface ProfitabilityOps {
   historical_lines: { min_season: number; max_season: number; rows: number; opening_rows: number; limitation: string };
   model_growth: {
     state: string; season: number; finalized_week: number; learned_through_week: number;
-    sources: { id: string; required: boolean; rows: number; through_week: number; lag_weeks: number; current: boolean }[];
+    sources: { id: string; required: boolean; rows: number; through_week: number;
+      prior_season_rows: number; prior_season_through_week: number; lag_weeks: number; current: boolean }[];
     labeled_examples: { independent: number; settled: number; selected: number; selected_settled: number; rule: string };
     active_fit: { cutoff: string; model_version: string; created_at: string } | null;
     latest_run: { started_at: string; finished_at: string | null; status: string } | null;
     next_action: string; promotion_policy: string;
   };
+  online_neural: {
+    head: string; mode: string; architecture: string; active_version: string;
+    captured: number; settled: number; trained: number; trained_weeks: number;
+    trained_through: { season: number; week: number } | null;
+    metrics: { examples: number; weeks: number; market_mae: number | null; neural_mae: number | null;
+      mae_improvement: number | null; weekly_clustered_improvement_ci90: [number, number] | null;
+      production_eligible: boolean };
+    heads: Record<string, { state: string; target: string }>;
+    production_eligible: boolean; staking_authority: string; learning_rule: string;
+  };
+  balanced_online_system: { policy: string; layers: { id: string; label: string; state: string; detail: string }[] };
   external_benchmarks: { ffopportunity: { rows: number; seasons: number; min_season: number | null; max_season: number | null; status: string } };
   external_sources: { id: string; repo: string; url: string; role: string; integration: string; pinned_commit: string; copied_code: boolean }[];
   market_scorecards: MarketScorecard[];
@@ -115,6 +127,7 @@ export function ProfitabilityControl() {
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <SignalCard label="Model learned through" value={d.model_growth.learned_through_week ? `Week ${d.model_growth.learned_through_week}` : 'No 2026 results'} detail={d.model_growth.state.replaceAll('_', ' ')} tone={d.model_growth.state === 'current' ? 'good' : 'warn'} />
       <SignalCard label="Frozen game labels" value={`${d.model_growth.labeled_examples.settled}/${d.model_growth.labeled_examples.independent}`} detail={`${d.model_growth.labeled_examples.selected_settled}/${d.model_growth.labeled_examples.selected} cleared the frozen betting policy`} tone={d.model_growth.labeled_examples.settled ? 'good' : 'warn'} />
+      <SignalCard label="Online neural learner" value={`${d.online_neural.trained_weeks} weeks`} detail={`${d.online_neural.trained}/${d.online_neural.settled} settled vectors trained · ${d.online_neural.production_eligible ? 'promotion gate passed' : 'shadow only'}`} tone={d.online_neural.production_eligible ? 'good' : 'warn'} />
       <SignalCard label="Resolved quote coverage" value={pct(d.match_coverage.rate)} detail={`${d.match_coverage.resolved}/${d.match_coverage.quotes} explained · target 95%`} tone={d.match_coverage.rate != null && d.match_coverage.rate >= .95 ? 'good' : 'warn'} />
       <SignalCard label="Directly modeled" value={pct(d.match_coverage.model_rate)} detail={`${d.match_coverage.modeled} quotes; valid role abstentions remain abstentions`} />
       <SignalCard label="Independent decisions" value={`${d.edge.shadow_decisions}`} detail={`${d.edge.settled_bets}/${d.policy.minimum_settled_overall} settled before pooled review`} tone="warn" />
@@ -133,10 +146,38 @@ export function ProfitabilityControl() {
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {d.model_growth.sources.map(source => <div key={source.id} className="rounded-xl border border-slate-200 p-3">
             <div className="flex items-center gap-2"><StatusPill tone={source.current ? 'good' : source.required ? 'bad' : 'warn'}>{source.current ? 'current' : `${source.lag_weeks}w lag`}</StatusPill><span className="text-xs font-bold text-slate-800">{source.id.replaceAll('_', ' ')}</span></div>
-            <div className="mt-2 text-xs text-slate-500">{source.rows.toLocaleString()} rows · through week {source.through_week || '—'}{source.required ? ' · required' : ' · context'}</div>
+            <div className="mt-2 text-xs text-slate-500">{source.rows.toLocaleString()} current rows · through week {source.through_week || '—'}{source.required ? ' · required' : ' · context'}<br />{source.prior_season_rows.toLocaleString()} prior-season rows · through {source.prior_season_through_week || '—'}</div>
           </div>)}
         </div>
         <p className="mt-3 text-[11px] text-slate-500">{d.model_growth.labeled_examples.rule}</p>
+      </div>
+    </details>
+
+    <details className="card overflow-hidden">
+      <summary className="cursor-pointer px-4 py-4 font-bold text-slate-900">
+        Balanced online system · {d.online_neural.mode.replaceAll('_', ' ')}
+      </summary>
+      <div className="border-t border-slate-200 p-4">
+        <p className="mb-3 text-xs leading-5 text-slate-600">{d.balanced_online_system.policy}</p>
+        <div className="mb-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {d.balanced_online_system.layers.map(layer => <div key={layer.id} className="rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center gap-2"><StatusPill tone={layer.state === 'adaptive' || layer.state === 'review_eligible' ? 'good' : layer.state.includes('shadow') ? 'info' : 'warn'}>{layer.state.replaceAll('_', ' ')}</StatusPill><span className="text-xs font-black text-slate-900">{layer.label}</span></div>
+            <p className="mt-2 text-[11px] leading-4 text-slate-500">{layer.detail}</p>
+          </div>)}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <NeuralReadout label="Architecture" value={d.online_neural.architecture} />
+          <NeuralReadout label="Forward sample" value={`${d.online_neural.metrics.examples} games · ${d.online_neural.metrics.weeks} weeks`} />
+          <NeuralReadout label="MAE vs market" value={`${d.online_neural.metrics.neural_mae ?? '—'} vs ${d.online_neural.metrics.market_mae ?? '—'}`} />
+          <NeuralReadout label="Weekly MAE lift" value={signed(d.online_neural.metrics.mae_improvement)} />
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-3 xl:grid-cols-5">
+          {Object.entries(d.online_neural.heads).map(([head, config]) => <div key={head} className="rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center gap-2"><StatusPill tone={config.state === 'active_shadow' ? 'info' : 'neutral'}>{config.state.replaceAll('_', ' ')}</StatusPill><span className="text-xs font-black text-slate-900">{head.replaceAll('_', ' ')}</span></div>
+            <p className="mt-2 text-[11px] leading-4 text-slate-500">{config.target}</p>
+          </div>)}
+        </div>
+        <p className="mt-3 text-[11px] leading-5 text-slate-500">{d.online_neural.learning_rule} {d.online_neural.staking_authority}.</p>
       </div>
     </details>
 
@@ -200,4 +241,8 @@ function ProfitReadiness({ readiness: r }: { readiness: ProfitabilityOps['readin
 
 function MiniReadout({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl border border-amber-200 bg-white/70 px-3 py-2"><div className="text-[10px] font-bold uppercase tracking-wide text-amber-700">{label}</div><div className="mt-0.5 text-sm font-black text-slate-900">{value}</div></div>;
+}
+
+function NeuralReadout({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-3"><div className="text-[10px] font-bold uppercase tracking-wide text-violet-700">{label}</div><div className="mt-1 text-sm font-black text-slate-900">{value}</div></div>;
 }

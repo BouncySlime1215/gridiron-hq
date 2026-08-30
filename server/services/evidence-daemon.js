@@ -14,6 +14,7 @@ import { capturePregameSnapshots } from './nfl-pregame.js';
 import { captureMlbPregame } from './mlb-pregame.js';
 import { appDate, nflKickoffDate } from './date-util.js';
 import { recordNflShadowBoard } from './shadow-ledger.js';
+import { captureOnlineNeuralWeek } from './nfl-online-neural.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS evidence_capture_windows (
@@ -113,9 +114,12 @@ export async function runEvidenceDaemon({ force = false } = {}) {
         const context = capturePregameSnapshots(season, week);
         const odds = hasKey() ? await snapshotLines() : { error: 'no ODDS_API_KEY configured' };
         const shadow = recordNflShadowBoard(season, week);
+        const neural = captureOnlineNeuralWeek(season, week, {
+          horizons: windows.map(window => window.horizon)
+        });
         const complete = !odds.error;
-        mark(windows, complete ? 'captured' : 'partial', { context, odds, shadow, mode: 'forward_shadow' });
-        detail.nfl.push({ season, week, windows: windows.length, context, odds, shadow });
+        mark(windows, complete ? 'captured' : 'partial', { context, odds, shadow, neural, mode: 'forward_shadow' });
+        detail.nfl.push({ season, week, windows: windows.length, context, odds, shadow, neural });
       } catch (error) {
         mark(windows, 'partial', { error: error.message, mode: 'source_quarantined' });
         detail.nfl.push({ season, week, windows: windows.length, error: error.message });

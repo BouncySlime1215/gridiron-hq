@@ -31,7 +31,8 @@ const { validationFirewall } = await import('../server/services/nfl-evidence.js'
 const { decomposePassingError } = await import('../server/services/nfl-passing-diagnostic.js');
 const { flattenAllProps } = await import('../server/services/odds-api.js');
 const { finalizeClosingSnapshots, noVigPropProbability, duePropCaptureHorizon } = await import('../server/services/nfl-prop-clv.js');
-const { teamPlayerAvailability } = await import('../server/services/nfl-player-value.js');
+const { teamPlayerAvailability, clearPlayerValueCache } = await import('../server/services/nfl-player-value.js');
+const { createNetwork, predictNetwork, trainBatch } = await import('../server/services/nfl-online-neural.js');
 const { safeStakeFor } = await import('../server/services/staking.js');
 const {
   WEEKLY_ENSEMBLE_HEADS, WEEKLY_ENSEMBLE_WEIGHTS,
@@ -576,6 +577,56 @@ test('replacement-value availability is cutoff-safe and remains shadow-only', ()
   assert.equal(a.production_eligible, false);
   assert.equal(a.material_players.some(x => x.player === 'Resting Lineman'), false,
     'non-injury rest should not be treated as a material injury shock');
+});
+
+test('defensive injuries use defensive snaps and the observed next man up', () => {
+  db.prepare(`INSERT INTO nfl_depth
+    (season,week,team,gsis_id,player_name,pos_abb,pos_rank,pos_slot,captured)
+    VALUES (2026,4,'DDD','ddd-cb1','DDD Corner One','CB',1,'LCB','2026-08-20'),
+           (2026,4,'DDD','ddd-cb2','DDD Corner Two','CB',2,'LCB','2026-08-20')`).run();
+  db.prepare(`INSERT INTO nfl_snaps
+    (season,week,player,position,team,defense_snaps,defense_pct)
+    VALUES (2026,2,'DDD Corner One','CB','DDD',62,0.95),
+           (2026,2,'DDD Corner Two','CB','DDD',31,0.48)`).run();
+  db.prepare(`INSERT INTO nfl_injuries
+    (season,week,gsis_id,team,full_name,position,report_status,practice_status,injury)
+    VALUES (2026,4,'ddd-cb1','DDD','DDD Corner One','CB','Out','Did Not Participate','Hamstring')`).run();
+  db.prepare(`INSERT INTO nfl_pfr_adv (season,week,player_name,kind,team,opponent,stats)
+    VALUES (2026,2,'DDD Corner One','def','DDD','EEE',?)`).run(JSON.stringify({
+    def_pressures: 4, def_sacks: 1, def_tackles_combined: 7, def_missed_tackles: 0,
+    def_yards_allowed_per_tgt: 4.8, def_passer_rating_allowed: 61
+  }));
+  clearPlayerValueCache();
+  const availability = teamPlayerAvailability(2026, 4, 'DDD');
+  const corner = availability.material_players.find(player => player.gsis_id === 'ddd-cb1');
+  assert.equal(corner.unit, 'defense');
+  assert.equal(corner.participation_source, 'defense_snap_share');
+  assert.equal(corner.prior_snap_share, 0.95);
+  assert.equal(corner.replacement.player, 'DDD Corner Two');
+  assert.equal(corner.prior_advanced_games, 1);
+  assert.equal(corner.prior_advanced.def_pressures, 4);
+  assert.ok(corner.quality_modifier > 1);
+  assert.ok(corner.replacement.coverage > 0);
+  assert.ok(corner.full_loss_point_value < 0.75 * Math.sqrt(0.95) * 1.15 * corner.quality_modifier,
+    'a demonstrated backup must reduce the unreplaced starter loss');
+  assert.ok(availability.points_lost_by_unit.defense > 0);
+  assert.equal(availability.coverage.defensive_snap_match_rate, 1);
+});
+
+test('online neural updates are deterministic, bounded and improve a learnable weekly batch', () => {
+  const initial = createNetwork(3, 2026);
+  const examples = [
+    { input: [1, 0, 0], target: 2 }, { input: [-1, 0, 0], target: -2 },
+    { input: [0.8, 0.2, 0], target: 1.7 }, { input: [-0.8, -0.2, 0], target: -1.7 }
+  ];
+  const before = examples.reduce((sum, example) => sum + Math.abs(predictNetwork(initial, example.input) - example.target), 0);
+  const trained = trainBatch(initial, examples, { epochs: 80 });
+  const again = trainBatch(createNetwork(3, 2026), examples, { epochs: 80 });
+  const after = examples.reduce((sum, example) => sum + Math.abs(predictNetwork(trained, example.input) - example.target), 0);
+  assert.ok(after < before * 0.5);
+  assert.deepEqual(trained, again, 'the same frozen weekly batch must create the same artifact');
+  assert.ok(examples.every(example => Math.abs(predictNetwork(trained, example.input)) <= 7));
+  assert.equal(predictNetwork(initial, [1, 0, 0]), 0, 'cold start must exactly defer to the market');
 });
 
 test('safe stake sizing stays at zero until every evidence gate passes', () => {

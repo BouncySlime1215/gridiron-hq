@@ -14,6 +14,7 @@ import { WEEKLY_ENSEMBLE_HEADS } from './weekly-ensemble.js';
 import { PLAYER_HEADS, PLAYER_HEAD_REGISTRY_VERSION } from './player-head-registry.js';
 import { activeWeeklyWeightSet, saveWeeklyFit, weeklyFitHistory } from './weekly-weight-store.js';
 import { spearman } from './backtest.js';
+import { nflKickoffDate } from './date-util.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS weekly_prediction_snapshots (
@@ -79,6 +80,14 @@ function fitPosition(data, fallback) {
 export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 250 } = {}) {
   const outcomes = row('SELECT COUNT(*) AS n FROM player_week_usage WHERE season=? AND week=?', season, week)?.n ?? 0;
   if (outcomes > 0) return { captured: 0, blocked: true, reason: 'week already has outcomes; pregame snapshot cannot be rewritten' };
+  const schedule = rows(`SELECT gameday,gametime,team_score FROM game_lines
+    WHERE season=? AND week=? AND home=1`, season, week);
+  const firstKickoff = schedule.map(game => nflKickoffDate(game.gameday, game.gametime || '23:59'))
+    .filter(date => date && Number.isFinite(date.getTime())).sort((a, b) => a - b)[0];
+  if (schedule.some(game => game.team_score != null) || (firstKickoff && firstKickoff.getTime() <= Date.now())) {
+    return { captured: 0, blocked: true,
+      reason: 'the weekly slate has started; a whole-week pregame snapshot cannot be reconstructed' };
+  }
   const projections = buildPlayerWeekEngine({ season, week, scoring });
   const now = new Date().toISOString();
   const insert = db.prepare(`INSERT OR IGNORE INTO weekly_prediction_snapshots
@@ -100,7 +109,7 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
-  return { captured, season, week, as_of: now };
+  return { captured, season, week, as_of: now, first_kickoff: firstKickoff?.toISOString() ?? null };
 }
 
 function candidateForwardScoreboard() {

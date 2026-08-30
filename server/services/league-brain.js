@@ -75,6 +75,8 @@ import {
 import { waiverUpgrades, sellHigh } from './waiver-brain.js';
 import { positionLiquidity, shoppingGuidance } from './position-liquidity.js';
 import { byePatches, fragility } from './roster-risk.js';
+import { regressionForLeague } from './td-regression.js';
+import { trendExploits } from './trend-exploits.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -619,9 +621,15 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
   // it is a different kind of decision on a different clock, and merging them
   // into one ranking would bury a guaranteed week-7 zero underneath a marginal
   // season-long upgrade.
-  let risk = null, fragile = null;
+  let risk = null, fragile = null, regression = null, trends = null;
   try { risk = byePatches(leagueId, { myTeamId }); } catch { /* optional */ }
   try { fragile = fragility(leagueId, { myTeamId }); } catch { /* optional */ }
+  // Both are independent reads on the same players, folded in below as
+  // corroborating evidence rather than as separate recommendations.
+  try { const r = regressionForLeague(leagueId, { myTeamId }); if (!r.error) regression = r; }
+  catch { /* optional */ }
+  try { const t = trendExploits(leagueId, { myTeamId }); if (!t.error) trends = t; }
+  catch { /* optional */ }
 
   const tradeMoves = spread.slice(0, limit).map(m => ({ ...m, kind: 'trade' }));
   const waiverMoves = (waiver.upgrades ?? []).map(u => ({
@@ -638,8 +646,76 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
   }));
 
   // One ranking over both, which is the only way the comparison is honest.
-  const allMoves = [...tradeMoves, ...waiverMoves]
-    .sort((a, b) => b.expected_value - a.expected_value);
+  // CONFLUENCE: independent evidence, compounded.
+  //
+  // Three separate models now look at the same players and none of them knew
+  // the others existed. The lineup solver says a free agent would start for you.
+  // The trend detector says his offence has genuinely changed. The regression
+  // model says his touchdowns are running below his chances. Each is a weak
+  // signal on its own — that is why each has its own significance filter — but
+  // they are built from different data and fail in different ways, so agreement
+  // between them is worth considerably more than any of them alone.
+  //
+  // The multiplier is deliberately modest and capped. Two agreeing signals are
+  // better evidence than one; they are not proof, and a scoring rule that let
+  // confluence dominate would just rediscover whichever player happens to appear
+  // in the most lists. It reorders the shortlist rather than rewriting it.
+  const evidence = new Map();
+  const noteFor = (name, entry) => {
+    if (!name) return;
+    if (!evidence.has(name)) evidence.set(name, []);
+    evidence.get(name).push(entry);
+  };
+  for (const e of trends?.exploits ?? []) {
+    if (!e.player?.name) continue;
+    noteFor(e.player.name, {
+      source: 'usage trend', verdict: e.kind, detail: e.headline,
+      supports: e.kind === 'claim' || e.kind === 'hold'
+    });
+  }
+  for (const bucket of ['claim', 'buy', 'hold']) {
+    for (const p of regression?.[bucket] ?? []) {
+      noteFor(p.name, {
+        source: 'touchdown luck', verdict: 'positive regression',
+        detail: `${p.actual} touchdowns on ${p.expected} expected — about ${Math.abs(p.ppg_swing)} points a week light`,
+        supports: true
+      });
+    }
+  }
+  for (const p of regression?.sell ?? []) {
+    noteFor(p.name, {
+      source: 'touchdown luck', verdict: 'negative regression',
+      detail: `${p.actual} touchdowns on ${p.expected} expected — running hot`,
+      supports: false
+    });
+  }
+
+  const withEvidence = [...tradeMoves, ...waiverMoves].map(m => {
+    // Evidence about a player you are ACQUIRING supports the move; the same
+    // evidence about a player you are sending away argues against it.
+    const incoming = (m.you_get ?? []).flatMap(p => (evidence.get(p.name) ?? [])
+      .map(e => ({ ...e, about: p.name, side: 'incoming' })));
+    const outgoing = (m.you_send ?? []).flatMap(p => (evidence.get(p.name) ?? [])
+      .map(e => ({ ...e, about: p.name, side: 'outgoing' })));
+    const agreeing = incoming.filter(e => e.supports).length
+      + outgoing.filter(e => !e.supports).length;
+    const dissenting = incoming.filter(e => !e.supports).length
+      + outgoing.filter(e => e.supports).length;
+    const net = agreeing - dissenting;
+    const multiplier = net === 0 ? 1 : r3(Math.max(0.7, Math.min(1.5, 1 + net * 0.18)));
+    return {
+      ...m,
+      evidence: [...incoming, ...outgoing],
+      corroborating_signals: agreeing,
+      dissenting_signals: dissenting,
+      confluence_multiplier: multiplier,
+      base_expected_value: m.expected_value,
+      expected_value: r3(m.expected_value * multiplier)
+    };
+  });
+
+  const allMoves = withEvidence.sort((a, b) => b.expected_value - a.expected_value);
+  const corroborated = allMoves.filter(m => m.corroborating_signals > 0);
   const topIsWaiver = allMoves[0]?.kind === 'waiver';
 
   return {
@@ -651,6 +727,14 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
     all_moves: allMoves,
     liquidity: liquidity?.error ? null : liquidity,
     bye_risk_detail: risk?.error ? null : risk,
+    corroborated_moves: corroborated.length,
+    confluence_note: corroborated.length
+      ? `${corroborated.length} move${corroborated.length === 1 ? ' is' : 's are'} backed by more than ` +
+        'one model. The usage trends, the touchdown-luck model and the lineup solver read different ' +
+        'data and fail in different ways, so where they agree the evidence is worth more than any ' +
+        'one of them — enough to reorder this list, not enough to rewrite it.'
+      : 'No move currently has support from more than one model. That is common and not a problem; ' +
+        'each signal is filtered hard enough that agreement is rare.',
     fragility: fragile?.error ? null : fragile,
     shopping: guidance?.error ? null : guidance,
     // What was considered and refused, with the gate that stopped it. Ranked by

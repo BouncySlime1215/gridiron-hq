@@ -155,6 +155,12 @@ export default function LeagueBrain() {
           {/* Losses already on the calendar. Deliberately above the trade list:
               a guaranteed zero in week 7 outranks a marginal season upgrade,
               and it has a deadline the trade board does not. */}
+          {d?.confluence_note && d?.corroborated_moves > 0 && (
+            <p className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm leading-6 text-slate-700">
+              {d.confluence_note}
+            </p>
+          )}
+
           {d?.bye_risk_detail?.weeks?.length > 0 && <ByeRisk risk={d.bye_risk_detail} />}
 
           {d?.fragility?.critical?.length > 0 && (
@@ -466,6 +472,17 @@ function Move({ m, rank }: { m: any; rank: number }) {
             tone={acc >= 50 ? 'good' : acc >= 25 ? 'warn' : 'bad'} />
           <Metric label={m.grade ?? 'Worth'} value={String(m.expected_value)} unit="ppg"
             tone={m.grade === 'SMASH' ? 'good' : undefined} />
+          {/* Independent models agreeing (or not) about the same player. */}
+          {(m.corroborating_signals > 0 || m.dissenting_signals > 0) && (
+            <span className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold sm:inline ${
+              m.corroborating_signals > m.dissenting_signals
+                ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200'
+                : 'bg-amber-50 text-amber-900 ring-1 ring-amber-200'}`}>
+              {m.corroborating_signals > m.dissenting_signals
+                ? `${m.corroborating_signals} model${m.corroborating_signals === 1 ? '' : 's'} agree`
+                : `${m.dissenting_signals} model${m.dissenting_signals === 1 ? '' : 's'} disagree`}
+            </span>
+          )}
         </div>
       </button>
       {open && (
@@ -481,6 +498,33 @@ function Move({ m, rank }: { m: any; rank: number }) {
               )}
             </div>
           )}
+          {m.evidence?.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                What the other models say
+              </div>
+              <div className="mt-1.5 space-y-1.5">
+                {m.evidence.map((e: any, i: number) => (
+                  <div key={i} className="flex gap-2 text-sm leading-6">
+                    <span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${e.supports ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    <span className="text-slate-700">
+                      <b className="text-slate-900">{e.source}</b> on {e.about}: {e.detail}
+                      {e.side === 'outgoing' && <span className="text-slate-400"> (a player you would be sending)</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {m.confluence_multiplier !== 1 && (
+                <p className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500">
+                  Ranked {m.confluence_multiplier > 1 ? 'up' : 'down'} from {m.base_expected_value} to{' '}
+                  {m.expected_value} on that agreement. Independent models failing in different ways
+                  make agreement worth more than any one of them — enough to reorder the list, not
+                  enough to rewrite it.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* The trade breakdown is meaningless for a waiver claim — there is no
               counterparty to have a lineup, a value split, or a surplus with. */}
           {isWaiver ? (

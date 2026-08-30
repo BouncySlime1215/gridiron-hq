@@ -13,6 +13,7 @@ import './nfl-pregame.js';
 import { rows } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';
 import { quarterbackPicture } from './football-context.js';
+import { nflEngineVersionFor } from './nfl-engine-registry.js';
 
 const r3 = n => n == null || !Number.isFinite(n) ? null : +n.toFixed(3);
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
@@ -347,7 +348,8 @@ export function teamPlayerAvailability(season, week, team) {
     pregame_snapshot: Boolean(snapshot), captured_before_kickoff: capturedBeforeKickoff
   };
   const result = {
-    season, week, team, estimated_points_lost: r3(burden), points_lost_by_unit: pointsByUnit,
+    season, week, team, engine_version: nflEngineVersionFor(season, week),
+    estimated_points_lost: r3(burden), points_lost_by_unit: pointsByUnit,
     quarterback_model: qb,
     material_players: injuryPlayers.filter(player => player.estimated_point_impact >= 0.05).slice(0, 16),
     roster_value_chart: rosterValueChart.sort((a, b) => b.full_loss_point_value - a.full_loss_point_value).slice(0, 30),

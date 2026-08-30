@@ -62,7 +62,7 @@ export function whoPlays(season, week, team) {
     `SELECT player_name, signal_type, status, unavailable_probability, role_delta,
             confidence, published_at, source
      FROM nfl_news_signals
-     WHERE UPPER(team) = ? ORDER BY published_at DESC`, t);
+     WHERE UPPER(team) = ? AND verification_state='verified' ORDER BY published_at DESC`, t);
 
   // 3. Snap share, which decides whether an absence actually matters.
   const snaps = rows(

@@ -18,6 +18,18 @@ The live system now has a weekly outcome-to-learning path:
   and starts at a zero residual so cold-start predictions equal the market;
 - fantasy projections and player props consume the same updated player engine.
 
+All heads are now bound by one content-addressed **Gridiron Engine** version for
+the prediction cutoff. “Regular model” and “weekly model” are no longer separate
+systems: they are the team-game and player-state heads of the same engine. Each
+keeps its own loss function and promotion gate, because combining state does not
+make spread error, usage error and prop calibration interchangeable.
+
+“Retired” does not mean deleted. A failed sealed audit removes a capability's
+right to directly pick or size a bet. Its internal signals stay in a restricted
+research pool for online-learner inputs, disagreement/regime detection,
+simulation shape, and shadow challengers. A changed use can earn authority again
+through a fresh cutoff-safe replay and forward validation gate.
+
 This makes the model adaptive. It does **not** prove an edge. The neural head is
 shadow-only until at least 128 forward games across eight weeks and the lower
 bound of its week-clustered MAE improvement interval clears zero.

@@ -25,6 +25,7 @@ import { clearPlayerWeekEngineCache } from './player-week-engine.js';
 import { clearPlayerValueCache } from './nfl-player-value.js';
 import { settleOnlineNeuralExamples, trainOnlineNeuralThroughSettled } from './nfl-online-neural.js';
 import { captureWeeklyPredictions, retrainWeeklyWeights, settleWeeklyPredictions } from './weekly-learning.js';
+import { clearNflEngineRegistryCache, recordNflEngineArtifact } from './nfl-engine-registry.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_growth_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,7 +145,7 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       forward: settleForwardPicks(),
       online_neural: settleOnlineNeuralExamples()
     },
-    ingestion: {}, fit: null, online_neural: null, player_learning: null
+    ingestion: {}, fit: null, online_neural: null, player_learning: null, engine: null
   };
   try {
     const coreLag = before.sources.some(source => source.required && !source.current);
@@ -166,6 +167,7 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
     }
 
     const afterIngest = warehouseSnapshot(season);
+    clearNflEngineRegistryCache();
     const coreCurrent = afterIngest.sources
       .filter(source => source.required && source.id !== 'results_and_lines')
       .every(source => source.current);
@@ -200,6 +202,11 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
         settlement: playerSettlement, training: playerTraining, next_week_capture: playerCapture,
         downstream: 'The shared player engine feeds fantasy projections and every player-prop market.'
       };
+      const coordinatedFitExists = row(`SELECT 1 ok FROM nfl_ensemble_fit_artifacts
+        WHERE cutoff=? LIMIT 1`, `${season}|${afterIngest.finalized_week + 1}`);
+      if (coordinatedFitExists && !detail.fit?.error) {
+        detail.engine = recordNflEngineArtifact(season, afterIngest.finalized_week);
+      }
     }
 
     const after = warehouseSnapshot(season);

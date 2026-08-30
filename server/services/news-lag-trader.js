@@ -66,7 +66,7 @@ function beneficiaryOf(playerName, teamAbbr) {
   // Everyone else at that slot, in depth order, who is not themselves flagged.
   const unavailable = new Set(rows(
     `SELECT player_name FROM nfl_news_signals
-     WHERE team = ? AND status IN ('out_for_season','out','ir','released')
+     WHERE team = ? AND verification_state='verified' AND status IN ('out_for_season','out','ir','released')
        AND published_at >= datetime('now','-45 days')`, teamAbbr)
     .map(x => normalizePlayerName(x.player_name)));
 
@@ -98,7 +98,7 @@ function priorDiscount(playerName, before) {
   const wanted = normalizePlayerName(playerName);
   return rows(
     `SELECT player_name, status, published_at FROM nfl_news_signals
-     WHERE status IN ('out_for_season','out','doubtful','ir','released')
+     WHERE verification_state='verified' AND status IN ('out_for_season','out','doubtful','ir','released')
        AND published_at < ? AND published_at >= datetime(?, '-45 days')
      ORDER BY published_at DESC`, before, before)
     .find(x => normalizePlayerName(x.player_name) === wanted) ?? null;
@@ -118,7 +118,7 @@ export function newsOpportunities(leagueId, { myTeamId = null, hours = 72 } = {}
     `SELECT player_name, player_id, team, status, unavailable_probability,
             confidence, published_at, evidence_span, source, source_url
      FROM nfl_news_signals
-     WHERE published_at >= datetime('now', ?)
+     WHERE verification_state='verified' AND published_at >= datetime('now', ?)
      ORDER BY published_at DESC`, `-${hours} hours`);
   if (!signals.length) {
     return { league: lg.name, signals_considered: 0, opportunities: [],

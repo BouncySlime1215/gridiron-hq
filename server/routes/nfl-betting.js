@@ -60,12 +60,16 @@ import { reconcilePropQuoteMatches, settlePropQuotes } from '../services/nfl-pro
 import { newsSignalCoverage, syncAiNewsSignals, syncStructuredNewsSignals, teamNewsSignals } from '../services/nfl-news-signal.js';
 import { passingSpecialistAudit } from '../services/nfl-passing-specialists.js';
 import { recordPickExplanation, recentPickExplanations } from '../services/nfl-pick-explanation-audit.js';
+import { nflEngineStatus, nflEngineVersionFor, startLearningEpoch } from '../services/nfl-engine-registry.js';
+import { unifiedGameProjection } from '../services/nfl-unified-engine.js';
+import { historicalReplayBiasAudit, nflBackfillPlan, nflBackfillStatus,
+  runNflEngineBackfill } from '../services/nfl-engine-backfill.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
 // A training grant must not authorize spending API/AI resources, locking picks,
 // or writing/grading bets.
-const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/online-neural\/train|\/sync$)/;
+const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/online-neural\/train|\/engine\/(?:backfill|learning-epoch)|\/sync$)/;
 const resourceSpendingGet = /^(\/lines\/(?:shop|disagreement)|\/sharp\/(?:board|divergence))$/;
 r.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
@@ -179,6 +183,34 @@ r.post('/profitability/model-growth/run', async (req, res, next) => {
 r.get('/online-neural', (_req, res, next) => {
   try { res.json(nflOnlineNeuralStatus()); }
   catch (e) { next(e); }
+});
+
+r.get('/engine/backfill', (req, res, next) => {
+  try {
+    res.json({ status: nflBackfillStatus(), plan: nflBackfillPlan({
+      startSeason: Number(req.query.start) || 2022, endSeason: Number(req.query.end) || 2025
+    }), bias_audit: historicalReplayBiasAudit({
+      startSeason: Number(req.query.start) || 2022, endSeason: Number(req.query.end) || 2025
+    }) });
+  } catch (e) { next(e); }
+});
+
+r.post('/engine/backfill', async (req, res, next) => {
+  try {
+    res.json(await runNflEngineBackfill({
+      startSeason: Number(req.body?.start_season) || 2022,
+      endSeason: Number(req.body?.end_season) || 2025,
+      ingest: req.body?.ingest === true,
+      maxWeeks: req.body?.max_weeks == null ? null : Number(req.body.max_weeks)
+    }));
+  } catch (e) { next(e); }
+});
+
+r.post('/engine/learning-epoch', (req, res, next) => {
+  try {
+    res.status(201).json(startLearningEpoch({ reason: req.body?.reason,
+      confirmed: req.body?.confirmed === true, reset: req.body?.reset }));
+  } catch (e) { next(e); }
 });
 
 r.post('/online-neural/capture', (req, res, next) => {
@@ -469,7 +501,8 @@ r.get('/ensemble/contracts', (req, res, next) => {
 
 r.get('/ensemble/week', (req, res, next) => {
   try {
-    res.json({ season: ssn(req), week: wk(req), games: ensembleWeek(ssn(req), wk(req)) });
+    res.json({ season: ssn(req), week: wk(req), engine_version: nflEngineVersionFor(ssn(req), wk(req)),
+      games: ensembleWeek(ssn(req), wk(req)) });
   } catch (e) { next(e); }
 });
 
@@ -803,7 +836,8 @@ r.get('/status', (req, res, next) => {
       pbp: pbpCoverage(),
       advanced: advancedCoverage(),
       odds_api: oddsUsage(),
-      odds_cache: cacheStatus()
+      odds_cache: cacheStatus(),
+      engine: nflEngineStatus(ssn(req), wk(req))
     });
   } catch (e) { next(e); }
 });
@@ -861,6 +895,20 @@ r.post('/lines/sync-now', async (req, res, next) => {
 });
 
 /* ------------------------------------------------ play-by-play simulator */
+
+r.get('/engine/game', (req, res, next) => {
+  try {
+    const out = unifiedGameProjection({
+      season: ssn(req), week: wk(req), home: req.query.home, away: req.query.away,
+      trials: Number(req.query.trials) || 8000,
+      spread: req.query.spread == null ? null : Number(req.query.spread),
+      total: req.query.total == null ? null : Number(req.query.total),
+      sampleDrives: req.query.drives === '1'
+    });
+    if (out.error) return res.status(400).json(out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
 
 /**
  * Simulate a matchup play by play. The joint score distribution this returns is

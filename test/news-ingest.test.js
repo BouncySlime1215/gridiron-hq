@@ -9,7 +9,7 @@ import { ServerResponse } from 'node:http';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-news-test-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
-const { db, row, run } = await import('../server/db/index.js');
+const { db, row, rows, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 await runMigrations();
@@ -20,6 +20,7 @@ const { upsertNormalizedNewsItem } = await import('../server/news/store.js');
 const { normalizeNewsItem } = await import('../server/news/normalize.js');
 const { default: newsRouter } = await import('../server/routes/news.js');
 const { hashSessionToken } = await import('../server/platform/auth.js');
+const { playerNewsSignal, syncStructuredNewsSignals } = await import('../server/services/nfl-news-signal.js');
 
 run(`INSERT INTO users (subject) VALUES ('news:ingest-caller')`);
 const ingestUserId = row(`SELECT id FROM users WHERE subject='news:ingest-caller'`).id;
@@ -133,6 +134,30 @@ test('normalize.js rejects "AI analysis" as a source before it ever reaches stor
   assert.throws(() => normalizeNewsItem({
     source: 'AI analysis', source_url: 'https://example.com/b', headline: 'x', published_at: '2026-08-01T00:00:00Z'
   }), /not a valid reporting source/);
+});
+
+test('typed fake news is quarantined while verified publisher evidence reaches player context', () => {
+  const player = row(`SELECT p.id,p.name,t.abbr,t.id team_id FROM players p
+    JOIN nfl_teams t ON t.id=p.team_id WHERE p.name IS NOT NULL LIMIT 1`);
+  const now = new Date().toISOString();
+  const identity = { players: [{ id: player.id, name: player.name }], teams: [] };
+  const fake = normalizeNewsItem({ source: 'NFL Truth Wire', source_type: 'publisher',
+    source_url: 'https://fake-gridiron-news.example/injury-1', published_at: now,
+    headline: `${player.name} ruled out for Sunday` }, { identity });
+  const trusted = normalizeNewsItem({ source: 'ESPN', source_type: 'publisher',
+    source_url: 'https://www.espn.com/nfl/story/_/id/999999/injury-verified', published_at: now,
+    headline: `${player.name} limited in practice` }, { identity });
+  upsertNormalizedNewsItem(fake, { teamId: player.team_id });
+  upsertNormalizedNewsItem(trusted, { teamId: player.team_id });
+  syncStructuredNewsSignals({ sinceDays: 1 });
+  const states = rows(`SELECT source,verification_state FROM nfl_news_signals
+    WHERE player_key IS NOT NULL AND source IN ('NFL Truth Wire','ESPN') ORDER BY source`);
+  assert.deepEqual(states.map(item => [item.source, item.verification_state]),
+    [['ESPN', 'verified'], ['NFL Truth Wire', 'quarantined']]);
+  const signal = playerNewsSignal(player.name, { team: player.abbr, maxAgeDays: 1 });
+  assert.ok(signal);
+  assert.ok(signal.claims.every(claim => claim.verification_state === 'verified'));
+  assert.ok(signal.claims.every(claim => claim.source !== 'NFL Truth Wire'));
 });
 
 test('manual news POST rejects the literal "AI analysis" as a source', async () => {

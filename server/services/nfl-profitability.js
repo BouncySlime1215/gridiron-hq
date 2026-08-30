@@ -9,6 +9,7 @@ import { validationFirewall } from './nfl-evidence.js';
 import { nflModelGrowthStatus } from './nfl-model-growth.js';
 import { nflOnlineNeuralStatus } from './nfl-online-neural.js';
 import { weeklyLearningStatus } from './weekly-learning.js';
+import { nflEngineStatus } from './nfl-engine-registry.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_teaser_price_ledger (
@@ -212,6 +213,7 @@ export function profitabilityOperations() {
   const growth = nflModelGrowthStatus();
   const neural = nflOnlineNeuralStatus();
   const playerLearning = weeklyLearningStatus();
+  const engine = nflEngineStatus(growth.season, Math.max(1, growth.finalized_week + 1));
   const readiness = profitabilityPhases({ matches, horizons, settlements, edge, teaser, growth });
   const gates = [
     { id: 'model_match', label: 'Supported quote coverage ≥95%', passed: matches.passed,
@@ -245,6 +247,7 @@ export function profitabilityOperations() {
     market_scorecards: propMarketScorecards(),
     historical_lines: historicalLineCoverage(), external_sources: EXTERNAL_MODEL_SOURCES,
     model_growth: growth,
+    gridiron_engine: engine,
     online_neural: neural,
     balanced_online_system: {
       policy: 'Fast weekly adaptation inside bounded challengers; slow promotion into champion behavior; every market keeps its own scorecard.',

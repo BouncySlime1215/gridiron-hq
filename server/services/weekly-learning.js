@@ -12,9 +12,10 @@ import { buildPlayerWeekEngine, playerWeekDistribution, clearPlayerWeekEngineCac
 import { PPR, scoreLine } from './scoring.js';
 import { WEEKLY_ENSEMBLE_HEADS } from './weekly-ensemble.js';
 import { PLAYER_HEADS, PLAYER_HEAD_REGISTRY_VERSION } from './player-head-registry.js';
-import { activeWeeklyWeightSet, saveWeeklyFit, weeklyFitHistory } from './weekly-weight-store.js';
+import { activeWeeklyWeightSet, saveWeeklyFit, weeklyFitDataHash, weeklyFitHistory } from './weekly-weight-store.js';
 import { spearman } from './backtest.js';
 import { nflKickoffDate } from './date-util.js';
+import { nflEngineVersionFor } from './nfl-engine-registry.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS weekly_prediction_snapshots (
@@ -25,6 +26,7 @@ db.exec(`
     as_of TEXT NOT NULL,
     cutoff TEXT NOT NULL,
     engine_version TEXT NOT NULL,
+    gridiron_engine_version TEXT,
     structural REAL NOT NULL,
     season_to_date REAL,
     last3 REAL,
@@ -49,6 +51,9 @@ if (!snapshotColumns.has('candidate_version')) {
 }
 if (!snapshotColumns.has('candidate_heads_json')) {
   db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN candidate_heads_json TEXT');
+}
+if (!snapshotColumns.has('gridiron_engine_version')) {
+  db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN gridiron_engine_version TEXT');
 }
 
 const predict = (weights, observation) => WEEKLY_ENSEMBLE_HEADS.reduce(
@@ -90,10 +95,11 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
   }
   const projections = buildPlayerWeekEngine({ season, week, scoring });
   const now = new Date().toISOString();
+  const gridironVersion = nflEngineVersionFor(season, week);
   const insert = db.prepare(`INSERT OR IGNORE INTO weekly_prediction_snapshots
-    (season,week,player_id,position,as_of,cutoff,engine_version,structural,season_to_date,last3,last1,median,
+    (season,week,player_id,position,as_of,cutoff,engine_version,gridiron_engine_version,structural,season_to_date,last3,last1,median,
      prediction,lower_80,upper_80,weights_json,weight_fit,candidate_version,candidate_heads_json)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   let captured = 0;
   db.exec('BEGIN');
   try {
@@ -102,14 +108,15 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
       if (!engine?.heads) continue;
       const dist = playerWeekDistribution(projection, { scoring, runs });
       captured += insert.run(season, week, projection.player_id, projection.position, now, engine.cutoff,
-        engine.version, engine.heads.structural, engine.heads.season_to_date, engine.heads.last3,
+        engine.version, gridironVersion, engine.heads.structural, engine.heads.season_to_date, engine.heads.last3,
         engine.heads.last1, engine.heads.median, projection.ppg, dist.p10, dist.p90,
         JSON.stringify(engine.weights), engine.weight_fit, projection.candidate_head_version,
         JSON.stringify(projection.candidate_heads)).changes;
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
-  return { captured, season, week, as_of: now, first_kickoff: firstKickoff?.toISOString() ?? null };
+  return { captured, season, week, as_of: now, engine_version: gridironVersion,
+    first_kickoff: firstKickoff?.toISOString() ?? null };
 }
 
 function candidateForwardScoreboard() {
@@ -187,7 +194,7 @@ export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) 
   if (all.length < minSettled) return { trained: false, reason: `need ${minSettled} settled snapshots`, settled: all.length };
   const hash = crypto.createHash('sha256').update(JSON.stringify(all.map(x =>
     [x.season, x.week, x.player_id, x.actual, x.structural, x.season_to_date, x.last3, x.last1, x.median]))).digest('hex');
-  const existing = row('SELECT id,promoted FROM weekly_ensemble_fits WHERE data_hash=?', hash);
+  const existing = row('SELECT id,promoted FROM weekly_ensemble_fits WHERE data_hash=?', weeklyFitDataHash(hash));
   if (existing) return { trained: false, reason: 'this settled dataset was already evaluated', fit_id: existing.id };
 
   const split = Math.max(1, Math.floor(all.length * 0.8));

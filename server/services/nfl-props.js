@@ -25,6 +25,7 @@ import { hasKey, events, playerProps, flattenProps, PROP_MARKETS } from './odds-
 import { calibrateAnytimeTd, activeTdCalibration } from './nfl-prop-calibration.js';
 import { playerSignalTrace } from './model-signal-quality.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
+import { nflEngineVersionFor } from './nfl-engine-registry.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_total_picks (
@@ -712,7 +713,8 @@ export async function propBoard(season, week, {
       (b.pass_yds + b.rush_yds + b.rec_yds) - (a.pass_yds + a.rush_yds + a.rec_yds))
     .slice(0, limit);
 
-  return { season, week, market_status: marketStatus, board: board.slice(0, limit), projections: modelOnly };
+  return { season, week, engine_version: nflEngineVersionFor(season, week),
+    market_status: marketStatus, board: board.slice(0, limit), projections: modelOnly };
 }
 
 const normalizeName = n => String(n ?? '')

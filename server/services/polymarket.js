@@ -412,7 +412,7 @@ export async function ingestPriceHistory({ minVolume = 20000, limit = 60, interv
 export function newsPriceResponse({ windowHours = 6, minMove = 0.01 } = {}) {
   const signals = rows(
     `SELECT news_id, player_name, team, signal_type, published_at
-     FROM nfl_news_signals WHERE published_at IS NOT NULL ORDER BY published_at DESC`);
+     FROM nfl_news_signals WHERE verification_state='verified' AND published_at IS NOT NULL ORDER BY published_at DESC`);
   const corpus = row(`SELECT COUNT(*) AS n, MIN(ts) AS lo, MAX(ts) AS hi
                       FROM polymarket_price_history`) ?? {};
   if (!(corpus.n > 0)) {

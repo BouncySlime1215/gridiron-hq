@@ -15,6 +15,7 @@ import crypto from 'node:crypto';
 import { db, row, rows, run } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';
 import { ensembleLine } from './nfl-ensemble.js';
+import { activeLearningEpoch, nflEngineVersionFor } from './nfl-engine-registry.js';
 
 export const ONLINE_NEURAL_SCHEMA = 'nfl-online-neural-features-v1';
 export const ONLINE_NEURAL_HEADS = Object.freeze({
@@ -42,6 +43,7 @@ db.exec(`
     season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
     head TEXT NOT NULL, horizon TEXT NOT NULL, captured_at TEXT NOT NULL, kickoff_at TEXT,
     schema_version TEXT NOT NULL, model_version TEXT NOT NULL, feature_hash TEXT NOT NULL,
+    engine_version TEXT, epoch_id INTEGER NOT NULL DEFAULT 1,
     features_json TEXT NOT NULL, market_margin REAL NOT NULL, market_total REAL,
     prediction_residual REAL NOT NULL, predicted_margin REAL NOT NULL,
     actual_margin REAL, target_residual REAL, settled_at TEXT, trained_at TEXT,
@@ -53,11 +55,24 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_online_neural_artifacts (
     id INTEGER PRIMARY KEY AUTOINCREMENT, head TEXT NOT NULL, version TEXT NOT NULL UNIQUE,
     parent_version TEXT, schema_version TEXT NOT NULL, created_at TEXT NOT NULL,
+    epoch_id INTEGER NOT NULL DEFAULT 1,
     trained_through_season INTEGER, trained_through_week INTEGER,
     state_json TEXT NOT NULL, state_hash TEXT NOT NULL, metrics_json TEXT,
     UNIQUE(head,trained_through_season,trained_through_week)
   );
 `);
+
+const neuralExampleColumns = new Set(db.prepare('PRAGMA table_info(nfl_online_neural_examples)').all().map(item => item.name));
+if (!neuralExampleColumns.has('engine_version')) {
+  db.exec('ALTER TABLE nfl_online_neural_examples ADD COLUMN engine_version TEXT');
+}
+if (!neuralExampleColumns.has('epoch_id')) {
+  db.exec('ALTER TABLE nfl_online_neural_examples ADD COLUMN epoch_id INTEGER NOT NULL DEFAULT 1');
+}
+const neuralArtifactColumns = new Set(db.prepare('PRAGMA table_info(nfl_online_neural_artifacts)').all().map(item => item.name));
+if (!neuralArtifactColumns.has('epoch_id')) {
+  db.exec('ALTER TABLE nfl_online_neural_artifacts ADD COLUMN epoch_id INTEGER NOT NULL DEFAULT 1');
+}
 
 function seeded(seed = 0x51f15e) {
   let state = seed >>> 0;
@@ -166,7 +181,8 @@ export function spreadFeatureVector(line) {
 }
 
 function latestArtifact() {
-  const artifact = row(`SELECT * FROM nfl_online_neural_artifacts WHERE head=? ORDER BY id DESC LIMIT 1`, HEAD);
+  const epochId = activeLearningEpoch()?.id ?? 1;
+  const artifact = row(`SELECT * FROM nfl_online_neural_artifacts WHERE head=? AND epoch_id=? ORDER BY id DESC LIMIT 1`, HEAD, epochId);
   return artifact ? { ...artifact, state: parse(artifact.state_json), metrics: parse(artifact.metrics_json, {}) } : null;
 }
 
@@ -188,6 +204,8 @@ export function captureOnlineNeuralWeek(season, week, { horizons = ['manual'] } 
   const games = rows(`SELECT team home,opponent away,gameday,gametime FROM game_lines
     WHERE season=? AND week=? AND home=1 AND team_score IS NULL AND spread IS NOT NULL`, season, week);
   const capturedAt = new Date().toISOString();
+  const engineVersion = nflEngineVersionFor(season, week);
+  const epochId = activeLearningEpoch()?.id ?? 1;
   let captured = 0, existing = 0, skipped = 0;
   for (const game of games) {
     const at = kickoff(game);
@@ -201,15 +219,15 @@ export function captureOnlineNeuralWeek(season, week, { horizons = ['manual'] } 
     const payload = { schema: ONLINE_NEURAL_SCHEMA, names: features.names, values: features.values };
     for (const horizon of [...new Set(horizons.map(value => String(value)))]) {
       const result = run(`INSERT OR IGNORE INTO nfl_online_neural_examples
-        (season,week,home,away,head,horizon,captured_at,kickoff_at,schema_version,model_version,
+        (season,week,home,away,head,horizon,captured_at,kickoff_at,schema_version,model_version,engine_version,epoch_id,
          feature_hash,features_json,market_margin,market_total,prediction_residual,predicted_margin)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, season, week, game.home, game.away, HEAD, horizon,
-      capturedAt, at?.toISOString() ?? null, ONLINE_NEURAL_SCHEMA, active.version, hash(payload), JSON.stringify(payload),
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, season, week, game.home, game.away, HEAD, horizon,
+      capturedAt, at?.toISOString() ?? null, ONLINE_NEURAL_SCHEMA, active.version, engineVersion, epochId, hash(payload), JSON.stringify(payload),
       features.market_margin, features.market_total, r3(residual), r3(features.market_margin + residual));
       if (result.changes) captured++; else existing++;
     }
   }
-  return { head: HEAD, season, week, games: games.length, captured, existing, skipped,
+  return { head: HEAD, season, week, engine_version: engineVersion, games: games.length, captured, existing, skipped,
     rule: 'Each horizon is immutable and every prediction uses only the network artifact available before kickoff.' };
 }
 
@@ -250,9 +268,10 @@ function completeWeek(season, week) {
 }
 
 function performanceMetrics() {
+  const epochId = activeLearningEpoch()?.id ?? 1;
   const examples = rows(`SELECT season,week,market_margin,predicted_margin,actual_margin
-    FROM nfl_online_neural_examples WHERE head=? AND selected_for_training=1 AND actual_margin IS NOT NULL
-    ORDER BY season,week`, HEAD);
+    FROM nfl_online_neural_examples WHERE head=? AND epoch_id=? AND selected_for_training=1 AND actual_margin IS NOT NULL
+    ORDER BY season,week`, HEAD, epochId);
   const weekly = new Map();
   for (const item of examples) {
     const marketError = Math.abs(item.actual_margin - item.market_margin);
@@ -279,8 +298,9 @@ function performanceMetrics() {
 /** Train complete, settled weeks in chronological order. The latest capture per
  * game is selected; all predictions for that week already came from old state. */
 export function trainOnlineNeuralThroughSettled() {
+  const epochId = activeLearningEpoch()?.id ?? 1;
   const pending = rows(`SELECT * FROM nfl_online_neural_examples
-    WHERE head=? AND settled_at IS NOT NULL AND trained_at IS NULL ORDER BY season,week,captured_at`, HEAD);
+    WHERE head=? AND epoch_id=? AND settled_at IS NOT NULL AND trained_at IS NULL ORDER BY season,week,captured_at`, HEAD, epochId);
   const weekKeys = [...new Set(pending.map(item => `${item.season}|${item.week}`))];
   const trained = [];
   for (const key of weekKeys) {
@@ -295,7 +315,7 @@ export function trainOnlineNeuralThroughSettled() {
     // Replay controls forgetting without allowing future examples into this update.
     const replay = rows(`SELECT features_json,target_residual FROM nfl_online_neural_examples
       WHERE head=? AND selected_for_training=1 AND trained_at IS NOT NULL
-        AND (season<? OR (season=? AND week<?)) ORDER BY season DESC,week DESC LIMIT 512`, HEAD, season, season, week)
+        AND epoch_id=? AND (season<? OR (season=? AND week<?)) ORDER BY season DESC,week DESC LIMIT 512`, HEAD, epochId, season, season, week)
       .map(item => ({ payload: parse(item.features_json), target: item.target_residual }))
       .filter(item => item.payload?.schema === ONLINE_NEURAL_SCHEMA);
     const batch = [...replay.map(item => ({ input: item.payload.values, target: item.target })),
@@ -306,8 +326,8 @@ export function trainOnlineNeuralThroughSettled() {
     const version = `online-spread-v1-s${season}w${week}-${stateHash.slice(0, 10)}`;
     const metrics = performanceMetrics();
     run(`INSERT OR IGNORE INTO nfl_online_neural_artifacts
-      (head,version,parent_version,schema_version,created_at,trained_through_season,trained_through_week,state_json,state_hash,metrics_json)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`, HEAD, version, active.version, ONLINE_NEURAL_SCHEMA, createdAt,
+      (head,version,parent_version,schema_version,created_at,epoch_id,trained_through_season,trained_through_week,state_json,state_hash,metrics_json)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`, HEAD, version, active.version, ONLINE_NEURAL_SCHEMA, createdAt, epochId,
     season, week, JSON.stringify(next), stateHash, JSON.stringify(metrics));
     for (const record of pending.filter(item => item.season === season && item.week === week)) {
       const chosen = current.some(item => item.home === record.home && item.horizon === record.horizon);
@@ -322,12 +342,13 @@ export function trainOnlineNeuralThroughSettled() {
 
 export function nflOnlineNeuralStatus() {
   const artifact = latestArtifact();
+  const epochId = activeLearningEpoch()?.id ?? 1;
   const counts = row(`SELECT COUNT(*) captured,SUM(settled_at IS NOT NULL) settled,
     SUM(selected_for_training=1) trained,COUNT(DISTINCT CASE WHEN selected_for_training=1 THEN season||'|'||week END) trained_weeks
-    FROM nfl_online_neural_examples WHERE head=?`, HEAD) ?? {};
+    FROM nfl_online_neural_examples WHERE head=? AND epoch_id=?`, HEAD, epochId) ?? {};
   const metrics = performanceMetrics();
   return {
-    head: HEAD, mode: 'online_prequential_shadow', schema_version: ONLINE_NEURAL_SCHEMA,
+    head: HEAD, mode: 'online_prequential_shadow', schema_version: ONLINE_NEURAL_SCHEMA, epoch_id: epochId,
     architecture: `27 inputs → ${HIDDEN} tanh units → bounded market-residual output`,
     active_version: artifact?.version ?? 'online-spread-v1-cold-start',
     trained_through: artifact ? { season: artifact.trained_through_season, week: artifact.trained_through_week } : null,

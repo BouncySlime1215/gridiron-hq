@@ -581,6 +581,79 @@ function epFor(league) {
 }
 export function clearSimCache() { _epSurface = null; }
 
+const weightedMean = (values, weights) => values.reduce((sum, value, i) => sum + value * weights[i], 0);
+const weightedSd = (values, weights, center = weightedMean(values, weights)) => Math.sqrt(
+  values.reduce((sum, value, i) => sum + weights[i] * (value - center) ** 2, 0));
+const weightedQuantile = (values, weights, probability) => {
+  const sorted = values.map((value, i) => ({ value, weight: weights[i] })).sort((a, b) => a.value - b.value);
+  let cumulative = 0;
+  for (const item of sorted) { cumulative += item.weight; if (cumulative >= probability) return item.value; }
+  return sorted.at(-1)?.value ?? null;
+};
+
+/** Minimum-information exponential tilt. The play simulator supplies the joint
+ * football-shaped distribution (including key numbers); validated forecast
+ * heads only move its means. Every displayed probability is then read from the
+ * same reconciled set of outcomes. */
+export function reconcileOutcomeWeights(margins, totals, { targetMargin = null, targetTotal = null } = {}) {
+  if (!margins.length || margins.length !== totals.length) throw new Error('simulation outcomes must be aligned');
+  const fields = [];
+  if (Number.isFinite(targetMargin)) fields.push({ id: 'margin', values: margins, requested: targetMargin });
+  if (Number.isFinite(targetTotal)) fields.push({ id: 'total', values: totals, requested: targetTotal });
+  const uniform = Array(margins.length).fill(1 / margins.length);
+  if (!fields.length) return { weights: uniform, applied: false, effective_samples: margins.length,
+    effective_sample_ratio: 1, targets: {}, achieved: {} };
+  for (const field of fields) {
+    field.target = clamp(field.requested, Math.min(...field.values), Math.max(...field.values));
+  }
+  const lambda = Array(fields.length).fill(0);
+  let weights = uniform, iterations = 0;
+  const calculate = () => {
+    const logits = margins.map((_, i) => fields.reduce((sum, field, j) => sum + lambda[j] * field.values[i], 0));
+    const maxLogit = Math.max(...logits);
+    const raw = logits.map(value => Math.exp(value - maxLogit));
+    const z = raw.reduce((sum, value) => sum + value, 0);
+    return raw.map(value => value / z);
+  };
+  for (; iterations < 40; iterations++) {
+    weights = calculate();
+    const means = fields.map(field => weightedMean(field.values, weights));
+    const delta = fields.map((field, j) => field.target - means[j]);
+    if (Math.max(...delta.map(Math.abs)) < 0.002) break;
+    if (fields.length === 1) {
+      const variance = fields[0].values.reduce((sum, value, i) =>
+        sum + weights[i] * (value - means[0]) ** 2, 0);
+      lambda[0] += clamp(delta[0] / Math.max(variance, 1e-6), -0.25, 0.25) * 0.8;
+    } else {
+      const [a, b] = fields;
+      const va = a.values.reduce((sum, value, i) => sum + weights[i] * (value - means[0]) ** 2, 0) + 1e-6;
+      const vb = b.values.reduce((sum, value, i) => sum + weights[i] * (value - means[1]) ** 2, 0) + 1e-6;
+      const covariance = a.values.reduce((sum, value, i) =>
+        sum + weights[i] * (value - means[0]) * (b.values[i] - means[1]), 0);
+      const rawDeterminant = va * vb - covariance ** 2;
+      if (rawDeterminant < va * vb * 1e-7) {
+        // Redundant targets (for example a tiny synthetic sample where total
+        // is an affine function of margin) have a singular covariance matrix.
+        // A damped diagonal step is the stable Moore-Penrose equivalent here.
+        lambda[0] += clamp(delta[0] / va, -0.25, 0.25) * 0.35;
+        lambda[1] += clamp(delta[1] / vb, -0.25, 0.25) * 0.35;
+      } else {
+        lambda[0] += clamp((vb * delta[0] - covariance * delta[1]) / rawDeterminant, -0.25, 0.25) * 0.8;
+        lambda[1] += clamp((va * delta[1] - covariance * delta[0]) / rawDeterminant, -0.25, 0.25) * 0.8;
+      }
+    }
+  }
+  weights = calculate();
+  const effective = 1 / weights.reduce((sum, weight) => sum + weight ** 2, 0);
+  return {
+    weights, applied: true, iterations,
+    effective_samples: r2(effective), effective_sample_ratio: r4(effective / margins.length),
+    targets: Object.fromEntries(fields.map(field => [field.id, { requested: r2(field.requested), applied: r2(field.target) }])),
+    achieved: Object.fromEntries(fields.map(field => [field.id, r2(weightedMean(field.values, weights))])),
+    method: 'minimum-KL exponential tilting of joint play-by-play outcomes'
+  };
+}
+
 /**
  * Run the simulation N times and read every market off the same games.
  *
@@ -589,7 +662,8 @@ export function clearSimCache() { _epSurface = null; }
  */
 export function simulateMatchup({
   home, away, trials = 10000, season = null, spread = null, total = null,
-  homeFieldPoints = 1.6, seed = null, sampleDrives = false
+  homeFieldPoints = 1.6, seed = null, sampleDrives = false,
+  targetMargin = null, targetTotal = null
 } = {}) {
   const prof = blendedProfiles({ season });
   const H = prof.teams.get(String(home ?? '').toUpperCase());
@@ -618,54 +692,59 @@ export function simulateMatchup({
 
   const margins = homeScores.map((h, i) => h - awayScores[i]);
   const totals = homeScores.map((h, i) => h + awayScores[i]);
-  const q = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[clamp(Math.floor(p * s.length), 0, s.length - 1)]; };
+  const reconciliation = reconcileOutcomeWeights(margins, totals, { targetMargin, targetTotal });
+  const weights = reconciliation.weights;
 
-  const homeWin = margins.filter(m => m > 0).length / trials;
-  const tie = margins.filter(m => m === 0).length / trials;
+  const probability = predicate => margins.reduce((sum, margin, i) =>
+    sum + (predicate(margin, totals[i]) ? weights[i] : 0), 0);
+  const homeWin = probability(margin => margin > 0);
+  const tie = probability(margin => margin === 0);
 
   // Key numbers: the whole reason to simulate discrete scoring instead of
   // drawing from a normal. Real margins pile up on 3 and 7 and a continuous
   // curve cannot represent that.
   const keyNumbers = [1, 2, 3, 4, 6, 7, 10, 14].map(k => ({
-    margin: k, probability: r4(margins.filter(m => Math.abs(m) === k).length / trials)
+    margin: k, probability: r4(probability(margin => Math.abs(margin) === k))
   }));
 
   const cover = spread == null ? null : (() => {
-    const w = margins.filter(m => m + spread > 0).length;
-    const p = margins.filter(m => m + spread === 0).length;
-    return { home_cover: r4(w / trials), push: r4(p / trials), away_cover: r4((trials - w - p) / trials) };
+    const w = probability(margin => margin + spread > 0);
+    const p = probability(margin => margin + spread === 0);
+    return { home_cover: r4(w), push: r4(p), away_cover: r4(1 - w - p) };
   })();
 
   const ou = total == null ? null : (() => {
-    const o = totals.filter(t => t > total).length;
-    const p = totals.filter(t => t === total).length;
-    return { over: r4(o / trials), push: r4(p / trials), under: r4((trials - o - p) / trials) };
+    const o = probability((_margin, gameTotal) => gameTotal > total);
+    const p = probability((_margin, gameTotal) => gameTotal === total);
+    return { over: r4(o), push: r4(p), under: r4(1 - o - p) };
   })();
 
   return {
     home: H.team, away: A.team, trials,
     season: prof.season, profile_fell_back: prof.fell_back,
     projection: {
-      home_score: r2(mean(homeScores)), away_score: r2(mean(awayScores)),
-      margin: r2(mean(margins)), total: r2(mean(totals)),
-      margin_sd: r2(sd(margins)), total_sd: r2(sd(totals))
+      home_score: r2(weightedMean(homeScores, weights)), away_score: r2(weightedMean(awayScores, weights)),
+      margin: r2(weightedMean(margins, weights)), total: r2(weightedMean(totals, weights)),
+      margin_sd: r2(weightedSd(margins, weights)), total_sd: r2(weightedSd(totals, weights))
     },
     distribution: {
-      margin: { p10: q(margins, 0.1), p25: q(margins, 0.25), p50: q(margins, 0.5),
-        p75: q(margins, 0.75), p90: q(margins, 0.9) },
-      total: { p10: q(totals, 0.1), p25: q(totals, 0.25), p50: q(totals, 0.5),
-        p75: q(totals, 0.75), p90: q(totals, 0.9) }
+      margin: { p10: weightedQuantile(margins, weights, 0.1), p25: weightedQuantile(margins, weights, 0.25), p50: weightedQuantile(margins, weights, 0.5),
+        p75: weightedQuantile(margins, weights, 0.75), p90: weightedQuantile(margins, weights, 0.9) },
+      total: { p10: weightedQuantile(totals, weights, 0.1), p25: weightedQuantile(totals, weights, 0.25), p50: weightedQuantile(totals, weights, 0.5),
+        p75: weightedQuantile(totals, weights, 0.75), p90: weightedQuantile(totals, weights, 0.9) }
     },
     key_numbers: keyNumbers,
     moneyline: { home_win: r4(homeWin), tie: r4(tie), away_win: r4(1 - homeWin - tie) },
     spread: spread == null ? null : { line: spread, ...cover },
     total: total == null ? null : { line: total, ...ou },
+    reconciliation: { ...reconciliation, weights: undefined,
+      raw_projection: { margin: r2(mean(margins)), total: r2(mean(totals)) } },
     example_drives: exampleDrives,
     play_model: { version: PLAY_MODEL_VERSION, formation_sampling: 'team shotgun rate + down, distance and play call',
       state_tracking: 'score, quarter, game clock, possession, down, distance and field position' },
     policy_modules: P.MODULES.length,
     note: 'Scores are simulated play by play, not forecast. Moneyline, spread and total are read off ' +
-      'the SAME simulated games, so they are mutually consistent by construction. Calibration ' +
+      'the SAME reconciled simulated games, so they are mutually consistent by construction. Calibration ' +
       'against real NFL score distributions is a floor, not an edge.'
   };
 }

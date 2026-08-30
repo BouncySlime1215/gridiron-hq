@@ -41,7 +41,7 @@ export function enqueueRecentNewsTriggers({ minutes = 120 } = {}) {
   ensureCaptureTriggerTable();
   const signals = rows(`SELECT news_id,team,signal_type,status,confidence,published_at
     FROM nfl_news_signals
-    WHERE created_at>=datetime('now',?) AND team IS NOT NULL
+    WHERE verification_state='verified' AND created_at>=datetime('now',?) AND team IS NOT NULL
       AND (unavailable_probability>=0.5 OR ABS(COALESCE(role_delta,0))>=0.15)`, `-${minutes} minutes`);
   const hasMoveLog = rows(`SELECT name FROM sqlite_master WHERE type='table' AND name='espn_line_moves'`).length > 0;
   const events = hasMoveLog ? rows(`SELECT event_id,home_team,away_team

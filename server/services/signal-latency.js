@@ -108,7 +108,7 @@ export function signalLeadTimes({ windowHours = 48, sinceDays = 60 } = {}) {
     `SELECT news_id, player_name, team, signal_type, status, unavailable_probability,
             role_delta, confidence, published_at, source
      FROM nfl_news_signals
-     WHERE published_at >= ? ORDER BY published_at DESC`, since);
+     WHERE verification_state='verified' AND published_at >= ? ORDER BY published_at DESC`, since);
 
   const moveCount = row(`SELECT COUNT(*) AS n FROM espn_line_moves`)?.n ?? 0;
 
@@ -188,7 +188,7 @@ export function signalLeadTimes({ windowHours = 48, sinceDays = 60 } = {}) {
 export function bookLagDistribution({ sinceDays = 60, windowHours = 48 } = {}) {
   const since = new Date(Date.now() - sinceDays * 86400000).toISOString();
   const signals = rows(`SELECT news_id,team,published_at FROM nfl_news_signals
-    WHERE published_at>=? AND team IS NOT NULL ORDER BY published_at`, since);
+    WHERE verification_state='verified' AND published_at>=? AND team IS NOT NULL ORDER BY published_at`, since);
   const names = new Map(rows('SELECT abbr,name FROM nfl_teams').map(team => [team.abbr, team.name]));
   const snapshots = rows(`SELECT captured_at,event_id,home_team,away_team,book,side,line
     FROM nfl_line_snapshots WHERE market='spreads' AND captured_at>=datetime(?,'-24 hours')

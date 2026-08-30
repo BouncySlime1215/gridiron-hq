@@ -50,6 +50,10 @@ const { anytimeTdHit } = await import('../server/services/nfl-props.js');
 const { scoreSim } = await import('../server/services/scoring.js');
 const { blindAuditProtocol } = await import('../server/services/nfl-blind-audit.js');
 const { signalQualityCatalog, playerSignalTrace } = await import('../server/services/model-signal-quality.js');
+const { reconcileOutcomeWeights } = await import('../server/services/nfl-drive-sim.js');
+const { newsSourceVerification } = await import('../server/services/nfl-news-signal.js');
+const { activeLearningEpoch, nflEngineComponents, startLearningEpoch } = await import('../server/services/nfl-engine-registry.js');
+const { nflBackfillPlan } = await import('../server/services/nfl-engine-backfill.js');
 
 test.after(() => {
   db.close();
@@ -803,4 +807,42 @@ test('the close is the last capture before kickoff, never one taken after it', (
     .run('2020-01-01T01:00:00Z', 'CLV_AFTER', KICKOFF, 'HOME', 20, -110);
   const b = clvFor('CLV_AFTER', { market: 'spreads', side: 'HOME', line: 6, price: -110, source: 'unit' });
   assert.equal(b.closing_line, 6, 'a line captured after kickoff must not be used as the close');
+});
+
+test('joint simulation reconciliation reaches forecast means without breaking one outcome distribution', () => {
+  const margins = [-14, -7, -3, 0, 3, 7, 14, 21];
+  const totals = [44, 31, 58, 41, 65, 38, 51, 47];
+  const out = reconcileOutcomeWeights(margins, totals, { targetMargin: 5, targetTotal: 49 });
+  assert.equal(out.applied, true);
+  assert.ok(Math.abs(out.achieved.margin - 5) <= 0.02, JSON.stringify(out));
+  assert.ok(Math.abs(out.achieved.total - 49) <= 0.02, JSON.stringify(out));
+  assert.ok(out.effective_sample_ratio > 0 && out.effective_sample_ratio <= 1);
+  assert.ok(Math.abs(out.weights.reduce((sum, weight) => sum + weight, 0) - 1) < 1e-9);
+});
+
+test('news source firewall verifies primary publishers and quarantines arbitrary domains', () => {
+  assert.equal(newsSourceVerification({ source_url: 'https://www.espn.com/nfl/story/_/id/1/x' }).state, 'verified');
+  const fake = newsSourceVerification({ source_url: 'https://totally-real-nfl-news.example/player-out' });
+  assert.equal(fake.state, 'quarantined');
+  assert.match(fake.reason, /not in the verified source registry/);
+});
+
+test('unified engine inventory binds authority, data cutoff, and one learning epoch', () => {
+  const components = nflEngineComponents(2026, 1);
+  assert.ok(components.learning_epoch?.id);
+  assert.ok(components.heads.team_spread_total);
+  assert.ok(components.capability_authority.restricted_research_pool);
+  assert.equal(components.cutoff.predicts_week, 1);
+  const plan = nflBackfillPlan({ startSeason: 2024, endSeason: 2025 });
+  assert.equal(plan.classification, 'historical_development_only');
+  assert.equal(plan.seasons.length, 2);
+});
+
+test('learning reset is explicit, reversible by lineage, and deletes no evidence', () => {
+  const before = activeLearningEpoch();
+  assert.throws(() => startLearningEpoch({ reason: 'test gate failed' }), /confirmed=true/);
+  const reset = startLearningEpoch({ reason: 'test preregistered profitability gate failed', confirmed: true });
+  assert.equal(reset.prior_epoch.id, before.id);
+  assert.equal(reset.active_epoch.parent_epoch_id, before.id);
+  assert.equal(reset.deleted_rows, 0);
 });

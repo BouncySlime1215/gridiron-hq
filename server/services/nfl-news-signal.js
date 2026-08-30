@@ -29,6 +29,8 @@ db.exec(`
     source_url TEXT,
     evidence_span TEXT NOT NULL,
     extractor_version TEXT NOT NULL,
+    verification_state TEXT NOT NULL DEFAULT 'quarantined',
+    verification_reason TEXT NOT NULL DEFAULT 'source not evaluated',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (news_id,player_key,signal_type)
   );
@@ -40,9 +42,57 @@ db.exec(`
   );
 `);
 
+const signalColumns = new Set(db.prepare('PRAGMA table_info(nfl_news_signals)').all().map(item => item.name));
+if (!signalColumns.has('verification_state')) {
+  db.exec(`ALTER TABLE nfl_news_signals ADD COLUMN verification_state TEXT NOT NULL DEFAULT 'quarantined'`);
+}
+if (!signalColumns.has('verification_reason')) {
+  db.exec(`ALTER TABLE nfl_news_signals ADD COLUMN verification_reason TEXT NOT NULL DEFAULT 'source not evaluated'`);
+}
+
 const EXTRACTOR_VERSION = 'typed-rules-2026.1';
 const parse = (value, fallback) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
 const clamp = (value, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, value));
+const TRUSTED_PUBLISHER_DOMAINS = Object.freeze([
+  'espn.com', 'nfl.com', 'apnews.com', 'reuters.com', 'theathletic.com'
+]);
+
+function sourceHost(url) {
+  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ''); }
+  catch { return null; }
+}
+
+function socialHandle(url) {
+  try {
+    const parsed = new URL(url);
+    if (!/(^|\.)(x|twitter)\.com$/i.test(parsed.hostname)) return null;
+    return parsed.pathname.split('/').filter(Boolean)[0]?.replace(/^@/, '') ?? null;
+  } catch { return null; }
+}
+
+/** Source identity is evaluated separately from claim extraction. A plausible
+ * sentence from an untrusted URL stays visible in quarantine but cannot reach
+ * any model feature. */
+export function newsSourceVerification(item) {
+  const host = sourceHost(item?.source_url);
+  if (!host) return { state: 'quarantined', reason: 'missing or invalid source URL' };
+  if (TRUSTED_PUBLISHER_DOMAINS.some(domain => host === domain || host.endsWith(`.${domain}`))) {
+    return { state: 'verified', reason: `allowlisted primary publisher domain: ${host}` };
+  }
+  const handle = socialHandle(item.source_url);
+  if (handle) {
+    const registryReady = rows(`SELECT 1 ok FROM sqlite_master
+      WHERE type='table' AND name='news_source_validation' LIMIT 1`).length > 0;
+    if (!registryReady) return { state: 'quarantined', reason: 'social source registry has not been initialized' };
+    const checkedAfter = new Date(Date.now() - 30 * 86400000).toISOString();
+    const source = rows(`SELECT verdict,checked_at FROM news_source_validation
+      WHERE lower(handle)=lower(?) AND checked_at>=? LIMIT 1`, handle, checkedAfter)[0];
+    return source?.verdict === 'valid'
+      ? { state: 'verified', reason: `live-validated social source @${handle}` }
+      : { state: 'quarantined', reason: `social source @${handle} lacks a fresh valid identity check` };
+  }
+  return { state: 'quarantined', reason: `domain ${host} is not in the verified source registry` };
+}
 
 const STATUS_RULES = [
   // Transaction-wire language. Distinct from an injury-driven "out": a
@@ -101,20 +151,22 @@ function candidatePlayers(item) {
 
 export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {}) {
   const since = new Date(Date.now() - sinceDays * 86400000).toISOString();
-  const items = rows(`SELECT id,team_id,headline,body,published_at,source,source_url,
+  const items = rows(`SELECT id,team_id,headline,body,published_at,source,source_url,source_type,
       entities_json,reliability_json FROM news_items
     WHERE published_at IS NOT NULL AND published_at>=?
     ORDER BY published_at DESC LIMIT ?`, since, limit);
   const insert = db.prepare(`INSERT INTO nfl_news_signals
     (news_id,player_key,player_id,player_name,team,signal_type,status,body_part,
-     unavailable_probability,role_delta,confidence,published_at,source,source_url,evidence_span,extractor_version)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     unavailable_probability,role_delta,confidence,published_at,source,source_url,evidence_span,extractor_version,
+     verification_state,verification_reason)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(news_id,player_key,signal_type) DO UPDATE SET
       status=excluded.status,body_part=excluded.body_part,
       unavailable_probability=excluded.unavailable_probability,role_delta=excluded.role_delta,
       confidence=excluded.confidence,published_at=excluded.published_at,source=excluded.source,
       source_url=excluded.source_url,evidence_span=excluded.evidence_span,
-      extractor_version=excluded.extractor_version`);
+      extractor_version=excluded.extractor_version,verification_state=excluded.verification_state,
+      verification_reason=excluded.verification_reason`);
   let signals = 0, skippedNoPlayer = 0, skippedNoClaim = 0;
   for (const item of items) {
     const text = `${item.headline ?? ''}. ${item.body ?? ''}`.slice(0, 1600);
@@ -123,6 +175,7 @@ export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {})
     const bodyPart = BODY_PARTS.find(part => new RegExp(`\\b${part}\\b`, 'i').test(text)) ?? null;
     const reliability = parse(item.reliability_json, {});
     const reliabilityCap = Number.isFinite(reliability.score) ? clamp(reliability.score) : 0.85;
+    const verification = newsSourceVerification(item);
     let itemSignals = 0;
     for (const entity of players) {
       const key = normalizePlayerName(entity.name), team = teamForEntity(entity, item.team_id);
@@ -132,7 +185,7 @@ export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {})
         insert.run(item.id, key, entity.id == null ? null : String(entity.id), entity.name, team,
           'availability', rule.status, bodyPart, rule.unavailable, null,
           Math.min(rule.confidence, reliabilityCap), item.published_at, item.source, item.source_url,
-          match[0], EXTRACTOR_VERSION);
+          match[0], EXTRACTOR_VERSION, verification.state, verification.reason);
         signals++; itemSignals++; break;
       }
       for (const rule of ROLE_RULES) {
@@ -141,13 +194,14 @@ export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {})
         insert.run(item.id, key, entity.id == null ? null : String(entity.id), entity.name, team,
           'role', rule.status, null, null, rule.delta,
           Math.min(rule.confidence, reliabilityCap), item.published_at, item.source, item.source_url,
-          match[0], EXTRACTOR_VERSION);
+          match[0], EXTRACTOR_VERSION, verification.state, verification.reason);
         signals++; itemSignals++; break;
       }
     }
     if (!itemSignals) skippedNoClaim++;
   }
-  return { reviewed: items.length, signals, skipped_no_player: skippedNoPlayer,
+  const quarantine = rows(`SELECT COUNT(*) n FROM nfl_news_signals WHERE verification_state='quarantined'`)[0]?.n ?? 0;
+  return { reviewed: items.length, signals, quarantined: Number(quarantine), skipped_no_player: skippedNoPlayer,
     skipped_no_typed_claim: skippedNoClaim, extractor_version: EXTRACTOR_VERSION };
 }
 
@@ -156,7 +210,7 @@ export function playerNewsSignal(playerName, { team = null, before = null, maxAg
   if (!key) return null;
   const cutoff = before ?? new Date().toISOString();
   const since = new Date(new Date(cutoff).getTime() - maxAgeDays * 86400000).toISOString();
-  const claims = rows(`SELECT * FROM nfl_news_signals WHERE player_key=?
+  const claims = rows(`SELECT * FROM nfl_news_signals WHERE player_key=? AND verification_state='verified'
       AND published_at<=? AND published_at>=?
       ${team ? 'AND (team=? OR team IS NULL)' : ''}
     ORDER BY confidence DESC,published_at DESC`, ...[key, cutoff, since, ...(team ? [team] : [])]);
@@ -185,7 +239,7 @@ export function playerWeekNewsSignal(playerName, { season, week, team } = {}) {
 export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
   const cutoff = before ?? new Date().toISOString();
   const since = new Date(new Date(cutoff).getTime() - maxAgeDays * 86400000).toISOString();
-  const claims = rows(`SELECT * FROM nfl_news_signals WHERE team=? AND published_at<=? AND published_at>=?
+  const claims = rows(`SELECT * FROM nfl_news_signals WHERE team=? AND verification_state='verified' AND published_at<=? AND published_at>=?
     ORDER BY confidence DESC,published_at DESC`, team, cutoff, since);
   const latestByPlayerType = new Map();
   for (const claim of claims) {
@@ -197,7 +251,9 @@ export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
     .reduce((sum, claim) => sum + (claim.unavailable_probability ?? 0) * claim.confidence, 0);
   const rolePressure = active.filter(x => x.signal_type === 'role')
     .reduce((sum, claim) => sum + (claim.role_delta ?? 0) * claim.confidence, 0);
-  return { team, cutoff, claims: active, unavailable_burden: +unavailableBurden.toFixed(3),
+  const quarantined = rows(`SELECT COUNT(*) n FROM nfl_news_signals WHERE team=? AND verification_state='quarantined'
+    AND published_at<=? AND published_at>=?`, team, cutoff, since)[0]?.n ?? 0;
+  return { team, cutoff, claims: active, quarantined_claims: Number(quarantined), unavailable_burden: +unavailableBurden.toFixed(3),
     role_pressure: +rolePressure.toFixed(3), production_eligible: false,
     note: 'News impact is a visible shadow candidate. It cannot move a spread or projection until full-pipeline ablation and forward evidence pass.' };
 }
@@ -205,7 +261,8 @@ export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
 export function newsSignalCoverage() {
   const summary = rows(`SELECT COUNT(*) signals,COUNT(DISTINCT news_id) stories,
       COUNT(DISTINCT player_key) players,MAX(published_at) latest,
-      SUM(signal_type='availability') availability,SUM(signal_type='role') role
+      SUM(signal_type='availability') availability,SUM(signal_type='role') role,
+      SUM(verification_state='verified') verified,SUM(verification_state='quarantined') quarantined
     FROM nfl_news_signals`)[0];
   const untyped = rows(`SELECT COUNT(*) n FROM news_items
     WHERE published_at>=datetime('now','-14 days')
@@ -222,7 +279,7 @@ export function newsSignalCoverage() {
 export async function syncAiNewsSignals({ sinceDays = 7, limit = 20 } = {}) {
   if (!getApiKey()) return { skipped: true, reason: 'no Anthropic key configured' };
   const since = new Date(Date.now() - sinceDays * 86400000).toISOString();
-  const candidates = rows(`SELECT id,team_id,headline,body,published_at,source,source_url,
+  const candidates = rows(`SELECT id,team_id,headline,body,published_at,source,source_url,source_type,
       entities_json,reliability_json FROM news_items
     WHERE published_at>=? AND id NOT IN (SELECT news_id FROM nfl_news_signals)
       AND id NOT IN (SELECT news_id FROM nfl_news_extraction_attempts WHERE extractor_version='claude-typed-news-2026.1')
@@ -255,12 +312,14 @@ ${JSON.stringify(promptStories)}` });
   const byId = new Map(candidates.map(item => [Number(item.id), item]));
   const insert = db.prepare(`INSERT INTO nfl_news_signals
     (news_id,player_key,player_id,player_name,team,signal_type,status,body_part,
-     unavailable_probability,role_delta,confidence,published_at,source,source_url,evidence_span,extractor_version)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     unavailable_probability,role_delta,confidence,published_at,source,source_url,evidence_span,extractor_version,
+     verification_state,verification_reason)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(news_id,player_key,signal_type) DO UPDATE SET status=excluded.status,
       body_part=excluded.body_part,unavailable_probability=excluded.unavailable_probability,
       role_delta=excluded.role_delta,confidence=excluded.confidence,evidence_span=excluded.evidence_span,
-      extractor_version=excluded.extractor_version`);
+      extractor_version=excluded.extractor_version,verification_state=excluded.verification_state,
+      verification_reason=excluded.verification_reason`);
   let accepted = 0, rejected = 0;
   const acceptedByNews = new Map();
   for (const claim of claims) {
@@ -277,13 +336,14 @@ ${JSON.stringify(promptStories)}` });
     const team = teamForEntity(entity, item.team_id);
     const reliability = parse(item.reliability_json, {});
     const cap = Number.isFinite(reliability.score) ? clamp(reliability.score) : 0.8;
+    const verification = newsSourceVerification(item);
     insert.run(item.id, normalizePlayerName(canonicalName), entity?.id == null ? null : String(entity.id),
       canonicalName, team, signalType, claim.status,
       claim.body_part && BODY_PARTS.includes(String(claim.body_part).toLowerCase()) ? String(claim.body_part).toLowerCase() : null,
       signalType === 'availability' ? values[claim.status] : null,
       signalType === 'role' ? values[claim.status] : null,
       Math.min(clamp(Number(claim.confidence) || 0), cap), item.published_at, item.source,
-      item.source_url, span, 'claude-typed-news-2026.1');
+      item.source_url, span, 'claude-typed-news-2026.1', verification.state, verification.reason);
     accepted++; acceptedByNews.set(item.id, (acceptedByNews.get(item.id) ?? 0) + 1);
   }
   const attempt = db.prepare(`INSERT OR REPLACE INTO nfl_news_extraction_attempts
@@ -291,5 +351,5 @@ ${JSON.stringify(promptStories)}` });
   for (const item of candidates) attempt.run(item.id, 'claude-typed-news-2026.1',
     new Date().toISOString(), acceptedByNews.get(item.id) ?? 0);
   return { reviewed: candidates.length, proposed: claims.length, accepted, rejected,
-    policy: 'Known identities + fixed enums + exact evidence span. Numeric values are mapped after extraction.' };
+    policy: 'Known identities + fixed enums + exact evidence span + independently verified source. Quarantined claims have zero model authority.' };
 }

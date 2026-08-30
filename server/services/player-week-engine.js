@@ -24,6 +24,7 @@ import {
 import { playerSignalTrace } from './model-signal-quality.js';
 import { playerWeekNewsSignal } from './nfl-news-signal.js';
 import { priorFfOpportunity } from './ffopportunity.js';
+import { nflEngineVersionFor } from './nfl-engine-registry.js';
 import {
   percentiles, randBinomial, randNegBinomial, random, withRandomSeed
 } from './stats-util.js';
@@ -138,6 +139,7 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
     const ppg = context ? weeklyEnsemblePrediction(context, weightChampion.weights) : projection.ppg;
     const engine = {
       version: PLAYER_WEEK_ENGINE_VERSION,
+      gridiron_engine_version: nflEngineVersionFor(season, week),
       season, week,
       cutoff: `${season}-W${Math.max(0, week - 1)}`,
       mode: context ? 'position_ensemble' : 'structural_only_no_current_season_history',

@@ -229,7 +229,7 @@ r.get('/signals', requireAuthenticated, (req, res) => {
 
   let sql = `SELECT s.*, n.source_url AS story_url FROM nfl_news_signals s
              LEFT JOIN news_items n ON n.id = s.news_id
-             WHERE s.published_at >= ?`;
+             WHERE s.verification_state='verified' AND s.published_at >= ?`;
   const params = [since];
   if (team) { sql += ' AND s.team = ?'; params.push(String(team).toUpperCase()); }
   sql += ' ORDER BY s.confidence DESC, s.published_at DESC LIMIT 300';

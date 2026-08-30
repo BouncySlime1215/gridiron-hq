@@ -40,6 +40,8 @@ interface ProfitabilityOps {
     production_eligible: boolean; staking_authority: string; learning_rule: string;
   };
   balanced_online_system: { policy: string; layers: { id: string; label: string; state: string; detail: string }[] };
+  gridiron_engine: { name: string; schema_version: string; current_version: string;
+    architecture: { head: string; cadence: string; consumes: string }[]; rule: string };
   external_benchmarks: { ffopportunity: { rows: number; seasons: number; min_season: number | null; max_season: number | null; status: string } };
   external_sources: { id: string; repo: string; url: string; role: string; integration: string; pinned_commit: string; copied_code: boolean }[];
   market_scorecards: MarketScorecard[];
@@ -114,6 +116,7 @@ export function ProfitabilityControl() {
     <ProfitReadiness readiness={d.readiness} />
     <div className="flex flex-wrap items-center gap-2">
       <StatusPill tone={d.state === 'review_eligible' ? 'good' : 'warn'}>{d.state.replaceAll('_', ' ')}</StatusPill>
+      <StatusPill tone="info">engine {d.gridiron_engine.current_version.slice(-19)}</StatusPill>
       <StatusPill tone="neutral">policy {d.policy.version} · {d.policy.hash.slice(0, 10)}</StatusPill>
       <StatusPill tone={d.staking_authority.startsWith('0') ? 'warn' : 'good'}>{d.staking_authority}</StatusPill>
       <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act('reconcile')}>{busy === 'reconcile' ? 'Reconciling…' : 'Reconcile prop identities'}</button>
@@ -159,6 +162,7 @@ export function ProfitabilityControl() {
       </summary>
       <div className="border-t border-slate-200 p-4">
         <p className="mb-3 text-xs leading-5 text-slate-600">{d.balanced_online_system.policy}</p>
+        <p className="mb-3 text-[11px] leading-5 text-slate-500">{d.gridiron_engine.rule}</p>
         <div className="mb-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {d.balanced_online_system.layers.map(layer => <div key={layer.id} className="rounded-xl border border-slate-200 p-3">
             <div className="flex items-center gap-2"><StatusPill tone={layer.state === 'adaptive' || layer.state === 'review_eligible' ? 'good' : layer.state.includes('shadow') ? 'info' : 'warn'}>{layer.state.replaceAll('_', ' ')}</StatusPill><span className="text-xs font-black text-slate-900">{layer.label}</span></div>

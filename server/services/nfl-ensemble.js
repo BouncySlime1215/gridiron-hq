@@ -26,6 +26,7 @@ import { availabilityDeficit } from './nfl-availability.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { mean } from './stats-util.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
+import { nflEngineVersionFor } from './nfl-engine-registry.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
 const EVAL_FROM = 2022;    // seasons graded out-of-sample (also where play-by-play features exist)
@@ -1013,7 +1014,7 @@ export function ensembleLine(season, week, home, away, {
   const playerAvailability = includeEvidence ? gamePlayerAvailability(season, week, home, away) : null;
 
   const result = {
-    season, week, home, away,
+    season, week, home, away, engine_version: nflEngineVersionFor(season, week),
     ensemble: {
       // A projected spread is quoted the way a book would: negative favours home.
       projected_spread: margin == null ? null : r2(-margin),

@@ -104,6 +104,54 @@ export default function LeagueBrain() {
               under a list of deals is how the old page hid its best answer. */}
           {d?.all_moves?.length > 0 && <TopMove m={d.all_moves[0]} note={d.best_move_note} />}
 
+          {/* The market you are shopping in. This answers "why is the trade
+              board empty" with a structural reason rather than a shrug. */}
+          {d?.shopping?.positions?.length > 0 && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-lg font-black tracking-tight text-slate-950">Where you can actually shop</h2>
+                <span className="text-xs text-slate-400">
+                  what the other nine rosters can spare without breaking their own lineup
+                </span>
+              </div>
+              {d.shopping.redirect && (
+                <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900 ring-1 ring-amber-200">
+                  {d.shopping.redirect}
+                </p>
+              )}
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {d.shopping.positions.map((p: any) => {
+                  const l = d.liquidity?.positions?.[p.position];
+                  const tone = p.liquidity === 'none' ? 'border-rose-200 bg-rose-50'
+                    : p.liquidity === 'thin' ? 'border-amber-200 bg-amber-50'
+                      : 'border-slate-200 bg-slate-50';
+                  return (
+                    <div key={p.position} className={`rounded-xl border p-3 ${tone}`}>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-sm font-black text-slate-900">{p.position}</span>
+                        <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+                          {p.liquidity}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-600">
+                        {p.teams_with_spare} of {l?.of_teams ?? '—'} teams can sell one
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white">
+                        <div className="h-full rounded-full bg-emerald-600"
+                          style={{ width: `${Math.min(100, (p.teams_with_spare / Math.max(1, l?.of_teams ?? 9)) * 100)}%` }} />
+                      </div>
+                      {l?.sellers?.[0]?.spare_player && (
+                        <div className="mt-1.5 truncate text-[11px] text-slate-500">
+                          e.g. {l.sellers[0].spare_player.name} ({l.sellers[0].owner})
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {d?.all_moves?.length > 1 && (
             <section>
               <SectionHead title="Everything else, ranked together"
@@ -345,12 +393,21 @@ function Move({ m, rank }: { m: any; rank: number }) {
           {/* The trade breakdown is meaningless for a waiver claim — there is no
               counterparty to have a lineup, a value split, or a surplus with. */}
           {isWaiver ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Detail label="Replaces" value={m.replaces?.name ?? 'nobody yet'}
-                hint={m.replaces ? 'Comes out of your starting lineup the moment he is added' : 'Slots into an open spot'} />
-              <Detail label="Cost to you" value={m.you_send?.length ? `Drop ${m.you_send[0].name}` : 'A roster spot'}
-                hint="No negotiation, no counterparty — this is why it ranks where it does" />
-            </div>
+            <>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Detail label="Replaces" value={m.replaces?.name ?? 'nobody yet'}
+                  hint={m.replaces ? 'Comes out of your starting lineup the moment he is added' : 'Slots into an open spot'} />
+                <Detail label="Cost to you" value={m.you_send?.length ? `Drop ${m.you_send[0].name}` : 'A roster spot'}
+                  hint="No negotiation, no counterparty — this is why it ranks where it does" />
+              </div>
+              {/* Only rendered when the betting market actually moved him. */}
+              {m.vegas && (
+                <div className="rounded-xl border border-sky-200 bg-sky-50 p-3">
+                  <div className="text-[10px] font-black uppercase tracking-wide text-sky-800">From the betting model</div>
+                  <p className="mt-1 text-sm leading-6 text-sky-900">{m.vegas}</p>
+                </div>
+              )}
+            </>
           ) : (
             <div className="grid gap-2 sm:grid-cols-4">
               <Detail label="Their lineup" value={`${m.their_ppg_gain >= 0 ? '+' : ''}${m.their_ppg_gain} ppg`}

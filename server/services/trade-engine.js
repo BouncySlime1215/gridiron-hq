@@ -27,6 +27,7 @@ import { SLOT_NAME } from './espn-draft.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { weeklyAvailability } from './contingency.js';
+import { cached, fingerprint } from './compute-cache.js';
 import { scoringFor } from './scoring.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -76,8 +77,40 @@ export function tradeWeekContext() {
   return { season: SEASON, week: Math.max(1, Math.min(18, Number(week))) };
 }
 
+/**
+ * The whole player universe, priced — memoised on the data it reads.
+ *
+ * This is the most expensive pure function in the fantasy half of the app: it
+ * builds a weekly projection engine, a VOR board, a volatility table, schedule
+ * outlooks and a 400-run distribution per player. One call is fine. The problem
+ * is that the league brain makes about a dozen — `brainState`, `brainPlan`,
+ * `waiverUpgrades`, `sellHigh`, `positionLiquidity`, and one `selfScout` per
+ * team — each rebuilding the identical universe from the identical tables, and
+ * the page went from 1.3 to 5.0 seconds as those callers were added.
+ *
+ * A fingerprint cache rather than a TTL, for the reason compute-cache.js
+ * explains: keyed on the row counts and newest timestamps of the tables this
+ * actually reads, a hit is not merely fresh enough, it is provably the same
+ * answer. A sync changes the fingerprint and the work is redone on the next
+ * call; nothing changes and the previous answer was already correct.
+ */
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
+  return cached(
+    `assets:${lg.id}:${formatKey}:${target.season}:${target.week}`,
+    fingerprint([
+      { table: 'players', stamp: 'id' },
+      { table: 'roster_players', stamp: 'id' },
+      { table: 'dynasty_values', stamp: 'player_id' },
+      { table: 'player_week_usage', stamp: 'week' },
+      { table: 'nfl_injuries', stamp: 'id' },
+      { table: 'game_lines', stamp: 'week' },
+      'trending_players', 'player_metrics', 'schedule_games'
+    ], `${lg.id}:${formatKey}:${target.season}:${target.week}`),
+    () => buildAssetUniverse(lg, formatKey, target));
+}
+
+function buildAssetUniverse(lg, formatKey, target) {
   const weekly = buildPlayerWeekEngine({ season: target.season, week: target.week, scoring: scoringFor(lg) });
   const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));

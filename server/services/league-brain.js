@@ -73,6 +73,7 @@ import {
   assetUniverse, loadRosters, lineupSlots, bestLineup, evaluate, selfScout
 } from './trade-engine.js';
 import { waiverUpgrades, sellHigh } from './waiver-brain.js';
+import { positionLiquidity, shoppingGuidance } from './position-liquidity.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -587,6 +588,19 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
   const byRawGain = moves.slice().sort((a, b) => b.my_ppg_gain - a.my_ppg_gain)[0];
   const byExpected = moves[0];
 
+  // Where the league can actually supply what you need.
+  //
+  // This is the piece that explains an empty board instead of just rendering
+  // one. Tracing the refusals on a real league, the single largest cause was
+  // "leaves them with no startable player" — and it fires hardest at positions
+  // where every team carries exactly what it starts. Your need there is real and
+  // completely unactionable by trade, and no amount of negotiating changes it.
+  let liquidity = null, guidance = null;
+  try {
+    liquidity = positionLiquidity(leagueId, { myTeamId });
+    guidance = shoppingGuidance(leagueId, scoutOf.get(me.roster_id) ?? {}, { myTeamId });
+  } catch { /* the plan is still useful without it */ }
+
   // Waivers, on the same scale.
   //
   // Adding this changed the plan's top recommendation on the first run, which is
@@ -609,6 +623,7 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
     accept_probability: u.accept_probability,
     expected_value: u.expected_value,
     replaces: u.replaces,
+    vegas: u.vegas ?? null,
     pitch: { to: 'Nobody', text: u.why, reasoning: u.horizon }
   }));
 
@@ -624,6 +639,8 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
     moves: spread.slice(0, limit),
     moves_considered: moves.length,
     all_moves: allMoves,
+    liquidity: liquidity?.error ? null : liquidity,
+    shopping: guidance?.error ? null : guidance,
     // What was considered and refused, with the gate that stopped it. Ranked by
     // how close it came, so the top of this list is the deal to go and negotiate
     // by hand if you disagree with the machine.

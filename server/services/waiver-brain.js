@@ -36,6 +36,7 @@ import { deriveFormat } from './format.js';
 import {
   assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext
 } from './trade-engine.js';
+import { gameScriptFor } from './gamescript.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DST']);
@@ -79,6 +80,77 @@ export function horizonValue(player, week) {
   const season = player.adj_ppg ?? player.ppg ?? 0;
   const playoff = player.playoff_ppg ?? season;
   return r2(season * (1 - w) + playoff * w);
+}
+
+/**
+ * What the betting market thinks of this player's team this week, folded in.
+ *
+ * The two halves of this project have been separate for months. The betting side
+ * fits a game-script model that turns a spread and a total into pass and rush
+ * volume multipliers, validated out of sample. The fantasy side builds player
+ * projections from usage and schedule. Neither has ever read the other, so a
+ * receiver whose team is a nine-point home favourite in a 51-point game and one
+ * in a defensive slog have been valued identically.
+ *
+ * They are now connected — but deliberately not everywhere, because the obvious
+ * version of this is wrong. A single week's Vegas line says almost nothing about
+ * a player's rest-of-season worth, and scaling a season-long trade valuation by
+ * it would import a one-week signal into a fifteen-week decision. The asset
+ * model already splits its value into a current-week component and a
+ * rest-of-season component, and Vegas belongs on the first and not the second.
+ *
+ * So the lift applies to this week's share only. It moves a start/sit or a
+ * streaming pickup meaningfully and barely moves a trade, which is the correct
+ * relative sensitivity rather than a compromise.
+ *
+ * Multipliers are already clamped to [0.75, 1.3] by the game-script model, so a
+ * missing or extreme line degrades to "no adjustment" rather than to nonsense.
+ */
+export function vegasLift(player, season, week) {
+  if (!player?.team_abbr) return { multiplier: 1, line: null, applied: false };
+  let gs;
+  try { gs = gameScriptFor(player.team_abbr, season, week); }
+  catch { return { multiplier: 1, line: null, applied: false }; }
+  if (!gs?.line) return { multiplier: 1, line: null, applied: false };
+
+  // Which multiplier a position actually lives on. A quarterback's volume is
+  // passing; a running back's is mostly rushing but meaningfully receiving in
+  // PPR, which is why he is blended rather than assigned to rush alone.
+  const byPosition = {
+    QB: gs.pass_mult,
+    RB: 0.65 * gs.rush_mult + 0.35 * gs.pass_mult,
+    WR: gs.pass_mult,
+    TE: gs.pass_mult
+  };
+  const mult = byPosition[player.position] ?? 1;
+  return {
+    multiplier: +mult.toFixed(3),
+    line: gs.line,
+    applied: true,
+    reading: mult >= 1.06
+      ? `Vegas has ${player.team_abbr} in a ${gs.line.total}-point game at ${gs.line.spread > 0 ? '+' : ''}${gs.line.spread}, ` +
+        `which the game-script model turns into ${Math.round((mult - 1) * 100)}% more volume for a ${player.position}.`
+      : mult <= 0.94
+        ? `Vegas expects a low-volume game for ${player.team_abbr} (${gs.line.total} total, ` +
+          `${gs.line.spread > 0 ? '+' : ''}${gs.line.spread}), costing a ${player.position} about ` +
+          `${Math.round((1 - mult) * 100)}% of his usual work.`
+        : null
+  };
+}
+
+/**
+ * Horizon value with this week's market view folded into this week's share.
+ *
+ * `currentWeekShare` mirrors the split the asset model already uses, so the two
+ * do not disagree about how much a single Sunday is worth.
+ */
+export function horizonValueWithVegas(player, season, week, { currentWeekShare = 0.25 } = {}) {
+  const base = horizonValue(player, week);
+  const lift = vegasLift(player, season, week);
+  if (!lift.applied) return { value: base, base, lift: null };
+  // Only the current-week slice is scaled. See vegasLift's note on why.
+  const value = r2(base * (1 - currentWeekShare) + base * currentWeekShare * lift.multiplier);
+  return { value, base, lift };
 }
 
 /**
@@ -128,21 +200,39 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
 
-  const { week } = tradeWeekContext();
+  const { season, week } = tradeWeekContext();
   const weight = playoffWeight(week);
-  const available = freeAgents(lg, { limit: pool });
-  const before = bestLineup(me.players, slots);
+
+  // Solve the lineup on the horizon that matters, not on season average.
+  //
+  // `bestLineup` takes the key it optimises, and every caller in this project
+  // has passed `adj_ppg` — a season-long average. That silently made the whole
+  // analysis answer the wrong question: it ranks a player who is great in
+  // September and on bye-adjacent garbage in December above one whose weeks
+  // 15-17 schedule is the reason you would want him. Annotating each player with
+  // a horizon value and optimising on THAT is a one-line change to the solve and
+  // a real change to what comes out of it.
+  //
+  // The same annotation is where the betting model enters: the Vegas game-script
+  // multiplier scales this week's slice of each player's value. See vegasLift.
+  const annotate = p => {
+    const hv = horizonValueWithVegas(p, season, week);
+    return { ...p, horizon_ppg: hv.value, horizon_base: hv.base, vegas: hv.lift };
+  };
+  const myPlayers = me.players.map(annotate);
+  const available = freeAgents(lg, { limit: pool }).map(annotate);
+
+  const before = bestLineup(myPlayers, slots, 'horizon_ppg');
   const starters = new Set(before.slots.map(s => s.player?.id).filter(Boolean));
 
   // Who comes off the roster to make room. Never a current starter, and never
   // the last body at a position — dropping your only kicker to add a fourth
   // receiver is a lineup hole, not an upgrade.
-  const countAt = pos => me.players.filter(p => p.position === pos).length;
-  const droppable = me.players
+  const countAt = pos => myPlayers.filter(p => p.position === pos).length;
+  const droppable = myPlayers
     .filter(p => !starters.has(p.id))
     .filter(p => countAt(p.position) > 1)
-    .map(p => ({ ...p, horizon_value: horizonValue(p, week) }))
-    .sort((a, b) => a.horizon_value - b.horizon_value);
+    .sort((a, b) => a.horizon_ppg - b.horizon_ppg);
 
   const worstBench = droppable[0] ?? null;
 
@@ -151,7 +241,7 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
     // Re-solve the lineup with this player on the roster. Adding without
     // dropping is the honest test of whether he helps at all; the drop is a
     // roster-space question answered separately below.
-    const after = bestLineup([...me.players, fa], slots);
+    const after = bestLineup([...myPlayers, fa], slots, 'horizon_ppg');
     const gain = after.points - before.points;
     if (gain <= 0.05) continue;
 
@@ -162,7 +252,8 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
 
     upgrades.push({
       player: slim(fa),
-      horizon_value: fa.horizon_value,
+      horizon_value: fa.horizon_ppg,
+      season_value: fa.adj_ppg ?? null,
       ppg_gain: r2(gain),
       // Same units as a trade's gain, so the two can be ranked against each
       // other. Acceptance is ~1 because nobody has to agree to a waiver claim —
@@ -172,6 +263,10 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
       replaces: displaced ? slim(displaced) : null,
       drop_candidate: worstBench ? slim(worstBench) : null,
       trending: fa.trending ?? null,
+      // Only surfaced when the market actually moved him. A "no adjustment"
+      // note on every row is noise that trains you to stop reading them.
+      vegas: fa.vegas?.reading ?? null,
+      vegas_multiplier: fa.vegas?.multiplier ?? null,
       why: displaced
         ? `Starts over ${displaced.name} immediately, worth ${r2(gain)} points a week.`
         : `Slots straight into the lineup for ${r2(gain)} points a week.`,
@@ -186,13 +281,17 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   upgrades.sort((a, b) => b.expected_value - a.expected_value);
 
   return {
-    league: lg.name, owner: me.owner, week,
+    league: lg.name, owner: me.owner, season, week,
     playoff_weight: weight,
     pool_size: available.length,
+    vegas_lines_available: available.filter(p => p.vegas?.applied).length,
+    scored_on: `Lineups are solved on a horizon value that is ${Math.round(weight * 100)}% weeks 15-17 ` +
+      'and the rest of the regular season, with this week\'s share scaled by the betting market\'s ' +
+      'game script for each player\'s team.',
     upgrades: upgrades.slice(0, limit),
     drop_candidates: droppable.slice(0, 4).map(p => ({
       ...slim(p),
-      horizon_value: p.horizon_value,
+      horizon_value: p.horizon_ppg,
       why: `Lowest value on your bench on the horizon that matters, and you carry ` +
         `${countAt(p.position)} at ${p.position}.`
     })),

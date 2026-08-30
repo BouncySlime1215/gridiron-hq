@@ -33,7 +33,7 @@
  */
 import { row } from '../db/index.js';
 import { deriveFormat } from './format.js';
-import { assetUniverse, loadRosters, lineupSlots, bestLineup } from './trade-engine.js';
+import { assetUniverse, loadRosters, lineupSlots } from './trade-engine.js';
 
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));

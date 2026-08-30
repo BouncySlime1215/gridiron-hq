@@ -38,7 +38,6 @@ import {
   assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext, lineupDiff
 } from './trade-engine.js';
 import { vegasLift } from './waiver-brain.js';
-import { playerTrends } from './weekly-trends.js';
 import { regressionCandidates } from './td-regression.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));

@@ -46,7 +46,7 @@
  * happening. Effect size is reported alongside significance so a large-but-
  * unproven move is visible as exactly that rather than hidden or promoted.
  */
-import { rows, row } from '../db/index.js';
+import { rows } from '../db/index.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));

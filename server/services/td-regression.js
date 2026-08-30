@@ -47,7 +47,7 @@
  */
 import { rows, row } from '../db/index.js';
 import { deriveFormat } from './format.js';
-import { assetUniverse, loadRosters, tradeWeekContext } from './trade-engine.js';
+import { assetUniverse, loadRosters } from './trade-engine.js';
 import { cached, fingerprint } from './compute-cache.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));

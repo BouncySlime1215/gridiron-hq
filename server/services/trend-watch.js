@@ -37,7 +37,6 @@
 import { rows, row, run } from '../db/index.js';
 import { teamTrends, playerTrends, TRACKED } from './weekly-trends.js';
 
-const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 
 run(`CREATE TABLE IF NOT EXISTS trend_findings (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,

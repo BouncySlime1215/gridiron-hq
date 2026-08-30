@@ -300,6 +300,16 @@ async function refreshModelWatch() {
 }
 
 /**
+ * Turn each newly finalized NFL week into cutoff-safe features, settled labels,
+ * and a recorded next-week fit. The service checks the warehouse first, so the
+ * expensive downloads run once per published week rather than once per timer.
+ */
+async function refreshNflModelGrowth() {
+  const { runNflModelGrowthCycle } = await import('./nfl-model-growth.js');
+  return runNflModelGrowthCycle();
+}
+
+/**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
  * slate, box scores only settle after games end, and NFL lines move all week.
@@ -356,7 +366,12 @@ export const JOBS = {
   }), maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'Team press conferences (YouTube, transcribed)' },
   evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
-    label: 'NFL weekly snapshot, settlement, and challenger retraining' },
+    label: 'Fantasy weekly snapshot, settlement, and challenger retraining' },
+  // Enabled by default, unlike broad heavy research sweeps. Most checks are a
+  // few SQLite reads; downloads and fitting only start when a newly finalized
+  // week is ahead of the feature warehouse.
+  nfl_model_growth: { run: refreshNflModelGrowth, maxAgeMinutes: 6 * 60, tier: 'growth',
+    label: 'NFL finalized-week ingest, shadow settlement, and next-week fit' },
   nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'NFL chronological prop calibration registry' },
   /*
@@ -492,9 +507,14 @@ export function startScheduler({
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);
+  // A local app may not stay open for the first 30-minute slow tick. Give the
+  // growth check its own delayed boot pass: it is cheap when no week is new and
+  // waits until the UI has been interactive for a while before any ingest.
+  setTimeout(() => { runIfStale('nfl_model_growth').catch(() => {}); }, Math.max(90000, bootDelayMs + 60000));
 
   const live = jobsInTier('live');
   const metered = jobsInTier('metered');
+  const growth = jobsInTier('growth');
   const heavy = process.env.AUTO_HEAVY_SYNC === '1' ? jobsInTier('heavy') : [];
 
   liveTimer = setInterval(() => {
@@ -503,13 +523,14 @@ export function startScheduler({
   liveTimer.unref?.();
 
   timer = setInterval(() => {
-    (async () => { for (const j of [...metered, ...heavy]) await runIfStale(j); })().catch(() => {});
+    (async () => { for (const j of [...growth, ...metered, ...heavy]) await runIfStale(j); })().catch(() => {});
   }, intervalMinutes * 60000);
   timer.unref?.();  // never hold the process open just for this
 
   return { started: true, interval_minutes: intervalMinutes,
     live_interval_seconds: liveIntervalSeconds,
-    live_jobs: live.length, metered_jobs: metered.length, heavy_jobs: heavy.length,
+    live_jobs: live.length, growth_jobs: growth.length,
+    metered_jobs: metered.length, heavy_jobs: heavy.length,
     heavy_enabled: process.env.AUTO_HEAVY_SYNC === '1' };
 }
 

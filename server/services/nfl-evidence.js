@@ -116,8 +116,14 @@ export function validationFirewall() {
     ai_replay_runs: tableCount('nfl_ai_replay_runs'),
     recorded_gate_audits: tableCount('model_gate_audits', 'sport=?', 'NFL')
   };
-  const forward = tableExists('shadow_decisions') ? rows(`SELECT COUNT(*) decisions,
-      SUM(CASE WHEN settled_at IS NOT NULL THEN 1 ELSE 0 END) settled
+  // Promotion evidence counts selected, independent decisions only. Earlier
+  // versions inserted the same event once per evidence horizon; counting raw
+  // rows made six correlated snapshots look like six future bets.
+  const forward = tableExists('shadow_decisions') ? rows(`SELECT
+      COUNT(DISTINCT CASE WHEN decision='observe'
+        THEN event_key||'|'||market||'|'||model_version END) decisions,
+      COUNT(DISTINCT CASE WHEN decision='observe' AND result IN ('Won','Lost','Push')
+        THEN event_key||'|'||market||'|'||model_version END) settled
     FROM shadow_decisions WHERE sport='NFL' AND captured_at IS NOT NULL`)[0] : { decisions: 0, settled: 0 };
   const totalTrials = Object.values(trialCounts).reduce((a, b) => a + Number(b || 0), 0);
   return {

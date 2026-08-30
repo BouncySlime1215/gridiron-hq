@@ -709,9 +709,13 @@ const _cache = new Map();
 const _calibrationCache = new Map();
 const _lineCache = new Map();
 export function clearEnsembleLineCache() { _lineCache.clear(); }
-export function clearEnsembleCache() {
+/** Invalidate in-process fits after new games land while retaining the immutable fit ledger. */
+export function invalidateEnsembleCaches() {
   _cache.clear(); _calibrationCache.clear(); _lineCache.clear();
   _featureAggregateCache.clear(); _sharedContextCache.clear();
+}
+export function clearEnsembleCache() {
+  invalidateEnsembleCaches();
   run('DELETE FROM nfl_ensemble_fit_artifacts');
 }
 

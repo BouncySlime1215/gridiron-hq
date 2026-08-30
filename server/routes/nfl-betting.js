@@ -53,6 +53,7 @@ import { weeklyLearningStatus } from '../services/weekly-learning.js';
 import { tdCalibrationCatalog } from '../services/nfl-prop-calibration.js';
 import { signalQualityCatalog } from '../services/model-signal-quality.js';
 import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '../services/nfl-profitability.js';
+import { runNflModelGrowthCycle } from '../services/nfl-model-growth.js';
 import { reconcilePropQuoteMatches, settlePropQuotes } from '../services/nfl-prop-clv.js';
 import { newsSignalCoverage, syncAiNewsSignals, syncStructuredNewsSignals, teamNewsSignals } from '../services/nfl-news-signal.js';
 import { passingSpecialistAudit } from '../services/nfl-passing-specialists.js';
@@ -161,6 +162,16 @@ r.post('/props/quotes/settle', (req, res, next) => {
 r.get('/profitability', (_req, res, next) => {
   try { res.json(profitabilityOperations()); }
   catch (e) { next(e); }
+});
+
+/** Run the same finalized-week growth cycle used by the scheduler. */
+r.post('/profitability/model-growth/run', async (req, res, next) => {
+  try {
+    res.json(await runNflModelGrowthCycle({
+      season: Number(req.body?.season) || undefined,
+      force: req.body?.force === true
+    }));
+  } catch (e) { next(e); }
 });
 
 r.get('/profitability/passing-specialists', (_req, res, next) => {

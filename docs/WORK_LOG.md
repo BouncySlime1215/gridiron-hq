@@ -847,3 +847,31 @@ and calibration. Its forward console preserves the actual pregame state and
 price before creating evidence. Current forward results and priced units are
 shown separately from retrospective and incomplete rows, which remain visibly
 quarantined.
+
+# 2026-08-30 — current-season model growth loop
+
+The model already used cutoff-safe weekly fits, but the operational loop stopped
+short of turning a new NFL week into training data. Results/lines, official
+weekly usage, finalized nflverse play-by-play features, advanced participation
+feeds, frozen predictions, settlement, and the next cutoff fit were separate
+manual operations. The forward shadow table also allowed the same game to be
+inserted at every evidence horizon and had no frozen line/team columns, so it
+could neither settle its own rows nor count an independent sample correctly.
+
+`nfl-model-growth.js` now runs the full publication-driven cycle. It checks for
+a newly finalized week, ingests the current-season nflverse usage, PBP, NGS,
+PFR, snaps, depth and injury releases independently, settles both forward
+ledgers, invalidates only in-process caches, and records the next-week ensemble
+fit with its data fingerprint and cutoff. The scheduled check is enabled by
+default but expensive downloads run only when the feature warehouse trails a
+real finalized week. A late upstream release produces `source_lag` and retries;
+it never manufactures missing rows.
+
+The shadow ledger now freezes one row per event/market/model-policy version,
+stores the line, price, quote timestamp and feature packet, and attaches the
+final result and CLV later. Evidence horizons remain in the context archive but
+cannot multiply the forward sample. Abstentions are labeled for filter research
+while only independent `observe` decisions count toward the promotion firewall.
+As of this change there are no 2026 regular-season finals, so the honest state
+is `waiting_for_regular_season_results`; the first learning cycle starts after
+Week 1 becomes final and the required nflverse releases publish.

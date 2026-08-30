@@ -121,8 +121,10 @@ test('NFL operational mutations require execute rather than training permission'
   assert.equal((await nflRequest('/ai-replay', { roleHeader: 'admin' })).status, 401);
   assert.equal((await nflRequest('/ai-replay', { token: 'real-model-token' })).status, 403);
   assert.equal((await nflRequest('/bets', { token: 'real-model-token' })).status, 403);
+  assert.equal((await nflRequest('/profitability/model-growth/run', { token: 'real-model-token' })).status, 403);
   assert.notEqual((await nflRequest('/ai-replay', { token: 'execute-token' })).status, 403);
   assert.notEqual((await nflRequest('/bets', { token: 'execute-token' })).status, 403);
+  assert.equal((await nflRequest('/profitability/model-growth/run', { token: 'execute-token' })).status, 200);
   assert.equal((await nflRequest('/replay/train', { token: 'execute-token' })).status, 403);
 });
 

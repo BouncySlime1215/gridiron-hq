@@ -6,6 +6,7 @@ import { propClvStatus, propDecisionPolicyHash, PROP_DECISION_POLICY,
 import { usage as oddsUsage } from './odds-api.js';
 import { ffOpportunityStatus } from './ffopportunity.js';
 import { validationFirewall } from './nfl-evidence.js';
+import { nflModelGrowthStatus } from './nfl-model-growth.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_teaser_price_ledger (
@@ -113,7 +114,7 @@ const parse = (value, fallback = null) => { try { return value ? JSON.parse(valu
  * Completion never means "profitable": each phase names the economic evidence
  * it still owes, and historically failed forecasting remains visibly retired.
  */
-function profitabilityPhases({ matches, horizons, settlements, edge, teaser }) {
+function profitabilityPhases({ matches, horizons, settlements, edge, teaser, growth }) {
   const firewall = validationFirewall();
   const blindRow = tableExists('nfl_blind_audit_runs')
     ? rows(`SELECT id,status,next_ordinal,spec_json,final_json,created_at
@@ -174,11 +175,16 @@ function profitabilityPhases({ matches, horizons, settlements, edge, teaser }) {
         : 'Continue until mean and median CLV are positive and the week-clustered interval clears zero.'
     },
     {
-      id: 'forecast_model', order: 4, title: 'Forecast-model staking', state: 'retired',
+      id: 'forecast_model', order: 4, title: 'Forecast-model learning',
+      state: growth.state === 'current' ? 'measuring' : 'building_data',
       completed: firewall.forward.settled, total: firewall.forward.target,
-      headline: 'Retired as a current profit path',
-      detail: 'The historical model failed its economic tests. AI translation and additional features do not repair an unproven edge.',
-      next_action: 'Keep forecasts paper-only. Reconsider only after 250 frozen forward decisions and positive CLV, not after another historical tune.'
+      headline: growth.state === 'current'
+        ? `Feature warehouse and fit current through Week ${growth.learned_through_week}`
+        : growth.state === 'waiting_for_regular_season_results'
+          ? 'Learning loop armed; waiting for the first finalized week'
+          : `Learning pipeline needs attention: ${growth.state.replaceAll('_', ' ')}`,
+      detail: 'The failed historical model remains retired from staking. New finalized weeks now become cutoff-safe features and immutable labels for challenger research.',
+      next_action: 'Keep forecasts paper-only while the automatic ingest/refit loop accumulates 250 independent forward decisions and positive CLV.'
     }
   ];
 
@@ -201,7 +207,8 @@ export function profitabilityOperations() {
   const settlements = propSettlementHealth();
   const edge = propEdgeEvidence();
   const teaser = teaserPriceLedger();
-  const readiness = profitabilityPhases({ matches, horizons, settlements, edge, teaser });
+  const growth = nflModelGrowthStatus();
+  const readiness = profitabilityPhases({ matches, horizons, settlements, edge, teaser, growth });
   const gates = [
     { id: 'model_match', label: 'Supported quote coverage ≥95%', passed: matches.passed,
       actual: matches.rate, target: 0.95 },
@@ -233,6 +240,7 @@ export function profitabilityOperations() {
     capture_horizons: horizons, settlement: settlements, edge, teaser,
     market_scorecards: propMarketScorecards(),
     historical_lines: historicalLineCoverage(), external_sources: EXTERNAL_MODEL_SOURCES,
+    model_growth: growth,
     external_benchmarks: { ffopportunity: ffOpportunityStatus() },
     odds_api: oddsUsage(),
     staking_authority: gates.every(gate => gate.passed) ? 'human-reviewed capped pilot only' : '0 model-derived units'

@@ -20,6 +20,14 @@ interface ProfitabilityOps {
   edge: { shadow_decisions: number; settled_bets: number; median_clv_probability: number | null; verdict: string };
   teaser: { status: string; wong_price_gate_passed: boolean; latest_reachable: { book: string; american_price: number } | null };
   historical_lines: { min_season: number; max_season: number; rows: number; opening_rows: number; limitation: string };
+  model_growth: {
+    state: string; season: number; finalized_week: number; learned_through_week: number;
+    sources: { id: string; required: boolean; rows: number; through_week: number; lag_weeks: number; current: boolean }[];
+    labeled_examples: { independent: number; settled: number; selected: number; selected_settled: number; rule: string };
+    active_fit: { cutoff: string; model_version: string; created_at: string } | null;
+    latest_run: { started_at: string; finished_at: string | null; status: string } | null;
+    next_action: string; promotion_policy: string;
+  };
   external_benchmarks: { ffopportunity: { rows: number; seasons: number; min_season: number | null; max_season: number | null; status: string } };
   external_sources: { id: string; repo: string; url: string; role: string; integration: string; pinned_commit: string; copied_code: boolean }[];
   market_scorecards: MarketScorecard[];
@@ -50,12 +58,18 @@ export function ProfitabilityControl() {
   const [book, setBook] = useState('');
   const [price, setPrice] = useState('-115');
 
-  const act = async (kind: 'reconcile' | 'news' | 'passing') => {
+  const act = async (kind: 'reconcile' | 'news' | 'passing' | 'growth') => {
     setBusy(kind); setMessage(null);
     try {
       if (kind === 'passing') {
         const result = await api<PassingAudit>('/nfl-betting/profitability/passing-specialists');
         setPassing(result); setMessage(result.verdict);
+      } else if (kind === 'growth') {
+        const result = await api<any>('/nfl-betting/profitability/model-growth/run', {
+          method: 'POST', body: JSON.stringify({})
+        });
+        setMessage(result.note ?? `Model growth cycle finished: ${result.status}.`);
+        await ops.refetch();
       } else {
         const result = await api(kind === 'reconcile' ? '/nfl-betting/props/quotes/reconcile' : '/nfl-betting/news/signals/sync', { method: 'POST' });
         let aiResult: any = null;
@@ -93,11 +107,14 @@ export function ProfitabilityControl() {
       <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act('reconcile')}>{busy === 'reconcile' ? 'Reconciling…' : 'Reconcile prop identities'}</button>
       <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act('news')}>{busy === 'news' ? 'Structuring news…' : 'Update injury & role signals'}</button>
       <button className="btn-primary text-sm" disabled={!!busy} onClick={() => act('passing')}>{busy === 'passing' ? 'Auditing 20 challengers…' : 'Run passing specialist audit'}</button>
+      <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act('growth')}>{busy === 'growth' ? 'Ingesting finalized week…' : 'Run model growth cycle'}</button>
     </div>
     {message && <Notice title="Operations result" tone="info">{message}</Notice>}
     {d.alerts.map(alert => <Notice key={alert.code} title={alert.code.replaceAll('_', ' ')} tone={alert.severity === 'critical' ? 'bad' : 'warn'}>{alert.message}</Notice>)}
 
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <SignalCard label="Model learned through" value={d.model_growth.learned_through_week ? `Week ${d.model_growth.learned_through_week}` : 'No 2026 results'} detail={d.model_growth.state.replaceAll('_', ' ')} tone={d.model_growth.state === 'current' ? 'good' : 'warn'} />
+      <SignalCard label="Frozen game labels" value={`${d.model_growth.labeled_examples.settled}/${d.model_growth.labeled_examples.independent}`} detail={`${d.model_growth.labeled_examples.selected_settled}/${d.model_growth.labeled_examples.selected} cleared the frozen betting policy`} tone={d.model_growth.labeled_examples.settled ? 'good' : 'warn'} />
       <SignalCard label="Resolved quote coverage" value={pct(d.match_coverage.rate)} detail={`${d.match_coverage.resolved}/${d.match_coverage.quotes} explained · target 95%`} tone={d.match_coverage.rate != null && d.match_coverage.rate >= .95 ? 'good' : 'warn'} />
       <SignalCard label="Directly modeled" value={pct(d.match_coverage.model_rate)} detail={`${d.match_coverage.modeled} quotes; valid role abstentions remain abstentions`} />
       <SignalCard label="Independent decisions" value={`${d.edge.shadow_decisions}`} detail={`${d.edge.settled_bets}/${d.policy.minimum_settled_overall} settled before pooled review`} tone="warn" />
@@ -106,6 +123,22 @@ export function ProfitabilityControl() {
       <SignalCard label="Settlement resolution" value={pct(d.settlement.resolution_rate)} detail={`${d.settlement.resolved}/${d.settlement.total_due} due · ${d.settlement.overdue} overdue`} tone={d.settlement.overdue ? 'bad' : 'neutral'} />
       <SignalCard label="Typed news" value={`${news.data?.coverage.signals ?? 0} signals`} detail={`${news.data?.coverage.players ?? 0} players · ${news.data?.coverage.recent_material_untyped ?? 0} recent material stories still untyped`} tone={(news.data?.coverage.recent_material_untyped ?? 0) ? 'warn' : 'good'} />
     </div>
+
+    <details className="card overflow-hidden">
+      <summary className="cursor-pointer px-4 py-4 font-bold text-slate-900">
+        Model ingestion pipeline · {d.model_growth.state.replaceAll('_', ' ')}
+      </summary>
+      <div className="border-t border-slate-200 p-4">
+        <p className="mb-3 text-xs leading-5 text-slate-600">{d.model_growth.next_action} {d.model_growth.promotion_policy}</p>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {d.model_growth.sources.map(source => <div key={source.id} className="rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center gap-2"><StatusPill tone={source.current ? 'good' : source.required ? 'bad' : 'warn'}>{source.current ? 'current' : `${source.lag_weeks}w lag`}</StatusPill><span className="text-xs font-bold text-slate-800">{source.id.replaceAll('_', ' ')}</span></div>
+            <div className="mt-2 text-xs text-slate-500">{source.rows.toLocaleString()} rows · through week {source.through_week || '—'}{source.required ? ' · required' : ' · context'}</div>
+          </div>)}
+        </div>
+        <p className="mt-3 text-[11px] text-slate-500">{d.model_growth.labeled_examples.rule}</p>
+      </div>
+    </details>
 
     <div className="grid gap-4 xl:grid-cols-[1.25fr_.75fr]">
       <div className="card overflow-hidden">

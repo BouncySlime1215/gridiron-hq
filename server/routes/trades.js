@@ -16,6 +16,7 @@ import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js'
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, brainPlan, managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { waiverUpgrades, sellHigh, freeAgents } from '../services/waiver-brain.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { weekPostmortem } from '../services/week-postmortem.js';
@@ -81,6 +82,43 @@ r.get('/:leagueId/brain/plan', (req, res, next) => {
       myTeamId: req.query.team_id ?? null,
       limit: Math.min(20, Number(req.query.limit) || 8)
     }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Free agents who would crack your lineup.
+ *
+ * Separate from the plan because it answers on its own: a waiver claim needs no
+ * counterparty, so it is the one move available every week regardless of who is
+ * talking to you.
+ */
+r.get('/:leagueId/brain/waivers', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(waiverUpgrades(lg.id, {
+      myTeamId: req.query.team_id ?? null,
+      limit: Math.min(25, Number(req.query.limit) || 10)
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Players priced above their own position's production curve. */
+r.get('/:leagueId/brain/sell-high', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(sellHigh(lg.id, {
+      myTeamId: req.query.team_id ?? null,
+      limit: Math.min(15, Number(req.query.limit) || 5)
+    }));
+  } catch (e) { next(e); }
+});
+
+/** The unrostered pool, ranked on the horizon that matters this week. */
+r.get('/:leagueId/brain/free-agents', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    const list = freeAgents(lg, { limit: Math.min(200, Number(req.query.limit) || 60) });
+    res.json({ count: list.length, players: list });
   } catch (e) { next(e); }
 });
 

@@ -72,6 +72,7 @@ import { deriveFormat } from './format.js';
 import {
   assetUniverse, loadRosters, lineupSlots, bestLineup, evaluate, selfScout
 } from './trade-engine.js';
+import { waiverUpgrades, sellHigh } from './waiver-brain.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -469,6 +470,7 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
     .sort((a, b) => b.complement.score - a.complement.score);
 
   const moves = [];
+  const rejected = [];
   for (const p of viable) {
     const them = teams.find(t => t.roster_id === p.roster_id);
     const deals = enumerateDeals(me, them, slots, scoutOf, 2);
@@ -480,16 +482,37 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
       // `their_value_pct` is already the share of crossing value they gain, on
       // exactly the scale acceptProbability expects.
       const theirEdgePct = ev.their_value_pct ?? 0;
-      if (myGain < 0.5) continue;                        // too small to change a weekly decision
+      // Rejections are recorded, not discarded.
+      //
+      // These gates are individually sensible and collectively severe: on a real
+      // ten-team league they took 324 candidate one-for-ones down to zero, and a
+      // planner that renders an empty page every week is not trustworthy, it is
+      // just silent. The honest fix is not to loosen the thresholds until
+      // something appears — that would be tuning until the answer is the one we
+      // wanted. It is to say what was considered and why each was refused, which
+      // is more useful than a recommendation anyway: "nothing qualified, and
+      // here are the three that came closest, and what stopped them."
+      const near = (reason, detail) => {
+        rejected.push({
+          partner: p.owner, tier: p.tier,
+          you_send: d.mine.map(x => ({ name: x.name, position: x.position })),
+          you_get: d.theirs.map(x => ({ name: x.name, position: x.position })),
+          my_ppg_gain: r2(myGain), their_ppg_gain: r2(theirGain),
+          their_value_edge_pct: r2(theirEdgePct),
+          blocked_by: reason, detail
+        });
+      };
+
+      if (myGain < 0.5) { near('too small for you', `Worth ${r2(myGain)} ppg — under the half-point floor where a trade stops being worth the effort.`); continue; }
       // The engine's own plausibility check already rules out packages that gut
       // the other roster; no reason to re-derive that judgement here.
-      if (!ev.plausible) continue;
-      if (ev.red_flags.length) continue;
+      if (!ev.plausible) { near('would gut their roster', 'The trade engine rates this implausible for them regardless of price.'); continue; }
+      if (ev.red_flags.length) { near('red flag', ev.red_flags.join('; ')); continue; }
       // A recommendation must improve both optimal lineups. Value-only
       // sweeteners are useful as negotiation pieces, but they are not a
       // sendable top-level trade when the other manager gets worse on Sunday.
-      if (theirGain <= 0.05) continue;
-      if (theirEdgePct > 18) continue;                   // buying acceptance with an obvious overpay
+      if (theirGain <= 0.05) { near('makes their lineup worse', `They lose ${r2(-theirGain)} ppg on Sunday, so this is an ask rather than a trade.`); continue; }
+      if (theirEdgePct > 18) { near('you would be overpaying', `They gain ${r2(theirEdgePct)}% of the crossing value — buying a yes rather than earning one.`); continue; }
 
       // Every player in a recommended package must change at least one side's
       // optimal lineup. This strips the cosmetic throw-ins that made the old
@@ -505,7 +528,7 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
         const lean = evaluate({ team: me, gives: leanMine }, { team: them, gives: leanTheirs }, slots);
         return lean.me.ppg_delta >= myGain - 0.05 && lean.them.ppg_delta >= theirGain - 0.05;
       });
-      if (removable) continue;
+      if (removable) { near('has a pointless piece', 'One player in this package changes neither lineup, so the same deal works without them.'); continue; }
 
       const pAccept = acceptProbability(p.tier, { theirEdgePct, theirPpgDelta: theirGain });
       const nash = nashProduct(myGain, theirGain);
@@ -515,7 +538,13 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
       // charging part of their gain back to us, then use mutual surplus and our
       // raw gain as deterministic tie-breakers below.
       const expected = r3(pAccept * Math.max(0, myGain - rivalTax));
-      if (expected < 0.15) continue;
+      if (expected < 0.15) {
+        near(pAccept < 0.25 ? 'they will not sign it' : 'helps a contender too much',
+          pAccept < 0.25
+            ? `${p.owner} accepts this about ${Math.round(pAccept * 100)}% of the time, which leaves too little expected value to chase.`
+            : `Charging back part of their gain — they are ${p.rank} of ${teams.length} and you have to catch them — leaves only ${expected} ppg expected.`);
+        continue;
+      }
 
       moves.push({
         partner: p.owner, partner_roster_id: p.roster_id,
@@ -558,12 +587,61 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
   const byRawGain = moves.slice().sort((a, b) => b.my_ppg_gain - a.my_ppg_gain)[0];
   const byExpected = moves[0];
 
+  // Waivers, on the same scale.
+  //
+  // Adding this changed the plan's top recommendation on the first run, which is
+  // the argument for it: a free agent worth +1.93 points a week outranked every
+  // trade on the board, because nobody has to agree to a waiver claim. The trade
+  // planner could not see that, since it only ever looked at trades — a search
+  // that is blind to the cheapest move in fantasy football.
+  let waiver = { upgrades: [], drop_candidates: [] };
+  let selling = { candidates: [] };
+  try { waiver = waiverUpgrades(leagueId, { myTeamId, limit: 6 }); } catch { /* optional */ }
+  try { selling = sellHigh(leagueId, { myTeamId, limit: 4 }); } catch { /* optional */ }
+
+  const tradeMoves = spread.slice(0, limit).map(m => ({ ...m, kind: 'trade' }));
+  const waiverMoves = (waiver.upgrades ?? []).map(u => ({
+    kind: 'waiver',
+    partner: 'Waiver wire',
+    you_get: [{ name: u.player.name, position: u.player.position, value: u.player.value }],
+    you_send: u.drop_candidate ? [{ name: u.drop_candidate.name, position: u.drop_candidate.position }] : [],
+    my_ppg_gain: u.ppg_gain,
+    accept_probability: u.accept_probability,
+    expected_value: u.expected_value,
+    replaces: u.replaces,
+    pitch: { to: 'Nobody', text: u.why, reasoning: u.horizon }
+  }));
+
+  // One ranking over both, which is the only way the comparison is honest.
+  const allMoves = [...tradeMoves, ...waiverMoves]
+    .sort((a, b) => b.expected_value - a.expected_value);
+  const topIsWaiver = allMoves[0]?.kind === 'waiver';
+
   return {
     ...state,
     partners: partners.filter(p => !p.skip),
     unreachable: partners.filter(p => p.skip).map(p => p.owner),
     moves: spread.slice(0, limit),
     moves_considered: moves.length,
+    all_moves: allMoves,
+    // What was considered and refused, with the gate that stopped it. Ranked by
+    // how close it came, so the top of this list is the deal to go and negotiate
+    // by hand if you disagree with the machine.
+    near_misses: rejected
+      .sort((a, b) => (b.my_ppg_gain ?? 0) - (a.my_ppg_gain ?? 0))
+      .slice(0, 6),
+    considered: rejected.length + moves.length,
+    waivers: waiver.upgrades ?? [],
+    drop_candidates: waiver.drop_candidates ?? [],
+    sell_high: selling.candidates ?? [],
+    playoff_weight: waiver.playoff_weight ?? null,
+    best_move_note: topIsWaiver
+      ? `The best move on the board is not a trade. ${allMoves[0].you_get[0].name} is sitting on ` +
+        `waivers and is worth ${allMoves[0].my_ppg_gain} points a week to your lineup — nobody has ` +
+        'to agree to that, which is why it outranks every deal below it.'
+      : allMoves.length
+        ? 'The best available move is a trade, so it depends on someone else saying yes.'
+        : 'Nothing on the board improves the lineup right now.',
     ranking_note: byRawGain && byExpected && byRawGain !== byExpected
       ? `Ranked by expected value, not raw gain. The biggest deal on the board is ` +
         `${byRawGain.you_get.map(x => x.name).join(' + ')} from ${byRawGain.partner} at ` +

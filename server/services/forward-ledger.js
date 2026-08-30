@@ -38,6 +38,7 @@
  * conclusive. Both are tracked, and CLV is the one to watch first.
  */
 import { rows, row, run } from '../db/index.js';
+import { nflKickoffDate } from './date-util.js';
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const BREAK_EVEN = 0.5238;
@@ -81,28 +82,40 @@ export function recordForwardPick(input = {}) {
   const { season, week, home, away, market = 'spread', side,
     line, price = -110, source = 'football-first',
     lean = null, confidence = null, leadingReason = null,
-    reasoning = null, features = null } = input;
+    reasoning = null, features = null, recordedAt = null } = input;
 
   if (!season || !week || !home || !away || !side) {
     return { error: 'season, week, home, away and side are all required' };
   }
+  if (market !== 'spread' && market !== 'total') return { error: 'market must be spread or total' };
+  if (market === 'spread' && side !== home && side !== away) {
+    return { error: 'a spread side must match the scheduled home or away team' };
+  }
+  if (market === 'total' && !/^(over|under)$/i.test(side)) {
+    return { error: 'a total side must be over or under' };
+  }
+  if (line != null && !Number.isFinite(Number(line))) return { error: 'line must be numeric' };
 
   const game = row(
     `SELECT team_score, opp_score, gameday, gametime FROM game_lines
      WHERE season = ? AND week = ? AND team = ? AND home = 1`, season, week, home);
-  if (game?.team_score != null) {
+  if (!game) return { error: 'no matching scheduled game is loaded' };
+  const now = recordedAt == null ? new Date() : new Date(recordedAt);
+  if (Number.isNaN(now.getTime())) return { error: 'recordedAt must be a valid timestamp' };
+  const kickoff = nflKickoffDate(game?.gameday, game?.gametime);
+  if (game?.team_score != null || (kickoff && now >= kickoff)) {
     return { error: 'that game has already been played',
-      note: 'A forward pick recorded after the result exists is not forward. The ledger refuses it ' +
+      note: 'A forward pick recorded at or after kickoff is not forward. The ledger refuses it ' +
         'rather than accepting a row nothing downstream could distinguish from a real one.' };
   }
 
-  const now = new Date().toISOString();
+  const nowIso = now.toISOString();
   try {
     run(`INSERT INTO forward_picks
          (recorded_at, season, week, home, away, market, side, line_at_pick, price_at_pick,
           source, lean, confidence, leading_reason, reasoning, features)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    now, season, week, home, away, market, side, line ?? null, price ?? null,
+    nowIso, season, week, home, away, market, side, line ?? null, price ?? null,
     source, lean, confidence, leadingReason,
     reasoning ? String(reasoning).slice(0, 4000) : null,
     features ? JSON.stringify(features) : null);
@@ -114,7 +127,7 @@ export function recordForwardPick(input = {}) {
     }
     throw e;
   }
-  return { ok: true, recorded_at: now, season, week, matchup: `${away} at ${home}`, side, source };
+  return { ok: true, recorded_at: nowIso, season, week, matchup: `${away} at ${home}`, side, source };
 }
 
 /**
@@ -135,7 +148,8 @@ export function settleForwardPicks() {
 
     const actualMargin = g.team_score - g.opp_score;
     const actualTotal = g.team_score + g.opp_score;
-    const closing = p.market === 'total' ? g.total : -g.spread;
+    const backedHome = p.side === p.home;
+    const closing = p.market === 'total' ? g.total : (backedHome ? g.spread : -g.spread);
 
     let result;
     let clv = null;
@@ -147,13 +161,14 @@ export function settleForwardPicks() {
         clv = over ? g.total - p.line_at_pick : p.line_at_pick - g.total;
       }
     } else {
-      const backedHome = p.side === p.home;
-      const line = p.line_at_pick != null ? p.line_at_pick : -g.spread;
-      const cover = actualMargin - (backedHome ? line : line);
-      result = cover === 0 ? 'Push' : (backedHome ? cover > 0 : cover < 0) ? 'Won' : 'Lost';
+      const line = p.line_at_pick != null ? p.line_at_pick : closing;
+      const sideMargin = backedHome ? actualMargin : -actualMargin;
+      const cover = sideMargin + line;
+      result = cover === 0 ? 'Push' : cover > 0 ? 'Won' : 'Lost';
       if (p.line_at_pick != null && closing != null) {
-        // Positive means the pick's number was better than the close.
-        clv = backedHome ? closing - p.line_at_pick : p.line_at_pick - closing;
+        // A larger handicap is always better for the backed team: -3 beats a
+        // close of -4, and +4 beats a close of +3.
+        clv = p.line_at_pick - closing;
       }
     }
 

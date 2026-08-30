@@ -13,6 +13,7 @@ import './nfl-advanced.js';
 // otherwise hit a missing table.
 import './nfl-pregame.js';
 import { rows } from '../db/index.js';
+import { nflKickoffDate } from './date-util.js';
 
 const r3 = n => n == null || !Number.isFinite(n) ? null : +n.toFixed(3);
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
@@ -91,8 +92,7 @@ function kickoffFor(season, week, team) {
   const g = rows('SELECT gameday,gametime FROM game_lines WHERE season=? AND week=? AND team=?', season, week, team)[0];
   if (!g?.gameday) return null;
   const time = /^\d{2}:\d{2}/.test(g.gametime ?? '') ? g.gametime : '23:59';
-  const d = new Date(`${g.gameday}T${time}:00Z`);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  return nflKickoffDate(g.gameday, time)?.toISOString() ?? null;
 }
 
 export function teamPlayerAvailability(season, week, team) {

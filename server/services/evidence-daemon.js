@@ -12,7 +12,7 @@ import { hasKey } from './odds-api.js';
 import { snapshotLines } from './line-shopping.js';
 import { capturePregameSnapshots } from './nfl-pregame.js';
 import { captureMlbPregame } from './mlb-pregame.js';
-import { appDate } from './date-util.js';
+import { appDate, nflKickoffDate } from './date-util.js';
 import { recordNflShadowBoard } from './shadow-ledger.js';
 
 db.exec(`
@@ -36,7 +36,9 @@ const HORIZONS = [
   ['T-60m', 60], ['T-15m', 15], ['close', 5]
 ];
 const iso = value => new Date(value).toISOString();
-const eventDate = (date, time = '12:00') => {
+const eventDate = (date, time = '12:00', sport = null) => {
+  if (sport === 'NFL') return nflKickoffDate(date, time) ?? new Date(NaN);
+  if (/T/.test(String(time))) return new Date(time);
   const normalized = /^\d{2}:\d{2}$/.test(String(time)) ? time : '12:00';
   return new Date(`${date}T${normalized}:00Z`);
 };
@@ -44,18 +46,22 @@ const addWindow = (sport, eventKey, at) => {
   for (const [horizon, minutes] of HORIZONS) {
     const due = minutes == null ? new Date() : new Date(at.getTime() - minutes * 60000);
     run(`INSERT INTO evidence_capture_windows (sport,event_key,event_at,horizon,due_at)
-         VALUES (?,?,?,?,?) ON CONFLICT(sport,event_key,horizon) DO NOTHING`,
+         VALUES (?,?,?,?,?) ON CONFLICT(sport,event_key,horizon) DO UPDATE SET
+           event_at=excluded.event_at,
+           due_at=CASE WHEN evidence_capture_windows.horizon='open'
+             THEN evidence_capture_windows.due_at ELSE excluded.due_at END
+         WHERE evidence_capture_windows.status IN ('queued','partial')`,
     sport, eventKey, iso(at), horizon, iso(due));
   }
 };
 
-/** Seed only upcoming events. Existing windows are immutable, not rewritten. */
+/** Seed upcoming events. Completed captures stay immutable; unrun schedule corrections are safe. */
 export function planEvidenceWindows() {
   const now = Date.now();
   const nfl = rows(`SELECT season,week,team,opponent,gameday,gametime FROM game_lines
     WHERE home=1 AND team_score IS NULL AND gameday IS NOT NULL ORDER BY gameday LIMIT 300`)
-    .filter(g => eventDate(g.gameday, g.gametime).getTime() > now - 6 * 3600e3);
-  for (const g of nfl) addWindow('NFL', `${g.season}:${g.week}:${g.team}:${g.opponent}`, eventDate(g.gameday, g.gametime));
+    .filter(g => eventDate(g.gameday, g.gametime, 'NFL').getTime() > now - 6 * 3600e3);
+  for (const g of nfl) addWindow('NFL', `${g.season}:${g.week}:${g.team}:${g.opponent}`, eventDate(g.gameday, g.gametime, 'NFL'));
 
   const mlb = rows(`SELECT game_pk,date,game_time FROM mlb_games WHERE date >= ? ORDER BY date LIMIT 120`, appDate())
     .filter(g => eventDate(g.date, g.game_time).getTime() > now - 6 * 3600e3);

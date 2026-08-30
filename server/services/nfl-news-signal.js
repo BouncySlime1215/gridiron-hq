@@ -8,6 +8,7 @@
  */
 import { db, rows } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
+import { nflKickoffDate } from './date-util.js';
 import { callClaude, getApiKey, parseJson } from './claude.js';
 
 db.exec(`
@@ -175,8 +176,8 @@ export function playerWeekNewsSignal(playerName, { season, week, team } = {}) {
   let before = new Date().toISOString();
   if (game?.gameday) {
     const time = /^\d{1,2}:\d{2}/.test(game.gametime ?? '') ? game.gametime : '23:59';
-    const parsed = new Date(`${game.gameday}T${time}:00Z`);
-    if (!Number.isNaN(parsed.getTime()) && parsed < new Date(before)) before = parsed.toISOString();
+    const parsed = nflKickoffDate(game.gameday, time);
+    if (parsed && parsed < new Date(before)) before = parsed.toISOString();
   }
   return playerNewsSignal(playerName, { team, before });
 }

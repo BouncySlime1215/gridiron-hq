@@ -303,7 +303,11 @@ export const RISK_MODES = {
  *   edge in this codebase and therefore the only one any of this applies to.
  */
 export function riskModes({ winProbability = null, americanPrice = -110, bankrollUnits = 100 } = {}) {
-  const p = Number.isFinite(winProbability) ? winProbability : null;
+  const p = winProbability == null ? null : Number(winProbability);
+  const price = Number(americanPrice), bankroll = Number(bankrollUnits);
+  if (p != null && (!Number.isFinite(p) || p <= 0 || p >= 1)) throw new RangeError('winProbability must be between 0 and 1');
+  if (!Number.isFinite(price) || price === 0 || (price > -100 && price < 100)) throw new RangeError('americanPrice is not valid American odds');
+  if (!Number.isFinite(bankroll) || bankroll <= 0) throw new RangeError('bankrollUnits must be positive');
   const modes = Object.entries(RISK_MODES).map(([id, m]) => {
     const growth = +(m.fraction * (2 - m.fraction)).toFixed(3);
     // a^(2/f − 1) for a = 0.5 and a = 0.25.
@@ -311,23 +315,24 @@ export function riskModes({ winProbability = null, americanPrice = -110, bankrol
     const halve = +Math.pow(0.5, exponent).toFixed(4);
     const quarter = +Math.pow(0.25, exponent).toFixed(4);
     const stake = p != null
-      ? kellyFraction({ winProbability: p, americanPrice, fraction: m.fraction })
+      ? kellyFraction({ winProbability: p, americanPrice: price, fraction: m.fraction })
       : null;
     return {
       id, label: m.label, kelly_fraction: m.fraction, plan: m.plan,
       growth_share_of_max: growth,
-      chance_of_ever_halving: halve,
-      chance_of_ever_losing_three_quarters: quarter,
-      stake_units: stake?.stake_fraction != null ? +(stake.stake_fraction * bankrollUnits).toFixed(2) : null,
+      theoretical_chance_of_ever_halving: halve,
+      theoretical_chance_of_ever_losing_three_quarters: quarter,
+      stake_units: stake?.stake_fraction != null ? +Math.min(bankroll, stake.stake_fraction * bankroll).toFixed(2) : null,
       // Said in words, because a probability of 0.5 for "you will at some point
       // halve your bankroll" is the kind of number people skim past.
       reads_as: `${Math.round(growth * 100)}% of the best possible growth, and a ` +
-        `${halve >= 0.01 ? `${Math.round(halve * 100)}%` : 'well under 1%'} chance of halving your ` +
-        'bankroll at some point along the way.'
+        `${halve >= 0.01 ? `${Math.round(halve * 100)}%` : 'well under 1%'} theoretical chance of ` +
+        'halving under idealized fractional-Kelly assumptions.'
     };
   });
   return {
     modes,
+    risk_note: 'Drawdown figures are idealized fractional-Kelly approximations. Real outcomes can be worse when bets are correlated or the estimated edge is wrong.',
     applies_to: 'Edges measured at bet time — a better price than the market, or a teaser through ' +
       'the key numbers. Model forecasts stake zero in every mode until they show closing-line value.',
     the_question_this_answers:

@@ -99,9 +99,8 @@ How to get past it — macOS 14 or older:
   2. Choose Open from the menu.
   3. Click Open in the dialog.
 
-You only do this once. The installer's first action is to clear the
-download flag from every other file in the project, so the Start
-launcher and the Desktop shortcut never ask.
+After you approve the installer once, it clears the download flag only
+from this extracted Gridiron HQ folder so future launches open normally.
 
 If you would rather read the script before running it, open it in
 TextEdit — it is plain text and about sixty lines.
@@ -130,9 +129,9 @@ If you do not see "More info", the file is still marked as blocked:
   2. At the bottom of the General tab, tick "Unblock".
   3. Click OK, then double-click the file again.
 
-You only do this once. The installer's first action is to unblock
-every other file in the project, so the Start launcher and the
-Desktop shortcut never ask.
+After you approve the installer once, it clears the download mark only
+from this extracted Gridiron HQ folder and uses a one-process PowerShell
+override so future launches open normally. It does not change system policy.
 
 Your antivirus may also flag the installer simply for downloading
 Node.js. If it quarantines the file, allow it — or install Node

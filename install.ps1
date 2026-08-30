@@ -71,6 +71,12 @@ if (-not (Test-NodeOk)) {
 
       $ProgressPreference = 'SilentlyContinue'   # the progress bar makes this ~10x slower
       Invoke-WebRequest -Uri "https://nodejs.org/dist/$ver/$zipName.zip" -OutFile $zip -TimeoutSec 600
+      $sums = Invoke-WebRequest -Uri "https://nodejs.org/dist/$ver/SHASUMS256.txt" -TimeoutSec 60
+      $expectedLine = ($sums.Content -split "`n") | Where-Object { $_ -match "\s$([regex]::Escape($zipName)).zip\s*$" } | Select-Object -First 1
+      if (-not $expectedLine) { throw 'Official checksum did not list the downloaded Node archive.' }
+      $expected = ($expectedLine.Trim() -split '\s+')[0].ToLowerInvariant()
+      $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($actual -ne $expected) { throw 'Node download failed its SHA-256 verification.' }
       Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
 
       New-Item -ItemType Directory -Path $privateRoot -Force | Out-Null
@@ -82,15 +88,6 @@ if (-not (Test-NodeOk)) {
       Write-Host "  + Installed Node $ver privately (~\.gridiron\node)" -ForegroundColor Green
     } catch {
       Write-Host "  ! Private Node download failed: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-  }
-
-  # Last resort only, because of the UAC prompt and the PATH problem above.
-  if (-not (Test-NodeOk)) {
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if ($winget) {
-      Write-Host "  Trying winget (a Windows security prompt may appear - click Yes)..."
-      try { winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements | Out-Null } catch {}
     }
   }
 

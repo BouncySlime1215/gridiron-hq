@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { ConnectedNewsHub } from '../features/news/NewsHub';
@@ -52,15 +52,20 @@ function SignalFeed() {
   const [team, setTeam] = useState('');
   const { data, refetch } = useApi<any>(`/news/signals${team ? `?team=${team}` : ''}`);
   const { data: teams } = useApi<any[]>('/teams');
+  useEffect(() => {
+    if (!data?.signals?.some((signal: any) => signal.tracking?.status === 'game_day')) return;
+    const timer = window.setInterval(() => refetch(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [data?.signals, refetch]);
 
   return (
     <div>
       <TwitterStatus />
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold">Signal Feed</h1>
+          <h1 className="text-2xl font-bold">News → Fantasy Model Tracker</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Typed availability and role claims, extracted with a verbatim quote from the source story.
+            Every sourced claim gets a cutoff-safe next-game scenario, projected usage, and a real outcome check.
             {data?.scope === 'my_roster' && <> Scoped to your {data.roster_size} rostered players.</>}
           </p>
         </div>
@@ -79,6 +84,16 @@ function SignalFeed() {
           {data.coverage.recent_material_untyped > 0 && (
             <span className="text-amber-600">{data.coverage.recent_material_untyped} recent stories look material but haven't been typed yet</span>
           )}
+        </div>
+      )}
+
+      {data?.tracker && (
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <TrackerMetric label="Modeled" value={data.tracker.modeled} />
+          <TrackerMetric label="Awaiting game" value={data.tracker.awaiting} />
+          <TrackerMetric label="Settled" value={data.tracker.settled} />
+          <TrackerMetric label="Confirmed" value={data.tracker.confirmed} tone="good" />
+          <TrackerMetric label="Missed" value={data.tracker.missed} tone={data.tracker.missed ? 'bad' : undefined} />
         </div>
       )}
 
@@ -108,6 +123,49 @@ function SignalFeed() {
             <div className="text-[11px] text-slate-400 mt-1.5">
               {s.source}{s.story_url && <> · <a href={s.story_url} target="_blank" rel="noreferrer" className="text-[var(--accent)] hover:underline">source</a></>}
             </div>
+            {s.fantasy_model?.available ? (
+              <div className="mt-3 grid gap-2 border-t border-slate-200 pt-3 lg:grid-cols-[1.1fr_1fr_1fr]">
+                <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[10px] font-black uppercase tracking-wide text-sky-700">Projected outcome</div>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-bold text-sky-700 ring-1 ring-sky-200">SHADOW</span>
+                  </div>
+                  <div className="mt-1 flex items-baseline gap-2">
+                    <span className="text-2xl font-black text-slate-950">{s.fantasy_model.projected_points}</span>
+                    <span className="text-xs text-slate-500">PPR pts</span>
+                    <span className={`text-xs font-bold ${s.fantasy_model.projected_points >= s.fantasy_model.baseline_points ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {signed(s.fantasy_model.projected_points - s.fantasy_model.baseline_points)} vs baseline
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-500">Likely range {s.fantasy_model.p10}–{s.fantasy_model.p90} · active {s.fantasy_model.active_probability}%</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Projected fantasy usage</div>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700">
+                    {s.fantasy_model.projected_usage.attempts > 0 && <b>{s.fantasy_model.projected_usage.attempts} att</b>}
+                    {s.fantasy_model.projected_usage.targets > 0 && <b>{s.fantasy_model.projected_usage.targets} tgt</b>}
+                    {s.fantasy_model.projected_usage.carries > 0 && <b>{s.fantasy_model.projected_usage.carries} car</b>}
+                    {s.fantasy_model.projected_usage.target_share > 0 && <b>{s.fantasy_model.projected_usage.target_share}% tgt share</b>}
+                  </div>
+                  <div className={`mt-1 text-[11px] font-bold ${s.fantasy_model.usage_delta_percent >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {signed(s.fantasy_model.usage_delta_percent)}% expected opportunity impact
+                  </div>
+                </div>
+                <div className={`rounded-xl border p-3 ${s.tracking?.status === 'confirmed' ? 'border-emerald-200 bg-emerald-50' : s.tracking?.status === 'missed' ? 'border-rose-200 bg-rose-50' : 'border-amber-200 bg-amber-50'}`}>
+                  <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Live model check</div>
+                  <div className="mt-1 text-sm font-black text-slate-900">{s.tracking?.label}</div>
+                  <div className="mt-0.5 text-[11px] text-slate-600">
+                    {s.target_game?.gameday} vs {s.target_game?.opponent}
+                    {s.tracking?.actual && <> · {s.tracking.actual.fantasy_points} pts · {usageLine(s.tracking.actual)}</>}
+                  </div>
+                </div>
+                <p className="text-[10px] leading-4 text-slate-400 lg:col-span-3">
+                  Model cutoff: {s.fantasy_model.cutoff}. {s.fantasy_model.note}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">Projection unavailable: {s.fantasy_model?.reason}</p>
+            )}
           </div>
         ))}
       </div>
@@ -116,7 +174,7 @@ function SignalFeed() {
 }
 
 export default function News() {
-  const [view, setView] = useState<'log' | 'feed' | 'signals'>('feed');
+  const [view, setView] = useState<'log' | 'feed' | 'signals'>('signals');
   const [date, setDate] = useState<string>('');
   const [teamFilter, setTeamFilter] = useState('');
   const { data: dates, refetch: refetchDates } = useApi<string[]>('/news/dates');
@@ -210,7 +268,7 @@ export default function News() {
           onClick={() => setView('feed')}>Intelligence Desk</button>
         <button role="tab" aria-selected={view === 'signals'}
           className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${view === 'signals' ? 'border-[var(--accent)] text-[var(--accent)]' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-          onClick={() => setView('signals')} title="Typed, evidence-quoted claims — not freshly-generated prose">Typed Signals</button>
+          onClick={() => setView('signals')} title="Projected fantasy impact and forward outcome tracking">Model Tracker</button>
       </div>
       {view === 'feed' ? <ConnectedNewsHub /> : view === 'signals' ? <SignalFeed /> : <>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -362,4 +420,22 @@ export default function News() {
       </>}
     </div>
   );
+}
+
+const signed = (value: number) => `${value >= 0 ? '+' : ''}${Number(value || 0).toFixed(1)}`;
+
+function usageLine(actual: any) {
+  const parts = [];
+  if (actual.attempts) parts.push(`${actual.attempts} att`);
+  if (actual.targets) parts.push(`${actual.targets} tgt`);
+  if (actual.carries) parts.push(`${actual.carries} car`);
+  if (actual.snap_share != null) parts.push(`${actual.snap_share}% snaps`);
+  return parts.join(' · ') || 'no offensive usage';
+}
+
+function TrackerMetric({ label, value, tone }: { label: string; value: number; tone?: 'good' | 'bad' }) {
+  return <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
+    <div className={`text-lg font-black ${tone === 'good' ? 'text-emerald-700' : tone === 'bad' ? 'text-rose-700' : 'text-slate-900'}`}>{value}</div>
+  </div>;
 }

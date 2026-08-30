@@ -72,7 +72,7 @@ export function PlayerPill({ p, tone = 'slate' }: { p: any; tone?: 'give' | 'get
   return (
     <button
       onClick={() => open(p.id)}
-      title={`${p.proj ?? '?'} projected pts · market ${p.value?.toLocaleString() ?? '?'}${p.bye ? ` · bye ${p.bye}` : ''}`}
+      title={`Week ${p.matchup?.week ?? '?'}: ${p.current_week_ppg ?? p.adj_ppg ?? '?'} pts · ROS ${p.ros_ppg ?? p.ppg ?? '?'} ppg · active ${p.active_probability == null ? '?' : Math.round(p.active_probability * 100) + '%'} · market ${p.value?.toLocaleString() ?? '?'}${p.bye ? ` · bye ${p.bye}` : ''}`}
       className="inline-flex items-center gap-2 py-1 pr-2.5 rounded-full border border-[var(--edge)] bg-white/70 text-xs hover:border-slate-400 transition-colors">
       <Headshot src={headshotUrl(p)} pos={p.position} size={26} />
       <span className="font-semibold text-[var(--ink)]">{p.name}</span>
@@ -203,6 +203,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <span className={`text-[11px] ${FAIRNESS_TONE[deal.fairness] ?? 'text-[var(--muted)]'}`}>
           {deal.fairness}
         </span>
+        {deal.manager_tradeability === 'hard' && <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">HARD TO TRADE WITH</span>}
         {deal.joint_ppg != null && (
           <span className="text-[10px] text-[var(--muted)]" title="Combined lineup gain — the surplus that makes a trade possible at all">
             joint {num(deal.joint_ppg)}

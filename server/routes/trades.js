@@ -329,6 +329,7 @@ r.get('/:leagueId/rosters', (req, res, next) => {
     const slots = lineupSlots(lg);
     res.json({
       my_team_id: lg.my_team_id,
+      model_context: assets.context,
       slots,
       teams: teams.map(t => {
         const line = bestLineup(t.players, slots);

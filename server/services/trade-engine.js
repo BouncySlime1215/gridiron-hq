@@ -25,6 +25,9 @@ import { analyzeLeague } from '../routes/tradelab.js';
 import { scheduleOutlook, relevantSplits, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { SLOT_NAME } from './espn-draft.js';
 import { seasonEndingEspnIds } from './player-availability.js';
+import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
+import { weeklyAvailability } from './contingency.js';
+import { scoringFor } from './scoring.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -67,7 +70,16 @@ function rosterContext(lg) {
  *
  * @returns {Map<number, object>} player id -> asset
  */
-export function assetUniverse(lg, formatKey) {
+export function tradeWeekContext() {
+  const week = Number(process.env.NFL_WEEK) || rows(`SELECT MIN(week) AS week FROM game_lines
+    WHERE season=? AND team_score IS NULL`, SEASON)[0]?.week || 1;
+  return { season: SEASON, week: Math.max(1, Math.min(18, Number(week))) };
+}
+
+export function assetUniverse(lg, formatKey, requested = null) {
+  const target = requested ?? tradeWeekContext();
+  const weekly = buildPlayerWeekEngine({ season: target.season, week: target.week, scoring: scoringFor(lg) });
+  const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
   const vol = volatility();
   const market = new Map(rows(
@@ -89,17 +101,31 @@ export function assetUniverse(lg, formatKey) {
   for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id`)) {
     const v = board.get(p.id), w = vol.get(p.id), m = market.get(p.id);
+    const weekProjection = weekly.get(p.id);
     const proj = v?.proj ?? 0;
     const sched = p.team_abbr && SCORED.has(p.position)
-      ? scheduleOutlook(p.team_abbr, p.position)
+      ? scheduleOutlook(p.team_abbr, p.position, target.week)
       : { sos: 1, playoff_sos: 1, bye: null, best: [], worst: [], playoff_games: [] };
     const tr = trending.get(p.id);
+    const availability = active.get(p.id);
+    const activeProbability = availability?.active_probability ?? 0.92;
+    const weeklyPpg = weekProjection?.ppg ?? (proj / GAMES);
+    const thisGame = sched.games?.find(game => game.week === target.week) ?? null;
+    const currentWeekPpg = thisGame ? weeklyPpg * thisGame.mult * activeProbability : 0;
+    const rosPpg = weeklyPpg * sched.sos;
+    // A trade is a rest-of-season decision, not DFS. The live week matters, but
+    // it cannot erase the remaining schedule or turn a bye into a player-value
+    // collapse. The weekly engine itself refreshes from every completed week.
+    const decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg;
+    const weekDist = weekProjection
+      ? playerWeekDistribution(weekProjection, { runs: 400, activeProbability, mult: thisGame?.mult ?? 1 })
+      : null;
 
     out.set(p.id, {
       id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
       espn_id: p.espn_id, sleeper_id: p.sleeper_id,
-      proj: +proj.toFixed(1),
-      ppg: +(proj / GAMES).toFixed(2),
+      proj: +(weeklyPpg * Math.max(1, 18 - target.week)).toFixed(1),
+      ppg: +weeklyPpg.toFixed(2),
       vor: v?.vor ?? 0,
       adp: v?.adp ?? null,
       value: m?.value ?? 0,
@@ -108,20 +134,35 @@ export function assetUniverse(lg, formatKey) {
       age: m?.age ?? ageByPlayer.get(p.id) ?? null,
       // Weekly shape from real boxscores — this is what separates two players who
       // project for the same total.
-      floor: w?.floor ?? null, ceiling: w?.ceiling ?? null, avg: w?.avg ?? null,
-      boom: w?.boom_rate ?? null, bust: w?.bust_rate ?? null,
+      floor: weekDist?.p10 ?? w?.floor ?? null, ceiling: weekDist?.p90 ?? w?.ceiling ?? null, avg: weekDist?.mean ?? w?.avg ?? null,
+      boom: weekDist?.boom_rate ?? w?.boom_rate ?? null, bust: weekDist?.bust_rate ?? w?.bust_rate ?? null,
       consistency: w?.consistency ?? null, logged_games: w?.games ?? null,
-      injury: injured.has(p.id) ? 1 : 0,
+      injury: injured.has(p.id) || !!(availability?.report_status && !/probable/i.test(availability.report_status)) ? 1 : 0,
       available: !(p.espn_id && seasonEnding.has(p.espn_id)),
       trend_kind: tr?.kind ?? null, trend_count: tr?.count ?? null,
       // Schedule-adjusted: the number the lineup solver actually optimises.
       sos: sched.sos, playoff_sos: sched.playoff_sos, bye: sched.bye,
-      adj_ppg: +((proj / GAMES) * sched.sos).toFixed(2),
-      playoff_ppg: +((proj / GAMES) * sched.playoff_sos).toFixed(2),
+      adj_ppg: +decisionPpg.toFixed(2),
+      current_week_ppg: +currentWeekPpg.toFixed(2),
+      ros_ppg: +rosPpg.toFixed(2),
+      active_probability: +activeProbability.toFixed(3),
+      injury_status: availability?.report_status ?? null,
+      practice_status: availability?.practice_status ?? null,
+      model_cutoff: weekProjection?.player_week_engine?.cutoff ?? `${target.season}-W${Math.max(0, target.week - 1)}`,
+      model_mode: weekProjection?.player_week_engine?.mode ?? 'season_projection_fallback',
+      role_change: weekProjection?.player_week_engine?.role_change ?? null,
+      matchup: thisGame,
+      playoff_ppg: +(weeklyPpg * sched.playoff_sos).toFixed(2),
       best_matchups: sched.best, worst_matchups: sched.worst,
       playoff_games: sched.playoff_games
     });
   }
+  out.context = {
+    season: target.season, week: target.week,
+    cutoff: `${target.season}-W${Math.max(0, target.week - 1)}`,
+    engine: 'player-week-v2.1 + weekly availability + current/remaining schedule',
+    decision_horizon: '25% current week, 75% rest-of-season rate; dynasty market value remains a separate price axis'
+  };
   return out;
 }
 
@@ -333,7 +374,11 @@ const slim = p => ({
   value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
   age: p.age, bye: p.bye, injury: p.injury, available: p.available !== false,
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
-  sos: p.sos, playoff_sos: p.playoff_sos
+  sos: p.sos, playoff_sos: p.playoff_sos,
+  current_week_ppg: p.current_week_ppg, ros_ppg: p.ros_ppg,
+  active_probability: p.active_probability, injury_status: p.injury_status,
+  practice_status: p.practice_status, model_cutoff: p.model_cutoff,
+  role_change: p.role_change, matchup: p.matchup
 });
 
 function fairnessLabel(delta, total) {
@@ -393,12 +438,16 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
   if (!me) return { error: 'your team not found in this league' };
   const target = targetId ? resolvePlayer(targetId, assets, teams)?.id ?? null : null;
   const context = rosterContext(lg);
+  const managerProfiles = new Map(rows(`SELECT roster_id,tradeability FROM manager_profiles WHERE league_id=?`, lg.id)
+    .map(profile => [String(profile.roster_id), profile.tradeability]));
+  const blockedManagers = new Set([...managerProfiles].filter(([, tier]) => tier === 'never').map(([id]) => id));
 
   const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
 
   for (const them of teams) {
     if (them.roster_id === me.roster_id) continue;
+    if (blockedManagers.has(String(them.roster_id))) continue;
     const theirCtx = context.get(String(them.roster_id));
     let theirPool = candidates(them, slots);
     if (target) {
@@ -425,10 +474,31 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
           { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window });
-        if (ev.me.ppg_delta <= 0.15) continue;
+        if (ev.me.ppg_delta < 0.4) continue;
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.
         if (ev.them.new_holes.length > 0) continue;
+        if (ev.their_value_pct < -12 || ev.their_value_pct > 18) continue;
+
+        // Remove combinatorial noise: if deleting any one player leaves both
+        // lineup deltas effectively unchanged, that player is a decorative
+        // throw-in and this is not the cleanest version of the deal.
+        const redundant = [
+          ...give.map(player => ({ side: 'give', player })),
+          ...get.map(player => ({ side: 'get', player }))
+        ].some(({ side, player }) => {
+          if (target && side === 'get' && player.id === target) return false;
+          const leanGive = side === 'give' ? give.filter(x => x.id !== player.id) : give;
+          const leanGet = side === 'get' ? get.filter(x => x.id !== player.id) : get;
+          if (!leanGive.length || !leanGet.length) return false;
+          const lean = evaluate({ team: me, gives: leanGive }, { team: them, gives: leanGet }, slots,
+            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window });
+          return lean.me.ppg_delta >= ev.me.ppg_delta - 0.05
+            && lean.them.ppg_delta >= ev.them.ppg_delta - 0.05;
+        });
+        if (redundant) continue;
+        const managerFactor = managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1;
+        const fairnessFactor = 1 / (1 + Math.exp(-(ev.their_value_pct + 4) / 10));
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
           i_give: give.map(slim), i_get: get.map(slim),
@@ -436,7 +506,8 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
           // Lineup gain is the point, but among deals that land the same lineup the
           // one where I surrender less market value is strictly better — without this
           // term the ranking is indifferent to throwing in a free asset.
-          score: +(ev.me.ppg_delta * 2 + ev.them.ppg_delta + ev.me.value_delta / 2000).toFixed(3)
+          manager_tradeability: managerProfiles.get(String(them.roster_id)) ?? 'fair',
+          score: +(managerFactor * fairnessFactor * (ev.me.ppg_delta + 0.2 * ev.joint_ppg)).toFixed(3)
         });
       }
     }
@@ -455,25 +526,12 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
     return true;
   });
 
-  let result = unique;
-  let fellBack = false;
-  if (requireMutual) {
-    const acceptable = unique.filter(d => d.plausible);
-    if (acceptable.length) result = acceptable;
-    else {
-      // Nothing cleared the bar — this happens to teams whose tradeable value is
-      // concentrated in one or two starters with no bench left to sweeten a deal
-      // (see evaluate()). Showing an empty page reads as the feature being broken;
-      // showing the closest available offers, honestly marked as a stretch, is more
-      // useful than a dead end and is still exactly the ranked list — just without
-      // pretending any of them clear the "fair" bar.
-      result = unique.slice(0, limit);
-      fellBack = unique.length > 0;
-    }
-  }
+  const result = requireMutual
+    ? unique.filter(d => d.mutual && d.plausible && d.red_flags.length === 0)
+    : unique;
 
-  return { me: { roster_id: me.roster_id, owner: me.owner }, slots, considered: deals.length,
-           fell_back: fellBack, deals: result.slice(0, limit) };
+  return { me: { roster_id: me.roster_id, owner: me.owner }, slots, model_context: assets.context, considered: deals.length,
+           excluded_never_trade: [...blockedManagers], deals: result.slice(0, limit) };
 }
 
 /**
@@ -511,6 +569,9 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
   const owner = teams.find(t => t.players.some(p => p.id === target.id));
   if (!owner) return { error: 'that player is not on a roster in this league' };
   if (owner.roster_id === me.roster_id) return { error: 'you already own him' };
+  const blocked = rows(`SELECT 1 FROM manager_profiles WHERE league_id=? AND roster_id=? AND tradeability='never'`,
+    lg.id, String(owner.roster_id))[0];
+  if (blocked) return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
   const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
 
   // How motivated is the seller? A team with surplus at his position and a hole
@@ -533,6 +594,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
     .sort((a, b) => a.adj_ppg - b.adj_ppg)[0];
 
   const context = {
+    model_context: assets.context,
     target: slim(target), owner: owner.owner, owner_id: owner.roster_id,
     their_cost: theirCost, replaceable, upside_ppg: upside,
     leverage: replaceable
@@ -656,6 +718,13 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
 
   const ladders = [];
   for (const { team: owner, targets: theirTargets } of byOwner.values()) {
+    const blocked = rows(`SELECT 1 FROM manager_profiles WHERE league_id=? AND roster_id=? AND tradeability='never'`,
+      lg.id, String(owner.roster_id))[0];
+    if (blocked) {
+      ladders.push({ targets: theirTargets.map(slim), owner: owner.owner, owner_id: owner.roster_id,
+        error: `${owner.owner} is marked "Never trades," so no offers were generated.` });
+      continue;
+    }
     const ownerCtx = context.get(String(owner.roster_id));
     const targetsValue = theirTargets.reduce((s, p) => s + Math.max(0, p.value), 0);
 
@@ -723,7 +792,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
     ladders.push({ ...base, offers, fair: byEfficiency[0], alternatives: byEfficiency.slice(1, 5) });
   }
 
-  return { me: { roster_id: me.roster_id, owner: me.owner }, ladders };
+  return { me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context, ladders };
 }
 
 /* --------------------------------------------------------------- self scout */

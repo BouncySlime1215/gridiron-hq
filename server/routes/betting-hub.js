@@ -138,14 +138,26 @@ r.get('/execution/board', (req, res, next) => {
 r.get('/risk-modes', (req, res, next) => {
   try {
     const hist = wongHistory();
-    const p = Number(req.query.win_probability) || (hist.win_rate ? hist.win_rate ** 2 : null);
+    const supplied = req.query.win_probability != null;
+    const p = supplied ? Number(req.query.win_probability) : (hist.win_rate ? hist.win_rate ** 2 : null);
+    const price = req.query.price == null ? -110 : Number(req.query.price);
+    const bankroll = req.query.bankroll == null ? 100 : Number(req.query.bankroll);
+    if (supplied && (!Number.isFinite(p) || p <= 0 || p >= 1)) {
+      return res.status(400).json({ error: 'win_probability must be a number strictly between 0 and 1' });
+    }
+    if (!Number.isFinite(price) || price === 0 || (price > -100 && price < 100)) {
+      return res.status(400).json({ error: 'price must be valid American odds (at most -100 or at least +100)' });
+    }
+    if (!Number.isFinite(bankroll) || bankroll <= 0 || bankroll > 1_000_000_000) {
+      return res.status(400).json({ error: 'bankroll must be a positive number no greater than 1,000,000,000 units' });
+    }
     res.json({
       ...riskModes({
         winProbability: p,
-        americanPrice: Number(req.query.price) || -110,
-        bankrollUnits: Number(req.query.bankroll) || 100
+        americanPrice: price,
+        bankrollUnits: bankroll
       }),
-      priced_on: Number(req.query.win_probability)
+      priced_on: supplied
         ? 'the win probability you supplied'
         : `a two-leg Wong teaser at ${(hist.win_rate * 100).toFixed(2)}% per leg over ${hist.legs} legs`
     });

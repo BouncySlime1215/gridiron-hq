@@ -77,16 +77,6 @@ const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
 
-run(`CREATE TABLE IF NOT EXISTS manager_profiles (
-  league_id    INTEGER NOT NULL,
-  roster_id    TEXT    NOT NULL,
-  owner        TEXT,
-  tradeability TEXT    NOT NULL DEFAULT 'fair',
-  notes        TEXT,
-  updated_at   TEXT,
-  PRIMARY KEY (league_id, roster_id)
-)`);
-
 /**
  * How willing each manager is, and what that does to a deal.
  *
@@ -166,17 +156,28 @@ export function managerProfiles(leagueId) {
 
 /** Record what you know about a manager. */
 export function setManagerProfile(leagueId, rosterId, { tradeability, notes = null, owner = null }) {
+  const id = String(rosterId ?? '').trim();
+  if (!id) return { error: 'roster id is required' };
   if (!TRADEABILITY[tradeability]) {
     return { error: `unknown tier "${tradeability}" — expected one of ${Object.keys(TRADEABILITY).join(', ')}` };
   }
+  const profiles = managerProfiles(leagueId);
+  if (profiles.error) return profiles;
+  if (!profiles.managers.some(manager => String(manager.roster_id) === id)) {
+    return { error: 'roster is not part of this synced league' };
+  }
+  const cleanNotes = notes == null ? null : String(notes).trim();
+  const cleanOwner = owner == null ? null : String(owner).trim();
+  if (cleanNotes && cleanNotes.length > 500) return { error: 'notes must be 500 characters or fewer' };
+  if (cleanOwner && cleanOwner.length > 160) return { error: 'owner must be 160 characters or fewer' };
   run(`INSERT INTO manager_profiles (league_id, roster_id, owner, tradeability, notes, updated_at)
        VALUES (?,?,?,?,?,?)
        ON CONFLICT(league_id, roster_id) DO UPDATE SET
          tradeability = excluded.tradeability, notes = excluded.notes,
          owner = COALESCE(excluded.owner, manager_profiles.owner),
          updated_at = excluded.updated_at`,
-  leagueId, String(rosterId), owner, tradeability, notes, new Date().toISOString());
-  return { ok: true, roster_id: String(rosterId), tradeability };
+  leagueId, id, cleanOwner || null, tradeability, cleanNotes || null, new Date().toISOString());
+  return { ok: true, roster_id: id, tradeability };
 }
 
 /**
@@ -214,7 +215,13 @@ export function acceptProbability(tier, { theirEdgePct = 0, theirPpgDelta = 0 } 
   // slightly losing to the person being asked, which is the endowment effect and
   // the most reliable bias in this setting.
   const shaped = 1 / (1 + Math.exp(-(attractiveness - 6) / 12));
-  return r3(Math.max(0.005, Math.min(0.97, t.responsiveness * shaped)));
+  // Market value cannot buy back a lineup crater. This was the exact defect
+  // that put Chase Brown -> Joe Burrow first: +38% of abstract value was scored
+  // as 67% acceptance even though the recipient lost 0.91 starter points/week.
+  // Below zero, consent falls exponentially; positive lineup impact is unchanged.
+  const lineupConsent = ppg < 0 ? Math.exp(ppg * 3.2) : 1;
+  return r3(Math.max(t.responsiveness * 0.02,
+    Math.min(0.97, t.responsiveness * shaped * lineupConsent)));
 }
 
 /**
@@ -332,8 +339,10 @@ export function brainState(leagueId, myTeamId = null) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
+  if (!teams.length) return { error: 'league sync contains no rosters yet' };
   const slots = lineupSlots(lg);
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
+  if (!me) return { error: 'your roster could not be resolved from the league sync' };
 
   // League-wide positional scarcity: a weakness at a position everyone is deep
   // at is cheap to fix, and one at a scarce position is not. Same deficit, very
@@ -378,8 +387,9 @@ export function brainState(leagueId, myTeamId = null) {
 
   return {
     league: lg.name, owner: me.owner, roster_id: me.roster_id,
+    model_context: assets.context,
     lineup_points: r2(myPoints), rank: myRank, of: teams.length,
-    gap_to_first: r2(ranked[0].points - myPoints),
+    gap_to_first: r2((ranked[0]?.points ?? myPoints) - myPoints),
     standings: ranked.map((t, i) => ({ ...t, rank: i + 1, points: r2(t.points),
       is_me: t.roster_id === me.roster_id })),
     weaknesses, strengths, scarcity,
@@ -463,25 +473,49 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
     const them = teams.find(t => t.roster_id === p.roster_id);
     const deals = enumerateDeals(me, them, slots, scoutOf, 2);
     for (const d of deals) {
-      const ev = evaluate({ team: me, gives: d.mine }, { team: them, gives: d.theirs }, slots);
+      const theirNeeds = new Set(SKILL.filter(position => (scoutOf.get(them.roster_id)?.[position]?.need ?? 0) >= 0.55));
+      const ev = evaluate({ team: me, gives: d.mine }, { team: them, gives: d.theirs }, slots, { theirNeeds });
       const myGain = ev.me.ppg_delta;
       const theirGain = ev.them.ppg_delta;
       // `their_value_pct` is already the share of crossing value they gain, on
       // exactly the scale acceptProbability expects.
       const theirEdgePct = ev.their_value_pct ?? 0;
-      if (myGain <= 0.1) continue;                       // pointless for me
+      if (myGain < 0.5) continue;                        // too small to change a weekly decision
       // The engine's own plausibility check already rules out packages that gut
       // the other roster; no reason to re-derive that judgement here.
       if (!ev.plausible) continue;
+      if (ev.red_flags.length) continue;
+      // A recommendation must improve both optimal lineups. Value-only
+      // sweeteners are useful as negotiation pieces, but they are not a
+      // sendable top-level trade when the other manager gets worse on Sunday.
+      if (theirGain <= 0.05) continue;
+      if (theirEdgePct > 18) continue;                   // buying acceptance with an obvious overpay
+
+      // Every player in a recommended package must change at least one side's
+      // optimal lineup. This strips the cosmetic throw-ins that made the old
+      // page show Waddle + Addison when Waddle alone produced the exact same
+      // result, and the equally fake request for a bench player who changes none.
+      const removable = [
+        ...d.mine.map(player => ({ side: 'mine', player })),
+        ...d.theirs.map(player => ({ side: 'theirs', player }))
+      ].some(({ side, player }) => {
+        const leanMine = side === 'mine' ? d.mine.filter(x => x.id !== player.id) : d.mine;
+        const leanTheirs = side === 'theirs' ? d.theirs.filter(x => x.id !== player.id) : d.theirs;
+        if (!leanMine.length || !leanTheirs.length) return false;
+        const lean = evaluate({ team: me, gives: leanMine }, { team: them, gives: leanTheirs }, slots);
+        return lean.me.ppg_delta >= myGain - 0.05 && lean.them.ppg_delta >= theirGain - 0.05;
+      });
+      if (removable) continue;
 
       const pAccept = acceptProbability(p.tier, { theirEdgePct, theirPpgDelta: theirGain });
       const nash = nashProduct(myGain, theirGain);
-      const denial = denialValue(
-        // What they lose in lineup terms by giving up these players.
-        Math.max(0, -(theirGain)), p.rank ?? teams.length, teams.length);
-      // Expected value is the ranking key. Nash and denial are reported so the
-      // ordering can be argued with, not folded invisibly into one score.
-      const expected = r3(pAccept * (myGain + 0.35 * denial));
+      const threat = Math.max(0, (teams.length - (p.rank ?? teams.length)) / Math.max(1, teams.length - 1));
+      const rivalTax = r3(theirGain * threat * 0.35);
+      // Helping a contender is not free. Rank on expected net lineup gain after
+      // charging part of their gain back to us, then use mutual surplus and our
+      // raw gain as deterministic tie-breakers below.
+      const expected = r3(pAccept * Math.max(0, myGain - rivalTax));
+      if (expected < 0.15) continue;
 
       moves.push({
         partner: p.owner, partner_roster_id: p.roster_id,
@@ -492,23 +526,29 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
         their_value_edge_pct: r2(theirEdgePct),
         accept_probability: pAccept,
         nash_product: nash,
-        denial_value: denial,
+        rival_tax: rivalTax,
         expected_value: expected,
+        grade: expected >= 0.7 && pAccept >= 0.45 ? 'SMASH' : expected >= 0.35 ? 'STRONG' : 'VIABLE',
         pitch: pitchFor(p, d, myGain, theirGain, theirEdgePct)
       });
     }
   }
 
-  moves.sort((a, b) => b.expected_value - a.expected_value);
+  moves.sort((a, b) => b.expected_value - a.expected_value
+    || b.nash_product - a.nash_product || b.my_ppg_gain - a.my_ppg_gain);
 
   // At most two offers per manager in the shortlist. Without this one partner
   // whose roster happens to fit yours takes every slot, and a plan that says
   // "text the same guy seven times" is not a plan — the point of ranking by
   // acceptance is to spread the asking across people who might say yes.
   const perPartner = new Map();
+  const seenTargetIdeas = new Set();
   const spread = moves.filter(m => {
+    const idea = `${m.partner_roster_id}|${m.you_get.map(player => player.name).sort().join('+')}`;
+    if (seenTargetIdeas.has(idea)) return false;
     const n = perPartner.get(m.partner_roster_id) ?? 0;
     if (n >= 2) return false;
+    seenTargetIdeas.add(idea);
     perPartner.set(m.partner_roster_id, n + 1);
     return true;
   });
@@ -520,7 +560,7 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
 
   return {
     ...state,
-    partners,
+    partners: partners.filter(p => !p.skip),
     unreachable: partners.filter(p => p.skip).map(p => p.owner),
     moves: spread.slice(0, limit),
     moves_considered: moves.length,
@@ -534,8 +574,8 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
     assumptions: [
       'Acceptance probabilities come from the tier you set for each manager, not from ' +
         'trade history — there is not enough of it in any fantasy league to fit a curve on.',
-      'Deals are scored on optimal-lineup points per week. That ignores schedule and ' +
-        'playoff seeding, both of which matter and neither of which is modelled here.',
+      'Only deals that improve both optimal lineups are shown. A contender tax discounts ' +
+        'the benefit when the other manager is already one of the teams you have to catch.',
       '"Never trades" managers are excluded entirely rather than ranked last.'
     ]
   };
@@ -563,14 +603,15 @@ function enumerateDeals(me, them, slots, scoutOf, max = 2) {
     .map(s => s.player?.id).filter(Boolean));
   const myStarters = startersOf(me);
 
-  // What I can afford to send: players at positions I am strong at, never my
-  // single best player at a position I am already thin in.
+  // What I can afford to send: players at positions I am strong at. Seven per
+  // side is still a tiny search, but catches the second starter + bench-piece
+  // constructions the old five-player, one-target loop could never invent.
   const mine = me.players
     .filter(p => theyNeed.includes(p.position) && p.value > 0)
-    .sort((a, b) => b.value - a.value).slice(0, 5);
+    .sort((a, b) => b.value - a.value).slice(0, 7);
   const theirs = them.players
     .filter(p => iNeed.includes(p.position) && p.value > 0)
-    .sort((a, b) => b.value - a.value).slice(0, 5);
+    .sort((a, b) => b.value - a.value).slice(0, 7);
   if (!mine.length || !theirs.length) return [];
 
   // Keyed by the SET of players on each side, because [Warren, Henry] and
@@ -580,17 +621,30 @@ function enumerateDeals(me, them, slots, scoutOf, max = 2) {
   const key = d => `${d.mine.map(p => p.id).sort().join(',')}|${d.theirs.map(p => p.id).sort().join(',')}`;
   const add = d => { const k = key(d); if (!out.has(k)) out.set(k, d); };
 
-  for (const t of theirs) {
-    for (const m of mine) {
-      add({ mine: [m], theirs: [t] });
-      // A 2-for-1 only makes sense as a sweetener when a straight swap is short.
-      if (max >= 2 && m.value < t.value) {
-        const sweet = mine.find(x => x.id !== m.id && !myStarters.has(x.id));
-        if (sweet) add({ mine: [m, sweet], theirs: [t] });
+  const bundles = (players, starters = new Set()) => {
+    const result = players.map(player => [player]);
+    if (max < 2) return result;
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        // Do not casually package two starters from the same side; those are
+        // usually roster-destroying spam and evaluate() will rarely rescue them.
+        if (starters.has(players[i].id) && starters.has(players[j].id)) continue;
+        result.push([players[i], players[j]]);
       }
     }
+    return result;
+  };
+  const theirStarters = startersOf(them);
+  for (const myBundle of bundles(mine, myStarters)) {
+    const myValue = myBundle.reduce((sum, player) => sum + player.value, 0);
+    for (const theirBundle of bundles(theirs, theirStarters)) {
+      const theirValue = theirBundle.reduce((sum, player) => sum + player.value, 0);
+      const ratio = theirValue > 0 ? myValue / theirValue : 0;
+      if (ratio < 0.6 || ratio > 1.65) continue;
+      add({ mine: myBundle, theirs: theirBundle });
+    }
   }
-  return [...out.values()].slice(0, 24);
+  return [...out.values()].slice(0, 160);
 }
 
 /** The message you would actually send, in the register a manager reads. */

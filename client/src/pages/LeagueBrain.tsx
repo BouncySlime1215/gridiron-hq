@@ -48,6 +48,9 @@ export default function LeagueBrain() {
           add four points a week is worth nothing if the manager on the other end never
           answers — so every move here is scored as its gain multiplied by the odds it gets signed.
         </p>
+        {d?.model_context && <p className="mt-2 inline-flex rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold text-sky-800 ring-1 ring-sky-200">
+          Live Week {d.model_context.week} board · evidence through {d.model_context.cutoff}
+        </p>}
       </header>
 
       {/* Where you stand */}
@@ -108,6 +111,7 @@ export default function LeagueBrain() {
               mismatch with anyone right now. Check back after the next injury report.
             </Empty>
           )}
+          {d?.moves?.length > 0 && <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Best → worst · mutual lineup wins only</div>}
           {d?.moves?.map((m: any, i: number) => <Move key={i} m={m} rank={i + 1} />)}
           {d?.unreachable?.length > 0 && (
             <p className="text-xs text-slate-500">
@@ -158,7 +162,7 @@ function Move({ m, rank }: { m: any; rank: number }) {
         <div className="flex shrink-0 items-center gap-5 text-right">
           <Metric label="You gain" value={`+${m.my_ppg_gain}`} unit="ppg" tone="good" />
           <Metric label="They sign it" value={`${acc}%`} tone={acc >= 50 ? 'good' : acc >= 25 ? 'warn' : 'bad'} />
-          <Metric label="Worth" value={String(m.expected_value)} unit="ppg" />
+          <Metric label={m.grade ?? 'Deal score'} value={String(m.expected_value)} unit="net" tone={m.grade === 'SMASH' ? 'good' : undefined} />
         </div>
       </button>
       {open && (
@@ -175,8 +179,8 @@ function Move({ m, rank }: { m: any; rank: number }) {
               hint="Share of the value crossing the table" />
             <Detail label="Mutual surplus" value={m.nash_product > 0 ? String(m.nash_product) : 'none'}
               hint={m.nash_product > 0 ? 'Both lineups improve — the range deals get signed in' : 'Only one side gains, so this is an ask'} />
-            <Detail label="Hurts a threat" value={m.denial_value > 0 ? String(m.denial_value) : '—'}
-              hint="Weighted by how likely they were to beat you" />
+            <Detail label="Contender tax" value={m.rival_tax > 0 ? `-${m.rival_tax} ppg` : 'none'}
+              hint="Their gain discounted more when they are already ahead of you" />
           </div>
         </div>
       )}

@@ -6,6 +6,7 @@ import { requireAuthenticated } from '../platform/auth.js';
 import { recordAudit } from '../platform/audit.js';
 import { newsSignalCoverage, syncStructuredNewsSignals } from '../services/nfl-news-signal.js';
 import { normalizePlayerName } from '../services/player-identity.js';
+import { newsFantasyTracker } from '../services/news-fantasy-impact.js';
 
 const r = Router();
 
@@ -219,8 +220,10 @@ r.get('/my-players', requireAuthenticated, (req, res) => {
  * confidence league-wide claims otherwise.
  */
 r.get('/signals', requireAuthenticated, (req, res) => {
-  const { team, days = 14 } = req.query;
-  const since = new Date(Date.now() - Number(days) * 86400000).toISOString();
+  const { team } = req.query;
+  const parsedDays = Number(req.query.days ?? 14);
+  const days = Number.isFinite(parsedDays) ? Math.min(365, Math.max(1, parsedDays)) : 14;
+  const since = new Date(Date.now() - days * 86400000).toISOString();
   const mine = myRosterNames(req.auth.userId);
   const myKeys = new Set(mine.map(normalizePlayerName).filter(Boolean));
 
@@ -240,11 +243,13 @@ r.get('/signals', requireAuthenticated, (req, res) => {
     const key = `${claim.player_key}|${claim.signal_type}`;
     if (!latest.has(key)) latest.set(key, claim);
   }
+  const tracked = newsFantasyTracker([...latest.values()]);
   res.json({
     scope: !team && myKeys.size ? 'my_roster' : team ? 'team' : 'league',
     roster_size: myKeys.size,
-    signals: [...latest.values()],
-    coverage: newsSignalCoverage()
+    signals: tracked.signals,
+    coverage: newsSignalCoverage(),
+    tracker: tracked.tracker
   });
 });
 

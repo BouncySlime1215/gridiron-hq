@@ -68,19 +68,22 @@ export default function EspnConnectGate() {
       setDone(r.leagues_found > 0
         ? `Connected. Found ${r.leagues_found} league${r.leagues_found === 1 ? '' : 's'} — syncing them now.`
         : 'Connected to ESPN.');
-      refetch();
       // Pull the leagues in immediately; the point of connecting is the data.
       try {
         const d = await api<any>('/espn-connect/discover');
-        for (const l of d.leagues ?? []) {
-          const added = await api<any>('/espn-connect/add', {
+        const added = await Promise.all((d.leagues ?? []).map((l: any) => api<any>('/espn-connect/add', {
             method: 'POST',
             body: JSON.stringify({ league_id: l.league_id, season: l.season, my_team_id: l.team_id, name: l.name })
-          });
-          api(`/leagues/${added.id}/sync`, { method: 'POST' }).catch(() => { /* sync retries on the Leagues page */ });
-        }
+          })));
+        const syncs = await Promise.allSettled(added.map((league: any) =>
+          api(`/leagues/${league.id}/sync`, { method: 'POST' })));
+        const failed = syncs.filter(result => result.status === 'rejected').length;
+        setDone(failed
+          ? `ESPN is connected. ${added.length - failed} league${added.length - failed === 1 ? '' : 's'} synced; ${failed} can be retried from My Leagues.`
+          : `ESPN is connected and ${added.length} league${added.length === 1 ? '' : 's'} ${added.length === 1 ? 'is' : 'are'} ready.`);
       } catch { /* discovery is a convenience; the cookies are already saved */ }
-      setTimeout(() => { setDismissed(true); location.reload(); }, 1800);
+      await refetch();
+      location.reload();
     } catch (e: any) {
       setErr(e.message);
     } finally { setBusy(false); }

@@ -28,7 +28,7 @@ export default function TradeLab() {
   // Which league is active now lives in the header, shared with My Team and the
   // Prediction Engine — this page just follows it rather than keeping its own.
   const { activeId: active } = useLeague();
-  const [tab, setTab] = useState<Tab>('news');
+  const [tab, setTab] = useState<Tab>('find');
   const { data: rosters } = useApi<any>(active ? `/trades/${active}/rosters` : null);
   const [teamId, setTeamId] = useState<string | null>(null);
   // A "which team is me" pick only means something within the league it was made in.
@@ -64,9 +64,12 @@ export default function TradeLab() {
         )}
       </div>
       <p className="text-sm text-slate-500 mb-4">
-        Every deal is scored on the only currency that matters — points your <em>starting lineup</em> projects
-        for, adjusted for how each defence actually treats that position.
+        Every deal is rebuilt for the live NFL week from the shared player model, injury availability,
+        current matchup and remaining schedule. Market value is a separate price check, not the projection.
       </p>
+      {rosters?.model_context && <div className="mb-4 inline-flex rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold text-sky-800 ring-1 ring-sky-200">
+        Week {rosters.model_context.week} · cutoff {rosters.model_context.cutoff} · refreshes after every completed week
+      </div>}
 
       {myPlayers.length > 0 && (
         <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />
@@ -324,7 +327,7 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
             <option value={3}>up to 3-for-3</option>
           </select>
         </label>
-        {data && <span className="text-slate-400 ml-auto">{data.considered} candidate deals evaluated</span>}
+        {data && <span className="text-slate-400 ml-auto">Best → worst · {data.considered} clean candidate deals evaluated</span>}
       </div>
 
       {loading && <div className="card p-6 text-sm text-slate-500">Searching every roster in the league…</div>}
@@ -332,14 +335,6 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
         <div className="card p-6 text-sm text-slate-500">
           Nothing clears the bar right now. Try unticking “only deals they&apos;d accept”, or widening the package size —
           bigger packages find fits that 1-for-1s miss.
-        </div>
-      )}
-      {data?.fell_back && (data?.deals?.length ?? 0) > 0 && (
-        <div className="card p-3 mb-3 border-amber-200 bg-amber-50/40 text-xs text-amber-800">
-          Nothing here clearly improves both lineups — your tradeable value is concentrated in a couple of
-          starters rather than spare depth, so there&apos;s nothing cheap to sweeten a deal with. These are the
-          closest fits anyway: expect to give a bit more than feels even, or try <b>Target a player</b> to work
-          the ask up from a lowball offer instead.
         </div>
       )}
       <div className="space-y-3">

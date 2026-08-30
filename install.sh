@@ -33,18 +33,8 @@ if ! node_ok; then
     echo "${YELLOW}  !${OFF} Node.js is not installed yet."
   fi
 
-  # Homebrew-managed Node installs to the user's own prefix (no admin password,
-  # no separate download page) — the closest thing to "just works" this platform
-  # has, so try it before asking the user to do anything by hand.
-  if command -v brew >/dev/null 2>&1; then
-    echo "  Installing Node with Homebrew (this can take a minute)…"
-    if brew install node; then
-      hash -r   # refresh this shell's command lookup so the new node is seen below
-    fi
-  fi
-
-  # No Homebrew, or brew could not do it. Fetch an official Node build into a
-  # private folder instead of sending the user to a download page.
+  # Fetch an official Node build into a private folder instead of changing the
+  # machine's package manager or asking for administrator access.
   #
   # This is the difference between "install these three things first" and
   # "double-click". It writes only to ~/.gridiron, needs no admin password,
@@ -77,15 +67,24 @@ if ! node_ok; then
     TMP="$(mktemp -d)"
     if curl -fL --progress-bar --max-time 600 \
          "https://nodejs.org/dist/${NODE_VER}/${TARBALL}" -o "$TMP/node.tar.gz" \
-       && tar -xzf "$TMP/node.tar.gz" -C "$TMP"; then
+       && curl -fsSL --max-time 60 "https://nodejs.org/dist/${NODE_VER}/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"; then
+      EXPECTED=$(awk -v file="$TARBALL" '$2 == file { print $1 }' "$TMP/SHASUMS256.txt")
+      if command -v shasum >/dev/null 2>&1; then
+        ACTUAL=$(shasum -a 256 "$TMP/node.tar.gz" | awk '{print $1}')
+      else
+        ACTUAL=$(sha256sum "$TMP/node.tar.gz" | awk '{print $1}')
+      fi
+      if [ -z "$EXPECTED" ] || [ "$ACTUAL" != "$EXPECTED" ]; then
+        echo "${RED}  ✗ Node download failed its SHA-256 verification.${OFF}"
+        rm -rf "$TMP"
+        exit 1
+      fi
+      tar -xzf "$TMP/node.tar.gz" -C "$TMP"
       mkdir -p "$HOME/.gridiron"
       rm -rf "$HOME/.gridiron/node"
       mv "$TMP/node-${NODE_VER}-${PLAT}-${ARCH}" "$HOME/.gridiron/node"
       export PATH="$HOME/.gridiron/node/bin:$PATH"
       hash -r
-      # A tarball unpacked from a download is quarantined too, and macOS will
-      # refuse to execute the binaries inside it without this.
-      [ "$PLAT" = "darwin" ] && xattr -dr com.apple.quarantine "$HOME/.gridiron/node" 2>/dev/null || true
       echo "${GREEN}  ✓${OFF} Installed Node ${NODE_VER} privately (~/.gridiron/node)"
     fi
     rm -rf "$TMP"

@@ -27,6 +27,11 @@ test('acceptance falls when the deal makes their lineup worse', () => {
   assert.ok(flat > bad, `lineup loss should lower acceptance (${bad} vs ${flat})`);
 });
 
+test('a value sweetener cannot make a lineup-damaging trade look highly acceptable', () => {
+  const p = acceptProbability('fair', { theirEdgePct: 38.1, theirPpgDelta: -0.91 });
+  assert.ok(p < 0.08, `the screenshot regression still reads as ${Math.round(p * 100)}% acceptable`);
+});
+
 test('no tier accepts a clearly bad deal at a high rate', () => {
   // The additive floor this replaced guaranteed a "fair" manager accepted at
   // least 35% of everything, including deals that made their team worse.

@@ -18,6 +18,7 @@ import { fitGameScript, gameScriptFor, syncHistoricalLines, syncCurrentLines, li
 import { availability, weeklyAvailability, cascades, handcuffValue } from '../services/contingency.js';
 import { syncAll as syncNflverse, usageSeasons, usageFor } from '../services/nflverse.js';
 import { clearMatchupCache } from '../services/matchups.js';
+import { modelMap, ask, consensus, projectionHeads, stateOfTheModel } from '../services/gridiron-model.js';
 import { resolvePlayer, assetUniverse, loadRosters } from '../services/trade-engine.js';
 import { deriveFormat } from '../services/format.js';
 import { withRandomSeed } from '../services/stats-util.js';
@@ -647,6 +648,60 @@ r.get('/game-script-fit', async (req, res, next) => {
     const m = await import('../services/vegas-fantasy.js');
     res.json({ fit: m.fitGameScript({}),
       validation: m.validateGameScript({ testSeason: Number(req.query.test_season) || 2025 }) });
+  } catch (e) { next(e); }
+});
+
+
+/* ------------------------------------------------- the consolidated model */
+
+/**
+ * What every component is allowed to influence, and on what evidence.
+ *
+ * Authority is derived from the sealed audit registry at call time rather than
+ * asserted, so this cannot claim a component passed when the record says it
+ * failed.
+ */
+r.get('/state', (_req, res, next) => {
+  try { res.json(stateOfTheModel()); } catch (e) { next(e); }
+});
+
+/** The full capability map, optionally for one domain. */
+r.get('/map', (req, res, next) => {
+  try {
+    const domain = ['fantasy', 'betting', 'crossover'].includes(req.query.domain)
+      ? req.query.domain : null;
+    res.json(modelMap({ domain }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Route a question, and refuse it when nothing has earned the right to answer.
+ *
+ * `purpose=size` is the one that matters: it demands an authoritative component
+ * and refuses otherwise, which for every forecasting question here is the
+ * correct answer.
+ */
+r.get('/ask/:capability', (req, res, next) => {
+  try {
+    const purpose = ['inform', 'rank', 'size'].includes(req.query.purpose)
+      ? req.query.purpose : 'inform';
+    const out = ask(req.params.capability, { purpose });
+    if (out.error) return res.status(404).json(out);
+    res.status(out.permitted ? 200 : 403).json(out);
+  } catch (e) { next(e); }
+});
+
+/** The measured out-of-sample errors behind the fantasy projection. */
+r.get('/heads', (_req, res, next) => {
+  try { res.json(projectionHeads()); } catch (e) { next(e); }
+});
+
+/** Combine estimates of one quantity by measured precision. */
+r.post('/consensus', (req, res, next) => {
+  try {
+    const est = Array.isArray(req.body?.estimates) ? req.body.estimates : [];
+    if (est.length > 20) return res.status(400).json({ error: 'at most 20 estimates' });
+    res.json(consensus(est));
   } catch (e) { next(e); }
 });
 

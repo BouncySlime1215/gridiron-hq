@@ -22,6 +22,7 @@ const TradeLab = lazy(() => import('./pages/TradeLab'));
 const LeagueBrain = lazy(() => import('./pages/LeagueBrain'));
 const Trends = lazy(() => import('./pages/Trends'));
 const Lineup = lazy(() => import('./pages/Lineup'));
+const TheModel = lazy(() => import('./pages/TheModel'));
 const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
 const FantasyLab = lazy(() => import('./pages/FantasyLab'));
@@ -58,6 +59,7 @@ const NAV_GROUPS: { label: string; question: string; items: NavItem[] }[] = [
     { to: '/betting/mlb/auto', label: 'MLB Workbench', icon: 'M' }
   ]},
   { label: 'Lab', question: 'Verify the model', items: [
+    { to: '/model', label: 'The Model', icon: 'M' },
     { to: '/lab', label: 'Accuracy & Experiments', icon: 'A' },
     { to: '/settings', label: 'Settings', icon: 'S' }
   ]}
@@ -114,7 +116,7 @@ export default function App() {
           <Route path="/matchups" element={<FantasyLab />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} /><Route path="/players" element={<Players />} />
-          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/brain" element={<LeagueBrain />} /><Route path="/trends" element={<Trends />} /><Route path="/lineup" element={<Lineup />} /><Route path="/news" element={<News />} />
+          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/brain" element={<LeagueBrain />} /><Route path="/trends" element={<Trends />} /><Route path="/lineup" element={<Lineup />} /><Route path="/model" element={<TheModel />} /><Route path="/news" element={<News />} />
           <Route path="/settings" element={<Settings />} /><Route path="/lab" element={<FantasyLab />} />
           <Route path="/betting" element={<BettingHome />} /><Route path="/betting/nfl" element={<NflMarketBoard initialTool="edges" />} />
           <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />

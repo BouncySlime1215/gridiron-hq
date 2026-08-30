@@ -81,7 +81,7 @@
  */
 import { rows, row } from '../db/index.js';
 import { cached, fingerprint } from './compute-cache.js';
-import { availabilityPicture, coachingProfile, weatherPicture } from './football-context.js';
+import { availabilityPicture, coachingProfile, quarterbackPicture, rosterContinuity } from './football-context.js';
 import { efficiencyGap } from './nfl-spread-context.js';
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -117,8 +117,29 @@ export const FEATURES = [
   { key: 'rest_edge',
     label: 'rest differential',
     story: 'A bye or a long week against a short one is a real physical advantage the line ' +
-      'sometimes underweights.' }
+      'sometimes underweights.' },
+  { key: 'qb_downgrade_edge',
+    label: 'quarterback replacement value',
+    story: 'The largest predictable swing in football. A starting quarterback is not a share of an ' +
+      'offence, he is most of it, and the drop to a backup is frequently several points a game — ' +
+      'New Orleans losing Derek Carr to Jake Haener in 2024 measured at 9.9. Weighting a ' +
+      'quarterback by touches the way every other position is weighted misses this entirely.' }
 ];
+
+/**
+ * How far back to look when the current season has nothing yet.
+ *
+ * Week 1 has no prior weeks, so every feature computed within the season is
+ * zero, and a model handed an all-zero vector returns its intercept — the same
+ * lean on every game, which is a home-field constant rather than a read. The
+ * football has not disappeared, it is just in last season: a team's efficiency,
+ * its staff's tendencies and its quarterback room all carry over.
+ *
+ * Carried at a discount rather than at full strength, because rosters and
+ * coordinators move. The discount is a judgement, stated here rather than buried.
+ */
+const CARRYOVER_WEIGHT = 0.6;
+const CARRYOVER_FROM_WEEK = 15;
 
 /**
  * Build the football feature vector for one game, from the home side's view.
@@ -127,6 +148,22 @@ export const FEATURES = [
  * fabricating zeros, because a zero here is a claim ("no advantage either way")
  * rather than an absence.
  */
+/**
+ * Use this season if it has anything to say; otherwise last season, marked.
+ *
+ * The mark matters — a caller weighting a carried value the same as a live one
+ * would be treating a year-old read on a roster that has since turned over as
+ * current fact.
+ */
+function withCarryover(current, previous, allowed) {
+  const now = current();
+  if (!allowed || !now?.insufficient) return now;
+  let prior;
+  try { prior = previous(); } catch { return now; }
+  if (!prior || prior.insufficient) return now;
+  return { ...prior, _carried: true };
+}
+
 export function footballFeatures(season, week, home, away) {
   const g = row(
     `SELECT spread, total, rest_days, roof, temp, wind
@@ -139,15 +176,42 @@ export function footballFeatures(season, week, home, away) {
 
   const homeAvail = availabilityPicture(home, season, week);
   const awayAvail = availabilityPicture(away, season, week);
-  const homeEff = efficiencyGap(home, season, { throughWeek: week });
-  const awayEff = efficiencyGap(away, season, { throughWeek: week });
-  const homeCoach = coachingProfile(home, season, week);
-  const awayCoach = coachingProfile(away, season, week);
+  const homeQb = quarterbackPicture(home, season, week);
+  const awayQb = quarterbackPicture(away, season, week);
+
+  // Early in a season there is nothing to read within it, so last season is
+  // consulted at a discount rather than the model going blind. See CARRYOVER.
+  const earlySeason = week <= 4;
+  const homeEff = withCarryover(
+    () => efficiencyGap(home, season, { throughWeek: week }),
+    () => efficiencyGap(home, season - 1, { throughWeek: 99 }), earlySeason);
+  const awayEff = withCarryover(
+    () => efficiencyGap(away, season, { throughWeek: week }),
+    () => efficiencyGap(away, season - 1, { throughWeek: 99 }), earlySeason);
+  const homeCoach = withCarryover(
+    () => coachingProfile(home, season, week),
+    () => coachingProfile(home, season - 1, 99), earlySeason);
+  const awayCoach = withCarryover(
+    () => coachingProfile(away, season, week),
+    () => coachingProfile(away, season - 1, 99), earlySeason);
 
   // Positive means the home side is advantaged, so every feature reads in one
   // direction and a coefficient's sign is interpretable without a lookup.
   const availabilityEdge = (awayAvail.usage_share_at_risk ?? 0) - (homeAvail.usage_share_at_risk ?? 0);
-  const efficiencyEdge = (homeEff.gap ?? 0) - (awayEff.gap ?? 0);
+  // A carried value is discounted by how much of that team is actually still
+  // here, rather than by a flat constant. One roster returns its quarterback and
+  // both starting receivers; another lost three of them in free agency, and
+  // treating those the same is why preseason numbers are usually worthless.
+  const contOf = t => {
+    try { const c = rosterContinuity(t, season); return c.continuity ?? CARRYOVER_WEIGHT; }
+    catch { return CARRYOVER_WEIGHT; }
+  };
+  const homeW = homeEff._carried ? contOf(home) : 1;
+  const awayW = awayEff._carried ? contOf(away) : 1;
+  const efficiencyEdge = ((homeEff.gap ?? 0) * homeW) - ((awayEff.gap ?? 0) * awayW);
+  // Signed so positive favours home: the AWAY side losing its quarterback helps
+  // the home team, and vice versa.
+  const qbEdge = (awayQb.downgrade_points ?? 0) - (homeQb.downgrade_points ?? 0);
 
   const paceOf = c => c?.traits?.find(t => t.metric === 'off_seconds_per_drive')?.percentile ?? 0.5;
   const passOf = c => c?.traits?.find(t => t.metric === 'off_proe')?.percentile ?? 0.5;
@@ -171,7 +235,11 @@ export function footballFeatures(season, week, home, away) {
     script_conflict: r3(scriptConflict),
     wind: r3(wind),
     rest_edge: r3(restEdge),
-    market_margin: -g.spread, market_total: g.total
+    qb_downgrade_edge: r3(qbEdge),
+    market_margin: -g.spread, market_total: g.total,
+    carried_from_last_season: !!(homeEff._carried || awayEff._carried),
+    home_roster_continuity: homeEff._carried ? r3(homeW) : null,
+    away_roster_continuity: awayEff._carried ? r3(awayW) : null
   };
 }
 
@@ -284,6 +352,31 @@ export function footballFirstLean(season, week, home, away, { target = 'margin' 
   const f = footballFeatures(season, week, home, away);
   if (!f) return { error: 'no market number on record for this game' };
   if (!m.fitted) return { error: m.why, features: f };
+
+  // Abstain when there is no football to read.
+  //
+  // In week 1 every feature is zero — no prior weeks of the season exist, so
+  // there are no injuries weighted by usage, no efficiency gap, no measured
+  // tendencies. The fitted line still returns its intercept, which produced an
+  // IDENTICAL 0.684-point lean on every single game: a home-field constant
+  // wearing a football model's clothes. Below a low threshold it would have bet
+  // the entire week on nothing.
+  //
+  // An all-zero feature vector means "no information", and the honest output for
+  // no information is no pick.
+  const informative = FEATURES.filter(spec => Math.abs(f[spec.key] ?? 0) > 1e-9);
+  if (!informative.length) {
+    return {
+      season, week, home, away, target,
+      market_number: target === 'total' ? f.market_total : f.market_margin,
+      lean_points: null, side: null, abstains: true,
+      reason: 'No football to read yet. Every feature is zero — this is week ' + week +
+        ', so there are no prior-week injuries, efficiency gaps or measured tendencies for either ' +
+        'team. The fitted intercept alone would produce the same lean for every game on the slate, ' +
+        'which is a home-field constant rather than a read on this matchup.',
+      features: f
+    };
+  }
 
   const contributions = FEATURES.map(spec => ({
     feature: spec.key, label: spec.label,

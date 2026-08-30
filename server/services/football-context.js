@@ -306,3 +306,218 @@ const ordinal = n => {
   const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
   return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 };
+
+/**
+ * Who is playing quarterback, and how much worse that is than usual.
+ *
+ * The single largest predictable swing in football and the one thing the
+ * availability model could not see. `availabilityPicture` weights an injury by
+ * the player's share of recent touches, which is right for a receiver and badly
+ * wrong for a quarterback: a starting quarterback is not fifteen percent of an
+ * offence, he is nearly all of it, and his replacement is often a genuine
+ * downgrade of several points a game.
+ *
+ * The measurement is a difference in EPA per attempt between the established
+ * starter and whoever would replace him, converted to points at roughly the
+ * attempts a team throws in a game. That conversion is approximate on purpose —
+ * the ridge fit downstream learns the coefficient, so this only has to be in
+ * sensible units and monotone in the right direction.
+ *
+ * IDENTIFYING THE STARTER. Depth charts exist for one season in this database,
+ * so they are useless historically. Attempts are not: the quarterback who threw
+ * the most passes over the prior weeks IS the starter, by the only definition
+ * that matters. That is also robust to a mid-season change, which a depth chart
+ * scraped once is not.
+ */
+const LEAGUE_QB_ATTEMPTS = 33;
+
+export function quarterbackPicture(team, season, week, { lookback = 6 } = {}) {
+  const qbs = rows(
+    `SELECT player_id, player_name, features FROM nfl_player_week_features
+     WHERE team = ? AND season = ? AND week < ? AND week >= ? AND position = 'QB'`,
+    team, season, week, Math.max(1, week - lookback));
+  if (!qbs.length) {
+    return { team, season, week, insufficient: true, downgrade_points: 0,
+      note: 'No quarterback weeks on record before this one.' };
+  }
+
+  const agg = new Map();
+  for (const q of qbs) {
+    const f = JSON.parse(q.features);
+    const att = f.pass_attempts ?? 0;
+    if (!agg.has(q.player_name)) {
+      agg.set(q.player_name, { name: q.player_name, gsis: q.player_id, att: 0, epaSum: 0, weeks: 0 });
+    }
+    const a = agg.get(q.player_name);
+    a.att += att;
+    // Attempt-weighted, so one garbage-time appearance does not outrank a starter.
+    if (Number.isFinite(f.pass_epa_per_att)) { a.epaSum += f.pass_epa_per_att * att; a.weeks++; }
+  }
+  const ranked = [...agg.values()]
+    .map(a => ({ ...a, epa_per_att: a.att > 0 ? a.epaSum / a.att : null }))
+    .sort((a, b) => b.att - a.att);
+
+  const starter = ranked[0];
+  const backup = ranked[1] ?? null;
+
+  // League baseline for a replacement-level quarterback, measured rather than
+  // assumed: the attempt-weighted EPA of every quarterback outside the top 32 by
+  // attempts this season, which is what a team actually gets off the bench.
+  const replacement = replacementQb(season, week);
+
+  const injury = rows(
+    `SELECT full_name, report_status, practice_status, injury FROM nfl_injuries
+     WHERE team = ? AND season = ? AND week = ? AND position = 'QB'`,
+    team, season, week);
+  const starterInjury = injury.find(i => normaliseName(i.full_name) === normaliseName(starter?.name));
+  const missProb = starterInjury
+    ? 1 - playProbability(starterInjury.report_status, starterInjury.practice_status)
+    : 0;
+
+  const starterEpa = starter?.epa_per_att ?? replacement;
+  // A backup with almost no attempts is not evidence about the backup; fall back
+  // to replacement level rather than trusting six throws.
+  const backupEpa = backup && backup.att >= 20 ? backup.epa_per_att : replacement;
+
+  const gapPerAtt = (starterEpa ?? 0) - (backupEpa ?? 0);
+  const downgradePoints = r2(missProb * gapPerAtt * LEAGUE_QB_ATTEMPTS);
+
+  return {
+    team, season, week,
+    starter: starter ? { name: starter.name, attempts: starter.att, epa_per_att: r3(starter.epa_per_att) } : null,
+    backup: backup ? { name: backup.name, attempts: backup.att, epa_per_att: r3(backup.epa_per_att) } : null,
+    replacement_level: r3(replacement),
+    starter_injury: starterInjury
+      ? { status: starterInjury.report_status, practice: starterInjury.practice_status,
+          injury: starterInjury.injury }
+      : null,
+    miss_probability: r2(missProb),
+    quality_gap_per_attempt: r3(gapPerAtt),
+    // Signed points this team loses if the starter sits, scaled by how likely
+    // that is. Zero when the starter is healthy, which is most of the time.
+    downgrade_points: downgradePoints,
+    reading: missProb === 0
+      ? `${starter?.name ?? 'Their starter'} is not on the injury report.`
+      : downgradePoints >= 1.5
+        ? `${starter?.name} is ${starterInjury.report_status} and the drop to ` +
+          `${backup?.name ?? 'a replacement'} is worth about ${Math.abs(downgradePoints)} points. ` +
+          'Quarterback is the one position where the backup is usually a different class of player.'
+        : `${starter?.name} is ${starterInjury.report_status}, but the drop-off behind him is small.`,
+    caveat: 'The starter is identified by attempts rather than by a depth chart, because depth ' +
+      'charts exist for one season here and attempts are the definition that actually matters. ' +
+      'Points are EPA-per-attempt gap times a typical attempt count; the fit downstream learns the ' +
+      'real coefficient.'
+  };
+}
+
+/** Attempt-weighted EPA of quarterbacks outside the starting thirty-two. */
+function replacementQb(season, week) {
+  return cachedReplacement(`${season}:${week}`, () => {
+    const all = rows(
+      `SELECT team, player_name, features FROM nfl_player_week_features
+       WHERE season = ? AND week < ? AND position = 'QB'`, season, week);
+    const agg = new Map();
+    for (const q of all) {
+      const f = JSON.parse(q.features);
+      const att = f.pass_attempts ?? 0;
+      const k = `${q.team}|${q.player_name}`;
+      if (!agg.has(k)) agg.set(k, { att: 0, epaSum: 0 });
+      const a = agg.get(k);
+      a.att += att;
+      if (Number.isFinite(f.pass_epa_per_att)) a.epaSum += f.pass_epa_per_att * att;
+    }
+    const ranked = [...agg.values()].filter(a => a.att > 0).sort((a, b) => b.att - a.att);
+    const bench = ranked.slice(32);
+    if (!bench.length) return -0.05;
+    const att = bench.reduce((s, a) => s + a.att, 0);
+    return att > 0 ? bench.reduce((s, a) => s + a.epaSum, 0) / att : -0.05;
+  });
+}
+
+const _replacementCache = new Map();
+function cachedReplacement(key, fn) {
+  if (!_replacementCache.has(key)) _replacementCache.set(key, fn());
+  return _replacementCache.get(key);
+}
+/**
+ * Match an abbreviated name against a full one.
+ *
+ * The weekly feature tables store "J.Winston" and the injury report stores
+ * "Jameis Winston". Stripping punctuation gives "jwinston" against
+ * "jameiswinston", which never matches — so every starting quarterback came back
+ * with no injury on file, the miss probability was always zero, and the whole
+ * downgrade feature silently evaluated to nothing for every team in the league.
+ *
+ * Last name plus first initial is the key both formats can produce. It is not
+ * unique across the NFL, but it is unique within one team's quarterback room,
+ * which is the only place it is used.
+ */
+function nameKey(n) {
+  const raw = String(n ?? '').trim();
+  if (!raw) return '';
+  const parts = raw.replace(/[.]/g, '. ').split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return raw.toLowerCase().replace(/[^a-z]/g, '');
+  const first = parts[0].replace(/[^A-Za-z]/g, '');
+  const last = parts[parts.length - 1].replace(/[^A-Za-z]/g, '');
+  return `${first.charAt(0)}${last}`.toLowerCase();
+}
+const normaliseName = nameKey;
+
+/**
+ * How much of last season's offence is still here.
+ *
+ * Carrying a team's prior-season efficiency into week 1 at a flat discount
+ * assumes every roster turned over by the same amount, which is plainly false —
+ * one team returns its quarterback and both starting receivers, another lost
+ * three of them in free agency, and treating those identically is the whole
+ * reason a preseason number is usually worthless.
+ *
+ * Measured from production rather than headcount. Ten departures who never
+ * touched the ball matter less than one who touched it a fifth of the time, so
+ * continuity is the share of last season's touches belonging to players still
+ * on the roster. That is also robust to a thin transactions feed: it needs only
+ * last season's usage and this season's roster, both of which are complete.
+ */
+export function rosterContinuity(team, season) {
+  const prior = rows(
+    `SELECT u.player_id, SUM(u.targets + u.carries) touches
+     FROM player_week_usage u
+     WHERE u.team = ? AND u.season = ?
+     GROUP BY u.player_id`, team, season - 1);
+  if (!prior.length) {
+    return { team, season, insufficient: true, continuity: null,
+      note: `No ${season - 1} usage on record for ${team}.` };
+  }
+
+  const current = new Set(rows(
+    `SELECT p.id FROM players p JOIN nfl_teams t ON t.id = p.team_id WHERE t.abbr = ?`, team)
+    .map(r => r.id));
+
+  const total = prior.reduce((s, p) => s + (p.touches ?? 0), 0) || 1;
+  const retained = prior.filter(p => current.has(p.player_id))
+    .reduce((s, p) => s + (p.touches ?? 0), 0);
+  const continuity = retained / total;
+
+  const departed = prior.filter(p => !current.has(p.player_id) && (p.touches ?? 0) > 0)
+    .sort((a, b) => b.touches - a.touches).slice(0, 5)
+    .map(p => ({ player_id: p.player_id, touches: p.touches,
+      share: r3(p.touches / total) }));
+
+  return {
+    team, season,
+    continuity: r3(continuity),
+    touches_last_season: total,
+    touches_retained: retained,
+    biggest_departures: departed,
+    reading: continuity >= 0.85
+      ? `${team} returns ${Math.round(continuity * 100)}% of last season's touches — last year's ` +
+        'numbers describe close to the same team.'
+      : continuity >= 0.6
+        ? `${team} returns ${Math.round(continuity * 100)}% of last season's touches; carry last ` +
+          'year with some caution.'
+        : `${team} returns only ${Math.round(continuity * 100)}% of last season's touches. Last ` +
+          'year\'s numbers describe a substantially different team and should barely be trusted.',
+    caveat: 'Measured on production, not headcount — ten departures who never touched the ball ' +
+      'matter less than one who touched it a fifth of the time.'
+  };
+}

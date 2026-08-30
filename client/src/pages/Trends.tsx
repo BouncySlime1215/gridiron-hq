@@ -34,6 +34,7 @@ export default function Trends() {
   const [scan, setScan] = useState<any>(null);
   const exploits = useApi<any>(leagueId ? `/trades/${leagueId}/trends?lookback=${lookback}` : null);
   const watch = useApi<any>(`/trades/trends/watch?lookback=${lookback}`);
+  const regression = useApi<any>(leagueId ? `/trades/${leagueId}/regression` : null);
 
   const runScan = async () => {
     setScanning(true);
@@ -164,6 +165,11 @@ export default function Trends() {
 
       {exploits.loading && <Sweeping lookback={lookback} label="Reading the last few weeks" />}
 
+      {/* Touchdown luck. A separate section from the trends above because it is
+          a different kind of claim: those measure a change in role, this
+          measures a gap between role and results that has not closed yet. */}
+      {regression.data && !regression.data.error && <Regression d={regression.data} />}
+
       {/* The full league picture, with real sparklines. */}
       {!!d?.team_reads?.length && (
         <section className="tr-rise" style={{ animationDelay: '160ms' }}>
@@ -192,6 +198,69 @@ export default function Trends() {
         </section>
       )}
     </Shell>
+  );
+}
+
+/**
+ * Touchdown regression, split by what you can do about each player.
+ *
+ * The numbers are deliberately shown as "N touchdowns on M expected" rather than
+ * as a single luck score. The two counts are the argument; a score is something
+ * the reader has to take on trust.
+ */
+function Regression({ d }: { d: any }) {
+  const groups = [
+    { key: 'sell', title: 'Sell these', tone: 'rose',
+      blurb: 'Yours, and scoring far above what their chances support. Touchdown rate does not carry; usage does.' },
+    { key: 'buy', title: 'Buy these', tone: 'emerald',
+      blurb: 'Someone else owns them and their box scores look bad. The chances say otherwise.' },
+    { key: 'claim', title: 'Free right now', tone: 'emerald',
+      blurb: 'Unrostered, with real opportunity and nothing to show for it yet.' },
+    { key: 'hold', title: 'Hold — do not panic-sell', tone: 'sky',
+      blurb: 'Yours, underperforming their chances. Selling now is selling the low.' }
+  ].filter(g => (d[g.key]?.length ?? 0) > 0);
+
+  if (!groups.length) return null;
+
+  return (
+    <section className="tr-rise" style={{ animationDelay: '140ms' }}>
+      <h2 className="text-xl font-black tracking-tight text-slate-950">Touchdown luck</h2>
+      <p className="mt-0.5 max-w-3xl text-sm leading-6 text-slate-500">
+        Expected touchdowns come from opportunity priced at league rates — goal-line carries,
+        end-zone targets and open-field touches all converted at their own fitted rate, per position.
+        Touchdown rate is the least stable number in football, so the gap closes.
+      </p>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {groups.map((g, gi) => (
+          <div key={g.key} className={`tr-rise rounded-2xl border bg-white p-4 ${
+            g.tone === 'rose' ? 'border-rose-200' : g.tone === 'sky' ? 'border-sky-200' : 'border-emerald-200'}`}
+            style={{ animationDelay: `${160 + gi * 50}ms` }}>
+            <div className="text-sm font-black text-slate-900">{g.title}</div>
+            <p className="mt-0.5 text-xs leading-5 text-slate-500">{g.blurb}</p>
+            <div className="mt-2 space-y-1.5">
+              {d[g.key].slice(0, 5).map((p: any, i: number) => (
+                <div key={i} className="flex flex-wrap items-baseline gap-x-2 border-t border-slate-100 pt-1.5 text-sm first:border-0 first:pt-0">
+                  <span className="font-bold text-slate-900">{p.name}</span>
+                  <span className="text-xs text-slate-400">{p.position} · {p.team}</span>
+                  <span className="ml-auto font-mono text-xs tabular-nums text-slate-600">
+                    {p.actual} TD <span className="text-slate-400">vs</span> {p.expected} expected
+                  </span>
+                  <span className={`font-mono text-xs font-bold tabular-nums ${
+                    p.ppg_swing > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                    {p.ppg_swing > 0 ? '+' : ''}{p.ppg_swing} ppg
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-slate-400">
+        Rates fitted on {d.rates_fitted_on?.join(', ')}. A player can be a genuine regression
+        candidate and still be a bad hold if his role is shrinking — read this against the usage
+        trends above, and where they disagree, trust the usage.
+      </p>
+    </section>
   );
 }
 

@@ -22,6 +22,7 @@ import { positionLiquidity } from '../services/position-liquidity.js';
 import { trendExploits } from '../services/trend-exploits.js';
 import { teamTrends, playerTrends } from '../services/weekly-trends.js';
 import { scanTrends, conflicts, trendHistory } from '../services/trend-watch.js';
+import { regressionCandidates, regressionForLeague, touchdownRates } from '../services/td-regression.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { weekPostmortem } from '../services/week-postmortem.js';
@@ -220,6 +221,40 @@ r.get('/trends/watch', (req, res, next) => {
       conflicts: history.season ? conflicts(history.season, null, lookback).conflicts : []
     });
   } catch (e) { next(e); }
+});
+
+/**
+ * Touchdown luck, and who it is about to stop favouring.
+ *
+ * Touchdown rate is the least stable number in football while target share is
+ * among the most stable, so the gap between a player's touchdowns and his
+ * opportunities is the most reliable inefficiency in the sport.
+ */
+r.get('/:leagueId/regression', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(regressionForLeague(lg.id, {
+      myTeamId: req.query.team_id ?? null,
+      season: Number(req.query.season) || null,
+      throughWeek: Number(req.query.week) || null
+    }));
+  } catch (e) { next(e); }
+});
+
+/** The league-wide board, without a roster join. */
+r.get('/regression/board', (req, res, next) => {
+  try {
+    res.json(regressionCandidates({
+      season: Number(req.query.season) || null,
+      throughWeek: Number(req.query.week) || null,
+      minOpportunities: Math.max(5, Math.min(200, Number(req.query.min_opportunities) || 20))
+    }));
+  } catch (e) { next(e); }
+});
+
+/** The fitted conversion rates themselves, per position group. */
+r.get('/regression/rates', (_req, res, next) => {
+  try { res.json(touchdownRates()); } catch (e) { next(e); }
 });
 
 /** Who will actually trade with you. Read, and write. */

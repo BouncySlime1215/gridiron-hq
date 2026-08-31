@@ -28,6 +28,7 @@ import { mean } from './stats-util.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
 import { rosterStrengthWeek } from './nfl-roster-strength.js';
+import { signalReliabilityFor } from './nfl-signal-reliability.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
 const EVAL_FROM = 2022;    // frozen calibration boundary retained for the established ensemble
@@ -1014,9 +1015,11 @@ export function ensembleLine(season, week, home, away, {
   includeChallengers = false, excludeModels = []
 } = {}) {
   const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
+  const reliability = includeChallengers ? signalReliabilityFor(season, week)
+    : { version: 'production-unchanged', multipliers: {}, adjusted: [], result: null };
   const excludedKey = [...excludeModels].sort().join(',');
   const excluded = new Set(excludeModels);
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|exclude:${excludedKey}|${includeEvidence ? 'evidence' : 'forecast'}`;
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|${includeEvidence ? 'evidence' : 'forecast'}`;
   // Family ablations are projections of the same frozen per-model line. Build
   // that expensive context once, then re-blend only the requested families.
   // This changes no prediction and makes a nine-cut audit minutes faster.
@@ -1080,7 +1083,10 @@ export function ensembleLine(season, week, home, away, {
       id: m.id, name: m.name, family: m.family, note: m.note,
       challenger_only: m.challengerOnly === true,
       margin: r2(p?.margin), total: r2(p?.total),
-      margin_weight: w.margin_weight ?? 0, total_weight: w.total_weight ?? 0,
+      base_margin_weight: w.margin_weight ?? 0,
+      reliability_multiplier: reliability.multipliers[m.id] ?? 1,
+      margin_weight: (w.margin_weight ?? 0) * (reliability.multipliers[m.id] ?? 1),
+      total_weight: w.total_weight ?? 0,
       residual_slope: w.residual_slope ?? null, residual_weight: w.residual_weight ?? 0,
       margin_rmse: w.margin_rmse ?? null, total_rmse: w.total_rmse ?? null
     });
@@ -1122,6 +1128,8 @@ export function ensembleLine(season, week, home, away, {
 
   const result = {
     season, week, home, away, engine_version: nflEngineVersionFor(season, week), input_mode: inputMode,
+    reliability_controller: { version: reliability.version,
+      mode: includeChallengers ? 'candidate_shrink_only' : 'off', adjusted_signals: reliability.adjusted },
     ensemble: {
       // A projected spread is quoted the way a book would: negative favours home.
       projected_spread: margin == null ? null : r2(-margin),
@@ -1162,10 +1170,10 @@ function confidenceFrom(disagreement, margin, marketMargin) {
 }
 
 /** Ensemble lines for a whole week. */
-export function ensembleWeek(season, week) {
+export function ensembleWeek(season, week, options = {}) {
   const slate = rows(`SELECT team AS home, opponent AS away FROM game_lines
                       WHERE season=? AND week=? AND home=1`, season, week);
-  return slate.map(g => ensembleLine(season, week, g.home, g.away)).filter(x => !x.error);
+  return slate.map(g => ensembleLine(season, week, g.home, g.away, options)).filter(x => !x.error);
 }
 
 /**

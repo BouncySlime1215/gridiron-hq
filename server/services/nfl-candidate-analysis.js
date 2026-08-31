@@ -1,6 +1,8 @@
 /** Candidate-vs-champion robustness and decision attribution. */
 import { db, rows, run } from '../db/index.js';
 import { replaySeason, uncertainty } from './nfl-replay.js';
+import { applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
+import { deriveSignalReliability, SIGNAL_RELIABILITY_VERSION } from './nfl-signal-reliability.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_candidate_robustness_audits (
   id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL,
@@ -58,6 +60,57 @@ function signalAblations(seasons, allInputs) {
         ? 'harmful in this opened replay; removal reduced losses'
         : 'helpful in this opened replay; removal worsened results' };
   }).sort((a, b) => b.units_delta_vs_all_inputs - a.units_delta_vs_all_inputs);
+}
+
+function historicalReliabilityReplay(candidate) {
+  const examples = [], bets = [], timeline = [], perSeason = [];
+  const decisions = candidate.decisions.filter(item => item.market === 'spread')
+    .sort((a, b) => a.season - b.season || a.week - b.week || a.home.localeCompare(b.home));
+  const weekKeys = [...new Set(decisions.map(item => `${item.season}|${item.week}`))];
+  const policy = normalizeNflPolicy({ requireCalibratedAdvantage: false });
+  for (const key of weekKeys) {
+    const [season, week] = key.split('|').map(Number);
+    const signals = deriveSignalReliability(examples);
+    const multipliers = Object.fromEntries(signals.map(signal => [signal.signal_id, signal.multiplier]));
+    const raw = decisions.filter(item => item.season === season && item.week === week).map(item => {
+      const trace = (item.feature_snapshot?.model_trace ?? []).filter(model => model.margin != null && model.margin_weight > 0);
+      const weight = trace.reduce((sum, model) => sum + model.margin_weight * (multipliers[model.id] ?? 1), 0);
+      const margin = weight > 0 ? trace.reduce((sum, model) => sum
+        + model.margin * model.margin_weight * (multipliers[model.id] ?? 1), 0) / weight : item.model_margin;
+      const edge = margin - item.market_margin, backHome = edge > 0;
+      const originallyHome = String(item.side).startsWith(item.home);
+      const price = backHome === originallyHome ? item.american_price : item.opposite_price;
+      const homeSpread = -item.market_margin;
+      const line = backHome ? homeSpread : -homeSpread;
+      const covered = backHome ? item.actual_margin + homeSpread > 0 : item.actual_margin + homeSpread < 0;
+      const pushed = item.actual_margin + homeSpread === 0;
+      return { ...item, side: backHome ? `${item.home} ${line}` : `${item.away} ${line}`,
+        line, american_price: price, model_margin: r3(margin), edge: r3(edge), edge_points: Math.abs(edge),
+        result: pushed ? 'Push' : covered ? 'Won' : 'Lost', won: covered, pushed,
+        reliability_version: SIGNAL_RELIABILITY_VERSION,
+        reliability_adjusted: signals.filter(signal => signal.multiplier < 1).map(signal => signal.signal_id) };
+    });
+    const judged = applyNflPolicy(raw, policy);
+    const selected = judged.selected.map(item => ({ ...item, units: unitsFor(item) }));
+    bets.push(...selected);
+    timeline.push({ season, week, selected: selected.length,
+      adjusted_signals: signals.filter(signal => signal.multiplier < 1).map(signal => signal.signal_id) });
+    // Outcomes become eligible only after every forecast in the week was made.
+    for (const item of raw) for (const model of item.feature_snapshot?.model_trace ?? []) {
+      if (model.margin == null || !Number.isFinite(model.margin) || !Number.isFinite(item.market_margin)) continue;
+      examples.push({ season, week, signal_id: model.id,
+        signal_residual: model.margin - item.market_margin,
+        actual_residual: item.actual_margin - item.market_margin });
+    }
+  }
+  for (const season of [...new Set(decisions.map(item => item.season))]) {
+    perSeason.push({ season, ...score(bets.filter(item => item.season === season)) });
+  }
+  const finalSignals = deriveSignalReliability(examples);
+  return { version: SIGNAL_RELIABILITY_VERSION,
+    evidence_class: 'opened chronological development replay; each weekly adjustment uses prior settled weeks only',
+    overall: score(bets), per_season: perSeason,
+    final_adjusted_signals: finalSignals.filter(signal => signal.multiplier < 1), timeline };
 }
 
 function fixedVolume(decisions, volumes) {
@@ -137,33 +190,114 @@ function openingSeason(champion2021, candidate2021, fullCandidate) {
   };
 }
 
+function macroDiagnosis(champion, candidate, reliability, edge, ablations, decisionAttribution) {
+  const breakEven = 110 / 210; // -110 price expressed as a probability.
+  const phases = [
+    ['early', 1, 7], ['middle', 7, 13], ['late', 13, Infinity]
+  ].map(([name, low, high]) => ({ phase: name,
+    ...score(candidate.bets.filter(item => item.week >= low && item.week < high)) }));
+  const sides = ['underdog', 'favorite'].map(side => ({ side,
+    ...score(candidate.bets.filter(item => side === 'underdog'
+      ? Number(item.line) > 0 : Number(item.line) < 0)) }));
+  const seasons = candidate.perSeason.filter(item => !item.error).map(item => ({
+    season: item.season, bets: item.bets, wins: item.wins, losses: item.losses,
+    win_rate: item.win_rate, units: item.units, roi: item.roi
+  }));
+  const weakEdge = edge.candidate.find(item => item.bucket === '3.0–3.9');
+  const bestEdge = edge.candidate.find(item => item.bucket === '7.0+');
+  const rosterAblation = ablations.find(item => item.removed_signal === 'roster_strength');
+  const reliabilityLift = Number(reliability.overall.win_rate ?? 0)
+    - Number(candidate.overall.win_rate ?? 0);
+  const gap = breakEven - Number(candidate.overall.win_rate ?? 0);
+  return {
+    verdict: 'The candidate is not profitable. The failure is primarily forecast/selection quality, not missing rows or a lack of model complexity.',
+    evidence_class: 'opened macro diagnostic; findings can define future experiments but cannot validate a tuned replacement',
+    break_even_rate_at_minus_110: r3(breakEven),
+    current_hit_rate: candidate.overall.win_rate,
+    hit_rate_gap: r3(gap),
+    reliability_controller_lift: r3(reliabilityLift),
+    reliability_units_saved: r3(reliability.overall.units - candidate.overall.units),
+    decomposition: {
+      data_integrity: {
+        state: 'not_primary_failure',
+        finding: 'Core 2021–2025 model fields passed the cross-season completeness audit; later-only feeds abstain when unavailable.'
+      },
+      selection_dilution: {
+        state: weakEdge?.roi < 0 ? 'critical' : 'unclear',
+        finding: `${weakEdge?.bets ?? 0} selections with displayed edge 3.0–3.9 returned ${weakEdge?.units ?? 0} units.`,
+        evidence: weakEdge
+      },
+      edge_ranking: {
+        state: bestEdge?.win_rate > weakEdge?.win_rate ? 'signal_present_but_unproven' : 'broken',
+        finding: `The 7+ bucket reached ${r3((bestEdge?.win_rate ?? 0) * 100)}% but contains only ${bestEdge?.bets ?? 0} bets; most lower-edge buckets remain below break-even.`,
+        evidence: edge.candidate
+      },
+      regime_instability: {
+        state: 'critical',
+        finding: 'Performance changes materially by season, so one fixed relationship is not surviving football and market regime shifts.',
+        evidence: seasons
+      },
+      candidate_increment: {
+        state: Math.abs(decisionAttribution.by_change.added.candidate_units) < 2 ? 'low_value_expansion' : 'material',
+        finding: `${decisionAttribution.by_change.added.count} additional candidate decisions produced only ${decisionAttribution.by_change.added.candidate_units} units before the candidate's retained decisions are considered.`,
+        evidence: decisionAttribution.by_change
+      },
+      roster_signal: {
+        state: rosterAblation?.units_delta_vs_all_inputs > 0 ? 'harmful_in_opened_replay' : 'not_harmful',
+        finding: rosterAblation?.units_delta_vs_all_inputs > 0
+          ? `Removing roster strength saved ${rosterAblation.units_delta_vs_all_inputs} units in the opened replay.`
+          : 'Roster strength did not trigger the opened-replay harm check.',
+        evidence: rosterAblation ?? null
+      },
+      automatic_learning: {
+        state: reliabilityLift >= 0.01 ? 'material_lift' : 'insufficient_lift',
+        finding: `Cutoff-safe shrinkage moved hit rate by ${r3(reliabilityLift * 100)} percentage points and saved ${r3(reliability.overall.units - candidate.overall.units)} units; it is protection, not the missing edge.`,
+        evidence: { baseline: candidate.overall, adjusted: reliability.overall }
+      },
+      phase: phases,
+      side: sides
+    },
+    next_experiments: [
+      { priority: 1, id: 'probability_calibration', action: 'Train a cutoff-safe probability and residual-calibration head; judge Brier/log loss and CLV before ATS hit rate.' },
+      { priority: 2, id: 'regime_features', action: 'Model season/week regime explicitly with rolling market and gameplay state; never infer a regime from the outcome being predicted.' },
+      { priority: 3, id: 'selection_policy', action: 'Freeze and forward-test a precision-first abstention policy; the opened 3–4 point bucket is diagnosis, not permission to tune it away.' },
+      { priority: 4, id: 'roster_redesign', action: 'Replace the aggregate roster scalar with position-group uncertainty and paired injury simulations, then ablate chronologically.' },
+      { priority: 5, id: 'forward_truth', action: 'Collect decision-time price, closing price, identity, and outcome for at least 200 independent bets before any bankroll authority.' }
+    ]
+  };
+}
+
 export function buildCandidateRobustnessReport(seasons = [2021, 2022, 2023, 2024, 2025]) {
   const champion = runEngine(seasons, false), candidate = runEngine(seasons, true);
   const champion2021 = runEngine([2021], false), candidate2021 = runEngine([2021], true);
+  const decisionAttribution = attribution(champion, candidate);
+  const edge = { warning: 'Opened historical diagnostic. A larger displayed edge should perform monotonically better; failure means edge magnitude is not decision-calibrated.',
+    champion: edgeCalibration(champion.decisions), candidate: edgeCalibration(candidate.decisions) };
+  const ablations = signalAblations(seasons, candidate);
+  const reliability = historicalReliabilityReplay(candidate);
   return {
     candidate_id: 'unified-all-inputs-v3-isolated-roster',
     created_at: new Date().toISOString(), seasons,
     evidence_class: 'opened chronological development analysis; not forward proof',
     overall: { champion: champion.overall, candidate: candidate.overall },
-    attribution: attribution(champion, candidate),
+    attribution: decisionAttribution,
     fixed_volume: {
       warning: 'Post-hoc selectivity diagnostic. Thresholds are not promotion rules and cannot be tuned on the forward ledger.',
       champion: fixedVolume(champion.decisions, [25, 50, 100, 200]),
       candidate: fixedVolume(candidate.decisions, [25, 50, 100, 200])
     },
-    edge_calibration: {
-      warning: 'Opened historical diagnostic. A larger displayed edge should perform monotonically better; failure means edge magnitude is not decision-calibrated.',
-      champion: edgeCalibration(champion.decisions), candidate: edgeCalibration(candidate.decisions)
-    },
+    edge_calibration: edge,
     signal_ablation: {
       warning: 'Leave-one-input-out on opened seasons. Use this to reject or redesign signals, never to claim an untouched edge.',
-      results: signalAblations(seasons, candidate)
+      results: ablations
     },
+    automatic_reliability: reliability,
     season_drop: {
       warning: 'Sensitivity after removing one opened season; this is not a new untouched holdout.',
       champion: seasonDrop(champion, seasons), candidate: seasonDrop(candidate, seasons)
     },
-    opening_season_2021: openingSeason(champion2021, candidate2021, candidate)
+    opening_season_2021: openingSeason(champion2021, candidate2021, candidate),
+    macro_diagnosis: macroDiagnosis(champion, candidate, reliability, edge, ablations, decisionAttribution)
   };
 }
 

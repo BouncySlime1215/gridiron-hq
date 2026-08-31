@@ -290,6 +290,23 @@ error structure.
 The champion remains frozen during the next evaluation window. Candidate outputs are captured in
 parallel. Promotion is a separate explicit action after enough independent decisions settle.
 
+### Phase F — automatic signal reliability
+
+After a whole week settles, score every frozen component residual against the actual market
+residual. The controller performs deterministic pattern recognition across overall,
+recent-six-week, and early/middle/late-season regimes. It may only shrink a candidate signal; it
+cannot increase authority, promote a model, or size a bet.
+
+The preregistered v1 rules require at least 32 independent games across four weeks. Strong harm
+requires the 90% upper bound on directional accuracy to remain below 50% and mean squared-error
+gain versus market to be negative. Probable harm requires sub-47% direction, negative error gain,
+and no contradictory recent evidence. Small samples remain at a neutral 1.0 multiplier.
+
+This complements rather than replaces machine learning. The ensemble fits linear performance
+weights, the online neural network learns bounded nonlinear market residuals, and restricted risk
+models test deeper interactions. The reasoning layer runs last and may only translate the frozen
+contribution packet, including any reliability shrinkage.
+
 ## 6. News ingestion and anti-hallucination system
 
 News is evidence about availability, role, scheme, and environment. It is not a free-form numeric
@@ -499,9 +516,25 @@ Reject or redesign when:
 - identity or timestamp error rates exceed tolerance;
 - an explanation cannot be grounded in stored evidence.
 
-## 11. Path from 54.6% development to stronger evidence
+## 11. Path from 48.1% strict development to stronger evidence
 
 Do not immediately add twenty more predictors. Work in this order.
+
+### 11.0 Macro failure trigger
+
+The first cutoff-safe reliability replay improved the all-year candidate from 48.1% to 48.5% and
+reduced the loss from -20.536 to -18.627 units. That is useful downside protection, but it fails the
+profitability objective. The system must therefore expose a macro diagnosis with the strict audit:
+
+- compare the actual hit rate with the price-specific break-even rate (52.38% at -110);
+- distinguish data-integrity failure from forecast, calibration, selection, regime, and pricing failure;
+- show edge buckets, season instability, phase and favorite/underdog slices;
+- quantify whether new components improved retained decisions or merely increased volume;
+- keep every conclusion labeled as opened development evidence;
+- convert findings into preregistered forward experiments, never a post-hoc production rule.
+
+The current strict gap is about 4.3 percentage points, not 1.4. No UI, AI explanation, neural layer,
+or chosen historical slice may overwrite that fact.
 
 ### Workstream A — understand the lift
 
@@ -679,6 +712,16 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
   silently starting in 2022 or 2023.
 - Standardized completed-game market inputs across years; sparse opening lines no longer make
   2021 a different model than 2022–2025.
+
+### 2026-08-31 — automatic signal reliability controller
+
+- Frozen every raw component margin into the pre-kickoff shadow decision packet.
+- Added shrink-only pattern recognition for directional harm, market-relative squared error,
+  recent-vs-prior drift, and early/middle/late-season regimes.
+- Wired the controller into the finalized-week growth cycle and unified candidate blend.
+- Production weights, promotion state, and staking authority remain unchanged.
+- Added controller lineage to the unified engine version and reliability adjustments to exact
+  pick attribution, so AI explanations can translate the decision without inventing a cause.
 
 ### 2026-08-31 — preseason roster-strength candidate added
 

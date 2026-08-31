@@ -31,18 +31,26 @@ const parseEventKey = value => {
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 
 export function recordNflShadowBoard(season, week, capturedAt = new Date().toISOString()) {
-  const board = autoPickDecisionBoard(season, week);
-  let recorded = 0, alreadyFrozen = 0;
-  for (const d of board.decisions) {
-    const eventKey = `${season}:${week}:${d.home_team ?? ''}:${d.away_team ?? ''}`;
-    const modelVersion = `nfl-ensemble-v1-shadow:${board.policy.id}@${board.policy.version}`;
+  const boards = [
+    autoPickDecisionBoard(season, week),
+    autoPickDecisionBoard(season, week, undefined, { includeChallengers: true })
+  ];
+  let recorded = 0, alreadyFrozen = 0, considered = 0, selected = 0;
+  const byMode = {};
+  for (const board of boards) {
+    let modeRecorded = 0, modeFrozen = 0;
+    considered += board.decisions.length; selected += board.selected.length;
+    for (const d of board.decisions) {
+      const eventKey = `${season}:${week}:${d.home_team ?? ''}:${d.away_team ?? ''}`;
+      const controller = d.feature_snapshot?.reliability_controller?.version ?? 'none';
+      const modelVersion = `nfl-ensemble-v2-shadow:${board.engine_mode}:${board.policy.id}@${board.policy.version}:${controller}`;
     // Evidence horizons preserve changing context and prices elsewhere. The
     // learning ledger needs one independent prediction per game/market/model,
     // not six correlated copies that make the sample look six times larger.
     const exists = row(`SELECT id FROM shadow_decisions
       WHERE sport='NFL' AND event_key=? AND market=? AND model_version=? LIMIT 1`,
     eventKey, d.market, modelVersion);
-    if (exists) { alreadyFrozen++; continue; }
+      if (exists) { alreadyFrozen++; modeFrozen++; continue; }
     run(`INSERT INTO shadow_decisions
       (sport,event_key,market,selection,model_version,probability,market_probability,uncertainty,
        regime,decision,reason,captured_at,season,week,home_team,away_team,line,american_price,
@@ -54,10 +62,13 @@ export function recordNflShadowBoard(season, week, capturedAt = new Date().toISO
     d.abstention_reason ?? 'eligible_shadow_observation', capturedAt,
     season, week, d.home_team ?? null, d.away_team ?? null, d.line ?? null,
     d.american_price ?? null, d.quote_at ?? null, JSON.stringify(d.feature_snapshot ?? {}));
-    recorded++;
+      recorded++; modeRecorded++;
+    }
+    byMode[board.engine_mode] = { recorded: modeRecorded, already_frozen: modeFrozen,
+      considered: board.decisions.length, selected: board.selected.length };
   }
-  return { recorded, already_frozen: alreadyFrozen, considered: board.decisions.length,
-    selected: board.selected.length, mode: 'paper_only' };
+  return { recorded, already_frozen: alreadyFrozen, considered, selected,
+    by_engine_mode: byMode, mode: 'paper_only' };
 }
 
 /**

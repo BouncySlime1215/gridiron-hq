@@ -12,6 +12,7 @@ const { db } = await import('../server/db/index.js');
 const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../server/services/mlb-projections.js');
 const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
+const { deriveSignalReliability } = await import('../server/services/nfl-signal-reliability.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
 const { weeklyDecisionBacktest } = await import('../server/services/backtest.js');
 await import('../server/services/nflverse.js');
@@ -542,6 +543,24 @@ test('historical ensemble weights exclude the season being predicted and all fut
   const shadowWeek = challengerSignalWeek(2026, 1);
   assert.equal(shadowWeek.version, 'nfl-challenger-signals-v2');
   assert.ok(shadowWeek.games.every(game => game.signals.length === 9));
+  const reliability = { version: 'test-reliability-s2026w0', target: { season: 2026, week: 1 },
+    trained_through: { season: 2026, week: 0 }, adjusted: ['early_down_eff'],
+    signals: [{ signal_id: 'early_down_eff', multiplier: 0.25 }] };
+  db.prepare(`INSERT INTO nfl_signal_reliability_artifacts
+    (version,target_season,target_week,trained_through_season,trained_through_week,created_at,examples_hash,result_json)
+    VALUES (?,2026,1,2026,0,datetime('now'),'test',?)`).run(reliability.version, JSON.stringify(reliability));
+  clearEnsembleCache();
+  const champion = ensembleLine(2026, 1, 'AAA', 'BBB');
+  const adjusted = ensembleLine(2026, 1, 'AAA', 'BBB', { includeChallengers: true });
+  const championSignal = champion.models.find(model => model.id === 'early_down_eff');
+  const adjustedSignal = adjusted.models.find(model => model.id === 'early_down_eff');
+  assert.equal(champion.reliability_controller.mode, 'off');
+  assert.equal(championSignal.reliability_multiplier, 1);
+  assert.equal(adjusted.reliability_controller.mode, 'candidate_shrink_only');
+  assert.equal(adjustedSignal.reliability_multiplier, 0.25);
+  assert.equal(adjustedSignal.margin_weight, adjustedSignal.base_margin_weight * 0.25);
+  db.prepare('DELETE FROM nfl_signal_reliability_artifacts WHERE version=?').run(reliability.version);
+  clearEnsembleCache();
 });
 
 test('NFL feature-family ablations reblend the identical frozen model lines', () => {
@@ -927,4 +946,22 @@ test('cross-season data audit blocks incomplete coverage instead of filling miss
   assert.match(audit.verdict, /not coverage-consistent/);
   assert.ok(audit.guardrails.some(rule => /never converted to numeric zero/.test(rule)));
   assert.deepEqual(audit.seasons, [2021, 2022, 2023, 2024, 2025]);
+});
+
+test('signal reliability controller is shrink-only, evidence-gated, and ignores apparent winners', () => {
+  const examples = [];
+  for (let index = 0; index < 40; index++) {
+    examples.push({ signal_id: 'harmful', season: 2026, week: 1 + index % 5,
+      signal_residual: 2, actual_residual: -2 });
+    examples.push({ signal_id: 'helpful', season: 2026, week: 1 + index % 5,
+      signal_residual: 2, actual_residual: 2 });
+    if (index < 20) examples.push({ signal_id: 'too_early', season: 2026, week: 1 + index % 5,
+      signal_residual: 2, actual_residual: -2 });
+  }
+  const result = new Map(deriveSignalReliability(examples).map(signal => [signal.signal_id, signal]));
+  assert.equal(result.get('harmful').multiplier, 0.25);
+  assert.match(result.get('harmful').state, /strong_harm/);
+  assert.equal(result.get('helpful').multiplier, 1, 'success cannot auto-increase authority');
+  assert.equal(result.get('too_early').multiplier, 1, 'small samples remain neutral');
+  assert.equal(result.get('too_early').state, 'warming');
 });

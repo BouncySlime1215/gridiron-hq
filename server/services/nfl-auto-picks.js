@@ -97,10 +97,11 @@ function boardFingerprint(season, week) {
   return `${g.n}:${g.fetched}:${g.s}`;
 }
 
-export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY) {
-  const key = `${season}:${week}:${policy.id}:${policy.version}:${boardFingerprint(season, week)}`;
+export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, modelOptions = {}) {
+  const engineMode = modelOptions.includeChallengers ? 'candidate' : 'champion';
+  const key = `${season}:${week}:${policy.id}:${policy.version}:${engineMode}:${boardFingerprint(season, week)}`;
   if (_boardCache.has(key)) return _boardCache.get(key);
-  const computed = computeDecisionBoard(season, week, policy);
+  const computed = computeDecisionBoard(season, week, policy, modelOptions);
   // One week at a time is all that is ever asked for; keeping the map small
   // matters more than keeping history nobody reads.
   if (_boardCache.size > 8) _boardCache.clear();
@@ -108,12 +109,12 @@ export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLI
   return computed;
 }
 
-function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY) {
+function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, modelOptions = {}) {
   const prices = new Map(rows(`SELECT team, opponent, spread, spread_odds, source, fetched_at
                                FROM game_lines WHERE season=? AND week=?`, season, week)
     .map(x => [x.team, x]));
   const out = [];
-  for (const game of ensembleWeek(season, week)) {
+  for (const game of ensembleWeek(season, week, modelOptions)) {
     const e = game.ensemble;
     const edge = e.spread_edge;
     const home = (edge ?? 0) > 0;
@@ -154,13 +155,21 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY) {
         cover_calibration: calibrated.calibration
           ? `${calibrated.calibration.model_version}:${calibrated.calibration.trained_from}-${calibrated.calibration.trained_through}` : null,
         predictive_distribution: e.distribution ?? null,
+        input_mode: game.input_mode,
+        reliability_controller: game.reliability_controller,
+        model_trace: game.models.map(model => ({ id: model.id, family: model.family,
+          challenger_only: model.challenger_only, margin: model.margin, total: model.total,
+          base_margin_weight: model.base_margin_weight,
+          reliability_multiplier: model.reliability_multiplier,
+          margin_weight: model.margin_weight, total_weight: model.total_weight })),
         player_availability_shadow: e.player_availability ?? null,
         pregame_snapshot_at: pregame?.captured_at ?? null,
         pregame_context: pregame?.feature_coverage ?? null
       }
     });
   }
-  return applyNflPolicy(out, policy);
+  return { ...applyNflPolicy(out, policy),
+    engine_mode: modelOptions.includeChallengers ? 'candidate' : 'champion' };
 }
 
 export function autoPickCandidates(season, week, policy = NFL_PRODUCTION_POLICY) {

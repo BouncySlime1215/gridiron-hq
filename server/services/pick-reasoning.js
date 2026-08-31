@@ -281,6 +281,9 @@ function attribute(models, projected, market = 'spread') {
     model: m.model ?? m.id ?? 'unnamed',
     margin: r2(m[valueKey]),
     weight: r2(m[weightKey] / total),
+    base_weight: market === 'spread' ? r2(m.base_margin_weight) : null,
+    reliability_multiplier: market === 'spread' ? r2(m.reliability_multiplier ?? 1) : 1,
+    reliability_adjusted: market === 'spread' && Number(m.reliability_multiplier ?? 1) < 1,
     // Signed points this model put into the final number.
     contribution: r2((m[weightKey] / total) * m[valueKey])
   })).sort((a, b) => b.weight - a.weight);
@@ -301,7 +304,10 @@ function attribute(models, projected, market = 'spread') {
     // projection was actually built from, and the attribution is a fiction.
     reconstructed: r2(contributions.reduce((s, c) => s + c.contribution, 0)),
     reconstruction_matches: projected == null ? null
-      : Math.abs(contributions.reduce((s, c) => s + c.contribution, 0) - projected) < 0.5
+      : Math.abs(contributions.reduce((s, c) => s + c.contribution, 0) - projected) < 0.5,
+    reliability_adjustments: contributions.filter(item => item.reliability_adjusted)
+      .map(item => ({ model: item.model, multiplier: item.reliability_multiplier,
+        note: 'Shrunk from independently settled prior-week harm evidence before this forecast was created.' }))
   };
 }
 

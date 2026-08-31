@@ -85,6 +85,10 @@ export function nflEngineComponents(season, predictsWeek) {
     FROM nfl_online_neural_artifacts WHERE epoch_id=? AND (trained_through_season<?
       OR (trained_through_season=? AND trained_through_week<?)
     ) ORDER BY id DESC LIMIT 1`, epoch?.id ?? 1, season, season, predictsWeek);
+  const reliabilityFit = optionalRow('nfl_signal_reliability_artifacts', `SELECT version,target_season,target_week,
+      trained_through_season,trained_through_week,created_at,examples_hash
+    FROM nfl_signal_reliability_artifacts WHERE target_season<? OR (target_season=? AND target_week<=?)
+    ORDER BY target_season DESC,target_week DESC LIMIT 1`, season, season, predictsWeek);
   const riskFits = optionalRows('nfl_risk_lab_artifacts', `SELECT a.model_id,a.version,a.state_hash,
       a.trained_through_season,a.trained_through_week,a.created_at
     FROM nfl_risk_lab_artifacts a JOIN (
@@ -103,6 +107,8 @@ export function nflEngineComponents(season, predictsWeek) {
         : { model_version: 'player-week-v2.1-frozen-weights' },
       player_props: { model_version: 'shared-player-events-v1', inherits: 'player_usage_fantasy' },
       online_residual: neuralFit ?? { version: 'online-spread-v1-cold-start', authority: 'shadow' },
+      pattern_reliability: reliabilityFit ?? {
+        version: 'neutral-cold-start', authority: 'candidate shrink-only' },
       advanced_risk_lab: riskFits.length ? riskFits : [
         { model_id: 'deep_ensemble', version: 'cold-start' },
         { model_id: 'bayesian_online', version: 'cold-start' },
@@ -212,6 +218,7 @@ export function nflEngineStatus(season = Number(process.env.NFL_SEASON) || 2026,
       { head: 'player_usage_fantasy', cadence: 'weekly guarded challenger', consumes: 'shared player event state' },
       { head: 'player_props', cadence: 'shared state + market-specific calibration', consumes: 'player usage and game script' },
       { head: 'online_residual', cadence: 'whole-week prequential update', consumes: 'all upstream heads + evidence masks' },
+      { head: 'pattern_reliability', cadence: 'after each finalized week', consumes: 'frozen per-signal residuals + outcomes + regime phase' },
       { head: 'advanced_risk_lab', cadence: 'whole-week prequential competition', consumes: 'frozen vectors + restricted model-family signals' }
     ],
     rule: 'One cutoff, learning epoch and engine version; many specialized heads. Heads may adapt weekly but only independently validated challengers can replace champion behavior.',

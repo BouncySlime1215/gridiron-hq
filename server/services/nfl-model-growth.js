@@ -27,6 +27,7 @@ import { settleOnlineNeuralExamples, trainOnlineNeuralThroughSettled } from './n
 import { settleRiskLabPredictions, trainRiskLabThroughSettled } from './nfl-risk-lab.js';
 import { captureWeeklyPredictions, retrainWeeklyWeights, settleWeeklyPredictions } from './weekly-learning.js';
 import { clearNflEngineRegistryCache, recordNflEngineArtifact } from './nfl-engine-registry.js';
+import { buildSignalReliabilityArtifact, signalReliabilityStatus } from './nfl-signal-reliability.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_growth_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,7 +119,8 @@ export function nflModelGrowthStatus(season = availableSeason()) {
       : state === 'ingest_due' ? `Ingest finalized Week ${warehouse.finalized_week}, then build the Week ${warehouse.finalized_week + 1} cutoff fit.`
         : state === 'refit_due' ? `Build and record the Week ${warehouse.finalized_week + 1} cutoff fit.`
           : `Current through finalized Week ${warehouse.finalized_week}; the next outcome remains unseen.`,
-    promotion_policy: 'New weeks update weights and evaluation rows. They never auto-promote a betting model; promotion still requires the frozen forward gates.'
+    promotion_policy: 'New weeks update weights and evaluation rows. They never auto-promote a betting model; promotion still requires the frozen forward gates.',
+    signal_reliability: signalReliabilityStatus()
   };
 }
 
@@ -147,7 +149,8 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       online_neural: settleOnlineNeuralExamples(),
       risk_lab: settleRiskLabPredictions()
     },
-    ingestion: {}, fit: null, online_neural: null, risk_lab: null, player_learning: null, engine: null
+    ingestion: {}, fit: null, signal_reliability: null, online_neural: null,
+    risk_lab: null, player_learning: null, engine: null
   };
   try {
     const coreLag = before.sources.some(source => source.required && !source.current);
@@ -169,6 +172,9 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
     }
 
     const afterIngest = warehouseSnapshot(season);
+    if (afterIngest.finalized_week > 0) {
+      detail.signal_reliability = buildSignalReliabilityArtifact(season, afterIngest.finalized_week);
+    }
     clearNflEngineRegistryCache();
     const coreCurrent = afterIngest.sources
       .filter(source => source.required && source.id !== 'results_and_lines')

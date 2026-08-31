@@ -65,29 +65,39 @@ This snapshot is a research fact, not a permanent product claim.
 
 ### 2.1 Current all-inputs development audit
 
-Supported advanced-stat era: 2022–2025.
+Comparable core-data era: 2021–2025. The earlier 2022–2025 headline was invalidated because it
+excluded the worst opened season and mixed opening-line availability across years.
 
 | Engine | Bets | W-L | Hit rate | Units | ROI | P(ROI > 0) | ROI 95% interval |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Champion inputs | 145 | 73-71 | 50.7% | -3.896u | -2.7% | 36.2% | -19.2% to +13.9% |
-| All inputs v3 | 213 | 114-95 | 54.5% | +9.439u | +4.4% | 75.6% | -7.9% to +16.4% |
+| Champion inputs | 190 | 88-99 | 47.1% | -18.179u | -9.6% | 9.7% | -23.5% to +4.9% |
+| All inputs v3 | 273 | 129-139 | 48.1% | -20.536u | -7.5% | 12.8% | -20.2% to +5.3% |
 
-Development delta: +68 bets, +3.8 percentage points, +13.335 units, and +7.1 ROI points.
+Development delta: +83 bets, +1.0 percentage point, -2.357 units, and +2.1 ROI points. The
+candidate loses more total units because it makes substantially more bets.
 
-Verdict: promising, not promoted. The interval still crosses zero. All candidate forecasts should
-remain audible to the unified candidate engine, while bankroll authority remains withheld until a
-separately frozen forward audit passes.
+Verdict: rejected for bankroll authority. Neither engine beats the stored prices, the interval
+crosses zero, and the all-input candidate remains below the 52.38% break-even rate at -110.
 
 The stored comparison above is `unified-all-inputs-v3-isolated-roster` and includes the initial
 eight advanced team signals plus the roster-strength input. Production and candidate disagreement
 sets are isolated; zero-weight inputs cannot silently alter production selection.
 
-### 2.2 Full 2021–2025 comparison
+### 2.2 Data consistency and 2021
 
-The 2021 advanced-signal coverage is incomplete and both engines fail badly there. Across the
-entire window, the isolated champion scored 47.6% and -17.839u; the all-input candidate scored
-50.4% and -9.634u. This broader result is below break-even and must always be shown beside the
-supported-era result.
+The 2021 core data is not empty. It contains 544 team-weeks, 5,421 player feature rows, 25,271
+snap rows, 2,462 Next Gen Stats rows, 7,659 matched usage rows, 7,607 matched player-snap rows,
+and 285 complete reciprocal games. All 21 required team features parse, contain finite values,
+and vary; feature payload completeness is 99.8%, consistent with 99.8–99.9% in 2022–2025.
+
+The real coverage boundaries are injury reports (2023+), PFR charting (2024+), and historical
+depth snapshots (2025). Those inputs abstain outside their coverage window and must be evaluated
+separately. Historical completed-game replays now ignore sparse opening-line fields and use the
+same stored spread/total policy in every year. Real opening lines remain available to live games.
+
+2021 still performs badly after those repairs: the champion is 34.8% and -15.429u; the candidate
+is 30.5% and -24.292u. Removing 2021 raises the candidate slice to 53.1% and +3.756u, but that is
+a sensitivity diagnostic, not evidence: removing the worst season after seeing it is cherry-picking.
 
 ### 2.3 Historical and forward evidence are different
 
@@ -647,16 +657,28 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
 
 ## 16. Living change log
 
-### 2026-08-31 — all-input candidate created
+### 2026-08-31 — all-input candidate created and strict audit corrected
 
 - Eight advanced-stat challenger forecasts were allowed into a unified candidate blend.
 - Challenger status stopped meaning “muted”; it now describes deployment authority.
 - Champion behavior remained the default.
-- A same-policy 2022–2025 chronological comparison was stored.
-- After isolating candidate disagreement from production, the v3 all-input candidate improved
-  supported-era development hit rate from 50.7% to 54.5% and units from -3.896u to +9.439u.
-- Promotion failed because the ROI uncertainty interval still crossed zero.
-- Next decision: run robustness and attribution, then freeze a forward candidate if it survives.
+- A 2022–2025 slice initially looked profitable, but the headline was withdrawn when the full
+  2021–2025 and market-field consistency audit exposed selection and coverage risk.
+- The corrected same-policy result is 47.1% / -18.179u for the champion and 48.1% / -20.536u
+  for the all-input candidate.
+- Fixed-volume, leave-one-season-out, edge-calibration, attribution, and nine signal-ablation
+  reports are stored. The candidate is not eligible for staking.
+- Next decision: redesign on discovery data and judge only on a preregistered 2026 forward window.
+
+### 2026-08-31 — cross-season data repair
+
+- Backfilled 2021 snap counts, Next Gen Stats, weekly player usage, and matched player snaps.
+- Added payload validity checks: parse success, finite-field coverage, variance, identity integrity,
+  reciprocal game settlement, real player opportunity, and per-year feed coverage.
+- Changed every default full sync and fresh-install bootstrap to ingest 2021–2025 rather than
+  silently starting in 2022 or 2023.
+- Standardized completed-game market inputs across years; sparse opening lines no longer make
+  2021 a different model than 2022–2025.
 
 ### 2026-08-31 — preseason roster-strength candidate added
 

@@ -17,6 +17,9 @@ import { fitCorrelations, correlationTable, clearCorrelationCache } from '../ser
 import { fitGameScript, gameScriptFor, syncHistoricalLines, syncCurrentLines, linesFor, clearGameScriptCache } from '../services/gamescript.js';
 import { availability, weeklyAvailability, cascades, handcuffValue } from '../services/contingency.js';
 import { syncAll as syncNflverse, usageSeasons, usageFor } from '../services/nflverse.js';
+import { syncAllAdvanced } from '../services/nfl-advanced.js';
+import { syncPbpSeason } from '../services/nfl-pbp.js';
+import { nflDataConsistencyAudit } from '../services/nfl-data-consistency.js';
 import { clearMatchupCache } from '../services/matchups.js';
 import { modelMap, ask, consensus, projectionHeads, stateOfTheModel } from '../services/gridiron-model.js';
 import { resolvePlayer, assetUniverse, loadRosters } from '../services/trade-engine.js';
@@ -601,13 +604,17 @@ r.get('/status', (req, res) => {
 r.post('/sync', requireModelPermission('model:train'), async (req, res, next) => {
   try {
     const seasons = (req.query.seasons ? String(req.query.seasons).split(',').map(Number)
-      : [SEASON - 4, SEASON - 3, SEASON - 2, SEASON - 1]).filter(Boolean);
+      : [SEASON - 5, SEASON - 4, SEASON - 3, SEASON - 2, SEASON - 1]).filter(Boolean);
     const out = { seasons };
+    out.play_by_play = [];
+    for (const season of seasons) out.play_by_play.push(await syncPbpSeason(season));
     out.nflverse = await syncNflverse(seasons);
+    out.advanced = await syncAllAdvanced(seasons);
     out.historical_lines = await syncHistoricalLines().catch(e => ({ error: e.message }));
     out.current_lines = await syncCurrentLines(SEASON).catch(e => ({ error: e.message }));
     out.gamescript = fitGameScript();
     out.correlations = fitCorrelations().length;
+    out.consistency = nflDataConsistencyAudit();
     clearModelCache(); clearMatchupCache(); clearCorrelationCache(); clearGameScriptCache();
     res.json({ ok: true, ...out });
   } catch (e) { next(e); }

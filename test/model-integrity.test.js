@@ -11,6 +11,7 @@ const { __test: sim } = await import('../server/services/season-sim.js');
 const { db } = await import('../server/db/index.js');
 const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../server/services/mlb-projections.js');
 const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine } = await import('../server/services/nfl-ensemble.js');
+const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
 const { weeklyDecisionBacktest } = await import('../server/services/backtest.js');
 await import('../server/services/nflverse.js');
@@ -520,7 +521,8 @@ test('historical ensemble weights exclude the season being predicted and all fut
   const at2023 = fitEnsemble({ beforeSeason: 2023, beforeWeek: 1 });
   const live = fitEnsemble();
   assert.deepEqual(at2023.weight_cutoff, { season: 2023, week: 1 });
-  assert.equal(at2023.evaluated_weeks, 18, 'only the completed 2022 evaluation weeks are eligible');
+  assert.equal(at2023.evaluated_weeks, 90,
+    'weight fitting uses the predeclared 2018-2022 discovery history before the 2023 prediction');
   assert.ok(live.evaluated_weeks > at2023.evaluated_weeks,
     'future outcomes may affect live weights but not a historical prediction');
   const challengers = live.models.filter(model => model.challenger_only);
@@ -917,4 +919,12 @@ test('contextual mixture learns when a restricted expert is useful', () => {
   const after = predictRiskModel('contextual_moe', trained, payload);
   assert.ok(after.residual > before.residual + 1, `${before.residual} -> ${after.residual}`);
   assert.ok(after.detail.weights.some(weight => weight > 0.5));
+});
+
+test('cross-season data audit blocks incomplete coverage instead of filling missing inputs with zero', () => {
+  const audit = nflDataConsistencyAudit();
+  assert.equal(audit.comparable_2021_core, false);
+  assert.match(audit.verdict, /not coverage-consistent/);
+  assert.ok(audit.guardrails.some(rule => /never converted to numeric zero/.test(rule)));
+  assert.deepEqual(audit.seasons, [2021, 2022, 2023, 2024, 2025]);
 });

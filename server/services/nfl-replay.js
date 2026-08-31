@@ -174,7 +174,11 @@ export function replaySeason(season, {
           won: covered, pushed, book: g.source ?? null, quote_source: g.source ?? null, quote_at: g.fetched_at ?? null,
           feature_snapshot: {
             margin_models_active: e.models_contributing_margin ?? null,
-            predictive_distribution: e.distribution ?? null
+            predictive_distribution: e.distribution ?? null,
+            input_mode: line.input_mode ?? null,
+            model_trace: line.models.map(model => ({ id: model.id, family: model.family,
+              challenger_only: model.challenger_only, margin: model.margin,
+              margin_weight: model.margin_weight, residual_slope: model.residual_slope }))
           }
         });
     }
@@ -477,7 +481,7 @@ export function latestTrainingAudit() {
  * policy, seasons and chronological cutoffs; only challenger input visibility
  * changes.
  */
-export function candidateInputComparison(seasons = [2022, 2023, 2024, 2025], config = {}) {
+export function candidateInputComparison(seasons = [2021, 2022, 2023, 2024, 2025], config = {}) {
   const shared = { ...config, minBets: config.minBets ?? 30 };
   const baseline = trainingIteration(seasons, { ...shared, label: 'champion-inputs', modelOptions: {} });
   const combined = trainingIteration(seasons, {
@@ -497,7 +501,7 @@ export function candidateInputComparison(seasons = [2022, 2023, 2024, 2025], con
     return { seasons: [...earlierSeasons, ...seasons], bets, wins, losses,
       win_rate: wins + losses ? r2(wins / (wins + losses)) : null,
       units: r2(units), roi: bets ? r2(units / bets) : null,
-      note: 'Descriptive full-window total. The advanced inputs begin in 2022; 2021 is retained so the supported-era result cannot hide the cold-start failure.' };
+      note: 'Descriptive full-window total retained when a caller requests a narrower development slice; it prevents an opened 2021 result from disappearing.' };
   };
   const result = {
     candidate_id: 'unified-all-inputs-v3-isolated-roster',

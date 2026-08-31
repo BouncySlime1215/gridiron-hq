@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const QUICK = process.argv.includes('--quick');
-const SEASONS = QUICK ? [2025] : [2023, 2024, 2025];
+const SEASONS = QUICK ? [2025] : [2021, 2022, 2023, 2024, 2025];
 
 const c = { g: s => `\x1b[32m${s}\x1b[0m`, y: s => `\x1b[33m${s}\x1b[0m`, dim: s => `\x1b[2m${s}\x1b[0m` };
 
@@ -83,7 +83,7 @@ for (const s of SEASONS) {
 await run('Trending adds/drops', '/api/tradelab/trending/sync', 30000);
 // The prediction engine's own feeds: nflverse usage, betting lines, and the fits
 // derived from them. Last because it depends on the player universe existing.
-await run('Prediction engine (usage, lines, model fits)', '/api/model/sync', 600000);
+await run('Prediction engine (PBP, player usage, advanced stats, lines, model fits)', '/api/model/sync', 1200000);
 
 // Report what the matchup engine actually ended up with, since that is the piece
 // most likely to be thin and the one the trade scoring leans on hardest.

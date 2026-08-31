@@ -30,8 +30,9 @@ import { nflEngineVersionFor } from './nfl-engine-registry.js';
 import { rosterStrengthWeek } from './nfl-roster-strength.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
-const EVAL_FROM = 2022;    // seasons graded out-of-sample (also where play-by-play features exist)
-const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v5-roster-strength-input';
+const EVAL_FROM = 2022;    // frozen calibration boundary retained for the established ensemble
+const WEIGHT_FIT_FROM = 2018; // discovery history available before the opened 2021-2025 audit
+const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v7-consistent-historical-market';
 export const CHALLENGER_SIGNAL_VERSION = 'nfl-challenger-signals-v2';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_ensemble_fit_artifacts (
@@ -56,7 +57,8 @@ function games(minSeason = MIN_SEASON) {
   return rows(`
     SELECT season, week, team AS home, opponent AS away,
            team_score AS home_score, opp_score AS away_score,
-           spread AS home_spread, total, open_spread, open_total,
+           spread AS home_spread, total,
+           NULL AS open_spread, NULL AS open_total,
            temp, wind, roof, rest_days AS home_rest, div_game
     FROM game_lines
     WHERE home = 1 AND team_score IS NOT NULL AND opp_score IS NOT NULL
@@ -869,7 +871,7 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // before that prediction. The old global fit used 2022-2025 outcomes even while
   // replaying 2022, which made the component forecasts walk-forward but the
   // ensemble itself look ahead.
-  const eligible = all.filter(g => g.season >= evalFrom && (
+  const eligible = all.filter(g => g.season >= WEIGHT_FIT_FROM && (
     beforeSeason == null || g.season < beforeSeason ||
     (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
   ));
@@ -1009,16 +1011,18 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
  */
 export function ensembleLine(season, week, home, away, {
   weighting = 'exponential', families = null, blendMode = 'raw', includeEvidence = true,
-  includeChallengers = false
+  includeChallengers = false, excludeModels = []
 } = {}) {
   const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|${includeEvidence ? 'evidence' : 'forecast'}`;
+  const excludedKey = [...excludeModels].sort().join(',');
+  const excluded = new Set(excludeModels);
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|exclude:${excludedKey}|${includeEvidence ? 'evidence' : 'forecast'}`;
   // Family ablations are projections of the same frozen per-model line. Build
   // that expensive context once, then re-blend only the requested families.
   // This changes no prediction and makes a nine-cut audit minutes faster.
   if (families?.length) {
     const base = _lineCache.get(lineKey) ?? ensembleLine(season, week, home, away, {
-      weighting, families: null, blendMode, includeEvidence, includeChallengers
+      weighting, families: null, blendMode, includeEvidence, includeChallengers, excludeModels
     });
     if (base.error) return base;
     const allowed = new Set(families);
@@ -1059,7 +1063,9 @@ export function ensembleLine(season, week, home, away, {
   if (hist.length < 100) return { error: 'not enough history before this week' };
 
   const g = rows(`SELECT team AS home, opponent AS away, spread AS home_spread, total,
-                         open_spread, open_total, temp, wind, roof, rest_days AS home_rest, div_game
+                         CASE WHEN team_score IS NULL THEN open_spread END AS open_spread,
+                         CASE WHEN team_score IS NULL THEN open_total END AS open_total,
+                         temp, wind, roof, rest_days AS home_rest, div_game
                   FROM game_lines WHERE season=? AND week=? AND team=? AND home=1`, season, week, home)[0]
     ?? { home, away, home_spread: null, total: null };
   const ctx = { ...buildContext({ ...g, season, week, home, away }, hist, restMap),
@@ -1067,7 +1073,7 @@ export function ensembleLine(season, week, home, away, {
 
   const allowedFamilies = families?.length ? new Set(families) : null;
   const perModel = [];
-  for (const m of MODELS.filter(x => !allowedFamilies || allowedFamilies.has(x.family))) {
+  for (const m of MODELS.filter(x => (!allowedFamilies || allowedFamilies.has(x.family)) && !excluded.has(x.id))) {
     let p; try { p = m.predict(ctx); } catch { p = null; }
     const w = fit.models.find(x => x.id === m.id) ?? {};
     perModel.push({

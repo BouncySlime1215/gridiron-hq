@@ -5,6 +5,8 @@ import { newsSignalCoverage } from './nfl-news-signal.js';
 import { allSources } from './source-registry.js';
 import { schedulerStatus } from './scheduler.js';
 import { latestCandidateInputAudit } from './nfl-replay.js';
+import { latestCandidateRobustnessReport } from './nfl-candidate-analysis.js';
+import { nflDataConsistencyAudit } from './nfl-data-consistency.js';
 
 const number = value => Number(value ?? 0);
 
@@ -130,6 +132,8 @@ export function nflDiagnostic() {
     model_growth: profitability.model_growth,
     challenger_backfill: challengerBackfill(),
     candidate_input_audit: candidateAudit,
+    candidate_robustness: latestCandidateRobustnessReport(),
+    data_consistency: nflDataConsistencyAudit(),
     engine: profitability.gridiron_engine,
     bottlenecks,
     next_profit_review: {

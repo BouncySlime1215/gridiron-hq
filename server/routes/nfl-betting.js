@@ -26,6 +26,7 @@ import { callClaude, getApiKey, parseJson } from '../services/claude.js';
 import { liveGames } from '../services/nfl-live.js';
 import { rolesFor, roleTimeline, advancedCoverage, syncAllAdvanced } from '../services/nfl-advanced.js';
 import { pbpCoverage, syncPbpSeason } from '../services/nfl-pbp.js';
+import { syncAll as syncNflversePlayerFeeds } from '../services/nflverse.js';
 import { boardFor, accuracy, clearNflMarketCache } from '../services/nfl-market.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
@@ -69,12 +70,15 @@ import { unifiedGameProjection } from '../services/nfl-unified-engine.js';
 import { backfillChallengerSignals, historicalReplayBiasAudit, nflBackfillPlan, nflBackfillStatus,
   runNflEngineBackfill } from '../services/nfl-engine-backfill.js';
 import { teamRosterStrength, pffConnectorStatus, syncLicensedPffGrades } from '../services/nfl-roster-strength.js';
+import { buildCandidateRobustnessReport, saveCandidateRobustnessReport,
+  latestCandidateRobustnessReport } from '../services/nfl-candidate-analysis.js';
+import { nflDataConsistencyAudit } from '../services/nfl-data-consistency.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
 // A training grant must not authorize spending API/AI resources, locking picks,
 // or writing/grading bets.
-const trainingMutation = /^(\/replay\/(?:train|candidate-audit)|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/(?:online-neural|risk-lab)\/train|\/engine\/(?:backfill|learning-epoch)|\/roster\/pff-sync|\/sync$)/;
+const trainingMutation = /^(\/replay\/(?:train|candidate-audit|candidate-robustness)|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/(?:online-neural|risk-lab)\/train|\/engine\/(?:backfill|learning-epoch)|\/roster\/pff-sync|\/sync$)/;
 const resourceSpendingGet = /^(\/lines\/(?:shop|disagreement)|\/sharp\/(?:board|divergence))$/;
 r.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
@@ -177,6 +181,11 @@ r.get('/profitability', (_req, res, next) => {
 
 r.get('/diagnostic', (_req, res, next) => {
   try { res.json(nflDiagnostic()); }
+  catch (e) { next(e); }
+});
+
+r.get('/data-consistency', (_req, res, next) => {
+  try { res.json(nflDataConsistencyAudit()); }
   catch (e) { next(e); }
 });
 
@@ -612,7 +621,7 @@ r.get('/replay/latest', (_req, res, next) => {
 /** Compare the champion with the same engine hearing every candidate input. */
 r.post('/replay/candidate-audit', (req, res, next) => {
   try {
-    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
     res.json(saveCandidateInputAudit(candidateInputComparison(seasons, {
       minBets: Number(req.query.min_bets) || 30
     })));
@@ -621,6 +630,17 @@ r.post('/replay/candidate-audit', (req, res, next) => {
 
 r.get('/replay/candidate-audit/latest', (_req, res, next) => {
   try { res.json({ audit: latestCandidateInputAudit() }); } catch (e) { next(e); }
+});
+
+r.post('/replay/candidate-robustness', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
+    res.json(saveCandidateRobustnessReport(buildCandidateRobustnessReport(seasons)));
+  } catch (e) { next(e); }
+});
+
+r.get('/replay/candidate-robustness/latest', (_req, res, next) => {
+  try { res.json({ audit: latestCandidateRobustnessReport() }); } catch (e) { next(e); }
 });
 
 /** Starts a bounded-cost, outcome-blind AI risk-gate replay. */
@@ -932,10 +952,12 @@ r.get('/availability/game', (req, res, next) => {
 
 r.post('/sync', async (req, res, next) => {
   try {
-    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    const seasons = String(req.query.seasons ?? '2021,2022,2023,2024,2025').split(',').map(Number);
     const out = { pbp: [] };
     for (const s of seasons) out.pbp.push(await syncPbpSeason(s));
     out.advanced = await syncAllAdvanced(seasons);
+    out.player = await syncNflversePlayerFeeds(seasons);
+    out.consistency = nflDataConsistencyAudit();
     clearEnsembleCache();
     clearNflMarketCache();
     out.cache_invalidated = true;

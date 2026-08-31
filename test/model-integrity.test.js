@@ -13,6 +13,9 @@ const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../
 const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
 const { deriveSignalReliability } = await import('../server/services/nfl-signal-reliability.js');
+const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-neural-replay.js');
+const { calibratedCoverProbability } = await import('../server/services/nfl-cover-calibration.js');
+const { nflCoordinationAudit } = await import('../server/services/nfl-coordination-audit.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
 const { weeklyDecisionBacktest } = await import('../server/services/backtest.js');
 await import('../server/services/nflverse.js');
@@ -964,4 +967,30 @@ test('signal reliability controller is shrink-only, evidence-gated, and ignores 
   assert.equal(result.get('helpful').multiplier, 1, 'success cannot auto-increase authority');
   assert.equal(result.get('too_early').multiplier, 1, 'small samples remain neutral');
   assert.equal(result.get('too_early').state, 'warming');
+});
+
+test('neural decision calibration learns both cover directions without seeing the target week', () => {
+  const examples = Array.from({ length: 240 }, (_, index) => ({
+    week: index % 18 + 1, prediction_residual: index % 2 === 0 ? 3 : -3,
+    disagreement: 3, home_underdog: false, home_cover: index % 2 === 0
+  }));
+  const fit = fitNeuralDecisionCalibrator(examples);
+  assert.equal(fit.examples, 240);
+  const positive = calibratedNeuralProbability(fit, { week: 8, prediction_residual: 3,
+    disagreement: 3, home_underdog: false });
+  const negative = calibratedNeuralProbability(fit, { week: 8, prediction_residual: -3,
+    disagreement: 3, home_underdog: false });
+  assert.ok(positive > negative, 'positive residual evidence must raise home-cover probability');
+  assert.ok(negative >= 0 && positive <= 1);
+});
+
+test('coordinated decision head rejects calibration fitted for a different model', () => {
+  const mismatch = calibratedCoverProbability({ season: 2026, marketProbability: 0.5,
+    edgePoints: 4, modelVersion: 'definitely-not-the-fitted-model' });
+  assert.equal(mismatch.probability, null);
+  assert.equal(mismatch.calibration, null);
+  const audit = nflCoordinationAudit();
+  assert.equal(audit.production_state, 'abstain_no_proven_edge');
+  assert.ok(audit.blockers.some(item => item.id === 'cover_calibration'));
+  assert.ok(audit.hard_truths.some(item => /registry coordinated version labels/.test(item)));
 });

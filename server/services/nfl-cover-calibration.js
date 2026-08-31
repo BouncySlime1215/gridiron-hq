@@ -378,16 +378,17 @@ export function buildCoverCalibration({ fromSeason = 2021, throughSeason = 2025 
   return latestCoverCalibration(throughSeason + 1);
 }
 
-export function latestCoverCalibration(beforeSeason = 9999) {
+export function latestCoverCalibration(beforeSeason = 9999, modelVersion = null) {
   const r = rows(`SELECT * FROM nfl_cover_calibrations WHERE trained_through < ?
-                  ORDER BY trained_through DESC, id DESC LIMIT 1`, beforeSeason)[0];
+      AND (? IS NULL OR model_version=?) ORDER BY trained_through DESC, id DESC LIMIT 1`,
+  beforeSeason, modelVersion, modelVersion)[0];
   if (!r) return null;
   return { ...r, metrics: JSON.parse(r.metrics_json), reliability: JSON.parse(r.reliability_json),
     metrics_json: undefined, reliability_json: undefined };
 }
 
-export function calibratedCoverProbability({ season, marketProbability, edgePoints }) {
-  const fit = latestCoverCalibration(season);
+export function calibratedCoverProbability({ season, marketProbability, edgePoints, modelVersion = VERSION }) {
+  const fit = latestCoverCalibration(season, modelVersion);
   if (!fit || !fit.metrics?.forward_gate_passed || marketProbability == null || edgePoints == null) {
     return { probability: null, calibration: fit };
   }

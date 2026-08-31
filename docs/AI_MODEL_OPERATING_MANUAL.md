@@ -536,6 +536,40 @@ profitability objective. The system must therefore expose a macro diagnosis with
 The current strict gap is about 4.3 percentage points, not 1.4. No UI, AI explanation, neural layer,
 or chosen historical slice may overwrite that fact.
 
+### 11.0.1 Coordination audit: the hard truths
+
+An engine is not unified merely because one registry lists all its artifacts. The August 2026
+coordination audit found these concrete breaks:
+
+- the raw ensemble optimized final margin, while a spread bet needs incremental value over the
+  posted market margin;
+- the auto-pick board used the raw blend while the unified simulation used the residual blend;
+- the online neural and risk-lab heads trained and stored predictions but did not feed the pick
+  generator;
+- verified news reached the neural feature vector, but the neural output did not reach decisions;
+- the existing cover calibration described the old raw head and therefore could not safely
+  authorize a different residual head;
+- the engine registry coordinated versions and cutoffs, but not the actual inference route.
+
+The canonical route is now: verified evidence → component forecasts → market-residual base →
+gated adaptive residual → version-matched cover probability → frozen policy → immutable ledger →
+post-decision explanation. Any component outside that route must be labeled shadow/disconnected,
+not advertised as part of the betting answer.
+
+### 11.0.2 First coordinated neural result
+
+The preregistered two-sided prequential challenger trained on 2018–2020 and evaluated every week
+of 2021–2025 before learning that week's result. It produced 304 bets, 155 wins, 141 losses,
+52.4% hit rate, +10.592 units, and 3.5% ROI at stored prices. This is a useful research result but
+fails promotion for three reasons:
+
+- its clustered 95% ROI interval is -8.9% to +15.8%, so profit is not established;
+- 2021 contributes +16.050 units—more than the combined result—while 2023 and 2025 lose;
+- 302 of 304 selections are underdogs, showing unresolved decision concentration.
+
+The candidate stays shadow-only. No threshold may be retuned on these opened outcomes. Its next
+test is the already-frozen forward ledger, with closing prices preserved before kickoff.
+
 ### Workstream A — understand the lift
 
 1. Produce weekly and game-level deltas between champion and all-input candidate.

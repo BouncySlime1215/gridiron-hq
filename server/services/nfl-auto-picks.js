@@ -10,6 +10,9 @@ import { ensembleWeek } from './nfl-ensemble.js';
 import { NFL_PRODUCTION_POLICY, applyNflPolicy } from './nfl-policy.js';
 import { calibratedCoverProbability } from './nfl-cover-calibration.js';
 import { pregameSnapshotFor } from './nfl-pregame.js';
+import { onlineNeuralPrediction } from './nfl-online-neural.js';
+
+const COORDINATED_DECISION_VERSION = 'coordinated-market-residual-v1';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_auto_picks (
@@ -98,8 +101,10 @@ function boardFingerprint(season, week) {
 }
 
 export function autoPickDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, modelOptions = {}) {
+  modelOptions = { blendMode: 'market_residual', ...modelOptions };
   const engineMode = modelOptions.includeChallengers ? 'candidate' : 'champion';
-  const key = `${season}:${week}:${policy.id}:${policy.version}:${engineMode}:${boardFingerprint(season, week)}`;
+  const modelKey = JSON.stringify(Object.fromEntries(Object.entries(modelOptions).sort(([a], [b]) => a.localeCompare(b))));
+  const key = `${season}:${week}:${policy.id}:${policy.version}:${engineMode}:${modelKey}:${boardFingerprint(season, week)}`;
   if (_boardCache.has(key)) return _boardCache.get(key);
   const computed = computeDecisionBoard(season, week, policy, modelOptions);
   // One week at a time is all that is ever asked for; keeping the map small
@@ -116,14 +121,19 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
   const out = [];
   for (const game of ensembleWeek(season, week, modelOptions)) {
     const e = game.ensemble;
-    const edge = e.spread_edge;
+    const neural = onlineNeuralPrediction(game);
+    const neuralUsed = modelOptions.includeChallengers || neural.production_eligible === true;
+    const marketMargin = e.market_spread == null ? null : -e.market_spread;
+    const projectedMargin = neuralUsed && neural.predicted_margin != null
+      ? neural.predicted_margin : e.projected_margin;
+    const edge = projectedMargin == null || marketMargin == null ? null : projectedMargin - marketMargin;
     const home = (edge ?? 0) > 0;
     const selection = home ? game.home : game.away;
     const quote = prices.get(selection);
     const opposite = prices.get(home ? game.away : game.home);
     const implied = noVigProbability(quote?.spread_odds, opposite?.spread_odds);
     const calibrated = calibratedCoverProbability({ season, marketProbability: implied,
-      edgePoints: edge == null ? null : Math.abs(edge) });
+      edgePoints: edge == null ? null : Math.abs(edge), modelVersion: COORDINATED_DECISION_VERSION });
     const modelProbability = calibrated.probability;
     const incremental = modelProbability == null || implied == null ? null : modelProbability - implied;
     // Do not let an uncalibrated forecast masquerade as a betting signal. A
@@ -155,6 +165,13 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
         cover_calibration: calibrated.calibration
           ? `${calibrated.calibration.model_version}:${calibrated.calibration.trained_from}-${calibrated.calibration.trained_through}` : null,
         predictive_distribution: e.distribution ?? null,
+        coordinated_decision_head: {
+          version: COORDINATED_DECISION_VERSION,
+          target: 'actual margin minus pregame market margin', base_blend: e.blend_mode,
+          neural: { version: neural.version ?? null, residual: neural.residual ?? null,
+            authority: neural.authority ?? 'unavailable', used: Boolean(neuralUsed) },
+          production_rule: 'market-residual base; neural output only after its forward gate passes'
+        },
         input_mode: game.input_mode,
         reliability_controller: game.reliability_controller,
         model_trace: game.models.map(model => ({ id: model.id, family: model.family,

@@ -207,6 +207,21 @@ function activeNetwork(inputSize) {
   return { network: createNetwork(inputSize), version: 'online-spread-v1-cold-start' };
 }
 
+/** Score a frozen ensemble packet with the active market-residual learner. */
+export function onlineNeuralPrediction(line, { before = null } = {}) {
+  const features = spreadFeatureVector(line, { before });
+  if (!features) return { error: 'market spread unavailable for neural residual' };
+  const active = activeNetwork(features.values.length);
+  const residual = predictNetwork(active.network, features.values);
+  const artifact = latestArtifact();
+  const metrics = artifact?.metrics ?? performanceMetrics();
+  return { head: HEAD, version: active.version, schema_version: ONLINE_NEURAL_SCHEMA,
+    residual: r3(residual), predicted_margin: r3(features.market_margin + residual),
+    market_margin: features.market_margin,
+    production_eligible: metrics.production_eligible === true, metrics,
+    authority: metrics.production_eligible === true ? 'eligible_for_production_review' : 'shadow_only' };
+}
+
 function kickoff(game) {
   return game.gameday ? nflKickoffDate(game.gameday, game.gametime || '23:59') : null;
 }

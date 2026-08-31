@@ -8,6 +8,8 @@ import { latestCandidateInputAudit } from './nfl-replay.js';
 import { latestCandidateRobustnessReport } from './nfl-candidate-analysis.js';
 import { nflDataConsistencyAudit } from './nfl-data-consistency.js';
 import { signalReliabilityStatus } from './nfl-signal-reliability.js';
+import { nflCoordinationAudit } from './nfl-coordination-audit.js';
+import { latestHistoricalNeuralReplay } from './nfl-neural-replay.js';
 
 const number = value => Number(value ?? 0);
 
@@ -136,6 +138,8 @@ export function nflDiagnostic() {
     candidate_robustness: latestCandidateRobustnessReport(),
     data_consistency: nflDataConsistencyAudit(),
     signal_reliability: signalReliabilityStatus(),
+    coordination: nflCoordinationAudit(),
+    neural_replay: latestHistoricalNeuralReplay(),
     engine: profitability.gridiron_engine,
     bottlenecks,
     next_profit_review: {

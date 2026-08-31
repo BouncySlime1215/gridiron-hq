@@ -74,17 +74,35 @@ function repositoryState() {
   return { commit, dirty: diff.length > 0 || untracked.length > 0, hash: content.digest('hex') };
 }
 
-function inputDataState() {
+function inputDataState(spec = null) {
   const hash = createHash('sha256');
   const tables = new Set(rows("SELECT name FROM sqlite_master WHERE type='table'").map(x => x.name));
   const coverage = {};
+  const maxSeason = spec?.seasons?.length ? Math.max(...spec.seasons) : null;
+  const afterSeason = maxSeason == null ? null : `${maxSeason + 1}-03-01T00:00:00.000Z`;
+  const seasonTables = new Set(['game_lines', 'nfl_team_week_features', 'nfl_player_week_features',
+    'nfl_depth', 'nfl_injuries', 'nfl_ngs', 'nfl_pfr_adv', 'nfl_snaps', 'nfl_external_player_grades']);
   for (const table of INPUT_TABLES) {
     if (!tables.has(table)) { coverage[table] = { rows: 0, missing: true }; continue; }
     const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(x => x.name);
-    const data = rows(`SELECT * FROM ${table} ORDER BY rowid`);
-    coverage[table] = { rows: data.length, columns };
-    hash.update(table).update('\0').update(JSON.stringify(columns)).update('\0');
-    for (const record of data) hash.update(JSON.stringify(record)).update('\n');
+    let where = '', params = [];
+    if (maxSeason != null && seasonTables.has(table) && columns.includes('season')) {
+      where = ' WHERE season<=?'; params = [maxSeason];
+    } else if (afterSeason && table === 'news_items') {
+      where = ` WHERE COALESCE(published_at,date,created_at)<?`; params = [afterSeason];
+    } else if (afterSeason && table === 'nfl_news_signals') {
+      where = ' WHERE published_at<?'; params = [afterSeason];
+    } else if (afterSeason && table === 'nfl_line_snapshots') {
+      where = ' WHERE commence_time IS NULL OR commence_time<?'; params = [afterSeason];
+    } else if (maxSeason != null && table === 'weekly_ensemble_fits') {
+      where = ' WHERE through_season<=?'; params = [maxSeason];
+    }
+    const data = rows(`SELECT * FROM ${table}${where} ORDER BY rowid`, ...params);
+    const tableHash = createHash('sha256').update(table).update('\0').update(JSON.stringify(columns)).update('\0');
+    for (const record of data) tableHash.update(JSON.stringify(record)).update('\n');
+    const digest = tableHash.digest('hex');
+    coverage[table] = { rows: data.length, columns, hash: digest, scope: where ? { where, params } : 'all_rows' };
+    hash.update(table).update('\0').update(digest).update('\n');
   }
   return { hash: hash.digest('hex'), coverage };
 }
@@ -133,8 +151,9 @@ export function preregisterBlindAudit({ label = 'NFL five-year blind replay', al
   if (code.dirty && !allowDirty) {
     throw new Error('blind audit preregistration requires a clean committed repository state');
   }
-  const data = inputDataState();
-  const spec = { ...normalizeSpec(input), provenance: { code, data_coverage: data.coverage } };
+  const normalized = normalizeSpec(input);
+  const data = inputDataState(normalized);
+  const spec = { ...normalized, provenance: { code, data_coverage: data.coverage } };
   const specHash = sha(JSON.stringify(spec));
   run(`INSERT INTO nfl_blind_audit_runs
        (created_at,label,spec_hash,spec_json,code_hash,data_hash,status,next_ordinal)
@@ -152,8 +171,15 @@ function parseRun(record) {
 function assertFrozen(record) {
   const code = repositoryState();
   if (code.hash !== record.code_hash) throw new Error('blind audit blocked: repository state changed after preregistration');
-  const data = inputDataState();
-  if (data.hash !== record.data_hash) throw new Error('blind audit blocked: model input data changed after preregistration');
+  const spec = JSON.parse(record.spec_json);
+  const data = inputDataState(spec);
+  if (data.hash !== record.data_hash) {
+    const prior = spec.provenance?.data_coverage ?? {};
+    const changed = Object.entries(data.coverage).filter(([table, state]) => prior[table]?.hash !== state.hash)
+      .map(([table, state]) => ({ table, before_rows: prior[table]?.rows ?? null, now_rows: state.rows,
+        before_hash: prior[table]?.hash ?? null, now_hash: state.hash }));
+    throw new Error(`blind audit blocked: model input data changed after preregistration (${changed.map(item => item.table).join(', ') || 'legacy snapshot without table hashes'})`);
+  }
 }
 
 function playerWeekResult(season, week) {

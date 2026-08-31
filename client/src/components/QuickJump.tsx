@@ -12,9 +12,9 @@ export const DESTINATIONS = [
   ['News', '/news', 'Attributed news and fantasy impact'],
   ["X's & O's", '/teams', 'Whiteboard schemes and team context'],
   ['Matchups', '/matchups', 'Opponent history and weekly projections'],
-  ['Market Command', '/betting', 'Path to profit across NFL and MLB'],
-  ['NFL Workbench', '/betting/nfl', 'Model decisions, execution, field replay and blind audit'],
-  ['MLB Workbench', '/betting/mlb/auto', 'Model slate, forward capture and evidence ledger'],
+  ['Betting Desk', '/betting', 'Path to profit across NFL and MLB'],
+  ['NFL Betting Desk', '/betting/nfl', 'Board, execution, live games and one engine'],
+  ['MLB Betting Desk', '/betting/mlb/auto', 'Slate, forward capture and evidence ledger'],
   ['Accuracy & Experiments', '/lab', 'Backtests, promotion gates and registry'],
   ['Settings', '/settings', 'Connections and local API configuration'],
 ] as const;

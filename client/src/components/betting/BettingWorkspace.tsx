@@ -38,7 +38,14 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
 
   return <div className="mx-auto max-w-[1480px] space-y-4">
     <section className="overflow-hidden rounded-[26px] border border-slate-800 bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,.18)]">
-      <div className="flex flex-col gap-5 px-5 py-5 sm:px-7 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex items-center gap-1 border-b border-white/10 p-2">
+        {[
+          ['/betting', 'Command'], ['/betting/nfl', 'NFL'], ['/betting/mlb/auto', 'MLB']
+        ].map(([to, label]) => <NavLink key={to} to={to} end={to === '/betting'}
+          className={({ isActive }) => `rounded-lg px-3 py-2 text-xs font-black transition ${isActive ? 'bg-white text-slate-950' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}>{label}</NavLink>)}
+        <div className="ml-auto hidden items-center gap-1 lg:flex">{stages.map((stage, index) => <div key={stage.id} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${stage.id === activeStage ? 'bg-emerald-400 text-slate-950' : 'text-slate-500'}`}><span>{index + 1}</span><span>{stage.label}</span></div>)}</div>
+      </div>
+      <div className="flex flex-col gap-5 px-5 py-6 sm:px-7 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[.16em] text-emerald-300">
             <span>Gridiron markets</span><span className="text-white/25">/</span><span>{sport === 'all' ? 'Command center' : sport.toUpperCase()}</span>
@@ -52,21 +59,7 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
         </div>
       </div>
 
-      <div className="grid border-t border-white/10 lg:grid-cols-[210px_repeat(4,minmax(0,1fr))]">
-        <nav aria-label="Betting workspaces" className="flex gap-1 border-b border-white/10 p-2 lg:border-b-0 lg:border-r">
-          {[
-            ['/betting', 'Overview'], ['/betting/nfl', 'NFL'], ['/betting/mlb/auto', 'MLB']
-          ].map(([to, label]) => <NavLink key={to} to={to} end={to === '/betting'}
-            className={({ isActive }) => `flex-1 rounded-lg px-3 py-2 text-center text-xs font-bold transition lg:text-left ${isActive ? 'bg-white text-slate-950' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>{label}</NavLink>)}
-        </nav>
-        {stages.map((stage, index) => <div key={stage.id} className={`relative border-white/10 px-4 py-3 lg:border-r ${stage.id === activeStage ? 'bg-emerald-400/[.08]' : ''}`}>
-          <div className="flex items-center gap-2">
-            <span className={`grid h-5 w-5 place-items-center rounded-full text-[10px] font-black ${stage.id === activeStage ? 'bg-emerald-400 text-slate-950' : 'bg-white/10 text-slate-300'}`}>{index + 1}</span>
-            <span className={stage.id === activeStage ? 'text-sm font-bold text-white' : 'text-sm font-semibold text-slate-300'}>{stage.label}</span>
-          </div>
-          <div className="mt-1 pl-7 text-[11px] text-slate-400">{stage.detail}</div>
-        </div>)}
-      </div>
+      <div className="grid grid-cols-4 border-t border-white/10 lg:hidden">{stages.map((stage, index) => <div key={stage.id} className={`px-2 py-2 text-center ${stage.id === activeStage ? 'bg-emerald-400/[.1] text-emerald-300' : 'text-slate-500'}`}><div className="text-[10px] font-black">{index + 1} · {stage.label}</div></div>)}</div>
     </section>
 
     {status && <div className="grid gap-2 sm:grid-cols-3">

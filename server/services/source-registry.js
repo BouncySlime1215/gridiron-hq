@@ -76,35 +76,35 @@ export const MANUAL_SOURCES = {
     label: 'Next Gen Stats (tracking-chip data)',
     cadence: 'weekly during the season',
     cutoff: 'final once posted',
-    failureMode: 'throws and aborts the rest of syncAllAdvanced — later sources in that batch do not run either',
+    failureMode: 'recorded independently; other advanced feeds continue and the missing NGS family abstains',
     maxAgeMinutes: 3 * 24 * 60
   },
   nfl_pfr_adv: {
     label: 'Pro-Football-Reference advanced charting',
     cadence: 'weekly during the season',
     cutoff: 'final once posted',
-    failureMode: 'throws and aborts the rest of syncAllAdvanced',
+    failureMode: 'recorded independently; snaps, depth and injuries continue',
     maxAgeMinutes: 3 * 24 * 60
   },
   nfl_advanced_snaps: {
     label: 'nflverse snap counts (advanced feed)',
     cadence: 'weekly during the season',
     cutoff: 'final once posted',
-    failureMode: 'throws and aborts the rest of syncAllAdvanced',
+    failureMode: 'recorded independently; other advanced feeds continue',
     maxAgeMinutes: 3 * 24 * 60
   },
   nfl_depth_charts: {
     label: 'nflverse depth charts',
     cadence: 'weekly, moves during a season as roles change',
     cutoff: 'as of the pull; a depth chart is a live opinion, not a settled fact',
-    failureMode: 'throws and aborts the rest of syncAllAdvanced',
+    failureMode: 'recorded independently; other advanced feeds continue',
     maxAgeMinutes: 2 * 24 * 60
   },
   nfl_injuries: {
     label: 'nflverse injury reports',
     cadence: 'weekly (practice participation + game status)',
     cutoff: 'as of the pull; Friday\'s report is stale by Sunday',
-    failureMode: 'throws and aborts the rest of syncAllAdvanced',
+    failureMode: 'recorded independently; stale injury confidence decays until the next successful pull',
     maxAgeMinutes: 24 * 60
   },
   espn_players: {

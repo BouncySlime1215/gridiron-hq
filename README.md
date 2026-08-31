@@ -7,6 +7,10 @@ draft room, X's-and-O's breakdowns for all 32 NFL teams, and ESPN/Sleeper league
 Everything runs on your own machine. No hosting, no accounts, no telemetry — data lives in a
 local SQLite file.
 
+For AI agents and model researchers, the living system contract, current audit truth, learning
+loop, news-verification rules, and execution queue are in
+[docs/AI_MODEL_OPERATING_MANUAL.md](docs/AI_MODEL_OPERATING_MANUAL.md).
+
 ---
 
 ## Install

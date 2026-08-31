@@ -118,6 +118,26 @@ export const INSIDER_HANDLES = NATIONAL_INSIDER_HANDLES;
 
 const MAX_TWEETS_PER_RUN = 5;   // handles per sync call, cost-bounded
 
+/**
+ * One budget-safe sweep pool, not three impressive-looking lists that never run.
+ * The old job always used NATIONAL_INSIDER_HANDLES.slice(0, 5), so every four
+ * hours it paid to reread the same five accounts while all official team and
+ * beat sources were dead configuration. Rotation covers the whole pool without
+ * increasing the per-run spend ceiling.
+ */
+export const TWITTER_SWEEP_HANDLES = Object.freeze([...new Set([
+  ...NATIONAL_INSIDER_HANDLES,
+  ...Object.values(TEAM_HANDLES),
+  ...Object.values(BEAT_REPORTER_HANDLES).flat()
+])]);
+
+export function twitterSweepHandles(cursor = 0, maxHandles = MAX_TWEETS_PER_RUN) {
+  if (!TWITTER_SWEEP_HANDLES.length || maxHandles <= 0) return [];
+  const start = Math.abs(Number(cursor) || 0) % TWITTER_SWEEP_HANDLES.length;
+  return Array.from({ length: Math.min(maxHandles, TWITTER_SWEEP_HANDLES.length) },
+    (_, index) => TWITTER_SWEEP_HANDLES[(start + index) % TWITTER_SWEEP_HANDLES.length]);
+}
+
 const TEAM_HANDLE_LOOKUP = new Map(Object.entries(TEAM_HANDLES).map(([abbr, h]) => [h.toLowerCase(), abbr]));
 
 /**
@@ -161,7 +181,12 @@ export async function ingestTwitterInsiders({ maxHandles = MAX_TWEETS_PER_RUN } 
   if (status.blocked) return { skipped: true, reason: 'spend cap reached', status };
 
   const identity = loadIdentity();
-  const handles = INSIDER_HANDLES.slice(0, maxHandles);
+  // Successful paid reads are the durable cursor. It survives restarts and
+  // advances only when the provider actually returned data, so a transient
+  // failure cannot skip a source forever.
+  const cursor = Number(row(`SELECT COUNT(*) n FROM twitterapi_io_usage
+    WHERE purpose='insider-injury-role-sweep'`)?.n ?? 0);
+  const handles = twitterSweepHandles(cursor, maxHandles);
   let stored = 0, skipped = 0, calls = 0;
   const errors = [];
 
@@ -198,6 +223,8 @@ export async function ingestTwitterInsiders({ maxHandles = MAX_TWEETS_PER_RUN } 
       } catch (e) { errors.push({ handle, error: e.message }); }
     }
   }
-  return { handles_checked: calls, stored, skipped_no_player_match: skipped, errors,
+  return { handles_selected: handles, pool_size: TWITTER_SWEEP_HANDLES.length,
+    next_cursor: (cursor + calls) % TWITTER_SWEEP_HANDLES.length,
+    handles_checked: calls, stored, skipped_no_player_match: skipped, errors,
     spend: twitterSpendStatus() };
 }

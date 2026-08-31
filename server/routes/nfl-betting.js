@@ -31,7 +31,8 @@ import { standing as spreadStanding, allPickResults } from '../services/nfl-auto
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
 import { standouts, reconcile } from '../services/betting-fantasy-link.js';
 import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsembleCache, clearEnsembleLineCache } from '../services/nfl-ensemble.js';
-import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit } from '../services/nfl-replay.js';
+import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit,
+  candidateInputComparison, saveCandidateInputAudit, latestCandidateInputAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
 import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/nfl-clv.js';
 import { sharpBoard, sharpDivergence, steamMoves, sharpScorecard } from '../services/nfl-sharp.js';
@@ -53,6 +54,7 @@ import { weeklyLearningStatus } from '../services/weekly-learning.js';
 import { tdCalibrationCatalog } from '../services/nfl-prop-calibration.js';
 import { signalQualityCatalog } from '../services/model-signal-quality.js';
 import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '../services/nfl-profitability.js';
+import { nflDiagnostic } from '../services/nfl-diagnostic.js';
 import { runNflModelGrowthCycle } from '../services/nfl-model-growth.js';
 import { captureOnlineNeuralWeek, nflOnlineNeuralStatus, settleOnlineNeuralExamples,
   trainOnlineNeuralThroughSettled } from '../services/nfl-online-neural.js';
@@ -64,14 +66,15 @@ import { passingSpecialistAudit } from '../services/nfl-passing-specialists.js';
 import { recordPickExplanation, recentPickExplanations } from '../services/nfl-pick-explanation-audit.js';
 import { nflEngineStatus, nflEngineVersionFor, startLearningEpoch } from '../services/nfl-engine-registry.js';
 import { unifiedGameProjection } from '../services/nfl-unified-engine.js';
-import { historicalReplayBiasAudit, nflBackfillPlan, nflBackfillStatus,
+import { backfillChallengerSignals, historicalReplayBiasAudit, nflBackfillPlan, nflBackfillStatus,
   runNflEngineBackfill } from '../services/nfl-engine-backfill.js';
+import { teamRosterStrength, pffConnectorStatus, syncLicensedPffGrades } from '../services/nfl-roster-strength.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
 // A training grant must not authorize spending API/AI resources, locking picks,
 // or writing/grading bets.
-const trainingMutation = /^(\/replay\/train|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/(?:online-neural|risk-lab)\/train|\/engine\/(?:backfill|learning-epoch)|\/sync$)/;
+const trainingMutation = /^(\/replay\/(?:train|candidate-audit)|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/(?:online-neural|risk-lab)\/train|\/engine\/(?:backfill|learning-epoch)|\/roster\/pff-sync|\/sync$)/;
 const resourceSpendingGet = /^(\/lines\/(?:shop|disagreement)|\/sharp\/(?:board|divergence))$/;
 r.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
@@ -172,6 +175,11 @@ r.get('/profitability', (_req, res, next) => {
   catch (e) { next(e); }
 });
 
+r.get('/diagnostic', (_req, res, next) => {
+  try { res.json(nflDiagnostic()); }
+  catch (e) { next(e); }
+});
+
 /** Run the same finalized-week growth cycle used by the scheduler. */
 r.post('/profitability/model-growth/run', async (req, res, next) => {
   try {
@@ -199,6 +207,10 @@ r.get('/engine/backfill', (req, res, next) => {
 
 r.post('/engine/backfill', async (req, res, next) => {
   try {
+    if (req.body?.signals_only === true) return res.json(backfillChallengerSignals({
+      startSeason: Number(req.body?.start_season) || 2022,
+      endSeason: Number(req.body?.end_season) || 2025
+    }));
     res.json(await runNflEngineBackfill({
       startSeason: Number(req.body?.start_season) || 2022,
       endSeason: Number(req.body?.end_season) || 2025,
@@ -504,6 +516,24 @@ r.get('/roles/timeline', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/** Full preseason-first player/depth ranking for one team. */
+r.get('/roster/strength', (req, res, next) => {
+  try {
+    const team = String(req.query.team ?? '').toUpperCase();
+    if (!team) return res.status(400).json({ error: 'team query param required' });
+    res.json(teamRosterStrength(ssn(req), wk(req), team));
+  } catch (e) { next(e); }
+});
+
+r.get('/roster/pff-status', (_req, res, next) => {
+  try { res.json(pffConnectorStatus()); } catch (e) { next(e); }
+});
+
+/** Authorized connector only; never scrapes a PFF browser session. */
+r.post('/roster/pff-sync', async (req, res, next) => {
+  try { res.json(await syncLicensedPffGrades(ssn(req), wk(req))); } catch (e) { next(e); }
+});
+
 /* --------------------------------------------------------------- ensemble */
 
 r.get('/ensemble/models', (req, res, next) => {
@@ -577,6 +607,20 @@ r.post('/replay/train', (req, res, next) => {
 
 r.get('/replay/latest', (_req, res, next) => {
   try { res.json({ audit: latestTrainingAudit() }); } catch (e) { next(e); }
+});
+
+/** Compare the champion with the same engine hearing every candidate input. */
+r.post('/replay/candidate-audit', (req, res, next) => {
+  try {
+    const seasons = String(req.query.seasons ?? '2022,2023,2024,2025').split(',').map(Number);
+    res.json(saveCandidateInputAudit(candidateInputComparison(seasons, {
+      minBets: Number(req.query.min_bets) || 30
+    })));
+  } catch (e) { next(e); }
+});
+
+r.get('/replay/candidate-audit/latest', (_req, res, next) => {
+  try { res.json({ audit: latestCandidateInputAudit() }); } catch (e) { next(e); }
 });
 
 /** Starts a bounded-cost, outcome-blind AI risk-gate replay. */

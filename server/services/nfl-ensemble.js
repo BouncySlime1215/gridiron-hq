@@ -27,10 +27,12 @@ import { teamWeeks } from './nfl-pbp.js';
 import { mean } from './stats-util.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
+import { rosterStrengthWeek } from './nfl-roster-strength.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
 const EVAL_FROM = 2022;    // seasons graded out-of-sample (also where play-by-play features exist)
-const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v3-significant-residual-gate';
+const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v5-roster-strength-input';
+export const CHALLENGER_SIGNAL_VERSION = 'nfl-challenger-signals-v2';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_ensemble_fit_artifacts (
   artifact_key TEXT PRIMARY KEY, model_version TEXT NOT NULL,
@@ -267,6 +269,14 @@ function featureAggregates(season, week) {
       net_epa: pick('net_epa_per_play'),
       off_epa: pick('off_epa_per_play'), def_epa: pick('def_epa_per_play'),
       off_epa_nwp: pick('off_epa_neutral_wp'), def_epa_nwp: pick('def_epa_neutral_wp'),
+      off_early_epa: pick('off_early_down_epa'), def_early_epa: pick('def_early_down_epa'),
+      off_pass_epa: pick('off_pass_epa_per_play'), def_pass_epa: pick('def_pass_epa_per_play'),
+      off_rush_epa: pick('off_rush_epa_per_play'), def_rush_epa: pick('def_rush_epa_per_play'),
+      off_expl_pass: pick('off_explosive_pass_rate'), def_expl_pass: pick('def_explosive_pass_rate'),
+      off_pressure_epa: pick('off_pressure_epa'), def_pressure_epa: pick('def_pressure_epa'),
+      off_series_sr: pick('off_series_success_rate'), def_series_sr: pick('def_series_success_rate'),
+      off_drive_start: pick('off_avg_drive_start'), def_drive_start: pick('def_avg_drive_start'),
+      off_second_half_epa: pick('off_second_half_epa'), def_second_half_epa: pick('def_second_half_epa'),
       off_sr: pick('off_success_rate'), def_sr: pick('def_success_rate'),
       off_expl: pick('off_explosive_play_rate'), def_expl: pick('def_explosive_play_rate'),
       off_dsr: pick('off_drive_scoring_rate'), def_dsr: pick('def_drive_scoring_rate'),
@@ -281,6 +291,12 @@ function featureAggregates(season, week) {
   }
   _featureAggregateCache.set(cacheKey, out);
   return out;
+}
+
+/** A matchup feature abstains unless both its offense and defense halves exist. */
+function netFeature(feature, offenseKey, defenseKey) {
+  const offense = feature?.[offenseKey], defense = feature?.[defenseKey];
+  return offense == null || defense == null ? null : offense - defense;
 }
 
 /* ------------------------------------------------------- component models */
@@ -307,6 +323,17 @@ const MODELS = [
       const cal = c.cal?.availability;
       if (cal) return { margin: cal.b0 + cal.b1 * raw, total: null };
       return { margin: raw * 1.2 + c.hfa, total: null };
+    }
+  },
+  {
+    id: 'roster_strength', name: 'Roster strength and depth', family: 'Roster availability',
+    challengerOnly: true,
+    note: 'A preseason-first full depth-chart rating from prior snaps, player efficiency, rookies and optional licensed PFF grades that adapts weekly.',
+    predict: (c) => {
+      const home = c.roster?.get(String(c.home).toUpperCase());
+      const away = c.roster?.get(String(c.away).toUpperCase());
+      if (!home?.available || !away?.available) return { margin: null, total: null };
+      return { margin: c.hfa + (home.roster_score - away.roster_score) * 0.32, total: null };
     }
   },
   /* ---- rating systems ---- */
@@ -368,6 +395,49 @@ const MODELS = [
     id: 'epa_neutral', name: 'EPA, garbage time removed', family: 'Efficiency',
     note: 'Same idea, but only plays from competitive game states.',
     predict: (c) => diffModel(c, f => (f.off_epa_nwp ?? 0) - (f.def_epa_nwp ?? 0), 65, 'epa_neutral')
+  },
+  /* New signals begin as measured challengers. They are scored in every
+   * chronological fit and shown in diagnostics, but cannot dilute the active
+   * raw blend merely because we added them. Promotion is an evidence decision. */
+  {
+    id: 'early_down_eff', name: 'Early-down efficiency', family: 'Efficiency', challengerOnly: true,
+    note: 'First- and second-down EPA, before third-down conversion variance can dominate a small sample.',
+    predict: c => diffModel(c, f => netFeature(f, 'off_early_epa', 'def_early_epa'), 60, 'early_down_eff')
+  },
+  {
+    id: 'pass_eff_matchup', name: 'Passing efficiency mismatch', family: 'Efficiency', challengerOnly: true,
+    note: 'Passing EPA created versus passing EPA allowed; isolates the league’s highest-leverage play type.',
+    predict: c => diffModel(c, f => netFeature(f, 'off_pass_epa', 'def_pass_epa'), 60, 'pass_eff_matchup')
+  },
+  {
+    id: 'rush_eff_matchup', name: 'Rushing efficiency mismatch', family: 'Efficiency', challengerOnly: true,
+    note: 'Rushing EPA created versus allowed, kept separate so it cannot hide inside a net efficiency average.',
+    predict: c => diffModel(c, f => netFeature(f, 'off_rush_epa', 'def_rush_epa'), 55, 'rush_eff_matchup')
+  },
+  {
+    id: 'explosive_pass', name: 'Explosive-pass asymmetry', family: 'Efficiency', challengerOnly: true,
+    note: 'Rate of explosive passes created minus allowed; measures one-play scoring and comeback capacity.',
+    predict: c => diffModel(c, f => netFeature(f, 'off_expl_pass', 'def_expl_pass'), 160, 'explosive_pass')
+  },
+  {
+    id: 'pressure_response', name: 'Pressure response mismatch', family: 'Efficiency', challengerOnly: true,
+    note: 'Offensive EPA under pressure against the opponent’s defensive pressure outcomes.',
+    predict: c => diffModel(c, f => netFeature(f, 'off_pressure_epa', 'def_pressure_epa'), 45, 'pressure_response')
+  },
+  {
+    id: 'series_sustain', name: 'Series sustain rate', family: 'Efficiency', challengerOnly: true,
+    note: 'How consistently an offense earns another first down versus how consistently a defense ends a series.',
+    predict: c => diffModel(c, f => netFeature(f, 'off_series_sr', 'def_series_sr'), 100, 'series_sustain')
+  },
+  {
+    id: 'field_position', name: 'Starting field-position edge', family: 'Efficiency', challengerOnly: true,
+    note: 'Average offensive drive start versus field position conceded, capturing hidden special-teams and turnover value.',
+    predict: c => diffModel(c, f => netFeature(f, 'off_drive_start', 'def_drive_start'), 0.7, 'field_position')
+  },
+  {
+    id: 'second_half_eff', name: 'Second-half efficiency', family: 'Efficiency', challengerOnly: true,
+    note: 'Prior-game second-half EPA created versus allowed; a candidate for adjustment and depth effects.',
+    predict: c => diffModel(c, f => netFeature(f, 'off_second_half_epa', 'def_second_half_epa'), 55, 'second_half_eff')
   },
   {
     id: 'success_rate', name: 'Success rate differential', family: 'Efficiency',
@@ -499,6 +569,12 @@ const MODELS = [
 ];
 
 const FAMILY_CONTRACTS = {
+  'Roster availability': {
+    source: 'depth charts, prior snaps/player features, injury reports and optional licensed grades',
+    availability: 'before kickoff',
+    cutoff_rule: 'depth captured by target game; performance and external grades strictly before target week',
+    missing_policy: 'component abstains when either roster lacks a cutoff-safe depth chart'
+  },
   'Rating systems': {
     source: 'game_lines final scores', availability: 'game final',
     cutoff_rule: 'season < target OR same season and week < target week',
@@ -590,6 +666,9 @@ function sharedContext(g, hist) {
     // Injury availability. The forecasting model has never had this — seventeen
     // thousand injury rows sat in a table nfl-ensemble.js never referenced.
     avail: availabilityDeficit(g.season, g.week),
+    // Preseason roster quality is the opening prior; settled weekly snaps and
+    // player efficiency gradually update it. Missing depth charts abstain.
+    roster: rosterStrengthWeek(g.season, g.week),
     reg: marketRegression(hist)
   };
   _sharedContextCache.set(key, shared);
@@ -618,7 +697,9 @@ function buildContext(g, hist, restMap) {
  */
 function calibrate(all, restMap, evalFrom) {
   const train = all.filter(g => g.season < evalFrom);
-  const ids = ['epa_net', 'epa_neutral', 'success_rate', 'explosive', 'drive_eff', 'situational', 'trenches'];
+  const ids = ['epa_net', 'epa_neutral', 'early_down_eff', 'pass_eff_matchup', 'rush_eff_matchup',
+    'explosive_pass', 'pressure_response', 'series_sustain', 'field_position', 'second_half_eff',
+    'success_rate', 'explosive', 'drive_eff', 'situational', 'trenches'];
   // Availability is calibrated separately because its raw differential comes
   // from the injury report rather than the play-by-play feature table, and it
   // is only available from 2023 on.
@@ -698,6 +779,14 @@ function rawDifferentials(feat, home, away) {
   return {
     epa_net: d(f => f.net_epa),
     epa_neutral: d(f => (f.off_epa_nwp ?? 0) - (f.def_epa_nwp ?? 0)),
+    early_down_eff: d(f => netFeature(f, 'off_early_epa', 'def_early_epa')),
+    pass_eff_matchup: d(f => netFeature(f, 'off_pass_epa', 'def_pass_epa')),
+    rush_eff_matchup: d(f => netFeature(f, 'off_rush_epa', 'def_rush_epa')),
+    explosive_pass: d(f => netFeature(f, 'off_expl_pass', 'def_expl_pass')),
+    pressure_response: d(f => netFeature(f, 'off_pressure_epa', 'def_pressure_epa')),
+    series_sustain: d(f => netFeature(f, 'off_series_sr', 'def_series_sr')),
+    field_position: d(f => netFeature(f, 'off_drive_start', 'def_drive_start')),
+    second_half_eff: d(f => netFeature(f, 'off_second_half_epa', 'def_second_half_epa')),
     success_rate: d(f => (f.off_sr ?? 0) - (f.def_sr ?? 0)),
     explosive: d(f => (f.off_expl ?? 0) - (f.def_expl ?? 0)),
     drive_eff: d(f => (f.off_dsr ?? 0) - (f.def_dsr ?? 0)),
@@ -729,8 +818,9 @@ function fitDataFingerprint() {
   return `${g.games}:${g.score_sum}:${g.latest_week}:${f.feature_rows}:${f.latest_feature_week}:${f.feature_bytes}`;
 }
 
-function fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint) {
-  return `${FIT_ARTIFACT_VERSION}|${evalFrom}|${cutoffKey}|${weighting}|${fingerprint}`;
+function fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint, includeChallengers) {
+  const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
+  return `${FIT_ARTIFACT_VERSION}|${evalFrom}|${cutoffKey}|${weighting}|${inputMode}|${fingerprint}`;
 }
 
 /**
@@ -741,12 +831,13 @@ function fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint) {
  * evaluation to seconds instead of minutes.
  */
 export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeWeek = null,
-  weighting = 'exponential' } = {}) {
+  weighting = 'exponential', includeChallengers = false } = {}) {
   const cutoffKey = beforeSeason == null ? 'live' : `${beforeSeason}|${beforeWeek ?? 1}`;
-  const cacheKey = `${evalFrom}|${cutoffKey}|${weighting}`;
+  const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
+  const cacheKey = `${evalFrom}|${cutoffKey}|${weighting}|${inputMode}`;
   if (_cache.has(cacheKey)) return _cache.get(cacheKey);
   const fingerprint = fitDataFingerprint();
-  const artifactKey = fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint);
+  const artifactKey = fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint, includeChallengers);
   const artifact = rows('SELECT result_json FROM nfl_ensemble_fit_artifacts WHERE artifact_key=?', artifactKey)[0];
   if (artifact?.result_json) {
     try {
@@ -849,6 +940,7 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     const residualGain = marketRmse == null || modelRmse == null ? null : marketRmse - modelRmse;
     return {
       id: m.id, name: m.name, family: m.family, note: m.note,
+      challenger_only: m.challengerOnly === true,
       margin_rmse: mm.length ? +Math.sqrt(mean(mm)).toFixed(3) : null,
       total_rmse: tt.length ? +Math.sqrt(mean(tt)).toFixed(3) : null,
       margin_n: mm.length, total_n: tt.length,
@@ -866,6 +958,11 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // influential as the market near 14 RMSE, so a crowd of correlated mediocre
   // models could overwhelm the strongest prior merely by being numerous.
   const rawWeight = (m, key) => {
+    // Challenger status controls production authority, not whether the unified
+    // engine may hear the forecast. Candidate audits set includeChallengers so
+    // every raw output enters the blend with the same cutoff-safe weighting as
+    // established components. The default champion remains unchanged.
+    if (m.challenger_only && !includeChallengers) return 0;
     if (!m[key]) return 0;
     if (weighting === 'equal') return 1;
     if (weighting === 'inverse_mse') return 1 / m[key] ** 2;
@@ -894,7 +991,7 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     evaluated_weeks: new Set(eligible.map(g => `${g.season}|${g.week}`)).size,
     residual_evaluated_weeks: weeks.length,
     games: all.length,
-    calibration: cal, weighting,
+    calibration: cal, weighting, input_mode: inputMode,
     weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }
   };
   _cache.set(cacheKey, result);
@@ -911,29 +1008,32 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
  * weighted consensus, and how much the models disagree.
  */
 export function ensembleLine(season, week, home, away, {
-  weighting = 'exponential', families = null, blendMode = 'raw', includeEvidence = true
+  weighting = 'exponential', families = null, blendMode = 'raw', includeEvidence = true,
+  includeChallengers = false
 } = {}) {
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${includeEvidence ? 'evidence' : 'forecast'}`;
+  const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|${includeEvidence ? 'evidence' : 'forecast'}`;
   // Family ablations are projections of the same frozen per-model line. Build
   // that expensive context once, then re-blend only the requested families.
   // This changes no prediction and makes a nine-cut audit minutes faster.
   if (families?.length) {
     const base = _lineCache.get(lineKey) ?? ensembleLine(season, week, home, away, {
-      weighting, families: null, blendMode, includeEvidence
+      weighting, families: null, blendMode, includeEvidence, includeChallengers
     });
     if (base.error) return base;
     const allowed = new Set(families);
     const perModel = base.models.filter(m => allowed.has(m.family));
+    const audible = perModel.filter(m => includeChallengers || !m.challenger_only);
     const blend = (key, wKey) => {
-      const predicted = perModel.filter(m => m[key] != null);
+      const predicted = audible.filter(m => m[key] != null);
       const usable = predicted.filter(m => m[wKey] > 0);
       const weightSum = usable.reduce((s, m) => s + m[wKey], 0);
       return weightSum > 0 ? usable.reduce((s, m) => s + m[key] * m[wKey], 0) / weightSum
         : predicted.length ? mean(predicted.map(m => m[key])) : null;
     };
     const sd = values => values.length > 1 ? Math.sqrt(mean(values.map(v => (v - mean(values)) ** 2))) : null;
-    const marginValues = perModel.filter(m => m.margin != null).map(m => m.margin);
-    const totalValues = perModel.filter(m => m.total != null).map(m => m.total);
+    const marginValues = audible.filter(m => m.margin != null).map(m => m.margin);
+    const totalValues = audible.filter(m => m.total != null).map(m => m.total);
     const margin = blend('margin', 'margin_weight'), total = blend('total', 'total_weight');
     const marketMargin = base.ensemble.market_spread == null ? null : -base.ensemble.market_spread;
     return { ...base, ensemble: { ...base.ensemble,
@@ -950,7 +1050,7 @@ export function ensembleLine(season, week, home, away, {
   // naturally use every completed game before their kickoff; historical games
   // can no longer borrow weights learned from themselves or the future.
   if (!['raw', 'market_residual'].includes(blendMode)) return { error: 'unsupported ensemble blend mode' };
-  const fit = fitEnsemble({ beforeSeason: season, beforeWeek: week, weighting });
+  const fit = fitEnsemble({ beforeSeason: season, beforeWeek: week, weighting, includeChallengers });
   if (fit.error) return fit;
 
   const all = games();
@@ -972,6 +1072,7 @@ export function ensembleLine(season, week, home, away, {
     const w = fit.models.find(x => x.id === m.id) ?? {};
     perModel.push({
       id: m.id, name: m.name, family: m.family, note: m.note,
+      challenger_only: m.challengerOnly === true,
       margin: r2(p?.margin), total: r2(p?.total),
       margin_weight: w.margin_weight ?? 0, total_weight: w.total_weight ?? 0,
       residual_slope: w.residual_slope ?? null, residual_weight: w.residual_weight ?? 0,
@@ -980,7 +1081,7 @@ export function ensembleLine(season, week, home, away, {
   }
 
   const blend = (key, wKey) => {
-    const predicted = perModel.filter(m => m[key] != null);
+    const predicted = perModel.filter(m => (includeChallengers || !m.challenger_only) && m[key] != null);
     const usable = predicted.filter(m => m[wKey] > 0);
     const wsum = usable.reduce((s, m) => s + m[wKey], 0);
     // At the beginning of the first evaluation season there are not yet enough
@@ -990,8 +1091,8 @@ export function ensembleLine(season, week, home, away, {
       ? usable.reduce((s, m) => s + m[key] * m[wKey], 0) / wsum
       : (predicted.length ? mean(predicted.map(m => m[key])) : null);
   };
-  const marginVals = perModel.filter(m => m.margin != null).map(m => m.margin);
-  const totalVals = perModel.filter(m => m.total != null).map(m => m.total);
+  const marginVals = perModel.filter(m => (includeChallengers || !m.challenger_only) && m.margin != null).map(m => m.margin);
+  const totalVals = perModel.filter(m => (includeChallengers || !m.challenger_only) && m.total != null).map(m => m.total);
   const sd = a => (a.length > 1 ? Math.sqrt(mean(a.map(v => (v - mean(a)) ** 2))) : null);
 
   const rawMargin = blend('margin', 'margin_weight');
@@ -1014,7 +1115,7 @@ export function ensembleLine(season, week, home, away, {
   const playerAvailability = includeEvidence ? gamePlayerAvailability(season, week, home, away) : null;
 
   const result = {
-    season, week, home, away, engine_version: nflEngineVersionFor(season, week),
+    season, week, home, away, engine_version: nflEngineVersionFor(season, week), input_mode: inputMode,
     ensemble: {
       // A projected spread is quoted the way a book would: negative favours home.
       projected_spread: margin == null ? null : r2(-margin),
@@ -1059,6 +1160,39 @@ export function ensembleWeek(season, week) {
   const slate = rows(`SELECT team AS home, opponent AS away FROM game_lines
                       WHERE season=? AND week=? AND home=1`, season, week);
   return slate.map(g => ensembleLine(season, week, g.home, g.away)).filter(x => !x.error);
+}
+
+/**
+ * Cutoff-safe weekly outputs for research-only signal backfills. This avoids
+ * refitting the active ensemble for every historical week: challengers use the
+ * same pre-evaluation calibration, prior-game context and missing-data rules,
+ * while retaining zero blend weight.
+ */
+export function challengerSignalWeek(season, week) {
+  const all = games(), restMap = awayRest();
+  const hist = all.filter(game => game.season < season || (game.season === season && game.week < week));
+  if (hist.length < 100) return { error: 'not enough history before this week', season, week };
+  const slate = rows(`SELECT team home,opponent away,spread,total,open_spread,open_total,
+      temp,wind,roof,rest_days home_rest,div_game
+    FROM game_lines WHERE season=? AND week=? AND home=1`, season, week);
+  if (!slate.length) return { version: CHALLENGER_SIGNAL_VERSION, season, week, games: [] };
+  const calibrationCutoff = Math.min(EVAL_FROM, season);
+  const calibrationKey = `${calibrationCutoff}|${all.length}`;
+  const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
+  _calibrationCache.set(calibrationKey, cal);
+  const base = { ...buildContext({ ...slate[0], season, week }, hist, restMap), cal };
+  const challengers = MODELS.filter(model => model.challengerOnly);
+  return { version: CHALLENGER_SIGNAL_VERSION, season, week, games: slate.map(game => {
+    const ctx = { ...base, home: game.home, away: game.away,
+      spread: game.spread, total: game.total, openSpread: game.open_spread, openTotal: game.open_total,
+      temp: game.temp, wind: game.wind, roof: game.roof, div: game.div_game,
+      homeRest: game.home_rest, awayRest: restMap.get(`${season}|${week}|${game.away}`) };
+    return { home: game.home, away: game.away, market_margin: game.spread == null ? null : -Number(game.spread),
+      signals: challengers.map(model => {
+        let prediction; try { prediction = model.predict(ctx); } catch { prediction = null; }
+        return { id: model.id, projected_margin: r2(prediction?.margin), projected_total: r2(prediction?.total) };
+      }) };
+  }) };
 }
 
 export function modelCatalog() {

@@ -54,9 +54,9 @@ const NAV_GROUPS: { label: string; question: string; items: NavItem[] }[] = [
     { to: '/matchups', label: 'Matchups', icon: 'M' }
   ]},
   { label: 'Betting', question: 'Track the market', items: [
-    { to: '/betting', label: 'Market Command', icon: 'B', end: true },
-    { to: '/betting/nfl', label: 'NFL Workbench', icon: 'N' },
-    { to: '/betting/mlb/auto', label: 'MLB Workbench', icon: 'M' }
+    { to: '/betting', label: 'Betting Desk', icon: 'B', end: true },
+    { to: '/betting/nfl', label: 'NFL', icon: 'N' },
+    { to: '/betting/mlb/auto', label: 'MLB', icon: 'M' }
   ]},
   { label: 'Lab', question: 'Verify the model', items: [
     { to: '/model', label: 'The Model', icon: 'M' },
@@ -118,7 +118,7 @@ export default function App() {
           <Route path="/players/:id" element={<PlayerDetail />} /><Route path="/players" element={<Players />} />
           <Route path="/trade-lab" element={<TradeLab />} /><Route path="/brain" element={<LeagueBrain />} /><Route path="/trends" element={<Trends />} /><Route path="/lineup" element={<Lineup />} /><Route path="/model" element={<TheModel />} /><Route path="/news" element={<News />} />
           <Route path="/settings" element={<Settings />} /><Route path="/lab" element={<FantasyLab />} />
-          <Route path="/betting" element={<BettingHome />} /><Route path="/betting/nfl" element={<NflMarketBoard initialTool="edges" />} />
+          <Route path="/betting" element={<BettingHome />} /><Route path="/betting/nfl" element={<NflMarketBoard initialTool="board" />} />
           <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />
           <Route path="/betting/nfl/operations" element={<NflMarketBoard initialTool="operations" />} /><Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} />
           <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} /><Route path="/betting/training" element={<NflMarketBoard initialTool="training" />} /><Route path="/betting/catalog" element={<NflMarketBoard initialTool="variables" />} />

@@ -11,10 +11,11 @@ import { useApi } from '../../api';
  * because that is what they are.
  */
 
-type Tab = 'abstentions' | 'pipeline';
+type Tab = 'profitability' | 'abstentions' | 'pipeline';
 
 export default function Diagnostics() {
-  const [tab, setTab] = useState<Tab>('abstentions');
+  const [tab, setTab] = useState<Tab>('profitability');
+  const { data: profit } = useApi<any>(tab === 'profitability' ? '/nfl-betting/diagnostic' : null);
   const { data: abst } = useApi<any>(tab === 'abstentions' ? '/betting/abstentions' : null);
   const { data: pipe } = useApi<any>(tab === 'pipeline' ? '/betting/pipeline' : null);
   const { data: lat } = useApi<any>(tab === 'pipeline' ? '/betting/latency' : null);
@@ -22,7 +23,7 @@ export default function Diagnostics() {
   return (
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-slate-200">
-        {([['abstentions', 'Abstention audit'], ['pipeline', 'Data pipeline']] as [Tab, string][])
+        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['pipeline', 'Data pipeline']] as [Tab, string][])
           .map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
@@ -32,6 +33,47 @@ export default function Diagnostics() {
             </button>
           ))}
       </div>
+
+      {tab === 'profitability' && (
+        !profit ? <div className="card p-6 text-sm text-slate-500">Measuring evidence, profit and feed health…</div>
+          : profit.error ? <div className="card p-6 text-sm text-rose-600">{profit.error}</div>
+            : <>
+              <div className={`card p-5 ${profit.profitability?.state === 'review_eligible'
+                ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40'}`}>
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Honest verdict</div>
+                <h2 className="mt-1 text-xl font-black text-slate-950">{profit.verdict}</h2>
+                <p className="mt-2 text-sm text-slate-700">Stake authority: <b>{profit.profitability?.staking_authority}</b></p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Stat label="Historical units" value={profit.profitability?.historical_blind_audit?.profit_units == null ? '—'
+                  : Number(profit.profitability.historical_blind_audit.profit_units).toFixed(2)} />
+                <Stat label="Historical ROI" value={profit.profitability?.historical_blind_audit?.roi == null ? '—'
+                  : `${(profit.profitability.historical_blind_audit.roi * 100).toFixed(1)}%`} />
+                <Stat label="Forward settled" value={`${profit.profitability?.forward?.settled_bets ?? 0}/${profit.profitability?.forward?.target_settled ?? 200}`} />
+                <Stat label="Forward CLV" value={profit.profitability?.forward?.mean_clv == null ? 'not measured'
+                  : Number(profit.profitability.forward.mean_clv).toFixed(3)} />
+              </div>
+              <div className="card p-4">
+                <h3 className="text-sm font-semibold text-slate-900">News intelligence coverage</h3>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                  <MiniStat label="Stories" value={profit.news?.stories} />
+                  <MiniStat label="Fresh 24h" value={profit.news?.fresh_24h} />
+                  <MiniStat label="Sources" value={profit.news?.sources} />
+                  <MiniStat label="Typed" value={profit.news?.signals?.total} />
+                  <MiniStat label="Verified" value={profit.news?.signals?.verified} />
+                  <MiniStat label="Untyped material" value={profit.news?.signals?.recent_material_untyped} warn />
+                </div>
+                <p className="mt-3 text-xs leading-5 text-slate-500">{profit.news?.safety_policy}</p>
+              </div>
+              <div className="space-y-2">
+                {(profit.bottlenecks ?? []).map((item: any) => <div key={item.id} className="card p-4">
+                  <div className="flex items-start gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-bold text-white">{item.priority}</span>
+                    <div><div className="text-sm font-semibold text-slate-900">{item.finding}</div>
+                      <div className="mt-1 text-xs leading-5 text-slate-600">{item.action}</div></div></div>
+                </div>)}
+              </div>
+            </>
+      )}
 
       {tab === 'abstentions' && (
         !abst ? <div className="card p-6 text-sm text-slate-500">Grading the games the policy refused…</div>
@@ -186,4 +228,11 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900">{value}</div>
     </div>
   );
+}
+
+function MiniStat({ label, value, warn = false }: { label: string; value: unknown; warn?: boolean }) {
+  return <div className={`rounded-lg px-3 py-2 ${warn ? 'bg-amber-50' : 'bg-slate-50'}`}>
+    <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
+    <div className={`mt-0.5 text-lg font-bold tabular-nums ${warn ? 'text-amber-800' : 'text-slate-900'}`}>{value == null ? '—' : String(value)}</div>
+  </div>;
 }

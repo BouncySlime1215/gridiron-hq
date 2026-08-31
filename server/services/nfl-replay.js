@@ -45,6 +45,11 @@ db.exec(`
     seasons_json TEXT NOT NULL, created_at TEXT NOT NULL,
     result_json TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS nfl_candidate_input_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL, seasons_json TEXT NOT NULL,
+    created_at TEXT NOT NULL, result_json TEXT NOT NULL
+  );
 `);
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -464,4 +469,74 @@ export function latestTrainingAudit() {
     seasons: JSON.parse(r.seasons_json), created_at: r.created_at,
     result: JSON.parse(r.result_json)
   };
+}
+
+/**
+ * Development comparison for the unified all-inputs engine. This is not the
+ * sealed blind audit and cannot promote itself. Both sides use identical
+ * policy, seasons and chronological cutoffs; only challenger input visibility
+ * changes.
+ */
+export function candidateInputComparison(seasons = [2022, 2023, 2024, 2025], config = {}) {
+  const shared = { ...config, minBets: config.minBets ?? 30 };
+  const baseline = trainingIteration(seasons, { ...shared, label: 'champion-inputs', modelOptions: {} });
+  const combined = trainingIteration(seasons, {
+    ...shared, label: 'all-inputs', modelOptions: { includeChallengers: true }
+  });
+  const b = baseline.overall, c = combined.overall;
+  const earlierSeasons = [2021].filter(season => !seasons.includes(season));
+  const earlierBaseline = earlierSeasons.length ? trainingIteration(earlierSeasons,
+    { ...shared, label: 'champion-inputs-pre-feature', modelOptions: {} }) : null;
+  const earlierCombined = earlierSeasons.length ? trainingIteration(earlierSeasons,
+    { ...shared, label: 'all-inputs-pre-feature', modelOptions: { includeChallengers: true } }) : null;
+  const join = (current, earlier) => {
+    if (!earlier) return current;
+    const bets = current.bets + earlier.bets;
+    const wins = current.wins + earlier.wins, losses = current.losses + earlier.losses;
+    const units = current.units + earlier.units;
+    return { seasons: [...earlierSeasons, ...seasons], bets, wins, losses,
+      win_rate: wins + losses ? r2(wins / (wins + losses)) : null,
+      units: r2(units), roi: bets ? r2(units / bets) : null,
+      note: 'Descriptive full-window total. The advanced inputs begin in 2022; 2021 is retained so the supported-era result cannot hide the cold-start failure.' };
+  };
+  const result = {
+    candidate_id: 'unified-all-inputs-v3-isolated-roster',
+    candidate_inputs: 9,
+    evidence_class: 'chronological development replay; not sealed forward proof',
+    seasons,
+    baseline: { overall: b, per_season: baseline.per_season },
+    combined: { overall: c, per_season: combined.per_season },
+    full_window_context: {
+      baseline: join(b, earlierBaseline?.overall), combined: join(c, earlierCombined?.overall)
+    },
+    delta: {
+      bets: c.bets - b.bets,
+      win_rate: r2((c.win_rate ?? 0) - (b.win_rate ?? 0)),
+      units: r2(c.units - b.units),
+      roi: r2((c.roi ?? 0) - (b.roi ?? 0))
+    }
+  };
+  const lowerRoi = c.uncertainty?.roi_95?.[0];
+  result.promotion_gate_passed = c.beat_vig === true && lowerRoi != null && lowerRoi > 0;
+  result.verdict = result.promotion_gate_passed
+    ? 'Eligible for a separately preregistered forward audit; not automatically promoted.'
+    : c.beat_vig
+      ? 'Promising development lift, but uncertainty still crosses zero. Keep all inputs visible and withhold bankroll authority.'
+      : 'Rejected for bankroll authority: the combined engine did not beat the stored prices.';
+  return result;
+}
+
+export function saveCandidateInputAudit(result) {
+  run(`INSERT INTO nfl_candidate_input_audits
+    (candidate_id,seasons_json,created_at,result_json) VALUES (?,?,?,?)`,
+  result.candidate_id, JSON.stringify(result.seasons), new Date().toISOString(), JSON.stringify(result));
+  return latestCandidateInputAudit();
+}
+
+export function latestCandidateInputAudit() {
+  const audit = rows('SELECT * FROM nfl_candidate_input_audits ORDER BY id DESC LIMIT 1')[0];
+  if (!audit) return null;
+  return { id: audit.id, candidate_id: audit.candidate_id,
+    seasons: JSON.parse(audit.seasons_json), created_at: audit.created_at,
+    result: JSON.parse(audit.result_json) };
 }

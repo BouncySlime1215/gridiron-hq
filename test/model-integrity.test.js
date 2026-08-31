@@ -10,7 +10,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { __test: sim } = await import('../server/services/season-sim.js');
 const { db } = await import('../server/db/index.js');
 const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../server/services/mlb-projections.js');
-const { fitEnsemble, clearEnsembleCache, ensembleLine } = await import('../server/services/nfl-ensemble.js');
+const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine } = await import('../server/services/nfl-ensemble.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
 const { weeklyDecisionBacktest } = await import('../server/services/backtest.js');
 await import('../server/services/nflverse.js');
@@ -55,6 +55,7 @@ const { newsSourceVerification } = await import('../server/services/nfl-news-sig
 const { activeLearningEpoch, nflEngineComponents, startLearningEpoch } = await import('../server/services/nfl-engine-registry.js');
 const { nflBackfillPlan } = await import('../server/services/nfl-engine-backfill.js');
 const { RISK_MODELS, predictRiskModel, trainRiskState, __test: riskLab } = await import('../server/services/nfl-risk-lab.js');
+const { teamRosterStrength, importLicensedPffGrades, clearRosterStrengthCache } = await import('../server/services/nfl-roster-strength.js');
 
 test.after(() => {
   db.close();
@@ -477,6 +478,25 @@ test('NFL experiments pin code, data snapshot, feature coverage, and model versi
   assert.equal(x.spec.provenance.model_version, `${NFL_PRODUCTION_POLICY.id}@${NFL_PRODUCTION_POLICY.version}`);
 });
 
+test('preseason roster prior ranks full depth and only uses earlier licensed grades', () => {
+  db.exec(`INSERT INTO nfl_depth
+    (season,week,team,gsis_id,player_name,pos_abb,pos_rank,pos_slot,captured) VALUES
+    (2099,1,'TST','p1','Starter One','QB',1,'QB1','2099-08-01T00:00:00Z'),
+    (2099,1,'TST','p2','Backup Two','QB',2,'QB2','2099-08-01T00:00:00Z'),
+    (2099,1,'TST','p3','Wide Three','WR',1,'WR1','2099-08-01T00:00:00Z');
+    INSERT INTO nfl_snaps (season,week,player,team,position,offense_snaps,offense_pct)
+      VALUES (2099,1,'Starter One','TST','QB',60,1.0);`);
+  importLicensedPffGrades([{ season: 2099, week: 1, team: 'TST', player_id: 'p1',
+    player_name: 'Starter One', position: 'QB', overall_grade: 88 }]);
+  clearRosterStrengthCache();
+  const result = teamRosterStrength(2099, 2, 'TST');
+  assert.equal(result.available, true);
+  assert.equal(result.players.length, 3);
+  assert.equal(result.players[0].player, 'Starter One');
+  assert.equal(result.players[0].licensed_pff_grade, 88);
+  assert.ok(result.depth_score < result.starter_score);
+});
+
 test('historical ensemble weights exclude the season being predicted and all future seasons', () => {
   const insert = db.prepare(`INSERT INTO game_lines
     (season, week, team, opponent, home, spread, total, team_score, opp_score, rest_days)
@@ -503,6 +523,23 @@ test('historical ensemble weights exclude the season being predicted and all fut
   assert.equal(at2023.evaluated_weeks, 18, 'only the completed 2022 evaluation weeks are eligible');
   assert.ok(live.evaluated_weeks > at2023.evaluated_weeks,
     'future outcomes may affect live weights but not a historical prediction');
+  const challengers = live.models.filter(model => model.challenger_only);
+  assert.equal(challengers.length, 9);
+  assert.ok(challengers.every(model => model.margin_weight === 0 && model.total_weight === 0),
+    'newly proposed signals must be measured without silently changing the active blend');
+  const allInputs = fitEnsemble({ includeChallengers: true });
+  const candidateInputs = allInputs.models.filter(model => model.challenger_only);
+  assert.equal(allInputs.input_mode, 'all-inputs');
+  assert.equal(candidateInputs.length, 9,
+    'the candidate unified engine retains every challenger input even when this fixture has no advanced rows');
+  assert.ok(Math.abs(allInputs.models.reduce((sum, model) => sum + model.margin_weight, 0) - 1) < 0.001,
+    'candidate margin influence remains a normalized convex blend');
+  const candidateLine = ensembleLine(2026, 1, 'AAA', 'BBB', { includeChallengers: true });
+  assert.equal(candidateLine.input_mode, 'all-inputs');
+  assert.equal(candidateLine.models.filter(model => model.challenger_only).length, 9);
+  const shadowWeek = challengerSignalWeek(2026, 1);
+  assert.equal(shadowWeek.version, 'nfl-challenger-signals-v2');
+  assert.ok(shadowWeek.games.every(game => game.signals.length === 9));
 });
 
 test('NFL feature-family ablations reblend the identical frozen model lines', () => {

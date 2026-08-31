@@ -21,6 +21,9 @@ const { normalizeNewsItem } = await import('../server/news/normalize.js');
 const { default: newsRouter } = await import('../server/routes/news.js');
 const { hashSessionToken } = await import('../server/platform/auth.js');
 const { playerNewsSignal, syncStructuredNewsSignals } = await import('../server/services/nfl-news-signal.js');
+const { NATIONAL_INSIDER_HANDLES, TEAM_HANDLES, BEAT_REPORTER_HANDLES,
+  TWITTER_SWEEP_HANDLES, twitterSweepHandles } = await import('../server/news/twitter-ingest.js');
+const { JOBS } = await import('../server/services/scheduler.js');
 
 run(`INSERT INTO users (subject) VALUES ('news:ingest-caller')`);
 const ingestUserId = row(`SELECT id FROM users WHERE subject='news:ingest-caller'`).id;
@@ -63,6 +66,27 @@ test('parseRssItems extracts title/link/description/pubDate and unwraps CDATA', 
   assert.equal(items[0].title, 'Team signs veteran RB');
   assert.equal(items[0].link, 'https://example.com/story?utm_source=x');
   assert.equal(items[0].creator, 'Jane Reporter');
+});
+
+test('news scheduler ingests publisher feeds and rotates ESPN team coverage', () => {
+  assert.equal(JOBS.rss_news.tier, 'live');
+  assert.equal(JOBS.rss_news.maxAgeMinutes, 15);
+  assert.equal(JOBS.espn_news.tier, 'live');
+  assert.equal(JOBS.espn_news.maxAgeMinutes, 30);
+});
+
+test('Twitter news sweep rotates through national, official, and beat sources', () => {
+  const first = twitterSweepHandles(0, 5);
+  const second = twitterSweepHandles(5, 5);
+  assert.notDeepEqual(first, second);
+  assert.ok(TWITTER_SWEEP_HANDLES.length > NATIONAL_INSIDER_HANDLES.length);
+  assert.ok(TWITTER_SWEEP_HANDLES.includes(Object.values(TEAM_HANDLES)[0]));
+  assert.ok(TWITTER_SWEEP_HANDLES.includes(Object.values(BEAT_REPORTER_HANDLES).flat()[0]));
+  const covered = new Set();
+  for (let cursor = 0; cursor < TWITTER_SWEEP_HANDLES.length; cursor += 5) {
+    for (const handle of twitterSweepHandles(cursor, 5)) covered.add(handle);
+  }
+  assert.equal(covered.size, TWITTER_SWEEP_HANDLES.length);
 });
 
 test('parseRssItems decodes ordinary XML entities in non-CDATA fields', () => {

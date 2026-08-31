@@ -390,14 +390,19 @@ export async function syncAllAdvanced(seasons) {
   const out = {};
   const step = async (name, fn) => {
     try { const r = await fn(); recordSync(name, 'ok', r); return r; }
-    catch (e) { recordSync(name, 'error', e.message); throw e; }
+    catch (e) {
+      recordSync(name, 'error', e.message);
+      // These feeds are independent publications. A late NGS file must not
+      // prevent snap counts, depth charts, or injury reports from landing.
+      return { error: e.message };
+    }
   };
   out.ngs = await step('nfl_ngs', () => syncNgs(seasons));
   out.pfr = await step('nfl_pfr_adv', () => syncPfrAdv(seasons));
   out.snaps = await step('nfl_advanced_snaps', () => syncSnaps(seasons));
   out.depth = await step('nfl_depth_charts', () => syncDepthCharts(seasons));
   out.injuries = await step('nfl_injuries', () => syncInjuries(seasons));
-  return out;
+  return { ...out, failed: Object.entries(out).filter(([, result]) => result?.error).map(([source]) => source) };
 }
 
 export function advancedCoverage() {

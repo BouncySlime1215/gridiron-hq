@@ -14,14 +14,14 @@ const NflProps = lazy(() => import('./betting/NflProps'));
 const FieldSim = lazy(() => import('./betting/FieldSim'));
 const Gates = lazy(() => import('./betting/Gates'));
 const Decisions = lazy(() => import('./betting/Decisions'));
-const Ensemble = lazy(() => import('./betting/Ensemble'));
-const FootballFirst = lazy(() => import('./betting/FootballFirst'));
+const Diagnostics = lazy(() => import('./betting/Diagnostics'));
+const UnifiedEngineRoom = lazy(() => import('../components/betting/UnifiedEngineRoom'));
 
-type Section = 'decide' | 'execute' | 'replay' | 'proof';
+type Section = 'board' | 'execute' | 'live' | 'engine';
 type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info';
-type DecideView = 'games' | 'props' | 'prices';
+type DecideView = 'games' | 'props';
 type ExecuteView = 'edge' | 'shop' | 'venues';
-type ProofView = 'model' | 'ai' | 'gates' | 'operations';
+type ProofView = 'overview' | 'audit' | 'diagnostics' | 'data';
 
 interface AllGameRow {
   matchup: string; market: string; selection: string; side: string | null; home_team: string; away_team: string;
@@ -47,16 +47,16 @@ interface TrackedBet { id: number; matchup: string; selection: string; side: str
 
 const normalizeSection = (tool: InitialTool): Section => {
   if (['edges', 'lines', 'venues', 'execute'].includes(tool)) return 'execute';
-  if (['simulator', 'replay'].includes(tool)) return 'replay';
-  if (['training', 'operations', 'ensemble', 'variables', 'model', 'audit', 'ai', 'info', 'proof'].includes(tool)) return 'proof';
-  return 'decide';
+  if (['simulator', 'replay'].includes(tool)) return 'live';
+  if (['training', 'operations', 'ensemble', 'variables', 'model', 'audit', 'ai', 'info', 'proof'].includes(tool)) return 'engine';
+  return 'board';
 };
 
 export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?: InitialTool }) {
   const [section, setSection] = useState<Section>(() => normalizeSection(initialTool));
-  const [decideView, setDecideView] = useState<DecideView>(initialTool === 'props' ? 'props' : initialTool === 'lines' ? 'prices' : 'games');
+  const [decideView, setDecideView] = useState<DecideView>(initialTool === 'props' ? 'props' : 'games');
   const [executeView, setExecuteView] = useState<ExecuteView>(initialTool === 'venues' ? 'venues' : initialTool === 'lines' ? 'shop' : 'edge');
-  const [proofView, setProofView] = useState<ProofView>(initialTool === 'operations' ? 'operations' : initialTool === 'ensemble' ? 'model' : initialTool === 'training' ? 'ai' : 'ai');
+  const [proofView, setProofView] = useState<ProofView>(initialTool === 'operations' ? 'data' : initialTool === 'training' || initialTool === 'ai' || initialTool === 'audit' ? 'audit' : 'overview');
   const [week, setWeek] = useState(1);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -67,8 +67,8 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
 
   const hub = useApi<HubStatus>('/betting/status');
   const aiAudit = useApi<AiAuditSummary>('/nfl-betting/ai-replay/latest');
-  const candidates = useApi<CandidatePayload>(section === 'decide' && decideView === 'games' ? `/nfl-market/picks/candidates?season=2026&week=${week}` : null);
-  const bets = useApi<{ bets: TrackedBet[] }>(section === 'decide' && decideView === 'games' ? `/nfl-market/bets?season=2026&week=${week}` : null);
+  const candidates = useApi<CandidatePayload>(section === 'board' && decideView === 'games' ? `/nfl-market/picks/candidates?season=2026&week=${week}` : null);
+  const bets = useApi<{ bets: TrackedBet[] }>(section === 'board' && decideView === 'games' ? `/nfl-market/bets?season=2026&week=${week}` : null);
   const rows = useMemo(() => candidates.data?.all_games?.filter(game => game.market === 'spread') ?? [], [candidates.data]);
   const teaser = hub.data?.edges.find(edge => edge.id === 'teasers');
   const latestAi = aiAudit.data?.run;
@@ -114,25 +114,24 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
     } catch (error: any) { setExplanations(current => ({ ...current, [key]: { error: error.message } })); }
   };
 
-  const activeStage = section === 'execute' ? 'price' : section === 'proof' ? 'review' : section === 'replay' ? 'review' : 'scan';
-  return <BettingWorkspace sport="nfl" title="NFL Market Workbench"
-    description="Start with the slate, get the reachable price, inspect the frozen decision packet, then preserve the result. The simulator is a field replay—not a second prediction dashboard."
+  const activeStage = section === 'execute' ? 'price' : section === 'engine' ? 'review' : section === 'live' ? 'track' : 'scan';
+  return <BettingWorkspace sport="nfl" title="NFL Betting Desk"
+    description="One board for decisions, one execution workflow, one live view, and one engine room. Every component feeds the same evidence-gated system."
     activeStage={activeStage}
-    actions={section === 'decide' ? <><select aria-label="NFL week" value={week} onChange={event => setWeek(Number(event.target.value))} className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-bold text-white">{Array.from({ length: 18 }, (_, index) => <option className="text-slate-900" key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><button onClick={refreshLines} disabled={running} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-950">Refresh prices</button></> : undefined}>
+    actions={section === 'board' ? <><select aria-label="NFL week" value={week} onChange={event => setWeek(Number(event.target.value))} className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-bold text-white">{Array.from({ length: 18 }, (_, index) => <option className="text-slate-900" key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><button onClick={refreshLines} disabled={running} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-950">Refresh prices</button></> : undefined}>
 
     <WorkspaceNav value={section} onChange={setSection} items={[
-      { id: 'decide', label: 'Decision queue', detail: 'Model slate + paper tracking', count: rows.length || undefined },
-      { id: 'execute', label: 'Price & execute', detail: 'Teasers, line shop, venues' },
-      { id: 'replay', label: 'Field replay', detail: 'Team-selected play animation' },
-      { id: 'proof', label: 'Proof room', detail: 'AI audit, blind replay, gates' }
+      { id: 'board', label: 'Board', detail: 'Rank, filter, review, track', count: rows.length || undefined },
+      { id: 'execute', label: 'Execute', detail: 'Edges, prices, venues' },
+      { id: 'live', label: 'Live', detail: 'Game state + field replay' },
+      { id: 'engine', label: 'Engine', detail: 'Architecture, audit, health' }
     ]} />
 
     {message && <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">{message}</div>}
 
-    {section === 'decide' && <>
-      <Subnav value={decideView} onChange={setDecideView} items={[['games', 'Game sides'], ['props', 'Player props'], ['prices', 'Price board']]} />
+    {section === 'board' && <>
+      <Subnav value={decideView} onChange={setDecideView} items={[['games', 'Games'], ['props', 'Player props']]} />
       {decideView === 'props' && <Panel fallback="Loading prop model…"><NflProps /></Panel>}
-      {decideView === 'prices' && <Panel fallback="Loading simultaneous prices…"><LineShop /></Panel>}
       {decideView === 'games' && <DecisionQueue rows={rows} loading={candidates.loading} error={candidates.error} policy={candidates.data} bets={bets.data?.bets ?? []} tracking={tracking} openExplain={openExplain} explanations={explanations} onExplain={explain} onTrack={trackBet} onRun={runPolicy} running={running} runResult={runResult} />}
     </>}
 
@@ -143,22 +142,22 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
       {executeView === 'venues' && <Panel fallback="Loading venue routes…"><Venues /></Panel>}
     </>}
 
-    {section === 'replay' && <Panel fallback="Building field replay…"><FieldSim /></Panel>}
+    {section === 'live' && <Panel fallback="Building field replay…"><FieldSim /></Panel>}
 
-    {section === 'proof' && <>
+    {section === 'engine' && <>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,.8fr)]">
-        <NextAction eyebrow="Blind-audit answer" title={!latestAi ? 'Run the first saved AI review' : latestAi.status === 'complete' && latestAi.result ? `${latestAi.result.reviewed} reviewed · ${latestAi.result.kept} survived` : `Review #${latestAi.id} is ${latestAi.status}`} detail={latestAi?.result ? `${latestAi.result.abstained} candidates were rejected. Open the trace to see exactly why each pick survived or failed.` : 'The review lives here with its evidence verdict and decision trace.'} action={() => setProofView('ai')} />
+        <NextAction eyebrow="Blind-audit answer" title={!latestAi ? 'Run the first saved AI review' : latestAi.status === 'complete' && latestAi.result ? `${latestAi.result.reviewed} reviewed · ${latestAi.result.kept} survived` : `Review #${latestAi.id} is ${latestAi.status}`} detail={latestAi?.result ? `${latestAi.result.abstained} candidates were rejected. Open the trace to see exactly why each pick survived or failed.` : 'The review lives here with its evidence verdict and decision trace.'} action={() => setProofView('audit')} />
         <div className="rounded-2xl border border-slate-200 bg-white p-5"><div className="text-[10px] font-black uppercase tracking-[.14em] text-slate-400">AI authority</div><div className="mt-2 text-xl font-black text-slate-950">Explanation only</div><p className="mt-1 text-sm leading-5 text-slate-500">Selection happens first. The factor packet is frozen and hashed. AI translates that packet afterward and cannot change the pick, line, price, stake, or audit verdict.</p></div>
       </div>
       {/* Four tabs, not six. "AI review" and "Blind replay" are both the audit;
           "Promotion gates" and "Decision bases" are both what the model is
           allowed to claim. Splitting each pair bought nothing but another click
           and another thing to scan. */}
-      <Subnav value={proofView} onChange={setProofView} items={[['model', 'The model'], ['ai', 'Audit'], ['gates', 'What it may claim'], ['operations', 'Data operations']]} />
-      {proofView === 'model' && <Panel fallback="Loading the model…"><FootballFirst embedded /><Ensemble /></Panel>}
-      {proofView === 'ai' && <><Training focus="ai" /><Training focus="replay" /></>}
-      {proofView === 'gates' && <><Panel fallback="Reading promotion gates…"><Gates /></Panel><Panel fallback="Compiling decision bases…"><Decisions /></Panel></>}
-      {proofView === 'operations' && <NflModelOperations />}
+      <Subnav value={proofView} onChange={setProofView} items={[['overview', 'Architecture'], ['audit', 'Audit'], ['diagnostics', 'Diagnostics'], ['data', 'Data health']]} />
+      {proofView === 'overview' && <Panel fallback="Loading the unified engine…"><UnifiedEngineRoom /></Panel>}
+      {proofView === 'audit' && <><Training focus="ai" /><Training focus="replay" /><Panel fallback="Reading promotion gates…"><Gates /></Panel><Panel fallback="Compiling decision bases…"><Decisions /></Panel></>}
+      {proofView === 'diagnostics' && <Panel fallback="Measuring model health…"><Diagnostics /></Panel>}
+      {proofView === 'data' && <NflModelOperations />}
     </>}
   </BettingWorkspace>;
 }
@@ -168,16 +167,37 @@ function DecisionQueue({ rows, loading, error, policy, bets, tracking, openExpla
   openExplain: string | null; explanations: Record<string, AiExplanation | { error: string } | 'loading'>;
   onExplain: (game: AllGameRow) => void; onTrack: (game: AllGameRow) => void; onRun: () => void; running: boolean; runResult: RunResult | null;
 }) {
+  const [queueFilter, setQueueFilter] = useState<'all' | 'eligible' | 'tracked' | 'observe'>('all');
+  const [queueSort, setQueueSort] = useState<'best' | 'confidence' | 'price' | 'matchup'>('best');
+  const [query, setQuery] = useState('');
   if (loading) return <ModelLoadingSignature sport="NFL" compact stages={['Reading the slate', 'Applying policy rules', 'Freezing decision packets']} />;
   if (error) return <Notice title="Decision queue unavailable" tone="bad">{error}</Notice>;
   const eligible = rows.filter(row => row.eligible);
+  const isTracked = (row: AllGameRow) => bets.some(bet => bet.matchup === row.matchup && bet.selection === row.selection);
+  const visibleRows = rows.filter(row => {
+    if (query && !`${row.matchup} ${row.selection}`.toLowerCase().includes(query.toLowerCase())) return false;
+    if (queueFilter === 'eligible') return row.eligible;
+    if (queueFilter === 'tracked') return isTracked(row);
+    if (queueFilter === 'observe') return !row.eligible;
+    return true;
+  }).sort((a, b) => {
+    if (queueSort === 'matchup') return a.matchup.localeCompare(b.matchup);
+    if (queueSort === 'price') return (b.american_price ?? -10000) - (a.american_price ?? -10000);
+    if (queueSort === 'confidence') return (b.model_probability ?? -1) - (a.model_probability ?? -1);
+    return Number(b.eligible) - Number(a.eligible) || (b.edge_points ?? -Infinity) - (a.edge_points ?? -Infinity);
+  });
   return <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_310px]">
     <section className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[.15em] text-emerald-700">Model output</div><h2 className="text-2xl font-black">Spread decision queue</h2><p className="mt-1 text-sm text-slate-500">Every matchup is visible. Eligibility comes from the fixed policy, not AI wording.</p></div><button onClick={onRun} disabled={running} className="btn-primary">{running ? 'Running policy…' : 'Preserve paper slate'}</button></div>
-      {!rows.length ? <EmptyState title="No priced Week 1 slate yet" description="Refresh prices when books post the market. The model will not invent a line." /> : rows.map(game => {
+      {!!rows.length && <div className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 md:grid-cols-[minmax(180px,1fr)_auto_auto]">
+        <input aria-label="Search teams" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search team or matchup" className="input py-2 text-sm" />
+        <select aria-label="Filter decision queue" value={queueFilter} onChange={event => setQueueFilter(event.target.value as typeof queueFilter)} className="input py-2 text-sm"><option value="all">All decisions</option><option value="eligible">Policy passes</option><option value="tracked">Paper tracked</option><option value="observe">Observe only</option></select>
+        <select aria-label="Sort decision queue" value={queueSort} onChange={event => setQueueSort(event.target.value as typeof queueSort)} className="input py-2 text-sm"><option value="best">Best edge first</option><option value="confidence">Highest probability</option><option value="price">Best price</option><option value="matchup">Matchup A–Z</option></select>
+      </div>}
+      {!rows.length ? <EmptyState title="No priced Week 1 slate yet" description="Refresh prices when books post the market. The model will not invent a line." /> : !visibleRows.length ? <EmptyState title="No decisions match these filters" description="Clear the search or widen the decision-state filter." /> : visibleRows.map(game => {
         const key = `${game.matchup}:${game.selection}`;
         const explanation = explanations[key];
-        const tracked = bets.some(bet => bet.matchup === game.matchup && bet.selection === game.selection);
+        const tracked = isTracked(game);
         return <article key={key} className={`overflow-hidden rounded-2xl border bg-white ${game.eligible ? 'border-emerald-300 shadow-[0_8px_24px_rgba(5,150,105,.08)]' : 'border-slate-200'}`}>
           <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_repeat(3,minmax(82px,auto))_auto] md:items-center">
             <div><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-black text-slate-950">{game.matchup}</h3><StatusPill tone={game.eligible ? 'good' : 'neutral'}>{game.eligible ? 'Policy pass' : 'Observe'}</StatusPill></div><div className="mt-1 text-sm font-bold text-slate-700">{game.selection} {game.side ?? ''}</div><div className="mt-0.5 text-xs text-slate-400">{game.detail}</div></div>

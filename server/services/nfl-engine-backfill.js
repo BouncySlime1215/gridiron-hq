@@ -3,7 +3,7 @@ import { db, row, rows, run } from '../db/index.js';
 import { syncAll as syncNflverse } from './nflverse.js';
 import { syncPbpSeason } from './nfl-pbp.js';
 import { syncNgs, syncPfrAdv, syncSnaps, syncDepthCharts, syncInjuries } from './nfl-advanced.js';
-import { ensembleLine, fitEnsemble, invalidateEnsembleCaches } from './nfl-ensemble.js';
+import { challengerSignalWeek, ensembleLine, fitEnsemble, invalidateEnsembleCaches } from './nfl-ensemble.js';
 import { nflEngineVersionFor, recordNflEngineArtifact } from './nfl-engine-registry.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_engine_backfill_runs (
@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS nfl_historical_engine_replay (
   actual_margin REAL NOT NULL, actual_total REAL NOT NULL,
   classification TEXT NOT NULL DEFAULT 'historical_development_replay',
   PRIMARY KEY(season,week,home,engine_version)
+);
+CREATE TABLE IF NOT EXISTS nfl_historical_signal_replay (
+  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
+  signal_id TEXT NOT NULL, signal_version TEXT NOT NULL, generated_at TEXT NOT NULL,
+  market_margin REAL, projected_margin REAL, projected_total REAL,
+  actual_margin REAL NOT NULL, actual_total REAL NOT NULL,
+  classification TEXT NOT NULL DEFAULT 'historical_shadow_signal',
+  PRIMARY KEY(season,week,home,signal_id,signal_version)
 );
 `);
 
@@ -107,6 +115,47 @@ export function historicalReplayBiasAudit({ startSeason = 2022, endSeason = 2025
   };
 }
 
+/** Persist every new challenger prediction week by week without changing the active ensemble. */
+export function backfillChallengerSignals({ startSeason = 2022, endSeason = 2025 } = {}) {
+  const plan = nflBackfillPlan({ startSeason, endSeason });
+  let weeks = 0, games = 0, predictions = 0, written = 0;
+  for (let season = plan.start_season; season <= plan.end_season; season++) {
+    const seasonWeeks = rows(`SELECT DISTINCT week FROM game_lines WHERE season=? AND home=1
+      AND team_score IS NOT NULL AND opp_score IS NOT NULL ORDER BY week`, season).map(item => Number(item.week));
+    for (const week of seasonWeeks) {
+      const replay = challengerSignalWeek(season, week);
+      if (replay.error) continue;
+      for (const game of replay.games) {
+        const outcome = row(`SELECT team_score,opp_score FROM game_lines
+          WHERE season=? AND week=? AND team=? AND home=1`, season, week, game.home);
+        if (outcome?.team_score == null || outcome?.opp_score == null) continue;
+        games++;
+        for (const signal of game.signals) {
+          if (signal.projected_margin == null && signal.projected_total == null) continue;
+          predictions++;
+          written += run(`INSERT OR REPLACE INTO nfl_historical_signal_replay
+            (season,week,home,away,signal_id,signal_version,generated_at,market_margin,
+             projected_margin,projected_total,actual_margin,actual_total)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, season, week, game.home, game.away, signal.id,
+          replay.version, new Date().toISOString(), game.market_margin, signal.projected_margin,
+          signal.projected_total, outcome.team_score - outcome.opp_score,
+          outcome.team_score + outcome.opp_score).changes;
+        }
+      }
+      weeks++;
+    }
+  }
+  const bySignal = rows(`SELECT signal_id,COUNT(*) predictions,
+      ROUND(SQRT(AVG((projected_margin-actual_margin)*(projected_margin-actual_margin))),3) margin_rmse,
+      ROUND(AVG(CASE WHEN market_margin IS NOT NULL AND projected_margin!=market_margin
+        AND actual_margin!=market_margin
+        THEN CASE WHEN (projected_margin-market_margin)*(actual_margin-market_margin)>0 THEN 1.0 ELSE 0.0 END END),4) ats_direction_rate
+    FROM nfl_historical_signal_replay WHERE season BETWEEN ? AND ?
+    GROUP BY signal_id ORDER BY margin_rmse`, plan.start_season, plan.end_season);
+  return { classification: 'historical_shadow_signal_backfill', signal_authority: '0 active blend weight',
+    start_season: plan.start_season, end_season: plan.end_season, weeks, games, predictions, written, by_signal: bySignal };
+}
+
 export async function runNflEngineBackfill({ startSeason = 2022, endSeason = 2025,
   ingest = false, maxWeeks = null } = {}) {
   const plan = nflBackfillPlan({ startSeason, endSeason });
@@ -168,6 +217,6 @@ export function nflBackfillStatus() {
   const latest = row(`SELECT * FROM nfl_engine_backfill_runs ORDER BY id DESC LIMIT 1`);
   return { latest: latest ? { ...latest, detail: JSON.parse(latest.detail_json ?? '{}'), detail_json: undefined } : null,
     replay_rows: Number(row(`SELECT COUNT(*) n FROM nfl_historical_engine_replay`)?.n ?? 0),
+    signal_replay_rows: Number(row(`SELECT COUNT(*) n FROM nfl_historical_signal_replay`)?.n ?? 0),
     plan: nflBackfillPlan() };
 }
-

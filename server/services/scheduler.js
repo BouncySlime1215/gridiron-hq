@@ -237,6 +237,44 @@ async function refreshTwitterInsiders() {
   return ingested;
 }
 
+/** Public publisher RSS, normalized and typed on the same cycle. */
+async function refreshRssNews() {
+  const { ingestAllSources } = await import('../news/ingest.js');
+  const { syncStructuredNewsSignals } = await import('./nfl-news-signal.js');
+  const { enqueueRecentNewsTriggers } = await import('./nfl-capture-dispatch.js');
+  const sources = await ingestAllSources();
+  return {
+    sources,
+    typing: syncStructuredNewsSignals({ sinceDays: 14, limit: 1500 }),
+    capture_triggers: enqueueRecentNewsTriggers()
+  };
+}
+
+/**
+ * ESPN's free public news API. Pull the league feed every run and rotate four
+ * team feeds, covering all 32 teams every four hours without a 33-request burst.
+ */
+async function refreshEspnNews() {
+  const { syncGeneralNews, syncTeamNewsFeed } = await import('../routes/espn.js');
+  const { syncStructuredNewsSignals } = await import('./nfl-news-signal.js');
+  const { enqueueRecentNewsTriggers } = await import('./nfl-capture-dispatch.js');
+  const teams = ['ARI','ATL','BAL','BUF','CAR','CHI','CIN','CLE','DAL','DEN','DET','GB','HOU','IND','JAX','KC',
+    'LAC','LAR','LV','MIA','MIN','NE','NO','NYG','NYJ','PHI','PIT','SEA','SF','TB','TEN','WAS'];
+  const batchSize = 4;
+  const cursor = (Number(lastRun('espn_news')?.runs ?? 0) * batchSize) % teams.length;
+  const selected = Array.from({ length: batchSize }, (_, index) => teams[(cursor + index) % teams.length]);
+  const general = await syncGeneralNews();
+  const teamResults = await Promise.allSettled(selected.map(team => syncTeamNewsFeed(team)));
+  return {
+    general,
+    teams: selected.map((team, index) => teamResults[index].status === 'fulfilled'
+      ? { team, added: teamResults[index].value }
+      : { team, error: teamResults[index].reason?.message ?? String(teamResults[index].reason) }),
+    typing: syncStructuredNewsSignals({ sinceDays: 14, limit: 1500 }),
+    capture_triggers: enqueueRecentNewsTriggers()
+  };
+}
+
 /**
  * Official practice reports. syncInjuries() already existed — pulling
  * nflverse's injuries_{season}.csv.gz release, the real weekly practice
@@ -386,6 +424,10 @@ export const JOBS = {
    */
   nfl_prop_capture: { run: refreshPropCapture, maxAgeMinutes: 60, tier: 'metered',
     label: 'NFL prop market capture (CLV evidence)' },
+  rss_news: { run: refreshRssNews, maxAgeMinutes: 15, tier: 'live',
+    label: 'Publisher RSS news, normalized and typed' },
+  espn_news: { run: refreshEspnNews, maxAgeMinutes: 30, tier: 'live',
+    label: 'ESPN league and rotating team news feeds (free)' },
   nfl_news_signals: { run: refreshNflNewsSignals, maxAgeMinutes: 60, tier: 'live',
     label: 'Typed NFL news, injury and role signals' },
   /*
@@ -502,7 +544,8 @@ export function startScheduler({
   // Keep launch interactive. MLB player-log ingestion processes thousands of
   // responses and tomorrow-pick generation runs large simulations; doing either
   // on the main thread twenty seconds after boot made every API request hang.
-  const bootJobs = ['mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
+  const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
+    'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
     'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});

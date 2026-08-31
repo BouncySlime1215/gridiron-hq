@@ -116,11 +116,13 @@ function fitRows(games) {
 
 export function fitExpertCoordinator(beforeSeason, beforeWeek) {
   const historical = rows(`SELECT * FROM nfl_weekly_expert_examples
-    WHERE actual_residual IS NOT NULL AND (season<? OR (season=? AND week<?)) ORDER BY season,week,home,expert_id`,
+    WHERE actual_residual IS NOT NULL AND (season<? OR (season=? AND week<?))
+    ORDER BY season,week,home,expert_id,audit_run_id,id`,
   beforeSeason, beforeSeason, beforeWeek);
   const forward = rows(`SELECT p.*,s.actual_residual,s.directional_correct,s.squared_error
     FROM nfl_expert_forward_predictions p JOIN nfl_expert_forward_settlements s ON s.prediction_id=p.id
-    WHERE p.observed=1 AND (p.season<? OR (p.season=? AND p.week<?)) ORDER BY p.season,p.week,p.home,p.expert_id`,
+    WHERE p.observed=1 AND (p.season<? OR (p.season=? AND p.week<?))
+    ORDER BY p.season,p.week,p.home,p.expert_id,p.captured_at,p.id`,
   beforeSeason, beforeSeason, beforeWeek);
   const raw = [...historical, ...forward];
   const games = pivotRows(raw);
@@ -133,7 +135,8 @@ export function fitExpertCoordinator(beforeSeason, beforeWeek) {
   return { version: EXPERT_COORDINATOR_VERSION, ready: true, games: games.length, weeks,
     ...fit, authority: 'historical_candidate_only',
     safeguards: { target: 'market residual', week_balanced: true, loss: `Huber(${HUBER_DELTA})`, ridge: RIDGE,
-      max_expert_weight: MAX_WEIGHT, max_total_expert_influence: MAX_TOTAL_INFLUENCE } };
+      deduplicated_by_game_and_expert: true, max_expert_weight: MAX_WEIGHT,
+      max_total_expert_influence: MAX_TOTAL_INFLUENCE } };
 }
 
 export function coordinateExperts(fit, experts) {

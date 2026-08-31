@@ -109,6 +109,16 @@ test('expert coordinator carries missingness separately from a real zero forecas
   assert.equal(vector[offset + 1], 1, 'an unavailable player builder is explicitly missing');
 });
 
+test('expert coordinator counts a replayed game once across audit runs', () => {
+  const base = { season: 2021, week: 5, home: 'ARI', away: 'SF', actual_residual: 4,
+    expert_id: 'rulebook', observed: 1, forecast_residual: 2 };
+  const games = expertCoordinatorTest.pivotRows([
+    { ...base, audit_run_id: 1 }, { ...base, audit_run_id: 2, forecast_residual: 3 }
+  ]);
+  assert.equal(games.length, 1);
+  assert.equal(games[0].experts.get('rulebook'), 3, 'latest ordered audit copy wins without adding another game');
+});
+
 test('news latency pairs only preserved quotes around publication and never uses a post-kickoff market', () => {
   const claim = { published_at: '2026-09-01T12:00:00Z' };
   const base = { event_id: 'g1', commence_time: '2026-09-01T20:00:00Z', home_team: 'Kansas City Chiefs', away_team: 'Buffalo Bills',

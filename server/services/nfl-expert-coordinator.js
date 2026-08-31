@@ -114,16 +114,19 @@ function fitRows(games) {
   return { coefficients, centers, scales, robustSigma };
 }
 
-export function fitExpertCoordinator(beforeSeason, beforeWeek) {
-  const historical = rows(`SELECT * FROM nfl_weekly_expert_examples
-    WHERE actual_residual IS NOT NULL AND (season<? OR (season=? AND week<?))
-    ORDER BY season,week,home,expert_id,audit_run_id,id`,
-  beforeSeason, beforeSeason, beforeWeek);
-  const forward = rows(`SELECT p.*,s.actual_residual,s.directional_correct,s.squared_error
+export function fitExpertCoordinator(beforeSeason, beforeWeek, { auditRunId = null } = {}) {
+  const historical = auditRunId == null
+    ? rows(`SELECT * FROM nfl_weekly_expert_examples
+      WHERE actual_residual IS NOT NULL AND (season<? OR (season=? AND week<?))
+      ORDER BY season,week,home,expert_id,audit_run_id,id`, beforeSeason, beforeSeason, beforeWeek)
+    : rows(`SELECT * FROM nfl_weekly_expert_examples
+      WHERE audit_run_id=? AND actual_residual IS NOT NULL AND (season<? OR (season=? AND week<?))
+      ORDER BY season,week,home,expert_id,id`, auditRunId, beforeSeason, beforeSeason, beforeWeek);
+  const forward = auditRunId == null ? rows(`SELECT p.*,s.actual_residual,s.directional_correct,s.squared_error
     FROM nfl_expert_forward_predictions p JOIN nfl_expert_forward_settlements s ON s.prediction_id=p.id
     WHERE p.observed=1 AND (p.season<? OR (p.season=? AND p.week<?))
     ORDER BY p.season,p.week,p.home,p.expert_id,p.captured_at,p.id`,
-  beforeSeason, beforeSeason, beforeWeek);
+  beforeSeason, beforeSeason, beforeWeek) : [];
   const raw = [...historical, ...forward];
   const games = pivotRows(raw);
   const weeks = new Set(games.map(game => `${game.season}|${game.week}`)).size;

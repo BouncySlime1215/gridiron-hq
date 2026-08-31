@@ -399,7 +399,7 @@ export function runNextBlindAuditWeek(id) {
   const spec = JSON.parse(record.spec_json);
   const target = spec.schedule[record.next_ordinal];
   if (!target) throw new Error('blind audit has no remaining weeks');
-  const expertCouncil = weeklyExpertAudit(target.season, target.week);
+  const expertCouncil = weeklyExpertAudit(target.season, target.week, { auditRunId: record.id });
   const postgamePackets = expertCouncil.games.map(item => buildPostgameTruth(target.season, target.week,
     item.game.home, { expertPacket: item }));
   const result = {

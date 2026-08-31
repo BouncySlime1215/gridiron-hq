@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { buildGbmDataset, fitGbm, predictGbm } from './nfl-gbm.js';
-import { onlineNeuralPrediction } from './nfl-online-neural.js';
+import { createNetwork, predictNetwork, spreadFeatureVector, trainBatch } from './nfl-online-neural.js';
 import { teamNewsSignals } from './nfl-news-signal.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
 import { gameInjuryCarryover } from './nfl-postgame-truth.js';
@@ -224,6 +224,42 @@ function newsFor(line, beforeIso) {
     evidence_state: claims > 0 ? 'verified_material_claims' : feedStories >= 3 ? 'observed_no_material_claim' : 'feed_coverage_missing' };
 }
 
+function auditedNeuralFor(line, { season, week, cutoff, auditRunId = null }) {
+  const current = spreadFeatureVector(line, { before: cutoff });
+  if (!current) return { error: 'market spread unavailable for neural residual' };
+  const stored = auditRunId == null
+    ? rows(`SELECT season,week,home,actual_residual,payload_json,audit_run_id,id
+      FROM nfl_weekly_expert_examples WHERE expert_id='deep_residual' AND actual_residual IS NOT NULL
+        AND (season<? OR (season=? AND week<?)) ORDER BY season,week,home,audit_run_id,id`, season, season, week)
+    : rows(`SELECT season,week,home,actual_residual,payload_json,audit_run_id,id
+      FROM nfl_weekly_expert_examples WHERE audit_run_id=? AND expert_id='deep_residual' AND actual_residual IS NOT NULL
+        AND (season<? OR (season=? AND week<?)) ORDER BY season,week,home,id`, auditRunId, season, season, week);
+  const unique = new Map();
+  for (const item of stored) {
+    let payload; try { payload = JSON.parse(item.payload_json || '{}'); } catch { continue; }
+    const vector = payload.feature_vector;
+    if (vector?.schema !== 'nfl-online-neural-features-v2-verified-news'
+      || !Array.isArray(vector.values) || vector.values.length !== current.values.length) continue;
+    unique.set(`${item.season}|${item.week}|${item.home}`, { ...item, input: vector.values, target: item.actual_residual });
+  }
+  const examples = [...unique.values()].sort((a, b) => a.season - b.season || a.week - b.week || a.home.localeCompare(b.home));
+  let network = createNetwork(current.values.length), replay = [], trainedWeeks = 0;
+  for (const key of [...new Set(examples.map(item => `${item.season}|${item.week}`))]) {
+    const [trainSeason, trainWeek] = key.split('|').map(Number);
+    const batch = examples.filter(item => item.season === trainSeason && item.week === trainWeek)
+      .map(item => ({ input: item.input, target: item.target }));
+    replay.push(...batch);
+    network = trainBatch(network, replay.slice(-512)); trainedWeeks++;
+  }
+  const residual = predictNetwork(network, current.values);
+  return { head: 'spread_residual', version: 'audited-weekly-neural-v1',
+    schema_version: 'nfl-online-neural-features-v2-verified-news', residual: r3(residual),
+    predicted_margin: r3(current.market_margin + residual), market_margin: current.market_margin,
+    metrics: { examples: examples.length, weeks: trainedWeeks, production_eligible: false },
+    authority: 'historical_candidate_only', learning_source: 'immutable deduplicated expert rows from strictly earlier weeks',
+    feature_vector: { schema: 'nfl-online-neural-features-v2-verified-news', names: current.names, values: current.values } };
+}
+
 function shoppingFor(home, away, cutoff) {
   const normalize = value => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const teams = rows(`SELECT abbr,name FROM nfl_teams WHERE abbr IN (?,?)`, home, away);
@@ -338,7 +374,7 @@ function kickoffFor(season, week, home) {
   return nflKickoffDate(game.gameday, game.gametime || '23:59')?.toISOString() ?? `${season}-W${week}-pregame`;
 }
 
-function gameExperts(season, week, targetIndex, data = dataset()) {
+function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId = null } = {}) {
   const game = data.meta[targetIndex], targetX = data.X[targetIndex];
   const line = ensembleLine(season, week, game.home, game.away,
     // This is the exact packet the historical betting replay has already
@@ -357,7 +393,7 @@ function gameExperts(season, week, targetIndex, data = dataset()) {
   const injuryCarryover = gameInjuryCarryover(season, week, game.home, game.away);
   const tree = treePrediction(season, week, targetX);
   const analog = analogPrediction(season, week, targetX);
-  const neural = onlineNeuralPrediction(line, { before: cutoff });
+  const neural = auditedNeuralFor(line, { season, week, cutoff, auditRunId });
   const simulation = simulateMatchup({ home: game.home, away: game.away, season, trials: 160,
     spread: line.ensemble.market_spread, total: line.ensemble.market_total,
     targetMargin: line.ensemble.projected_margin, targetTotal: line.ensemble.projected_total,
@@ -439,12 +475,12 @@ function gameExperts(season, week, targetIndex, data = dataset()) {
   };
 }
 
-export function weeklyExpertAudit(season, week) {
+export function weeklyExpertAudit(season, week, { auditRunId = null } = {}) {
   const data = dataset();
   const targets = data.meta.map((row, index) => row.season === season && row.week === week ? index : -1).filter(index => index >= 0);
-  const coordinatorFit = fitExpertCoordinator(season, week);
+  const coordinatorFit = fitExpertCoordinator(season, week, { auditRunId });
   const games = targets.map(index => {
-    const result = gameExperts(season, week, index);
+    const result = gameExperts(season, week, index, data, { auditRunId });
     return { ...result, coordinator: coordinateExperts(coordinatorFit, result.experts) };
   });
   const expertSummary = NFL_EXPERTS.map(registry => {

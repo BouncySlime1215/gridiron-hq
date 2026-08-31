@@ -240,7 +240,12 @@ function runPlay(ctx, { yard, isPass, varianceMult, preventMult }) {
 function simulateDrive(ctx, state, ep) {
   const { secondsLeft, lead, timeouts, oppTimeouts, isHalfEnd, spread } = state;
   let yard = state.yard;
-  let down = 1, toGo = 10, elapsed = 0, plays = 0;
+  // Pregame drives omit these fields and correctly start first-and-10. A live
+  // remainder must preserve the actual current series; resetting 3rd-and-9 to
+  // 1st-and-10 materially overstates the offense's win probability.
+  let down = clamp(Math.round(state.down ?? 1), 1, 4);
+  let toGo = clamp(Number(state.toGo ?? 10), 0.5, Math.max(1, 100 - yard));
+  let elapsed = 0, plays = 0;
   const decisions = [];
   // A play-by-play tape of the drive. The engine already resolves every snap
   // individually; this just stops throwing that away, so a drive can be
@@ -786,11 +791,14 @@ export function simulateRemainder({
       let clock = Math.max(0, s.secondsLeft ?? 900);
       let possession = s.possession === 'away' ? 'away' : 'home';
       let yard = clamp(s.yard ?? 25, 1, 99);
+      let currentDown = clamp(Math.round(s.down ?? 1), 1, 4);
+      let currentToGo = clamp(Number(s.toGo ?? 10), 0.5, Math.max(1, 100 - yard));
 
       while (clock > 0) {
         const off = possession === 'home' ? hc : ac;
         const lead = possession === 'home' ? h - a : a - h;
-        const d = simulateDrive(off, { yard, secondsLeft: clock, lead, timeouts: 3, oppTimeouts: 3,
+        const d = simulateDrive(off, { yard, down: currentDown, toGo: currentToGo,
+          secondsLeft: clock, lead, timeouts: 3, oppTimeouts: 3,
           isHalfEnd: clock < 120, spread }, ep);
         let pts = d.points;
         if (d.touchdown) {
@@ -807,6 +815,7 @@ export function simulateRemainder({
         clock -= Math.max(15, d.seconds);
         possession = possession === 'home' ? 'away' : 'home';
         yard = (d.points > 0 || d.kneel) ? 25 : clamp(d.endYard, 1, 99);
+        currentDown = 1; currentToGo = Math.min(10, 100 - yard);
       }
       finalHome[i] = h; finalAway[i] = a;
     }
@@ -821,6 +830,8 @@ export function simulateRemainder({
   return {
     home: H.team, away: A.team, trials,
     current_score: { home: startHome, away: startAway },
+    current_state: { possession: s.possession === 'away' ? 'away' : 'home', yard: s.yard ?? 25,
+      down: s.down ?? 1, to_go: s.toGo ?? 10 },
     seconds_remaining: s.secondsLeft ?? null,
     projection: { home_score: r2(mean(finalHome)), away_score: r2(mean(finalAway)),
       margin: r2(mean(margins)), total: r2(mean(totals)), margin_sd: r2(sd(margins)) },

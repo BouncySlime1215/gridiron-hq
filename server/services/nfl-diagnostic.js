@@ -10,6 +10,9 @@ import { nflDataConsistencyAudit } from './nfl-data-consistency.js';
 import { signalReliabilityStatus } from './nfl-signal-reliability.js';
 import { nflCoordinationAudit } from './nfl-coordination-audit.js';
 import { latestHistoricalNeuralReplay } from './nfl-neural-replay.js';
+import { expertCouncilStatus } from './nfl-expert-council.js';
+import { nflNewsMarketLatency } from './nfl-news-market-latency.js';
+import { postgameTruthStatus } from './nfl-postgame-truth.js';
 
 const number = value => Number(value ?? 0);
 
@@ -140,6 +143,9 @@ export function nflDiagnostic() {
     signal_reliability: signalReliabilityStatus(),
     coordination: nflCoordinationAudit(),
     neural_replay: latestHistoricalNeuralReplay(),
+    expert_council: expertCouncilStatus(),
+    news_market_latency: nflNewsMarketLatency(),
+    postgame_truth: postgameTruthStatus(),
     engine: profitability.gridiron_engine,
     bottlenecks,
     next_profit_review: {

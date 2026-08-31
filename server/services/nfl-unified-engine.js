@@ -15,6 +15,8 @@ import { nflEngineStatus, nflEngineVersionFor } from './nfl-engine-registry.js';
 import { teamNewsSignals } from './nfl-news-signal.js';
 import { nflKickoffDate } from './date-util.js';
 import { ask } from './gridiron-model.js';
+import { expertCouncilGame } from './nfl-expert-council.js';
+import { gameInjuryCarryover } from './nfl-postgame-truth.js';
 
 function deterministicSeed(value) {
   return crypto.createHash('sha256').update(value).digest().readUInt32BE(0);
@@ -67,9 +69,11 @@ export function unifiedGameProjection({ season, week, home, away, trials = 8000,
     heads: {
       team_spread_total: line.ensemble,
       roster_availability: line.ensemble.player_availability,
+      injury_carryover: gameInjuryCarryover(Number(season), Number(week), h, a),
       verified_news: { home: homeNews, away: awayNews, numeric_authority: 0 },
       play_by_play_shape: simulation.play_model,
-      reconciliation: simulation.reconciliation
+      reconciliation: simulation.reconciliation,
+      expert_council: expertCouncilGame(Number(season), Number(week), h)
     },
     authority: {
       spread: { ...spreadAuthority,

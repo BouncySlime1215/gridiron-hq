@@ -29,6 +29,7 @@
 import { rows, row, run } from '../db/index.js';
 import { withRandomSeed } from './stats-util.js';
 import { liveWinProbability } from './nfl-live.js';
+import { simulateRemainder } from './nfl-drive-sim.js';
 
 const SUMMARY = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=';
 const SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
@@ -607,4 +608,59 @@ export function liveModelValidation({ season = null, maxGames = 120, sampleEvery
       'the time — being right 97% is not better, it is wrong in the other direction and will size ' +
       'bets incorrectly. States are sampled from real completed games, so the outcome is known.'
   };
+}
+
+/** Grade the actual state-conditioned remainder simulator used by the live UI.
+ * Three checkpoints per completed game keep the audit tractable while testing
+ * early, middle and late states. The comparison model sees only score + clock;
+ * incremental skill must come from possession, field position and down/distance. */
+export function liveRemainderValidation({ season = null, maxGames = 40, trials = 300 } = {}) {
+  const where = season ? `WHERE season = ${Number(season)}` : '';
+  const events = rows(`SELECT event_id,MAX(season) season,MAX(week) week FROM nfl_play_by_play
+    ${where} GROUP BY event_id ORDER BY season DESC,week DESC LIMIT ?`, maxGames);
+  const samples = [];
+  for (const event of events) {
+    const plays = rows(`SELECT sequence,clock_seconds,home_score,away_score,offense,defense,down,distance,yards_to_endzone
+      FROM nfl_play_by_play WHERE event_id=? AND clock_seconds>0 AND home_score IS NOT NULL AND away_score IS NOT NULL
+      ORDER BY sequence`, event.event_id);
+    if (plays.length < 50) continue;
+    const teamSet = [...new Set(plays.flatMap(play => [play.offense, play.defense]).filter(Boolean))];
+    const game = rows(`SELECT team home,opponent away FROM game_lines WHERE season=? AND week=? AND home=1
+      AND team IN (${teamSet.map(() => '?').join(',')}) LIMIT 1`, event.season, event.week, ...teamSet)[0];
+    if (!game) continue;
+    const final = plays.at(-1), outcome = final.home_score === final.away_score ? null : final.home_score > final.away_score ? 1 : 0;
+    if (outcome == null) continue;
+    for (const fraction of [0.25, 0.5, 0.75]) {
+      const play = plays[Math.min(plays.length - 1, Math.floor(plays.length * fraction))];
+      const possession = play.offense === game.home ? 'home' : 'away';
+      const result = simulateRemainder({ home: game.home, away: game.away, season: event.season, trials,
+        seed: Number(String(event.event_id).replace(/\D/g, '').slice(-8) || 1) + Math.round(fraction * 100),
+        state: { possession, yard: play.yards_to_endzone == null ? 25 : 100 - play.yards_to_endzone,
+          down: play.down ?? 1, toGo: play.distance ?? 10, secondsLeft: play.clock_seconds,
+          homeScore: play.home_score, awayScore: play.away_score } });
+      if (result.error) continue;
+      const predicted = result.live_moneyline.home_win + result.live_moneyline.tie * 0.5;
+      const baseline = liveWinProbability(play.home_score - play.away_score, play.clock_seconds, null);
+      samples.push({ event_id: event.event_id, checkpoint: fraction, outcome, predicted, baseline,
+        state: result.current_state });
+    }
+  }
+  if (samples.length < 30) return { error: `only ${samples.length} simulator checkpoints`, games_considered: events.length };
+  const brier = mean(samples.map(sample => (sample.predicted - sample.outcome) ** 2));
+  const baseline = mean(samples.map(sample => (sample.baseline - sample.outcome) ** 2));
+  const buckets = Array.from({ length: 5 }, (_, index) => {
+    const lo = index / 5, hi = (index + 1) / 5;
+    const bin = samples.filter(sample => sample.predicted >= lo && sample.predicted < (index === 4 ? 1.01 : hi));
+    return { range: `${Math.round(lo * 100)}-${Math.round(hi * 100)}%`, n: bin.length,
+      predicted: bin.length ? r4(mean(bin.map(sample => sample.predicted))) : null,
+      actual: bin.length ? r4(mean(bin.map(sample => sample.outcome))) : null };
+  });
+  const ece = buckets.reduce((sum, bucket) => sum + bucket.n * Math.abs((bucket.predicted ?? 0) - (bucket.actual ?? 0)), 0) / samples.length;
+  return { model: 'state-conditioned remainder simulator', games_considered: events.length,
+    checkpoints: samples.length, trials_per_checkpoint: trials, brier_score: r4(brier),
+    score_clock_baseline_brier: r4(baseline), incremental_skill: r4(1 - brier / baseline),
+    expected_calibration_error: r4(ece), calibration: buckets,
+    passes_baseline: brier < baseline, well_calibrated: ece < 0.05,
+    state_contract: ['score', 'clock', 'possession', 'field position', 'down', 'distance'],
+    note: 'This grades the same remainder simulator used by the live endpoint. No betting authority is implied.' };
 }

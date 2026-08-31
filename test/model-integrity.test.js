@@ -61,10 +61,127 @@ const { activeLearningEpoch, nflEngineComponents, startLearningEpoch } = await i
 const { nflBackfillPlan } = await import('../server/services/nfl-engine-backfill.js');
 const { RISK_MODELS, predictRiskModel, trainRiskState, __test: riskLab } = await import('../server/services/nfl-risk-lab.js');
 const { teamRosterStrength, importLicensedPffGrades, clearRosterStrengthCache } = await import('../server/services/nfl-roster-strength.js');
+const { NFL_EXPERTS, __test: expertCouncilTest } = await import('../server/services/nfl-expert-council.js');
+const { __test: expertCoordinatorTest } = await import('../server/services/nfl-expert-coordinator.js');
+const { __test: newsLatencyTest } = await import('../server/services/nfl-news-market-latency.js');
+const { __test: postgameTest } = await import('../server/services/nfl-postgame-truth.js');
 
 test.after(() => {
   db.close();
   fs.rmSync(temp, { recursive: true, force: true });
+});
+
+test('expert council registers every modelling role and missing evidence abstains instead of becoming zero', () => {
+  assert.equal(NFL_EXPERTS.length, 12);
+  assert.equal(new Set(NFL_EXPERTS.map(expert => expert.id)).size, 12);
+  const missing = expertCouncilTest.output('news_reaction', { observed: false, missingReason: 'no verified claims' });
+  assert.equal(missing.observed, false);
+  assert.equal(missing.forecast_residual, null);
+  assert.equal(missing.missing_reason, 'no verified claims');
+});
+
+test('robust expert coordinator caps correlated influence and survives a giant weekly outlier', () => {
+  const games = Array.from({ length: 160 }, (_, index) => {
+    const signal = (index % 9) - 4;
+    const experts = new Map(NFL_EXPERTS.map(expert => [expert.id, null]));
+    experts.set('rulebook', signal);
+    experts.set('similar_games', signal * 1.02);
+    experts.set('boosted_tree', signal * 0.98);
+    return { season: 2020 + Math.floor(index / 64), week: 1 + Math.floor(index / 16), home: `T${index}`,
+      target: index === 159 ? 150 : signal * 0.7 + ((index % 3) - 1), experts };
+  });
+  const fit = expertCoordinatorTest.fitRows(games);
+  const directionalWeights = fit.coefficients.slice(1, NFL_EXPERTS.length + 1);
+  assert.ok(directionalWeights.every(weight => Math.abs(weight) <= 0.350001));
+  assert.ok(directionalWeights.reduce((sum, weight) => sum + Math.abs(weight), 0) <= 0.800001);
+  assert.ok(Math.abs(fit.coefficients[0]) <= 1);
+  assert.ok(Number.isFinite(fit.robustSigma) && fit.robustSigma >= 6);
+});
+
+test('expert coordinator carries missingness separately from a real zero forecast', () => {
+  const centers = Object.fromEntries(NFL_EXPERTS.map(expert => [expert.id, 0]));
+  const scales = Object.fromEntries(NFL_EXPERTS.map(expert => [expert.id, 1]));
+  const experts = new Map(NFL_EXPERTS.map(expert => [expert.id, null]));
+  experts.set('rulebook', 0);
+  const vector = expertCoordinatorTest.design({ experts }, centers, scales);
+  const offset = 1 + NFL_EXPERTS.length;
+  assert.equal(vector[offset], 0, 'an observed zero is not missing');
+  assert.equal(vector[offset + 1], 1, 'an unavailable player builder is explicitly missing');
+});
+
+test('news latency pairs only preserved quotes around publication and never uses a post-kickoff market', () => {
+  const claim = { published_at: '2026-09-01T12:00:00Z' };
+  const base = { event_id: 'g1', commence_time: '2026-09-01T20:00:00Z', home_team: 'Kansas City Chiefs', away_team: 'Buffalo Bills',
+    book: 'book-a', market: 'spreads', side: 'Kansas City Chiefs' };
+  const pairs = newsLatencyTest.quoteReaction(claim, [
+    { ...base, captured_at: '2026-09-01T11:00:00Z', line: -2.5, price: -110 },
+    { ...base, captured_at: '2026-09-01T12:04:00Z', line: -3, price: -112 },
+    { ...base, captured_at: '2026-09-01T20:01:00Z', line: -7, price: -200 }
+  ], ['kansascitychiefs', 'kc']);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].publication_to_capture_minutes, 4);
+  assert.equal(pairs[0].line_move, -0.5);
+  assert.equal(pairs[0].reacted, true);
+});
+
+test('postgame truth reads challenges, turnovers and explosive gameplay from the settled tape', () => {
+  const base = { period: 4, clock_seconds: 120, offense: 'KC', defense: 'BUF', down: 2, distance: 8,
+    yards_to_endzone: 40, play_type: 'pass', yards_gained: 22, is_turnover: 0, is_scoring: 0,
+    is_penalty: 0, home_score: 20, away_score: 20, no_huddle: 0, shotgun: 1, text: 'pass for 22 yards' };
+  const tape = [base,
+    { ...base, play_type: 'interception', yards_gained: 0, is_turnover: 1, text: 'pass intercepted' },
+    { ...base, yards_gained: 0, is_scoring: 1, home_score: 27,
+      text: 'Kansas City challenged the touchdown ruling. The ruling was REVERSED.' }];
+  const truth = postgameTest.summarizePlayByPlay(tape, 'KC', 'BUF');
+  assert.equal(truth.teams.KC.explosives, 1);
+  assert.equal(truth.teams.KC.turnovers, 1);
+  assert.equal(truth.challenges.length, 1);
+  assert.equal(truth.challenges_reversed, 1);
+  assert.ok(truth.high_leverage_events.length >= 2);
+});
+
+test('postgame filtration keeps chaotic finals and quarantines only incomplete evidence', () => {
+  const complete = postgameTest.filtration({ game: { home_score: 31, away_score: 28, spread: -2.5 },
+    pbp: { scrimmage_plays: 120, rows: 150, teams: { A: { turnovers: 3, explosives: 6 }, B: { turnovers: 2, explosives: 5 } },
+      non_offensive_scores: [{}], challenges_reversed: 2 }, teams: [{}, {}], players: [{}], snaps: Array(30).fill({}) });
+  assert.equal(complete.core_training_eligible, true);
+  assert.equal(complete.sample_weight, 1);
+  assert.ok(complete.variance_markers.length >= 3);
+  assert.match(complete.rule, /never justify deleting a loss/i);
+  const incomplete = postgameTest.filtration({ game: { home_score: 31, away_score: 28, spread: -2.5 },
+    pbp: { scrimmage_plays: 0, rows: 0, teams: {}, non_offensive_scores: [], challenges_reversed: 0 },
+    teams: [{}], players: [], snaps: [] });
+  assert.equal(incomplete.core_training_eligible, false);
+  assert.equal(incomplete.sample_weight, 0);
+});
+
+test('postgame injury identity separates multi-letter initials and clears documented returns', () => {
+  assert.equal(postgameTest.namesMatch('Ca.Heyward', 'Cameron Heyward'), true);
+  assert.equal(postgameTest.namesMatch('Ca.Heyward', 'Connor Heyward'), false);
+  const base = { period: 2, clock_seconds: 800, offense: 'BAL', defense: 'PIT', down: 1, distance: 10,
+    yards_to_endzone: 60, play_type: 'rush', yards_gained: 4, is_turnover: 0, is_scoring: 0,
+    is_penalty: 0, home_score: 7, away_score: 7, no_huddle: 0, shotgun: 0 };
+  const tape = [
+    { ...base, sequence: 10, text: 'PIT-Ca.Heyward was injured during the play.' },
+    { ...base, sequence: 20, offense: 'PIT', defense: 'BAL', text: 'run for four yards' },
+    { ...base, sequence: 30, text: '** Injury Update: PIT-Ca.Heyward has returned to the game.' }
+  ];
+  const injuries = postgameTest.inGameInjuryTruth(tape, [
+    { team: 'PIT', player: 'Cameron Heyward', position: 'DT', offense_pct: 0, defense_pct: 0.8, st_pct: 0 },
+    { team: 'PIT', player: 'Connor Heyward', position: 'TE', offense_pct: 0.3, defense_pct: 0, st_pct: 0.4 }
+  ], { players: [{ team: 'PIT', player: 'Co.Heyward', player_id: null, position: 'TE' }] }, 2025, 1, 'PIT', 'BAL');
+  assert.equal(injuries.length, 1);
+  assert.equal(injuries[0].player, 'Cameron Heyward');
+  assert.equal(injuries[0].position, 'DT');
+  assert.equal(injuries[0].returned_in_game, true);
+  assert.equal(injuries[0].carry_forward.state, 'cleared_in_game');
+});
+
+test('postgame injury carry state follows official availability semantics', () => {
+  assert.deepEqual(postgameTest.availabilityFromReport({ report_status: 'Out' }),
+    { probability: 1, state: 'confirmed_out' });
+  assert.deepEqual(postgameTest.availabilityFromReport({ practice_status: 'Full Participation' }),
+    { probability: 0.04, state: 'cleared_by_full_practice' });
 });
 
 test('fantasy lineup is selected before outcomes are revealed', () => {
@@ -256,6 +373,8 @@ test('blind audit preregisters a fixed chronological week sequence and honest cl
   assert.deepEqual(protocol.schedule[0], { season: 2021, week: 5 });
   assert.deepEqual(protocol.schedule.at(-1), { season: 2025, week: 18 });
   assert.equal(protocol.schedule.length, 70);
+  assert.equal(protocol.expert_ids.length, 12);
+  assert.match(protocol.expert_council, /expert-council/);
   assert.ok(protocol.rules.some(x => /2026 forward shadow/i.test(x)));
 });
 

@@ -323,8 +323,49 @@ function projectedPrimaryQb(engine, team, qbs = null) {
   return result;
 }
 
+function activeDepthRoster(engine, team) {
+  const reference = [...engine.values()].find(player => player.team === team)?.player_week_engine;
+  const season = reference?.season, week = reference?.week;
+  if (!Number.isInteger(season) || !Number.isInteger(week)) return null;
+  const game = rows(`SELECT gameday FROM game_lines WHERE season=? AND week=? AND team=? LIMIT 1`, season, week, team)[0];
+  const candidates = rows(`SELECT week,gsis_id,player_name,pos_abb,captured FROM nfl_depth
+    WHERE season=? AND week<=? AND team=? ORDER BY week DESC,captured DESC`, season, week, team)
+    .filter(player => !game?.gameday || !player.captured || String(player.captured).slice(0, 10) <= game.gameday);
+  let latestWeek = candidates[0]?.week ?? null;
+  let latest = latestWeek == null ? [] : candidates.filter(player => player.week === latestWeek);
+  // nflverse depth history is not available for every old season. In that
+  // case, build a strictly pre-kickoff active roster from the last four team
+  // games. This is safer than the app's current roster table, which otherwise
+  // lets modern players leak backward into historical player projections.
+  if (!latest.length) {
+    const history = rows(`SELECT season,week,player_id,player_name,features FROM nfl_player_week_features
+      WHERE team=? AND (season<? OR (season=? AND week<?)) AND season>=?
+      ORDER BY season DESC,week DESC`, team, season, season, week, season - 1);
+    const recentWeeks = [...new Set(history.map(player => `${player.season}|${player.week}`))].slice(0, 4);
+    const active = history.filter(player => recentWeeks.includes(`${player.season}|${player.week}`)).filter(player => {
+      try {
+        const features = JSON.parse(player.features);
+        return (features.pass_attempts ?? 0) + (features.carries ?? 0) + (features.targets ?? 0) > 0;
+      } catch { return false; }
+    });
+    latestWeek = active[0]?.week ?? null;
+    latest = active.map(player => ({ gsis_id: player.player_id, player_name: player.player_name }));
+  }
+  if (!latest.length) return null;
+  const ids = new Set(latest.map(player => player.gsis_id).filter(Boolean));
+  const normalize = value => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const names = new Set(latest.map(player => normalize(player.player_name)).filter(Boolean));
+  return { season, week: latestWeek, ids, names, has: player => (player.gsis_id && ids.has(player.gsis_id))
+    || names.has(normalize(player.name)) };
+}
+
 function teamProjectionSet(engine, team, mult = 1) {
-  const all = [...engine.values()].filter(p => p.team === team && p.params);
+  const raw = [...engine.values()].filter(p => p.team === team && p.params);
+  const roster = activeDepthRoster(engine, team);
+  const filtered = roster ? raw.filter(player => roster.has(player)) : raw;
+  // A populated chart is authoritative only if identities actually join. A
+  // broken provider join must remain visible rather than erasing the offense.
+  const all = filtered.length >= 5 ? filtered : raw;
   if (!all.length) return null;
   const allQbs = all.filter(p => p.position === 'QB').sort(descending('attempts'));
   const recentQb = projectedPrimaryQb(engine, team, allQbs);
@@ -391,7 +432,10 @@ export function teamWeekEventExpectations(engine, team, {
   const set = teamProjectionSet(engine, team, mult);
   if (!set) return new Map();
   const attempts = qbExpectedAttempts(set, { conditionalPrimary });
-  const carries = reconciledVolume(set.rushMean, set.rushers,
+  const eligibleRushers = conditionalPrimary
+    ? set.rushers.filter(player => player.position !== 'QB' || player.player_id === set.primaryQb?.player_id)
+    : set.rushers;
+  const carries = reconciledVolume(set.rushMean, eligibleRushers,
     p => p.params.carries, reconciliationStrength);
   const targets = reconciledVolume(set.passMean * set.targetRate, set.receivers,
     p => p.params.targets, reconciliationStrength);

@@ -3,6 +3,7 @@ import { db, rows, row, run } from '../db/index.js';
 import { syncPlayersFromESPN, syncGeneralNews, syncTeamNewsFeed } from './espn.js';
 import { deriveFormat } from '../services/format.js';
 import { recordSync } from '../services/scheduler.js';
+import { normalizePlayerName } from '../services/player-identity.js';
 
 const r = Router();
 
@@ -16,19 +17,19 @@ db.exec(`CREATE TABLE IF NOT EXISTS player_metrics (
 
 // normalize names across platforms: lowercase, strip punctuation and suffixes
 function normName(name) {
-  return name.toLowerCase()
-    .replace(/[.'’]/g, '')
-    .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizePlayerName(name);
 }
 
 function playerLookup() {
   const map = new Map();
+  const collisions = new Set();
   for (const p of rows('SELECT id, name, position FROM players')) {
-    map.set(`${normName(p.name)}|${p.position}`, p.id);
+    const key = `${normName(p.name)}|${p.position}`;
+    if (map.has(key)) collisions.add(key);
+    else map.set(key, p.id);
   }
-  return map;
+  for (const key of collisions) map.delete(key);
+  return { map, collisions };
 }
 
 // FantasyFootballCalculator ADP — free public API
@@ -39,17 +40,18 @@ async function syncFFC(season) {
     if (!resp.ok) throw new Error(`FFC ADP API ${resp.status}`);
     const data = await resp.json();
     const lookup = playerLookup();
-    let matched = 0;
+    let matched = 0, ambiguous = 0;
     for (const p of data.players ?? []) {
       const pos = p.position === 'PK' ? 'K' : p.position;
-      const id = lookup.get(`${normName(p.name)}|${pos}`);
-      if (!id) continue;
+      const key = `${normName(p.name)}|${pos}`;
+      const id = lookup.map.get(key);
+      if (!id) { if (lookup.collisions.has(key)) ambiguous++; continue; }
       run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'ffc_adp',?,datetime('now'))
            ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
         id, p.adp);
       matched++;
     }
-    const result = { fetched: (data.players ?? []).length, matched };
+    const result = { fetched: (data.players ?? []).length, matched, ambiguous };
     recordSync('ffc_adp', 'ok', result);
     return result;
   } catch (e) { recordSync('ffc_adp', 'error', e.message); throw e; }
@@ -62,12 +64,15 @@ async function syncSleeper() {
     if (!resp.ok) throw new Error(`Sleeper API ${resp.status}`);
     const data = await resp.json();
     const lookup = playerLookup();
-    let matched = 0;
+    const bySleeper = new Map(rows(`SELECT id,sleeper_id FROM players WHERE sleeper_id IS NOT NULL`)
+      .map(player => [String(player.sleeper_id), player.id]));
+    let matched = 0, ambiguous = 0;
     for (const p of Object.values(data)) {
       if (!p.full_name || !p.position || !p.search_rank || p.search_rank > 9000000) continue;
       if (!['QB', 'RB', 'WR', 'TE', 'K'].includes(p.position)) continue;
-      const id = lookup.get(`${normName(p.full_name)}|${p.position}`);
-      if (!id) continue;
+      const key = `${normName(p.full_name)}|${p.position}`;
+      const id = bySleeper.get(String(p.player_id)) ?? lookup.map.get(key);
+      if (!id) { if (lookup.collisions.has(key)) ambiguous++; continue; }
       run('UPDATE players SET sleeper_id = ? WHERE id = ?', p.player_id, id);
       run(`INSERT INTO player_metrics (player_id, source, value, fetched_at) VALUES (?,'sleeper_rank',?,datetime('now'))
            ON CONFLICT(player_id, source) DO UPDATE SET value = excluded.value, fetched_at = excluded.fetched_at`,
@@ -78,8 +83,8 @@ async function syncSleeper() {
              ON CONFLICT(player_id, source) DO UPDATE SET value = 1, fetched_at = excluded.fetched_at`, id);
       }
     }
-    recordSync('sleeper_players', 'ok', { matched });
-    return { matched };
+    recordSync('sleeper_players', 'ok', { matched, ambiguous });
+    return { matched, ambiguous };
   } catch (e) { recordSync('sleeper_players', 'error', e.message); throw e; }
 }
 
@@ -108,7 +113,7 @@ async function syncFantasyCalc() {
       const p = entry.player ?? {};
       if (p.position === 'PICK') continue;
       const id = (p.sleeperId && bySleeper.get(String(p.sleeperId)))
-        ?? lookup.get(`${normName(p.name ?? '')}|${p.position}`);
+        ?? lookup.map.get(`${normName(p.name ?? '')}|${p.position}`);
       if (!id) continue;
       if (entry.redraftValue != null) upsert(id, 'fc_value', entry.redraftValue);
       if (entry.trend30Day != null) upsert(id, 'fc_trend30', entry.trend30Day);
@@ -172,7 +177,7 @@ export async function syncDynastyValues() {
         continue;
       }
       const id = (p.sleeperId && bySleeper.get(String(p.sleeperId)))
-        ?? lookup.get(`${normName(p.name ?? '')}|${p.position}`);
+        ?? lookup.map.get(`${normName(p.name ?? '')}|${p.position}`);
       if (!id) continue;
       upPlayer.run(formatKey, id, entry.value ?? null, entry.redraftValue ?? null,
         entry.trend30Day ?? null, p.maybeAge ?? null, entry.positionRank ?? null);

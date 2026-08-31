@@ -298,6 +298,7 @@ export function teamPlayerAvailability(season, week, team) {
   const reports = rows(`SELECT * FROM nfl_injuries WHERE season=? AND week=? AND team=?
     ORDER BY CASE report_status WHEN 'Out' THEN 0 WHEN 'Doubtful' THEN 1 WHEN 'Questionable' THEN 2 ELSE 3 END,full_name`,
   season, week, team);
+  const weeklyReportRows = rows(`SELECT COUNT(*) n FROM nfl_injuries WHERE season=? AND week=?`, season, week)[0]?.n ?? 0;
   const snapshot = rows(`SELECT captured_at,data_cutoff,feature_coverage_json FROM nfl_pregame_snapshot_history
     WHERE season=? AND week=? AND team=? ORDER BY captured_at DESC LIMIT 1`, season, week, team)[0] ?? null;
   const kickoff = kickoffFor(season, week, team);
@@ -354,7 +355,8 @@ export function teamPlayerAvailability(season, week, team) {
     material_players: injuryPlayers.filter(player => player.estimated_point_impact >= 0.05).slice(0, 16),
     roster_value_chart: rosterValueChart.sort((a, b) => b.full_loss_point_value - a.full_loss_point_value).slice(0, 30),
     coverage,
-    evidence_state: !reports.length ? 'availability_unknown'
+    evidence_state: !reports.length && Number(weeklyReportRows) === 0 ? 'availability_unknown'
+      : !reports.length ? 'report_feed_observed_no_team_listings'
       : capturedBeforeKickoff ? 'forward_observed' : 'historical_unverified_timestamp',
     production_eligible: false,
     policy: 'Roster-wide starter-to-replacement values are shadow-only until chronological ablation and frozen forward calibration prove incremental value.'

@@ -20,6 +20,10 @@ import { PLAYER_WEEK_ENGINE_VERSION } from './player-week-engine.js';
 import { NFL_PRODUCTION_POLICY } from './nfl-policy.js';
 import { explainPick } from './pick-reasoning.js';
 import { ensembleLine } from './nfl-ensemble.js';
+import { weeklyExpertAudit, persistWeeklyExpertAudit, EXPERT_COUNCIL_VERSION,
+  NFL_EXPERTS } from './nfl-expert-council.js';
+import { buildPostgameTruth, persistPostgameTruth, postgameAuditSummary,
+  POSTGAME_TRUTH_VERSION } from './nfl-postgame-truth.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_blind_audit_runs (
@@ -54,7 +58,8 @@ const INPUT_TABLES = [
   'players', 'player_week_usage', 'game_lines', 'nflverse_player_positions',
   'nfl_team_week_features', 'nfl_player_week_features', 'nfl_depth',
   'nfl_injuries', 'nfl_ngs', 'nfl_pfr_adv', 'nfl_snaps', 'nfl_teams',
-  'weekly_ensemble_fits', 'nfl_ensemble_fit_artifacts'
+  'weekly_ensemble_fits', 'nfl_ensemble_fit_artifacts', 'nfl_line_snapshots',
+  'nfl_news_signals', 'news_items', 'nfl_external_player_grades'
 ];
 const sha = value => createHash('sha256').update(value).digest('hex');
 
@@ -109,6 +114,9 @@ function normalizeSpec(input = {}) {
     player_head_registry: PLAYER_HEAD_REGISTRY_VERSION,
     player_head_ids: PLAYER_HEADS.map(x => x.id),
     betting_policy: NFL_PRODUCTION_POLICY,
+    expert_council: EXPERT_COUNCIL_VERSION,
+    expert_ids: NFL_EXPERTS.map(expert => expert.id),
+    postgame_truth: POSTGAME_TRUTH_VERSION,
     rules: [
       'One week opens once and cannot be overwritten.',
       'Every prediction is generated from information strictly before its target week.',
@@ -269,6 +277,24 @@ function aggregate(weeks) {
   const ctxFor = settled.filter(p => (p.reasoning?.context_net ?? 0) > 0);
   const agreementSplit = splitSignificance(tight, loose);
   const contextSplit = splitSignificance(ctxFor, ctxAgainst);
+  const expertGames = weeks.flatMap(x => x.result.expert_council?.games ?? []);
+  const expertLearning = NFL_EXPERTS.map(registry => {
+    const outputs = expertGames.map(game => game.experts?.find(expert => expert.id === registry.id)).filter(Boolean);
+    const observed = outputs.filter(expert => expert.observed);
+    const directional = observed.filter(expert => expert.directional_correct != null);
+    const errors = observed.map(expert => expert.squared_error).filter(Number.isFinite);
+    return { ...registry, examples: outputs.length, observed: observed.length,
+      coverage: outputs.length ? +(observed.length / outputs.length).toFixed(4) : 0,
+      directional_calls: directional.length,
+      directional_rate: directional.length ? +(directional.filter(expert => expert.directional_correct).length / directional.length).toFixed(4) : null,
+      root_mean_squared_error: errors.length ? +Math.sqrt(errors.reduce((sum, value) => sum + value, 0) / errors.length).toFixed(3) : null };
+  });
+  const truth = weeks.flatMap(x => x.result.postgame_truth ?? []).filter(item => !item.error);
+  const markerCounts = new Map();
+  for (const game of truth) for (const marker of game.filtration?.variance_markers ?? []) {
+    const kind = marker.replace(/^\d+(?:\.\d+)?\s+/, '');
+    markerCounts.set(kind, (markerCounts.get(kind) ?? 0) + 1);
+  }
 
   return {
     weeks_opened: weeks.length,
@@ -321,6 +347,20 @@ function aggregate(weeks) {
               'demonstrably worth promoting to inputs on this evidence.')
       ].filter(Boolean)
     },
+    expert_learning: {
+      games: expertGames.length, experts: expertLearning,
+      coordinator_ready_games: expertGames.filter(game => game.coordinator?.ready).length,
+      rule: 'Every expert is scored on the same weeks. Coverage and abstentions remain visible; no best-looking subset is promoted here.'
+    },
+    postgame_learning: {
+      games: truth.length,
+      core_training_eligible: truth.filter(game => game.filtration?.core_training_eligible).length,
+      deep_gameplay_coverage: truth.filter(game => game.filtration?.deep_postgame_eligible).length,
+      usage_surprises: truth.reduce((sum, game) => sum + (game.usage_surprises?.length ?? 0), 0),
+      structural_trends: truth.reduce((sum, game) => sum + (game.structural_trends?.length ?? 0), 0),
+      variance_markers: [...markerCounts].map(([marker, games]) => ({ marker, games })).sort((a, b) => b.games - a.games),
+      rule: 'Valid chaotic games retain weight 1. Only identity/source incompleteness quarantines a label.'
+    },
     interpretation: 'Historical chronological replay only. Profitability promotion still requires forward priced decisions and positive CLV.'
   };
 }
@@ -333,10 +373,15 @@ export function runNextBlindAuditWeek(id) {
   const spec = JSON.parse(record.spec_json);
   const target = spec.schedule[record.next_ordinal];
   if (!target) throw new Error('blind audit has no remaining weeks');
+  const expertCouncil = weeklyExpertAudit(target.season, target.week);
+  const postgamePackets = expertCouncil.games.map(item => buildPostgameTruth(target.season, target.week,
+    item.game.home, { expertPacket: item }));
   const result = {
     cutoff: `${target.season}-W${target.week - 1}`,
     player: playerWeekResult(target.season, target.week),
-    betting: bettingWeekResult(target.season, target.week)
+    betting: bettingWeekResult(target.season, target.week),
+    expert_council: expertCouncil,
+    postgame_truth: postgamePackets.map(postgameAuditSummary)
   };
   const fault = { player: result.player.faults, betting: result.betting.faults,
     classification: 'outcome-visible fault pass; no model mutation authorized' };
@@ -350,6 +395,8 @@ export function runNextBlindAuditWeek(id) {
          (run_id,ordinal,season,week,opened_at,prior_chain_hash,result_hash,chain_hash,result_json,fault_json)
          VALUES (?,?,?,?,datetime('now'),?,?,?,?,?)`, record.id, record.next_ordinal,
       target.season, target.week, prior, resultHash, chainHash, JSON.stringify(result), JSON.stringify(fault));
+    persistWeeklyExpertAudit(record.id, result.expert_council);
+    for (const packet of postgamePackets) persistPostgameTruth(packet);
     const next = record.next_ordinal + 1;
     const complete = next >= spec.schedule.length;
     const weekRows = rows('SELECT result_json FROM nfl_blind_audit_weeks WHERE run_id=? ORDER BY ordinal', record.id)

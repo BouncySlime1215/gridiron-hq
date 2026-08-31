@@ -177,14 +177,20 @@ export const LEVEL_UNCERTAINTY = { a: 0, b: 1.15, lo: 0.30, hi: 0.70, downMult: 
  */
 function history(through, throughWeek = null) {
   if (throughWeek == null) {
-    return rows(`SELECT u.*, p.name, p.position AS pos, p.espn_id, p.sleeper_id, p.gsis_id
+    return rows(`SELECT u.*, COALESCE((SELECT f.player_name FROM nfl_player_week_features f
+                   WHERE f.player_id=p.gsis_id AND f.season<=?
+                   ORDER BY f.season DESC,f.week DESC LIMIT 1),p.name) name,
+                 p.position AS pos, p.espn_id, p.sleeper_id, p.gsis_id
                  FROM player_week_usage u JOIN players p ON p.id = u.player_id
-                 WHERE u.season <= ? AND p.position IN ('QB','RB','WR','TE')`, through);
+                 WHERE u.season <= ? AND p.position IN ('QB','RB','WR','TE')`, through, through);
   }
-  return rows(`SELECT u.*, p.name, p.position AS pos, p.espn_id, p.sleeper_id, p.gsis_id
+  return rows(`SELECT u.*, COALESCE((SELECT f.player_name FROM nfl_player_week_features f
+                 WHERE f.player_id=p.gsis_id AND (f.season<? OR (f.season=? AND f.week<=?))
+                 ORDER BY f.season DESC,f.week DESC LIMIT 1),p.name) name,
+               p.position AS pos, p.espn_id, p.sleeper_id, p.gsis_id
                FROM player_week_usage u JOIN players p ON p.id = u.player_id
                WHERE (u.season < ? OR (u.season = ? AND u.week <= ?))
-                 AND p.position IN ('QB','RB','WR','TE')`, through, through, throughWeek);
+                 AND p.position IN ('QB','RB','WR','TE')`, through, through, throughWeek, through, through, throughWeek);
 }
 
 /**

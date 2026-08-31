@@ -28,6 +28,8 @@ import { settleRiskLabPredictions, trainRiskLabThroughSettled } from './nfl-risk
 import { captureWeeklyPredictions, retrainWeeklyWeights, settleWeeklyPredictions } from './weekly-learning.js';
 import { clearNflEngineRegistryCache, recordNflEngineArtifact } from './nfl-engine-registry.js';
 import { buildSignalReliabilityArtifact, signalReliabilityStatus } from './nfl-signal-reliability.js';
+import { captureForwardExpertWeek, settleForwardExpertPredictions, expertCouncilStatus } from './nfl-expert-council.js';
+import { recordPostgameTruthWeek, postgameTruthStatus } from './nfl-postgame-truth.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_growth_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,10 +149,11 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       shadow: settleNflShadowDecisions(),
       forward: settleForwardPicks(),
       online_neural: settleOnlineNeuralExamples(),
-      risk_lab: settleRiskLabPredictions()
+      risk_lab: settleRiskLabPredictions(),
+      expert_council: settleForwardExpertPredictions()
     },
     ingestion: {}, fit: null, signal_reliability: null, online_neural: null,
-    risk_lab: null, player_learning: null, engine: null
+    risk_lab: null, player_learning: null, expert_council: null, postgame_truth: null, engine: null
   };
   try {
     const coreLag = before.sources.some(source => source.required && !source.current);
@@ -172,6 +175,12 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
     }
 
     const afterIngest = warehouseSnapshot(season);
+    if (afterIngest.finalized_week > 0) {
+      detail.postgame_truth = {
+        week: recordPostgameTruthWeek(season, afterIngest.finalized_week),
+        status: postgameTruthStatus()
+      };
+    }
     if (afterIngest.finalized_week > 0) {
       detail.signal_reliability = buildSignalReliabilityArtifact(season, afterIngest.finalized_week);
     }
@@ -210,6 +219,14 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       detail.player_learning = {
         settlement: playerSettlement, training: playerTraining, next_week_capture: playerCapture,
         downstream: 'The shared player engine feeds fantasy projections and every player-prop market.'
+      };
+      detail.expert_council = {
+        settlement: detail.settlement.expert_council,
+        next_week_capture: nextWeek <= 18
+          ? captureForwardExpertWeek(season, nextWeek, { horizon: 'weekly_growth' })
+          : { captured: 0, blocked: true, reason: 'regular season complete' },
+        status: expertCouncilStatus(),
+        downstream: 'Each raw role and abstention is frozen before kickoff; only settled earlier weeks may train the robust coordinator.'
       };
       const coordinatedFitExists = row(`SELECT 1 ok FROM nfl_ensemble_fit_artifacts
         WHERE cutoff=? LIMIT 1`, `${season}|${afterIngest.finalized_week + 1}`);

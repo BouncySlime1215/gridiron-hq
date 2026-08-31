@@ -1253,13 +1253,14 @@ r.get('/research/:topic', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Does the live win-probability model work? Graded on completed games. */
+/** Does the actual live remainder simulator work? Graded on completed games. */
 r.get('/pbp/live-validation', async (req, res, next) => {
   try {
-    const { liveModelValidation } = await import('../services/nfl-espn-pbp.js');
-    res.json(liveModelValidation({
+    const { liveRemainderValidation } = await import('../services/nfl-espn-pbp.js');
+    res.json(liveRemainderValidation({
       season: req.query.season ? Number(req.query.season) : null,
-      maxGames: Math.min(400, Number(req.query.games) || 150) }));
+      maxGames: Math.min(120, Number(req.query.games) || 40),
+      trials: Math.min(1000, Math.max(100, Number(req.query.trials) || 300)) }));
   } catch (e) { next(e); }
 });
 

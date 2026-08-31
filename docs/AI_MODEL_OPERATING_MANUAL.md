@@ -468,6 +468,25 @@ priors after enough live evidence arrives.
 Validate margin, total, team score, win probability, player outcomes, and alternate lines with
 reliability curves, proper scoring rules, coverage of prediction intervals, and tail behavior.
 
+### 9.6 Postgame truth and error filtration
+
+A final score is not a sufficient learning label. After official gameplay and participation data
+arrive, build one immutable truth packet per game containing:
+
+- the final margin, total, market residual, and stored decision line;
+- play counts, pass/run mix, red-zone volume, sacks, turnovers, explosive plays, penalties,
+  scoring events, lead changes, challenges, and reversed rulings;
+- actual player opportunities, efficiency, snaps, stars, position-group totals, and role surprises;
+- actual weather/venue fields with an explicit warning when no pregame forecast vintage exists;
+- multiplicity-corrected multi-week team trends plus one-game deltas kept as suggestive context;
+- every frozen expert forecast, its evidence hash, directional result, and forecast error.
+
+The filtration gate distinguishes missing/corrupt truth from ordinary football variance. A valid
+game with five turnovers, non-offensive touchdowns, explosive plays, or reversed challenges keeps
+sample weight 1. Those events become variance and simulator-calibration features; they never
+justify deleting a loss. Quarantine only when final identity, market identity, reciprocal team
+features, or required outcome evidence is incomplete.
+
 ## 10. Candidate research protocol
 
 Every new signal or model proposal must be written before evaluation:
@@ -569,6 +588,65 @@ fails promotion for three reasons:
 
 The candidate stays shadow-only. No threshold may be retuned on these opened outcomes. Its next
 test is the already-frozen forward ledger, with closing prices preserved before kickoff.
+
+### 11.0.3 Weekly expert council and robust coordinator
+
+Twelve distinct reasoning roles now share one immutable audit contract: football rulebook,
+player-built team, drive/game replay, similar-game matching, boosted trees, online neural
+residual, specialist family council, line movement, verified-news reaction, live updater, price
+shopper, and player opportunity. A role must emit either a finite raw market-residual forecast or
+an explicit abstention with its missing reason. Missing is never converted to zero.
+
+Every opened blind-audit week stores, per game and role, the evidence cutoff and hash, raw
+forecast, uncertainty, authority, missing reason, actual market residual, and job-specific
+settlement. Rows are append-only. Spread-residual experts receive directional and squared-error
+scores. The game replay receives margin MAE, total MAE, and interval coverage. Player opportunity
+receives team-volume and role-relevant player-volume MAE: QB attempts/carries, RB carries/targets,
+and WR/TE targets. Live updates use Brier score and calibration; price shopping uses available-price
+gain and CLV. A specialist is never graded as a spread picker merely because the old schema had no
+other column.
+
+The coordinator may train only on rows from strictly earlier settled weeks. It uses week-balanced
+Huber loss, heavy ridge shrinkage, a 0.35 cap on one expert, and a 0.80 cap on total expert influence.
+It remains research-only and requires at least 128 games across eight weeks before emitting a
+candidate correction.
+
+The similar-game head standardizes only on prior games, uses 35 distance-weighted neighbors, and
+shrinks its raw analog result toward the market according to effective sample size. The boosted
+tree head fits only prior cutoff-valid market residuals with shallow depth, large leaves, and slow
+learning. The game-replay head stores a deterministic 160-trial drive simulation and joint score
+distribution. These choices add genuinely different error structures rather than twelve labels
+for the same arithmetic.
+
+Verified news also has a news-to-market latency audit. It pairs claims only with preserved
+pre-kickoff quotes and measures publication-to-capture and publication-to-observed-move lag. A
+move is not treated as proof of causation, and this measurement has no direct betting authority.
+
+The first job-specific smoke audit used 2021 Week 18, 15 games. The drive simulator recorded
+10.35-point margin MAE, 12.19-point total MAE, and 86.7% coverage for its claimed 80% margin
+interval. The cutoff-frozen player opportunity engine recorded 1.52 events of player-volume MAE
+under the original all-field score; the score was then tightened to exclude trivial zeros and grade
+only role-relevant workloads. The online neural correctly emitted missing/cold rather than a fake
+zero forecast because no strictly earlier council examples existed.
+
+The live remainder simulator now starts from the actual possession, field position, down, and
+distance instead of silently resetting the current drive to first-and-ten. A 12-game, 36-checkpoint
+smoke test produced Brier 0.1194 versus 0.1380 for score-and-clock alone, but expected calibration
+error was 0.1696. That is useful ranking skill and unacceptable raw calibration. The Engine Room
+therefore exposes a user-run truth test and explicitly withholds probability-sizing claims.
+
+Postgame truth packets now parse in-game exits and documented returns, separate players with
+multi-letter initials, compare team performance before and after the exit, attach role share and
+replacement-adjusted impact, and carry unresolved exits into the next week. An official injury
+report or newer verified availability claim supersedes that carry state. Returns clear it. The
+same injury is not counted again when the official weekly availability packet already includes it.
+
+Player identity is a multi-source entity, not a display-name join. Historical projections now use
+the cutoff-safe name attached to the GSIS feature row, preventing a corrupted current master label
+from rewriting old games. Master rows with GSIS/name conflicts are quarantined for reconciliation;
+they are not bulk-renamed because Sleeper, ESPN, rosters, drafts, and attached references may point
+to a different identity. External value syncs refuse ambiguous normalized names and prefer an
+existing stable Sleeper id.
 
 ### Workstream A — understand the lift
 
@@ -769,6 +847,28 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
 - Added an optional licensed PFF API/import adapter. Browser scraping and cookie automation are
   prohibited; without licensed credentials the signal works from local/public evidence.
 - This ninth signal is research-only and has not inherited the earlier eight-signal audit result.
+
+### 2026-08-31 — twelve-role weekly expert audit connected
+
+- Added one frozen weekly contract across twelve expert approaches, including explicit abstentions.
+- Added cutoff-safe similar-game matching and shallow boosted residual trees as genuinely distinct heads.
+- Added a robust week-balanced coordinator with Huber loss, ridge shrinkage, and influence caps.
+- Connected every role and coordinator output to immutable blind-audit rows for later weekly learning.
+- Added deterministic drive-simulation evidence to the replay role.
+- Added verified-news-to-bookmaker latency measurement using only preserved pre-kickoff quotes.
+- Added an automated sequential audit CLI and UI views for council coverage and week-by-week learning.
+- No new component received production or staking authority, and no 75% claim was created.
+
+### 2026-08-31 — postgame truth engine connected
+
+- Added append-only truth packets joining the final result to preserved play-by-play, team and
+  player features, snaps, position groups, usage surprises, stars, conditions, and trends.
+- Added challenge/reversal, turnover, explosive-play, non-offensive-score, penalty, and lead-change
+  extraction from the actual game tape.
+- Joined each settled game to the exact frozen expert evidence hash and scored every raw opinion.
+- Connected truth generation to the live weekly growth cycle and historical blind-audit chain.
+- Kept chaotic but valid games at full training weight; only incomplete identity/source truth is quarantined.
+- Added Engine Room and week-by-week audit UI for truth coverage, usage changes, trends, and variance.
 
 ## 17. Final instruction to every model
 

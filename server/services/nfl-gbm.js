@@ -125,13 +125,13 @@ export function predictGbm(model, x) {
  * averaged over the season to date, plus the situational fields the market is
  * known to price. Everything is strictly prior to the game being predicted.
  */
-function buildDataset({ fromSeason = 2018, throughSeason = 2025 } = {}) {
+export function buildGbmDataset({ fromSeason = 2018, throughSeason = 2025, includeUnsettled = false } = {}) {
   const games = rows(`
     SELECT season, week, team AS home, opponent AS away, spread, total,
            team_score, opp_score, temp, wind, roof, div_game, rest_days
     FROM game_lines
     WHERE home = 1 AND season BETWEEN ? AND ?
-      AND spread IS NOT NULL AND team_score IS NOT NULL AND opp_score IS NOT NULL
+      AND spread IS NOT NULL ${includeUnsettled ? '' : 'AND team_score IS NOT NULL AND opp_score IS NOT NULL'}
     ORDER BY season, week`, fromSeason, throughSeason);
 
   const feat = rows(`SELECT season, week, team, features FROM nfl_team_week_features
@@ -177,13 +177,16 @@ function buildDataset({ fromSeason = 2018, throughSeason = 2025 } = {}) {
     row.push(g.spread ?? 0, g.total ?? 44, g.temp ?? 60, g.wind ?? 5,
       g.roof === 'dome' || g.roof === 'closed' ? 1 : 0, g.div_game ?? 0, g.rest_days ?? 7);
 
-    const actualMargin = g.team_score - g.opp_score;
+    const actualMargin = Number.isFinite(g.team_score) && Number.isFinite(g.opp_score)
+      ? g.team_score - g.opp_score : null;
+    const actualTotal = Number.isFinite(g.team_score) && Number.isFinite(g.opp_score)
+      ? g.team_score + g.opp_score : null;
     const marketMargin = -g.spread;
     X.push(row);
     // THE TARGET: what the market missed, not what happened.
-    y.push(actualMargin - marketMargin);
+    y.push(actualMargin == null ? null : actualMargin - marketMargin);
     meta.push({ season: g.season, week: g.week, home: g.home, away: g.away,
-      spread: g.spread, actualMargin, marketMargin });
+      spread: g.spread, actualMargin, actualTotal, marketMargin });
   }
   return { X, y, meta, featureNames: [...KEYS, 'spread', 'total', 'temp', 'wind', 'dome', 'div', 'rest'] };
 }
@@ -203,7 +206,7 @@ function buildDataset({ fromSeason = 2018, throughSeason = 2025 } = {}) {
 export function gbmWalkForward({
   fromSeason = 2018, throughSeason = 2025, testSeasons = [2023, 2024, 2025], ...opts
 } = {}) {
-  const data = buildDataset({ fromSeason, throughSeason });
+  const data = buildGbmDataset({ fromSeason, throughSeason });
   if (data.X.length < 500) {
     return { error: `only ${data.X.length} usable games — feature coverage is too thin` };
   }

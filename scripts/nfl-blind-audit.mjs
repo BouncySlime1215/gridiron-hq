@@ -17,6 +17,17 @@ if (command === 'protocol') {
 } else if (command === 'next') {
   if (!rawId) throw new Error('usage: node scripts/nfl-blind-audit.mjs next <run-id>');
   print(runNextBlindAuditWeek(Number(rawId)));
+} else if (command === 'run') {
+  if (!rawId) throw new Error('usage: node scripts/nfl-blind-audit.mjs run <run-id> [max-weeks]');
+  const maxWeeks = Math.max(1, Number(process.argv[4]) || Number.MAX_SAFE_INTEGER);
+  let status = blindAuditStatus(Number(rawId)), opened = 0;
+  if (!status) throw new Error('blind audit not found');
+  while (status.status !== 'complete' && opened < maxWeeks) {
+    status = runNextBlindAuditWeek(Number(rawId)); opened++;
+    const latest = status.weeks.at(-1);
+    process.stderr.write(`opened ${latest.season} W${latest.week} · ${status.progress.opened}/${status.progress.total} · ${latest.chain_hash.slice(0, 12)}\n`);
+  }
+  print(status);
 } else {
-  throw new Error('command must be protocol, preregister, status, or next');
+  throw new Error('command must be protocol, preregister, status, next, or run');
 }

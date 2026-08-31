@@ -213,7 +213,7 @@ export function playerNewsSignal(playerName, { team = null, before = null, maxAg
   const claims = rows(`SELECT * FROM nfl_news_signals WHERE player_key=? AND verification_state='verified'
       AND published_at<=? AND published_at>=?
       ${team ? 'AND (team=? OR team IS NULL)' : ''}
-    ORDER BY confidence DESC,published_at DESC`, ...[key, cutoff, since, ...(team ? [team] : [])]);
+    ORDER BY published_at DESC,confidence DESC`, ...[key, cutoff, since, ...(team ? [team] : [])]);
   if (!claims.length) return null;
   const availability = claims.find(claim => claim.signal_type === 'availability') ?? null;
   const role = claims.find(claim => claim.signal_type === 'role') ?? null;
@@ -240,7 +240,7 @@ export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
   const cutoff = before ?? new Date().toISOString();
   const since = new Date(new Date(cutoff).getTime() - maxAgeDays * 86400000).toISOString();
   const claims = rows(`SELECT * FROM nfl_news_signals WHERE team=? AND verification_state='verified' AND published_at<=? AND published_at>=?
-    ORDER BY confidence DESC,published_at DESC`, team, cutoff, since);
+    ORDER BY published_at DESC,confidence DESC`, team, cutoff, since);
   const latestByPlayerType = new Map();
   for (const claim of claims) {
     const key = `${claim.player_key}|${claim.signal_type}`;

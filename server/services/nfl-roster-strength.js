@@ -65,12 +65,45 @@ function gameCutoff(season, week, team) {
   return game?.gameday ? `${game.gameday}T23:59:59Z` : null;
 }
 
+/** Historical depth releases are incomplete before 2024. Reconstruct the
+ * active position order from participation strictly before the target week. */
+function depthFromPriorSnaps(season, week, team) {
+  const history = rows(`SELECT player,position,week,offense_pct,defense_pct,st_pct FROM nfl_snaps
+    WHERE team=? AND season=? AND week<? ORDER BY week DESC`, team, season, week);
+  const byPlayer = new Map();
+  for (const item of history) {
+    const key = normalize(item.player), list = byPlayer.get(key) ?? [];
+    if (list.length < 4) list.push(item);
+    byPlayer.set(key, list);
+  }
+  const participants = [];
+  for (const list of byPlayer.values()) {
+    const position = canonicalPosition(list[0].position);
+    const field = snapField(position);
+    const shares = list
+      .filter(item => item[field] != null && item[field] !== '')
+      .map(item => Number(item[field])).filter(Number.isFinite);
+    if (!shares.length) continue;
+    participants.push({ player_name: list[0].player, pos_abb: position,
+      prior_share: shares.reduce((sum, value) => sum + value, 0) / shares.length });
+  }
+  const groups = new Map();
+  for (const player of participants) {
+    const list = groups.get(player.pos_abb) ?? []; list.push(player); groups.set(player.pos_abb, list);
+  }
+  return [...groups.entries()].flatMap(([position, list]) => list
+    .sort((a, b) => b.prior_share - a.prior_share)
+    .map((player, index) => ({ ...player, season, week, team, gsis_id: null,
+      pos_rank: index + 1, pos_slot: `${position}${index + 1}`,
+      captured: `reconstructed_from_snaps_through_week_${week - 1}` })));
+}
+
 function latestDepth(season, week, team) {
   const cutoff = gameCutoff(season, week, team);
   const candidates = rows(`SELECT * FROM nfl_depth WHERE team=?
     AND (season<? OR (season=? AND week<=?)) ORDER BY season DESC,week DESC,captured DESC,pos_rank`,
   team, season, season, week).filter(row => !cutoff || !row.captured || row.captured <= cutoff);
-  if (!candidates.length) return [];
+  if (!candidates.length) return depthFromPriorSnaps(season, week, team);
   const target = `${candidates[0].season}|${candidates[0].week}`;
   const seen = new Set();
   let depth = candidates.filter(row => `${row.season}|${row.week}` === target).filter(row => {
@@ -214,7 +247,7 @@ function rankPlayer(player, snapMap, featureMap, gradeMap, rookieMap, changeMap)
   const rookie = rookieMap.get(normalize(player.player_name));
   const rookiePrior = rookie ? evidenceAdjustedRookiePrior({ playerId: rookie.player_id,
     season: player.season, position, draftPick: rookie.draft_pick, depthRank,
-    cutoff: gameCutoff(player.season, player.week) ?? `${player.season}-09-01T00:00:00Z` }) : null;
+    cutoff: gameCutoff(player.season, player.week, player.team) ?? `${player.season}-09-01T00:00:00Z` }) : null;
   const rookieRating = rookiePrior ? clamp(48 + rookiePrior.opportunity_per_game * 2.1, 45, 86) : null;
   const teamChange = changeMap.get(normalize(player.player_name));
   const depthPrior = clamp(91 - 9 * (depthRank - 1), 38, 94);

@@ -21,7 +21,7 @@ import './line-shopping.js';
 import { buildPlayerWeekEngine, teamWeekEventExpectations } from './player-week-engine.js';
 import { teamRosterStrength } from './nfl-roster-strength.js';
 
-export const EXPERT_COUNCIL_VERSION = 'nfl-expert-council-v2';
+export const EXPERT_COUNCIL_VERSION = 'nfl-expert-council-v3';
 
 export const NFL_EXPERTS = Object.freeze([
   { id: 'rulebook', name: 'Football rulebook', kind: 'interpretable_prior', lifecycle: 'pregame', score: 'market_residual' },

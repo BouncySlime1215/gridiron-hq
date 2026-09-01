@@ -151,8 +151,8 @@ function classify(feeds) {
       policy: 'Availability signal abstains before 2023; never interpret absence as healthy.' },
     { id: 'pfr_charting', seasons: '2024–2025', comparable: false,
       policy: 'PFR charting abstains before 2024 and is evaluated only on coverage-matched windows.' },
-    { id: 'depth_snapshots', seasons: '2025', comparable: false,
-      policy: 'Roster-strength history is 2025-only and isolated from 2021–2024 comparisons.' }
+    { id: 'depth_snapshots', seasons: '2021–2025', comparable: true,
+      policy: 'Weekly nflverse archives cover 2021–2024; timestamped live snapshots cover 2025 onward.' }
   ] };
 }
 
@@ -167,7 +167,8 @@ export function nflDataConsistencyAudit() {
     tableCoverage('player_week_snaps', { modelUse: 'fantasy/player participation' }),
     tableCoverage('nfl_pfr_adv', { team: true, modelUse: 'charted challenger', note: 'Published/local coverage begins in 2024.' }),
     tableCoverage('nfl_injuries', { team: true, modelUse: 'availability challenger', note: 'Published coverage begins in 2023.' }),
-    tableCoverage('nfl_depth', { team: true, modelUse: 'roster-strength challenger', note: 'Historical snapshots are 2025-only.' })
+    tableCoverage('nfl_depth', { team: true, modelUse: 'roster-strength challenger',
+      note: 'Weekly archives cover 2021–2024; timestamped live snapshots cover 2025 onward.' })
   ];
   const features = featureCoverage();
   const classification = classify(feeds);

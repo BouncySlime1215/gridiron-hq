@@ -23,6 +23,7 @@ import { db, rows, run } from '../db/index.js';
 import { recordSync } from './scheduler.js';
 
 const REL = 'https://github.com/nflverse/nflverse-data/releases/download';
+export const depthChartReleaseUrl = season => `${REL}/depth_charts/depth_charts_${season}.csv`;
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_ngs (
@@ -90,7 +91,7 @@ function streamer(onRecord) {
   };
 }
 
-/** Fetches a gzipped nflverse CSV and calls `onRow` with a {col: value} object. */
+/** Fetches an nflverse CSV (plain or gzipped) and calls `onRow` with a row object. */
 async function eachRow(url, onRow) {
   const res = await fetch(url, { signal: AbortSignal.timeout(180000) });
   if (!res.ok) throw new Error(`${url} -> HTTP ${res.status}`);
@@ -102,7 +103,8 @@ async function eachRow(url, onRow) {
     for (let i = 0; i < header.length; i++) o[header[i]] = rec[i] ?? '';
     onRow(o);
   });
-  const src = Readable.fromWeb(res.body).pipe(createGunzip());
+  const body = Readable.fromWeb(res.body);
+  const src = url.endsWith('.gz') ? body.pipe(createGunzip()) : body;
   src.setEncoding('utf8');
   for await (const chunk of src) s.push(chunk);
   s.end();
@@ -110,6 +112,7 @@ async function eachRow(url, onRow) {
 
 const n = v => { if (v === '' || v == null || v === 'NA') return null; const x = Number(v); return Number.isFinite(x) ? x : null; };
 const pick = (o, keys) => Object.fromEntries(keys.map(k => [k, n(o[k])]).filter(([, v]) => v != null));
+export const normalizeDepthTeam = value => ({ LA: 'LAR', JAC: 'JAX', OAK: 'LV', SD: 'LAC', STL: 'LAR' }[value] ?? value);
 
 /* ------------------------------------------------------------ Next Gen Stats */
 
@@ -235,21 +238,36 @@ export async function syncDepthCharts(seasons) {
       player_name=excluded.player_name, captured=excluded.captured
     WHERE excluded.captured >= nfl_depth.captured`);
   let total = 0;
+  const failures = [];
   for (const season of seasons) {
     const latest = new Map();
     try {
-      await eachRow(`${REL}/depth_charts/depth_charts_${season}.csv.gz`, r => {
-        if (!r.gsis_id || !r.team || !r.dt) return;
-        const week = weekFromDate(season, r.dt);
-        if (!week) return;
-        const key = [week, r.team, r.gsis_id, r.pos_abb].join('|');
+      // Depth charts through 2024 are true week-level archives. From 2025 the
+      // publisher switched to timestamped live snapshots, so support both
+      // schemas explicitly instead of silently dropping the historical rows.
+      await eachRow(depthChartReleaseUrl(season), r => {
+        const team = normalizeDepthTeam(r.team || r.club_code);
+        const week = n(r.week) || (r.dt ? weekFromDate(season, r.dt) : null);
+        if (!r.gsis_id || !team || !week) return;
+        const captured = r.dt || historicalWeekAvailability(season, week, team);
+        if (!captured) return;
+        const position = r.pos_abb || r.position || r.depth_position;
+        const rank = n(r.pos_rank) ?? n(r.depth_team);
+        const slot = r.pos_slot || r.depth_position || position;
+        const name = r.player_name || r.full_name
+          || [r.first_name, r.last_name].filter(Boolean).join(' ');
+        if (!position || !name) return;
+        const key = [week, team, r.gsis_id, position].join('|');
         const prev = latest.get(key);
-        if (!prev || r.dt > prev.dt) {
-          latest.set(key, { dt: r.dt, week, team: r.team, gsis_id: r.gsis_id,
-            name: r.player_name, pos: r.pos_abb, rank: n(r.pos_rank), slot: r.pos_slot });
+        if (!prev || captured > prev.dt) {
+          latest.set(key, { dt: captured, week, team, gsis_id: r.gsis_id,
+            name, pos: position, rank, slot });
         }
       });
-    } catch { continue; }
+    } catch (error) {
+      failures.push({ season, error: error instanceof Error ? error.message : String(error) });
+      continue;
+    }
     db.exec('BEGIN');
     try {
       for (const v of latest.values()) {
@@ -259,7 +277,25 @@ export async function syncDepthCharts(seasons) {
     } catch (e) { db.exec('ROLLBACK'); throw e; }
     total += latest.size;
   }
-  return { rows: total };
+  if (failures.length === seasons.length) {
+    throw new Error(`Every depth-chart season failed: ${failures.map(x => `${x.season}: ${x.error}`).join('; ')}`);
+  }
+  return { rows: total, seasons_requested: seasons.length,
+    seasons_loaded: seasons.length - failures.length, failures };
+}
+
+const _historicalAvailability = new Map();
+function historicalWeekAvailability(season, week, team) {
+  const key = `${season}|${week}|${team}`;
+  if (_historicalAvailability.has(key)) return _historicalAvailability.get(key);
+  const game = rows(`SELECT gameday FROM game_lines
+    WHERE season=? AND week=? AND team=? AND gameday IS NOT NULL LIMIT 1`, season, week, team)[0];
+  // The old release provides a week, not a publication timestamp. Midnight on
+  // the team's game day is a conservative availability boundary: it admits the
+  // stated pregame chart but never a later week's chart into an earlier game.
+  const value = game?.gameday ? `${game.gameday}T00:00:00Z` : null;
+  _historicalAvailability.set(key, value);
+  return value;
 }
 
 /**

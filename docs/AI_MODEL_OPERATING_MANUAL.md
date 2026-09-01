@@ -904,6 +904,26 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
 - Individual expert influence remains capped at 0.35 and total expert influence at 0.80. Context can
   change learned weights; it cannot waive chronology, coverage, or authority rules.
 
+### 2026-09-01 — historical depth-chart hole closed
+
+- The historical downloader requested a nonexistent singular/gzipped asset and then swallowed the
+  resulting 404, leaving 2021–2024 roster models to abstain. The actual nflverse release is the
+  plural, uncompressed `depth_charts_YYYY.csv` archive.
+- Backfilled 115,411 official week-level rows: 28,731 for 2021, 28,959 for 2022, 28,927 for 2023,
+  and 28,794 for 2024. Each year covers all 32 schedule teams through Week 22; legacy `LA` is
+  normalized to `LAR` before the schedule join. Each row carries a GSIS identity, stated
+  position/slot, and depth rank.
+- The old archive supplies a week but not a publication timestamp. Its conservative availability
+  boundary is midnight on that team's game day; no later week's chart may enter an earlier game.
+- When an official weekly chart is genuinely absent, the model can reconstruct a clearly labeled
+  position order from at most the four latest snap rows strictly before the target week. That
+  participation reconstruction is an emergency fallback, never described as an official chart.
+- A Week 5 verification now resolves 46 Arizona players and 51 Indianapolis players, including 44
+  and 48 with earlier snap evidence and 14 and 15 with earlier performance evidence. No future
+  timestamp or duplicate primary identity survived the backfill.
+- This changed the player-builder's evidence surface, so the council lineage advanced to v3 and its
+  results must be judged by a newly preregistered chronological audit rather than inherited scores.
+
 ### 2026-08-31 — twelve-role weekly expert audit connected
 
 - Added one frozen weekly contract across twelve expert approaches, including explicit abstentions.

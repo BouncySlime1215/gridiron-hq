@@ -1,6 +1,6 @@
 # NFL Profitability Plan
 
-**Version 1.0 · 2026-08-27**
+**Version 1.1 · 2026-09-01**
 
 This is the execution plan that follows from the completed model diagnostic.
 It is not a promise of profit. Its purpose is to make a profitable result
@@ -17,6 +17,257 @@ Gridiron HQ has not demonstrated the first on NFL sides or totals. It has
 demonstrated the second historically through line shopping and price-sensitive
 Wong teasers. Player props remain open because real prices only started being
 captured on 2026-08-27.
+
+---
+
+## 0. Current work queue — audit findings come first
+
+This is the canonical "what needs to get done" list. Its ordering is binding:
+the cutoff-safe audit is a diagnostic instrument, so every reproducible
+failure it reveals is triaged before speculative model expansion. A task is not
+closed because a run eventually completed; it closes only after the failure is
+explained, fixed, covered by a regression test, and observed working in a clean
+rerun.
+
+### Measured baseline — audit run 8, completed 2026-09-01
+
+This is the result the next iteration must beat. It is a 2022–2025 historical,
+chronological, algorithmically blind reconstruction across Weeks 5–18. It is a
+valid diagnostic, not an untouched profitability claim; only the preregistered
+2026 forward ledger can provide that evidence.
+
+| Measurement | Result |
+|---|---:|
+| Games evaluated | 831 |
+| Weeks opened | 56 / 56 |
+| Paper selections | 113 |
+| Record | 55–57–1 |
+| Win rate, pushes excluded | 49.1% |
+| Units | -6.242 |
+| ROI | -5.52% |
+| Coordinator-ready games | 700 / 831 |
+| Deep gameplay coverage | 769 / 831 |
+
+The selector did not beat the market. Component agreement also failed to show
+a reliable edge: agreed components won 50.63% versus 45.45% when scattered, but
+the 5.2-point split was inside sampling noise (`z = 0.50`). Context agreement
+was worse in this sample (34.78% versus 51.61%), but that split was also not
+statistically reliable (`z = -1.38`). These buckets must not be converted into
+new filters merely because one looks better after the result is visible.
+
+#### Specialist coverage and directional baseline
+
+| Specialist | Coverage | Directional accuracy | Audit finding |
+|---|---:|---:|---|
+| Rulebook | 100% | 46.24% | Reporting, below chance |
+| Player builder | 100% | 51.42% | Best fully covered specialist |
+| Game replay | 100% | 46.91% | Simulation requires recalibration |
+| Similar games | 100% | 48.71% | Analogs did not add directional edge |
+| Boosted tree | 100% | 51.60% | Best full-coverage directional rate |
+| Neural residual | 98.07% | 51.70% | Best rate; 16 missing observations |
+| Specialist team | 100% | 49.04% | Only 312 directional calls |
+| Player opportunity | 100% | n/a | Usage output, not a spread call |
+| Line movement | 0% | n/a | Historical quote tape unavailable |
+| Verified-news reaction | 0% | n/a | Historical verified news unavailable |
+| Live updater | 0% | n/a | Possession ledger was not yet built |
+| Price shopper | 0% | n/a | Historical multi-book prices unavailable |
+
+The interface's apparent "9 reporting" count was misleading. Eight specialists
+had an observed supporting output, only seven made any spread-direction calls,
+and four had zero historical coverage. The engine must expose these distinctions
+instead of collapsing support, prediction, execution, and live models into one
+ambiguous reporting number.
+
+The postgame pass captured 560 player faults, 3,354 usage surprises, 176
+structural trends, and variance markers for explosive plays (629 games),
+non-offensive scores (177), turnovers (126), and reversed challenges (17).
+Those records are diagnostic inputs for the weekly learning loop below; they do
+not by themselves establish that a causal lesson is correct.
+
+### Priority 1 — close everything revealed by audit run 8
+
+- [ ] Publish the final run manifest: exact code/data hashes, coverage, timing,
+  failures, retries, results, calibration, and year-by-year measurements.
+- [ ] Replace the misleading "nine reporting" display with a game × specialist
+  matrix. Distinguish the eight observed supporting outputs, seven directional
+  callers, four zero-coverage modules, intentional lifecycle differences, and
+  genuine errors. Make every missing opinion explicit.
+- [ ] Make all twelve specialists report reliably whenever their required
+  cutoff-safe evidence exists. Never silently replace a missing opinion with
+  zero.
+- [ ] Verify that the combined decision records the contributing specialists,
+  their raw opinions, learned weights, normalized weights, disagreement, final
+  prediction, selected side, price, and settlement for every game.
+- [ ] Diagnose accuracy and calibration by season, week, matchup type, market,
+  specialist, confidence bucket, and data-coverage bucket. Treat 2021 as
+  quarantined evidence unless its missing fields are genuinely repaired.
+- [ ] Trace every failure, stall, lock, timeout, misleading counter, and retry
+  from this rebuild. Add resumability and regression coverage for each one.
+- [ ] Verify all 831 pregame cards contain only evidence available before their
+  kickoffs; flag late, undated, reconstructed, or unverifiable inputs.
+- [ ] Confirm that postgame truth cannot leak backward into the prediction it
+  grades, while still becoming eligible evidence for the following week.
+- [ ] Re-run the correctly named historical diagnostic after fixes, then leave
+  the preregistered 2026 forward ledger untouched.
+
+### Priority 2 — reliability, speed, progress, and UI
+
+- [ ] Turn the rebuild into a one-command, crash-safe workflow that resumes from
+  durable checkpoints without duplicate rows or manual database repair.
+- [ ] Put bounded timeouts, retries, SQLite writer coordination, source-health
+  checks, and actionable error messages around every loader and audit phase.
+- [ ] Measure phase and per-game latency; remove repeated full-table work and
+  cache immutable inventories. Set and enforce a performance budget.
+- [ ] Show live counters for source rows, seasons, weeks, games, possessions,
+  settlements, errors, retries, elapsed time, processing rate, and ETA.
+- [ ] Redesign the audit UI around one honest path: coverage → frozen evidence →
+  specialist opinions → combined decision → game result → postgame lesson.
+- [ ] Make unavailable data say exactly what is missing, why it matters, whether
+  the model continued, and the next recovery action. Never show "blocked" as a
+  context-free KPI.
+- [ ] Add per-model reporting and correctness views, ensemble-weight inspection,
+  year/week filters, data-lineage drill-down, and a clean game-by-game snapshot.
+- [ ] Run startup, image/data loading, empty-state, partial-source, reconnect,
+  concurrent-writer, and interrupted-rebuild tests on the packaged Mac and
+  Windows flows.
+
+### Priority 3 — coordinate and strengthen the existing engine
+
+- [ ] Learn which specialist deserves more weight for each matchup type while
+  preventing duplicated signals from receiving duplicated influence.
+- [ ] Preserve genuine multi-book opening, intermediate, and closing quotes with
+  capture timestamps; never manufacture historical prices from a consensus row.
+- [ ] Backfill verified, timestamped injury, practice, transaction, roster, and
+  role news. Unverified or post-kickoff knowledge receives zero pregame weight.
+- [ ] Learn from possession sequences, not only final scores, and distinguish
+  genuinely forward live predictions from historical reconstructions forever.
+- [ ] Separate prediction mistakes from high-variance events such as turnovers,
+  drops, penalties, weather changes, and in-game injuries using counterfactual
+  postgame review—without excusing genuine model errors.
+- [ ] Improve player availability, usage, replacement quality, position-group
+  continuity, and before/after injury impact across the full roster.
+- [ ] Calibrate confidence so a stated probability is empirically trustworthy;
+  report uncertainty and cap confidence when evidence is weak or specialists
+  conflict.
+
+### Priority 4 — matchup and situational evidence candidates
+
+These are candidates, not assumed edges. Each must be cutoff-safe, ablated,
+walk-forward tested, multiplicity-corrected, and rejected if it does not improve
+the complete pipeline.
+
+- Offensive-line and center/QB continuity; injury clusters and backup quality.
+- Receiver/corner route matchups; QB response to pressure, blitz, coverage, and
+  defensive disguise; pass-rush arrival versus release time.
+- Personnel-package frequency and efficiency (11/12/13/21/22), offensive versus
+  defensive personnel mismatch, motion, formation, play action, and sequencing.
+- Early-down efficiency, drive conversion, explosive-play creation/prevention,
+  missed tackles, coverage busts, red-zone/outside-red-zone efficiency, and
+  misleading-game/garbage-time filtration.
+- Neutral pace, pace when trailing, no-huddle, fourth-down choices, timeout and
+  two-minute quality, halftime adjustment, and play-caller changepoints.
+- Rest/preparation disparity, travel and body-clock effects, surface/venue,
+  nonlinear weather interactions, schedule strength as known at the time, and
+  opponent availability when interpreting prior games.
+- Referee/style interactions, special-teams field-position value, kicker range,
+  punt/return mismatch, and turnover regression.
+- Rookie development from college production, opponent quality, combine
+  evidence, draft capital, preseason role, and verified practice news.
+- Sportsbook disagreement and leader/follower behavior, public overreaction,
+  matchup similarity, former-team/system familiarity, and market movement after
+  verified news.
+
+### Priority 4A — weekly postgame understanding and learning loop
+
+Every completed week must produce structured training evidence, not merely a
+win/loss label. This loop runs only after games are final and may influence the
+following week; it may never rewrite a prediction that has already been frozen.
+
+1. Preserve every pregame belief: specialist opinions, assumptions, player and
+   team state, weights, uncertainty, final prediction, price, and decision.
+2. Reconstruct each game possession by possession with score, clock, field
+   position, down/distance, personnel, formations, motion, pressure, coverage,
+   substitutions, injuries, turnovers, penalties, and play success.
+3. Locate the earliest point where the expected game story materially diverged
+   from reality and record what changed.
+4. Separate repeatable football information from high-variance events. Repeated
+   protection failures can update beliefs; one tipped interception should not
+   automatically rewrite a team rating.
+5. Grade every specialist independently so the system can distinguish a correct
+   player read from a bad simulation, a correct news signal from a bad weight,
+   and a winning ensemble built from incorrect reasoning.
+6. Run counterfactual replays without pivotal injuries, turnovers, drops, or
+   unusual penalties to estimate whether the forecast was structurally wrong or
+   the observed result was dominated by a rare event.
+7. Update player availability, usage, replacement value, position-group
+   continuity, team strength, coaching tendency, and scheme identity for the
+   next eligible cutoff.
+8. Save reusable matchup lessons with exact supporting plays, such as a
+   quarterback/protection unit failing against a specific pressure family.
+9. Change specialist weights gradually from repeated evidence. A single game
+   can raise uncertainty, but cannot permanently redirect the engine by itself.
+10. Build the following week's frozen cards only from finalized earlier games
+    and timestamped current-week evidence.
+
+Each game must emit a machine-readable and human-readable **why we were wrong**
+report containing what was expected, what happened, when the game changed,
+which assumptions failed, which events were likely noise, which states may need
+updating, which specialist needs correction, and what future evidence would
+confirm or reject the lesson.
+
+#### Postgame reasoning safeguards
+
+- Preserve multiple plausible explanations rather than selecting one convenient
+  story after seeing the result.
+- Attach source quality, sample size, uncertainty, and evidence confidence to
+  every proposed lesson.
+- Require delayed confirmation over the next two to four weeks before treating
+  a one-game lesson as a persistent change.
+- Adjust for opponent quality and opponent availability at the time of the game.
+- Translate formation, motion, personnel, and sequencing evidence into readable
+  coaching-tendency summaries without allowing prose to replace source data.
+- Learn relationship effects: how one player's absence changes teammates,
+  protection calls, formations, pace, and play selection.
+- Prioritize disagreement games, near misses, correct picks made for the wrong
+  reasons, and losing picks supported by otherwise sound reasoning.
+- Detect league-wide concept, countermeasure, and officiating changes rather
+  than mislabeling a widespread shift as a single-team change.
+- Decay old lessons unless recent cutoff-safe evidence continues confirming
+  them.
+- Run an adversarial review that challenges hindsight bias, duplicated evidence,
+  causal claims, and alternative explanations before a lesson changes weights.
+- Publish a weekly **What the league taught us** report linking every proposed
+  model change to its supporting games and plays.
+- Grade reasoning quality separately from result quality. Winning cannot excuse
+  broken reasoning, and losing cannot automatically invalidate a repeatable read.
+
+### Priority 5 — advanced learning modules
+
+- [ ] Play-sequence network for drive and play-call state transitions.
+- [ ] Player interaction graph that propagates injuries and substitutions through
+  position groups and matchup relationships.
+- [ ] Matchup embeddings and a time-aware similar-game retrieval model.
+- [ ] Dynamic mixture-of-specialists weighting with an explicit uncertainty
+  model and regime-change detection.
+- [ ] Counterfactual simulator and a full score/margin/player-outcome distribution
+  rather than a single average result.
+- [ ] Causal injury, coach-strategy, rookie-transfer, hidden in-game state, and
+  market-closing-line models.
+- [ ] An adversarial critic that records what would disprove each pick and catches
+  duplicated evidence, contradictions, and unsupported confidence.
+- [ ] A verified-news reader that converts sourced text into structured facts;
+  the language model may extract evidence but may never create football facts.
+- [ ] A self-auditing feature learner that proposes interactions and retains only
+  effects that repeat across walk-forward seasons and survive the full pipeline.
+
+### Promotion rule
+
+Thousands of variables, neural networks, or more code do not count as progress
+by themselves. A module becomes influential only when its inputs are available
+at prediction time, its output is recorded on every eligible example, its
+incremental value survives untouched chronological evaluation, its confidence
+is calibrated, and its failure modes remain visible. The historical audit can
+teach us what to repair; only the forward ledger can establish future value.
 
 ---
 

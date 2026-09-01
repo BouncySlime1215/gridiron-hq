@@ -206,6 +206,37 @@ function matrixCell(registry, row) {
     directional_correct: row.directional_correct == null ? null : Boolean(row.directional_correct) };
 }
 
+function combinedDecisionTrace(game, experts, coordinator) {
+  const ready = Boolean(coordinator?.ready);
+  const forecastResidual = ready && Number.isFinite(coordinator.forecast_residual)
+    ? coordinator.forecast_residual : null;
+  const actualResidual = Number.isFinite(game.actual_residual) ? game.actual_residual : null;
+  const directionalCorrect = Number.isFinite(forecastResidual) && Number.isFinite(actualResidual)
+    && Math.abs(forecastResidual) > 1e-9 && Math.abs(actualResidual) > 1e-9
+    ? Math.sign(forecastResidual) === Math.sign(actualResidual) : null;
+  return {
+    state: ready ? 'candidate_forecast_only' : 'warmup_abstain',
+    contributors: experts.map(expert => {
+      const learned = coordinator?.contributions?.find(item => item.id === expert.id);
+      return { id: expert.id, observed: expert.observed, raw_opinion: expert.forecast_residual,
+        learned_weight: learned?.learned_weight ?? null,
+        normalized_weight: learned?.normalized_weight ?? null,
+        contribution: learned?.value ?? null,
+        missing_reason: expert.missing_reason ?? null };
+    }),
+    disagreement: coordinator?.disagreement ?? null,
+    final_prediction: { market_margin: game.market_margin,
+      forecast_residual: forecastResidual,
+      projected_home_margin: Number.isFinite(forecastResidual) && Number.isFinite(game.market_margin)
+        ? r3(game.market_margin + forecastResidual) : null },
+    selection: { side: null, price: null, stake_units: 0,
+      reason: ready ? 'candidate coordinator has no staking authority' : coordinator?.reason ?? 'coordinator warmup incomplete' },
+    settlement: { actual_margin: game.actual_margin ?? null, actual_residual: actualResidual,
+      directional_correct: directionalCorrect },
+    authority: coordinator?.authority ?? 'warmup_abstain'
+  };
+}
+
 function familyCouncil(line, marketMargin) {
   const groups = new Map();
   for (const model of line.models ?? []) {
@@ -545,7 +576,8 @@ export function weeklyExpertAudit(season, week, { auditRunId = null } = {}) {
   const coordinatorFit = fitExpertCoordinator(season, week, { auditRunId });
   const games = targets.map(index => {
     const result = gameExperts(season, week, index, data, { auditRunId });
-    return { ...result, coordinator: coordinateExperts(coordinatorFit, result.experts, result.game) };
+    const coordinator = coordinateExperts(coordinatorFit, result.experts, result.game);
+    return { ...result, coordinator, combined_decision: combinedDecisionTrace(result.game, result.experts, coordinator) };
   });
   const expertSummary = NFL_EXPERTS.map(registry => {
     const observed = games.map(game => game.experts.find(expert => expert.id === registry.id)).filter(expert => expert?.observed);
@@ -649,18 +681,19 @@ export function persistWeeklyExpertAudit(auditRunId, audit) {
   }
   for (const item of audit.games) {
     const coordinator = item.coordinator;
-    if (!coordinator?.ready) continue;
     const actual = item.game.actual_residual, forecast = coordinator.forecast_residual;
-    const directional = Number.isFinite(forecast) && Math.abs(forecast) > 1e-9 && Math.abs(actual) > 1e-9
+    const ready = Boolean(coordinator?.ready) && Number.isFinite(forecast);
+    const directional = ready && Math.abs(forecast) > 1e-9 && Math.abs(actual) > 1e-9
       ? Math.sign(forecast) === Math.sign(actual) : null;
     const result = run(`INSERT OR IGNORE INTO nfl_weekly_expert_examples
       (audit_run_id,season,week,home,away,expert_id,council_version,engine_version,evidence_hash,evidence_cutoff,
        observed,forecast_residual,uncertainty,actual_residual,directional_correct,squared_error,authority,missing_reason,payload_json,created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, auditRunId, audit.season, audit.week, item.game.home, item.game.away,
-    'coordinator', audit.version, item.game.engine_version, item.evidence_hash, item.game.evidence_cutoff, 1,
-    forecast, coordinator.uncertainty, actual, directional == null ? null : (directional ? 1 : 0),
-    Number.isFinite(forecast) ? r3((forecast - actual) ** 2) : null, coordinator.authority,
-    null, JSON.stringify(coordinator), now);
+    'coordinator', audit.version, item.game.engine_version, item.evidence_hash, item.game.evidence_cutoff, ready ? 1 : 0,
+    ready ? forecast : null, ready ? coordinator.uncertainty : null, actual, directional == null ? null : (directional ? 1 : 0),
+    ready ? r3((forecast - actual) ** 2) : null, coordinator?.authority ?? 'warmup_abstain',
+    ready ? null : (coordinator?.reason ?? 'coordinator warmup incomplete'),
+    JSON.stringify({ ...coordinator, decision_trace: item.combined_decision }), now);
     inserted += result.changes;
   }
   return { inserted };
@@ -766,4 +799,5 @@ export function expertCouncilGame(season, week, home) {
     authority: 'candidate evidence only; the production number and staking policy are unchanged' };
 }
 
-export const __test = { analogPrediction, output, reportingState, matrixCell, movementFor, newsFor, shoppingFor, opportunityFor };
+export const __test = { analogPrediction, output, reportingState, matrixCell, combinedDecisionTrace,
+  movementFor, newsFor, shoppingFor, opportunityFor };

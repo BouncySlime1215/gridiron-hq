@@ -182,14 +182,22 @@ function coordinateWith(fit, experts) {
   const game = { experts: new Map(experts.map(expert => [expert.id,
     expert.observed && Number.isFinite(expert.forecast_residual) ? expert.forecast_residual : null])) };
   const x = design(game, fit.centers, fit.scales);
-  const contributions = IDS.map((id, index) => ({ id, value: r3(x[index + 1] * fit.coefficients[index + 1]),
-    raw: game.experts.get(id) })).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+  const activeWeight = IDS.reduce((sum, id, index) => Number.isFinite(game.experts.get(id))
+    ? sum + Math.abs(fit.coefficients[index + 1]) : sum, 0);
+  const contributions = IDS.map((id, index) => {
+    const raw = game.experts.get(id), learnedWeight = fit.coefficients[index + 1];
+    return { id, raw, learned_weight: r3(learnedWeight),
+      normalized_weight: Number.isFinite(raw) && activeWeight > 0 ? r3(learnedWeight / activeWeight) : 0,
+      missingness_weight: r3(fit.coefficients[1 + IDS.length + index]),
+      value: r3(x[index + 1] * learnedWeight) };
+  }).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
   const missingOffset = IDS.reduce((sum, _id, index) => sum + x[1 + IDS.length + index] * fit.coefficients[1 + IDS.length + index], 0);
   const forecast = fit.coefficients[0] + contributions.reduce((sum, item) => sum + item.value, 0) + missingOffset;
   const disagreement = Math.sqrt(mean(experts.filter(expert => Number.isFinite(expert.forecast_residual))
     .map(expert => (expert.forecast_residual - forecast) ** 2)));
   return { forecast_residual: r3(clamp(forecast, -10, 10)),
     uncertainty: r3(Math.sqrt(fit.robustSigma ** 2 + disagreement ** 2)), training_games: fit.games, training_weeks: fit.weeks,
+    disagreement: r3(disagreement), active_weight_l1: r3(activeWeight),
     contributions, missingness_offset: r3(missingOffset) };
 }
 
@@ -219,4 +227,4 @@ export function coordinateExperts(fit, experts, context = {}) {
     note: 'A circumstance-aware candidate correction to the market, not stake permission.' };
 }
 
-export const __test = { pivotRows, fitRows, design, regimeLabels };
+export const __test = { pivotRows, fitRows, design, regimeLabels, coordinateWith };

@@ -61,7 +61,7 @@ const { activeLearningEpoch, nflEngineComponents, startLearningEpoch } = await i
 const { nflBackfillPlan } = await import('../server/services/nfl-engine-backfill.js');
 const { RISK_MODELS, predictRiskModel, trainRiskState, __test: riskLab } = await import('../server/services/nfl-risk-lab.js');
 const { teamRosterStrength, importLicensedPffGrades, clearRosterStrengthCache } = await import('../server/services/nfl-roster-strength.js');
-const { NFL_EXPERTS, __test: expertCouncilTest } = await import('../server/services/nfl-expert-council.js');
+const { NFL_EXPERTS, persistWeeklyExpertAudit, __test: expertCouncilTest } = await import('../server/services/nfl-expert-council.js');
 const { __test: expertCoordinatorTest } = await import('../server/services/nfl-expert-coordinator.js');
 const { __test: newsLatencyTest } = await import('../server/services/nfl-news-market-latency.js');
 const { __test: postgameTest } = await import('../server/services/nfl-postgame-truth.js');
@@ -136,6 +136,58 @@ test('expert coordinator carries missingness separately from a real zero forecas
   const offset = 1 + NFL_EXPERTS.length;
   assert.equal(vector[offset], 0, 'an observed zero is not missing');
   assert.equal(vector[offset + 1], 1, 'an unavailable player builder is explicitly missing');
+});
+
+test('combined coordinator trace preserves raw, learned and normalized specialist weights', () => {
+  const centers = Object.fromEntries(NFL_EXPERTS.map(expert => [expert.id, 0]));
+  const scales = Object.fromEntries(NFL_EXPERTS.map(expert => [expert.id, 1]));
+  const coefficients = new Array(1 + NFL_EXPERTS.length * 2).fill(0);
+  coefficients[1] = 0.2;
+  coefficients[2] = -0.1;
+  const experts = NFL_EXPERTS.map(expert => ({ id: expert.id, observed: false,
+    forecast_residual: null, missing_reason: 'not observed' }));
+  experts[0] = { id: NFL_EXPERTS[0].id, observed: true, forecast_residual: 2, missing_reason: null };
+  experts[1] = { id: NFL_EXPERTS[1].id, observed: true, forecast_residual: -1, missing_reason: null };
+  const coordinated = expertCoordinatorTest.coordinateWith({ centers, scales, coefficients,
+    robustSigma: 6, games: 200, weeks: 20 }, experts);
+  const active = coordinated.contributions.filter(item => item.raw != null);
+  assert.equal(active.length, 2);
+  assert.ok(Math.abs(active.reduce((sum, item) => sum + Math.abs(item.normalized_weight), 0) - 1) < 0.002);
+  assert.ok(active.every(item => item.learned_weight != null && item.value != null));
+  assert.ok(Number.isFinite(coordinated.disagreement));
+});
+
+test('combined decision records an explicit zero-stake abstention and settlement', () => {
+  const experts = NFL_EXPERTS.map(expert => ({ id: expert.id, observed: expert.id === 'rulebook',
+    forecast_residual: expert.id === 'rulebook' ? 1.5 : null,
+    missing_reason: expert.id === 'rulebook' ? null : 'missing input' }));
+  const coordinator = { ready: true, forecast_residual: 2, disagreement: 1.25,
+    authority: 'historical_candidate_only', contributions: [{ id: 'rulebook', learned_weight: 0.2,
+      normalized_weight: 1, value: 0.3 }] };
+  const trace = expertCouncilTest.combinedDecisionTrace({ market_margin: 3, actual_margin: 7,
+    actual_residual: 4 }, experts, coordinator);
+  assert.equal(trace.final_prediction.projected_home_margin, 5);
+  assert.equal(trace.selection.side, null);
+  assert.equal(trace.selection.price, null);
+  assert.equal(trace.selection.stake_units, 0);
+  assert.equal(trace.settlement.directional_correct, true);
+  assert.equal(trace.contributors.find(item => item.id === 'rulebook').normalized_weight, 1);
+});
+
+test('coordinator warmup abstentions persist instead of disappearing from the game record', () => {
+  const combinedDecision = expertCouncilTest.combinedDecisionTrace({ market_margin: -2,
+    actual_margin: 1, actual_residual: 3 }, [], { ready: false, reason: 'warmup' });
+  persistWeeklyExpertAudit(999, { season: 2098, week: 1, version: 'test-council', games: [{
+    game: { home: 'AAA', away: 'BBB', engine_version: 'test-engine', evidence_cutoff: '2098-W1', actual_residual: 3 },
+    evidence_hash: 'warmup-trace', experts: [], coordinator: { ready: false, reason: 'warmup' },
+    combined_decision: combinedDecision
+  }] });
+  const saved = db.prepare(`SELECT observed,forecast_residual,missing_reason,payload_json
+    FROM nfl_weekly_expert_examples WHERE audit_run_id=999 AND expert_id='coordinator'`).get();
+  assert.equal(saved.observed, 0);
+  assert.equal(saved.forecast_residual, null);
+  assert.equal(saved.missing_reason, 'warmup');
+  assert.equal(JSON.parse(saved.payload_json).decision_trace.selection.stake_units, 0);
 });
 
 test('expert coordinator counts a replayed game once across audit runs', () => {

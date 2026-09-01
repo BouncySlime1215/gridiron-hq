@@ -8,9 +8,9 @@
  */
 import crypto from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
-import { getFrozenTeamCard } from './nfl-team-card.js';
+import { getFrozenTeamCard, TEAM_CARD_VERSION } from './nfl-team-card.js';
 
-export const ORTHOGONAL_SPECIALIST_VERSION = 'nfl-orthogonal-specialists-v1';
+export const ORTHOGONAL_SPECIALIST_VERSION = 'nfl-orthogonal-specialists-v2-reconciled-depth';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_orthogonal_specialist_artifacts (
@@ -138,8 +138,8 @@ function familyVector(home, away, family) {
 
 function examplesBefore(season, week) {
   const cards = rows(`SELECT season,week,team,opponent,evidence_hash,card_json FROM nfl_team_cards
-    WHERE version='nfl-team-card-v1' AND horizon='pregame'
-      AND (season<? OR (season=? AND week<?)) ORDER BY season,week,team`, season, season, week);
+    WHERE version=? AND horizon='pregame'
+      AND (season<? OR (season=? AND week<?)) ORDER BY season,week,team`, TEAM_CARD_VERSION, season, season, week);
   const map = new Map(cards.map(item => [`${item.season}|${item.week}|${item.team}`,
     { ...item, card: JSON.parse(item.card_json) }]));
   const games = rows(`SELECT season,week,team home,opponent away,spread,team_score,opp_score

@@ -55,11 +55,16 @@ async function phase(name, fn) {
   const prior = rows(`SELECT * FROM nfl_rebuild_checkpoints WHERE run_key=? AND phase=?`, RUN_KEY, name)[0];
   if (prior?.status === 'complete') {
     const saved = prior.result_json ? JSON.parse(prior.result_json) : null;
-    const total = Number(saved?.targets ?? saved?.games ?? 0);
-    if (total) recordProgress(name, { current: total, total, resumed: true },
-      saved?.games != null ? 'games' : 'items', 'complete');
-    log(name, { resumed: true, skipped_completed_phase: true });
-    return saved;
+    if (saved?.complete === false) {
+      log(name, { resumed: true, invalidated_incomplete_checkpoint: true,
+        failures: saved.failures?.length ?? null });
+    } else {
+      const total = Number(saved?.targets ?? saved?.games ?? 0);
+      if (total) recordProgress(name, { current: total, total, resumed: true },
+        saved?.games != null ? 'games' : 'items', 'complete');
+      log(name, { resumed: true, skipped_completed_phase: true });
+      return saved;
+    }
   }
   run(`INSERT INTO nfl_rebuild_checkpoints(run_key,phase,status,started_at)
     VALUES (?,?,?,?) ON CONFLICT(run_key,phase) DO UPDATE SET status=excluded.status,
@@ -148,10 +153,14 @@ await phase('player_feature_vectors', () => backfillPlayerFeatureVectors({
   onProgress: state => recordProgress('player_feature_vectors', state, 'player-weeks')
 }));
 
-await phase('frozen_team_cards', () => backfillTeamCards({
-  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK,
-  onProgress: state => recordProgress('frozen_team_cards', state, 'games')
-}));
+await phase('frozen_team_cards', () => {
+  const result = backfillTeamCards({
+    seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK,
+    onProgress: state => recordProgress('frozen_team_cards', state, 'games')
+  });
+  if (!result.complete) throw new Error(`frozen team cards incomplete: ${result.failures.length} conflicts or missing cards`);
+  return result;
+});
 
 await phase('weekly_calibration_and_specialists', () => {
   const calibration = [], specialists = [];

@@ -14,7 +14,10 @@ import { teamNewsSignals } from './nfl-news-signal.js';
 import { teamEventVector } from './nfl-event-archive.js';
 import { buildTeamFeatureVector } from './nfl-weekly-feature-store.js';
 
-export const TEAM_CARD_VERSION = 'nfl-team-card-v1';
+// v2 follows the completed historical depth/team-code reconciliation. v1 cards
+// remain immutable evidence of the earlier source snapshot; refreshed evidence
+// must receive a new identity instead of colliding with those rows.
+export const TEAM_CARD_VERSION = 'nfl-team-card-v2-reconciled-depth';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_team_cards (

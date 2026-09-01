@@ -167,12 +167,13 @@ await phase('weekly_calibration_and_specialists', () => {
 
 await phase('coverage_snapshot', () => {
   const snapshots = [];
+  const inventory = nflFeatureCoverage();
   for (let index = 0; index < SEASONS.length; index++) {
-    snapshots.push(freezeFeatureCoverageSnapshot(SEASONS[index], END_WEEK));
+    snapshots.push(freezeFeatureCoverageSnapshot(SEASONS[index], END_WEEK, { snapshot: inventory }));
     recordProgress('coverage_snapshot', { current: index + 1, total: SEASONS.length,
       season: SEASONS[index] }, 'seasons');
   }
-  return { inventory: nflFeatureCoverage(), feature_store: weeklyFeatureStoreStatus(),
+  return { inventory, feature_store: weeklyFeatureStoreStatus(),
     team_cards: teamCardCoverage(), snapshots: snapshots.map(item => ({ existing: item.existing,
       evidence_hash: item.evidence_hash })) };
 });

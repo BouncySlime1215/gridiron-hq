@@ -84,11 +84,11 @@ export function nflFeatureCoverage() {
     } };
 }
 
-export function freezeFeatureCoverageSnapshot(season, week) {
+export function freezeFeatureCoverageSnapshot(season, week, { snapshot: suppliedSnapshot = null } = {}) {
   const existing = rows(`SELECT snapshot_json FROM nfl_feature_coverage_snapshots
     WHERE season=? AND week=? AND version=?`, season, week, FEATURE_COVERAGE_VERSION)[0];
   if (existing) return { existing: true, snapshot: JSON.parse(existing.snapshot_json) };
-  const snapshot = nflFeatureCoverage();
+  const snapshot = suppliedSnapshot ?? nflFeatureCoverage();
   const evidenceHash = sha({ season, week, families: snapshot.families,
     raw: snapshot.raw_variables, store: snapshot.frozen_feature_store });
   run(`INSERT INTO nfl_feature_coverage_snapshots

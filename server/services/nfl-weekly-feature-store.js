@@ -339,23 +339,28 @@ export function getFrozenPlayerFeatureVector(season, week, playerId) {
 }
 
 export function backfillTeamFeatureVectors({ seasons = [2021, 2022, 2023, 2024, 2025],
-  startWeek = 5, endWeek = 18 } = {}) {
+  startWeek = 5, endWeek = 18, onProgress = null } = {}) {
   const targets = rows(`SELECT DISTINCT season,week,team FROM game_lines
     WHERE season IN (${seasons.map(() => '?').join(',')}) AND week BETWEEN ? AND ?
     ORDER BY season,week,team`, ...seasons, startWeek, endWeek);
   let frozen = 0, existing = 0;
   const failures = [];
-  for (const target of targets) {
+  for (let index = 0; index < targets.length; index++) {
+    const target = targets[index];
     const result = freezeTeamFeatureVector(target.season, target.week, target.team);
     if (result.error) failures.push({ ...target, error: result.error });
     else if (result.existing) existing++;
     else frozen++;
+    if (onProgress && (index % 25 === 0 || index === targets.length - 1)) {
+      onProgress({ current: index + 1, total: targets.length, frozen, existing,
+        failures: failures.length, season: target.season, week: target.week, team: target.team });
+    }
   }
   return { version: WEEKLY_FEATURE_STORE_VERSION, targets: targets.length, frozen, existing, failures };
 }
 
 export function backfillPlayerFeatureVectors({ seasons = [2021, 2022, 2023, 2024, 2025],
-  startWeek = 5, endWeek = 18, teams = null } = {}) {
+  startWeek = 5, endWeek = 18, teams = null, onProgress = null } = {}) {
   const teamFilter = teams?.length ? ` AND current.team IN (${teams.map(() => '?').join(',')})` : '';
   const targets = rows(`SELECT current.season,current.week,current.player_id,current.player_name,
       current.team,current.position FROM nfl_player_week_features current
@@ -365,13 +370,19 @@ export function backfillPlayerFeatureVectors({ seasons = [2021, 2022, 2023, 2024
   ...seasons, startWeek, endWeek, ...(teams ?? []));
   let frozen = 0, existing = 0;
   const failures = [];
-  for (const target of targets) {
+  for (let index = 0; index < targets.length; index++) {
+    const target = targets[index];
     const result = freezePlayerFeatureVector(target.season, target.week, target.player_id, {
       playerName: target.player_name, team: target.team, position: target.position
     });
     if (result.error) failures.push({ ...target, error: result.error });
     else if (result.existing) existing++;
     else frozen++;
+    if (onProgress && (index % 100 === 0 || index === targets.length - 1)) {
+      onProgress({ current: index + 1, total: targets.length, frozen, existing,
+        failures: failures.length, season: target.season, week: target.week,
+        team: target.team, player: target.player_name });
+    }
   }
   return { version: WEEKLY_FEATURE_STORE_VERSION, targets: targets.length, frozen, existing, failures };
 }

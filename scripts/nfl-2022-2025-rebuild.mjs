@@ -31,12 +31,31 @@ db.exec(`CREATE TABLE IF NOT EXISTS nfl_rebuild_checkpoints (
   run_key TEXT NOT NULL,phase TEXT NOT NULL,status TEXT NOT NULL,started_at TEXT NOT NULL,
   finished_at TEXT,result_json TEXT,error TEXT,PRIMARY KEY(run_key,phase)
 )`);
+db.exec(`CREATE TABLE IF NOT EXISTS nfl_rebuild_progress (
+  run_key TEXT NOT NULL,phase TEXT NOT NULL,current INTEGER NOT NULL,total INTEGER NOT NULL,
+  unit TEXT NOT NULL,status TEXT NOT NULL,detail_json TEXT,updated_at TEXT NOT NULL,
+  PRIMARY KEY(run_key,phase)
+)`);
+
+function recordProgress(phaseName, state, unit = 'items', status = 'running') {
+  const current = Math.max(0, Number(state.current) || 0), total = Math.max(0, Number(state.total) || 0);
+  run(`INSERT INTO nfl_rebuild_progress
+    (run_key,phase,current,total,unit,status,detail_json,updated_at) VALUES (?,?,?,?,?,?,?,?)
+    ON CONFLICT(run_key,phase) DO UPDATE SET current=excluded.current,total=excluded.total,
+      unit=excluded.unit,status=excluded.status,detail_json=excluded.detail_json,
+      updated_at=excluded.updated_at`, RUN_KEY, phaseName, current, total, unit, status,
+  JSON.stringify(state), new Date().toISOString());
+}
 
 async function phase(name, fn) {
   const prior = rows(`SELECT * FROM nfl_rebuild_checkpoints WHERE run_key=? AND phase=?`, RUN_KEY, name)[0];
   if (prior?.status === 'complete') {
+    const saved = prior.result_json ? JSON.parse(prior.result_json) : null;
+    const total = Number(saved?.targets ?? saved?.games ?? 0);
+    if (total) recordProgress(name, { current: total, total, resumed: true },
+      saved?.games != null ? 'games' : 'items', 'complete');
     log(name, { resumed: true, skipped_completed_phase: true });
-    return prior.result_json ? JSON.parse(prior.result_json) : null;
+    return saved;
   }
   run(`INSERT INTO nfl_rebuild_checkpoints(run_key,phase,status,started_at)
     VALUES (?,?,?,?) ON CONFLICT(run_key,phase) DO UPDATE SET status=excluded.status,
@@ -48,11 +67,23 @@ async function phase(name, fn) {
     run(`UPDATE nfl_rebuild_checkpoints SET status='complete',finished_at=?,result_json=?
       WHERE run_key=? AND phase=?`, new Date().toISOString(), JSON.stringify(result), RUN_KEY, name);
     log(name, result);
+    const total = Number(result?.targets ?? result?.games ?? 0);
+    if (total) recordProgress(name, { current: total, total }, result?.games != null ? 'games' : 'items', 'complete');
+    else {
+      const tracked = rows(`SELECT current,total,unit,detail_json FROM nfl_rebuild_progress
+        WHERE run_key=? AND phase=?`, RUN_KEY, name)[0];
+      if (tracked) recordProgress(name, { ...(tracked.detail_json ? JSON.parse(tracked.detail_json) : {}),
+        current: tracked.total, total: tracked.total }, tracked.unit, 'complete');
+    }
     return result;
   } catch (error) {
     run(`UPDATE nfl_rebuild_checkpoints SET status='failed',finished_at=?,error=?
       WHERE run_key=? AND phase=?`, new Date().toISOString(), error.message, RUN_KEY, name);
     log(name, { status: 'failed', error: error.message });
+    const tracked = rows(`SELECT current,total,unit,detail_json FROM nfl_rebuild_progress
+      WHERE run_key=? AND phase=?`, RUN_KEY, name)[0];
+    if (tracked) recordProgress(name, { ...(tracked.detail_json ? JSON.parse(tracked.detail_json) : {}),
+      current: tracked.current, total: tracked.total, error: error.message }, tracked.unit, 'failed');
     throw error;
   }
 }
@@ -99,26 +130,34 @@ await phase('charted_play_context', async () => {
 await phase('team_code_reconciliation', () => reconcileHistoricalTeamCodes());
 
 await phase('team_feature_vectors', () => backfillTeamFeatureVectors({
-  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK
+  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK,
+  onProgress: state => recordProgress('team_feature_vectors', state, 'team-weeks')
 }));
 
 await phase('missing_team_vector_repair', () => backfillTeamFeatureVectors({
-  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK
+  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK,
+  onProgress: state => recordProgress('missing_team_vector_repair', state, 'team-weeks')
 }));
 
 await phase('player_feature_vectors', () => backfillPlayerFeatureVectors({
-  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK
+  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK,
+  onProgress: state => recordProgress('player_feature_vectors', state, 'player-weeks')
 }));
 
 await phase('frozen_team_cards', () => backfillTeamCards({
-  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK
+  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK,
+  onProgress: state => recordProgress('frozen_team_cards', state, 'games')
 }));
 
 await phase('weekly_calibration_and_specialists', () => {
   const calibration = [], specialists = [];
+  let current = 0;
   for (const season of SEASONS) for (let week = START_WEEK; week <= END_WEEK; week++) {
     calibration.push(simulationCalibrationFor(season, week, { persist: true }));
     specialists.push(fitOrthogonalSpecialists(season, week, { persist: true }));
+    current++;
+    recordProgress('weekly_calibration_and_specialists', { current, total: SEASONS.length
+      * (END_WEEK - START_WEEK + 1), season, week }, 'season-weeks');
   }
   return { calibration: calibration.map(item => ({ season: item.season, week: item.week,
     available: item.available, games: item.games, plays: item.plays, error: item.error })),
@@ -127,7 +166,12 @@ await phase('weekly_calibration_and_specialists', () => {
 });
 
 await phase('coverage_snapshot', () => {
-  const snapshots = SEASONS.map(season => freezeFeatureCoverageSnapshot(season, END_WEEK));
+  const snapshots = [];
+  for (let index = 0; index < SEASONS.length; index++) {
+    snapshots.push(freezeFeatureCoverageSnapshot(SEASONS[index], END_WEEK));
+    recordProgress('coverage_snapshot', { current: index + 1, total: SEASONS.length,
+      season: SEASONS[index] }, 'seasons');
+  }
   return { inventory: nflFeatureCoverage(), feature_store: weeklyFeatureStoreStatus(),
     team_cards: teamCardCoverage(), snapshots: snapshots.map(item => ({ existing: item.existing,
       evidence_hash: item.evidence_hash })) };
@@ -143,15 +187,24 @@ const auditId = registration?.id ?? rows(`SELECT id FROM nfl_blind_audit_runs
 
 await phase('chronological_audit', () => {
   let status = blindAuditStatus(auditId);
+  const totalGames = Number(rows(`SELECT COUNT(*) n FROM game_lines WHERE home=1
+    AND season BETWEEN 2022 AND 2025 AND week BETWEEN ? AND ?`, START_WEEK, END_WEEK)[0]?.n ?? 0);
   while (status.status !== 'complete') {
     status = runNextBlindAuditWeek(auditId);
+    const completedGames = Number(rows(`SELECT COUNT(*) n FROM game_lines g WHERE g.home=1
+      AND g.season BETWEEN 2022 AND 2025 AND g.week BETWEEN ? AND ? AND EXISTS (
+        SELECT 1 FROM nfl_blind_audit_weeks w WHERE w.run_id=? AND w.season=g.season AND w.week=g.week
+      )`, START_WEEK, END_WEEK, auditId)[0]?.n ?? 0);
+    recordProgress('chronological_audit', { current: completedGames, total: totalGames,
+      weeks_opened: status.progress.opened, weeks_total: status.progress.total }, 'games');
     log('chronological_audit_progress', status.progress);
   }
   return status;
 });
 
 await phase('possession_ledger_reconstruction', () => backfillPossessionLedger({
-  seasons: SEASONS, maxGames: LEDGER_GAMES, trials: LEDGER_TRIALS, maxPossessionsPerGame: 28
+  seasons: SEASONS, maxGames: LEDGER_GAMES, trials: LEDGER_TRIALS, maxPossessionsPerGame: 28,
+  onProgress: state => recordProgress('possession_ledger_reconstruction', state, 'games')
 }));
 
 await phase('final_status', () => ({ audit: blindAuditStatus(auditId),

@@ -76,6 +76,7 @@ import { nflDataConsistencyAudit } from '../services/nfl-data-consistency.js';
 import { nflFeatureCoverage } from '../services/nfl-feature-coverage.js';
 import { weeklyFeatureStoreStatus } from '../services/nfl-weekly-feature-store.js';
 import { teamCardCoverage } from '../services/nfl-team-card.js';
+import { nflRebuildProgress } from '../services/nfl-rebuild-progress.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
@@ -965,6 +966,10 @@ r.get('/status', (req, res, next) => {
 
 r.get('/features/coverage', (_req, res, next) => {
   try { res.json(nflFeatureCoverage()); } catch (e) { next(e); }
+});
+
+r.get('/rebuild/progress', (_req, res, next) => {
+  try { res.json(nflRebuildProgress()); } catch (e) { next(e); }
 });
 
 r.get('/evidence/coverage', (_req, res, next) => {

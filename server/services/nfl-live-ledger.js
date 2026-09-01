@@ -174,15 +174,22 @@ export function settlePossessionPredictions(eventId) {
 }
 
 export function backfillPossessionLedger({ seasons = [2024, 2025], maxGames = 64,
-  trials = 160, maxPossessionsPerGame = 28 } = {}) {
+  trials = 160, maxPossessionsPerGame = 28, onProgress = null } = {}) {
   const events = rows(`SELECT event_id,MAX(season) season,MAX(week) week
     FROM nfl_play_by_play WHERE season IN (${seasons.map(() => '?').join(',')})
     GROUP BY event_id ORDER BY season,week,event_id LIMIT ?`, ...seasons, maxGames);
   let predictions = 0, settled = 0;
   const failures = [];
-  for (const event of events) {
+  for (let index = 0; index < events.length; index++) {
+    const event = events[index];
     const packet = possessionStates(event.event_id);
-    if (packet.error) { failures.push({ event_id: event.event_id, error: packet.error }); continue; }
+    if (packet.error) {
+      failures.push({ event_id: event.event_id, error: packet.error });
+      if (onProgress) onProgress({ current: index + 1, total: events.length,
+        predictions, settled, failures: failures.length, event_id: event.event_id,
+        season: event.season, week: event.week });
+      continue;
+    }
     for (const state of packet.states.slice(0, maxPossessionsPerGame)) {
       const result = predictPossession(event.event_id, state.sequence,
         { classification: 'historical_reconstruction', trials });
@@ -191,6 +198,9 @@ export function backfillPossessionLedger({ seasons = [2024, 2025], maxGames = 64
     }
     const settlement = settlePossessionPredictions(event.event_id);
     if (!settlement.error) settled += settlement.settled;
+    if (onProgress) onProgress({ current: index + 1, total: events.length,
+      predictions, settled, failures: failures.length, event_id: event.event_id,
+      season: event.season, week: event.week });
   }
   return { version: LIVE_LEDGER_VERSION, games: events.length, predictions, settled, failures };
 }

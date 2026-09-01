@@ -238,13 +238,15 @@ export function matchupTeamCards(season, week, home, away, options = {}) {
     evidence_hash: hash({ home: homeCard.evidence_hash, away: awayCard.evidence_hash }) };
 }
 
-export function backfillTeamCards({ seasons = [2021, 2022, 2023, 2024, 2025], startWeek = 5, endWeek = 18 } = {}) {
+export function backfillTeamCards({ seasons = [2021, 2022, 2023, 2024, 2025], startWeek = 5,
+  endWeek = 18, onProgress = null } = {}) {
   const games = rows(`SELECT season,week,team FROM game_lines
     WHERE home=1 AND season IN (${seasons.map(() => '?').join(',')}) AND week BETWEEN ? AND ?
     ORDER BY season,week,team`, ...seasons, startWeek, endWeek);
   let frozen = 0, existing = 0;
   const failures = [];
-  for (const game of games) {
+  for (let index = 0; index < games.length; index++) {
+    const game = games[index];
     for (const team of [game.team, rows(`SELECT opponent FROM game_lines
       WHERE season=? AND week=? AND team=? LIMIT 1`, game.season, game.week, game.team)[0]?.opponent]) {
       if (!team) continue;
@@ -252,6 +254,10 @@ export function backfillTeamCards({ seasons = [2021, 2022, 2023, 2024, 2025], st
       if (result.error) failures.push({ ...game, team, error: result.error });
       else if (result.existing) existing++;
       else frozen++;
+    }
+    if (onProgress && (index % 5 === 0 || index === games.length - 1)) {
+      onProgress({ current: index + 1, total: games.length, frozen, existing,
+        failures: failures.length, season: game.season, week: game.week, home: game.team });
     }
   }
   return { version: TEAM_CARD_VERSION, games: games.length, frozen, existing, failures,

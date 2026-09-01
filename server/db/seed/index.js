@@ -1,7 +1,7 @@
 import { db, row, rows, run } from '../index.js';
 import { TEAMS } from './teams.js';
 import { DEPTH, DEFAULT_BOARD } from './players.js';
-import { findPlayerMatch } from '../../services/player-identity.js';
+import { findPlayerMatch, normalizePlayerName } from '../../services/player-identity.js';
 
 const SLOT_PHASE = {
   QB: 'offense', RB1: 'offense', RB2: 'offense', WR1: 'offense', WR2: 'offense', WR3: 'offense', TE1: 'offense',
@@ -64,9 +64,17 @@ export function seedIfEmpty() {
           // added a second row for a player we already had, once per boot — which is
           // where this database's duplicate players (and draft picks split across two
           // ids for the same person) came from. Fall back to matching the human.
-          const { match } = findPlayerMatch(knownPlayers, {
+          // Legacy databases can already contain several indistinguishable seed
+          // duplicates. The general identity resolver correctly refuses to guess
+          // between them, but the static seed owns this exact team/name/position
+          // tuple and must reconcile the oldest row rather than insert duplicate N+1.
+          const exactSeedMatches = knownPlayers.filter(candidate => candidate.espn_id == null
+            && candidate.position === SLOT_POS[slot] && candidate.team_id === teamIds[abbr]
+            && normalizePlayerName(candidate.name) === normalizePlayerName(name))
+            .sort((a, b) => a.id - b.id);
+          const match = exactSeedMatches[0] ?? findPlayerMatch(knownPlayers, {
             espn_id: null, name, position: SLOT_POS[slot], team_id: teamIds[abbr]
-          });
+          }).match;
           if (match) player = { id: match.id };
         }
         if (!player) {

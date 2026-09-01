@@ -72,3 +72,20 @@ test('a player stored with a curly apostrophe is not duplicated by a straight-ap
       'a punctuation-only spelling difference must not create a second player');
   }
 });
+
+test('legacy duplicate seed rows do not create another duplicate on boot', () => {
+  seedIfEmpty();
+  const kicker = rows(`SELECT id,name,position,team_id,depth_rank,phase,fantasy_relevant
+    FROM players WHERE position='K' AND team_id IS NOT NULL ORDER BY id LIMIT 1`)[0];
+  assert.ok(kicker);
+  run(`INSERT INTO players
+    (name,position,team_id,depth_rank,slot_code,phase,fantasy_relevant)
+    VALUES (?,?,?,?,NULL,?,?)`, kicker.name, kicker.position, kicker.team_id,
+  kicker.depth_rank, kicker.phase, kicker.fantasy_relevant);
+  run(`UPDATE players SET slot_code=NULL WHERE team_id=? AND position=? AND name=?`,
+    kicker.team_id, kicker.position, kicker.name);
+  const before = rows('SELECT id FROM players').length;
+  seedIfEmpty();
+  assert.equal(rows('SELECT id FROM players').length, before,
+    'an ambiguous legacy duplicate group must reconcile in place instead of growing');
+});

@@ -26,9 +26,9 @@ const START_WEEK = 5, END_WEEK = 18;
 // provenance change. Reusing v1 after its audit memory was reset would make the
 // runner skip completed checkpoints and then point at a deleted audit id.
 const RUN_KEY = 'nfl-2022-2025-shared-state-v2-decision-provenance';
-const AUDIT_LABEL = 'NFL 2022-2025 cutoff-safe reconstruction audit · sealed fit-cache v3';
-const AUDIT_PHASE = 'audit_preregistration_v3';
-const CHRONOLOGICAL_PHASE = 'chronological_audit_v3';
+const AUDIT_LABEL = 'NFL 2022-2025 cutoff-safe reconstruction audit · scoped NFL identity v4';
+const AUDIT_PHASE = 'audit_preregistration_v4';
+const CHRONOLOGICAL_PHASE = 'chronological_audit_v4';
 const LEDGER_TRIALS = Math.max(80, Number(process.env.NFL_LEDGER_TRIALS) || 120);
 const LEDGER_GAMES = Math.max(1, Number(process.env.NFL_LEDGER_GAMES) || 10000);
 const log = (phase, value) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), phase, value })}\n`);

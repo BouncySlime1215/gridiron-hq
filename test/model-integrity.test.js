@@ -497,6 +497,22 @@ test('blind audit manifest publishes hashes, per-season results and explicit tel
   assert.equal(manifest.calibration.available, false);
 });
 
+test('blind audit freezes canonical NFL players without coupling to fantasy seed churn', () => {
+  const before = blindAuditTest.inputDataState();
+  const fantasyOnly = db.prepare(`INSERT INTO players
+    (name,position,slot_code,phase,fantasy_relevant)
+    VALUES ('Audit Scope Kicker','K','K','special_teams',1)`).run();
+  const afterFantasy = blindAuditTest.inputDataState();
+  assert.equal(afterFantasy.coverage.players.hash, before.coverage.players.hash,
+    'fantasy-only roster maintenance is outside the historical NFL identity snapshot');
+  const nflPlayer = db.prepare(`INSERT INTO players (name,position,gsis_id)
+    VALUES ('Audit Scope Receiver','WR','audit-scope-gsis')`).run();
+  const afterNfl = blindAuditTest.inputDataState();
+  assert.notEqual(afterNfl.coverage.players.hash, before.coverage.players.hash,
+    'a canonical NFL identity change still invalidates the frozen audit input');
+  db.prepare('DELETE FROM players WHERE id IN (?,?)').run(fantasyOnly.lastInsertRowid, nflPlayer.lastInsertRowid);
+});
+
 test('adaptive weekly weights cannot leak into the week they were trained through', () => {
   const candidate = {
     QB: [1, 0, 0, 0, 0], RB: [1, 0, 0, 0, 0],

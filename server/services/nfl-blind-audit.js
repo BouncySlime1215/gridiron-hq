@@ -93,8 +93,16 @@ function inputDataState(spec = null) {
   for (const table of INPUT_TABLES) {
     if (!tables.has(table)) { coverage[table] = { rows: 0, missing: true }; continue; }
     const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(x => x.name);
-    let where = '', params = [];
-    if (maxSeason != null && seasonTables.has(table) && columns.includes('season')) {
+    let where = '', params = [], selectedColumns = columns;
+    // `players` is shared with the fantasy draft room and live ESPN roster
+    // reconciliation. Those workflows legitimately change slot, phase and team
+    // metadata while an NFL audit is running, but the historical model consumes
+    // only canonical NFL identities joined from player_week_usage. Freeze that
+    // actual dependency instead of allowing unrelated fantasy churn to void a run.
+    if (table === 'players') {
+      selectedColumns = ['id', 'name', 'position', 'gsis_id'];
+      where = ' WHERE gsis_id IS NOT NULL';
+    } else if (maxSeason != null && seasonTables.has(table) && columns.includes('season')) {
       where = ' WHERE season<=?'; params = [maxSeason];
     } else if (afterSeason && table === 'news_items') {
       where = ` WHERE COALESCE(published_at,date,created_at)<?`; params = [afterSeason];
@@ -113,11 +121,12 @@ function inputDataState(spec = null) {
     } else if (maxSeason != null && table === 'weekly_ensemble_fits') {
       where = ' WHERE through_season<=?'; params = [maxSeason];
     }
-    const data = rows(`SELECT * FROM ${table}${where} ORDER BY rowid`, ...params);
-    const tableHash = createHash('sha256').update(table).update('\0').update(JSON.stringify(columns)).update('\0');
+    const data = rows(`SELECT ${selectedColumns.join(',')} FROM ${table}${where} ORDER BY rowid`, ...params);
+    const tableHash = createHash('sha256').update(table).update('\0').update(JSON.stringify(selectedColumns)).update('\0');
     for (const record of data) tableHash.update(JSON.stringify(record)).update('\n');
     const digest = tableHash.digest('hex');
-    coverage[table] = { rows: data.length, columns, hash: digest, scope: where ? { where, params } : 'all_rows' };
+    coverage[table] = { rows: data.length, columns: selectedColumns, hash: digest,
+      scope: where ? { where, params } : 'all_rows' };
     hash.update(table).update('\0').update(digest).update('\n');
   }
   return { hash: hash.digest('hex'), coverage };
@@ -547,4 +556,4 @@ export function blindAuditProtocol() {
     warning: 'Do not preregister until the model code is committed and the input data snapshot is frozen.' };
 }
 
-export const __test = { bettingSummary, runManifest };
+export const __test = { bettingSummary, runManifest, inputDataState };

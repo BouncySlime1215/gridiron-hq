@@ -73,6 +73,9 @@ import { teamRosterStrength, pffConnectorStatus, syncLicensedPffGrades } from '.
 import { buildCandidateRobustnessReport, saveCandidateRobustnessReport,
   latestCandidateRobustnessReport } from '../services/nfl-candidate-analysis.js';
 import { nflDataConsistencyAudit } from '../services/nfl-data-consistency.js';
+import { nflFeatureCoverage } from '../services/nfl-feature-coverage.js';
+import { weeklyFeatureStoreStatus } from '../services/nfl-weekly-feature-store.js';
+import { teamCardCoverage } from '../services/nfl-team-card.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
@@ -951,11 +954,17 @@ r.get('/status', (req, res, next) => {
       variables: countVariables(),
       pbp: pbpCoverage(),
       advanced: advancedCoverage(),
+      weekly_features: weeklyFeatureStoreStatus(),
+      team_cards: teamCardCoverage(),
       odds_api: oddsUsage(),
       odds_cache: cacheStatus(),
       engine: nflEngineStatus(ssn(req), wk(req))
     });
   } catch (e) { next(e); }
+});
+
+r.get('/features/coverage', (_req, res, next) => {
+  try { res.json(nflFeatureCoverage()); } catch (e) { next(e); }
 });
 
 r.get('/evidence/coverage', (_req, res, next) => {
@@ -1042,6 +1051,7 @@ r.get('/sim/matchup', async (req, res, next) => {
       spread: req.query.spread == null ? null : Number(req.query.spread),
       total: req.query.total == null ? null : Number(req.query.total),
       season: req.query.season ? Number(req.query.season) : null,
+      week: req.query.week ? Number(req.query.week) : null,
       sampleDrives: req.query.drives === '1'
     }));
   } catch (e) { next(e); }

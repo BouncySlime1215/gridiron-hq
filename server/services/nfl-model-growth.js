@@ -30,6 +30,13 @@ import { clearNflEngineRegistryCache, recordNflEngineArtifact } from './nfl-engi
 import { buildSignalReliabilityArtifact, signalReliabilityStatus } from './nfl-signal-reliability.js';
 import { captureForwardExpertWeek, settleForwardExpertPredictions, expertCouncilStatus } from './nfl-expert-council.js';
 import { recordPostgameTruthWeek, postgameTruthStatus } from './nfl-postgame-truth.js';
+import { syncVerifiedEventArchive } from './nfl-event-archive.js';
+import { ingestCharting, ingestFormations } from './nfl-formations.js';
+import { freezeWeeklyFeatureState } from './nfl-weekly-feature-store.js';
+import { backfillTeamCards } from './nfl-team-card.js';
+import { simulationCalibrationFor } from './nfl-sim-calibration.js';
+import { fitOrthogonalSpecialists } from './nfl-orthogonal-specialists.js';
+import { freezeFeatureCoverageSnapshot } from './nfl-feature-coverage.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_growth_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +84,13 @@ function warehouseSnapshot(season) {
     { id: 'depth_charts', table: 'nfl_depth', required: false,
       rows: count('nfl_depth', season), through_week: through('nfl_depth', season) },
     { id: 'injury_reports', table: 'nfl_injuries', required: false,
-      rows: count('nfl_injuries', season), through_week: through('nfl_injuries', season) }
+      rows: count('nfl_injuries', season), through_week: through('nfl_injuries', season) },
+    { id: 'verified_events', table: 'nfl_verified_events', required: false,
+      rows: count('nfl_verified_events', season), through_week: through('nfl_verified_events', season) },
+    { id: 'frozen_team_state', table: 'nfl_team_feature_vectors', required: false,
+      rows: count('nfl_team_feature_vectors', season), through_week: through('nfl_team_feature_vectors', season) },
+    { id: 'frozen_player_state', table: 'nfl_player_feature_vectors', required: false,
+      rows: count('nfl_player_feature_vectors', season), through_week: through('nfl_player_feature_vectors', season) }
   ].map(source => ({ ...source,
     prior_season_rows: count(source.table, season - 1),
     prior_season_through_week: through(source.table, season - 1),
@@ -153,7 +166,9 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       expert_council: settleForwardExpertPredictions()
     },
     ingestion: {}, fit: null, signal_reliability: null, online_neural: null,
-    risk_lab: null, player_learning: null, expert_council: null, postgame_truth: null, engine: null
+    risk_lab: null, player_learning: null, expert_council: null, postgame_truth: null,
+    shared_weekly_state: null, simulation_calibration: null, specialist_learning: null,
+    feature_coverage: null, engine: null
   };
   try {
     const coreLag = before.sources.some(source => source.required && !source.current);
@@ -172,6 +187,11 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       await attempt('snap_counts', () => syncSnaps([season - 1, season]), detail.ingestion);
       await attempt('depth_charts', () => syncDepthCharts([season]), detail.ingestion);
       await attempt('injury_reports', () => syncInjuries([season]), detail.ingestion);
+      await attempt('verified_event_archive', () => syncVerifiedEventArchive({
+        seasons: [season - 1, season], includeWeeklyRosters: true
+      }), detail.ingestion);
+      if (season <= 2023) await attempt('formation_participation', () => ingestFormations(season), detail.ingestion);
+      await attempt('ftn_charting', () => ingestCharting(season), detail.ingestion);
     }
 
     const afterIngest = warehouseSnapshot(season);
@@ -208,12 +228,19 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
     // This remains outside the refit branch so a transient neural failure can
     // retry after the ensemble artifact has already been persisted.
     if (afterIngest.finalized_week > 0 && coreCurrent) {
+      const nextWeek = afterIngest.finalized_week + 1;
+      if (nextWeek <= 18) {
+        detail.shared_weekly_state = freezeWeeklyFeatureState(season, nextWeek);
+        detail.team_cards = backfillTeamCards({ seasons: [season], startWeek: nextWeek, endWeek: nextWeek });
+        detail.simulation_calibration = simulationCalibrationFor(season, nextWeek, { persist: true });
+        detail.specialist_learning = fitOrthogonalSpecialists(season, nextWeek, { persist: true });
+        detail.feature_coverage = freezeFeatureCoverageSnapshot(season, nextWeek);
+      }
       detail.online_neural = trainOnlineNeuralThroughSettled();
       detail.risk_lab = trainRiskLabThroughSettled();
       const playerSettlement = settleWeeklyPredictions();
       const playerTraining = retrainWeeklyWeights();
       clearPlayerWeekEngineCache();
-      const nextWeek = afterIngest.finalized_week + 1;
       const playerCapture = nextWeek <= 18
         ? captureWeeklyPredictions(season, nextWeek) : { captured: 0, blocked: true, reason: 'regular season complete' };
       detail.player_learning = {

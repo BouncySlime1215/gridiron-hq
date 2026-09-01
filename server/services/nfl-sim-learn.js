@@ -99,7 +99,8 @@ function fitK(byTeam, key) {
   return { k: clamp(within / between, 0.5, 200), within: r4(within), between: r4(between) };
 }
 
-let _profiles = null;
+const _profileCache = new Map();
+const TRUSTED_HISTORY_START = Math.max(1999, Number(process.env.NFL_TRUSTED_HISTORY_START) || 2022);
 /**
  * Shrunk offensive and defensive profiles for every team.
  *
@@ -107,16 +108,18 @@ let _profiles = null;
  *   back to the prior season when the current one is too thin to say anything,
  *   and labels that fallback rather than silently pretending otherwise.
  */
-export function learnedProfiles({ season = null, minWeeks = 3 } = {}) {
-  const key = season ?? 'latest';
-  if (_profiles?.key === key) return _profiles.value;
+export function learnedProfiles({ season = null, minWeeks = 3, throughWeek = null } = {}) {
+  const key = `${season ?? 'latest'}|${throughWeek ?? 'complete'}`;
+  if (_profileCache.has(key)) return _profileCache.get(key);
 
   let use = season ?? rows(`SELECT MAX(season) AS s FROM nfl_team_week_features`)[0]?.s;
-  let raw = rows(`SELECT team, features FROM nfl_team_week_features WHERE season = ?`, use);
+  let raw = throughWeek == null
+    ? rows(`SELECT team, features FROM nfl_team_week_features WHERE season = ?`, use)
+    : rows(`SELECT team, features FROM nfl_team_week_features WHERE season = ? AND week < ?`, use, throughWeek);
   let fellBack = false;
   // A season two weeks old cannot profile a team. Borrow the prior year rather
   // than emit 32 identical league-average teams and call it a model.
-  if (raw.length < 32 * minWeeks) {
+  if (raw.length < 32 * minWeeks && use - 1 >= TRUSTED_HISTORY_START) {
     const prior = rows(`SELECT team, features FROM nfl_team_week_features WHERE season = ?`, use - 1);
     if (prior.length > raw.length) { raw = prior; use -= 1; fellBack = true; }
   }
@@ -150,10 +153,11 @@ export function learnedProfiles({ season = null, minWeeks = 3 } = {}) {
   }
 
   const value = { season: use, fell_back: fellBack, teams: map, league: leagueMeans, k: ks };
-  _profiles = { key, value };
+  value.cutoff = throughWeek == null ? `${use}-complete-season` : `${use}-before-W${throughWeek}`;
+  _profileCache.set(key, value);
   return value;
 }
-export function clearLearnCache() { _profiles = null; }
+export function clearLearnCache() { _profileCache.clear(); }
 
 /* ------------------------------------------ team rates from the play corpus */
 
@@ -171,13 +175,16 @@ export function clearLearnCache() { _profiles = null; }
  * season priors onto this season's real plays — so the model genuinely does get
  * sharper down the stretch instead of standing still until the season ends.
  */
-export function ratesFromPlays({ season = null, minPlays = 120 } = {}) {
-  const where = season ? `WHERE season = ${Number(season)}` : '';
+export function ratesFromPlays({ season = null, minPlays = 120, throughWeek = null } = {}) {
+  const conditions = [], params = [];
+  if (season != null) { conditions.push('season=?'); params.push(Number(season)); }
+  if (throughWeek != null) { conditions.push('week<?'); params.push(Number(throughWeek)); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   let plays;
   try {
     plays = rows(`SELECT offense, play_type, yards_gained, down, distance, yards_to_endzone,
                          is_turnover, is_scoring
-                  FROM nfl_play_by_play ${where}`);
+                  FROM nfl_play_by_play ${where}`, ...params);
   } catch {
     return { teams: new Map(), plays: 0, available: false };
   }
@@ -244,9 +251,9 @@ export function ratesFromPlays({ season = null, minPlays = 120 } = {}) {
  * not enough to let one blowout rewrite a team.
  */
 const PLAY_K = 250;
-export function blendedProfiles({ season = null } = {}) {
-  const base = learnedProfiles({ season });
-  const live = ratesFromPlays({ season: season ?? base.season });
+export function blendedProfiles({ season = null, throughWeek = null } = {}) {
+  const base = learnedProfiles({ season, throughWeek });
+  const live = ratesFromPlays({ season: season ?? base.season, throughWeek });
   if (!live.available) {
     return { ...base, play_corpus: { available: false, plays: 0 },
       source: 'weekly aggregates only — no play corpus ingested yet' };
@@ -267,7 +274,8 @@ export function blendedProfiles({ season = null } = {}) {
 
   return { ...base, teams: merged,
     play_corpus: { available: true, plays: live.plays, teams_covered: live.teams_covered },
-    source: 'weekly aggregates blended with ingested play-by-play, weighted by play count' };
+    source: 'weekly aggregates blended with ingested play-by-play, weighted by play count',
+    cutoff: throughWeek == null ? `${base.season}-complete-season` : `${base.season}-before-W${throughWeek}` };
 }
 
 /** How much the play corpus is currently moving the model, per team. */

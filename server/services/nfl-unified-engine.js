@@ -42,7 +42,8 @@ export function unifiedGameProjection({ season, week, home, away, trials = 8000,
   const postedTotal = Number.isFinite(total) ? total : line.ensemble.market_total;
   const engineVersion = nflEngineVersionFor(Number(season), Number(week));
   const simulation = simulateMatchup({
-    home: h, away: a, season: Number(season), trials: Math.min(20000, Math.max(500, Number(trials) || 8000)),
+    home: h, away: a, season: Number(season), week: Number(week),
+    trials: Math.min(20000, Math.max(500, Number(trials) || 8000)),
     spread: postedSpread, total: postedTotal, sampleDrives,
     targetMargin: line.ensemble.projected_margin,
     targetTotal: line.ensemble.projected_total,

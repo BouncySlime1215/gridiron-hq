@@ -20,8 +20,10 @@ import { nflKickoffDate } from './date-util.js';
 import './line-shopping.js';
 import { buildPlayerWeekEngine, teamWeekEventExpectations } from './player-week-engine.js';
 import { teamRosterStrength } from './nfl-roster-strength.js';
+import { matchupTeamCards } from './nfl-team-card.js';
+import { orthogonalSpecialistPrediction } from './nfl-orthogonal-specialists.js';
 
-export const EXPERT_COUNCIL_VERSION = 'nfl-expert-council-v3';
+export const EXPERT_COUNCIL_VERSION = 'nfl-expert-council-v4-shared-weekly-state';
 
 export const NFL_EXPERTS = Object.freeze([
   { id: 'rulebook', name: 'Football rulebook', kind: 'interpretable_prior', lifecycle: 'pregame', score: 'market_residual' },
@@ -395,7 +397,7 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
   const tree = treePrediction(season, week, targetX);
   const analog = analogPrediction(season, week, targetX);
   const neural = auditedNeuralFor(line, { season, week, cutoff, auditRunId });
-  const simulation = simulateMatchup({ home: game.home, away: game.away, season, trials: 160,
+  const simulation = simulateMatchup({ home: game.home, away: game.away, season, week, trials: 160,
     spread: line.ensemble.market_spread, total: line.ensemble.market_total,
     targetMargin: line.ensemble.projected_margin, targetTotal: line.ensemble.projected_total,
     seed: crypto.createHash('sha256').update(`${EXPERT_COUNCIL_VERSION}|${season}|${week}|${game.home}`)
@@ -407,8 +409,11 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
   const opportunity = opportunityFor(season, week, game.home, game.away);
   const opportunitySettlement = opportunity.teams?.length ? settleOpportunity(season, week, opportunity)
     : { status: 'pending', reason: opportunity.error ?? 'player opportunity packet unavailable' };
-  const homeRoster = teamRosterStrength(season, week, game.home);
-  const awayRoster = teamRosterStrength(season, week, game.away);
+  const sharedCards = matchupTeamCards(season, week, game.home, game.away);
+  const homeRoster = sharedCards.error ? teamRosterStrength(season, week, game.home) : sharedCards.home.roster;
+  const awayRoster = sharedCards.error ? teamRosterStrength(season, week, game.away) : sharedCards.away.roster;
+  const orthogonal = sharedCards.error ? { error: sharedCards.error }
+    : orthogonalSpecialistPrediction(season, week, game.home, game.away, { persistFit: false });
   const structuralMargin = homeRoster.available && awayRoster.available
     ? 1.5 + (homeRoster.roster_score - awayRoster.roster_score) * 0.32 : null;
   const availabilityResidual = Number.isFinite(availability?.shadow_margin_adjustment)
@@ -457,8 +462,13 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
       observed: !neural.error && neural.metrics?.examples > 0,
       missingReason: neural.error ?? 'online neural has no prior settled weekly examples',
       authority: neural.authority ?? 'shadow_only', detail: neural }),
-    output('specialist_team', { forecast: council.forecast, uncertainty: council.uncertainty,
-      observed: Number.isFinite(council.forecast), detail: council }),
+    output('specialist_team', {
+      forecast: Number.isFinite(orthogonal.forecast_residual) ? orthogonal.forecast_residual : council.forecast,
+      uncertainty: council.uncertainty,
+      observed: Number.isFinite(orthogonal.forecast_residual) || Number.isFinite(council.forecast),
+      missingReason: orthogonal.error && !Number.isFinite(council.forecast) ? orthogonal.error : null,
+      detail: { orthogonal, legacy_family_fallback: council,
+        method: 'Each specialist learns only the chronological residual left by earlier families; raw opinions remain visible.' } }),
     output('line_movement', { forecast: movement?.forecast, uncertainty: movement?.uncertainty,
       observed: Number.isFinite(movement?.forecast), missingReason: movement?.missing_reason ?? 'no valid stored open-to-decision pair',
       detail: movement ?? {}, authority: 'historical_candidate_only' }),
@@ -481,7 +491,8 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
       actual_margin: r3(game.actualMargin), actual_residual: r3(actualResidual), evidence_cutoff: cutoff,
       engine_version: line.engine_version },
     evidence_hash: hash({ cutoff, engine: line.engine_version, models: line.models, marketMargin, availability,
-      injuryCarryover, roster: { home: rosterSummary(homeRoster), away: rosterSummary(awayRoster) } }),
+      injuryCarryover, shared_team_cards: sharedCards.evidence_hash ?? sharedCards.error,
+      roster: { home: rosterSummary(homeRoster), away: rosterSummary(awayRoster) } }),
     component_forecasts: modelResiduals.length,
     experts: experts.map(expert => ({ ...expert,
       directional_correct: Number.isFinite(actualResidual) && Number.isFinite(expert.forecast_residual)

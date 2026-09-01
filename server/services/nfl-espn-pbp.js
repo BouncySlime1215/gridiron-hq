@@ -313,7 +313,7 @@ export async function simulateLiveGame(eventId, { trials = 4000, spread = null, 
       error: 'Game is not in progress — nothing left to simulate.' };
   }
   const out = simulateRemainder({
-    home: g.home, away: g.away, trials, spread, total,
+    home: g.home, away: g.away, season: g.season, week: g.week, trials, spread, total,
     state: {
       possession: g.live.possession === g.home ? 'home' : 'away',
       yard: g.live.yards_to_endzone == null ? 25 : 100 - g.live.yards_to_endzone,

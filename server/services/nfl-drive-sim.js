@@ -36,6 +36,7 @@
 import { rows } from '../db/index.js';
 import { randn, withRandomSeed, random } from './stats-util.js';
 import { learnedProfiles, blendedProfiles, expectedPointsSurface, expectedPoints } from './nfl-sim-learn.js';
+import { simulationCalibrationFor, calibrateSimulationContext } from './nfl-sim-calibration.js';
 import * as P from './nfl-sim-policy.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -45,7 +46,7 @@ const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 const sd = a => { const m = mean(a); return Math.sqrt(mean(a.map(x => (x - m) ** 2))); };
 
 const HALF = 1800;
-export const PLAY_MODEL_VERSION = 'pbp-drive-v2';
+export const PLAY_MODEL_VERSION = 'pbp-drive-v3-cutoff-calibrated';
 
 /**
  * Turn a measured team shotgun rate into a situation-aware formation mix.
@@ -301,7 +302,8 @@ function simulateDrive(ctx, state, ep) {
     // throw stops it.
     const sideline = isPass && random() < pace.sideline_preference;
     const snapClock = Math.max(0, Math.round(secondsLeft - elapsed));
-    const playSeconds = (play.clockRuns && !sideline) ? pace.seconds_running : pace.seconds_stopped;
+    const playSeconds = ((play.clockRuns && !sideline) ? pace.seconds_running : pace.seconds_stopped)
+      * (ctx.clockScale ?? 1);
     elapsed += playSeconds;
 
     const formationMix = formationProbabilities({ shotgunRate: ctx.shotgunRate,
@@ -666,11 +668,11 @@ export function reconcileOutcomeWeights(margins, totals, { targetMargin = null, 
  * @param total   the posted over/under
  */
 export function simulateMatchup({
-  home, away, trials = 10000, season = null, spread = null, total = null,
+  home, away, trials = 10000, season = null, week = null, spread = null, total = null,
   homeFieldPoints = 1.6, seed = null, sampleDrives = false,
   targetMargin = null, targetTotal = null
 } = {}) {
-  const prof = blendedProfiles({ season });
+  const prof = blendedProfiles({ season, throughWeek: week });
   const H = prof.teams.get(String(home ?? '').toUpperCase());
   const A = prof.teams.get(String(away ?? '').toUpperCase());
   if (!H || !A) {
@@ -678,8 +680,9 @@ export function simulateMatchup({
       available: [...prof.teams.keys()].sort() };
   }
 
-  const homeCtx = buildContext(H, A, prof.league);
-  const awayCtx = buildContext(A, H, prof.league);
+  const calibration = season != null && week != null ? simulationCalibrationFor(season, week) : null;
+  const homeCtx = calibrateSimulationContext(buildContext(H, A, prof.league), calibration);
+  const awayCtx = calibrateSimulationContext(buildContext(A, H, prof.league), calibration);
   const surface = epFor(prof.league);
   const ep = y => expectedPoints(surface, y);
 
@@ -726,7 +729,7 @@ export function simulateMatchup({
 
   return {
     home: H.team, away: A.team, trials,
-    season: prof.season, profile_fell_back: prof.fell_back,
+    season: prof.season, week, profile_cutoff: prof.cutoff, profile_fell_back: prof.fell_back,
     projection: {
       home_score: r2(weightedMean(homeScores, weights)), away_score: r2(weightedMean(awayScores, weights)),
       margin: r2(weightedMean(margins, weights)), total: r2(weightedMean(totals, weights)),
@@ -745,7 +748,11 @@ export function simulateMatchup({
     reconciliation: { ...reconciliation, weights: undefined,
       raw_projection: { margin: r2(mean(margins)), total: r2(mean(totals)) } },
     example_drives: exampleDrives,
-    play_model: { version: PLAY_MODEL_VERSION, formation_sampling: 'team shotgun rate + down, distance and play call',
+    play_model: { version: PLAY_MODEL_VERSION, calibration: calibration?.available ? {
+      version: calibration.version, cutoff: calibration.cutoff, evidence_hash: calibration.evidence_hash,
+      plays: calibration.plays, games: calibration.games, adjustments: calibration.adjustments } : {
+      available: false, reason: calibration?.reason ?? 'no chronological target week supplied' },
+      formation_sampling: 'team shotgun rate + down, distance and play call',
       state_tracking: 'score, quarter, game clock, possession, down, distance and field position' },
     policy_modules: P.MODULES.length,
     note: 'Scores are simulated play by play, not forecast. Moneyline, spread and total are read off ' +
@@ -764,16 +771,17 @@ export function simulateMatchup({
  * historical leads.
  */
 export function simulateRemainder({
-  home, away, trials = 4000, season = null, spread = null, total = null,
+  home, away, trials = 4000, season = null, week = null, spread = null, total = null,
   state, homeFieldPoints = 0, seed = null
 } = {}) {
-  const prof = blendedProfiles({ season });
+  const prof = blendedProfiles({ season, throughWeek: week });
   const H = prof.teams.get(String(home ?? '').toUpperCase());
   const A = prof.teams.get(String(away ?? '').toUpperCase());
   if (!H || !A) return { error: `no profile for ${!H ? home : away}` };
 
-  const homeCtx = buildContext(H, A, prof.league);
-  const awayCtx = buildContext(A, H, prof.league);
+  const calibration = season != null && week != null ? simulationCalibrationFor(season, week) : null;
+  const homeCtx = calibrateSimulationContext(buildContext(H, A, prof.league), calibration);
+  const awayCtx = calibrateSimulationContext(buildContext(A, H, prof.league), calibration);
   const surface = epFor(prof.league);
   const ep = y => expectedPoints(surface, y);
 

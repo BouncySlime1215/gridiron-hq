@@ -61,7 +61,10 @@ const INPUT_TABLES = [
   'weekly_ensemble_fits', 'nfl_ensemble_fit_artifacts', 'nfl_line_snapshots',
   'nfl_news_signals', 'news_items', 'nfl_external_player_grades',
   'nfl_rookie_evidence', 'nfl_team_coaches', 'player_team_changes',
-  'nfl_player_roster_events', 'nfl_roster_snapshots'
+  'nfl_player_roster_events', 'nfl_roster_snapshots', 'nfl_play_by_play',
+  'nfl_play_formations', 'nfl_play_charting', 'nfl_verified_events',
+  'nfl_team_feature_vectors', 'nfl_player_feature_vectors', 'nfl_team_cards',
+  'nfl_quote_tape'
 ];
 const sha = value => createHash('sha256').update(value).digest('hex');
 
@@ -84,7 +87,9 @@ function inputDataState(spec = null) {
   const afterSeason = maxSeason == null ? null : `${maxSeason + 1}-03-01T00:00:00.000Z`;
   const seasonTables = new Set(['game_lines', 'nfl_team_week_features', 'nfl_player_week_features',
     'nfl_depth', 'nfl_injuries', 'nfl_ngs', 'nfl_pfr_adv', 'nfl_snaps', 'nfl_external_player_grades',
-    'nfl_rookie_evidence', 'nfl_team_coaches']);
+    'nfl_rookie_evidence', 'nfl_team_coaches', 'nfl_play_by_play',
+    'nfl_play_formations', 'nfl_play_charting', 'nfl_verified_events',
+    'nfl_team_feature_vectors', 'nfl_player_feature_vectors', 'nfl_team_cards']);
   for (const table of INPUT_TABLES) {
     if (!tables.has(table)) { coverage[table] = { rows: 0, missing: true }; continue; }
     const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(x => x.name);
@@ -97,6 +102,8 @@ function inputDataState(spec = null) {
       where = ' WHERE published_at<?'; params = [afterSeason];
     } else if (afterSeason && table === 'nfl_line_snapshots') {
       where = ' WHERE commence_time IS NULL OR commence_time<?'; params = [afterSeason];
+    } else if (afterSeason && table === 'nfl_quote_tape') {
+      where = ' WHERE commence_time<?'; params = [afterSeason];
     } else if (afterSeason && table === 'nfl_player_roster_events') {
       where = ' WHERE effective_at<?'; params = [afterSeason];
     } else if (afterSeason && table === 'nfl_roster_snapshots') {

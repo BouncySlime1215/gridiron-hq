@@ -52,6 +52,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_injuries (
     season INTEGER, week INTEGER, gsis_id TEXT, team TEXT, full_name TEXT,
     position TEXT, report_status TEXT, practice_status TEXT, injury TEXT,
+    modified_at TEXT,
     PRIMARY KEY (season, week, gsis_id)
   );
 `);
@@ -62,6 +63,8 @@ db.exec(`
 const snapColumns = new Set(db.prepare('PRAGMA table_info(nfl_snaps)').all().map(x => x.name));
 if (!snapColumns.has('defense_snaps')) db.exec('ALTER TABLE nfl_snaps ADD COLUMN defense_snaps INTEGER');
 if (!snapColumns.has('defense_pct')) db.exec('ALTER TABLE nfl_snaps ADD COLUMN defense_pct REAL');
+const injuryColumns = new Set(db.prepare('PRAGMA table_info(nfl_injuries)').all().map(x => x.name));
+if (!injuryColumns.has('modified_at')) db.exec('ALTER TABLE nfl_injuries ADD COLUMN modified_at TEXT');
 
 /* ------------------------------------------------------------ csv plumbing */
 
@@ -171,6 +174,7 @@ export async function syncPfrAdv(seasons) {
     VALUES (?,?,?,?,?,?,?)
     ON CONFLICT(season, week, player_name, kind) DO UPDATE SET stats=excluded.stats, team=excluded.team`);
   let total = 0;
+  const failures = [];
   for (const season of seasons) {
     for (const kind of ['pass', 'rec', 'def']) {
       const batch = [];
@@ -182,14 +186,20 @@ export async function syncPfrAdv(seasons) {
           batch.push([season, week, r.pfr_player_name, kind, r.team, r.opponent,
             JSON.stringify(pick(r, PFR_FIELDS[kind]))]);
         });
-      } catch { continue; } // a season without charted data yet is normal
+      } catch (error) {
+        failures.push({ season, kind,
+          source: `${REL}/pfr_advstats/advstats_week_${kind}_${season}.csv.gz`,
+          error: error.message });
+        continue;
+      }
       db.exec('BEGIN');
       try { for (const b of batch) stmt.run(...b); db.exec('COMMIT'); }
       catch (e) { db.exec('ROLLBACK'); throw e; }
       total += batch.length;
     }
   }
-  return { rows: total };
+  return { rows: total, failures, complete: failures.length === 0,
+    known_coverage: 'The nflverse weekly PFR advanced release begins in 2024; earlier 404s are source absence, not empty football data.' };
 }
 
 /* ------------------------------------------------------------- snap counts */
@@ -203,6 +213,7 @@ export async function syncSnaps(seasons) {
       defense_snaps=excluded.defense_snaps, defense_pct=excluded.defense_pct,
       st_pct=excluded.st_pct`);
   let total = 0;
+  const failures = [];
   for (const season of seasons) {
     const batch = [];
     try {
@@ -213,13 +224,18 @@ export async function syncSnaps(seasons) {
         batch.push([season, week, r.player, r.team, r.position,
           n(r.offense_snaps), n(r.offense_pct), n(r.defense_snaps), n(r.defense_pct), n(r.st_pct)]);
       });
-    } catch { continue; }
+    } catch (error) {
+      failures.push({ season, source: `${REL}/snap_counts/snap_counts_${season}.csv.gz`,
+        error: error.message });
+      continue;
+    }
     db.exec('BEGIN');
     try { for (const b of batch) stmt.run(...b); db.exec('COMMIT'); }
     catch (e) { db.exec('ROLLBACK'); throw e; }
     total += batch.length;
   }
-  return { rows: total };
+  return { rows: total, failures, complete: failures.length === 0,
+    policy: 'A source failure remains visible and is never converted into zero participation.' };
 }
 
 /* ------------------------------------------------------------ depth charts */
@@ -322,29 +338,38 @@ function weekFromDate(season, dt) {
 
 export async function syncInjuries(seasons) {
   const stmt = db.prepare(`INSERT INTO nfl_injuries
-      (season, week, gsis_id, team, full_name, position, report_status, practice_status, injury)
-    VALUES (?,?,?,?,?,?,?,?,?)
+      (season, week, gsis_id, team, full_name, position, report_status, practice_status, injury,modified_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(season, week, gsis_id) DO UPDATE SET
-      report_status=excluded.report_status, practice_status=excluded.practice_status, injury=excluded.injury`);
+      report_status=excluded.report_status, practice_status=excluded.practice_status,
+      injury=excluded.injury,modified_at=excluded.modified_at`);
   let total = 0;
+  const failures = [];
   for (const season of seasons) {
     const batch = [];
     try {
-      await eachRow(`${REL}/injuries/injuries_${season}.csv.gz`, r => {
+      await eachRow(`${REL}/injuries/injuries_${season}.csv`, r => {
         const week = n(r.week);
         if (!week || !r.gsis_id) return;
-        if (r.season_type && r.season_type !== 'REG') return;
+        const seasonType = r.game_type || r.season_type;
+        if (seasonType && seasonType !== 'REG') return;
         batch.push([season, week, r.gsis_id, r.team, r.full_name, r.position,
           r.report_status || null, r.practice_status || null,
-          r.report_primary_injury || r.practice_primary_injury || null]);
+          r.report_primary_injury || r.practice_primary_injury || null,
+          r.date_modified || null]);
       });
-    } catch { continue; }
+    } catch (error) {
+      failures.push({ season, source: `${REL}/injuries/injuries_${season}.csv`, error: error.message });
+      continue;
+    }
     db.exec('BEGIN');
     try { for (const b of batch) stmt.run(...b); db.exec('COMMIT'); }
     catch (e) { db.exec('ROLLBACK'); throw e; }
     total += batch.length;
   }
-  return { rows: total };
+  return { rows: total, requested_seasons: seasons, failures,
+    complete: failures.length === 0,
+    policy: 'A failed source is reported explicitly and is never interpreted as an empty injury week.' };
 }
 
 /* ------------------------------------------------------------------- roles */

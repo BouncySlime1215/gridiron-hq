@@ -12,6 +12,7 @@ export const db = new DatabaseSync(DB_PATH);
 db.exec(`
   PRAGMA foreign_keys = ON;
   PRAGMA journal_mode = WAL;
+  PRAGMA busy_timeout = 15000;
 
   CREATE TABLE IF NOT EXISTS nfl_teams (
     id INTEGER PRIMARY KEY,

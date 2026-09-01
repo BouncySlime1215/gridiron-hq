@@ -17,7 +17,7 @@ import { replaySeasonWeekly } from './weekly-backtest.js';
 import { replaySeason } from './nfl-replay.js';
 import { PLAYER_HEAD_REGISTRY_VERSION, PLAYER_HEADS } from './player-head-registry.js';
 import { PLAYER_WEEK_ENGINE_VERSION } from './player-week-engine.js';
-import { NFL_PRODUCTION_POLICY } from './nfl-policy.js';
+import { NFL_HISTORICAL_REPLAY_POLICY } from './nfl-policy.js';
 import { explainPick } from './pick-reasoning.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { weeklyExpertAudit, persistWeeklyExpertAudit, EXPERT_COUNCIL_VERSION,
@@ -140,7 +140,7 @@ function normalizeSpec(input = {}) {
     player_engine: PLAYER_WEEK_ENGINE_VERSION,
     player_head_registry: PLAYER_HEAD_REGISTRY_VERSION,
     player_head_ids: PLAYER_HEADS.map(x => x.id),
-    betting_policy: NFL_PRODUCTION_POLICY,
+    betting_policy: NFL_HISTORICAL_REPLAY_POLICY,
     expert_council: EXPERT_COUNCIL_VERSION,
     expert_ids: NFL_EXPERTS.map(expert => expert.id),
     postgame_truth: POSTGAME_TRUTH_VERSION,

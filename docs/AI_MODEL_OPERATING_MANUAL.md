@@ -924,6 +924,24 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
 - This changed the player-builder's evidence surface, so the council lineage advanced to v3 and its
   results must be judged by a newly preregistered chronological audit rather than inherited scores.
 
+### 2026-09-01 — council v3 five-season result
+
+- Run 7 opened all 70 sealed weeks from 2021 Week 5 through 2025 Week 18 and scored 974 games.
+- The repaired player-builder covered all 974 games, called market-residual direction correctly
+  50.89% of the time, and recorded 14.118 RMSE. It is connected now, but it did not establish edge.
+- Similar games was the strongest raw direction head at 52.47%; line movement was 52.88% on only
+  195 observed games. Neither result grants production authority. The online neural head was 50.32%.
+- The historical selector graded 144 bets at 65 wins, 77 losses, two pushes, -16.952 units, and
+  -11.77% ROI. By year it recorded -9.038u, +2.770u, -1.616u, -10.893u, and +1.825u.
+- Verified news, live updating, and price shopping had zero historical audit coverage. They are
+  implemented roles, not validated models, until timestamped inputs and outcomes exist.
+- Run 7 also exposed a governance naming error: its frozen manifest named the current production
+  policy, while the replay intentionally graded the older no-calibration selector. The result remains
+  a valid diagnostic of that historical selector, but not a test of today's calibration-gated policy.
+  Future manifests now pin the separately named `nfl-spread-historical-replay-v1` diagnostic contract.
+- Agreement between component models did not identify better bets (46.08% versus 45.00%, z=0.12).
+  Filtering on that observed split would be cherry-picking.
+
 ### 2026-08-31 — twelve-role weekly expert audit connected
 
 - Added one frozen weekly contract across twelve expert approaches, including explicit abstentions.

@@ -22,7 +22,8 @@
 import { db, rows, run } from '../db/index.js';
 import { fitEnsemble, ensembleLine } from './nfl-ensemble.js';
 import { mean, quantile, random, withRandomSeed } from './stats-util.js';
-import { NFL_PRODUCTION_POLICY, applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
+import { NFL_PRODUCTION_POLICY, NFL_HISTORICAL_REPLAY_POLICY,
+  applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_replay_runs (
@@ -133,8 +134,8 @@ export function replaySeason(season, {
   // Historical replay grades the policy that was actually live at the time.
   // It intentionally does not apply today's calibration gate retroactively:
   // that would turn a losing audit into an artificial zero-bet backtest.
-  const policy = normalizeNflPolicy({ minEdge, maxDisagreement, markets, maxPicksPerWeek,
-    requireCalibratedAdvantage: false });
+  const policy = normalizeNflPolicy({ ...NFL_HISTORICAL_REPLAY_POLICY,
+    minEdge, maxDisagreement, markets, maxPicksPerWeek });
   let currentWeek = null, weekly = [];
   const commitWeek = () => {
     if (!weekly.length) return;

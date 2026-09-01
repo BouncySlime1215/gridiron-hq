@@ -10,6 +10,8 @@ local SQLite file.
 For AI agents and model researchers, the living system contract, current audit truth, learning
 loop, news-verification rules, and execution queue are in
 [docs/AI_MODEL_OPERATING_MANUAL.md](docs/AI_MODEL_OPERATING_MANUAL.md).
+The latest sealed five-season result and plain-English roadmap are in
+[docs/MODEL_AUDIT_RUN_7.md](docs/MODEL_AUDIT_RUN_7.md).
 
 ---
 
@@ -161,14 +163,15 @@ the market model uses nested rolling-season holdouts, including refitting its
 hyperparameters and probability scale inside each training window. MLB player
 and league priors use only games before the projected date.
 
-NFL Auto Picks and Blind Replay share one production policy: at least a
-3-point ensemble edge and no more than 4.5 points of component disagreement.
-Those limits were frozen on 2018–2020 before the 2021–2025 holdout was opened.
-The sealed replay produced 157 bets, an 82–72 settled record, +2.55 units and
-+1.6% ROI. Its 95% ROI interval still crosses zero, so this is promising rather
-than proof of a durable edge. Advanced components abstain when their source
-data is missing, and performance weighting prevents a crowd of correlated weak
-forecasts from overruling the strongest prior.
+The latest sealed historical replay opened 70 weeks and scored 974 games. Its
+historical selector produced 144 bets, 65 wins, 77 losses, two pushes, -16.952
+units and -11.77% ROI. That is a failed diagnostic, not evidence of
+profitability. The current live publication policy also requires a separately
+validated calibration advantage, so Run 7 must not be described as a test of
+the live gate. See the audit report for the per-year and per-model breakdown.
+Advanced components abstain when their source data is missing, and performance
+weighting prevents a crowd of correlated weak forecasts from overruling the
+strongest prior.
 
 The fantasy season simulator also preserves decision timing: managers choose a
 lineup from pre-kickoff projections and only then are outcomes sampled. A bench

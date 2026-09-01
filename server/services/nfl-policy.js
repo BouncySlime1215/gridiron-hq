@@ -20,6 +20,18 @@ export const NFL_PRODUCTION_POLICY = Object.freeze({
   requireCalibratedAdvantage: true
 });
 
+// Historical diagnostics grade the selector that existed before the current
+// calibration gate. Name that contract explicitly so an audit manifest never
+// claims to test today's production policy while executing this older rule.
+export const NFL_HISTORICAL_REPLAY_POLICY = Object.freeze({
+  ...NFL_PRODUCTION_POLICY,
+  id: 'nfl-spread-historical-replay-v1',
+  version: '1.0.0',
+  requireCalibratedAdvantage: false,
+  authority: 'diagnostic_only',
+  note: 'Grades the historical selector; it is not the current production publication gate.'
+});
+
 export function normalizeNflPolicy(raw = {}) {
   const markets = (raw.markets ?? NFL_PRODUCTION_POLICY.markets)
     .filter(m => m === 'spread' || m === 'total');

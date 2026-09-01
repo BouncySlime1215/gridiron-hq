@@ -59,7 +59,9 @@ const INPUT_TABLES = [
   'nfl_team_week_features', 'nfl_player_week_features', 'nfl_depth',
   'nfl_injuries', 'nfl_ngs', 'nfl_pfr_adv', 'nfl_snaps', 'nfl_teams',
   'weekly_ensemble_fits', 'nfl_ensemble_fit_artifacts', 'nfl_line_snapshots',
-  'nfl_news_signals', 'news_items', 'nfl_external_player_grades'
+  'nfl_news_signals', 'news_items', 'nfl_external_player_grades',
+  'nfl_rookie_evidence', 'nfl_team_coaches', 'player_team_changes',
+  'nfl_player_roster_events', 'nfl_roster_snapshots'
 ];
 const sha = value => createHash('sha256').update(value).digest('hex');
 
@@ -81,7 +83,8 @@ function inputDataState(spec = null) {
   const maxSeason = spec?.seasons?.length ? Math.max(...spec.seasons) : null;
   const afterSeason = maxSeason == null ? null : `${maxSeason + 1}-03-01T00:00:00.000Z`;
   const seasonTables = new Set(['game_lines', 'nfl_team_week_features', 'nfl_player_week_features',
-    'nfl_depth', 'nfl_injuries', 'nfl_ngs', 'nfl_pfr_adv', 'nfl_snaps', 'nfl_external_player_grades']);
+    'nfl_depth', 'nfl_injuries', 'nfl_ngs', 'nfl_pfr_adv', 'nfl_snaps', 'nfl_external_player_grades',
+    'nfl_rookie_evidence', 'nfl_team_coaches']);
   for (const table of INPUT_TABLES) {
     if (!tables.has(table)) { coverage[table] = { rows: 0, missing: true }; continue; }
     const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(x => x.name);
@@ -94,6 +97,12 @@ function inputDataState(spec = null) {
       where = ' WHERE published_at<?'; params = [afterSeason];
     } else if (afterSeason && table === 'nfl_line_snapshots') {
       where = ' WHERE commence_time IS NULL OR commence_time<?'; params = [afterSeason];
+    } else if (afterSeason && table === 'nfl_player_roster_events') {
+      where = ' WHERE effective_at<?'; params = [afterSeason];
+    } else if (afterSeason && table === 'nfl_roster_snapshots') {
+      where = ' WHERE captured_at<?'; params = [afterSeason];
+    } else if (afterSeason && table === 'player_team_changes') {
+      where = ' WHERE detected_at<?'; params = [afterSeason];
     } else if (maxSeason != null && table === 'weekly_ensemble_fits') {
       where = ' WHERE through_season<=?'; params = [maxSeason];
     }

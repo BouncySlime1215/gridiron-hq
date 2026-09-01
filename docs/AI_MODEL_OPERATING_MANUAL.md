@@ -886,7 +886,7 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
 - Verified preseason role news enters through typed factual claims. AI prose cannot assign a rookie
   score, and unverified news remains quarantined.
 - The evidence learner fits on prior draft classes and must beat draft/depth on the latest held-out
-  class. It failed that test: 6.070 opportunity MAE versus 4.838 for draft/depth on 67 players from
+  class. It failed that test: 6.070 opportunity MAE versus 4.122 for draft/depth on 67 players from
   the 2025 class. Its production influence is therefore exactly zero. The evidence remains stored
   and will be retested automatically as new classes settle.
 - Full install backfills college seasons 2022–2025; quick install still acquires draft/combine and

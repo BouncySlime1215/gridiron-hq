@@ -153,9 +153,10 @@ function rookieProfiles(season) {
         json_extract(values_json,'$.draft_pick') draft_pick
       FROM nfl_rookie_evidence WHERE season=? AND evidence_type='draft'
         AND verification_state='verified' ORDER BY available_at DESC,id DESC`, season);
-    const fallback = rows(`SELECT p.id player_id,a.name,a.draft_round,a.draft_pick,a.draft_year
+    const configuredSeason = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+    const fallback = season === configuredSeason ? rows(`SELECT p.id player_id,a.name,a.draft_round,a.draft_pick,a.draft_year
       FROM player_accolades a JOIN roster_players r ON r.id=a.roster_player_id
-      LEFT JOIN players p ON p.espn_id=r.espn_id WHERE a.draft_year=?`, season);
+      LEFT JOIN players p ON p.espn_id=r.espn_id WHERE a.draft_year=?`, season) : [];
     const map = new Map();
     for (const item of [...evidence, ...fallback]) if (!map.has(normalize(item.name))) map.set(normalize(item.name), item);
     return map;

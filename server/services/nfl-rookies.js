@@ -75,11 +75,12 @@ export function draftBand(pick) {
  * Survivorship-limited; see the file header.
  */
 export function measureRookiePriors() {
-  const acc = rows(`SELECT a.name, a.draft_round, a.draft_pick, a.draft_year, r.position
-                    FROM player_accolades a JOIN roster_players r ON r.id = a.roster_player_id
-                    WHERE a.draft_pick IS NOT NULL AND a.draft_year IS NOT NULL
-                      AND r.position IN ('QB','RB','WR','TE')`);
-  const nameToId = new Map(rows(`SELECT id, name FROM players`).map(p => [p.name.toLowerCase(), p.id]));
+  const acc = rows(`SELECT player_id,player_name name,position,season draft_year,
+      json_extract(values_json,'$.draft_round') draft_round,
+      json_extract(values_json,'$.draft_pick') draft_pick
+    FROM nfl_rookie_evidence WHERE evidence_type='draft' AND verification_state='verified'
+      AND player_id IS NOT NULL AND json_extract(values_json,'$.draft_pick') IS NOT NULL
+      AND position IN ('QB','RB','WR','TE')`);
   const usage = new Map();
   for (const u of rows(`SELECT player_id, season,
                                SUM(COALESCE(targets,0)+COALESCE(carries,0)+COALESCE(attempts,0)) opp,
@@ -90,9 +91,7 @@ export function measureRookiePriors() {
   }
   const points = [];
   for (const a of acc) {
-    const pid = nameToId.get(a.name.toLowerCase());
-    if (!pid) continue;
-    const u = usage.get(`${pid}|${a.draft_year}`);
+    const u = usage.get(`${a.player_id}|${a.draft_year}`);
     if (!u || u.g < 4) continue;
     points.push({ position: a.position, band: draftBand(a.draft_pick), pick: a.draft_pick,
       opp_per_game: u.opp / u.g, targets_per_game: u.targets / u.g,
@@ -116,8 +115,8 @@ export function measureRookiePriors() {
     by_band_position: Object.fromEntries(Object.entries(byBandPos)
       .filter(([, v]) => v.length >= 4)
       .map(([k, v]) => [k, summarize(v)])),
-    caveat: 'Draft capital is joined via the 2026 roster snapshot, so these are surviving rookies. ' +
-      'Late-round bands overstate; they are collapsed into R4+ and shrunk hard downstream.'
+    caveat: 'Draft capital is joined through nflverse GSIS/PFR identities rather than a current-roster snapshot. ' +
+      'Thin late-round bands are still collapsed into R4+ and shrunk hard downstream.'
   };
 }
 

@@ -10,8 +10,9 @@ local SQLite file.
 For AI agents and model researchers, the living system contract, current audit truth, learning
 loop, news-verification rules, and execution queue are in
 [docs/AI_MODEL_OPERATING_MANUAL.md](docs/AI_MODEL_OPERATING_MANUAL.md).
-The latest sealed five-season result and plain-English roadmap are in
-[docs/MODEL_AUDIT_RUN_7.md](docs/MODEL_AUDIT_RUN_7.md).
+The current execution queue is in [docs/PROFITABILITY_PLAN.md](docs/PROFITABILITY_PLAN.md),
+and the exact recovered Audit 8 identity and results are in
+[docs/NFL_AUDIT_RUN_8_MANIFEST.json](docs/NFL_AUDIT_RUN_8_MANIFEST.json).
 
 ---
 

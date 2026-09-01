@@ -65,6 +65,7 @@ const signed = (value: number | null | undefined, digits = 3) => value == null ?
 
 export function ProfitabilityControl() {
   const ops = useApi<ProfitabilityOps>('/nfl-betting/profitability');
+  const council = useApi<any>('/nfl-betting/expert-council');
   const news = useApi<{ coverage: { signals: number; stories: number; players: number; recent_material_untyped: number; latest: string | null } }>('/nfl-betting/news/signals');
   const [passing, setPassing] = useState<PassingAudit | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -114,6 +115,7 @@ export function ProfitabilityControl() {
     <SectionHeading eyebrow="Profitability plan" title="Forward edge control room"
       description="Prediction quality, market edge and execution are separate gates. Historical diagnostics can reject ideas; only the frozen 2026 ledger can authorize a model-derived stake." />
     <ProfitReadiness readiness={d.readiness} />
+    <SpecialistMatrix council={council.data} loading={council.loading} />
     <div className="flex flex-wrap items-center gap-2">
       <StatusPill tone={d.state === 'review_eligible' ? 'good' : 'warn'}>{d.state.replaceAll('_', ' ')}</StatusPill>
       <StatusPill tone="info">engine {d.gridiron_engine.current_version.slice(-19)}</StatusPill>
@@ -211,6 +213,36 @@ export function ProfitabilityControl() {
     <Notice title={`${d.historical_lines.rows.toLocaleString()} historical team-lines sourced`} tone="info">{d.historical_lines.min_season}–{d.historical_lines.max_season} closing spreads and totals are available from nflverse. {d.historical_lines.limitation}</Notice>
     <Notice title="External opportunity benchmark connected" tone="info">ffopportunity contributes {d.external_benchmarks.ffopportunity.rows.toLocaleString()} cutoff-safe player-week rows across {d.external_benchmarks.ffopportunity.seasons} seasons. It remains a zero-authority shadow comparator until chronological validation proves it improves the shared engine.</Notice>
   </section>;
+}
+
+function SpecialistMatrix({ council, loading }: { council: any; loading: boolean }) {
+  if (loading) return <Notice title="Loading specialist coverage" tone="info">Reading the reset model state without treating missing opinions as zero.</Notice>;
+  if (!council) return <Notice title="Specialist coverage unavailable" tone="warn">The specialist reporting endpoint did not return a status.</Notice>;
+  const reporting = council.reporting ?? {};
+  const games = council.matrix?.games ?? [];
+  const statusTone = (status: string) => status === 'forecast' ? 'bg-emerald-100 text-emerald-800'
+    : status === 'support' ? 'bg-cyan-100 text-cyan-800'
+      : status === 'missing' || status === 'not_recorded' ? 'bg-rose-100 text-rose-800'
+        : 'bg-slate-100 text-slate-600';
+  return <details className="card overflow-hidden" open>
+    <summary className="cursor-pointer border-b border-slate-200 bg-cyan-50 px-4 py-4">
+      <div className="font-black text-slate-900">Game × specialist truth matrix</div>
+      <div className="mt-1 text-xs text-slate-600">{reporting.observed_outputs ?? 0} with observed output · {reporting.forecasting ?? 0} with numeric forecasts · {reporting.not_run ?? 0} not run · {reporting.zero_coverage ?? 0} with zero coverage</div>
+    </summary>
+    <div className="grid gap-px bg-slate-200 sm:grid-cols-4">
+      <SignalCard label="Registered specialists" value={`${reporting.specialists ?? 12}`} detail="Every role stays visible" />
+      <SignalCard label="Observed output" value={`${reporting.observed_outputs ?? 0}`} detail="Support or a forecast was actually present" />
+      <SignalCard label="Numeric forecasts" value={`${reporting.forecasting ?? 0}`} detail="Eligible for directional scoring" />
+      <SignalCard label="Zero coverage" value={`${reporting.zero_coverage ?? 0}`} detail="Explicitly missing, never converted to zero" tone={(reporting.zero_coverage ?? 0) ? 'bad' : 'neutral'} />
+    </div>
+    {games.length === 0
+      ? <div className="p-4 text-sm text-slate-600">No post-reset audit games have been recorded yet. This is an empty model-memory state, not “12 specialists reporting.”</div>
+      : <div className="overflow-x-auto"><table className="w-full text-left text-xs">
+        <thead className="bg-slate-50 text-[9px] uppercase tracking-wide text-slate-400"><tr><th className="sticky left-0 bg-slate-50 px-3 py-2">Game</th>{(council.registry ?? []).map((expert: any) => <th key={expert.id} className="min-w-28 px-3 py-2">{expert.name}</th>)}</tr></thead>
+        <tbody>{games.map((game: any) => <tr key={`${game.season}-${game.week}-${game.home}`} className="border-t border-slate-100"><td className="sticky left-0 bg-white px-3 py-2 font-bold text-slate-900">{game.away} @ {game.home}<div className="text-[9px] font-normal text-slate-400">{game.season} W{game.week}</div></td>{game.specialists.map((cell: any) => <td key={cell.id} className="px-3 py-2 align-top"><span className={`rounded px-1.5 py-1 text-[8px] font-black uppercase ${statusTone(cell.status)}`}>{cell.status.replaceAll('_', ' ')}</span><div className="mt-1 tabular-nums text-slate-700">{cell.forecast_residual == null ? '—' : `${cell.forecast_residual > 0 ? '+' : ''}${cell.forecast_residual}`}</div>{cell.missing_reason && <div className="mt-1 max-w-40 text-[9px] leading-4 text-rose-700">{cell.missing_reason}</div>}</td>)}</tr>)}</tbody>
+      </table></div>}
+    <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-[11px] text-slate-600">{reporting.rule}</div>
+  </details>;
 }
 
 function ProfitReadiness({ readiness: r }: { readiness: ProfitabilityOps['readiness'] }) {

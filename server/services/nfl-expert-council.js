@@ -171,6 +171,41 @@ function output(id, { forecast = null, uncertainty = null, observed = forecast !
     authority, missing_reason: observed ? null : (missingReason ?? 'required evidence unavailable'), detail };
 }
 
+function reportingState(registry, row = {}) {
+  const examples = Number(row.examples ?? 0);
+  const observed = Number(row.observed ?? 0);
+  const forecasts = Number(row.forecasts ?? row.directional_calls ?? 0);
+  const missing = Math.max(0, examples - observed);
+  let state = 'not_run';
+  if (examples > 0 && observed === 0) {
+    state = registry.lifecycle === 'pregame' ? 'zero_coverage' : 'different_lifecycle';
+  } else if (observed > 0 && forecasts === 0) {
+    state = registry.score === 'market_residual' ? 'support_only' : 'different_score';
+  } else if (forecasts > 0 && forecasts < examples) {
+    state = 'partial_forecast';
+  } else if (forecasts > 0) {
+    state = 'forecasting';
+  }
+  return { ...registry, ...row, examples, observed, forecasts, missing,
+    coverage: examples ? r3(observed / examples) : 0,
+    forecast_coverage: examples ? r3(forecasts / examples) : 0,
+    reporting_state: state };
+}
+
+function matrixCell(registry, row) {
+  if (!row) return { id: registry.id, status: 'not_recorded', observed: false,
+    forecast_residual: null, missing_reason: 'specialist row was not persisted' };
+  const observed = Boolean(row.observed);
+  const forecast = Number.isFinite(row.forecast_residual);
+  const status = observed
+    ? (forecast ? 'forecast' : 'support')
+    : (registry.lifecycle === 'pregame' ? 'missing' : 'different_lifecycle');
+  return { id: registry.id, status, observed, forecast_residual: forecast ? row.forecast_residual : null,
+    uncertainty: row.uncertainty ?? null, authority: row.authority ?? null,
+    missing_reason: observed ? null : (row.missing_reason ?? 'required evidence unavailable'),
+    directional_correct: row.directional_correct == null ? null : Boolean(row.directional_correct) };
+}
+
 function familyCouncil(line, marketMargin) {
   const groups = new Map();
   for (const model of line.models ?? []) {
@@ -641,9 +676,13 @@ export function expertLearningRows({ beforeSeason, beforeWeek } = {}) {
 export function expertCouncilStatus() {
   const totals = rows(`SELECT COUNT(*) examples,COUNT(DISTINCT season||'-'||week) weeks,COUNT(DISTINCT home||'-'||season||'-'||week) games,
     MAX(created_at) latest FROM nfl_weekly_expert_examples`)[0];
-  const experts = rows(`SELECT expert_id,COUNT(*) examples,SUM(observed) observed,
+  const aggregateRows = rows(`SELECT expert_id,COUNT(*) examples,SUM(observed) observed,
+    SUM(CASE WHEN forecast_residual IS NOT NULL THEN 1 ELSE 0 END) forecasts,
+    SUM(CASE WHEN observed=0 THEN 1 ELSE 0 END) missing,
     AVG(CASE WHEN directional_correct IS NOT NULL THEN directional_correct END) directional_rate,
     AVG(squared_error) mean_squared_error FROM nfl_weekly_expert_examples GROUP BY expert_id ORDER BY expert_id`);
+  const aggregateById = new Map(aggregateRows.map(item => [item.expert_id, item]));
+  const experts = NFL_EXPERTS.map(registry => reportingState(registry, aggregateById.get(registry.id)));
   const lifecycleRows = rows(`SELECT expert_id,payload_json FROM nfl_weekly_expert_examples
     WHERE observed=1 AND expert_id IN ('game_replay','player_opportunity')`);
   const lifecycle = new Map();
@@ -674,8 +713,36 @@ export function expertCouncilStatus() {
   const forward = rows(`SELECT COUNT(*) predictions,COUNT(DISTINCT season||'-'||week||'-'||home) games,
     SUM(CASE WHEN s.prediction_id IS NOT NULL THEN 1 ELSE 0 END) settled
     FROM nfl_expert_forward_predictions p LEFT JOIN nfl_expert_forward_settlements s ON s.prediction_id=p.id`)[0];
+  const latestAuditRunId = rows('SELECT MAX(audit_run_id) id FROM nfl_weekly_expert_examples')[0]?.id ?? null;
+  const recentRows = latestAuditRunId == null ? [] : rows(`SELECT season,week,home,away,expert_id,observed,
+    forecast_residual,uncertainty,authority,missing_reason,directional_correct
+    FROM nfl_weekly_expert_examples WHERE audit_run_id=?
+      AND (season||'|'||week||'|'||home) IN (
+        SELECT season||'|'||week||'|'||home FROM nfl_weekly_expert_examples
+        WHERE audit_run_id=? GROUP BY season,week,home ORDER BY season DESC,week DESC,home LIMIT 16
+      )
+    ORDER BY season DESC,week DESC,home,expert_id`, latestAuditRunId, latestAuditRunId);
+  const gameMap = new Map();
+  for (const item of recentRows) {
+    const key = `${item.season}|${item.week}|${item.home}`;
+    const game = gameMap.get(key) ?? { season: item.season, week: item.week, home: item.home,
+      away: item.away, rows: new Map() };
+    game.rows.set(item.expert_id, item); gameMap.set(key, game);
+  }
+  const matrixGames = [...gameMap.values()].map(game => ({ season: game.season, week: game.week,
+    home: game.home, away: game.away,
+    specialists: NFL_EXPERTS.map(registry => matrixCell(registry, game.rows.get(registry.id))) }));
+  const reporting = { specialists: NFL_EXPERTS.length,
+    observed_outputs: experts.filter(item => item.observed > 0).length,
+    forecasting: experts.filter(item => item.forecasts > 0).length,
+    not_run: experts.filter(item => item.reporting_state === 'not_run').length,
+    zero_coverage: experts.filter(item => item.reporting_state === 'zero_coverage').length,
+    different_lifecycle_or_score: experts.filter(item => ['different_lifecycle', 'different_score', 'support_only']
+      .includes(item.reporting_state)).length,
+    rule: 'Observed support, numeric forecasts, execution outputs, lifecycle differences and missing rows are counted separately.' };
   return { version: EXPERT_COUNCIL_VERSION, registry: NFL_EXPERTS, examples: Number(totals?.examples ?? 0),
     weeks: Number(totals?.weeks ?? 0), games: Number(totals?.games ?? 0), latest: totals?.latest ?? null, experts,
+    reporting, matrix: { audit_run_id: latestAuditRunId, games: matrixGames },
     forward: { predictions: Number(forward?.predictions ?? 0), games: Number(forward?.games ?? 0), settled: Number(forward?.settled ?? 0) },
     connection: 'blind audit → immutable weekly expert rows → cutoff-filtered learning dataset → candidate evaluation' };
 }
@@ -699,4 +766,4 @@ export function expertCouncilGame(season, week, home) {
     authority: 'candidate evidence only; the production number and staking policy are unchanged' };
 }
 
-export const __test = { analogPrediction, output, movementFor, newsFor, shoppingFor, opportunityFor };
+export const __test = { analogPrediction, output, reportingState, matrixCell, movementFor, newsFor, shoppingFor, opportunityFor };

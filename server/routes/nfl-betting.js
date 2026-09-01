@@ -77,6 +77,7 @@ import { nflFeatureCoverage } from '../services/nfl-feature-coverage.js';
 import { weeklyFeatureStoreStatus } from '../services/nfl-weekly-feature-store.js';
 import { teamCardCoverage } from '../services/nfl-team-card.js';
 import { nflRebuildProgress } from '../services/nfl-rebuild-progress.js';
+import { expertCouncilStatus } from '../services/nfl-expert-council.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
@@ -317,6 +318,11 @@ r.get('/heads', (req, res, next) => {
 
 r.get('/blind-audits/protocol', (_req, res, next) => {
   try { res.json(blindAuditProtocol()); }
+  catch (e) { next(e); }
+});
+
+r.get('/expert-council', (_req, res, next) => {
+  try { res.json(expertCouncilStatus()); }
   catch (e) { next(e); }
 });
 

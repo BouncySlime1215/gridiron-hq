@@ -1,0 +1,66 @@
+{
+  "schema_version": "nfl-audit-run-manifest-v1",
+  "run_id": 8,
+  "label": "NFL 2022-2025 cutoff-safe reconstruction audit · shared weekly state v1",
+  "classification": "historical_algorithmically_blind_replay",
+  "status": "complete",
+  "registered_at": "2026-09-01 15:01:41",
+  "hashes": {
+    "commit": "9d6b60b4c736d2c3b089da7e43b0b638780f75c5",
+    "spec": "68ebcfe04b2aa4497000435ac49a0c4323181ba4fff1032cc14449d47499d1f8",
+    "code": "85ca0915d2fe24e691ac5b347524e7719bcf4d3d9f15c4417399f68a4863e4cd",
+    "data": "218ac2938f4b69d5f671429096eaccedf4089c8ca082e153f6e76ba6a714b8a2"
+  },
+  "schedule": {
+    "seasons": [2022, 2023, 2024, 2025],
+    "start_week": 5,
+    "end_week": 18,
+    "expected_weeks": 56,
+    "opened_weeks": 56
+  },
+  "timing": {
+    "first_week_opened_at": "2026-09-01 15:02:06",
+    "last_week_opened_at": "2026-09-01 15:52:23",
+    "elapsed_wall_seconds": 3042,
+    "limitation": "Audit protocol v1 stored week-open timestamps, not per-phase latency."
+  },
+  "coverage": {
+    "games": 831,
+    "coordinator_ready_games": 700,
+    "deep_gameplay_games": 769,
+    "specialists": [
+      { "id": "rulebook", "observed": 831, "forecast_calls": 811, "coverage": 1.0, "directional_rate": 0.4624 },
+      { "id": "player_builder", "observed": 831, "forecast_calls": 811, "coverage": 1.0, "directional_rate": 0.5142 },
+      { "id": "game_replay", "observed": 831, "forecast_calls": 810, "coverage": 1.0, "directional_rate": 0.4691 },
+      { "id": "similar_games", "observed": 831, "forecast_calls": 811, "coverage": 1.0, "directional_rate": 0.4871 },
+      { "id": "boosted_tree", "observed": 831, "forecast_calls": 810, "coverage": 1.0, "directional_rate": 0.516 },
+      { "id": "deep_residual", "observed": 815, "forecast_calls": 795, "coverage": 0.9807, "directional_rate": 0.517 },
+      { "id": "specialist_team", "observed": 831, "forecast_calls": 312, "coverage": 1.0, "directional_rate": 0.4904 },
+      { "id": "line_movement", "observed": 0, "forecast_calls": 0, "coverage": 0, "directional_rate": null },
+      { "id": "news_reaction", "observed": 0, "forecast_calls": 0, "coverage": 0, "directional_rate": null },
+      { "id": "live_updater", "observed": 0, "forecast_calls": 0, "coverage": 0, "directional_rate": null },
+      { "id": "price_shopper", "observed": 0, "forecast_calls": 0, "coverage": 0, "directional_rate": null },
+      { "id": "player_opportunity", "observed": 831, "forecast_calls": 0, "coverage": 1.0, "directional_rate": null }
+    ]
+  },
+  "results": {
+    "overall": { "bets": 113, "wins": 55, "losses": 57, "pushes": 1, "win_rate": 0.4911, "units": -6.242, "roi": -0.0552 },
+    "by_season": [
+      { "season": 2022, "weeks": 14, "bets": 29, "wins": 18, "losses": 11, "pushes": 0, "units": 5.533 },
+      { "season": 2023, "weeks": 14, "bets": 20, "wins": 9, "losses": 10, "pushes": 1, "units": -1.616 },
+      { "season": 2024, "weeks": 14, "bets": 38, "wins": 14, "losses": 24, "pushes": 0, "units": -10.893 },
+      { "season": 2025, "weeks": 14, "bets": 26, "wins": 14, "losses": 12, "pushes": 0, "units": 0.734 }
+    ]
+  },
+  "failures": {
+    "persisted_week_failures": 0,
+    "retries": null,
+    "limitation": "Audit protocol v1 did not persist retry attempts, phase failures, or per-phase timing. The completed result must not be read as proof that no transient retry occurred."
+  },
+  "calibration": {
+    "available": false,
+    "limitation": "Audit protocol v1 did not persist probability forecasts on the identical settled selection rows, so no calibration metric is manufactured for this manifest."
+  },
+  "source": "Recovered read-only from server/data.sqlite.pre-reset-20260901-135647.bak after the requested model-memory reset.",
+  "interpretation": "Historical chronological diagnostic only. The selector did not beat the market. Profitability promotion requires the preregistered 2026 forward ledger with authentic decision and closing prices."
+}

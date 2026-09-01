@@ -407,6 +407,67 @@ function aggregate(weeks) {
   };
 }
 
+function bettingSummary(weeks) {
+  const metrics = weeks.map(item => item.result?.betting?.metrics).filter(item => Number.isFinite(item?.bets));
+  const bets = metrics.reduce((sum, item) => sum + item.bets, 0);
+  const wins = metrics.reduce((sum, item) => sum + (item.wins ?? 0), 0);
+  const losses = metrics.reduce((sum, item) => sum + (item.losses ?? 0), 0);
+  const pushes = metrics.reduce((sum, item) => sum + (item.pushes ?? Math.max(0, item.bets - (item.wins ?? 0) - (item.losses ?? 0))), 0);
+  const units = metrics.reduce((sum, item) => sum + (item.units ?? 0), 0);
+  return { bets, wins, losses, pushes, win_rate: wins + losses ? +(wins / (wins + losses)).toFixed(4) : null,
+    units: +units.toFixed(3), roi: bets ? +(units / bets).toFixed(4) : null };
+}
+
+function runManifest(record, weeks) {
+  const spec = record.spec ?? JSON.parse(record.spec_json);
+  const final = record.final ?? (record.final_json ? JSON.parse(record.final_json) : null);
+  const opened = weeks.map(item => item.opened_at).filter(Boolean).sort();
+  const last = opened.at(-1) ?? null;
+  const createdMs = Date.parse(record.created_at), lastMs = Date.parse(last);
+  const failures = [];
+  for (const item of weeks) {
+    if (item.result?.betting?.metrics?.error) failures.push({ season: item.season, week: item.week,
+      phase: 'betting', error: item.result.betting.metrics.error });
+    for (const game of item.result?.expert_council?.games ?? []) if (game.error) failures.push({
+      season: item.season, week: item.week, game: `${game.game?.away ?? '?'} at ${game.game?.home ?? '?'}`,
+      phase: 'expert_council', error: game.error });
+    for (const game of item.result?.postgame_truth ?? []) if (game.error) failures.push({
+      season: item.season, week: item.week, game: game.game ?? null, phase: 'postgame_truth', error: game.error });
+  }
+  const bySeason = (spec.seasons ?? []).map(season => ({ season,
+    weeks_opened: weeks.filter(item => item.season === season).length,
+    ...bettingSummary(weeks.filter(item => item.season === season)) }));
+  const inputTables = Object.entries(spec.provenance?.data_coverage ?? {}).map(([table, state]) => ({
+    table, rows: state.rows ?? 0, hash: state.hash ?? null, missing: Boolean(state.missing), scope: state.scope ?? null
+  }));
+  return {
+    schema_version: 'nfl-audit-run-manifest-v1', run_id: record.id, label: record.label,
+    classification: spec.classification, status: record.status,
+    hashes: { spec: record.spec_hash, code: record.code_hash, data: record.data_hash,
+      commit: spec.provenance?.code?.commit ?? null,
+      final_chain: weeks.at(-1)?.chain_hash ?? record.spec_hash },
+    versions: { player_engine: spec.player_engine, player_head_registry: spec.player_head_registry,
+      expert_council: spec.expert_council, postgame_truth: spec.postgame_truth },
+    schedule: { seasons: spec.seasons, start_week: spec.startWeek, end_week: spec.endWeek,
+      expected_weeks: spec.schedule?.length ?? 0, opened_weeks: weeks.length },
+    timing: { registered_at: record.created_at, first_week_opened_at: opened[0] ?? null,
+      last_week_opened_at: last,
+      elapsed_wall_seconds: Number.isFinite(createdMs) && Number.isFinite(lastMs)
+        ? Math.max(0, Math.round((lastMs - createdMs) / 1000)) : null,
+      limitation: 'v1 records week-open timestamps, not per-phase latency' },
+    coverage: { input_tables: inputTables, expert_games: final?.expert_learning?.games ?? 0,
+      coordinator_ready_games: final?.expert_learning?.coordinator_ready_games ?? 0,
+      specialists: final?.expert_learning?.experts ?? [],
+      deep_postgame_games: final?.postgame_learning?.deep_gameplay_coverage ?? 0 },
+    failures: { count: failures.length, items: failures,
+      retries: { recorded: false, count: null, reason: 'audit protocol v1 did not persist retry attempts' } },
+    results: { overall: bettingSummary(weeks), by_season: bySeason },
+    calibration: { available: false,
+      reason: 'audit protocol v1 did not persist probability forecasts on the identical settled selection rows' },
+    interpretation: final?.interpretation ?? 'Historical chronological replay only; no profitability promotion authority.'
+  };
+}
+
 export function runNextBlindAuditWeek(id) {
   const record = rows('SELECT * FROM nfl_blind_audit_runs WHERE id=?', Number(id))[0];
   if (!record) throw new Error('blind audit not found');
@@ -459,7 +520,7 @@ export function blindAuditStatus(id) {
                       WHERE run_id=? ORDER BY ordinal`, record.id).map(x => ({ ...x,
     result: JSON.parse(x.result_json), faults: JSON.parse(x.fault_json), result_json: undefined, fault_json: undefined }));
   return { ...record, progress: { opened: weeks.length, total: record.spec.schedule.length,
-    next: record.spec.schedule[record.next_ordinal] ?? null }, weeks };
+    next: record.spec.schedule[record.next_ordinal] ?? null }, manifest: runManifest(record, weeks), weeks };
 }
 
 export function listBlindAudits() {
@@ -470,3 +531,5 @@ export function blindAuditProtocol() {
   return { ...normalizeSpec({}), input_tables: INPUT_TABLES,
     warning: 'Do not preregister until the model code is committed and the input data snapshot is frozen.' };
 }
+
+export const __test = { bettingSummary, runManifest };

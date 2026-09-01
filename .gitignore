@@ -5,6 +5,10 @@ node_modules/
 server/data.sqlite
 server/data.sqlite-shm
 server/data.sqlite-wal
+# Safety copies created before local model-memory resets. They are intentionally
+# kept beside the live database, but must never make an audit look code-dirty or
+# be committed to GitHub.
+server/data.sqlite*.bak
 
 # secrets
 .env

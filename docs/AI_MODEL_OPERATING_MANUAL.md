@@ -59,9 +59,26 @@ Every AI agent working in this repository must follow these rules.
 14. Make reversible changes, test them, and record what changed and why.
 15. Commit cohesive verified work. Do not commit database files, keys, cookies, or local secrets.
 
-## 2. Current truth snapshot — 2026-08-31
+## 2. Current truth snapshot — 2026-09-01
 
 This snapshot is a research fact, not a permanent product claim.
+
+### 2.0 Audit 8 and the clean-memory boundary
+
+Audit run 8 completed a 2022–2025, Weeks 5–18 chronological reconstruction: 831 games,
+113 paper selections, 55 wins, 57 losses, one push, -6.242 units and -5.52% ROI. The
+selector did not beat the market. Seven specialists made at least one directional call,
+eight produced an observed supporting output, and four had zero historical coverage.
+Those categories must never be collapsed into a single “reporting” number.
+
+On 2026-09-01 the local learned/audit memory was reset after a recoverable database backup.
+Raw football evidence, live possession data and forward operational records were preserved.
+The next historical run is a clean chronological reconstruction from empty learned state, but
+it is not a new untouched holdout: the 2022–2025 results have already been inspected. Only the
+preregistered 2026 forward ledger can provide new blind evidence.
+
+The exact recovered run identity, hashes, timing, coverage, year-by-year result and telemetry
+limitations are published in `docs/NFL_AUDIT_RUN_8_MANIFEST.json`.
 
 ### 2.1 Current all-inputs development audit
 

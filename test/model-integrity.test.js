@@ -53,7 +53,7 @@ const { PLAYER_HEADS } = await import('../server/services/player-head-registry.j
 const { auditPlayerHeads } = await import('../server/services/player-head-validation.js');
 const { anytimeTdHit } = await import('../server/services/nfl-props.js');
 const { scoreSim } = await import('../server/services/scoring.js');
-const { blindAuditProtocol } = await import('../server/services/nfl-blind-audit.js');
+const { blindAuditProtocol, __test: blindAuditTest } = await import('../server/services/nfl-blind-audit.js');
 const { signalQualityCatalog, playerSignalTrace } = await import('../server/services/model-signal-quality.js');
 const { reconcileOutcomeWeights } = await import('../server/services/nfl-drive-sim.js');
 const { newsSourceVerification } = await import('../server/services/nfl-news-signal.js');
@@ -78,6 +78,35 @@ test('expert council registers every modelling role and missing evidence abstain
   assert.equal(missing.observed, false);
   assert.equal(missing.forecast_residual, null);
   assert.equal(missing.missing_reason, 'no verified claims');
+});
+
+test('expert reporting separates support, forecasts, zero coverage and lifecycle differences', () => {
+  const spread = NFL_EXPERTS.find(expert => expert.id === 'rulebook');
+  const usage = NFL_EXPERTS.find(expert => expert.id === 'player_opportunity');
+  const live = NFL_EXPERTS.find(expert => expert.id === 'live_updater');
+  assert.equal(expertCouncilTest.reportingState(spread,
+    { examples: 10, observed: 10, forecasts: 10 }).reporting_state, 'forecasting');
+  assert.equal(expertCouncilTest.reportingState(usage,
+    { examples: 10, observed: 10, forecasts: 0 }).reporting_state, 'different_score');
+  assert.equal(expertCouncilTest.reportingState(spread,
+    { examples: 10, observed: 0, forecasts: 0 }).reporting_state, 'zero_coverage');
+  assert.equal(expertCouncilTest.reportingState(live,
+    { examples: 10, observed: 0, forecasts: 0 }).reporting_state, 'different_lifecycle');
+});
+
+test('specialist matrix never turns a missing opinion into a zero forecast', () => {
+  const registry = NFL_EXPERTS.find(expert => expert.id === 'news_reaction');
+  const missing = expertCouncilTest.matrixCell(registry, {
+    observed: 0, forecast_residual: null, missing_reason: 'verified news unavailable'
+  });
+  assert.equal(missing.status, 'missing');
+  assert.equal(missing.forecast_residual, null);
+  assert.equal(missing.missing_reason, 'verified news unavailable');
+  const realZero = expertCouncilTest.matrixCell(registry, {
+    observed: 1, forecast_residual: 0, directional_correct: null
+  });
+  assert.equal(realZero.status, 'forecast');
+  assert.equal(realZero.forecast_residual, 0);
 });
 
 test('robust expert coordinator caps correlated influence and survives a giant weekly outlier', () => {
@@ -386,6 +415,33 @@ test('blind audit preregisters a fixed chronological week sequence and honest cl
   assert.equal(protocol.expert_ids.length, 12);
   assert.match(protocol.expert_council, /expert-council/);
   assert.ok(protocol.rules.some(x => /2026 forward shadow/i.test(x)));
+});
+
+test('blind audit manifest publishes hashes, per-season results and explicit telemetry gaps', () => {
+  const spec = blindAuditProtocol();
+  spec.seasons = [2024, 2025];
+  spec.schedule = [{ season: 2024, week: 5 }, { season: 2025, week: 5 }];
+  spec.provenance = { code: { commit: 'abc123' }, data_coverage: {
+    game_lines: { rows: 2, hash: 'data-table-hash', scope: 'all_rows' }
+  } };
+  const weeks = [
+    { season: 2024, week: 5, opened_at: '2026-09-01T12:01:00Z', chain_hash: 'chain-1',
+      result: { betting: { metrics: { bets: 2, wins: 1, losses: 1, pushes: 0, units: -0.09 } },
+        expert_council: { games: [] }, postgame_truth: [] } },
+    { season: 2025, week: 5, opened_at: '2026-09-01T12:02:00Z', chain_hash: 'chain-2',
+      result: { betting: { metrics: { bets: 1, wins: 1, losses: 0, pushes: 0, units: 0.91 } },
+        expert_council: { games: [] }, postgame_truth: [] } }
+  ];
+  const manifest = blindAuditTest.runManifest({ id: 8, label: 'audit 8', status: 'complete', spec,
+    spec_hash: 'spec-hash', code_hash: 'code-hash', data_hash: 'data-hash',
+    created_at: '2026-09-01T12:00:00Z', final: { interpretation: 'diagnostic only' } }, weeks);
+  assert.equal(manifest.hashes.commit, 'abc123');
+  assert.equal(manifest.hashes.final_chain, 'chain-2');
+  assert.equal(manifest.results.overall.bets, 3);
+  assert.equal(manifest.results.by_season[0].bets, 2);
+  assert.equal(manifest.results.by_season[1].units, 0.91);
+  assert.equal(manifest.failures.retries.recorded, false);
+  assert.equal(manifest.calibration.available, false);
 });
 
 test('adaptive weekly weights cannot leak into the week they were trained through', () => {

@@ -78,7 +78,7 @@ const r = Router();
 // Mutations are split between research/training and live operational execution.
 // A training grant must not authorize spending API/AI resources, locking picks,
 // or writing/grading bets.
-const trainingMutation = /^(\/replay\/(?:train|candidate-audit|candidate-robustness)|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/(?:online-neural|risk-lab)\/train|\/engine\/(?:backfill|learning-epoch)|\/roster\/pff-sync|\/sync$)/;
+const trainingMutation = /^(\/replay\/(?:train|candidate-audit|candidate-robustness)|\/calibration\/cover|\/experiments(?:\/|$)|\/heads\/audit|\/blind-audits(?:\/|$)|\/(?:online-neural|risk-lab)\/train|\/engine\/(?:backfill|learning-epoch)|\/roster\/(?:pff-sync|rookies\/(?:sync|college-sync))|\/sync$)/;
 const resourceSpendingGet = /^(\/lines\/(?:shop|disagreement)|\/sharp\/(?:board|divergence))$/;
 r.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
@@ -541,6 +541,39 @@ r.get('/roster/pff-status', (_req, res, next) => {
 /** Authorized connector only; never scrapes a PFF browser session. */
 r.post('/roster/pff-sync', async (req, res, next) => {
   try { res.json(await syncLicensedPffGrades(ssn(req), wk(req))); } catch (e) { next(e); }
+});
+
+r.get('/roster/rookies/status', async (_req, res, next) => {
+  try {
+    const { rookieAcquisitionStatus } = await import('../services/nfl-rookie-ingest.js');
+    res.json(rookieAcquisitionStatus());
+  } catch (e) { next(e); }
+});
+
+r.get('/roster/rookies/profile', async (req, res, next) => {
+  try {
+    const playerId = Number(req.query.player_id);
+    if (!playerId) return res.status(400).json({ error: 'player_id query param required' });
+    const { rookieEvidenceProfile, fitRookieEvidenceModel } = await import('../services/nfl-rookies.js');
+    res.json({ profile: rookieEvidenceProfile(playerId, ssn(req), String(req.query.cutoff ?? `${ssn(req)}-09-01T00:00:00Z`)),
+      fit: fitRookieEvidenceModel(ssn(req)) });
+  } catch (e) { next(e); }
+});
+
+r.post('/roster/rookies/sync', async (req, res, next) => {
+  try {
+    const { syncPublicRookieEvidence } = await import('../services/nfl-rookie-ingest.js');
+    res.json(await syncPublicRookieEvidence({ fromSeason: Number(req.query.from) || 2000,
+      throughSeason: Number(req.query.through) || ssn(req) }));
+  } catch (e) { next(e); }
+});
+
+r.post('/roster/rookies/college-sync', async (req, res, next) => {
+  try {
+    const { syncPublicCollegeEvidence } = await import('../services/nfl-rookie-ingest.js');
+    res.json(await syncPublicCollegeEvidence({ fromSeason: Number(req.query.from) || 2022,
+      throughSeason: Number(req.query.through) || Math.max(2022, ssn(req) - 1) }));
+  } catch (e) { next(e); }
 });
 
 /* --------------------------------------------------------------- ensemble */

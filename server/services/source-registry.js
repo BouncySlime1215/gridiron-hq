@@ -37,6 +37,13 @@ import { lastRun, minutesSince, JOBS as SCHEDULED_JOBS } from './scheduler.js';
  * data that was never freshened, not a trigger for anything automatic.
  */
 export const MANUAL_SOURCES = {
+  nfl_rookie_college: {
+    label: 'SportsDataverse play-level college production and opponent strength',
+    cadence: 'annual backfill after the college season',
+    cutoff: 'January 20 following the completed college season; never reads NFL outcomes',
+    failureMode: 'per-run failure is recorded; draft/combine prior remains available and college fields stay missing',
+    maxAgeMinutes: 30 * 24 * 60
+  },
   nflverse_crosswalk: {
     label: 'nflverse player ID crosswalk (players.csv)',
     cadence: 'irregular — nflverse cuts a new release a few times a season',

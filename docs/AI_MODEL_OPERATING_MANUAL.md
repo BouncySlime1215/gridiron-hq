@@ -868,9 +868,41 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
   backlog, not permission to infer the missing moves.
 - The configured-season offseason-change engine now uses this cutoff-safe state before Week 1 rather
   than asking nonexistent current-season game usage where a player is rostered.
-- Remaining rookie gap: structured college production, opponent-strength context, combine testing,
-  and verified preseason-role evidence do not yet exist. Draft capital plus depth remains the honest
-  prior until those inputs are stored and pass chronological ablation.
+- At this checkpoint, college production, opponent strength, combine testing, and verified preseason
+  roles were still missing. The next change below acquires them and records their first failed ablation.
+
+### 2026-08-31 — rookie evidence acquisition and validation connected
+
+- Added key-free nflverse draft and combine acquisition with GSIS/PFR identity bridges and explicit
+  CC-BY-4.0 provenance. The first full backfill stored 2,090 draft profiles and 2,168 combine profiles.
+- Athletic percentiles use speed, jumps, agility, and strength within position. A prospect is ranked
+  only against his class and earlier classes, never future combines.
+- Added a key-free streaming SportsDataverse college adapter. It reads play-level files without
+  holding 30–60 MB seasons in memory, derives position-specific opportunity share and efficiency,
+  solves 40-iteration margin SRS opponent ratings, and weights schedule strength by the actual plays
+  handled by each prospect.
+- College seasons 2022–2025 matched 71/80, 65/77, 71/86, and 71/78 drafted skill prospects. Missing
+  identities remain explicit; no fuzzy match is forced across a player/school conflict.
+- Verified preseason role news enters through typed factual claims. AI prose cannot assign a rookie
+  score, and unverified news remains quarantined.
+- The evidence learner fits on prior draft classes and must beat draft/depth on the latest held-out
+  class. It failed that test: 6.070 opportunity MAE versus 4.838 for draft/depth on 67 players from
+  the 2025 class. Its production influence is therefore exactly zero. The evidence remains stored
+  and will be retested automatically as new classes settle.
+- Full install backfills college seasons 2022–2025; quick install still acquires draft/combine and
+  leaves the larger college archive as an explicit on-demand job.
+
+### 2026-08-31 — circumstance-aware coordinator and real player builder
+
+- The player-builder council role now reads the full cutoff-safe home and away roster, depth,
+  rookies, offseason moves, unit strength, replacement availability, and unresolved injury carryover.
+  Its evidence hash includes those roster summaries.
+- Before combining experts, the coordinator diagnoses early/middle/late season, large/competitive
+  spread, high/ordinary total, high/normal disagreement, and sparse/broad evidence coverage.
+- A contextual sub-fit needs at least 96 prior games across six settled weeks. Its answer is shrunk
+  toward the global week-balanced Huber-ridge coordinator; thin circumstances fall back to global.
+- Individual expert influence remains capped at 0.35 and total expert influence at 0.80. Context can
+  change learned weights; it cannot waive chronology, coverage, or authority rules.
 
 ### 2026-08-31 — twelve-role weekly expert audit connected
 

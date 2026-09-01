@@ -21,15 +21,10 @@
  * A 4x spread, monotonic across the range that matters. And it is available
  * before a single snap is played.
  *
- * On college statistics — deliberately NOT used, and not because they would
- * be useless. Draft position is already an aggregation of college production,
- * athletic testing, medicals and interviews, priced by thirty-two
- * organisations with far more information than this database has. It is the
- * market's own summary. College box scores would add signal only to the
- * extent they beat that consensus, which is the same bet as beating a closing
- * line — and this codebase has already measured, repeatedly, how that goes.
- * If college data is added later it should be tested as a candidate against
- * this draft-capital prior, not assumed to improve on it.
+ * College production, opponent strength, athletic testing and verified
+ * preseason roles are accepted below as dated evidence. They do not receive a
+ * hand-written production bonus. A ridge-shrunk challenger must learn their
+ * incremental value over draft capital on strictly earlier draft classes.
  *
  * COVERAGE LIMIT, stated plainly: `player_accolades` is keyed to the current
  * roster snapshot, so draft capital exists only for players still rostered in
@@ -38,7 +33,30 @@
  * reason — a sixth-rounder in this sample is a sixth-rounder who lasted.
  * Bands are therefore shrunk hard and the late-round bands are collapsed.
  */
-import { rows } from '../db/index.js';
+import { db, rows } from '../db/index.js';
+import { normalizePlayerName } from './player-identity.js';
+import { ridgeFit } from './nfl-specialists.js';
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS nfl_rookie_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    season INTEGER NOT NULL,
+    player_id INTEGER,
+    player_name TEXT NOT NULL,
+    position TEXT NOT NULL,
+    college TEXT,
+    evidence_type TEXT NOT NULL,
+    values_json TEXT NOT NULL,
+    available_at TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    verification_state TEXT NOT NULL,
+    UNIQUE(season,player_name,evidence_type,source_ref)
+  );
+  CREATE INDEX IF NOT EXISTS idx_rookie_evidence_cutoff
+    ON nfl_rookie_evidence(season,available_at,player_id);
+`);
 
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -174,4 +192,199 @@ export function depthRankFor(gsisId, season, week) {
 export function blendedRookieOpportunity({ prior, observedPerGame, gamesPlayed = 0, k = 4 }) {
   if (!Number.isFinite(observedPerGame) || gamesPlayed <= 0) return prior;
   return (observedPerGame * gamesPlayed + prior * k) / (gamesPlayed + k);
+}
+
+const EVIDENCE_TYPES = new Set(['draft', 'college_production', 'opponent_strength', 'combine', 'pro_day', 'preseason_role']);
+const evidenceFitCache = new Map();
+const skillPositions = new Set(['QB', 'RB', 'WR', 'TE']);
+const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+const parse = value => { try { return JSON.parse(value ?? '{}'); } catch { return {}; } };
+
+function finiteValues(value) {
+  const out = {};
+  for (const [key, raw] of Object.entries(value ?? {})) {
+    if (typeof raw === 'boolean') out[key] = raw;
+    else if (raw != null && raw !== '' && Number.isFinite(Number(raw))) out[key] = Number(raw);
+  }
+  return out;
+}
+
+function resolvePlayer(item) {
+  if (item.player_id != null) {
+    const found = rows(`SELECT id,name,position FROM players WHERE id=? LIMIT 1`, item.player_id)[0];
+    if (found) return found;
+  }
+  const key = normalizePlayerName(item.player_name ?? item.name);
+  const matches = rows(`SELECT id,name,position FROM players`).filter(player => normalizePlayerName(player.name) === key);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/** Strict import boundary for licensed or public structured rookie datasets. */
+export function importRookieEvidence(items, { source = null, sourceRef = null,
+  capturedAt = new Date().toISOString(), verificationState = 'verified' } = {}) {
+  const insert = db.prepare(`INSERT INTO nfl_rookie_evidence
+    (season,player_id,player_name,position,college,evidence_type,values_json,available_at,
+     captured_at,source,source_ref,verification_state)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(season,player_name,evidence_type,source_ref) DO UPDATE SET
+      player_id=excluded.player_id,position=excluded.position,college=excluded.college,
+      values_json=excluded.values_json,available_at=excluded.available_at,
+      captured_at=excluded.captured_at,verification_state=excluded.verification_state`);
+  let stored = 0, quarantined = 0;
+  const reasons = {};
+  for (const item of items ?? []) {
+    const season = Number(item.season ?? item.draft_year), type = String(item.evidence_type ?? item.type ?? '');
+    const player = resolvePlayer(item), position = String(item.position ?? player?.position ?? '').toUpperCase();
+    const ref = String(item.source_ref ?? sourceRef ?? ''), provider = String(item.source ?? source ?? '');
+    const availableAt = item.available_at ?? item.measured_at ?? item.published_at;
+    let reason = null;
+    if (!season || !EVIDENCE_TYPES.has(type)) reason = 'invalid season or evidence type';
+    else if (!player) reason = 'player identity is missing or ambiguous';
+    else if (!skillPositions.has(position)) reason = 'unsupported position';
+    else if (!availableAt || Number.isNaN(Date.parse(availableAt))) reason = 'missing valid availability timestamp';
+    else if (!provider || !ref || /ai analysis/i.test(provider)) reason = 'source and stable source reference are required';
+    const values = finiteValues(item.values ?? item.metrics ?? item);
+    if (!reason && !Object.keys(values).length) reason = 'no finite measurements';
+    if (reason) { quarantined++; reasons[reason] = (reasons[reason] ?? 0) + 1; continue; }
+    stored += insert.run(season, player.id, player.name, position, item.college ?? null, type,
+      JSON.stringify(values), new Date(availableAt).toISOString(), capturedAt, provider, ref,
+      verificationState === 'verified' ? 'verified' : 'quarantined').changes;
+  }
+  priorCache = null;
+  evidenceFitCache.clear();
+  return { reviewed: items?.length ?? 0, stored, quarantined, reasons };
+}
+
+/** Convert existing ESPN draft records into the same evidence contract. */
+export function syncDraftRookieEvidence() {
+  const items = rows(`SELECT p.id player_id,a.name player_name,r.position,a.draft_year season,
+      a.draft_round,a.draft_pick,a.source,a.fetched_at
+    FROM player_accolades a JOIN roster_players r ON r.id=a.roster_player_id
+    LEFT JOIN players p ON p.espn_id=r.espn_id
+    WHERE a.draft_year IS NOT NULL AND r.position IN ('QB','RB','WR','TE') AND p.id IS NOT NULL`)
+    .map(item => ({ ...item, evidence_type: 'draft', values: { draft_round: item.draft_round,
+      draft_pick: item.draft_pick }, available_at: `${item.season}-05-01T00:00:00Z`,
+      source: item.source || 'ESPN draft profile', source_ref: `espn-draft:${item.player_id}:${item.season}` }));
+  return importRookieEvidence(items);
+}
+
+function latestByType(playerId, season, cutoff) {
+  const map = new Map();
+  for (const row of rows(`SELECT * FROM nfl_rookie_evidence
+    WHERE player_id=? AND season=? AND available_at<=? AND verification_state='verified'
+    ORDER BY available_at DESC,id DESC`, playerId, season, cutoff)) {
+    if (!map.has(row.evidence_type)) map.set(row.evidence_type, { ...row, values: parse(row.values_json) });
+  }
+  return map;
+}
+
+function percentile(value) {
+  return Number.isFinite(Number(value)) ? clamp(Number(value), 0, 1) : null;
+}
+
+/** One inspectable feature packet; absent inputs stay absent. */
+export function rookieEvidenceProfile(playerId, season, cutoff = `${season}-09-01T00:00:00Z`) {
+  const player = rows(`SELECT id,name,position FROM players WHERE id=? LIMIT 1`, playerId)[0];
+  if (!player) return { available: false, reason: 'unknown player identity' };
+  const evidence = latestByType(playerId, season, cutoff);
+  const draft = evidence.get('draft')?.values ?? {};
+  const college = evidence.get('college_production')?.values ?? {};
+  const opponent = evidence.get('opponent_strength')?.values ?? {};
+  const combine = evidence.get('combine')?.values ?? evidence.get('pro_day')?.values ?? {};
+  const role = evidence.get('preseason_role')?.values ?? {};
+  const pick = Number.isFinite(Number(draft.draft_pick)) ? Number(draft.draft_pick) : null;
+  const draftScore = pick == null ? null : clamp(1 - Math.log(Math.max(1, pick)) / Math.log(260), 0, 1);
+  const production = percentile(college.production_percentile ?? college.position_production_percentile);
+  const schedule = percentile(opponent.opponent_strength_percentile ?? college.opponent_strength_percentile);
+  // Interaction says dominant production against stronger opposition is more
+  // informative; it does not grant points until a historical fit learns a coefficient.
+  const adjustedProduction = production == null ? null
+    : production * (0.8 + 0.2 * (schedule ?? 0.5));
+  const athletic = percentile(combine.athletic_percentile ?? combine.ras_percentile);
+  const roleScore = percentile(role.role_percentile);
+  const features = { draft_score: draftScore, adjusted_college_production: adjustedProduction,
+    opponent_strength: schedule, athletic_score: athletic, preseason_role: roleScore };
+  return { available: Object.values(features).some(Number.isFinite), player_id: player.id,
+    player: player.name, position: player.position, season, cutoff, features,
+    missing: Object.entries(features).filter(([, value]) => !Number.isFinite(value)).map(([key]) => key),
+    evidence: Object.fromEntries([...evidence].map(([type, row]) => [type, {
+      available_at: row.available_at, source: row.source, source_ref: row.source_ref, values: row.values
+    }])) };
+}
+
+function opportunityOutcome(playerId, season) {
+  const result = rows(`SELECT COUNT(*) games,
+      SUM(COALESCE(targets,0)+COALESCE(carries,0)+COALESCE(attempts,0)) opportunity
+    FROM player_week_usage WHERE player_id=? AND season=?`, playerId, season)[0];
+  return Number(result?.games) >= 4 ? Number(result.opportunity) / Number(result.games) : null;
+}
+
+/** Learn incremental rookie weights on earlier draft classes only. */
+export function fitRookieEvidenceModel(targetSeason, { cutoff = `${targetSeason}-09-01T00:00:00Z` } = {}) {
+  const cacheKey = `${targetSeason}|${cutoff}`;
+  if (evidenceFitCache.has(cacheKey)) return evidenceFitCache.get(cacheKey);
+  const candidates = rows(`SELECT DISTINCT player_id,season FROM nfl_rookie_evidence
+    WHERE season<? AND player_id IS NOT NULL AND verification_state='verified' ORDER BY season,player_id`, targetSeason);
+  const samples = [];
+  for (const item of candidates) {
+    const profile = rookieEvidenceProfile(item.player_id, item.season, `${item.season}-09-01T00:00:00Z`);
+    const y = opportunityOutcome(item.player_id, item.season);
+    if (!profile.available || !Number.isFinite(y)) continue;
+    const f = profile.features;
+    const draftPick = profile.evidence?.draft?.values?.draft_pick;
+    const baseline = rookieOpportunityPrior({ position: profile.position, draftPick }).opportunity_per_game;
+    samples.push({ season: item.season, y, baseline, x: [1, f.draft_score ?? 0, f.adjusted_college_production ?? 0,
+      f.athletic_score ?? 0, f.preseason_role ?? 0,
+      f.adjusted_college_production == null ? 1 : 0, f.athletic_score == null ? 1 : 0,
+      f.preseason_role == null ? 1 : 0], profile });
+  }
+  const seasons = new Set(samples.map(sample => sample.season)).size;
+  const collegeCoverage = samples.filter(sample => Number.isFinite(sample.profile.features.adjusted_college_production)).length;
+  const combineCoverage = samples.filter(sample => Number.isFinite(sample.profile.features.athletic_score)).length;
+  const coverageReady = samples.length >= 60 && seasons >= 3 && collegeCoverage / samples.length >= 0.25
+    && combineCoverage / samples.length >= 0.25;
+  if (!coverageReady) {
+    const result = { ready: false, target_season: targetSeason, samples: samples.length, seasons,
+    coverage: { college: samples.length ? collegeCoverage / samples.length : 0,
+      combine: samples.length ? combineCoverage / samples.length : 0 },
+    reason: 'requires 60 settled rookies across 3 classes with at least 25% college and combine coverage' };
+    evidenceFitCache.set(cacheKey, result); return result;
+  }
+  const holdoutSeason = Math.max(...samples.map(sample => sample.season));
+  const train = samples.filter(sample => sample.season < holdoutSeason), holdout = samples.filter(sample => sample.season === holdoutSeason);
+  const validationWeights = train.length >= 60
+    ? ridgeFit(train.map(sample => sample.x), train.map(sample => sample.y), 24) : null;
+  const predict = (weights, sample) => sample.x.reduce((sum, value, index) => sum + value * weights[index], 0);
+  const mae = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  const candidateMae = validationWeights ? mae(holdout.map(sample => Math.abs(predict(validationWeights, sample) - sample.y))) : null;
+  const baselineMae = mae(holdout.map(sample => Math.abs(sample.baseline - sample.y)));
+  const validation = { holdout_season: holdoutSeason, training_samples: train.length,
+    holdout_samples: holdout.length, candidate_mae: r3(candidateMae), draft_depth_baseline_mae: r3(baselineMae),
+    incremental_mae: r3(baselineMae == null || candidateMae == null ? null : baselineMae - candidateMae) };
+  const validated = holdout.length >= 30 && Number.isFinite(candidateMae) && candidateMae < baselineMae;
+  const weights = ridgeFit(samples.map(sample => sample.x), samples.map(sample => sample.y), 24);
+  const result = { ready: validated, target_season: targetSeason, cutoff, samples: samples.length, seasons,
+    weights, features: ['intercept','draft_score','adjusted_college_production','athletic_score',
+      'preseason_role','college_missing','athletic_missing','role_missing'],
+    validation, authority: validated ? 'chronologically_validated_research_candidate' : 'measured_but_zero_authority',
+    reason: validated ? null : 'candidate did not beat draft/depth prior on the latest held-out draft class' };
+  evidenceFitCache.set(cacheKey, result); return result;
+}
+
+export function evidenceAdjustedRookiePrior({ playerId, season, position, draftPick, depthRank, cutoff } = {}) {
+  const baseline = rookieOpportunityPrior({ position, draftPick, depthRank });
+  const profile = rookieEvidenceProfile(playerId, season, cutoff ?? `${season}-09-01T00:00:00Z`);
+  const fit = fitRookieEvidenceModel(season, { cutoff });
+  if (!fit.ready || !profile.available) return { ...baseline, evidence_profile: profile,
+    evidence_fit: fit, evidence_adjusted: false };
+  const f = profile.features;
+  const x = [1, f.draft_score ?? 0, f.adjusted_college_production ?? 0, f.athletic_score ?? 0,
+    f.preseason_role ?? 0, f.adjusted_college_production == null ? 1 : 0,
+    f.athletic_score == null ? 1 : 0, f.preseason_role == null ? 1 : 0];
+  const raw = x.reduce((sum, value, index) => sum + value * fit.weights[index], 0);
+  const learned = clamp(raw, baseline.opportunity_per_game * 0.5, baseline.opportunity_per_game * 1.5);
+  const shrink = fit.samples / (fit.samples + 80);
+  return { ...baseline, opportunity_per_game: r3(baseline.opportunity_per_game * (1 - shrink) + learned * shrink),
+    baseline_opportunity_per_game: baseline.opportunity_per_game, evidence_adjusted: true,
+    evidence_profile: profile, evidence_fit: { ...fit, weights: fit.weights.map(r3) }, shrinkage: r3(shrink) };
 }

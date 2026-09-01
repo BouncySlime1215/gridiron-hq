@@ -8,7 +8,7 @@
  */
 import { rows } from '../db/index.js';
 
-export const EXPERT_COORDINATOR_VERSION = 'robust-week-balanced-residual-v1';
+export const EXPERT_COORDINATOR_VERSION = 'robust-contextual-week-balanced-residual-v2';
 const IDS = ['rulebook', 'player_builder', 'game_replay', 'similar_games', 'boosted_tree',
   'deep_residual', 'specialist_team', 'line_movement', 'news_reaction', 'live_updater',
   'price_shopper', 'player_opportunity'];
@@ -18,6 +18,8 @@ const RIDGE = 36;
 const HUBER_DELTA = 10;
 const MAX_WEIGHT = 0.35;
 const MAX_TOTAL_INFLUENCE = 0.8;
+const MIN_REGIME_GAMES = 96;
+const MIN_REGIME_WEEKS = 6;
 
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 const mean = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
@@ -114,6 +116,30 @@ function fitRows(games) {
   return { coefficients, centers, scales, robustSigma };
 }
 
+function enrichGameContexts(games) {
+  for (const game of games) {
+    const line = rows(`SELECT spread,total FROM game_lines
+      WHERE season=? AND week=? AND team=? AND home=1 LIMIT 1`, game.season, game.week, game.home)[0];
+    game.marketMargin = Number.isFinite(line?.spread) ? -Number(line.spread) : null;
+    game.marketTotal = Number.isFinite(line?.total) ? Number(line.total) : null;
+  }
+  return games;
+}
+
+function regimeLabels(game) {
+  const forecasts = [...game.experts.values()].filter(Number.isFinite);
+  const center = median(forecasts), disagreement = forecasts.length > 1
+    ? Math.sqrt(mean(forecasts.map(value => (value - center) ** 2))) : null;
+  const coverage = forecasts.length / IDS.length;
+  return [
+    `phase:${game.week <= 4 ? 'early' : game.week >= 15 ? 'late' : 'middle'}`,
+    `spread:${Number.isFinite(game.marketMargin) && Math.abs(game.marketMargin) >= 6.5 ? 'large' : 'competitive'}`,
+    `total:${Number.isFinite(game.marketTotal) && game.marketTotal >= 47 ? 'high' : 'ordinary'}`,
+    `disagreement:${Number.isFinite(disagreement) && disagreement >= 4 ? 'high' : 'normal'}`,
+    `coverage:${coverage < 0.6 ? 'sparse' : 'broad'}`
+  ];
+}
+
 export function fitExpertCoordinator(beforeSeason, beforeWeek, { auditRunId = null } = {}) {
   const historical = auditRunId == null
     ? rows(`SELECT * FROM nfl_weekly_expert_examples
@@ -134,17 +160,25 @@ export function fitExpertCoordinator(beforeSeason, beforeWeek, { auditRunId = nu
     version: EXPERT_COORDINATOR_VERSION, ready: false, games: games.length, weeks,
     reason: `warmup requires ${MIN_GAMES} games across ${MIN_WEEKS} settled weeks`
   };
+  enrichGameContexts(games);
   const fit = fitRows(games);
+  const labels = [...new Set(games.flatMap(regimeLabels))], regimes = [];
+  for (const label of labels) {
+    const subset = games.filter(game => regimeLabels(game).includes(label));
+    const regimeWeeks = new Set(subset.map(game => `${game.season}|${game.week}`)).size;
+    if (subset.length < MIN_REGIME_GAMES || regimeWeeks < MIN_REGIME_WEEKS) continue;
+    regimes.push({ label, games: subset.length, weeks: regimeWeeks,
+      shrinkage: subset.length / (subset.length + 192), fit: fitRows(subset) });
+  }
   return { version: EXPERT_COORDINATOR_VERSION, ready: true, games: games.length, weeks,
-    ...fit, authority: 'historical_candidate_only',
+    ...fit, regimes, authority: 'historical_candidate_only',
     safeguards: { target: 'market residual', week_balanced: true, loss: `Huber(${HUBER_DELTA})`, ridge: RIDGE,
       deduplicated_by_game_and_expert: true, max_expert_weight: MAX_WEIGHT,
-      max_total_expert_influence: MAX_TOTAL_INFLUENCE } };
+      max_total_expert_influence: MAX_TOTAL_INFLUENCE, contextual_regimes: true,
+      min_regime_games: MIN_REGIME_GAMES, min_regime_weeks: MIN_REGIME_WEEKS } };
 }
 
-export function coordinateExperts(fit, experts) {
-  if (!fit?.ready) return { version: EXPERT_COORDINATOR_VERSION, ready: false, reason: fit?.reason ?? 'not fitted',
-    training_games: fit?.games ?? 0, training_weeks: fit?.weeks ?? 0 };
+function coordinateWith(fit, experts) {
   const game = { experts: new Map(experts.map(expert => [expert.id,
     expert.observed && Number.isFinite(expert.forecast_residual) ? expert.forecast_residual : null])) };
   const x = design(game, fit.centers, fit.scales);
@@ -154,10 +188,35 @@ export function coordinateExperts(fit, experts) {
   const forecast = fit.coefficients[0] + contributions.reduce((sum, item) => sum + item.value, 0) + missingOffset;
   const disagreement = Math.sqrt(mean(experts.filter(expert => Number.isFinite(expert.forecast_residual))
     .map(expert => (expert.forecast_residual - forecast) ** 2)));
-  return { version: fit.version, ready: true, forecast_residual: r3(clamp(forecast, -10, 10)),
+  return { forecast_residual: r3(clamp(forecast, -10, 10)),
     uncertainty: r3(Math.sqrt(fit.robustSigma ** 2 + disagreement ** 2)), training_games: fit.games, training_weeks: fit.weeks,
-    contributions, missingness_offset: r3(missingOffset), authority: fit.authority,
-    note: 'A candidate correction to the market, not stake permission.' };
+    contributions, missingness_offset: r3(missingOffset) };
 }
 
-export const __test = { pivotRows, fitRows, design };
+export function coordinateExperts(fit, experts, context = {}) {
+  if (!fit?.ready) return { version: EXPERT_COORDINATOR_VERSION, ready: false, reason: fit?.reason ?? 'not fitted',
+    training_games: fit?.games ?? 0, training_weeks: fit?.weeks ?? 0 };
+  const global = coordinateWith(fit, experts);
+  const game = { week: Number(context.week) || 1,
+    marketMargin: Number.isFinite(context.market_margin) ? context.market_margin : null,
+    marketTotal: Number.isFinite(context.market_total) ? context.market_total : null,
+    experts: new Map(experts.map(expert => [expert.id,
+      expert.observed && Number.isFinite(expert.forecast_residual) ? expert.forecast_residual : null])) };
+  const activeLabels = regimeLabels(game), active = (fit.regimes ?? []).filter(regime => activeLabels.includes(regime.label));
+  let forecast = global.forecast_residual, totalWeight = 1;
+  const regimeContributions = [];
+  for (const regime of active) {
+    const candidate = coordinateWith({ ...regime.fit, games: regime.games, weeks: regime.weeks }, experts);
+    const weight = regime.shrinkage / Math.max(1, active.length);
+    forecast += candidate.forecast_residual * weight; totalWeight += weight;
+    regimeContributions.push({ label: regime.label, weight: r3(weight), games: regime.games,
+      forecast_residual: candidate.forecast_residual });
+  }
+  forecast /= totalWeight;
+  return { version: fit.version, ready: true, ...global, forecast_residual: r3(clamp(forecast, -10, 10)),
+    global_forecast_residual: global.forecast_residual, active_regimes: activeLabels,
+    contextual_adjustments: regimeContributions, authority: fit.authority,
+    note: 'A circumstance-aware candidate correction to the market, not stake permission.' };
+}
+
+export const __test = { pivotRows, fitRows, design, regimeLabels };

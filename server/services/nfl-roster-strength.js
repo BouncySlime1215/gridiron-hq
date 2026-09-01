@@ -11,7 +11,7 @@
 import './nfl-advanced.js';
 import './nfl-pbp.js';
 import { db, rows, run } from '../db/index.js';
-import { rookieOpportunityPrior } from './nfl-rookies.js';
+import { evidenceAdjustedRookiePrior } from './nfl-rookies.js';
 import { coachChanges } from './nfl-coaches.js';
 import { schemeChange } from './nfl-scheme.js';
 
@@ -148,8 +148,17 @@ function licensedGrades(season, week, team) {
 
 function rookieProfiles(season) {
   try {
-    return new Map(rows(`SELECT name,draft_round,draft_pick,draft_year FROM player_accolades
-      WHERE draft_year=?`, season).map(item => [normalize(item.name), item]));
+    const evidence = rows(`SELECT player_id,player_name name,season draft_year,
+        json_extract(values_json,'$.draft_round') draft_round,
+        json_extract(values_json,'$.draft_pick') draft_pick
+      FROM nfl_rookie_evidence WHERE season=? AND evidence_type='draft'
+        AND verification_state='verified' ORDER BY available_at DESC,id DESC`, season);
+    const fallback = rows(`SELECT p.id player_id,a.name,a.draft_round,a.draft_pick,a.draft_year
+      FROM player_accolades a JOIN roster_players r ON r.id=a.roster_player_id
+      LEFT JOIN players p ON p.espn_id=r.espn_id WHERE a.draft_year=?`, season);
+    const map = new Map();
+    for (const item of [...evidence, ...fallback]) if (!map.has(normalize(item.name))) map.set(normalize(item.name), item);
+    return map;
   } catch { return new Map(); }
 }
 
@@ -202,7 +211,9 @@ function rankPlayer(player, snapMap, featureMap, gradeMap, rookieMap, changeMap)
   const performance = performanceScore(features, position);
   const external = gradeMap.get(String(player.gsis_id)) ?? gradeMap.get(normalize(player.player_name));
   const rookie = rookieMap.get(normalize(player.player_name));
-  const rookiePrior = rookie ? rookieOpportunityPrior({ position, draftPick: rookie.draft_pick, depthRank }) : null;
+  const rookiePrior = rookie ? evidenceAdjustedRookiePrior({ playerId: rookie.player_id,
+    season: player.season, position, draftPick: rookie.draft_pick, depthRank,
+    cutoff: gameCutoff(player.season, player.week) ?? `${player.season}-09-01T00:00:00Z` }) : null;
   const rookieRating = rookiePrior ? clamp(48 + rookiePrior.opportunity_per_game * 2.1, 45, 86) : null;
   const teamChange = changeMap.get(normalize(player.player_name));
   const depthPrior = clamp(91 - 9 * (depthRank - 1), 38, 94);
@@ -251,7 +262,7 @@ export function teamRosterStrength(season, week, team) {
   const gradeMap = licensedGrades(season, week, team);
   const rookieMap = rookieProfiles(season);
   const changeMap = teamChangeProfiles(gameCutoff(season, week, team));
-  const players = chart.map(player => rankPlayer({ ...player, season }, snapMap, featureMap, gradeMap, rookieMap, changeMap))
+  const players = chart.map(player => rankPlayer({ ...player, season, week }, snapMap, featureMap, gradeMap, rookieMap, changeMap))
     .sort((a, b) => b.rating - a.rating);
   const byGroup = new Map();
   for (const player of players) {

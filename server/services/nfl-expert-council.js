@@ -19,8 +19,9 @@ import { simulateMatchup } from './nfl-drive-sim.js';
 import { nflKickoffDate } from './date-util.js';
 import './line-shopping.js';
 import { buildPlayerWeekEngine, teamWeekEventExpectations } from './player-week-engine.js';
+import { teamRosterStrength } from './nfl-roster-strength.js';
 
-export const EXPERT_COUNCIL_VERSION = 'nfl-expert-council-v1';
+export const EXPERT_COUNCIL_VERSION = 'nfl-expert-council-v2';
 
 export const NFL_EXPERTS = Object.freeze([
   { id: 'rulebook', name: 'Football rulebook', kind: 'interpretable_prior', lifecycle: 'pregame', score: 'market_residual' },
@@ -406,11 +407,21 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
   const opportunity = opportunityFor(season, week, game.home, game.away);
   const opportunitySettlement = opportunity.teams?.length ? settleOpportunity(season, week, opportunity)
     : { status: 'pending', reason: opportunity.error ?? 'player opportunity packet unavailable' };
-  const rosterResidual = Number.isFinite(availability?.shadow_margin_adjustment)
-    ? availability.shadow_margin_adjustment + (injuryCarryover.incremental_margin_adjustment ?? 0) : null;
-  const rosterObserved = Number.isFinite(rosterResidual)
+  const homeRoster = teamRosterStrength(season, week, game.home);
+  const awayRoster = teamRosterStrength(season, week, game.away);
+  const structuralMargin = homeRoster.available && awayRoster.available
+    ? 1.5 + (homeRoster.roster_score - awayRoster.roster_score) * 0.32 : null;
+  const availabilityResidual = Number.isFinite(availability?.shadow_margin_adjustment)
     && availability?.home?.evidence_state !== 'availability_unknown'
-    && availability?.away?.evidence_state !== 'availability_unknown';
+    && availability?.away?.evidence_state !== 'availability_unknown'
+    ? availability.shadow_margin_adjustment + (injuryCarryover.incremental_margin_adjustment ?? 0) : null;
+  const rosterResidual = Number.isFinite(structuralMargin)
+    ? structuralMargin - marketMargin + (availabilityResidual ?? 0) : availabilityResidual;
+  const rosterObserved = Number.isFinite(rosterResidual);
+  const rosterSummary = roster => ({ available: roster.available, roster_score: roster.roster_score,
+    starter_score: roster.starter_score, depth_score: roster.depth_score, fragility: roster.fragility,
+    unit_scores: roster.unit_scores, coverage: roster.coverage, preseason_context: roster.preseason_context,
+    cutoff_policy: roster.cutoff_policy, reason: roster.reason });
   const unitEdges = availability?.unit_edges ?? null;
   const playerOpportunity = unitEdges ? (unitEdges.offense ?? 0) * 0.55 + (unitEdges.defense ?? 0) * 0.35
     + (unitEdges.special_teams ?? 0) * 0.1 : null;
@@ -419,7 +430,12 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
       missingReason: 'no cutoff-safe simple football priors', detail: { components: simple.length } }),
     output('player_builder', { forecast: rosterObserved ? rosterResidual : null, observed: rosterObserved,
       missingReason: availability?.reason ?? 'cutoff-safe depth and replacement data unavailable',
-      detail: { roster_availability: availability ?? {}, postgame_injury_carryover: injuryCarryover } }),
+      uncertainty: rosterObserved ? 4 + ((homeRoster.fragility ?? 50) + (awayRoster.fragility ?? 50)) / 50 : null,
+      detail: { full_roster: { home: rosterSummary(homeRoster), away: rosterSummary(awayRoster), structural_margin: r3(structuralMargin),
+        market_residual_before_availability: r3(Number.isFinite(structuralMargin) ? structuralMargin - marketMargin : null) },
+        roster_availability: availability ?? {}, availability_residual: r3(availabilityResidual),
+        postgame_injury_carryover: injuryCarryover,
+        method: 'full roster/depth prior plus replacement-value availability; coordinator learns final influence on earlier weeks' } }),
     output('game_replay', { forecast: simulation.error ? null : simulation.projection.margin - marketMargin,
       uncertainty: simulation.error ? null : simulation.projection.margin_sd, observed: !simulation.error,
       missingReason: simulation.error, detail: simulation.error ? {} : { trials: simulation.trials,
@@ -461,9 +477,11 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
   const actualResidual = data.y[targetIndex];
   return {
     game: { season, week, home: game.home, away: game.away, market_margin: r3(marketMargin),
+      market_total: r3(line.ensemble.market_total),
       actual_margin: r3(game.actualMargin), actual_residual: r3(actualResidual), evidence_cutoff: cutoff,
       engine_version: line.engine_version },
-    evidence_hash: hash({ cutoff, engine: line.engine_version, models: line.models, marketMargin, availability, injuryCarryover }),
+    evidence_hash: hash({ cutoff, engine: line.engine_version, models: line.models, marketMargin, availability,
+      injuryCarryover, roster: { home: rosterSummary(homeRoster), away: rosterSummary(awayRoster) } }),
     component_forecasts: modelResiduals.length,
     experts: experts.map(expert => ({ ...expert,
       directional_correct: Number.isFinite(actualResidual) && Number.isFinite(expert.forecast_residual)
@@ -481,7 +499,7 @@ export function weeklyExpertAudit(season, week, { auditRunId = null } = {}) {
   const coordinatorFit = fitExpertCoordinator(season, week, { auditRunId });
   const games = targets.map(index => {
     const result = gameExperts(season, week, index, data, { auditRunId });
-    return { ...result, coordinator: coordinateExperts(coordinatorFit, result.experts) };
+    return { ...result, coordinator: coordinateExperts(coordinatorFit, result.experts, result.game) };
   });
   const expertSummary = NFL_EXPERTS.map(registry => {
     const observed = games.map(game => game.experts.find(expert => expert.id === registry.id)).filter(expert => expert?.observed);
@@ -529,7 +547,7 @@ export function captureForwardExpertWeek(season, week, { horizon = 'manual' } = 
     const item = gameExperts(season, week, index, data);
     const kickoff = Date.parse(item.game.evidence_cutoff);
     if (Number.isFinite(kickoff) && kickoff <= Date.now()) { skipped++; continue; }
-    const coordinator = coordinateExperts(coordinatorFit, item.experts);
+    const coordinator = coordinateExperts(coordinatorFit, item.experts, item.game);
     const outputs = [...item.experts, ...(coordinator.ready ? [{ id: 'coordinator', observed: true,
       forecast_residual: coordinator.forecast_residual, uncertainty: coordinator.uncertainty,
       authority: coordinator.authority, missing_reason: null, detail: coordinator }] : [])];

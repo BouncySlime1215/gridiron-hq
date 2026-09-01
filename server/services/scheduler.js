@@ -302,6 +302,13 @@ async function refreshNflTransactions() {
   return result;
 }
 
+/** Key-free annual rookie sources; cheap enough to check weekly in draft season. */
+async function refreshNflRookiePublic() {
+  const { syncPublicRookieEvidence } = await import('./nfl-rookie-ingest.js');
+  return syncPublicRookieEvidence({ fromSeason: 2000,
+    throughSeason: Number(process.env.NFL_SEASON) || new Date().getFullYear() });
+}
+
 /** Capture the live prop market, and settle anything the week has now decided. */
 async function refreshPropCapture() {
   const { capturePropMarket, settlePropQuotes, finalizeClosingSnapshots, propClvStatus,
@@ -443,6 +450,8 @@ export const JOBS = {
     label: 'Official practice reports (nflverse injuries release)' },
   nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30, tier: 'live',
     label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' },
+  nfl_rookie_public: { run: refreshNflRookiePublic, maxAgeMinutes: 7 * 24 * 60, tier: 'heavy',
+    label: 'NFL draft and combine rookie evidence (nflverse, key-free)' },
   team_analyses: { run: refreshTeamAnalyses, maxAgeMinutes: 4 * 60, tier: 'heavy',
     label: "X's & O's writeups — self-limited to teams with news newer than their analysis" }
 };

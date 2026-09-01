@@ -84,6 +84,11 @@ await run('Trending adds/drops', '/api/tradelab/trending/sync', 30000);
 // The prediction engine's own feeds: nflverse usage, betting lines, and the fits
 // derived from them. Last because it depends on the player universe existing.
 await run('Prediction engine (PBP, player usage, advanced stats, lines, model fits)', '/api/model/sync', 1200000);
+await run('NFL draft and combine rookie evidence', '/api/nfl-betting/roster/rookies/sync?from=2000', 300000);
+if (!QUICK) {
+  await run('Opponent-adjusted college rookie backfill',
+    '/api/nfl-betting/roster/rookies/college-sync?from=2022&through=2025', 1200000);
+}
 
 // Report what the matchup engine actually ended up with, since that is the piece
 // most likely to be thin and the one the trade scoring leans on hardest.

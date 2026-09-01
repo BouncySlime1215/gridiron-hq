@@ -92,7 +92,7 @@ feature vectors, shared cards, calibration artifacts, specialist fits, a
 content-addressed audit named:
 
 ```text
-NFL 2022-2025 cutoff-safe reconstruction audit · shared weekly state v1
+NFL 2022-2025 cutoff-safe reconstruction audit · decision provenance v2
 ```
 
 It then reconstructs possession boundaries. Set `NFL_LEDGER_TRIALS` or

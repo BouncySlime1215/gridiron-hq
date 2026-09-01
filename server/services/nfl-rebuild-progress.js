@@ -2,7 +2,7 @@ import { rows } from '../db/index.js';
 
 const parse = value => { try { return value ? JSON.parse(value) : null; } catch { return null; } };
 
-export function nflRebuildProgress(runKey = 'nfl-2022-2025-shared-state-v1') {
+export function nflRebuildProgress(runKey = 'nfl-2022-2025-shared-state-v2-decision-provenance') {
   let progress = [], checkpoints = [];
   try {
     progress = rows(`SELECT phase,current,total,unit,status,detail_json,updated_at

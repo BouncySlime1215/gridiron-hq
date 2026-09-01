@@ -22,7 +22,11 @@ import { backfillPossessionLedger, liveLedgerStatus } from '../server/services/n
 
 const SEASONS = [2022, 2023, 2024, 2025];
 const START_WEEK = 5, END_WEEK = 18;
-const RUN_KEY = 'nfl-2022-2025-shared-state-v1';
+// A rebuild contract gets a new key whenever persisted outputs or audit
+// provenance change. Reusing v1 after its audit memory was reset would make the
+// runner skip completed checkpoints and then point at a deleted audit id.
+const RUN_KEY = 'nfl-2022-2025-shared-state-v2-decision-provenance';
+const AUDIT_LABEL = 'NFL 2022-2025 cutoff-safe reconstruction audit · decision provenance v2';
 const LEDGER_TRIALS = Math.max(80, Number(process.env.NFL_LEDGER_TRIALS) || 120);
 const LEDGER_GAMES = Math.max(1, Number(process.env.NFL_LEDGER_GAMES) || 10000);
 const log = (phase, value) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), phase, value })}\n`);
@@ -179,12 +183,13 @@ await phase('coverage_snapshot', () => {
 });
 
 const registration = await phase('audit_preregistration', () => preregisterBlindAudit({
-  label: 'NFL 2022-2025 cutoff-safe reconstruction audit · shared weekly state v1',
+  label: AUDIT_LABEL,
   seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK
 }));
 const auditId = registration?.id ?? rows(`SELECT id FROM nfl_blind_audit_runs
   WHERE label=? ORDER BY id DESC LIMIT 1`,
-'NFL 2022-2025 cutoff-safe reconstruction audit · shared weekly state v1')[0]?.id;
+AUDIT_LABEL)[0]?.id;
+if (!auditId) throw new Error('audit preregistration completed without a recoverable audit id');
 
 await phase('chronological_audit', () => {
   let status = blindAuditStatus(auditId);

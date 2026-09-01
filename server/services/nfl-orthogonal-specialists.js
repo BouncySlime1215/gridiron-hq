@@ -202,6 +202,14 @@ function fitArtifact(season, week) {
 }
 
 const cache = new Map();
+function persistArtifact(result, season, week) {
+  run(`INSERT OR IGNORE INTO nfl_orthogonal_specialist_artifacts
+    (artifact_id,version,through_season,through_week,data_hash,training_games,validation_games,
+     artifact_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)`, result.artifact_id,
+  ORTHOGONAL_SPECIALIST_VERSION, season, week, result.data_hash, result.training_games,
+  result.validation_games, JSON.stringify(result), new Date().toISOString());
+}
+
 export function fitOrthogonalSpecialists(season, week, { persist = true } = {}) {
   const key = `${season}|${week}`;
   let result = cache.get(key);
@@ -212,11 +220,7 @@ export function fitOrthogonalSpecialists(season, week, { persist = true } = {}) 
     result = { ...artifact, artifact_id: artifactId };
     cache.set(key, result);
   }
-  if (persist) run(`INSERT OR IGNORE INTO nfl_orthogonal_specialist_artifacts
-    (artifact_id,version,through_season,through_week,data_hash,training_games,validation_games,
-     artifact_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)`, artifactId, ORTHOGONAL_SPECIALIST_VERSION,
-  season, week, result.data_hash, result.training_games, result.validation_games,
-  JSON.stringify(result), new Date().toISOString());
+  if (persist) persistArtifact(result, season, week);
   return result;
 }
 
@@ -251,4 +255,4 @@ export function orthogonalSpecialistStatus() {
   return { version: ORTHOGONAL_SPECIALIST_VERSION, family_order: FAMILY_SPEC, artifacts };
 }
 
-export const __test = { fitRidge, familyVector, chronologicalSplit };
+export const __test = { fitRidge, familyVector, chronologicalSplit, persistArtifact };

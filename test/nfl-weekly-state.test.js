@@ -12,6 +12,7 @@ const { __test: featureTest } = await import('../server/services/nfl-weekly-feat
 const { ingestQuoteSnapshot, quoteTapeCoverage, bestExecutableQuote } =
   await import('../server/services/nfl-quote-tape.js');
 const { learnedProfiles, clearLearnCache } = await import('../server/services/nfl-sim-learn.js');
+const { __test: specialistTest } = await import('../server/services/nfl-orthogonal-specialists.js');
 
 test.after(() => {
   db.close();
@@ -83,4 +84,14 @@ test('the trusted 2022 reconstruction never falls backward into quarantined 2021
   assert.equal(profile.season, 2022);
   assert.equal(profile.fell_back, false);
   assert.equal(profile.teams.get('T0').weeks, 1);
+});
+
+test('orthogonal specialist artifacts persist by their content-addressed result id', () => {
+  const artifact = { artifact_id: 'artifact-test-id', data_hash: 'data-test-hash',
+    training_games: 400, validation_games: 80, families: [] };
+  specialistTest.persistArtifact(artifact, 2025, 12);
+  const saved = rows(`SELECT artifact_id,data_hash FROM nfl_orthogonal_specialist_artifacts
+    WHERE artifact_id=?`, artifact.artifact_id)[0];
+  assert.equal(saved.artifact_id, artifact.artifact_id);
+  assert.equal(saved.data_hash, artifact.data_hash);
 });

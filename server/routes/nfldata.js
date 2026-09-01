@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { scheduleOutlook } from '../services/matchups.js';
 import { recordSync } from '../services/scheduler.js';
+import { captureCurrentRosterSnapshot } from '../services/nfl-player-state.js';
 
 const r = Router();
 const SITE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
@@ -116,7 +117,8 @@ export async function syncRosters() {
       teams++;
     }
   }
-  const result = { teams, players: total };
+  const snapshot = captureCurrentRosterSnapshot();
+  const result = { teams, players: total, snapshot };
   recordSync('espn_rosters', teams < abbrs.length ? 'error' : 'ok', result);
   return result;
 }

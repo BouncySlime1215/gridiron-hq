@@ -627,7 +627,12 @@ The first job-specific smoke audit used 2021 Week 18, 15 games. The drive simula
 interval. The cutoff-frozen player opportunity engine recorded 1.52 events of player-volume MAE
 under the original all-field score; the score was then tightened to exclude trivial zeros and grade
 only role-relevant workloads. The online neural correctly emitted missing/cold rather than a fake
-zero forecast because no strictly earlier council examples existed.
+zero forecast because no strictly earlier council examples existed. It is now connected to the
+same isolated audit run and learns sequentially only from earlier settled weeks. Its first real
+outputs were weak: 46.2% direction with 192.1 MSE after 15 examples, then 41.7% with 403.7 MSE
+after 28 examples. That proves the connection works; it does not prove the learner is useful.
+Shrinkage and the coordinator's influence caps must keep it small unless later weeks demonstrate
+incremental out-of-sample value.
 
 The live remainder simulator now starts from the actual possession, field position, down, and
 distance instead of silently resetting the current drive to first-and-ten. A 12-game, 36-checkpoint
@@ -847,6 +852,25 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
 - Added an optional licensed PFF API/import adapter. Browser scraping and cookie automation are
   prohibited; without licensed credentials the signal works from local/public evidence.
 - This ninth signal is research-only and has not inherited the earlier eight-signal audit result.
+
+### 2026-08-31 — dated player-state ledger connected
+
+- Added immutable roster snapshots labeled with the source fetch time, never the time a cached row
+  happened to be read.
+- Materialized verified official-wire trades, signings, claims, releases, waivers, reserve moves,
+  activations, and practice-squad moves as dated player-state events.
+- Reconstructs team and roster status at a requested cutoff without rewriting the master player row.
+- Reads both mirrored sides of a trade and uses the position of “for/in exchange for” relative to
+  the resolved player so acquiring a draft pick is not mistaken for acquiring the outgoing player.
+- Quarantines a transaction unless it resolves to exactly one stable player identity. Current local
+  coverage is 27 materialized events from 205 reviewed transaction sentences; 158 large or ambiguous
+  items are quarantined and 20 contain no supported roster transition. This is an explicit ingestion
+  backlog, not permission to infer the missing moves.
+- The configured-season offseason-change engine now uses this cutoff-safe state before Week 1 rather
+  than asking nonexistent current-season game usage where a player is rostered.
+- Remaining rookie gap: structured college production, opponent-strength context, combine testing,
+  and verified preseason-role evidence do not yet exist. Draft capital plus depth remains the honest
+  prior until those inputs are stored and pass chronological ablation.
 
 ### 2026-08-31 — twelve-role weekly expert audit connected
 

@@ -23,6 +23,7 @@ import { normalizeNewsItem } from '../news/normalize.js';
 import { upsertNormalizedNewsItem } from '../news/store.js';
 import { loadIdentity } from '../news/ingest.js';
 import { recordSync } from './scheduler.js';
+import { syncRosterEventsFromNews } from './nfl-player-state.js';
 
 const ESPN_TRANSACTIONS = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/transactions';
 
@@ -65,8 +66,9 @@ export async function syncTransactions({ pages = 3 } = {}) {
       }
       if (!data.pageCount || page >= data.pageCount) break;
     }
-    recordSync('nfl_transactions', 'ok', { pages: pagesFetched, moves_seen: moves, stored });
-    return { pages: pagesFetched, moves_seen: moves, stored };
+    const playerState = syncRosterEventsFromNews();
+    recordSync('nfl_transactions', 'ok', { pages: pagesFetched, moves_seen: moves, stored, player_state: playerState });
+    return { pages: pagesFetched, moves_seen: moves, stored, player_state: playerState };
   } catch (e) {
     recordSync('nfl_transactions', 'error', e.message);
     throw e;

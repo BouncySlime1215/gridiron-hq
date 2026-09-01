@@ -155,8 +155,14 @@ function rookieProfiles(season) {
 
 function teamChangeProfiles(cutoff) {
   try {
-    const changes = rows(`SELECT player_name,from_team,to_team,detected_at FROM player_team_changes
-      WHERE detected_at<=? ORDER BY detected_at DESC`, cutoff ?? new Date().toISOString());
+    const changes = rows(`SELECT player_name,from_team,to_team,effective_at detected_at
+      FROM nfl_player_roster_events
+      WHERE effective_at<=? AND verification_state='verified'
+        AND event_type IN ('traded','signed','claimed','waived','released')
+      UNION ALL
+      SELECT player_name,from_team,to_team,detected_at FROM player_team_changes
+      WHERE detected_at<=?
+      ORDER BY detected_at DESC`, cutoff ?? new Date().toISOString(), cutoff ?? new Date().toISOString());
     const map = new Map();
     for (const change of changes) if (!map.has(normalize(change.player_name))) {
       map.set(normalize(change.player_name), change);

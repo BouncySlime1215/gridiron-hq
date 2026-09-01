@@ -37,6 +37,7 @@
  */
 import { rows } from '../db/index.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
+import { rosterStateAt } from './nfl-player-state.js';
 
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
 
@@ -71,9 +72,25 @@ function seasonTeams(season) {
  * Offseason change report for `season`, using only `season - 1` and earlier.
  * Safe to call before Week 1 — it reads no in-season data at all.
  */
-export function offseasonChanges(season) {
+export function offseasonChanges(season, { cutoff = new Date().toISOString() } = {}) {
   const prior = seasonTeams(season - 1);
-  const current = seasonTeams(season);
+  let current = seasonTeams(season);
+  const configuredSeason = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  // Before Week 1 there are no current-season usage rows. For the configured
+  // season, reconstruct the roster from dated snapshots + verified moves.
+  // Historical seasons keep using their immutable weekly assignments.
+  if (season === configuredSeason) {
+    const state = rosterStateAt(cutoff);
+    if (state.baseline_captured_at) {
+      current = new Map([...state.players.values()]
+        .filter(player => player.player_id != null && player.team && player.roster_status !== 'free_agent')
+        .map(player => [Number(player.player_id), {
+          player_id: Number(player.player_id), team: player.team, position: player.position,
+          targets: 0, carries: 0, attempts: 0, opportunity: 0, games: 0,
+          roster_evidence: player.evidence_kind, roster_effective_at: player.effective_at
+        }]));
+    }
+  }
 
   // Who moved, and who left the league entirely (no current-season row).
   const playerChange = new Map();
@@ -133,8 +150,8 @@ export function offseasonChanges(season) {
  * Per-player offseason context for the season being projected: did he move,
  * and how much opportunity is open on the team he is now on.
  */
-export function offseasonContextFor(season) {
-  const { players, teams } = offseasonChanges(season);
+export function offseasonContextFor(season, options = {}) {
+  const { players, teams } = offseasonChanges(season, options);
   const out = new Map();
   for (const [playerId, change] of players) {
     const team = change.current_team ? teams.get(change.current_team) ?? null : null;

@@ -25,7 +25,7 @@
  * excellent history and not a live feed, which is fine for learning formation
  * distributions and useless for knowing what happened on Sunday.
  */
-import { rows, row, run } from '../db/index.js';
+import { db, rows, row, run } from '../db/index.js';
 
 const BASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -75,9 +75,9 @@ const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const bool = v => (v === '1' || v === 'TRUE' || v === 'true' ? 1 : v === '' ? null : 0);
 
 /** Ingest one season of formation and personnel data. */
-export async function ingestFormations(season) {
+export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
   const res = await fetch(`${BASE}/pbp_participation/pbp_participation_${season}.csv`,
-    { signal: AbortSignal.timeout(300000) });
+    { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) {
     return { error: `participation for ${season} returned ${res.status}`,
       note: season > 2023
@@ -90,32 +90,37 @@ export async function ingestFormations(season) {
   const idx = Object.fromEntries(header.map((h, i) => [h, i]));
 
   let stored = 0, withFormation = 0;
-  for (const raw of lines.slice(1)) {
-    if (!raw.trim()) continue;
-    const p = splitCsv(raw);
-    const gameId = p[idx.nflverse_game_id];
-    const playId = num(p[idx.play_id]);
-    if (!gameId || playId == null) continue;
-    const formation = (p[idx.offense_formation] ?? '').trim() || null;
-    if (formation) withFormation++;
-    run(`INSERT INTO nfl_play_formations
+  const stmt = db.prepare(`INSERT INTO nfl_play_formations
          (game_id, play_id, season, possession, offense_formation, offense_personnel,
           defense_personnel, defenders_in_box, pass_rushers)
          VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(game_id, play_id) DO NOTHING`,
-    gameId, playId, season, p[idx.possession_team] ?? null, formation,
-    (p[idx.offense_personnel] ?? '').trim() || null,
-    (p[idx.defense_personnel] ?? '').trim() || null,
-    num(p[idx.defenders_in_box]), num(p[idx.number_of_pass_rushers]));
-    stored++;
-  }
+  );
+  db.exec('BEGIN');
+  try {
+    for (const raw of lines.slice(1)) {
+      if (!raw.trim()) continue;
+      const p = splitCsv(raw);
+      const gameId = p[idx.nflverse_game_id];
+      const playId = num(p[idx.play_id]);
+      if (!gameId || playId == null) continue;
+      const formation = (p[idx.offense_formation] ?? '').trim() || null;
+      if (formation) withFormation++;
+      stmt.run(gameId, playId, season, p[idx.possession_team] ?? null, formation,
+        (p[idx.offense_personnel] ?? '').trim() || null,
+        (p[idx.defense_personnel] ?? '').trim() || null,
+        num(p[idx.defenders_in_box]), num(p[idx.number_of_pass_rushers]));
+      stored++;
+    }
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
   return { season, plays_stored: stored, with_formation: withFormation,
     note: 'Formation is blank on special teams and some no-play rows, which is why the counts differ.' };
 }
 
 /** Ingest one season of FTN hand-charting. */
-export async function ingestCharting(season) {
+export async function ingestCharting(season, { timeoutMs = 900000 } = {}) {
   const res = await fetch(`${BASE}/ftn_charting/ftn_charting_${season}.csv`,
-    { signal: AbortSignal.timeout(300000) });
+    { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) return { error: `ftn charting for ${season} returned ${res.status}` };
   const text = await res.text();
   const lines = text.split('\n');
@@ -123,25 +128,30 @@ export async function ingestCharting(season) {
   const idx = Object.fromEntries(header.map((h, i) => [h, i]));
 
   let stored = 0;
-  for (const raw of lines.slice(1)) {
-    if (!raw.trim()) continue;
-    const p = splitCsv(raw);
-    const gameId = p[idx.nflverse_game_id];
-    const playId = num(p[idx.nflverse_play_id]);
-    if (!gameId || playId == null) continue;
-    run(`INSERT INTO nfl_play_charting
+  const stmt = db.prepare(`INSERT INTO nfl_play_charting
          (game_id, play_id, season, week, qb_location, backfield, defense_box,
           no_huddle, motion, play_action, screen, rpo, trick, out_of_pocket,
           throw_away, contested)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(game_id, play_id) DO NOTHING`,
-    gameId, playId, num(p[idx.season]) ?? season, num(p[idx.week]),
-    (p[idx.qb_location] ?? '').trim() || null,
-    num(p[idx.n_offense_backfield]), num(p[idx.n_defense_box]),
-    bool(p[idx.is_no_huddle]), bool(p[idx.is_motion]), bool(p[idx.is_play_action]),
-    bool(p[idx.is_screen_pass]), bool(p[idx.is_rpo]), bool(p[idx.is_trick_play]),
-    bool(p[idx.is_qb_out_of_pocket]), bool(p[idx.is_throw_away]), bool(p[idx.is_contested_ball]));
-    stored++;
-  }
+  );
+  db.exec('BEGIN');
+  try {
+    for (const raw of lines.slice(1)) {
+      if (!raw.trim()) continue;
+      const p = splitCsv(raw);
+      const gameId = p[idx.nflverse_game_id];
+      const playId = num(p[idx.nflverse_play_id]);
+      if (!gameId || playId == null) continue;
+      stmt.run(gameId, playId, num(p[idx.season]) ?? season, num(p[idx.week]),
+        (p[idx.qb_location] ?? '').trim() || null,
+        num(p[idx.n_offense_backfield]), num(p[idx.n_defense_box]),
+        bool(p[idx.is_no_huddle]), bool(p[idx.is_motion]), bool(p[idx.is_play_action]),
+        bool(p[idx.is_screen_pass]), bool(p[idx.is_rpo]), bool(p[idx.is_trick_play]),
+        bool(p[idx.is_qb_out_of_pocket]), bool(p[idx.is_throw_away]), bool(p[idx.is_contested_ball]));
+      stored++;
+    }
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
   return { season, plays_stored: stored };
 }
 

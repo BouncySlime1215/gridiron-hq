@@ -68,8 +68,30 @@ await phase('verified_events', () => syncVerifiedEventArchive({
 
 await phase('charted_play_context', async () => {
   const formations = [], charting = [];
-  for (const season of SEASONS.filter(value => value <= 2023)) formations.push(await ingestFormations(season));
-  for (const season of SEASONS) charting.push(await ingestCharting(season));
+  const retry = async (label, fn, attempts = 3) => {
+    let last;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const result = await fn();
+        if (result?.error) throw new Error(result.error);
+        return { ...result, attempt };
+      } catch (error) {
+        last = error;
+        log('source_retry', { label, attempt, error: error.message });
+      }
+    }
+    throw new Error(`${label} failed after ${attempts} attempts: ${last?.message}`);
+  };
+  for (const season of SEASONS.filter(value => value <= 2023)) {
+    const existing = Number(rows(`SELECT COUNT(*) n FROM nfl_play_formations WHERE season=?`, season)[0]?.n ?? 0);
+    formations.push(existing > 1000 ? { season, existing, skipped_complete_season: true }
+      : await retry(`formations ${season}`, () => ingestFormations(season)));
+  }
+  for (const season of SEASONS) {
+    const existing = Number(rows(`SELECT COUNT(*) n FROM nfl_play_charting WHERE season=?`, season)[0]?.n ?? 0);
+    charting.push(existing > 1000 ? { season, existing, skipped_complete_season: true }
+      : await retry(`FTN charting ${season}`, () => ingestCharting(season)));
+  }
   return { formations, charting };
 });
 

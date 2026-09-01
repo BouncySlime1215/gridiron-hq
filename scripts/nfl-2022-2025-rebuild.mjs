@@ -6,7 +6,8 @@
  * measured elsewhere and remains available for repair, never silently zero-filled.
  */
 import { db, rows, run } from '../server/db/index.js';
-import { syncNgs, syncPfrAdv, syncSnaps, syncDepthCharts, syncInjuries } from '../server/services/nfl-advanced.js';
+import { syncNgs, syncPfrAdv, syncSnaps, syncDepthCharts, syncInjuries,
+  reconcileHistoricalTeamCodes } from '../server/services/nfl-advanced.js';
 import { syncVerifiedEventArchive } from '../server/services/nfl-event-archive.js';
 import { ingestCharting, ingestFormations } from '../server/services/nfl-formations.js';
 import { backfillTeamFeatureVectors, backfillPlayerFeatureVectors,
@@ -95,7 +96,13 @@ await phase('charted_play_context', async () => {
   return { formations, charting };
 });
 
+await phase('team_code_reconciliation', () => reconcileHistoricalTeamCodes());
+
 await phase('team_feature_vectors', () => backfillTeamFeatureVectors({
+  seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK
+}));
+
+await phase('missing_team_vector_repair', () => backfillTeamFeatureVectors({
   seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK
 }));
 

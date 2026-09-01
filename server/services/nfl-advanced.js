@@ -146,7 +146,7 @@ export async function syncNgs(seasons) {
       if (!want.has(season) || !week || r.season_type !== 'REG') return;
       if (!r.player_gsis_id) return;
       batch.push([season, week, r.player_gsis_id, kind, r.player_display_name,
-        r.team_abbr, r.player_position, JSON.stringify(pick(r, NGS_FIELDS[kind]))]);
+        normalizeDepthTeam(r.team_abbr), r.player_position, JSON.stringify(pick(r, NGS_FIELDS[kind]))]);
     });
     db.exec('BEGIN');
     try { for (const b of batch) stmt.run(...b); db.exec('COMMIT'); }
@@ -183,7 +183,8 @@ export async function syncPfrAdv(seasons) {
           if (r.game_type && r.game_type !== 'REG') return;
           const week = n(r.week);
           if (!week || !r.pfr_player_name) return;
-          batch.push([season, week, r.pfr_player_name, kind, r.team, r.opponent,
+          batch.push([season, week, r.pfr_player_name, kind, normalizeDepthTeam(r.team),
+            normalizeDepthTeam(r.opponent),
             JSON.stringify(pick(r, PFR_FIELDS[kind]))]);
         });
       } catch (error) {
@@ -221,7 +222,7 @@ export async function syncSnaps(seasons) {
         if (r.game_type && r.game_type !== 'REG') return;
         const week = n(r.week);
         if (!week || !r.player) return;
-        batch.push([season, week, r.player, r.team, r.position,
+        batch.push([season, week, r.player, normalizeDepthTeam(r.team), r.position,
           n(r.offense_snaps), n(r.offense_pct), n(r.defense_snaps), n(r.defense_pct), n(r.st_pct)]);
       });
     } catch (error) {
@@ -353,7 +354,7 @@ export async function syncInjuries(seasons) {
         if (!week || !r.gsis_id) return;
         const seasonType = r.game_type || r.season_type;
         if (seasonType && seasonType !== 'REG') return;
-        batch.push([season, week, r.gsis_id, r.team, r.full_name, r.position,
+        batch.push([season, week, r.gsis_id, normalizeDepthTeam(r.team), r.full_name, r.position,
           r.report_status || null, r.practice_status || null,
           r.report_primary_injury || r.practice_primary_injury || null,
           r.date_modified || null]);
@@ -370,6 +371,35 @@ export async function syncInjuries(seasons) {
   return { rows: total, requested_seasons: seasons, failures,
     complete: failures.length === 0,
     policy: 'A failed source is reported explicitly and is never interpreted as an empty injury week.' };
+}
+
+/** Repair legacy source abbreviations before any immutable weekly state is frozen. */
+export function reconcileHistoricalTeamCodes() {
+  const tables = new Set(rows("SELECT name FROM sqlite_master WHERE type='table'").map(item => item.name));
+  const targets = [
+    ['nfl_team_week_features', ['team', 'opponent']],
+    ['nfl_player_week_features', ['team', 'opponent']],
+    ['player_week_usage', ['team', 'opponent']],
+    ['nfl_ngs', ['team']], ['nfl_pfr_adv', ['team', 'opponent']],
+    ['nfl_snaps', ['team']], ['nfl_injuries', ['team']],
+    ['nfl_play_formations', ['possession']]
+  ];
+  const aliases = [['LA', 'LAR'], ['JAC', 'JAX'], ['OAK', 'LV'], ['SD', 'LAC'], ['STL', 'LAR']];
+  const changes = [];
+  db.exec('BEGIN');
+  try {
+    for (const [table, columns] of targets) {
+      if (!tables.has(table)) continue;
+      const available = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(item => item.name));
+      for (const column of columns.filter(item => available.has(item))) for (const [from, to] of aliases) {
+        const result = run(`UPDATE OR IGNORE ${table} SET ${column}=? WHERE ${column}=?`, to, from);
+        if (Number(result.changes ?? 0)) changes.push({ table, column, from, to, rows: Number(result.changes) });
+      }
+    }
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
+  return { changes, rows_changed: changes.reduce((sum, item) => sum + item.rows, 0),
+    canonical: { LA: 'LAR', JAC: 'JAX', OAK: 'LV', SD: 'LAC', STL: 'LAR' } };
 }
 
 /* ------------------------------------------------------------------- roles */

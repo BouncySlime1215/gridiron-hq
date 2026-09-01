@@ -15,7 +15,8 @@ import crypto from 'node:crypto';
 import { db, row, rows, run } from '../db/index.js';
 import { syncAll as syncNflverse } from './nflverse.js';
 import { syncPbpSeason } from './nfl-pbp.js';
-import { syncNgs, syncPfrAdv, syncSnaps, syncDepthCharts, syncInjuries } from './nfl-advanced.js';
+import { syncNgs, syncPfrAdv, syncSnaps, syncDepthCharts, syncInjuries,
+  reconcileHistoricalTeamCodes } from './nfl-advanced.js';
 import { settleNflShadowDecisions, shadowLedgerSummary } from './shadow-ledger.js';
 import { settleForwardPicks } from './forward-ledger.js';
 import { clearAutoPickBoardCache } from './nfl-auto-picks.js';
@@ -228,6 +229,7 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
     // This remains outside the refit branch so a transient neural failure can
     // retry after the ensemble artifact has already been persisted.
     if (afterIngest.finalized_week > 0 && coreCurrent) {
+      detail.team_code_reconciliation = reconcileHistoricalTeamCodes();
       const nextWeek = afterIngest.finalized_week + 1;
       if (nextWeek <= 18) {
         detail.shared_weekly_state = freezeWeeklyFeatureState(season, nextWeek);

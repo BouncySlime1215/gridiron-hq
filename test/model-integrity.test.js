@@ -10,7 +10,8 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { __test: sim } = await import('../server/services/season-sim.js');
 const { db } = await import('../server/db/index.js');
 const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../server/services/mlb-projections.js');
-const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine } = await import('../server/services/nfl-ensemble.js');
+const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine,
+  withEphemeralEnsembleArtifacts } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
 const { deriveSignalReliability } = await import('../server/services/nfl-signal-reliability.js');
 const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-neural-replay.js');
@@ -777,6 +778,14 @@ test('historical ensemble weights exclude the season being predicted and all fut
     'the candidate unified engine retains every challenger input even when this fixture has no advanced rows');
   assert.ok(Math.abs(allInputs.models.reduce((sum, model) => sum + model.margin_weight, 0) - 1) < 0.001,
     'candidate margin influence remains a normalized convex blend');
+  clearEnsembleCache();
+  const beforeEphemeral = db.prepare('SELECT COUNT(*) n FROM nfl_ensemble_fit_artifacts').get().n;
+  const ephemeral = withEphemeralEnsembleArtifacts(() => fitEnsemble({ beforeSeason: 2023, beforeWeek: 1 }));
+  const afterEphemeral = db.prepare('SELECT COUNT(*) n FROM nfl_ensemble_fit_artifacts').get().n;
+  assert.deepEqual(ephemeral.weight_cutoff, { season: 2023, week: 1 });
+  assert.equal(beforeEphemeral, 0);
+  assert.equal(afterEphemeral, 0,
+    'sealed audit computation must not read through or mutate the persistent fit ledger');
   const candidateLine = ensembleLine(2026, 1, 'AAA', 'BBB', { includeChallengers: true });
   assert.equal(candidateLine.input_mode, 'all-inputs');
   assert.equal(candidateLine.models.filter(model => model.challenger_only).length, 9);

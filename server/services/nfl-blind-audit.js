@@ -19,7 +19,7 @@ import { PLAYER_HEAD_REGISTRY_VERSION, PLAYER_HEADS } from './player-head-regist
 import { PLAYER_WEEK_ENGINE_VERSION } from './player-week-engine.js';
 import { NFL_HISTORICAL_REPLAY_POLICY } from './nfl-policy.js';
 import { explainPick } from './pick-reasoning.js';
-import { ensembleLine } from './nfl-ensemble.js';
+import { ensembleLine, withEphemeralEnsembleArtifacts } from './nfl-ensemble.js';
 import { weeklyExpertAudit, persistWeeklyExpertAudit, EXPERT_COUNCIL_VERSION,
   NFL_EXPERTS } from './nfl-expert-council.js';
 import { buildPostgameTruth, persistPostgameTruth, postgameAuditSummary,
@@ -155,6 +155,7 @@ function normalizeSpec(input = {}) {
       'One week opens once and cannot be overwritten.',
       'Every prediction is generated from information strictly before its target week.',
       'Code and model-input data must match preregistration before every opened week.',
+      'Persistent ensemble-fit artifacts are neither read nor written while an audited week is computed.',
       'Fault attribution is descriptive and cannot alter the frozen model during this run.',
       'Historical ROI is reported but cannot establish production profitability without real archived quotes and forward CLV.',
       'The genuinely untouched gate is the 2026 forward shadow ledger.'
@@ -472,20 +473,23 @@ export function runNextBlindAuditWeek(id) {
   const record = rows('SELECT * FROM nfl_blind_audit_runs WHERE id=?', Number(id))[0];
   if (!record) throw new Error('blind audit not found');
   if (record.status === 'complete') throw new Error('blind audit is already complete');
+  if (record.status === 'failed') throw new Error('blind audit is sealed as failed');
   assertFrozen(record);
   const spec = JSON.parse(record.spec_json);
   const target = spec.schedule[record.next_ordinal];
   if (!target) throw new Error('blind audit has no remaining weeks');
-  const expertCouncil = weeklyExpertAudit(target.season, target.week, { auditRunId: record.id });
-  const postgamePackets = expertCouncil.games.map(item => buildPostgameTruth(target.season, target.week,
-    item.game.home, { expertPacket: item }));
-  const result = {
-    cutoff: `${target.season}-W${target.week - 1}`,
-    player: playerWeekResult(target.season, target.week),
-    betting: bettingWeekResult(target.season, target.week),
-    expert_council: expertCouncil,
-    postgame_truth: postgamePackets.map(postgameAuditSummary)
-  };
+  const { expertCouncil, postgamePackets, result } = withEphemeralEnsembleArtifacts(() => {
+    const expertCouncil = weeklyExpertAudit(target.season, target.week, { auditRunId: record.id });
+    const postgamePackets = expertCouncil.games.map(item => buildPostgameTruth(target.season, target.week,
+      item.game.home, { expertPacket: item }));
+    return { expertCouncil, postgamePackets, result: {
+      cutoff: `${target.season}-W${target.week - 1}`,
+      player: playerWeekResult(target.season, target.week),
+      betting: bettingWeekResult(target.season, target.week),
+      expert_council: expertCouncil,
+      postgame_truth: postgamePackets.map(postgameAuditSummary)
+    } };
+  });
   const fault = { player: result.player.faults, betting: result.betting.faults,
     classification: 'outcome-visible fault pass; no model mutation authorized' };
   const prior = rows(`SELECT chain_hash FROM nfl_blind_audit_weeks
@@ -509,6 +513,17 @@ export function runNextBlindAuditWeek(id) {
       next, complete ? 'complete' : 'running', final ? JSON.stringify(final) : null, record.id);
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
+  return blindAuditStatus(record.id);
+}
+
+export function failBlindAudit(id, error) {
+  const record = rows('SELECT id,status,next_ordinal FROM nfl_blind_audit_runs WHERE id=?', Number(id))[0];
+  if (!record) throw new Error('blind audit not found');
+  if (record.status === 'complete') throw new Error('completed blind audit cannot be failed');
+  const failure = { classification: 'audit_execution_failure', error: String(error?.message ?? error),
+    weeks_opened: record.next_ordinal, sealed_at: new Date().toISOString() };
+  run(`UPDATE nfl_blind_audit_runs SET status='failed',final_json=? WHERE id=?`,
+    JSON.stringify(failure), record.id);
   return blindAuditStatus(record.id);
 }
 

@@ -17,7 +17,7 @@ import { simulationCalibrationFor } from '../server/services/nfl-sim-calibration
 import { fitOrthogonalSpecialists } from '../server/services/nfl-orthogonal-specialists.js';
 import { nflFeatureCoverage, freezeFeatureCoverageSnapshot } from '../server/services/nfl-feature-coverage.js';
 import { preregisterBlindAudit, runNextBlindAuditWeek,
-  blindAuditStatus } from '../server/services/nfl-blind-audit.js';
+  blindAuditStatus, failBlindAudit } from '../server/services/nfl-blind-audit.js';
 import { backfillPossessionLedger, liveLedgerStatus } from '../server/services/nfl-live-ledger.js';
 
 const SEASONS = [2022, 2023, 2024, 2025];
@@ -26,7 +26,9 @@ const START_WEEK = 5, END_WEEK = 18;
 // provenance change. Reusing v1 after its audit memory was reset would make the
 // runner skip completed checkpoints and then point at a deleted audit id.
 const RUN_KEY = 'nfl-2022-2025-shared-state-v2-decision-provenance';
-const AUDIT_LABEL = 'NFL 2022-2025 cutoff-safe reconstruction audit · decision provenance v2';
+const AUDIT_LABEL = 'NFL 2022-2025 cutoff-safe reconstruction audit · sealed fit-cache v3';
+const AUDIT_PHASE = 'audit_preregistration_v3';
+const CHRONOLOGICAL_PHASE = 'chronological_audit_v3';
 const LEDGER_TRIALS = Math.max(80, Number(process.env.NFL_LEDGER_TRIALS) || 120);
 const LEDGER_GAMES = Math.max(1, Number(process.env.NFL_LEDGER_GAMES) || 10000);
 const log = (phase, value) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), phase, value })}\n`);
@@ -191,7 +193,7 @@ await phase('coverage_snapshot', () => {
       evidence_hash: item.evidence_hash })) };
 });
 
-const registration = await phase('audit_preregistration', () => preregisterBlindAudit({
+const registration = await phase(AUDIT_PHASE, () => preregisterBlindAudit({
   label: AUDIT_LABEL,
   seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK
 }));
@@ -200,19 +202,24 @@ const auditId = registration?.id ?? rows(`SELECT id FROM nfl_blind_audit_runs
 AUDIT_LABEL)[0]?.id;
 if (!auditId) throw new Error('audit preregistration completed without a recoverable audit id');
 
-await phase('chronological_audit', () => {
+await phase(CHRONOLOGICAL_PHASE, () => {
   let status = blindAuditStatus(auditId);
   const totalGames = Number(rows(`SELECT COUNT(*) n FROM game_lines WHERE home=1
     AND season BETWEEN 2022 AND 2025 AND week BETWEEN ? AND ?`, START_WEEK, END_WEEK)[0]?.n ?? 0);
-  while (status.status !== 'complete') {
-    status = runNextBlindAuditWeek(auditId);
-    const completedGames = Number(rows(`SELECT COUNT(*) n FROM game_lines g WHERE g.home=1
-      AND g.season BETWEEN 2022 AND 2025 AND g.week BETWEEN ? AND ? AND EXISTS (
-        SELECT 1 FROM nfl_blind_audit_weeks w WHERE w.run_id=? AND w.season=g.season AND w.week=g.week
-      )`, START_WEEK, END_WEEK, auditId)[0]?.n ?? 0);
-    recordProgress('chronological_audit', { current: completedGames, total: totalGames,
-      weeks_opened: status.progress.opened, weeks_total: status.progress.total }, 'games');
-    log('chronological_audit_progress', status.progress);
+  try {
+    while (status.status !== 'complete') {
+      status = runNextBlindAuditWeek(auditId);
+      const completedGames = Number(rows(`SELECT COUNT(*) n FROM game_lines g WHERE g.home=1
+        AND g.season BETWEEN 2022 AND 2025 AND g.week BETWEEN ? AND ? AND EXISTS (
+          SELECT 1 FROM nfl_blind_audit_weeks w WHERE w.run_id=? AND w.season=g.season AND w.week=g.week
+        )`, START_WEEK, END_WEEK, auditId)[0]?.n ?? 0);
+      recordProgress(CHRONOLOGICAL_PHASE, { current: completedGames, total: totalGames,
+        weeks_opened: status.progress.opened, weeks_total: status.progress.total }, 'games');
+      log('chronological_audit_progress', status.progress);
+    }
+  } catch (error) {
+    failBlindAudit(auditId, error);
+    throw error;
   }
   return status;
 });

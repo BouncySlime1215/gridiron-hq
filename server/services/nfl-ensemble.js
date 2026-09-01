@@ -801,6 +801,7 @@ function rawDifferentials(feat, home, away) {
 const _cache = new Map();
 const _calibrationCache = new Map();
 const _lineCache = new Map();
+let _artifactPersistenceEnabled = true;
 export function clearEnsembleLineCache() { _lineCache.clear(); }
 /** Invalidate in-process fits after new games land while retaining the immutable fit ledger. */
 export function invalidateEnsembleCaches() {
@@ -810,6 +811,24 @@ export function invalidateEnsembleCaches() {
 export function clearEnsembleCache() {
   invalidateEnsembleCaches();
   run('DELETE FROM nfl_ensemble_fit_artifacts');
+}
+
+/**
+ * Compute a sealed replay from frozen inputs without reading or writing the
+ * persistent fit cache. The in-process caches remain available for repeated
+ * calls inside one opened week, then are discarded at the boundary.
+ */
+export function withEphemeralEnsembleArtifacts(operation) {
+  if (typeof operation !== 'function') throw new TypeError('ephemeral ensemble scope requires an operation');
+  const prior = _artifactPersistenceEnabled;
+  invalidateEnsembleCaches();
+  _artifactPersistenceEnabled = false;
+  try {
+    return operation();
+  } finally {
+    _artifactPersistenceEnabled = prior;
+    invalidateEnsembleCaches();
+  }
 }
 
 function fitDataFingerprint() {
@@ -841,7 +860,9 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   if (_cache.has(cacheKey)) return _cache.get(cacheKey);
   const fingerprint = fitDataFingerprint();
   const artifactKey = fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint, includeChallengers);
-  const artifact = rows('SELECT result_json FROM nfl_ensemble_fit_artifacts WHERE artifact_key=?', artifactKey)[0];
+  const artifact = _artifactPersistenceEnabled
+    ? rows('SELECT result_json FROM nfl_ensemble_fit_artifacts WHERE artifact_key=?', artifactKey)[0]
+    : null;
   if (artifact?.result_json) {
     try {
       const saved = JSON.parse(artifact.result_json);
@@ -998,11 +1019,13 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }
   };
   _cache.set(cacheKey, result);
-  run(`INSERT INTO nfl_ensemble_fit_artifacts
-    (artifact_key,model_version,data_fingerprint,cutoff,weighting,created_at,result_json)
-    VALUES (?,?,?,?,?,datetime('now'),?)
-    ON CONFLICT(artifact_key) DO UPDATE SET created_at=excluded.created_at,result_json=excluded.result_json`,
-  artifactKey, FIT_ARTIFACT_VERSION, fingerprint, cutoffKey, weighting, JSON.stringify(result));
+  if (_artifactPersistenceEnabled) {
+    run(`INSERT INTO nfl_ensemble_fit_artifacts
+      (artifact_key,model_version,data_fingerprint,cutoff,weighting,created_at,result_json)
+      VALUES (?,?,?,?,?,datetime('now'),?)
+      ON CONFLICT(artifact_key) DO UPDATE SET created_at=excluded.created_at,result_json=excluded.result_json`,
+    artifactKey, FIT_ARTIFACT_VERSION, fingerprint, cutoffKey, weighting, JSON.stringify(result));
+  }
   return result;
 }
 

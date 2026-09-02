@@ -499,17 +499,24 @@ test('blind audit manifest publishes hashes, per-season results and explicit tel
 
 test('blind audit freezes canonical NFL players without coupling to fantasy seed churn', () => {
   const before = blindAuditTest.inputDataState();
+  const mutationBefore = blindAuditTest.inputMutationState();
   const fantasyOnly = db.prepare(`INSERT INTO players
     (name,position,slot_code,phase,fantasy_relevant)
     VALUES ('Audit Scope Kicker','K','K','special_teams',1)`).run();
   const afterFantasy = blindAuditTest.inputDataState();
+  const mutationAfterFantasy = blindAuditTest.inputMutationState(mutationBefore.latest);
   assert.equal(afterFantasy.coverage.players.hash, before.coverage.players.hash,
     'fantasy-only roster maintenance is outside the historical NFL identity snapshot');
+  assert.equal(mutationAfterFantasy.latest, mutationBefore.latest,
+    'fantasy-only roster maintenance does not wake the NFL audit guard');
   const nflPlayer = db.prepare(`INSERT INTO players (name,position,gsis_id)
     VALUES ('Audit Scope Receiver','WR','audit-scope-gsis')`).run();
   const afterNfl = blindAuditTest.inputDataState();
+  const mutationAfterNfl = blindAuditTest.inputMutationState(mutationBefore.latest);
   assert.notEqual(afterNfl.coverage.players.hash, before.coverage.players.hash,
     'a canonical NFL identity change still invalidates the frozen audit input');
+  assert.ok(mutationAfterNfl.latest > mutationBefore.latest);
+  assert.deepEqual(mutationAfterNfl.changed.map(item => item.table_name), ['players']);
   db.prepare('DELETE FROM players WHERE id IN (?,?)').run(fantasyOnly.lastInsertRowid, nflPlayer.lastInsertRowid);
 });
 

@@ -52,6 +52,21 @@ db.exec(`
     PRIMARY KEY (run_id, ordinal),
     UNIQUE (run_id, season, week)
   );
+  CREATE TABLE IF NOT EXISTS nfl_blind_input_mutations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    changed_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS nfl_blind_audit_week_performance (
+    run_id INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL,
+    freeze_check_ms INTEGER NOT NULL,
+    compute_ms INTEGER NOT NULL,
+    persist_ms INTEGER NOT NULL,
+    total_ms INTEGER NOT NULL,
+    PRIMARY KEY (run_id, ordinal)
+  );
 `);
 
 const INPUT_TABLES = [
@@ -67,6 +82,53 @@ const INPUT_TABLES = [
   'nfl_quote_tape'
 ];
 const sha = value => createHash('sha256').update(value).digest('hex');
+const mutationCursor = new Map();
+
+function installInputMutationJournal() {
+  const tables = new Set(rows("SELECT name FROM sqlite_master WHERE type='table'").map(item => item.name));
+  for (const table of INPUT_TABLES) {
+    if (!tables.has(table)) continue;
+    const prefix = `nfl_blind_input_${table}`;
+    if (table === 'players') {
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS ${prefix}_insert AFTER INSERT ON ${table}
+        WHEN NEW.gsis_id IS NOT NULL BEGIN
+          INSERT INTO nfl_blind_input_mutations(table_name,operation,changed_at)
+          VALUES ('${table}','insert',datetime('now'));
+        END;
+        CREATE TRIGGER IF NOT EXISTS ${prefix}_update AFTER UPDATE OF id,name,position,gsis_id ON ${table}
+        WHEN OLD.gsis_id IS NOT NULL OR NEW.gsis_id IS NOT NULL BEGIN
+          INSERT INTO nfl_blind_input_mutations(table_name,operation,changed_at)
+          VALUES ('${table}','update',datetime('now'));
+        END;
+        CREATE TRIGGER IF NOT EXISTS ${prefix}_delete AFTER DELETE ON ${table}
+        WHEN OLD.gsis_id IS NOT NULL BEGIN
+          INSERT INTO nfl_blind_input_mutations(table_name,operation,changed_at)
+          VALUES ('${table}','delete',datetime('now'));
+        END;
+      `);
+      continue;
+    }
+    for (const operation of ['INSERT', 'UPDATE', 'DELETE']) db.exec(`
+      CREATE TRIGGER IF NOT EXISTS ${prefix}_${operation.toLowerCase()} AFTER ${operation} ON ${table}
+      BEGIN
+        INSERT INTO nfl_blind_input_mutations(table_name,operation,changed_at)
+        VALUES ('${table}','${operation.toLowerCase()}',datetime('now'));
+      END;
+    `);
+  }
+}
+
+installInputMutationJournal();
+
+function inputMutationState(afterId = 0) {
+  const latest = rows('SELECT COALESCE(MAX(id),0) id FROM nfl_blind_input_mutations')[0]?.id ?? 0;
+  const changed = latest > afterId
+    ? rows(`SELECT table_name,COUNT(*) mutations,MIN(id) first_id,MAX(id) last_id
+        FROM nfl_blind_input_mutations WHERE id>? GROUP BY table_name ORDER BY table_name`, afterId)
+    : [];
+  return { latest: Number(latest), changed };
+}
 
 function repositoryState() {
   const cwd = process.cwd();
@@ -178,14 +240,25 @@ export function preregisterBlindAudit({ label = 'NFL five-year blind replay', al
     throw new Error('blind audit preregistration requires a clean committed repository state');
   }
   const normalized = normalizeSpec(input);
-  const data = inputDataState(normalized);
-  const spec = { ...normalized, provenance: { code, data_coverage: data.coverage } };
-  const specHash = sha(JSON.stringify(spec));
-  run(`INSERT INTO nfl_blind_audit_runs
-       (created_at,label,spec_hash,spec_json,code_hash,data_hash,status,next_ordinal)
-       VALUES (datetime('now'),?,?,?,?,?,'registered',0)`,
-    label, specHash, JSON.stringify(spec), code.hash, data.hash);
-  return blindAuditStatus(rows('SELECT last_insert_rowid() id')[0].id);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const data = inputDataState(normalized);
+    const guard = inputMutationState();
+    const spec = { ...normalized, provenance: { code, data_coverage: data.coverage,
+      input_guard: { version: 'nfl-input-mutation-journal-v1', mutation_id: guard.latest } } };
+    const specHash = sha(JSON.stringify(spec));
+    run(`INSERT INTO nfl_blind_audit_runs
+         (created_at,label,spec_hash,spec_json,code_hash,data_hash,status,next_ordinal)
+         VALUES (datetime('now'),?,?,?,?,?,'registered',0)`,
+      label, specHash, JSON.stringify(spec), code.hash, data.hash);
+    const id = Number(rows('SELECT last_insert_rowid() id')[0].id);
+    db.exec('COMMIT');
+    mutationCursor.set(id, guard.latest);
+    return blindAuditStatus(id);
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 function parseRun(record) {
@@ -198,6 +271,10 @@ function assertFrozen(record) {
   const code = repositoryState();
   if (code.hash !== record.code_hash) throw new Error('blind audit blocked: repository state changed after preregistration');
   const spec = JSON.parse(record.spec_json);
+  const priorMutation = mutationCursor.get(record.id)
+    ?? Number(spec.provenance?.input_guard?.mutation_id ?? -1);
+  const mutations = inputMutationState(Math.max(-1, priorMutation));
+  if (priorMutation >= 0 && mutations.latest <= priorMutation) return;
   const data = inputDataState(spec);
   if (data.hash !== record.data_hash) {
     const prior = spec.provenance?.data_coverage ?? {};
@@ -206,6 +283,7 @@ function assertFrozen(record) {
         before_hash: prior[table]?.hash ?? null, now_hash: state.hash }));
     throw new Error(`blind audit blocked: model input data changed after preregistration (${changed.map(item => item.table).join(', ') || 'legacy snapshot without table hashes'})`);
   }
+  mutationCursor.set(record.id, mutations.latest);
 }
 
 function playerWeekResult(season, week) {
@@ -479,14 +557,18 @@ function runManifest(record, weeks) {
 }
 
 export function runNextBlindAuditWeek(id) {
+  const startedAt = performance.now();
   const record = rows('SELECT * FROM nfl_blind_audit_runs WHERE id=?', Number(id))[0];
   if (!record) throw new Error('blind audit not found');
   if (record.status === 'complete') throw new Error('blind audit is already complete');
   if (record.status === 'failed') throw new Error('blind audit is sealed as failed');
+  if (record.status === 'cancelled') throw new Error('blind audit is sealed as cancelled');
   assertFrozen(record);
+  const freezeCheckMs = performance.now() - startedAt;
   const spec = JSON.parse(record.spec_json);
   const target = spec.schedule[record.next_ordinal];
   if (!target) throw new Error('blind audit has no remaining weeks');
+  const computeStartedAt = performance.now();
   const { expertCouncil, postgamePackets, result } = withEphemeralEnsembleArtifacts(() => {
     const expertCouncil = weeklyExpertAudit(target.season, target.week, { auditRunId: record.id });
     const postgamePackets = expertCouncil.games.map(item => buildPostgameTruth(target.season, target.week,
@@ -499,14 +581,20 @@ export function runNextBlindAuditWeek(id) {
       postgame_truth: postgamePackets.map(postgameAuditSummary)
     } };
   });
+  const computeMs = performance.now() - computeStartedAt;
   const fault = { player: result.player.faults, betting: result.betting.faults,
     classification: 'outcome-visible fault pass; no model mutation authorized' };
   const prior = rows(`SELECT chain_hash FROM nfl_blind_audit_weeks
                       WHERE run_id=? ORDER BY ordinal DESC LIMIT 1`, record.id)[0]?.chain_hash ?? record.spec_hash;
   const resultHash = sha(JSON.stringify(result));
   const chainHash = sha(`${prior}:${record.next_ordinal}:${target.season}:${target.week}:${resultHash}`);
-  db.exec('BEGIN');
+  const persistStartedAt = performance.now();
+  db.exec('BEGIN IMMEDIATE');
   try {
+    // Recheck while holding the writer lock. This catches an external input
+    // mutation that landed during inference and closes the final race before
+    // the immutable week is sealed.
+    assertFrozen(record);
     run(`INSERT INTO nfl_blind_audit_weeks
          (run_id,ordinal,season,week,opened_at,prior_chain_hash,result_hash,chain_hash,result_json,fault_json)
          VALUES (?,?,?,?,datetime('now'),?,?,?,?,?)`, record.id, record.next_ordinal,
@@ -520,6 +608,11 @@ export function runNextBlindAuditWeek(id) {
     const final = complete ? aggregate(weekRows) : null;
     run(`UPDATE nfl_blind_audit_runs SET next_ordinal=?,status=?,final_json=? WHERE id=?`,
       next, complete ? 'complete' : 'running', final ? JSON.stringify(final) : null, record.id);
+    const persistMs = performance.now() - persistStartedAt;
+    run(`INSERT INTO nfl_blind_audit_week_performance
+      (run_id,ordinal,freeze_check_ms,compute_ms,persist_ms,total_ms) VALUES (?,?,?,?,?,?)`,
+    record.id, record.next_ordinal, Math.round(freezeCheckMs), Math.round(computeMs),
+    Math.round(persistMs), Math.round(performance.now() - startedAt));
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
   return blindAuditStatus(record.id);
@@ -543,8 +636,20 @@ export function blindAuditStatus(id) {
                              result_json,fault_json FROM nfl_blind_audit_weeks
                       WHERE run_id=? ORDER BY ordinal`, record.id).map(x => ({ ...x,
     result: JSON.parse(x.result_json), faults: JSON.parse(x.fault_json), result_json: undefined, fault_json: undefined }));
+  const timings = rows(`SELECT freeze_check_ms,compute_ms,persist_ms,total_ms
+    FROM nfl_blind_audit_week_performance WHERE run_id=? ORDER BY ordinal`, record.id);
+  const average = key => timings.length
+    ? Math.round(timings.reduce((sum, item) => sum + item[key], 0) / timings.length) : null;
+  const averageTotalMs = average('total_ms');
   return { ...record, progress: { opened: weeks.length, total: record.spec.schedule.length,
-    next: record.spec.schedule[record.next_ordinal] ?? null }, manifest: runManifest(record, weeks), weeks };
+    next: record.spec.schedule[record.next_ordinal] ?? null },
+  performance: { measured_weeks: timings.length,
+    average_freeze_check_ms: average('freeze_check_ms'), average_compute_ms: average('compute_ms'),
+    average_persist_ms: average('persist_ms'), average_total_ms: averageTotalMs,
+    estimated_remaining_ms: averageTotalMs == null ? null
+      : averageTotalMs * Math.max(0, record.spec.schedule.length - weeks.length),
+    latest: timings.at(-1) ?? null },
+  manifest: runManifest(record, weeks), weeks };
 }
 
 export function listBlindAudits() {
@@ -556,4 +661,4 @@ export function blindAuditProtocol() {
     warning: 'Do not preregister until the model code is committed and the input data snapshot is frozen.' };
 }
 
-export const __test = { bettingSummary, runManifest, inputDataState };
+export const __test = { bettingSummary, runManifest, inputDataState, inputMutationState };

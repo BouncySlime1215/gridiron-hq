@@ -222,14 +222,42 @@ export function migrate(name, fn) {
   }
 }
 
-// Read-only corruption check; foreign keys are enabled above for every connection.
-try {
-  const result = db.prepare('PRAGMA integrity_check').get();
-  if (result?.integrity_check !== 'ok') {
-    console.error('[db] integrity_check reported a problem:', result);
+// A full integrity_check scans the entire database. Once historical NFL evidence
+// grew past 2 GB, doing that on every import made each server and worker process
+// spend tens of seconds proving the same file healthy. Persist the last result,
+// run the lighter quick_check at most daily by default, and retain an explicit
+// full mode for maintenance windows.
+db.exec(`CREATE TABLE IF NOT EXISTS db_health_checks (
+  check_name TEXT PRIMARY KEY,
+  checked_at TEXT NOT NULL,
+  result TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL
+)`);
+const integrityMode = String(process.env.GRIDIRON_DB_INTEGRITY_CHECK ?? 'quick').toLowerCase();
+const integrityIntervalHours = Math.max(1,
+  Number(process.env.GRIDIRON_DB_INTEGRITY_INTERVAL_HOURS) || 24);
+if (integrityMode !== 'off') {
+  const checkName = integrityMode === 'full' ? 'integrity_check' : 'quick_check';
+  const lastCheck = db.prepare('SELECT checked_at FROM db_health_checks WHERE check_name=?').get(checkName);
+  const lastCheckMs = Date.parse(lastCheck?.checked_at ?? '');
+  const due = !Number.isFinite(lastCheckMs)
+    || Date.now() - lastCheckMs >= integrityIntervalHours * 60 * 60 * 1000;
+  if (due) {
+    const startedAt = performance.now();
+    try {
+      const result = integrityMode === 'full'
+        ? db.prepare('PRAGMA integrity_check').get()?.integrity_check
+        : db.prepare('PRAGMA quick_check(1)').get()?.quick_check;
+      const durationMs = Math.round(performance.now() - startedAt);
+      db.prepare(`INSERT INTO db_health_checks(check_name,checked_at,result,duration_ms)
+        VALUES (?,datetime('now'),?,?) ON CONFLICT(check_name) DO UPDATE SET
+        checked_at=excluded.checked_at,result=excluded.result,duration_ms=excluded.duration_ms`)
+        .run(checkName, String(result ?? 'no result'), durationMs);
+      if (result !== 'ok') console.error(`[db] ${checkName} reported a problem:`, result);
+    } catch (e) {
+      console.error(`[db] ${checkName} failed to run:`, e.message);
+    }
   }
-} catch (e) {
-  console.error('[db] integrity_check failed to run:', e.message);
 }
 
 const leagueCols = db.prepare(`PRAGMA table_info(leagues)`).all().map(c => c.name);

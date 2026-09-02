@@ -214,7 +214,12 @@ await phase(CHRONOLOGICAL_PHASE, () => {
           SELECT 1 FROM nfl_blind_audit_weeks w WHERE w.run_id=? AND w.season=g.season AND w.week=g.week
         )`, START_WEEK, END_WEEK, auditId)[0]?.n ?? 0);
       recordProgress(CHRONOLOGICAL_PHASE, { current: completedGames, total: totalGames,
-        weeks_opened: status.progress.opened, weeks_total: status.progress.total }, 'games');
+        weeks_opened: status.progress.opened, weeks_total: status.progress.total,
+        average_week_ms: status.performance?.average_total_ms ?? null,
+        estimated_remaining_ms: status.performance?.estimated_remaining_ms ?? null,
+        processing_rate_games_per_minute: status.performance?.average_total_ms
+          ? +((completedGames / status.progress.opened) * 60000
+            / status.performance.average_total_ms).toFixed(2) : null }, 'games');
       log('chronological_audit_progress', status.progress);
     }
   } catch (error) {

@@ -66,9 +66,12 @@ interface AiReplayLog {
   outcome: string | null; units: number | null;
 }
 interface BlindAudit {
-  id: number; label: string; status: 'registered' | 'running' | 'complete';
+  id: number; label: string; status: 'registered' | 'running' | 'complete' | 'failed' | 'cancelled';
   spec_hash: string; code_hash: string; data_hash: string;
   progress: { opened: number; total: number; next: { season: number; week: number } | null };
+  performance?: { measured_weeks: number; average_freeze_check_ms: number | null;
+    average_compute_ms: number | null; average_persist_ms: number | null;
+    average_total_ms: number | null; estimated_remaining_ms: number | null };
   final?: { betting?: { bets: number; wins: number; losses: number; units: number; roi: number | null } } | null;
   weeks: { ordinal: number; season: number; week: number; chain_hash: string;
     result?: { expert_council?: { games: unknown[]; coordinator?: { ready: boolean; training_games?: number; training_weeks?: number; reason?: string | null };
@@ -80,6 +83,13 @@ interface BlindAudit {
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 const u = (v: number | null | undefined) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}u`);
+const duration = (ms: number | null | undefined) => {
+  if (ms == null) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+};
 
 /**
  * The training loop, made visible.
@@ -247,7 +257,9 @@ export default function Training({ focus = 'replay' }: { focus?: 'replay' | 'ai'
           <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <StatusPill tone={blindRun?.status === 'complete' ? 'good' : blindRun ? 'info' : 'neutral'}>{blindRun?.status ?? 'not preregistered'}</StatusPill>
+                <StatusPill tone={blindRun?.status === 'complete' ? 'good'
+                  : blindRun?.status === 'failed' || blindRun?.status === 'cancelled' ? 'warn'
+                    : blindRun ? 'info' : 'neutral'}>{blindRun?.status ?? 'not preregistered'}</StatusPill>
                 <span className="text-sm font-black text-slate-900">2021–2025 chronological replay</span>
               </div>
               <p className="mt-2 text-sm leading-6 text-slate-600">Historical algorithmic blindness prevents target-week leakage and mid-run tuning. It is not relabeled as untouched: genuine promotion evidence remains frozen 2026 pre-kickoff decisions and positive CLV.</p>
@@ -256,11 +268,15 @@ export default function Training({ focus = 'replay' }: { focus?: 'replay' | 'ai'
                 <span>spec {blindRun.spec_hash.slice(0, 12)}</span>
                 <span>chain {blindRun.weeks.at(-1)?.chain_hash.slice(0, 12) ?? 'not started'}</span>
                 {blindRun.progress.next && <span>next: {blindRun.progress.next.season} W{blindRun.progress.next.week}</span>}
+                {blindRun.performance?.average_total_ms != null && <span>avg week {duration(blindRun.performance.average_total_ms)}</span>}
+                {blindRun.performance?.average_freeze_check_ms != null && <span>input guard {duration(blindRun.performance.average_freeze_check_ms)}</span>}
+                {blindRun.status === 'running' && blindRun.performance?.estimated_remaining_ms != null
+                  && <span>ETA {duration(blindRun.performance.estimated_remaining_ms)}</span>}
               </div>}
             </div>
             <div className="flex flex-wrap gap-2">
               {!blindRun && <button className="btn-primary text-sm" disabled={blindBusy} onClick={preregisterBlind}>{blindBusy ? 'Hashing…' : 'Preregister frozen audit'}</button>}
-              {blindRun && blindRun.status !== 'complete' && <button className="btn-primary text-sm" disabled={blindBusy} onClick={openNextBlindWeek}>{blindBusy ? 'Opening…' : `Open ${blindRun.progress.next?.season ?? ''} W${blindRun.progress.next?.week ?? ''}`}</button>}
+              {blindRun && ['registered', 'running'].includes(blindRun.status) && <button className="btn-primary text-sm" disabled={blindBusy} onClick={openNextBlindWeek}>{blindBusy ? 'Opening…' : `Open ${blindRun.progress.next?.season ?? ''} W${blindRun.progress.next?.week ?? ''}`}</button>}
             </div>
           </div>
           {blindRun?.final?.betting && <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-4">

@@ -180,7 +180,7 @@ Phase 2 (Weeks 1–6) — running since 2026-09-03 (`beat-the-close.js`, job `be
 [x] nfl_signal_snapshots at every capture (ratings vs opener, QB out, injury burden, trades, Pinnacle move so far; raw and slate-centered)
 [x] beat_the_close shadow decisions at zero units at the best reachable price (Week 1: 13 spreads, 15 totals frozen)
 [x] CLV per decision at settlement against Pinnacle's last pre-kickoff line; GET /api/nfl-market/beat-the-close
-[ ] CLV in the weekly look-back; event-to-move window measured
+[~] event-to-move window measured from the verified archive (status carries it); CLV in the weekly look-back still open
 [ ] weekly read; retire rules whose live CLV interval sits below zero twice
 
 Phase 3 (season)

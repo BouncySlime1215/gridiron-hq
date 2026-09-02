@@ -98,6 +98,18 @@ export function clearNflMarketCache() { _cache = null; _nestedCache = null; }
  */
 export function fitModel() {
   if (_cache) return _cache;
+  const fit = fitRatings({});
+  if (!fit.error) _cache = fit;
+  return fit;
+}
+
+/**
+ * Uncached fit with an explicit hyperparameter selection window. `selectionThrough`
+ * caps the seasons alpha/carryover may be chosen on, so a study holding out
+ * 2024–2025 can select on ≤ 2023 and keep its holdout clean; the ratings walk
+ * itself is always walk-forward.
+ */
+export function fitRatings({ selectionThrough = null } = {}) {
   const games = historicalGames();
   if (games.length < 500) return { error: `only ${games.length} completed games with scores — sync game lines first` };
 
@@ -114,7 +126,8 @@ export function fitModel() {
   // selection window's. The held-out score is reported next to the
   // in-hindsight best on that season so the gap is visible.
   const lastSeason = games[games.length - 1].season;
-  const selection = games.filter(g => g.season < lastSeason);
+  const selectionCap = selectionThrough == null ? lastSeason - 1 : Math.min(selectionThrough, lastSeason - 1);
+  const selection = games.filter(g => g.season <= selectionCap);
   const holdout = games.filter(g => g.season === lastSeason);
   const selectOn = selection.length >= 500 ? selection : games;
   let best = null;
@@ -137,7 +150,7 @@ export function fitModel() {
     best.holdoutScore = gridScore(full.results.filter(r => r.g.season === lastSeason), 5);
   }
   const fitWindow = {
-    selection_seasons: selectOn === games ? [games[0].season, lastSeason] : [selection[0].season, lastSeason - 1],
+    selection_seasons: selectOn === games ? [games[0].season, lastSeason] : [selection[0].season, selectionCap],
     holdout_season: selectOn === games ? null : lastSeason,
     selected: { alpha: best.alpha, carryover: best.carryover, selection_score: +best.score.toFixed(4),
       holdout_score: best.holdoutScore == null ? null : +best.holdoutScore.toFixed(4) },
@@ -162,7 +175,7 @@ export function fitModel() {
   const marginStd = stdev(marginResiduals);
   const totalStd = stdev(totalResiduals);
 
-  _cache = {
+  return {
     off, def, hfa, leagueAvg, alpha: best.alpha, carryover: best.carryover, fitWindow,
     marginStd, totalStd, marginBias, totalBias, marginResiduals, totalResiduals, results,
     warmGames: warm.length, totalGames: games.length,
@@ -173,7 +186,6 @@ export function fitModel() {
     // the boundary here lets `predictGame` apply the fitted carryover itself.
     lastCompletedSeason: games.length ? games[games.length - 1].season : null
   };
-  return _cache;
 }
 
 /**

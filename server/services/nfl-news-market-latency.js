@@ -84,3 +84,42 @@ export function nflNewsMarketLatency({ limit = 500 } = {}) {
 }
 
 export const __test = { quoteReaction, matchesTeam };
+
+/**
+ * The same latency measurement over the verified EVENT archive (official
+ * injury reports with a modification timestamp, v2 stamps), so the window
+ * between a verified fact and the first book move is measured on thousands
+ * of events rather than the typed feed's few hundred. Restricted to
+ * statuses that move lines (Out, Doubtful, IR) and to events whose game had
+ * quotes captured on both sides of the timestamp.
+ */
+export function verifiedEventMarketLatency({ limit = 2000, since = null } = {}) {
+  const events = rows(`SELECT event_key news_id, player_name, team, event_type signal_type, status_after status, 1 confidence,
+      available_at published_at, source, source_url, position
+    FROM nfl_verified_events WHERE verification_state='verified' AND time_precision='timestamp' AND team IS NOT NULL
+      AND (status_after LIKE 'Out%' OR status_after LIKE 'Doubtful%' OR status_after LIKE '%Reserve%')
+      ${since ? 'AND available_at>=?' : ''} ORDER BY available_at DESC LIMIT ?`, ...(since ? [since, limit] : [limit]));
+  const snapshots = rows(`SELECT captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price
+    FROM nfl_line_snapshots WHERE market='spreads' ORDER BY captured_at`);
+  const aliasMap = teamAliases(), examples = [];
+  for (const claim of events) {
+    const alias = aliasMap.get(claim.team) ?? normalize(claim.team);
+    const pairs = quoteReaction(claim, snapshots, alias);
+    if (!pairs.length) continue;
+    const captures = pairs.map(pair => pair.publication_to_capture_minutes).filter(value => value >= 0);
+    const reactions = pairs.filter(pair => pair.reacted);
+    examples.push({ event: { player: claim.player_name, team: claim.team, position: claim.position, status: claim.status, at: claim.published_at },
+      quote_pairs: pairs.length, books: new Set(pairs.map(pair => pair.book)).size,
+      median_capture_lag_minutes: r2(median(captures)), reacted_pairs: reactions.length,
+      first_reaction_minutes: reactions.length ? r2(Math.min(...reactions.map(pair => pair.publication_to_capture_minutes))) : null });
+  }
+  const reactionLags = examples.map(example => example.first_reaction_minutes).filter(Number.isFinite);
+  const qb = examples.filter(example => example.event.position === 'QB');
+  const qbLags = qb.map(example => example.first_reaction_minutes).filter(Number.isFinite);
+  return { events_considered: events.length, events_with_quote_pair: examples.length,
+    events_with_observed_reaction: reactionLags.length,
+    median_event_to_reaction_minutes: r2(median(reactionLags)),
+    quarterbacks: { events: qb.length, with_reaction: qbLags.length, median_minutes: r2(median(qbLags)) },
+    note: 'Live captures are hourly, so the window is measured to the nearest capture; the archive holds only openers and closes and contributes no path.',
+    examples: examples.slice(0, 25) };
+}

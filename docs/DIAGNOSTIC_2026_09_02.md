@@ -511,11 +511,12 @@ difference from vig is inside one standard deviation of 570 bets. CLV is
 the right gate for a season, but it is not cash yet.
 
 Caveats to carry into Phase 2: (1) the ratings line's alpha/carryover pair
-was selected on seasons through 2024, which overlaps the holdout — a grid
-of thirty pairs is a weak leak, but the first live pre-check is to refit
-the selection on ≤2023 and confirm the T0 number; (2) T1/T2 numbers are
-upper bounds by construction; (3) the Pinnacle "close" is the book's last
-posted line, which for a few games is a minute after the listed kickoff.
+was selected on seasons through 2024, which overlaps the holdout — RESOLVED
+2026-09-03: refitting the selection on ≤2023 (`fitRatings({selectionThrough})`)
+picks the same pair and every held-out number is identical; (2) T1/T2
+numbers are upper bounds by construction; (3) the Pinnacle "close" is the
+book's last posted line, which for a few games is a minute after the
+listed kickoff.
 
 ### Phase 2 signals (docs/BEAT_THE_CLOSE_PLAN.md)
 
@@ -563,3 +564,20 @@ t 0.74, online neural t 0.96 — and the four loud roles form one family
 intercept) and says why per role, instead of spreading 0.35 weights over
 noise. That is the correct behaviour for the evidence, and it is why the
 beat-the-close program, not another role, is the path to profit.
+
+## 11. Postgame feedback loop and the event-to-move window (2026-09-03)
+
+`residualDecomposition()` in `nfl-postgame-truth.js` splits every final
+game's margin into variance points (non-offensive scores, points on the
+drive straight after a turnover, missed or blocked kicks, fourth-quarter
+scoring by a side down 17+) and the model share; `adjusted_residual` is the
+market residual with the variance share removed, stored in
+`nfl_game_variance` for every game with a play log and inside each postgame
+packet. The coordinator accepts `target: 'adjusted'` and the specialist
+audit reports the raw and adjusted fits side by side, which is the plan's
+gate for whether training on the adjusted target helps.
+
+`verifiedEventMarketLatency()` measures, from the verified event archive,
+the minutes between an Out/Doubtful/IR stamp and the first book move; the
+beat-the-close status carries the current-season window. Live captures are
+hourly, so the window resolves to the nearest capture.

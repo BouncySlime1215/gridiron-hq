@@ -233,7 +233,13 @@ function regimeLabels(game) {
   ];
 }
 
-export function fitExpertCoordinator(beforeSeason, beforeWeek, { auditRunId = null } = {}) {
+/**
+ * `target: 'adjusted'` trains on the variance-adjusted residual where the
+ * postgame decomposition exists (nfl_game_variance), so a role is not graded
+ * on a pick-six it could not foresee. The raw residual stays the default and
+ * the ledger's truth; the audit reports both fits side by side.
+ */
+export function fitExpertCoordinator(beforeSeason, beforeWeek, { auditRunId = null, target = 'raw' } = {}) {
   const historical = auditRunId == null
     ? rows(`SELECT * FROM nfl_weekly_expert_examples
       WHERE actual_residual IS NOT NULL AND (season<? OR (season=? AND week<?))
@@ -248,6 +254,11 @@ export function fitExpertCoordinator(beforeSeason, beforeWeek, { auditRunId = nu
   beforeSeason, beforeSeason, beforeWeek) : [];
   const raw = [...historical, ...forward];
   const games = pivotRows(raw);
+  if (target === 'adjusted') {
+    const adjusted = new Map(rows(`SELECT season,week,home,adjusted_residual FROM nfl_game_variance WHERE adjusted_residual IS NOT NULL`)
+      .map(r => [`${r.season}|${r.week}|${r.home}`, r.adjusted_residual]));
+    for (const game of games) if (adjusted.has(game.key)) { game.raw_target = game.target; game.target = adjusted.get(game.key); }
+  }
   const weeks = new Set(games.map(game => `${game.season}|${game.week}`)).size;
   if (games.length < MIN_GAMES || weeks < MIN_WEEKS) return {
     version: EXPERT_COORDINATOR_VERSION, ready: false, games: games.length, weeks,
@@ -263,7 +274,7 @@ export function fitExpertCoordinator(beforeSeason, beforeWeek, { auditRunId = nu
     regimes.push({ label, games: subset.length, weeks: regimeWeeks,
       shrinkage: subset.length / (subset.length + 192), fit: fitRows(subset) });
   }
-  return { version: EXPERT_COORDINATOR_VERSION, ready: true, games: games.length, weeks,
+  return { version: EXPERT_COORDINATOR_VERSION, ready: true, games: games.length, weeks, target,
     ...fit, regimes, authority: 'historical_candidate_only',
     safeguards: { target: 'market residual', week_balanced: true, loss: `Huber(${HUBER_DELTA})`, ridge: RIDGE,
       walk_forward_shrinkage: { ridge: SHRINK_RIDGE, min_games: SHRINK_MIN_GAMES, rule: 'k = cov/var capped 0..1; zero without walk-forward gain' },

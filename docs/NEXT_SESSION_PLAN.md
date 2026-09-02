@@ -284,7 +284,7 @@ evidence so far says the problem is calibration, not capacity.
 ```
 [x] 0.5 Beat-the-close study, Phase 1 (BEAT_THE_CLOSE_PLAN.md) — done; Phase 2 live
 [x] 1  Coordinator: Stage A shrinkage + Stage B families, tests, audit fields (every role shrinks to zero on run 10; one family of four)
-[ ] 1b Postgame decomposition (variance vs model share), adjusted target, reasoning-vs-result grades
+[x] 1b Postgame decomposition (variance vs model share), adjusted target in the coordinator and audit; reasoning-vs-result grades still open
 [ ] 2  Rulebook / player builder / game replay / specialist team changes, re-audited
 [ ] 3a Sharp-vs-soft role from the odds archive (hold out 2024–25)
 [ ] 3b QB-adjusted Elo role (538 data + reproduced update rule)

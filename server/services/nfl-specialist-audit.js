@@ -100,16 +100,15 @@ export function specialistAudit({ auditRunId = null, excludeSeasons = [2021] } =
 
   // What the v4 coordinator would do with these roles: the scale each has
   // earned walk-forward, which ones it zeroes, and which it pools as one.
-  let coordinator = null;
-  try {
-    const fit = fitExpertCoordinator(9999, 1, { auditRunId: runId });
-    coordinator = fit.ready ? { version: fit.version, games: fit.games, weeks: fit.weeks,
-      shrinkage: Object.fromEntries(Object.entries(fit.shrinkage).map(([id, v]) => [id, { k: v.k, gain: v.gain, t: v.t, n: v.n, reason: v.reason }])),
-      families: fit.families, family_correlations: fit.family_correlations,
-      column_weights: fit.columns.map((c, i) => ({ column: c.id, members: c.members, weight: +fit.coefficients[i + 1].toFixed(4) })) }
-      : { ready: false, reason: fit.reason };
-  } catch (error) { coordinator = { ready: false, reason: error.message }; }
-  return { available: true, audit_run_id: runId, games: games.size, breakeven_rate: BREAKEVEN_RATE, coordinator,
+  const summarise = fit => (fit.ready ? { version: fit.version, target: fit.target, games: fit.games, weeks: fit.weeks,
+    shrinkage: Object.fromEntries(Object.entries(fit.shrinkage).map(([id, v]) => [id, { k: v.k, gain: v.gain, t: v.t, n: v.n, reason: v.reason }])),
+    families: fit.families, family_correlations: fit.family_correlations,
+    column_weights: fit.columns.map((c, i) => ({ column: c.id, members: c.members, weight: +fit.coefficients[i + 1].toFixed(4) })) }
+    : { ready: false, reason: fit.reason });
+  let coordinator = null, coordinatorAdjusted = null;
+  try { coordinator = summarise(fitExpertCoordinator(9999, 1, { auditRunId: runId })); } catch (error) { coordinator = { ready: false, reason: error.message }; }
+  try { coordinatorAdjusted = summarise(fitExpertCoordinator(9999, 1, { auditRunId: runId, target: 'adjusted' })); } catch (error) { coordinatorAdjusted = { ready: false, reason: error.message }; }
+  return { available: true, audit_run_id: runId, games: games.size, breakeven_rate: BREAKEVEN_RATE, coordinator, coordinator_adjusted_target: coordinatorAdjusted,
     market_rmse: r3(marketRmse), specialists, duplicates, consensus: { ...consensus, agree_rate: agreeN ? r4(agreeRight / agreeN) : null },
     findings,
     rule: 'Scored on the immutable weekly expert rows of the latest historical diagnostic; 2021 excluded; every rate carries its sample.' };

@@ -22,7 +22,7 @@
  * seasons, is the gate. Direction accuracy is reported beside it.
  */
 import { rows } from '../db/index.js';
-import { fitModel } from './nfl-market.js';
+import { fitModel, fitRatings } from './nfl-market.js';
 import { matchupOpinion, MATCHUP_ROLES, ridge } from './nfl-matchup-specialists.js';
 import { teamEventVector } from './nfl-event-archive.js';
 
@@ -110,7 +110,7 @@ function archiveRows(seasons) {
  * opener and close, or with fewer than three books at either end, are
  * dropped and counted.
  */
-export function buildLineMoveDataset({ seasons = [2022, 2023, 2024, 2025], includeModels = true } = {}) {
+export function buildLineMoveDataset({ seasons = [2022, 2023, 2024, 2025], includeModels = true, selectionThrough = null } = {}) {
   const byGame = new Map();
   for (const q of archiveRows(seasons)) {
     const key = `${q.eid}|${q.market}`;
@@ -123,7 +123,7 @@ export function buildLineMoveDataset({ seasons = [2022, 2023, 2024, 2025], inclu
   const lines = new Map(rows(`SELECT season,week,team,opponent,home,gameday,gametime,div_game,rest_days,team_score,opp_score,spread,total
     FROM game_lines WHERE season IN (${seasons.map(() => '?').join(',')})`, ...seasons).map(r => [`${r.season}|${r.week}|${r.team}`, r]));
   const history = teamHistory(seasons);
-  const market = includeModels ? fitModel() : null;
+  const market = includeModels ? (selectionThrough == null ? fitModel() : fitRatings({ selectionThrough })) : null;
   const walk = new Map();
   if (market && !market.error) for (const r of market.results) walk.set(`${r.g.season}|${r.g.week}|${r.g.home}`, r);
   // Last season's tendency for each team's lines to move toward it (from the archive itself).
@@ -205,7 +205,8 @@ export function buildLineMoveDataset({ seasons = [2022, 2023, 2024, 2025], inclu
   }
   out.sort((p, q) => p.season - q.season || p.week - q.week || String(p.home).localeCompare(q.home));
   return { version: LINE_MOVE_STUDY_VERSION, seasons, rows: out, dropped, built_at: new Date().toISOString(),
-    ratings_line: market?.error ? null : 'walk-forward ratings line (alpha/carryover selected on seasons before the last completed one)' };
+    ratings_line: market?.error ? null : `walk-forward ratings line (alpha/carryover selected on seasons ≤ ${market.fitWindow?.selection_seasons?.[1]})`,
+    selection_through: selectionThrough };
 }
 
 /* ---------------------------------------------------------------- models */
@@ -334,8 +335,8 @@ function holm(pvals) {
 
 /* ---------------------------------------------------------------- report */
 
-export function lineMoveStudy({ seasons = [2022, 2023, 2024, 2025], includeModels = true, dataset = null } = {}) {
-  const built = dataset ?? buildLineMoveDataset({ seasons, includeModels });
+export function lineMoveStudy({ seasons = [2022, 2023, 2024, 2025], includeModels = true, dataset = null, selectionThrough = null } = {}) {
+  const built = dataset ?? buildLineMoveDataset({ seasons, includeModels, selectionThrough });
   const all = built.rows;
   if (all.length < MIN_TRAIN * 2) return { available: false, version: LINE_MOVE_STUDY_VERSION, reason: `only ${all.length} archived games with a Pinnacle opener and close`, dropped: built.dropped };
   const markets = ['spreads', 'totals'];
@@ -403,7 +404,7 @@ export function lineMoveStudy({ seasons = [2022, 2023, 2024, 2025], includeModel
   })();
   return { available: true, version: LINE_MOVE_STUDY_VERSION, built_at: built.built_at, seasons, holdout_from: HOLDOUT_FROM,
     dataset: { rows: all.length, spreads: all.filter(r => r.market === 'spreads').length, totals: all.filter(r => r.market === 'totals').length,
-      dropped: built.dropped, ratings_line: built.ratings_line },
+      dropped: built.dropped, ratings_line: built.ratings_line, selection_through: built.selection_through ?? null },
     headline, features: featureReport, slices, units,
     gate: { rule: `holdout mean CLV ≥ +${CLV_GATE_POINTS} points, 95% week-clustered interval above zero, ≥ ${GATE_MIN_GAMES} games, one decision time; single features also need Holm p < 0.05`,
       passed_decision_times: gatePassed, passed_features: passingFeatures.map(f => ({ market: f.market, name: f.name, mean_clv: f.mean_clv, interval: f.clv_interval, p_holm: f.p_holm, n: f.n })),

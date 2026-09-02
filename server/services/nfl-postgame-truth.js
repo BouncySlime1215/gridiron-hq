@@ -365,6 +365,68 @@ function frozenExpertComparison(season, week, home, actualResidual, expertPacket
       && Math.abs(actualResidual) > 1e-9 ? Math.sign(prediction.forecast_residual) === Math.sign(actualResidual) : null })) };
 }
 
+/**
+ * Variance versus model share of a game's residual (PROFITABILITY_PLAN 1b).
+ *
+ * A pick lost to a pick-six and a pick lost to a wrong read taught the model
+ * the same lesson. This splits the actual margin into points the pregame read
+ * could not have foreseen — non-offensive scores, points on the drive
+ * straight after a turnover (the short field), missed or blocked kicks, and
+ * scoring by a team already down 17+ in the fourth quarter — and everything
+ * else. `adjusted_residual` is the market residual with the variance share
+ * removed; the raw residual stays the ledger's truth because the bet still
+ * lost. Points are home-perspective throughout.
+ */
+export function residualDecomposition(plays, home, away, { marketMargin = null } = {}) {
+  const ordered = [...plays].filter(play => Number.isFinite(play.home_score) && Number.isFinite(play.away_score))
+    .sort((a, b) => a.sequence - b.sequence);
+  const items = [];
+  let prevHome = 0, prevAway = 0, lastTurnoverBy = null, driveOffense = null;
+  for (const play of ordered) {
+    // A new drive starts when the offence changes hands; remember whether it began with a turnover.
+    if (play.offense && play.offense !== driveOffense) {
+      driveOffense = play.offense;
+      if (lastTurnoverBy && lastTurnoverBy !== play.offense) { play._shortField = true; }
+      else play._shortField = false;
+      lastTurnoverBy = null;
+      driveShortField = Boolean(play._shortField);
+    }
+    const dHome = play.home_score - prevHome, dAway = play.away_score - prevAway;
+    prevHome = play.home_score; prevAway = play.away_score;
+    const text = play.text ?? '';
+    if (play.is_turnover) lastTurnoverBy = play.offense;
+    if (play.play_type === 'fg_miss' || /blocked/i.test(text) && /field goal|extra point/i.test(text)) {
+      const sign = play.offense === home ? -1 : play.offense === away ? 1 : 0;
+      if (sign) items.push({ kind: 'missed_or_blocked_kick', period: play.period, home_points: sign * 3, text: text.slice(0, 120) });
+      continue;
+    }
+    if (!play.is_scoring || (dHome === 0 && dAway === 0)) continue;
+    const homePoints = dHome - dAway;
+    const scorer = dHome > 0 ? home : dAway > 0 ? away : null;
+    const marginBefore = (play.home_score - dHome) - (play.away_score - dAway);
+    const trailing = scorer === home ? -marginBefore : marginBefore;
+    if (/return|blocked|interception|fumble/i.test(text) && play.offense !== scorer) {
+      items.push({ kind: 'non_offensive_score', period: play.period, home_points: homePoints, text: text.slice(0, 120) });
+    } else if (driveShortField) {
+      items.push({ kind: 'short_field_after_turnover', period: play.period, home_points: homePoints, text: text.slice(0, 120) });
+    } else if (play.period >= 4 && trailing >= 17) {
+      items.push({ kind: 'garbage_time', period: play.period, home_points: homePoints, text: text.slice(0, 120) });
+    }
+  }
+  const variance = items.reduce((sum, item) => sum + item.home_points, 0);
+  const last = ordered.at(-1);
+  const actualMargin = last ? last.home_score - last.away_score : null;
+  const rawResidual = Number.isFinite(marketMargin) && Number.isFinite(actualMargin) ? actualMargin - marketMargin : null;
+  return { version: 'residual-decomposition-v1', plays: ordered.length, items,
+    variance_points: r3(variance), model_points: Number.isFinite(actualMargin) ? r3(actualMargin - variance) : null,
+    actual_margin: actualMargin, raw_residual: r3(rawResidual),
+    adjusted_residual: Number.isFinite(rawResidual) ? r3(rawResidual - variance) : null,
+    counts: Object.fromEntries(['non_offensive_score', 'short_field_after_turnover', 'missed_or_blocked_kick', 'garbage_time']
+      .map(kind => [kind, items.filter(item => item.kind === kind).length])),
+    rule: 'variance points are what the pregame read could not foresee; the raw residual stays the ledger truth' };
+}
+let driveShortField = false;
+
 function filtration({ game, pbp, teams, players, snaps }) {
   const core = teams.length === 2 && players.length > 0 && Number.isFinite(game.spread);
   const deep = pbp.scrimmage_plays >= 80 && snaps.length >= 22;
@@ -398,10 +460,13 @@ export function buildPostgameTruth(season, week, home, { expertPacket = null } =
   const teamTruth = teamActualization(source.teams, season, week);
   const experts = frozenExpertComparison(season, week, game.home, actualResidual, expertPacket);
   const inGameInjuries = inGameInjuryTruth(source.plays, source.snaps, playerTruth, season, week, game.home, game.away);
+  const decomposition = residualDecomposition(source.plays, game.home, game.away, { marketMargin });
   const payload = {
     version: POSTGAME_TRUTH_VERSION,
     game: { ...game, actual_margin: actualMargin, actual_total: game.home_score + game.away_score,
-      market_margin: marketMargin, market_residual: actualResidual },
+      market_margin: marketMargin, market_residual: actualResidual,
+      variance_points: decomposition.variance_points, adjusted_residual: decomposition.adjusted_residual },
+    residual_decomposition: decomposition,
     gameplay: pbp,
     team_actualization: teamTruth,
     player_actualization: playerTruth,
@@ -517,8 +582,43 @@ export function gameInjuryCarryover(season, week, home, away) {
     rule: 'Raw injury/return opinion is recorded. The coordinator learns its weight chronologically; official reports prevent double-counting the roster packet.' };
 }
 
+db.exec(`CREATE TABLE IF NOT EXISTS nfl_game_variance (
+  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL,
+  variance_points REAL, adjusted_residual REAL, raw_residual REAL, items_json TEXT, version TEXT, created_at TEXT NOT NULL,
+  PRIMARY KEY (season, week, home)
+)`);
+
+/** Decompose every final game that has a play log; idempotent. */
+export function backfillGameVariance({ seasons = [2021, 2022, 2023, 2024, 2025] } = {}) {
+  const games = rows(`SELECT season,week,team home,opponent away,spread FROM game_lines
+    WHERE home=1 AND team_score IS NOT NULL AND opp_score IS NOT NULL AND season IN (${seasons.map(() => '?').join(',')})
+    ORDER BY season,week,team`, ...seasons);
+  let written = 0, noPlays = 0;
+  for (const g of games) {
+    const source = gameRows(g.season, g.week, g.home);
+    if (!source.plays?.length) { noPlays++; continue; }
+    const d = residualDecomposition(source.plays, g.home, g.away, { marketMargin: Number.isFinite(g.spread) ? -g.spread : null });
+    run(`INSERT OR REPLACE INTO nfl_game_variance (season,week,home,variance_points,adjusted_residual,raw_residual,items_json,version,created_at)
+         VALUES (?,?,?,?,?,?,?,?,datetime('now'))`, g.season, g.week, g.home, d.variance_points, d.adjusted_residual, d.raw_residual, JSON.stringify(d.items), d.version);
+    written++;
+  }
+  return { games: games.length, written, no_play_log: noPlays };
+}
+
+/** The stored decomposition for one game, or null. */
+export function gameVariance(season, week, home) {
+  return rows(`SELECT variance_points, adjusted_residual, raw_residual, items_json FROM nfl_game_variance WHERE season=? AND week=? AND home=?`,
+    season, week, home)[0] ?? null;
+}
+
 export function persistPostgameTruth(packet) {
   if (packet?.error) return { inserted: 0, error: packet.error };
+  if (packet.residual_decomposition) {
+    const d = packet.residual_decomposition;
+    run(`INSERT OR REPLACE INTO nfl_game_variance (season,week,home,variance_points,adjusted_residual,raw_residual,items_json,version,created_at)
+         VALUES (?,?,?,?,?,?,?,?,datetime('now'))`, packet.game.season, packet.game.week, packet.game.home,
+    d.variance_points, d.adjusted_residual, d.raw_residual, JSON.stringify(d.items), d.version);
+  }
   const result = run(`INSERT OR IGNORE INTO nfl_postgame_truth_packets
     (season,week,home,away,version,source_hash,created_at,payload_json)
     VALUES (?,?,?,?,?,?,datetime('now'),?)`, packet.game.season, packet.game.week, packet.game.home, packet.game.away,

@@ -26,6 +26,7 @@ import { predictGame } from './nfl-market.js';
 import { teamEventVector } from './nfl-event-archive.js';
 import { currentNflWeek } from './weekly-learning.js';
 import { gameCutoff } from './game-cutoff.js';
+import { verifiedEventMarketLatency } from './nfl-news-market-latency.js';
 
 export const BEAT_THE_CLOSE_VERSION = 'beat-the-close-v1.1';
 /**
@@ -282,7 +283,10 @@ export function beatTheCloseStatus() {
     FROM nfl_signal_snapshots GROUP BY season, week ORDER BY season DESC, week DESC LIMIT 4`);
   const latestSignals = rows(`SELECT home, away, market, signal, value, opener_line, current_line FROM nfl_signal_snapshots
     WHERE captured_at=(SELECT MAX(captured_at) FROM nfl_signal_snapshots) AND signal IN ('ratings_vs_open','ratings_vs_open_total','pinnacle_move_so_far') ORDER BY home, market, signal`);
+  let window = null;
+  try { window = verifiedEventMarketLatency({ limit: 400, since: '2026-08-01T00:00:00Z' }); } catch (error) { window = { error: error.message }; }
   return { version: BEAT_THE_CLOSE_VERSION, rules: RULES, by_signal: summary, by_slice: sliceSummary,
+    event_to_move_window: window ? { ...window, examples: window.examples?.slice(0, 8) } : null,
     decisions: decisions.slice(0, 60).map(d => ({ ...d, feature: JSON.parse(d.feature_snapshot_json || '{}'), feature_snapshot_json: undefined })),
     snapshots, latest_signals: latestSignals,
     gate: 'Phase 3: ≥ 200 settled decisions with a week-clustered CLV interval above zero; a signal whose live CLV interval sits below zero two weeks running is retired. Stake stays 0.',

@@ -390,8 +390,17 @@ function shoppingFor(home, away, cutoff) {
       return homeAliases.some(alias => alias && h.includes(alias)) && awayAliases.some(alias => alias && a.includes(alias));
     });
   if (!snapshots.length) return null;
+  // The decision board: each book's LATEST pre-kickoff quote per side. A live
+  // capture stamps every book with one captured_at, but archive rows carry
+  // each book's own timestamp, and keeping only the single newest stamp left
+  // one book on the board and the shopper abstaining on every archived game.
   const latestAt = snapshots[0].captured_at;
-  const latest = snapshots.filter(row => row.captured_at === latestAt);
+  const seen = new Set();
+  const latest = snapshots.filter(row => {
+    const key = `${row.book}|${normalize(row.side)}`;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
   const sides = [];
   for (const team of [home, away]) {
     const teamAliases = aliases.get(team) ?? [normalize(team)];

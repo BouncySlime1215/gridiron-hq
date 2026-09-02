@@ -437,3 +437,15 @@ settled before the target week, capped at ±4, abstaining with a reason below
 W5 KC v DEN): 0.0 / +0.6 / +0.6 / +0.3 points with 12.8-point uncertainty —
 humble by construction. The council is now sixteen roles; the matrix,
 completeness check and audit adapt to the registry.
+
+### Live verification — run 15 (2022 Weeks 5–6, sixteen roles), complete
+
+Week 5: 288/288 cells, 13 of 16 roles on every game. Week 6: 252/252 cells,
+15 of 16 on every game — line movement 14/14 from archived openers, verified
+news 14/14 from the event archive, live updater 14/14 from the possession
+ledger, all four matchup candidates 14/14, online neural warmed up. The one
+miss was the price shopper: the archive was in the table but the shopper
+kept only rows sharing the single newest capture stamp, which for per-book
+timestamps is one book. Fixed to take each book's latest pre-kickoff quote
+(`test/price-shopper-archive.test.js`); on 2022 W5 DEN v IND it now sees a
+multi-book board.

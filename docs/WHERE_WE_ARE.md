@@ -57,6 +57,20 @@ was quietly serving prices that were weeks out of date, and a few of the
 model's Week 1 paper bets were recorded at those phantom prices. That is
 fixed now, and those bets are marked so they cannot flatter the results.
 
+The other piece of today's work is a real start on player props, the
+market this brief called the single biggest unlock. A new connector now
+pulls real prop prices for free from two sites (Underdog and Action
+Network). The first live pull already brought in 840 real, two-sided
+prices covering all sixteen Week 1 games — yards, catches, and rushing
+props with real payout odds attached, not just a number. The second site
+is wired up correctly but came back empty on its first try, because those
+particular sportsbooks simply have not posted those bets yet this many
+days before kickoff. That is normal and expected, and it will fill in on
+its own as the week goes on. The next step is connecting these real prices
+to the model's own predictions so we can finally see, for the first time,
+whether its strongest skill is actually worth anything against real money
+lines.
+
 ## The one real finding
 
 The sportsbooks' **opening** line is beatable in a narrow way. When our team

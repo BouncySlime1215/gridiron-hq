@@ -144,28 +144,50 @@ Not built now.
 
 **Steps.**
 
-- [ ] **1.1 `server/services/prop-feeds.js`** — mirror of `book-feeds.js`: one
-  parser per provider (`parseActionNetwork`, `parseBettingPros`,
-  `parseUnderdog`, `parseKambiProps`, `parsePinnacleSpecials`), each returning
-  rows in the `nfl_prop_quote_snapshots` shape
-  (`captured_at,event_id,commence_time,home_team,away_team,book,market,player,side,line,line_key,american_price`)
-  plus `provider`, `book_updated_at`, `is_opener`. Market names map onto
-  `PROP_MARKETS` (`player_pass_yds, player_rush_yds, player_reception_yds,
-  player_receptions, player_anytime_td`); unsupported types are counted, not
-  written. Player names go through `player-identity.js#normalizePlayerName`.
-  Event keys through `team-codes.js#teamResolver`, same
-  `nfl:<utc-date>:<AWAY>@<HOME>` key as the line feeds. A book present in two
-  feeds is kept from the more direct one (Kambi over Action Network for
-  BetRivers). Each provider isolated; a shape change reports `events: 0` with
-  the error. Migration: add `provider`, `book_updated_at`, `is_opener` columns
-  to `nfl_prop_quote_snapshots` if absent (pattern from `nfl-prop-clv.js`).
-- [ ] **1.2 Pick'em lines are not prices.** PrizePicks standard lines and
-  Underdog/Sleeper multipliers are stored with `book` prefixed `pickem:` and
-  `american_price` derived only where a two-sided price exists; otherwise
-  null. They never enter CLV as a "book"; they are a separate market to be
-  devigged against (§3.4).
-- [ ] **1.3 Scheduler.** `nfl_prop_feeds` job, tier `live`, 60 min, plus at every
-  evidence-daemon NFL window; boot job. `FREE_PROP_FEEDS=0` disables.
+- [x] **1.1 `server/services/prop-feeds.js`** — built and live-verified
+  2026-09-02. Two providers so far (Action Network, Underdog; BettingPros,
+  Kambi props and Pinnacle specials are not built yet, see below). Rows land
+  in `nfl_prop_quote_snapshots` (`captured_at,event_id,commence_time,
+  home_team,away_team,book,market,player,side,line,line_key,american_price`)
+  plus `provider`, `book_updated_at`, `is_opener` (migration via the
+  `nfl-prop-clv.js` ALTER-if-absent pattern). Five markets read
+  (`player_pass_yds, player_rush_yds, player_reception_yds,
+  player_receptions, player_anytime_td`); everything else is counted in
+  `unsupported`, not written. `event_id` uses the same
+  `nfl:<utc-date>:<AWAY>@<HOME>` key `book-feeds.js` uses via
+  `team-codes.js#teamResolver`, so props join the same game evidence lines
+  do. Both providers are fetched directly (not through a caching
+  aggregator), so `book_updated_at` is null and the 0.1 staleness gate does
+  not apply to them — `captured_at` is the freshness signal, same as
+  Pinnacle/Bovada in `book-feeds.js`. Tests: `test/prop-feeds.test.js`
+  (4 tests, fixtures are trimmed real payloads captured the same day).
+  **Live result, first real capture, Week 1:** Underdog stored 840 real
+  two-sided-priced rows across all 16 games and 4 of the 5 markets (no
+  binary anytime-TD market exists on Underdog). Action Network's parser is
+  verified correct against real fixtures but found 0 rows live: the market
+  *type* exists per game (`core_bet_type_9_passing_yards` etc. all present)
+  but `lines` was empty for all 8 target books on all games checked — books
+  have not posted the plain O/U prop yet, eight days before kickoff, though
+  the milestone-ladder and longest-play markets on the same games are
+  posted. This matches the research note that Action Network/Bovada books
+  are "light until Thursday"; the hourly job (1.3) will pick it up as the
+  week progresses — nothing to fix in code.
+- [ ] **1.1b Add BettingPros, Kambi props, Pinnacle specials.** Same module,
+  same row shape. BettingPros needs `x-api-key` + `Origin` headers (verified
+  today); Kambi needs the `betoffer/event/{id}.json` endpoint at ≤1 req/2s;
+  Pinnacle needs Chrome-shaped headers to dodge its fake-geo 403. Do this
+  once 1.4–1.7 prove the two-provider pipeline end to end — more sources add
+  coverage, not a new design.
+- [x] **1.2 Pick'em lines are real prices here, unlike PrizePicks.** Underdog
+  publishes a genuine `american_price` per side (not a flat payout
+  multiplier), so its rows are stored as an ordinary `book='underdog'` row,
+  not specially marked. PrizePicks (when added) does need the `pickem:`
+  treatment from the original plan, since its standard line has no
+  American-odds price at all — restated for whoever builds 1.1b.
+- [x] **1.3 Scheduler.** `nfl_prop_feeds` job added, tier `live`, 60 min, plus
+  the boot job list. `FREE_PROP_FEEDS=0` disables. Confirmed live: the
+  running dev server picked up the change via `node --watch` and ran the
+  boot capture on its own before any manual test.
 - [ ] **1.4 Wire the CLV loop.** `nfl-prop-clv.js` currently imports
   `playerProps` from `odds-api.js`; make its capture read
   `nfl_prop_quote_snapshots` regardless of provider, run

@@ -206,6 +206,12 @@ async function refreshBookFeeds() {
   return captureBookFeeds();
 }
 
+/** Free player-prop feeds (Action Network, Underdog). No credits, no key. */
+async function refreshPropFeeds() {
+  const { capturePropFeeds } = await import('./prop-feeds.js');
+  return capturePropFeeds();
+}
+
 /** Polymarket implied spread/total per game, logged whenever it moves — the line-movement source. */
 async function refreshPolymarketLineWatch() {
   const { refreshPolymarketLineWatch: poll } = await import('./polymarket-lines.js');
@@ -445,6 +451,8 @@ export const JOBS = {
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, tier: 'metered', label: 'Multi-book line snapshots (CLV)' },
   nfl_sgo_snapshot: { run: refreshSportsGameOdds, maxAgeMinutes: 30, tier: 'metered',
     label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
+  nfl_prop_feeds: { run: refreshPropFeeds, maxAgeMinutes: 60, tier: 'live',
+    label: 'Free player-prop quotes: Action Network, Underdog' },
   nfl_book_feeds: { run: refreshBookFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free multi-book quotes: Pinnacle, OddsTrader (11 books), BetRivers, Bovada' },
   nfl_qbr_weather: { run: refreshQbrAndWeather, maxAgeMinutes: 24 * 60, tier: 'growth',
@@ -647,7 +655,7 @@ export function startScheduler({
   const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
     'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
     'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
-    'nfl_book_feeds', 'polymarket_line_watch', 'beat_the_close'];
+    'nfl_book_feeds', 'nfl_prop_feeds', 'polymarket_line_watch', 'beat_the_close'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

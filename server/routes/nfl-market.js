@@ -12,6 +12,7 @@ import { promoteEligibleAudit } from '../services/model-governance.js';
 import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-daemon.js';
 import { sportsGameOddsSnapshotStatus, captureSportsGameOddsSnapshot } from '../services/sportsgameodds.js';
 import { bookFeedStatus, captureBookFeeds } from '../services/book-feeds.js';
+import { propFeedStatus, capturePropFeeds } from '../services/prop-feeds.js';
 import { polymarketMovement, refreshPolymarketLineWatch } from '../services/polymarket-lines.js';
 import { reportCacheStatus, refreshReport, serveReport } from '../services/report-cache.js';
 import { oddsArchiveStatus, backfillOddsArchive } from '../services/odds-archive.js';
@@ -79,6 +80,14 @@ r.get('/evidence/book-feeds', (_req, res, next) => {
 
 r.post('/evidence/book-feeds/capture', requireModelPermission('model:train'), async (_req, res, next) => {
   try { res.json(await captureBookFeeds()); } catch (e) { next(e); }
+});
+
+r.get('/evidence/prop-feeds', (_req, res, next) => {
+  try { res.json(propFeedStatus()); } catch (e) { next(e); }
+});
+
+r.post('/evidence/prop-feeds/capture', requireModelPermission('model:train'), async (req, res, next) => {
+  try { res.json(await capturePropFeeds({ week: req.query.week ? Number(req.query.week) : null })); } catch (e) { next(e); }
 });
 
 /** Every timestamp inside a frozen forward payload must precede its kickoff cutoff. */

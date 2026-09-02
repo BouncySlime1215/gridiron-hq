@@ -614,3 +614,13 @@ spreads, weather carries nothing. The live rule to build once run 16 frees
 the server: `wind_total`, bet the under at the best reachable number when
 the Open-Meteo forecast for the kickoff hour shows ≥ 25 km/h and Pinnacle's
 total has not yet moved down, graded by CLV like the others.
+
+### Run 16 voided by a docs commit; freeze now hashes content (2026-09-03)
+
+Run 16 failed its first post-compute recheck with "repository state
+changed" although no audited file had changed: the code hash included the
+commit id and a docs-only commit moved HEAD while the week computed. The
+retry was recorded (manifest v2). `repositoryState()` now hashes the
+contents of every tracked and untracked file under `server/`, `scripts/`
+and the dependency manifests, and records the commit only for provenance.
+Run 17 replaces run 16.

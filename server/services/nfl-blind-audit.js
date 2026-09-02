@@ -140,16 +140,26 @@ function inputMutationState(afterId = 0) {
  */
 const AUDITED_CODE_PATHS = Object.freeze(['server', 'scripts', 'package.json', 'package-lock.json']);
 
+/**
+ * Content hash of every tracked and untracked file under the audited paths,
+ * in the working tree. The commit id is recorded for provenance but is NOT
+ * part of the hash: run 16 (2026-09-03) was voided by a docs-only commit
+ * that moved HEAD while the first week computed, though not one audited
+ * byte had changed.
+ */
 function repositoryState() {
   const cwd = process.cwd();
   const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
-  const diff = execFileSync('git', ['diff', '--binary', 'HEAD', '--', ...AUDITED_CODE_PATHS],
-    { cwd, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
-  const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z', '--', ...AUDITED_CODE_PATHS],
-    { cwd, encoding: 'utf8' }).split('\0').filter(Boolean).sort();
-  const content = createHash('sha256').update(commit).update('\0').update(diff);
-  for (const path of untracked) content.update('\0').update(path).update('\0').update(readFileSync(resolve(cwd, path)));
-  return { commit, dirty: diff.length > 0 || untracked.length > 0, hash: content.digest('hex') };
+  const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...AUDITED_CODE_PATHS],
+    { cwd, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 }).split('\0').filter(Boolean).sort();
+  const content = createHash('sha256');
+  let dirtyDiff = '';
+  try { dirtyDiff = execFileSync('git', ['diff', '--stat', 'HEAD', '--', ...AUDITED_CODE_PATHS], { cwd, encoding: 'utf8' }); } catch { dirtyDiff = ''; }
+  for (const path of [...new Set(files)]) {
+    let bytes; try { bytes = readFileSync(resolve(cwd, path)); } catch { continue; }
+    content.update(path).update('\0').update(bytes).update('\0');
+  }
+  return { commit, dirty: dirtyDiff.trim().length > 0, hash: content.digest('hex'), files: files.length };
 }
 
 function inputDataState(spec = null) {

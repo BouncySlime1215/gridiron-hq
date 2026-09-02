@@ -270,6 +270,9 @@ retrying. This prevents a repeat, it does not recover September.
 
 ### Priority 2 — reliability, speed, progress, and UI
 
+- [x] The rebuild runner no longer seals the audit as failed on a recoverable
+  error (freeze violation, transient source failure); rerunning it resumes at
+  the next unopened week. Runs 9 and 10 had lost 23 opened weeks to sealing.
 - [ ] Turn the rebuild into a one-command, crash-safe workflow that resumes from
   durable checkpoints without duplicate rows or manual database repair.
 - [ ] Put bounded timeouts, retries, SQLite writer coordination, source-health
@@ -347,12 +350,23 @@ Implementation order:
 
 - [ ] Learn which specialist deserves more weight for each matchup type while
   preventing duplicated signals from receiving duplicated influence.
-- [ ] Preserve genuine multi-book opening, intermediate, and closing quotes with
-  capture timestamps; never manufacture historical prices from a consensus row.
-- [ ] Backfill verified, timestamped injury, practice, transaction, roster, and
-  role news. Unverified or post-kickoff knowledge receives zero pregame weight.
-- [ ] Learn from possession sequences, not only final scores, and distinguish
-  genuinely forward live predictions from historical reconstructions forever.
+- [x] Genuine multi-book opening and pre-kickoff quotes for 2022–2025, each
+  with the book's own timestamp, from the OddsTrader archive
+  (`odds-archive.js`, eleven books incl. Pinnacle, Bovada, BetOnline). Stored
+  raw in `nfl_odds_archive`, as `archive:oddstrader` snapshots whose
+  `captured_at` is the book timestamp, and as blank-only `game_lines` openers
+  from the median opening line. Intermediate quotes are not archived there;
+  the live capture keeps them from 2026 on. No consensus row is ever turned
+  into a price. This is what lets the line-movement reader and the price
+  shopper report on the historical diagnostic.
+- [x] The verified event archive (51,770 timestamped official injury reports,
+  roster status changes and trades, 2021–2026) now feeds the verified-news
+  reaction when the typed news feed (2026-08 onward) has no coverage; the
+  query is bounded by the kickoff cutoff, so post-kickoff knowledge cannot
+  enter. Practice-report granularity is still only what nflverse publishes.
+- [x] The live updater reports its possession-ledger reconstruction for
+  audited games (Brier-scored, `historical_reconstruction` forever, never a
+  forward call); learning from the sequences themselves remains open.
 - [ ] Separate prediction mistakes from high-variance events such as turnovers,
   drops, penalties, weather changes, and in-game injuries using counterfactual
   postgame review—without excusing genuine model errors.

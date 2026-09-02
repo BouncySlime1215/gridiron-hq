@@ -6,12 +6,22 @@
  * reports, trades, and weekly Shield roster state. They are stored as immutable
  * events with source precision and never converted into points by prose.
  */
+import { canonicalTeamCode } from './team-codes.js';
+import { nflKickoffDate } from './date-util.js';
 import crypto from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
 import { parseCsv } from './nflverse.js';
 import { syncInjuries } from './nfl-advanced.js';
 
-export const VERIFIED_EVENT_ARCHIVE_VERSION = 'nfl-verified-event-archive-v1';
+/**
+ * v2 (2026-09-02): conservative availability times. A weekly roster snapshot
+ * is the game-day inactive list, which is published ninety minutes before
+ * kickoff, not at midnight; a trade is known by the END of its date, not at
+ * midday. v1 rows stay in the immutable table but every reader filters on
+ * the current version, so week-N game-day facts cannot reach a week-N
+ * pregame read early, and nothing from week N+1 can reach week N at all.
+ */
+export const VERIFIED_EVENT_ARCHIVE_VERSION = 'nfl-verified-event-archive-v2-conservative-availability';
 const RELEASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 
 db.exec(`
@@ -59,7 +69,7 @@ const sha = value => crypto.createHash('sha256').update(JSON.stringify(canonical
 const parse = (value, fallback = {}) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
 const at = (header, name) => header.indexOf(name);
 const get = (record, index) => index < 0 ? null : record[index] || null;
-const normTeam = value => ({ LA: 'LAR', JAC: 'JAX', OAK: 'LV', SD: 'LAC', STL: 'LAR' }[value] ?? value);
+const normTeam = value => (value == null || value === '' ? value : canonicalTeamCode(value));
 
 async function csv(url) {
   const response = await fetch(url, { signal: AbortSignal.timeout(180000), headers: { Accept: 'text/csv' } });
@@ -77,7 +87,10 @@ function insertEvent(event) {
     body_part: event.body_part ?? null, occurred_at: event.occurred_at,
     available_at: event.available_at, time_precision: event.time_precision,
     source: event.source, source_url: event.source_url,
-    verification_state: event.verification_state ?? 'verified', payload: event.payload ?? {}
+    verification_state: event.verification_state ?? 'verified', payload: event.payload ?? {},
+    // Part of the key: a new archive version re-materializes every event with
+    // its own rows rather than being swallowed by v1's INSERT OR IGNORE.
+    archive_version: VERIFIED_EVENT_ARCHIVE_VERSION
   };
   const eventKey = sha(stable);
   const result = run(`INSERT OR IGNORE INTO nfl_verified_events
@@ -134,11 +147,15 @@ export async function syncTradeEvents({ fromSeason = 2002, throughSeason = 2026 
     const date = get(record, index.trade_date);
     if (!date) continue;
     const gave = normTeam(get(record, index.gave)), received = normTeam(get(record, index.received));
-    const known = `${date}T12:00:00Z`;
+    // Known by the end of the trade date in US time (noon UTC the next day,
+    // 8am ET): a trade announced at 5pm ET must not count as known at 8am the
+    // same day, and UTC midnight is still 8pm ET on the trade date.
+    const occurred = `${date}T12:00:00Z`;
+    const known = new Date(Date.parse(`${date}T00:00:00Z`) + 36 * 3600000).toISOString();
     inserted += insertEvent({
       event_type: 'trade', season, team: received, other_team: gave,
       pfr_id: pfrId, player_name: playerName, status_before: gave, status_after: received,
-      occurred_at: known, available_at: known, time_precision: 'date_midday_conservative',
+      occurred_at: occurred, available_at: known, time_precision: 'date_end_conservative',
       source: 'nflverse_trades', source_url: url,
       payload: { trade_id: get(record, index.trade_id), gave, received,
         pick_season: get(record, index.pick_season), pick_round: get(record, index.pick_round),
@@ -148,10 +165,18 @@ export async function syncTradeEvents({ fromSeason = 2002, throughSeason = 2026 
   return { reviewed, inserted, skipped_pick_only_rows: skippedPicks };
 }
 
+/**
+ * When a weekly roster snapshot became public: the inactive list is posted
+ * ninety minutes before that team's kickoff. A team without a stored kickoff
+ * that week (bye, or a schedule gap) yields null and the row is skipped rather
+ * than guessed.
+ */
 function gameAvailability(season, week, team) {
-  const game = rows(`SELECT gameday FROM game_lines WHERE season=? AND week=? AND team=? LIMIT 1`,
+  const game = rows(`SELECT gameday,gametime FROM game_lines WHERE season=? AND week=? AND team=? LIMIT 1`,
   season, week, team)[0];
-  return game?.gameday ? `${game.gameday}T00:00:00Z` : null;
+  if (!game?.gameday) return null;
+  const kickoff = nflKickoffDate(game.gameday, game.gametime || '13:00');
+  return kickoff ? new Date(kickoff.getTime() - 90 * 60000).toISOString() : null;
 }
 
 export async function syncWeeklyRosterEvents(seasons = [2021, 2022, 2023, 2024, 2025]) {
@@ -195,7 +220,7 @@ export async function syncWeeklyRosterEvents(seasons = [2021, 2022, 2023, 2024, 
             pfr_id: current.pfr_id, player_name: current.player_name, position: current.position,
             status_before: prior?.status ?? null, status_after: current.status,
             occurred_at: availableAt, available_at: availableAt,
-            time_precision: 'weekly_snapshot_game_day_boundary', source: 'nflverse_weekly_rosters',
+            time_precision: 'weekly_snapshot_inactives_deadline', source: 'nflverse_weekly_rosters',
             source_url: url, payload: { prior, current,
               caveat: 'weekly state transition, not proof of transaction time or cause' }
           }).inserted;
@@ -223,8 +248,8 @@ export function verifiedEventsForTeam(team, { before, sinceDays = 45, limit = 10
   const cutoff = before ?? new Date().toISOString();
   const since = new Date(new Date(cutoff).getTime() - sinceDays * 86400000).toISOString();
   return rows(`SELECT * FROM nfl_verified_events WHERE team=? AND verification_state='verified'
-      AND available_at<=? AND available_at>=? ORDER BY available_at DESC LIMIT ?`,
-  team, cutoff, since, limit).map(item => ({ ...item, payload: parse(item.payload_json) }));
+      AND archive_version=? AND available_at<=? AND available_at>=? ORDER BY available_at DESC LIMIT ?`,
+  team, VERIFIED_EVENT_ARCHIVE_VERSION, cutoff, since, limit).map(item => ({ ...item, payload: parse(item.payload_json) }));
 }
 
 export function teamEventVector(team, { before, sinceDays = 21 } = {}) {
@@ -252,10 +277,12 @@ export function teamEventVector(team, { before, sinceDays = 21 } = {}) {
 }
 
 export function verifiedEventCoverage() {
-  const summary = rows(`SELECT event_type,COUNT(*) events,COUNT(DISTINCT player_id) players,
+  const summary = rows(`SELECT event_type,time_precision,COUNT(*) events,COUNT(DISTINCT player_id) players,
       MIN(available_at) first_at,MAX(available_at) last_at
-    FROM nfl_verified_events GROUP BY event_type ORDER BY events DESC`);
+    FROM nfl_verified_events WHERE archive_version=? GROUP BY event_type,time_precision ORDER BY events DESC`, VERIFIED_EVENT_ARCHIVE_VERSION);
   const seasons = rows(`SELECT season,COUNT(*) events,COUNT(DISTINCT team) teams
-    FROM nfl_verified_events WHERE season IS NOT NULL GROUP BY season ORDER BY season`);
-  return { version: VERIFIED_EVENT_ARCHIVE_VERSION, summary, seasons };
+    FROM nfl_verified_events WHERE season IS NOT NULL AND archive_version=? GROUP BY season ORDER BY season`, VERIFIED_EVENT_ARCHIVE_VERSION);
+  const legacy = rows(`SELECT archive_version,COUNT(*) events FROM nfl_verified_events WHERE archive_version<>? GROUP BY archive_version`, VERIFIED_EVENT_ARCHIVE_VERSION);
+  return { version: VERIFIED_EVENT_ARCHIVE_VERSION, summary, seasons, legacy_versions: legacy,
+    availability_rule: 'injury reports at their modification timestamp; weekly roster snapshots at kickoff minus 90 minutes; trades at the end of the trade date. Readers see only the current version.' };
 }

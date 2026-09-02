@@ -382,22 +382,29 @@ export function captureRiskLabWeek(season, week, { horizons = null } = {}) {
 }
 
 export function settleRiskLabPredictions() {
-  const due = rows(`SELECT p.season,p.week,p.home,g.team_score,g.opp_score,p.market_margin,p.market_total
+  // One row at a time. Each horizon froze its own market number; settling a
+  // whole game against whichever row SQLite returned first wrote the wrong
+  // target residual into every other horizon and model.
+  const due = rows(`SELECT p.season,p.week,p.home,p.horizon,p.model_id,p.epoch_id,
+      g.team_score,g.opp_score,p.market_margin,p.market_total
     FROM nfl_risk_lab_predictions p JOIN game_lines g
       ON g.season=p.season AND g.week=p.week AND g.team=p.home AND g.home=1
-    WHERE p.settled_at IS NULL AND g.team_score IS NOT NULL AND g.opp_score IS NOT NULL
-    GROUP BY p.season,p.week,p.home`);
+    WHERE p.settled_at IS NULL AND g.team_score IS NOT NULL AND g.opp_score IS NOT NULL`);
   const settledAt = new Date().toISOString();
   let settled = 0;
+  const games = new Set();
   for (const item of due) {
+    games.add(`${item.season}|${item.week}|${item.home}`);
     const actual = item.team_score - item.opp_score, actualTotal = item.team_score + item.opp_score;
     const totalResidual = Number.isFinite(item.market_total) ? actualTotal - item.market_total : null;
+    const residual = Number.isFinite(item.market_margin) ? actual - item.market_margin : null;
     settled += run(`UPDATE nfl_risk_lab_predictions
       SET actual_margin=?,target_residual=?,actual_total=?,target_total_residual=?,settled_at=?
-      WHERE season=? AND week=? AND home=? AND settled_at IS NULL`, actual,
-    actual - item.market_margin, actualTotal, totalResidual, settledAt, item.season, item.week, item.home).changes;
+      WHERE season=? AND week=? AND home=? AND horizon=? AND model_id=? AND epoch_id=? AND settled_at IS NULL`,
+    actual, residual, actualTotal, totalResidual, settledAt,
+    item.season, item.week, item.home, item.horizon, item.model_id, item.epoch_id).changes;
   }
-  return { games: due.length, predictions_settled: settled };
+  return { games: games.size, predictions_settled: settled };
 }
 
 function completeWeek(season, week) {

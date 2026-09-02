@@ -29,7 +29,7 @@ function historicalGames() {
     SELECT season, week, team AS home, opponent AS away,
            team_score AS home_score, opp_score AS away_score,
            spread AS home_spread, total, moneyline AS home_ml, spread_odds AS home_spread_odds,
-           total_over_odds, total_under_odds
+           total_over_odds, total_under_odds, neutral_site
     FROM game_lines
     WHERE home = 1 AND team_score IS NOT NULL AND opp_score IS NOT NULL AND season >= ?
     ORDER BY season, week
@@ -54,8 +54,9 @@ function simulate(games, { alpha, carryover, hfa, leagueAvg }) {
     }
     lastSeason = g.season;
 
-    const predHome = leagueAvg / 2 + rating(off, g.home) + rating(def, g.away) + hfa / 2;
-    const predAway = leagueAvg / 2 + rating(off, g.away) + rating(def, g.home) - hfa / 2;
+    const gameHfa = g.neutral_site ? 0 : hfa;
+    const predHome = leagueAvg / 2 + rating(off, g.home) + rating(def, g.away) + gameHfa / 2;
+    const predAway = leagueAvg / 2 + rating(off, g.away) + rating(def, g.home) - gameHfa / 2;
     const predMargin = predHome - predAway;
     const predTotal = predHome + predAway;
     const actualMargin = g.home_score - g.away_score;
@@ -132,7 +133,13 @@ export function fitModel() {
   _cache = {
     off, def, hfa, leagueAvg, alpha: best.alpha, carryover: best.carryover,
     marginStd, totalStd, marginBias, totalBias, marginResiduals, totalResiduals, results,
-    warmGames: warm.length, totalGames: games.length
+    warmGames: warm.length, totalGames: games.length,
+    // The last season with a completed game in the data. `simulate()` only
+    // decays ratings at a season boundary it actually walks through, and with
+    // no completed games yet in the upcoming season it never crosses that
+    // boundary — the returned maps are raw end-of-season ratings. Recording
+    // the boundary here lets `predictGame` apply the fitted carryover itself.
+    lastCompletedSeason: games.length ? games[games.length - 1].season : null
   };
   return _cache;
 }
@@ -169,12 +176,20 @@ function bootstrapProb(predicted, threshold, residuals, trials) {
 }
 
 /** Model's predicted score/margin/total for a future game, from current ratings. */
-export function predictGame(homeTeam, awayTeam) {
+export function predictGame(homeTeam, awayTeam, season = null, { neutral = false } = {}) {
   const m = fitModel();
   if (m.error) return m;
-  const off = r => m.off.get(r) ?? 0, def = r => m.def.get(r) ?? 0;
-  const rawHome = m.leagueAvg / 2 + off(homeTeam) + def(awayTeam) + m.hfa / 2;
-  const rawAway = m.leagueAvg / 2 + off(awayTeam) + def(homeTeam) - m.hfa / 2;
+  // Apply the fitted between-season carryover for any season boundary the
+  // walk-forward fit never walked through — i.e. every prediction for a
+  // season with no completed games in it yet. Without this a Week 1
+  // prediction used full, undecayed end-of-last-season ratings.
+  const seasonsElapsed = season != null && m.lastCompletedSeason != null && season > m.lastCompletedSeason
+    ? season - m.lastCompletedSeason : 0;
+  const decay = m.carryover ** seasonsElapsed;
+  const off = r => (m.off.get(r) ?? 0) * decay, def = r => (m.def.get(r) ?? 0) * decay;
+  const hfa = neutral ? 0 : m.hfa;
+  const rawHome = m.leagueAvg / 2 + off(homeTeam) + def(awayTeam) + hfa / 2;
+  const rawAway = m.leagueAvg / 2 + off(awayTeam) + def(homeTeam) - hfa / 2;
   const margin = rawHome - rawAway + m.marginBias;
   const total = rawHome + rawAway + m.totalBias;
   const predHome = (total + margin) / 2;
@@ -211,7 +226,8 @@ export function boardFor(season, week, trials = 20000) {
 
   const games = rows(`
     SELECT team AS home, opponent AS away, spread AS home_spread, total,
-           moneyline AS home_ml, spread_odds AS home_spread_odds, total_over_odds, total_under_odds
+           moneyline AS home_ml, spread_odds AS home_spread_odds, total_over_odds, total_under_odds,
+           neutral_site
     FROM game_lines
     WHERE season = ? AND week = ? AND home = 1 AND team_score IS NULL
   `, season, week);
@@ -228,7 +244,7 @@ export function boardFor(season, week, trials = 20000) {
   const rowsOut = [];
   for (const g of games) {
     const away = awayPrices.get(g.away);
-    const pred = predictGame(g.home, g.away);
+    const pred = predictGame(g.home, g.away, season, { neutral: Boolean(g.neutral_site) });
     if (pred.error) continue;
 
     if (g.home_ml != null && away?.moneyline != null) {

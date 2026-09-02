@@ -10,18 +10,24 @@ const median = values => {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
 
+// `nfl_line_snapshots.home_team`/`away_team` come from the Odds API and are
+// always full names ("New England Patriots"), never abbreviations, so the
+// two-letter code is not a useful probe against them — it was the source of
+// the false match, since a bare "NE" is a substring of "miNNEsota",
+// "teNNEssee" and "NEworleans". Match on the full name only.
 function teamAliases() {
-  return new Map(rows('SELECT abbr,name FROM nfl_teams').map(team => [team.abbr, [normalize(team.abbr), normalize(team.name)]]));
+  return new Map(rows('SELECT abbr,name FROM nfl_teams').map(team => [team.abbr, normalize(team.name)]));
 }
 
-function matchesTeam(snapshot, aliases) {
+function matchesTeam(snapshot, alias) {
+  if (!alias) return false;
   const home = normalize(snapshot.home_team), away = normalize(snapshot.away_team);
-  return aliases.some(alias => alias && (home.includes(alias) || away.includes(alias)));
+  return home.includes(alias) || away.includes(alias);
 }
 
 /** Pair each book/market/side with the last pre-claim and first post-claim quote. */
-export function quoteReaction(claim, snapshots, aliases) {
-  const eligible = snapshots.filter(snapshot => matchesTeam(snapshot, aliases)
+export function quoteReaction(claim, snapshots, alias) {
+  const eligible = snapshots.filter(snapshot => matchesTeam(snapshot, alias)
     && new Date(snapshot.commence_time) > new Date(claim.published_at)
     && new Date(snapshot.captured_at) < new Date(snapshot.commence_time));
   const groups = new Map();
@@ -55,8 +61,8 @@ export function nflNewsMarketLatency({ limit = 500 } = {}) {
     FROM nfl_line_snapshots ORDER BY captured_at`);
   const aliasMap = teamAliases(), examples = [];
   for (const claim of claims) {
-    const aliases = aliasMap.get(claim.team) ?? [normalize(claim.team)];
-    const pairs = quoteReaction(claim, snapshots, aliases);
+    const alias = aliasMap.get(claim.team) ?? normalize(claim.team);
+    const pairs = quoteReaction(claim, snapshots, alias);
     if (!pairs.length) continue;
     const captures = pairs.map(pair => pair.publication_to_capture_minutes).filter(value => value >= 0);
     const reactions = pairs.filter(pair => pair.reacted);

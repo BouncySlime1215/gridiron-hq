@@ -777,7 +777,9 @@ export function gradeTotalPicks(season = null, week = null) {
   return picks.map(p => {
     const g = rows(`SELECT team_score, opp_score FROM game_lines
                     WHERE season=? AND week=? AND team=?`, p.season, p.week, p.home_team)[0];
-    if (!g || g.team_score == null) return { ...p, status: 'Pending', units: 0, actual_total: null };
+    // `24 + null` is 24 in JavaScript, so a half-final game would grade against a
+    // total that assumes the opponent scored nothing. Require both scores.
+    if (!g || g.team_score == null || g.opp_score == null) return { ...p, status: 'Pending', units: 0, actual_total: null };
     const actual = g.team_score + g.opp_score;
     if (actual === p.line) return { ...p, status: 'Push', units: 0, actual_total: actual };
     const wentOver = actual > p.line;

@@ -260,7 +260,9 @@ export function captureOnlineNeuralWeek(season, week, { horizons = ['manual'] } 
 }
 
 export function settleOnlineNeuralExamples() {
-  const due = rows(`SELECT e.season,e.week,e.home,g.team_score,g.opp_score,e.market_margin
+  // Per horizon: each row froze its own market margin, and the training target
+  // must be measured against that number, not the first horizon's.
+  const due = rows(`SELECT e.season,e.week,e.home,e.horizon,g.team_score,g.opp_score,e.market_margin
     FROM nfl_online_neural_examples e JOIN game_lines g
       ON g.season=e.season AND g.week=e.week AND g.team=e.home AND g.home=1
     WHERE e.head=? AND e.settled_at IS NULL AND g.team_score IS NOT NULL AND g.opp_score IS NOT NULL`, HEAD);
@@ -268,9 +270,10 @@ export function settleOnlineNeuralExamples() {
   let settled = 0;
   for (const item of due) {
     const actual = item.team_score - item.opp_score;
+    const residual = Number.isFinite(item.market_margin) ? actual - item.market_margin : null;
     const result = run(`UPDATE nfl_online_neural_examples SET actual_margin=?,target_residual=?,settled_at=?
-      WHERE head=? AND season=? AND week=? AND home=? AND settled_at IS NULL`,
-    actual, actual - item.market_margin, settledAt, HEAD, item.season, item.week, item.home);
+      WHERE head=? AND season=? AND week=? AND home=? AND horizon=? AND settled_at IS NULL`,
+    actual, residual, settledAt, HEAD, item.season, item.week, item.home, item.horizon);
     settled += result.changes;
   }
   return { settled };

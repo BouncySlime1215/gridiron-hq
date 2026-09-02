@@ -66,9 +66,16 @@ export async function dispatchTriggeredCapture() {
   const pending = rows(`SELECT * FROM nfl_capture_triggers
     WHERE state IN ('pending','deferred') ORDER BY priority DESC,created_at LIMIT 100`);
   if (!pending.length) return { pending: 0, captured: 0, reason: 'no movement or news trigger is waiting' };
+  // Scope every state change to the exact rows just selected. The `LIMIT 100`
+  // above can leave real pending/deferred rows outside this batch, and a bare
+  // `WHERE state IN (...)` update marked ALL of them captured — including
+  // events this dispatch never considered — so a later genuine move for one
+  // of those excess events found it already (falsely) marked captured.
+  const ids = pending.map(p => p.id);
+  const placeholders = ids.map(() => '?').join(',');
   const defer = reason => {
     run(`UPDATE nfl_capture_triggers SET state='deferred',attempted_at=?,outcome_json=?
-      WHERE state IN ('pending','deferred')`, now(), JSON.stringify({ reason }));
+      WHERE id IN (${placeholders})`, now(), JSON.stringify({ reason }), ...ids);
     return { pending: pending.length, captured: 0, deferred: pending.length, reason };
   };
   if (!hasKey()) return defer('no ODDS_API_KEY configured');
@@ -85,11 +92,11 @@ export async function dispatchTriggeredCapture() {
     const outcome = await snapshotLines({ markets: 'spreads,totals' });
     if (outcome?.error) return defer(outcome.error);
     run(`UPDATE nfl_capture_triggers SET state='captured',attempted_at=?,snapshot_at=?,outcome_json=?
-      WHERE state IN ('pending','deferred')`, attemptedAt, outcome.captured_at, JSON.stringify(outcome));
+      WHERE id IN (${placeholders})`, attemptedAt, outcome.captured_at, JSON.stringify(outcome), ...ids);
     return { pending: pending.length, captured: pending.length, snapshot: outcome };
   } catch (error) {
     run(`UPDATE nfl_capture_triggers SET state='failed',attempted_at=?,outcome_json=?
-      WHERE state IN ('pending','deferred')`, attemptedAt, JSON.stringify({ error: error.message }));
+      WHERE id IN (${placeholders})`, attemptedAt, JSON.stringify({ error: error.message }), ...ids);
     return { pending: pending.length, captured: 0, failed: pending.length, error: error.message };
   }
 }

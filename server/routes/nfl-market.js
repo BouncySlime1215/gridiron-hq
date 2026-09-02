@@ -10,8 +10,10 @@ import { latestTrainingAudit } from '../services/nfl-replay.js';
 import { nflOperations, runNflFeatureAblations, refreshNflResidualAudit } from '../services/nfl-research.js';
 import { promoteEligibleAudit } from '../services/model-governance.js';
 import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-daemon.js';
+import { sportsGameOddsSnapshotStatus, captureSportsGameOddsSnapshot } from '../services/sportsgameodds.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
+import { currentNflWeek } from '../services/weekly-learning.js';
 import { requireModelPermission } from '../modeling/authz.js';
 import { recordModelAudit } from '../modeling/sqlite-store.js';
 import { db } from '../db/index.js';
@@ -22,7 +24,8 @@ const SEASON = Number(process.env.NFL_SEASON) || 2026;
 r.get('/board', (req, res, next) => {
   try {
     const season = Number(req.query.season) || SEASON;
-    const week = Number(req.query.week) || 1;
+    // Default to the live week (first week with an unplayed game), not Week 1 forever.
+    const week = Number(req.query.week) || currentNflWeek(season).week;
     const out = boardFor(season, week);
     if (out?.error) return res.status(409).json(out);
     res.json({ season, week, board: out });
@@ -60,6 +63,14 @@ r.post('/evidence/capture', requireModelPermission('model:train'), async (req, r
   try { res.json(await runEvidenceDaemon({ force: req.query.force === '1' })); } catch (e) { next(e); }
 });
 
+r.get('/evidence/sgo-status', (_req, res, next) => {
+  try { res.json(sportsGameOddsSnapshotStatus()); } catch (e) { next(e); }
+});
+
+r.post('/evidence/sgo-capture', requireModelPermission('model:train'), async (_req, res, next) => {
+  try { res.json(await captureSportsGameOddsSnapshot()); } catch (e) { next(e); }
+});
+
 r.post('/operations/audit', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(nflOperations({ persist: true })); } catch (e) { next(e); }
 });
@@ -85,9 +96,9 @@ r.post('/operations/promote/:auditId', requireModelPermission('model:promote'), 
 
 r.get('/predict', (req, res, next) => {
   try {
-    const { home, away } = req.query;
+    const { home, away, season } = req.query;
     if (!home || !away) return res.status(400).json({ error: 'home and away query params required' });
-    res.json(predictGame(String(home), String(away)));
+    res.json(predictGame(String(home), String(away), season != null ? Number(season) : null));
   } catch (e) { next(e); }
 });
 
@@ -98,7 +109,8 @@ r.get('/picks/history', (req, res, next) => {
 r.get('/picks', (req, res, next) => {
   try {
     const season = Number(req.query.season) || SEASON;
-    const week = Number(req.query.week) || 1;
+    // Default to the live week (first week with an unplayed game), not Week 1 forever.
+    const week = Number(req.query.week) || currentNflWeek(season).week;
     res.json({ season, week, picks: pickResultsFor(season, week), standing: standing() });
   } catch (e) { next(e); }
 });
@@ -107,7 +119,8 @@ r.get('/picks', (req, res, next) => {
 r.get('/picks/candidates', (req, res, next) => {
   try {
     const season = Number(req.query.season) || SEASON;
-    const week = Number(req.query.week) || 1;
+    // Default to the live week (first week with an unplayed game), not Week 1 forever.
+    const week = Number(req.query.week) || currentNflWeek(season).week;
     const decisionBoard = autoPickDecisionBoard(season, week);
     const evidence = latestTrainingAudit();
     res.json({
@@ -142,7 +155,8 @@ r.get('/picks/candidates', (req, res, next) => {
 r.get('/bets', (req, res, next) => {
   try {
     const season = Number(req.query.season) || SEASON;
-    const week = Number(req.query.week) || 1;
+    // Default to the live week (first week with an unplayed game), not Week 1 forever.
+    const week = Number(req.query.week) || currentNflWeek(season).week;
     res.json({ season, week, bets: userBetsFor(season, week), standing: userBetsStanding() });
   } catch (e) { next(e); }
 });
@@ -174,7 +188,8 @@ r.delete('/bets/:id', requireModelPermission('model:execute'), (req, res, next) 
 r.post('/sync-and-pick', requireModelPermission('model:execute'), async (req, res, next) => {
   try {
     const season = Number(req.query.season) || SEASON;
-    const week = Number(req.query.week) || 1;
+    // Default to the live week (first week with an unplayed game), not Week 1 forever.
+    const week = Number(req.query.week) || currentNflWeek(season).week;
     const trials = Number(req.query.trials) || 20000;
 
     const synced = await syncCurrentLines(season, 18);

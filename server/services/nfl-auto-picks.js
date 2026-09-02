@@ -58,15 +58,19 @@ export function ensurePicksFor(season, week, board, count = 5) {
   if (!candidates.length) return [];
 
   const now = new Date().toISOString();
+  // Model-derived stake is zero until a market clears the forward gates
+  // (PROFITABILITY_PLAN §8). The row is still a frozen, gradeable decision; it
+  // simply carries no units, so the standing it feeds cannot pretend to be P&L.
+  const units = Number(process.env.NFL_MODEL_STAKE_UNITS) || 0;
   candidates.forEach((b, i) => {
     run(`INSERT INTO nfl_auto_picks
         (season, week, rank, home_team, away_team, matchup, selection, side, line, american_price,
          model_probability, implied_probability, probability_difference, detail, units_staked, selected_at,
          policy_id, policy_version, book, quote_at, quote_source, feature_snapshot_json)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(season, week, rank) DO NOTHING`,
       season, week, i + 1, b.home_team, b.away_team, b.matchup, b.selection, b.side, b.line, b.american_price,
-      b.model_probability, b.implied_probability, b.probability_difference, b.detail, now,
+      b.model_probability, b.implied_probability, b.probability_difference, b.detail, units, now,
       NFL_PRODUCTION_POLICY.id, NFL_PRODUCTION_POLICY.version, b.book ?? null, b.quote_at ?? null,
       b.quote_source ?? null, JSON.stringify(b.feature_snapshot ?? {}));
   });
@@ -132,8 +136,13 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
     const quote = prices.get(selection);
     const opposite = prices.get(home ? game.away : game.home);
     const implied = noVigProbability(quote?.spread_odds, opposite?.spread_odds);
+    // Look the calibration up under the version the calibrator actually writes.
+    // Asking for the coordinated-head version string matched no row ever, so the
+    // stored walk-forward audit was never consulted and every abstention read
+    // "calibration_not_proven" for the wrong reason. The decision-head version is
+    // still recorded in the frozen snapshot below.
     const calibrated = calibratedCoverProbability({ season, marketProbability: implied,
-      edgePoints: edge == null ? null : Math.abs(edge), modelVersion: COORDINATED_DECISION_VERSION });
+      edgePoints: edge == null ? null : Math.abs(edge) });
     const modelProbability = calibrated.probability;
     const incremental = modelProbability == null || implied == null ? null : modelProbability - implied;
     // Do not let an uncalibrated forecast masquerade as a betting signal. A

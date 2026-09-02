@@ -131,8 +131,17 @@ export function rankBooks(quotes, { market = 'spreads', takingPoints = true } = 
    */
   const advantage = (q, refBreakEven, refLine) => {
     const priceEdge = (refBreakEven ?? 0) - (breakEvenRate(q.price) ?? 0);
+    // lineMoveValue is unsigned (it only measures how much a move is worth, not
+    // which direction), so the direction has to be supplied here: more points
+    // is better when taking them, fewer is better when giving them. Without
+    // this every book scored the same positive lineEdge regardless of which
+    // way its number differed from the field, so the book furthest from the
+    // median in EITHER direction could rank first — including the worst number
+    // on the board.
     const lineEdge = Number.isFinite(refLine) && Number.isFinite(q.line)
-      ? (takingPoints ? lineMoveValue(refLine, q.line) : lineMoveValue(q.line, refLine))
+      ? (takingPoints
+          ? (q.line > refLine ? lineMoveValue(refLine, q.line) : -lineMoveValue(q.line, refLine))
+          : (q.line < refLine ? lineMoveValue(refLine, q.line) : -lineMoveValue(q.line, refLine)))
       : 0;
     return priceEdge + lineEdge;
   };

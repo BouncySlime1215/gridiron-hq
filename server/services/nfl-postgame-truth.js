@@ -69,9 +69,14 @@ function gameRows(season, week, home) {
     spread,total,temp,wind,roof,surface,rest_days,div_game,gameday,gametime FROM game_lines
     WHERE season=? AND week=? AND team=? AND home=1 LIMIT 1`, season, week, home)[0];
   if (!game || !Number.isFinite(game.home_score) || !Number.isFinite(game.away_score)) return { game, plays: [], teams: [], players: [], snaps: [] };
+  // game_lines carries nflverse codes (WAS); the ESPN play log carries ESPN codes
+  // (WSH). Accept either spelling on both sides, or every Washington packet is
+  // silently empty — 158 of 158 were, before this.
+  const pbpHome = canonicalTeam(game.home), pbpAway = canonicalTeam(game.away);
   const plays = rows(`SELECT * FROM nfl_play_by_play WHERE season=? AND week=?
-    AND ((offense=? AND defense=?) OR (offense=? AND defense=?)) ORDER BY sequence,play_id`,
-  season, week, game.home, game.away, game.away, game.home);
+    AND ((offense IN (?,?) AND defense IN (?,?)) OR (offense IN (?,?) AND defense IN (?,?)))
+    ORDER BY sequence,play_id`,
+  season, week, game.home, pbpHome, game.away, pbpAway, game.away, pbpAway, game.home, pbpHome);
   const teams = rows(`SELECT team,opponent,features FROM nfl_team_week_features
     WHERE season=? AND week=? AND team IN (?,?)`, season, week, game.home, game.away)
     .map(row => ({ ...row, features: parse(row.features) }));

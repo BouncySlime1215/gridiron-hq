@@ -65,8 +65,14 @@ function availableSeason() {
 }
 
 function warehouseSnapshot(season) {
-  const finalizedWeek = scalar(`SELECT COALESCE(MAX(week),0) value FROM game_lines
-    WHERE season=? AND home=1 AND team_score IS NOT NULL AND opp_score IS NOT NULL`, season);
+  // A week is finalized only when EVERY game in it is final. The Wednesday
+  // opener must not turn Week 1 into a "finalized" training week while fifteen
+  // games are still unplayed; postgame truth, reliability and the next-week fit
+  // all key off this number.
+  const finalizedWeek = scalar(`SELECT COALESCE(MAX(week),0) value FROM (
+      SELECT week FROM game_lines WHERE season=? AND home=1
+      GROUP BY week
+      HAVING COUNT(*) > 0 AND SUM(team_score IS NOT NULL AND opp_score IS NOT NULL) = COUNT(*))`, season);
   const sources = [
     { id: 'results_and_lines', table: 'game_lines', required: true,
       rows: count('game_lines', season), through_week: finalizedWeek },

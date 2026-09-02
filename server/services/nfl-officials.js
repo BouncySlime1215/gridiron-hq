@@ -18,9 +18,11 @@
  * because "referee X goes over 60% of the time" on thirty games is exactly the
  * shape of a finding that evaporates.
  */
-import { rows, row, run } from '../db/index.js';
+import { rows, row, run, db } from '../db/index.js';
+import { parseCsv } from './nflverse.js';
 
 const BASE = 'https://github.com/nflverse/nflverse-data/releases/download';
+const GAMES_URL = 'https://github.com/nflverse/nfldata/raw/master/data/games.csv';
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
@@ -36,6 +38,15 @@ run(`CREATE TABLE IF NOT EXISTS nfl_officials (
   PRIMARY KEY (game_id, name, position)
 )`);
 run(`CREATE INDEX IF NOT EXISTS idx_off_season ON nfl_officials(season, week)`);
+// The officials feed's `game_id` is the NFL's legacy numeric gamecenter id
+// (e.g. "2015091000"), not a team-readable key, and carries no team columns of
+// its own. Denormalizing home/away onto each row — resolved once at ingest
+// from nflverse's own game_id crosswalk — is what lets a later query join
+// exactly to one game instead of to every game in that referee's week.
+for (const [col, type] of [['home_team', 'TEXT'], ['away_team', 'TEXT']]) {
+  const cols = db.prepare(`PRAGMA table_info(nfl_officials)`).all().map(c => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE nfl_officials ADD COLUMN ${col} ${type}`);
+}
 
 function splitCsv(line) {
   const out = []; let cur = '', quoted = false;
@@ -48,6 +59,28 @@ function splitCsv(line) {
   return out;
 }
 
+/**
+ * Maps the officials feed's legacy numeric game id to the home/away teams,
+ * via nflverse's own `old_game_id` crosswalk in games.csv — the same file and
+ * the same `LA -> LAR` normalization gamescript.js uses, so the team codes
+ * agree with the rest of the app.
+ */
+async function oldGameIdCrosswalk() {
+  const res = await fetch(GAMES_URL, { signal: AbortSignal.timeout(180000) });
+  if (!res.ok) throw new Error(`games.csv -> HTTP ${res.status}`);
+  const { header, records } = parseCsv(await res.text());
+  const at = name => header.indexOf(name);
+  const iOld = at('old_game_id'), iHome = at('home_team'), iAway = at('away_team');
+  const map = new Map();
+  for (const r of records) {
+    const oldId = r[iOld];
+    if (!oldId) continue;
+    const norm = a => (a === 'LA' ? 'LAR' : a);
+    map.set(oldId, { home: norm(r[iHome]), away: norm(r[iAway]) });
+  }
+  return map;
+}
+
 /** Ingest every official assignment nflverse has. */
 export async function ingestOfficials() {
   const res = await fetch(`${BASE}/officials/officials.csv`, { signal: AbortSignal.timeout(180000) });
@@ -55,23 +88,29 @@ export async function ingestOfficials() {
   const lines = (await res.text()).split('\n');
   const header = splitCsv(lines[0]).map(h => h.trim());
   const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+  let crosswalk = new Map();
+  try { crosswalk = await oldGameIdCrosswalk(); } catch { /* team columns stay null; season/week ingest still succeeds */ }
 
-  let stored = 0;
+  let stored = 0, matched = 0;
   for (const raw of lines.slice(1)) {
     if (!raw.trim()) continue;
     const p = splitCsv(raw);
     const gameId = p[idx.game_id];
     const name = (p[idx.official_name] ?? '').trim();
     if (!gameId || !name) continue;
-    run(`INSERT INTO nfl_officials (game_id, official_id, name, position, season, week, season_type)
-         VALUES (?,?,?,?,?,?,?) ON CONFLICT(game_id, name, position) DO NOTHING`,
+    const teams = crosswalk.get(gameId);
+    if (teams) matched++;
+    run(`INSERT INTO nfl_officials (game_id, official_id, name, position, season, week, season_type, home_team, away_team)
+         VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(game_id, name, position) DO UPDATE SET
+           home_team=COALESCE(excluded.home_team, home_team), away_team=COALESCE(excluded.away_team, away_team)`,
     gameId, p[idx.official_id] ?? null, name, (p[idx.position] ?? '').trim() || null,
-    Number(p[idx.season]) || null, Number(p[idx.week]) || null, p[idx.season_type] ?? null);
+    Number(p[idx.season]) || null, Number(p[idx.week]) || null, p[idx.season_type] ?? null,
+    teams?.home ?? null, teams?.away ?? null);
     stored++;
   }
   const total = row(`SELECT COUNT(*) AS n, COUNT(DISTINCT game_id) AS games,
                             COUNT(DISTINCT name) AS officials FROM nfl_officials`) ?? {};
-  return { assignments_stored: stored, corpus: total,
+  return { assignments_stored: stored, games_matched_to_teams: matched, corpus: total,
     note: 'Every official, every game, back to 2015. The referee is the crew chief — the other six ' +
       'positions travel with him, so the referee identifies the crew.' };
 }
@@ -94,21 +133,25 @@ export async function ingestOfficials() {
  * referees and a few dozen games each, someone will be at 60% by luck.
  */
 export function refereeTotals({ minGames = 25 } = {}) {
+  // Exact game join: the officials feed's own home/away columns (denormalized
+  // at ingest from nflverse's old_game_id crosswalk) match one game_lines row,
+  // not every game_lines row in that referee's week. A row whose crosswalk
+  // never resolved (home_team IS NULL) is excluded rather than fanned out.
   const joined = rows(`
     SELECT o.name AS referee, g.season, g.week, g.total,
            (g.team_score + g.opp_score) AS actual
     FROM nfl_officials o
     JOIN game_lines g
       ON g.season = o.season AND g.week = o.week AND g.home = 1
-     AND (g.team || g.opponent) IS NOT NULL
+     AND g.team = o.home_team AND g.opponent = o.away_team
     WHERE o.position = 'Referee' AND g.total IS NOT NULL
       AND g.team_score IS NOT NULL AND g.opp_score IS NOT NULL`);
 
   if (joined.length < 100) {
     return { error: `only ${joined.length} referee-games joined`,
-      hint: 'The join is by season and week rather than by game id, because nflverse game ids and ' +
-        'this archive\'s keys differ — so a week with several games attributes the crew to all of ' +
-        'them. Treat this as indicative until the ids are reconciled.' };
+      hint: 'The join is exact (officials.home_team/away_team, resolved from nflverse\'s old_game_id ' +
+        'crosswalk at ingest) but coverage depends on that crosswalk resolving — re-run ingestOfficials ' +
+        'if games_matched_to_teams was low, or widen the season range.' };
   }
 
   const byRef = new Map();

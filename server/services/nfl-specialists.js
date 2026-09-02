@@ -290,7 +290,7 @@ function atsHistory(dataset) {
  * backfill, the snapshots from the scheduled capture running now.
  */
 function movementVector(row, snapshotMoves) {
-  const snap = snapshotMoves.get(row.home);
+  const snap = snapshotMoves.get(`${row.home}|${row.gameday}`);
   const spreadMove = row.open_spread != null
     ? row.market_margin - -row.open_spread
     : (snap?.spread_move ?? null);
@@ -337,15 +337,18 @@ export function designVectors(dataset) {
                         FROM nfl_line_snapshots WHERE line IS NOT NULL ORDER BY captured_at`)) {
     const home = abbrByName.get(r.home_team);
     if (!home) continue;
-    const key = `${home}|${r.market}|${r.side}|${(r.commence_time ?? '').slice(0, 10)}`;
-    const e = bySide.get(key) ?? { home, market: r.market, side: r.side, first: r.line, last: r.line };
+    const date = (r.commence_time ?? '').slice(0, 10);
+    const key = `${home}|${r.market}|${r.side}|${date}`;
+    const e = bySide.get(key) ?? { home, date, market: r.market, side: r.side, first: r.line, last: r.line };
     e.last = r.line;
     bySide.set(key, e);
   }
   for (const e of bySide.values()) {
-    // Season/week are not on a snapshot, so movement is attached by home team
-    // and resolved against the schedule at lookup time.
-    const k = e.home;
+    // Keyed by home team AND kickoff date. A team plays the same opponent
+    // codes across a decade of seasons; keying by team alone let a live 2026
+    // snapshot get attached to every one of that team's games back to 2016 —
+    // the exact opposite of "the market moved on this game."
+    const k = `${e.home}|${e.date}`;
     const cur = snapshotMoves.get(k) ?? {};
     if (e.market === 'spreads' && abbrByName.get(e.side) === e.home) cur.spread_move = e.last - e.first;
     if (e.market === 'totals' && e.side === 'Over') cur.total_move = e.last - e.first;

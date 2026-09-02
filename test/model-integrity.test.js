@@ -209,11 +209,25 @@ test('news latency pairs only preserved quotes around publication and never uses
     { ...base, captured_at: '2026-09-01T11:00:00Z', line: -2.5, price: -110 },
     { ...base, captured_at: '2026-09-01T12:04:00Z', line: -3, price: -112 },
     { ...base, captured_at: '2026-09-01T20:01:00Z', line: -7, price: -200 }
-  ], ['kansascitychiefs', 'kc']);
+  ], 'kansascitychiefs');
   assert.equal(pairs.length, 1);
   assert.equal(pairs[0].publication_to_capture_minutes, 4);
   assert.equal(pairs[0].line_move, -0.5);
   assert.equal(pairs[0].reacted, true);
+});
+
+test('news latency team matching does not collide on a two-letter abbreviation substring', () => {
+  const claim = { published_at: '2026-09-01T12:00:00Z' };
+  // "NE" (New England) must not match Minnesota, Tennessee or New Orleans —
+  // the bug this alias scheme used to have.
+  const decoys = ['Minnesota Vikings', 'Tennessee Titans', 'New Orleans Saints', 'New York Jets', 'New York Giants']
+    .map(home => ({ event_id: 'x', commence_time: '2026-09-01T20:00:00Z', home_team: home, away_team: 'Denver Broncos',
+      book: 'book-a', market: 'spreads', side: home, captured_at: '2026-09-01T12:04:00Z', line: -3, price: -110 }));
+  assert.equal(newsLatencyTest.quoteReaction(claim, decoys, 'newenglandpatriots').length, 0);
+  const real = [{ event_id: 'y', commence_time: '2026-09-01T20:00:00Z', home_team: 'New England Patriots',
+    away_team: 'Denver Broncos', book: 'book-a', market: 'spreads', side: 'New England Patriots',
+    captured_at: '2026-09-01T12:04:00Z', line: -3, price: -110 }];
+  assert.equal(newsLatencyTest.quoteReaction(claim, real, 'newenglandpatriots').length, 1);
 });
 
 test('postgame truth reads challenges, turnovers and explosive gameplay from the settled tape', () => {

@@ -57,7 +57,11 @@ for (const [col, type] of [
   ['rest_days', 'INTEGER'], ['div_game', 'INTEGER'], ['gameday', 'TEXT'], ['gametime', 'TEXT'],
   // Opening numbers, so line movement (and reverse line movement) is measurable
   // rather than inferred. ESPN reports both the open and the current quote.
-  ['open_spread', 'REAL'], ['open_total', 'REAL'], ['book_count', 'INTEGER']
+  ['open_spread', 'REAL'], ['open_total', 'REAL'], ['book_count', 'INTEGER'],
+  // A neutral-site game (London, Munich, Melbourne, a relocated Super Bowl) has a
+  // nominal home team and no home field. Without this flag every model hands the
+  // nominal home side a ~1.9-point advantage it does not have.
+  ['neutral_site', 'INTEGER']
 ]) {
   if (!glCols.includes(col)) db.exec(`ALTER TABLE game_lines ADD COLUMN ${col} ${type}`);
 }
@@ -85,17 +89,17 @@ async function syncHistoricalLinesImpl() {
   const at = n => header.indexOf(n);
   const [iS, iW, iAway, iHome, iSpread, iTotal, iAwayScore, iHomeScore,
     iAwayMl, iHomeMl, iAwaySpreadOdds, iHomeSpreadOdds, iUnderOdds, iOverOdds,
-    iTemp, iWind, iRoof, iSurface, iAwayRest, iHomeRest, iDiv, iGameday, iGametime] =
+    iTemp, iWind, iRoof, iSurface, iAwayRest, iHomeRest, iDiv, iGameday, iGametime, iLocation] =
     ['season', 'week', 'away_team', 'home_team', 'spread_line', 'total_line', 'away_score', 'home_score',
       'away_moneyline', 'home_moneyline', 'away_spread_odds', 'home_spread_odds', 'under_odds', 'over_odds',
-      'temp', 'wind', 'roof', 'surface', 'away_rest', 'home_rest', 'div_game', 'gameday', 'gametime'].map(at);
+      'temp', 'wind', 'roof', 'surface', 'away_rest', 'home_rest', 'div_game', 'gameday', 'gametime', 'location'].map(at);
   if (iSpread < 0 || iTotal < 0) throw new Error('games.csv is missing spread_line/total_line');
 
   const stmt = db.prepare(`INSERT INTO game_lines
       (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at,
        team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds,
-       temp, wind, roof, surface, rest_days, div_game, gameday, gametime)
-    VALUES (?,?,?,?,?,?,?,?, 'nflverse', datetime('now'), ?,?,?,?,?,?, ?,?,?,?,?,?,?,?)
+       temp, wind, roof, surface, rest_days, div_game, gameday, gametime, neutral_site)
+    VALUES (?,?,?,?,?,?,?,?, 'nflverse', datetime('now'), ?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?)
     ON CONFLICT(season, week, team) DO UPDATE SET
       spread=excluded.spread, total=excluded.total, implied_points=excluded.implied_points,
       opponent=excluded.opponent, home=excluded.home, source=excluded.source,
@@ -104,7 +108,8 @@ async function syncHistoricalLinesImpl() {
       total_under_odds=excluded.total_under_odds,
       temp=excluded.temp, wind=excluded.wind, roof=excluded.roof, surface=excluded.surface,
       rest_days=excluded.rest_days, div_game=excluded.div_game,
-      gameday=excluded.gameday, gametime=excluded.gametime`);
+      gameday=excluded.gameday, gametime=excluded.gametime,
+      neutral_site=COALESCE(excluded.neutral_site, neutral_site)`);
 
   // `Number('')` is 0, not NaN — an unplayed game's blank score/odds columns must
   // stay null, or every future game silently looks like a 0-0 final.
@@ -128,12 +133,14 @@ async function syncHistoricalLinesImpl() {
       const temp = int(r[iTemp]), wind = int(r[iWind]);
       const roof = r[iRoof] || null, surface = r[iSurface] || null;
       const divGame = int(r[iDiv]), gameday = r[iGameday] || null, gametime = r[iGametime] || null;
+      // nflverse marks international and relocated games 'Neutral' in `location`.
+      const neutral = iLocation < 0 ? null : (/neutral/i.test(String(r[iLocation] ?? '')) ? 1 : 0);
       stmt.run(season, week, home, away, 1, homeSpread, total, impliedPoints(homeSpread, total),
         homeScore, awayScore, homeMl, homeSpreadOdds, overOdds, underOdds,
-        temp, wind, roof, surface, int(r[iHomeRest]), divGame, gameday, gametime);
+        temp, wind, roof, surface, int(r[iHomeRest]), divGame, gameday, gametime, neutral);
       stmt.run(season, week, away, home, 0, -homeSpread, total, impliedPoints(-homeSpread, total),
         awayScore, homeScore, awayMl, awaySpreadOdds, overOdds, underOdds,
-        temp, wind, roof, surface, int(r[iAwayRest]), divGame, gameday, gametime);
+        temp, wind, roof, surface, int(r[iAwayRest]), divGame, gameday, gametime, neutral);
       n += 2;
     }
     db.exec('COMMIT');
@@ -155,8 +162,8 @@ export async function syncCurrentLines(season, weeks = 18) {
   const stmt = db.prepare(`INSERT INTO game_lines
       (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at,
        team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds,
-       open_spread, open_total)
-    VALUES (?,?,?,?,?,?,?,?, 'espn', datetime('now'), ?,?,?,?,?,?,?,?)
+       open_spread, open_total, neutral_site, roof)
+    VALUES (?,?,?,?,?,?,?,?, 'espn', datetime('now'), ?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(season, week, team) DO UPDATE SET
       spread=excluded.spread, total=excluded.total, implied_points=excluded.implied_points,
       source=excluded.source, fetched_at=excluded.fetched_at,
@@ -167,12 +174,25 @@ export async function syncCurrentLines(season, weeks = 18) {
       total_over_odds=COALESCE(excluded.total_over_odds, total_over_odds),
       total_under_odds=COALESCE(excluded.total_under_odds, total_under_odds),
       open_spread=COALESCE(excluded.open_spread, open_spread),
-      open_total=COALESCE(excluded.open_total, open_total)`);
+      open_total=COALESCE(excluded.open_total, open_total),
+      neutral_site=COALESCE(excluded.neutral_site, neutral_site),
+      roof=COALESCE(excluded.roof, roof)`);
+  // ESPN removes the odds object once a game is final. The score must still land,
+  // or nothing downstream (settlement, finalized-week detection, the learning
+  // cycle) ever sees a 2026 result. Scores only; the last pre-final line stays.
+  const finalStmt = db.prepare(`UPDATE game_lines
+      SET team_score=?, opp_score=?, fetched_at=datetime('now'),
+          neutral_site=COALESCE(?, neutral_site), roof=COALESCE(?, roof)
+      WHERE season=? AND week=? AND team=?`);
 
   // `Number('')` is 0, not NaN — an unplayed game's blank score/odds columns must
   // stay null, or every future game silently looks like a 0-0 final.
   const int = v => { if (v === '' || v == null) return null; const n = Number(v); return Number.isFinite(n) ? Math.round(n) : null; };
-  let updated = 0;
+  const num = v => { if (v === '' || v == null) return null; const n = Number(String(v).replace(/^[ou]/i, '')); return Number.isFinite(n) ? n : null; };
+  // ESPN abbreviates Washington "WSH"; nflverse's historical data (and the rest of
+  // this app) uses "WAS" — normalize so the two don't split into separate teams.
+  const normAbbr = a => (a === 'WSH' ? 'WAS' : a);
+  let updated = 0, finals = 0;
   for (let week = 1; week <= weeks; week++) {
     try {
       const url = `${ESPN_SCOREBOARD}?seasontype=2&week=${week}&dates=${season}`;
@@ -181,21 +201,32 @@ export async function syncCurrentLines(season, weeks = 18) {
       const data = await res.json();
       for (const ev of data.events ?? []) {
         const c = ev.competitions?.[0];
-        const odds = c?.odds?.[0];
-        if (!odds || odds.overUnder == null || odds.spread == null) continue;
-        const home = c.competitors?.find(x => x.homeAway === 'home');
-        const away = c.competitors?.find(x => x.homeAway === 'away');
+        const home = c?.competitors?.find(x => x.homeAway === 'home');
+        const away = c?.competitors?.find(x => x.homeAway === 'away');
         if (!home || !away) continue;
-        // ESPN quotes `spread` from the home side, negative = home favoured.
-        const hs = Number(odds.spread), total = Number(odds.overUnder);
-        // ESPN abbreviates Washington "WSH"; nflverse's historical data (and the rest of
-        // this app) uses "WAS" — normalize so the two don't split into separate teams.
-        const normAbbr = a => (a === 'WSH' ? 'WAS' : a);
         const ha = normAbbr(home.team?.abbreviation), aa = normAbbr(away.team?.abbreviation);
-        if (!ha || !aa || !Number.isFinite(hs) || !Number.isFinite(total)) continue;
-
+        if (!ha || !aa) continue;
         const isFinal = c.status?.type?.completed === true;
         const hScore = isFinal ? int(home.score) : null, aScore = isFinal ? int(away.score) : null;
+        const neutral = c.neutralSite === true ? 1 : c.neutralSite === false ? 0 : null;
+        // The venue's roof state is a fact about the building, not the market;
+        // it beats games.csv here because ESPN knows the actual stadium of a
+        // relocated game (the Melbourne Cricket Ground is open-air).
+        const roof = typeof c.venue?.indoor === 'boolean' ? (c.venue.indoor ? 'dome' : 'outdoors') : null;
+
+        const odds = c.odds?.[0];
+        if (!odds || odds.overUnder == null || odds.spread == null) {
+          if (isFinal && hScore != null && aScore != null) {
+            finalStmt.run(hScore, aScore, neutral, roof, season, week, ha);
+            finalStmt.run(aScore, hScore, neutral, roof, season, week, aa);
+            finals += 2;
+          }
+          continue;
+        }
+        // ESPN quotes `spread` from the home side, negative = home favoured.
+        const hs = Number(odds.spread), total = Number(odds.overUnder);
+        if (!Number.isFinite(hs) || !Number.isFinite(total)) continue;
+
         const homeMl = int(odds.moneyline?.home?.close?.odds ?? odds.moneyline?.home?.odds);
         const awayMl = int(odds.moneyline?.away?.close?.odds ?? odds.moneyline?.away?.odds);
         const homeSpreadOdds = int(odds.pointSpread?.home?.close?.odds ?? odds.homeTeamOdds?.spreadOdds);
@@ -203,25 +234,25 @@ export async function syncCurrentLines(season, weeks = 18) {
         const overOdds = int(odds.total?.over?.close?.odds ?? odds.overOdds);
         const underOdds = int(odds.total?.under?.close?.odds ?? odds.underOdds);
 
-        // ESPN reports the opening quote alongside the current one; spread opens
-        // are stated from the home side, matching `odds.spread`.
-        const openTotal = Number(odds.open?.total?.american ?? odds.open?.total?.alternateDisplayValue);
-        const openSpreadRaw = Number(odds.open?.pointSpread?.alternateDisplayValue
-          ?? odds.open?.spread?.american ?? odds.open?.spread?.alternateDisplayValue);
-        const openTotalV = Number.isFinite(openTotal) ? openTotal : null;
-        const openSpreadV = Number.isFinite(openSpreadRaw) ? openSpreadRaw : null;
+        // ESPN reports the opening quote beside the current one. On the scoreboard
+        // shape it lives at pointSpread.home.open.line ("-3.5") and total.over.open.line
+        // ("o44.5"); the older core-API shape used odds.open.*. Read both.
+        const openSpreadV = num(odds.pointSpread?.home?.open?.line)
+          ?? num(odds.open?.pointSpread?.alternateDisplayValue ?? odds.open?.spread?.american);
+        const openTotalV = num(odds.total?.over?.open?.line)
+          ?? num(odds.open?.total?.american ?? odds.open?.total?.alternateDisplayValue);
 
         stmt.run(season, week, ha, aa, 1, hs, total, impliedPoints(hs, total),
           hScore, aScore, homeMl, homeSpreadOdds, overOdds, underOdds,
-          openSpreadV, openTotalV);
+          openSpreadV, openTotalV, neutral, roof);
         stmt.run(season, week, aa, ha, 0, -hs, total, impliedPoints(-hs, total),
           aScore, hScore, awayMl, awaySpreadOdds, overOdds, underOdds,
-          openSpreadV == null ? null : -openSpreadV, openTotalV);
+          openSpreadV == null ? null : -openSpreadV, openTotalV, neutral, roof);
         updated += 2;
       }
     } catch { /* a missing week is normal out of season */ }
   }
-  return { season, updated };
+  return { season, updated, finals_scored: finals };
 }
 
 /* --------------------------------------------------------------- fitting */

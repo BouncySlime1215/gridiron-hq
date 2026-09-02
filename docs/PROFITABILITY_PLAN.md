@@ -1,6 +1,6 @@
 # NFL Profitability Plan
 
-**Version 1.2 · 2026-09-01**
+**Version 1.3 · 2026-09-02** (1.2 · 2026-09-01)
 
 This is the execution plan that follows from the completed model diagnostic.
 It is not a promise of profit. Its purpose is to make a profitable result
@@ -83,6 +83,102 @@ structural trends, and variance markers for explosive plays (629 games),
 non-offensive scores (177), turnovers (126), and reversed challenges (17).
 Those records are diagnostic inputs for the weekly learning loop below; they do
 not by themselves establish that a causal lesson is correct.
+
+### Priority 0 — the 2026-09-02 full-codebase diagnostic (binding before Week 1)
+
+Every line of the repository was read on 2026-09-02 and checked against the
+live database (`docs/DIAGNOSTIC_2026_09_02.md`). The findings change what
+"before Week 1" means. Items marked done were fixed and verified the same day;
+the rest are ordered by what they do to the forward ledger.
+
+**Budget reality.** The Odds API resets on the first of each month. 498 of 500
+September credits were spent within 29 hours of the reset by the MLB pregame
+capture, so there are no paid multi-book quotes for Weeks 1–4 regardless of any
+other fix. The A2 targets (T-24h and T-1h at ≥90% coverage) are therefore
+unreachable this month on the free tier. The reserve now lives inside the odds
+client and cannot be bypassed; MLB quotes are opt-in; the daemon stops
+retrying. This prevents a repeat, it does not recover September.
+
+- [x] One credit reserve, enforced in `odds-api.js`, with `reserveStatus()`,
+  an `odds_quota_exhausted` alert, and `skipped` (not `ok`) job status.
+- [x] Scores land from ESPN finals without an odds object; opening lines read
+  from the real field path; `neutral_site` and venue roof recorded.
+- [x] A week is finalized only when every game in it is final.
+- [x] Neutral-site games carry no home-field advantage in the ensemble or the
+  simulator (LAR v SF, Melbourne, 2026-09-10).
+- [x] Cover-calibration lookup uses the version the calibrator writes.
+- [x] Model-derived stake is 0 units in code, not only in prose.
+- [x] Settlement requires both scores; risk-lab and neural rows settle per
+  horizon; prop closes exclude the quote's own capture.
+- [x] Week 1 forward captures exist: GBM prior-season fallback, coordinator row
+  unblocked, council errors surfaced, `nfl_decision_ledger` job every 3 hours,
+  council added to the manual capture route, routes default to the live week.
+- [x] Washington play-by-play join, preseason plays filed as regular season,
+  availability edge on a missing injury feed.
+- [x] Forward ledger, Ensemble and Variables pages reachable in the workbench.
+- [x] **Second quote provider built (SportsGameOdds), opt-in.** Rather than
+  wait on the owner's account decision, `server/services/sportsgameodds.js`
+  ships as complete, dormant infrastructure: a no-op without
+  `SPORTSGAMEODDS_API_KEY`, and once a free account exists and the key is set,
+  it captures spreads/totals/moneylines from up to 9 books into the same
+  `nfl_line_snapshots` table the Odds API path writes — every existing
+  consumer (shopping board, sharp divergence, specialist movement feature,
+  bet routing) reads it unchanged. Wired into the evidence daemon (fills in
+  when the Odds API reserve is held) and a `nfl_sgo_snapshot` scheduler job,
+  on its own 2,500-object budget that never touches the Odds API reserve.
+  **Still the owner's decision to actually create the account** — upgrading
+  The Odds API ($30/month, 20K credits) is the other option. The parser was
+  built from SportsGameOdds' published docs, not a live key; check
+  `events_matched` on the first real capture before trusting it.
+- [x] Remove the line-movement leak in `nfl-specialists.js` — snapshot moves
+  are now keyed by (team, kickoff date), not team alone; verified a 2026
+  snapshot no longer attaches to an otherwise-identical 2016 game.
+- [x] Choose orthogonal-specialist influence on a block that is not the one
+  reported as validation — split into train/tune/report chronological blocks.
+- [x] Sign the line edge in `nfl-execution.js#rankBooks` — verified against the
+  real margin distribution that the router now prefers the better number.
+- [x] Fix capture-trigger dedup scope: the trigger-queue's state update now
+  targets only the exact batch of ids just considered, not every outstanding
+  row.
+- [x] Replace substring team matching in `nfl-news-market-latency.js` — full
+  team name only; regression test confirms the Minnesota/Tennessee/New
+  Orleans/New York collisions are gone.
+- [x] Apply between-season carryover to the upcoming season in `nfl-market.js`,
+  and zero home-field advantage on neutral-site games there too (it already
+  was fixed in the ensemble and simulator in round 1).
+- [x] Join officials to games, not weeks — resolved via nflverse's
+  `old_game_id` crosswalk at ingest; verified live: 21,977 of 22,012
+  assignments matched, `refereeTotals()` now returns 3,014 referee-games
+  instead of the old 44,392.
+- [ ] Add a provider-agnostic quote adapter (`provider`, `book_updated_at`)
+  that both the Odds API and SportsGameOdds paths write through, and wire the
+  dormant `nfl_quote_tape` to a real producer. `nfl_line_snapshots` today
+  works for both providers because SportsGameOdds writes the same row shape,
+  but there is no shared `book_updated_at`/provider column yet — a T-1h
+  capture whose book last updated four hours earlier is still indistinguishable
+  from a fresh one.
+- [ ] One team-code map, one name normalizer, one cutoff representation, used by
+  every ingestion path. Eight normalizers and five maps exist today (the
+  Washington postgame-truth join and the officials crosswalk were fixed at
+  their specific call sites, not consolidated repo-wide).
+- [ ] Reconcile the forward-sample target (200 vs 250) and the audit names across
+  code and docs.
+- [ ] `nfl-market.js`'s alpha/carryover grid search is still fit over the
+  entire history rather than a separate held-out window (only its
+  serving-time application of the fitted carryover was fixed this round).
+
+**Operating rules added by this diagnostic.**
+
+1. The server must be running at every capture window. Nothing here survives
+   the app being closed on a Sunday.
+2. A job that does no work records `skipped`. Freshness views must not show a
+   capture that did not happen.
+3. Missing evidence is null, never zero. The availability edge, the injury
+   burden, and every specialist opinion abstain when their source is absent.
+4. Any new metered call goes through `odds-api.js#get()`. No direct `fetch` to
+   a paid endpoint.
+5. Every "authority: shadow" field must be paired with a code path that refuses
+   the stake; a string on a returned object is documentation.
 
 ### Priority 1 — close everything revealed by audit run 8
 
@@ -791,14 +887,20 @@ correct, which is exactly the uncertain quantity being tested.
 
 ## 9. Delivery order
 
-### Now — before Week 1
+### Now — before Week 1 (revised 2026-09-02)
 
-1. Ship unmatched-prop reconciliation and explicit abstention reasons.
-2. Add missed-horizon and settlement alerts.
-3. Add reachable teaser-price entry and archive.
-4. Freeze/hash the 2026 prop decision policy.
-5. Display capture coverage, model-match coverage, and credit reserve in the
-   NFL hub.
+0. Keep the app running through 2026-09-15. The decision ledger, pregame
+   snapshots, council freeze, shadow board, and settlement are all scheduled
+   now, and all of them are process-local timers.
+1. Decide the Weeks 1–4 quote source (Priority 0). Without it, Week 1 evidence
+   is decisions, context and the ESPN reference close — enough to grade
+   direction and abstention discipline, not enough for multi-book CLV.
+2. Ship unmatched-prop reconciliation and explicit abstention reasons.
+3. Missed-horizon alerting: the quota alert exists; add the per-horizon miss.
+4. Add reachable teaser-price entry and archive.
+5. Freeze/hash the 2026 prop decision policy.
+6. Display capture coverage, model-match coverage, and the credit reserve in the
+   NFL hub (the reserve status is on `/api/nfl-market/evidence/status`).
 
 ### Weeks 1–4
 

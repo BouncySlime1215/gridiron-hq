@@ -60,7 +60,7 @@ function games(minSeason = MIN_SEASON) {
            team_score AS home_score, opp_score AS away_score,
            spread AS home_spread, total,
            NULL AS open_spread, NULL AS open_total,
-           temp, wind, roof, rest_days AS home_rest, div_game
+           temp, wind, roof, rest_days AS home_rest, div_game, neutral_site
     FROM game_lines
     WHERE home = 1 AND team_score IS NOT NULL AND opp_score IS NOT NULL
       AND season >= ? AND spread IS NOT NULL
@@ -678,9 +678,14 @@ function sharedContext(g, hist) {
   return shared;
 }
 
+/** A neutral-site game has a nominal home team and no home field: every model reads `hfa` from here. */
+const hfaFor = (g, shared) => (g.neutral_site ? 0 : shared.hfa);
+
 function buildContext(g, hist, restMap) {
+  const shared = sharedContext(g, hist);
   return {
-    ...sharedContext(g, hist),
+    ...shared,
+    hfa: hfaFor(g, shared), neutral: Boolean(g.neutral_site),
     home: g.home, away: g.away,
     spread: g.home_spread, total: g.total,
     openSpread: g.open_spread, openTotal: g.open_total,
@@ -921,6 +926,7 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
 
     for (const g of slate) {
       const ctx = { ...base, home: g.home, away: g.away,
+        hfa: g.neutral_site ? 0 : base.hfa, neutral: Boolean(g.neutral_site),
         spread: g.home_spread, total: g.total,
         openSpread: g.open_spread, openTotal: g.open_total,
         temp: g.temp, wind: g.wind, roof: g.roof, div: g.div_game,
@@ -1091,7 +1097,7 @@ export function ensembleLine(season, week, home, away, {
   const g = rows(`SELECT team AS home, opponent AS away, spread AS home_spread, total,
                          CASE WHEN team_score IS NULL THEN open_spread END AS open_spread,
                          CASE WHEN team_score IS NULL THEN open_total END AS open_total,
-                         temp, wind, roof, rest_days AS home_rest, div_game
+                         temp, wind, roof, rest_days AS home_rest, div_game, neutral_site
                   FROM game_lines WHERE season=? AND week=? AND team=? AND home=1`, season, week, home)[0]
     ?? { home, away, home_spread: null, total: null };
   const ctx = { ...buildContext({ ...g, season, week, home, away }, hist, restMap),
@@ -1210,7 +1216,7 @@ export function challengerSignalWeek(season, week) {
   const hist = all.filter(game => game.season < season || (game.season === season && game.week < week));
   if (hist.length < 100) return { error: 'not enough history before this week', season, week };
   const slate = rows(`SELECT team home,opponent away,spread,total,open_spread,open_total,
-      temp,wind,roof,rest_days home_rest,div_game
+      temp,wind,roof,rest_days home_rest,div_game,neutral_site
     FROM game_lines WHERE season=? AND week=? AND home=1`, season, week);
   if (!slate.length) return { version: CHALLENGER_SIGNAL_VERSION, season, week, games: [] };
   const calibrationCutoff = Math.min(EVAL_FROM, season);
@@ -1221,6 +1227,7 @@ export function challengerSignalWeek(season, week) {
   const challengers = MODELS.filter(model => model.challengerOnly);
   return { version: CHALLENGER_SIGNAL_VERSION, season, week, games: slate.map(game => {
     const ctx = { ...base, home: game.home, away: game.away,
+      hfa: game.neutral_site ? 0 : base.hfa, neutral: Boolean(game.neutral_site),
       spread: game.spread, total: game.total, openSpread: game.open_spread, openTotal: game.open_total,
       temp: game.temp, wind: game.wind, roof: game.roof, div: game.div_game,
       homeRest: game.home_rest, awayRest: restMap.get(`${season}|${week}|${game.away}`) };

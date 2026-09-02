@@ -617,12 +617,21 @@ export function captureForwardExpertWeek(season, week, { horizon = 'manual' } = 
   const coordinatorFit = fitExpertCoordinator(season, week);
   const capturedAt = new Date().toISOString();
   let inserted = 0, existing = 0, skipped = 0;
+  const errors = [];
   for (const index of targets) {
     const target = data.meta[index];
     const already = rows(`SELECT COUNT(*) n FROM nfl_expert_forward_predictions
       WHERE season=? AND week=? AND home=? AND horizon=?`, season, week, target.home, String(horizon))[0]?.n ?? 0;
-    if (Number(already) >= NFL_EXPERTS.length) { existing += Number(already); continue; }
+    // Twelve experts plus the coordinator. Comparing against twelve alone froze
+    // out the coordinator row forever once a warm-up capture had run.
+    if (Number(already) >= NFL_EXPERTS.length + 1) { existing += Number(already); continue; }
     const item = gameExperts(season, week, index, data);
+    if (item.error) {
+      // A game the ensemble cannot price is a recorded failure, not a silent
+      // "games: 16, inserted: 0" that looks like success.
+      errors.push({ home: target.home, away: target.away, error: item.error });
+      continue;
+    }
     const kickoff = Date.parse(item.game.evidence_cutoff);
     if (Number.isFinite(kickoff) && kickoff <= Date.now()) { skipped++; continue; }
     const coordinator = coordinateExperts(coordinatorFit, item.experts, item.game);
@@ -641,6 +650,7 @@ export function captureForwardExpertWeek(season, week, { horizon = 'manual' } = 
     }
   }
   return { version: EXPERT_COUNCIL_VERSION, season, week, horizon, games: targets.length, inserted, existing, skipped,
+    errors: errors.length ? errors : undefined,
     coordinator_ready: coordinatorFit.ready,
     rule: 'Predictions are append-only and settlement cannot overwrite their evidence, timestamp or number.' };
 }

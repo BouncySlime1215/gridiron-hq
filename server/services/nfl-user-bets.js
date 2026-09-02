@@ -45,7 +45,7 @@ function gradeBet(b) {
     `SELECT team_score, opp_score FROM game_lines WHERE season = ? AND week = ? AND team = ?`,
     b.season, b.week, b.selection
   )[0];
-  if (!result || result.team_score == null) return { status: 'Pending', units: 0 };
+  if (!result || result.team_score == null || result.opp_score == null) return { status: 'Pending', units: 0 };
   const margin = result.team_score - result.opp_score;
   const pushed = margin === -b.line;
   if (pushed) return { status: 'Push', units: 0 };

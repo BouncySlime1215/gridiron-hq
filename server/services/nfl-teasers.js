@@ -72,7 +72,7 @@ export function wongHistory({ seasons = null, points = 6 } = {}) {
   const where = seasons?.length
     ? `AND season BETWEEN ${Math.min(...seasons)} AND ${Math.max(...seasons)}` : '';
   const g = rows(`SELECT season, spread, team_score, opp_score FROM game_lines
-                  WHERE spread IS NOT NULL AND team_score IS NOT NULL ${where}`);
+                  WHERE spread IS NOT NULL AND team_score IS NOT NULL AND opp_score IS NOT NULL ${where}`);
   const legs = [];
   for (const x of g) {
     const leg = wongLeg(x.spread, points);

@@ -154,11 +154,17 @@ export function buildGbmDataset({ fromSeason = 2018, throughSeason = 2025, inclu
     'off_pass_rate', 'off_proe', 'off_epa_volatility', 'off_early_down_epa', 'def_early_down_epa',
     'off_pressure_epa', 'def_pressure_epa', 'off_havoc_rate', 'def_havoc_rate'];
 
+  // Strictly-earlier weeks of the same season; for Week 1 (or any week with no
+  // in-season history yet) the complete prior season is the cutoff-safe prior.
+  // Without the fallback every Week 1 game of every season was dropped from the
+  // dataset, which is why the expert council could never freeze a Week 1 row.
   const priorMean = (season, team, week, key) => {
     const list = byTeamSeason.get(`${season}|${team}`);
-    if (!list) return null;
-    const vals = list.filter(x => x.week < week).map(x => x.f[key]).filter(Number.isFinite);
-    return vals.length ? mean(vals) : null;
+    const vals = (list ?? []).filter(x => x.week < week).map(x => x.f[key]).filter(Number.isFinite);
+    if (vals.length) return mean(vals);
+    const prior = byTeamSeason.get(`${season - 1}|${team}`);
+    const priorVals = (prior ?? []).map(x => x.f[key]).filter(Number.isFinite);
+    return priorVals.length ? mean(priorVals) : null;
   };
 
   const X = [], y = [], meta = [];

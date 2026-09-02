@@ -156,48 +156,68 @@ function examplesBefore(season, week) {
   });
 }
 
+/**
+ * Three chronological blocks, not two. `train` fits each family's coefficients;
+ * `tune` is where each family's influence (how much to trust it) is chosen;
+ * `report` is graded afterward on data neither step ever touched. The
+ * previous two-block split picked influence AND reported the resulting gain
+ * on the identical validation block — in-sample for the one number this
+ * module exists to report honestly.
+ */
 function chronologicalSplit(examples) {
   const weeks = [...new Set(examples.map(item => `${item.season}|${item.week}`))];
-  const validationWeeks = new Set(weeks.slice(Math.max(0, Math.floor(weeks.length * 0.8))));
-  return { train: examples.filter(item => !validationWeeks.has(`${item.season}|${item.week}`)),
-    validation: examples.filter(item => validationWeeks.has(`${item.season}|${item.week}`)) };
+  const tuneStart = Math.floor(weeks.length * 0.70);
+  const reportStart = Math.floor(weeks.length * 0.85);
+  const tuneWeeks = new Set(weeks.slice(tuneStart, reportStart));
+  const reportWeeks = new Set(weeks.slice(reportStart));
+  const weekOf = item => `${item.season}|${item.week}`;
+  return {
+    train: examples.filter(item => !tuneWeeks.has(weekOf(item)) && !reportWeeks.has(weekOf(item))),
+    tune: examples.filter(item => tuneWeeks.has(weekOf(item))),
+    report: examples.filter(item => reportWeeks.has(weekOf(item)))
+  };
 }
 
 function fitArtifact(season, week) {
   const examples = examplesBefore(season, week);
-  if (examples.length < 320) return { error: `only ${examples.length} frozen-card games; 320 required` };
-  const { train, validation } = chronologicalSplit(examples);
-  if (validation.length < 64) return { error: `only ${validation.length} chronological validation games` };
-  let trainRemaining = train.map(item => item.target), validationRemaining = validation.map(item => item.target);
+  if (examples.length < 420) return { error: `only ${examples.length} frozen-card games; 420 required` };
+  const { train, tune, report } = chronologicalSplit(examples);
+  if (tune.length < 48) return { error: `only ${tune.length} chronological tuning games; 48 required` };
+  if (report.length < 48) return { error: `only ${report.length} chronological report games; 48 required` };
+  let trainRemaining = train.map(item => item.target);
+  let tuneRemaining = tune.map(item => item.target);
+  let reportRemaining = report.map(item => item.target);
   const families = [];
   for (const family of FAMILY_SPEC) {
     const trainX = train.map(item => familyVector(item.homeCard, item.awayCard, family));
-    const validationX = validation.map(item => familyVector(item.homeCard, item.awayCard, family));
+    const tuneX = tune.map(item => familyVector(item.homeCard, item.awayCard, family));
+    const reportX = report.map(item => familyVector(item.homeCard, item.awayCard, family));
     const model = fitRidge(trainX, trainRemaining, { ridge: Math.max(8, family.fields.length * 2), huber: 4 });
-    const trainRaw = trainX.map(model.predict), validationRaw = validationX.map(model.predict);
-    const validationBefore = [...validationRemaining];
-    const baselineMse = mse(validationBefore, validation.map(() => 0));
-    const rawMse = mse(validationBefore, validationRaw);
+    const trainRaw = trainX.map(model.predict), tuneRaw = tuneX.map(model.predict), reportRaw = reportX.map(model.predict);
+    const tuneBefore = [...tuneRemaining];
+    // Influence is chosen from the tune block only. The report block is never
+    // consulted until after every family's influence is fixed.
+    const baselineMse = mse(tuneBefore, tune.map(() => 0));
+    const rawMse = mse(tuneBefore, tuneRaw);
     const gain = baselineMse - rawMse;
     const gainFraction = baselineMse > 0 ? gain / baselineMse : 0;
     const sampleShrink = train.length / (train.length + 256);
     const influence = clamp(gainFraction * 6, 0, 1) * sampleShrink;
-    const trainContribution = trainRaw.map(value => value * influence);
-    const validationContribution = validationRaw.map(value => value * influence);
-    trainRemaining = trainRemaining.map((value, i) => value - trainContribution[i]);
-    validationRemaining = validationRemaining.map((value, i) => value - validationContribution[i]);
+    trainRemaining = trainRemaining.map((value, i) => value - trainRaw[i] * influence);
+    tuneRemaining = tuneRemaining.map((value, i) => value - tuneRaw[i] * influence);
+    reportRemaining = reportRemaining.map((value, i) => value - reportRaw[i] * influence);
     families.push({ id: family.id, fields: family.fields, beta: model.beta, mu: model.mu,
-      scale: model.scale, validation_baseline_mse: r4(baselineMse), validation_raw_mse: r4(rawMse),
+      scale: model.scale, tuning_baseline_mse: r4(baselineMse), tuning_raw_mse: r4(rawMse),
       incremental_mse_gain: r4(gain), incremental_gain_fraction: r4(gainFraction),
-      influence: r4(influence), validation_direction_rate: r4(mean(validationRaw.map((value, i) =>
-        Math.sign(value) === Math.sign(validationBefore[i]) ? 1 : 0))) });
+      influence: r4(influence), tuning_direction_rate: r4(mean(tuneRaw.map((value, i) =>
+        Math.sign(value) === Math.sign(tuneBefore[i]) ? 1 : 0))) });
   }
   const dataHash = sha(examples.map(item => ({ season: item.season, week: item.week,
     home: item.home, evidence: item.evidence, target: item.target })));
   return { version: ORTHOGONAL_SPECIALIST_VERSION, through: { season, week }, data_hash: dataHash,
-    training_games: train.length, validation_games: validation.length,
-    baseline_validation_mse: r4(mse(validation.map(item => item.target), validation.map(() => 0))),
-    final_validation_mse: r4(mse(validation.map(item => item.target), validation.map((item, i) => item.target - validationRemaining[i]))),
+    training_games: train.length, tuning_games: tune.length, validation_games: report.length,
+    baseline_validation_mse: r4(mse(report.map(item => item.target), report.map(() => 0))),
+    final_validation_mse: r4(mse(report.map(item => item.target), report.map((item, i) => item.target - reportRemaining[i]))),
     families };
 }
 

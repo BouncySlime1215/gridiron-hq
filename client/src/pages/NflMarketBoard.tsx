@@ -16,12 +16,19 @@ const Gates = lazy(() => import('./betting/Gates'));
 const Decisions = lazy(() => import('./betting/Decisions'));
 const Diagnostics = lazy(() => import('./betting/Diagnostics'));
 const UnifiedEngineRoom = lazy(() => import('../components/betting/UnifiedEngineRoom'));
+// These three were fully built and routed-to, then never rendered: App.tsx sent
+// /betting/nfl/ensemble and /betting/catalog here and both fell through to the
+// architecture tab. FootballFirst is the frozen forward-ledger surface (record
+// this week before kickoff, append-only, settle with CLV) — the exact Week 1 flow.
+const FootballFirst = lazy(() => import('./betting/FootballFirst'));
+const EnsemblePage = lazy(() => import('./betting/Ensemble'));
+const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 
 type Section = 'board' | 'execute' | 'live' | 'engine';
-type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info';
+type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info' | 'forward';
 type DecideView = 'games' | 'props';
 type ExecuteView = 'edge' | 'shop' | 'venues';
-type ProofView = 'overview' | 'audit' | 'diagnostics' | 'data';
+type ProofView = 'overview' | 'forward' | 'audit' | 'diagnostics' | 'data' | 'ensemble' | 'variables';
 
 interface AllGameRow {
   matchup: string; market: string; selection: string; side: string | null; home_team: string; away_team: string;
@@ -48,15 +55,24 @@ interface TrackedBet { id: number; matchup: string; selection: string; side: str
 const normalizeSection = (tool: InitialTool): Section => {
   if (['edges', 'lines', 'venues', 'execute'].includes(tool)) return 'execute';
   if (['simulator', 'replay'].includes(tool)) return 'live';
-  if (['training', 'operations', 'ensemble', 'variables', 'model', 'audit', 'ai', 'info', 'proof'].includes(tool)) return 'engine';
+  if (['training', 'operations', 'ensemble', 'variables', 'model', 'audit', 'ai', 'info', 'proof', 'forward'].includes(tool)) return 'engine';
   return 'board';
+};
+
+const initialProofView = (tool: InitialTool): ProofView => {
+  if (tool === 'operations') return 'data';
+  if (tool === 'training' || tool === 'ai' || tool === 'audit') return 'audit';
+  if (tool === 'ensemble') return 'ensemble';
+  if (tool === 'variables') return 'variables';
+  if (tool === 'forward') return 'forward';
+  return 'overview';
 };
 
 export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?: InitialTool }) {
   const [section, setSection] = useState<Section>(() => normalizeSection(initialTool));
   const [decideView, setDecideView] = useState<DecideView>(initialTool === 'props' ? 'props' : 'games');
   const [executeView, setExecuteView] = useState<ExecuteView>(initialTool === 'venues' ? 'venues' : initialTool === 'lines' ? 'shop' : 'edge');
-  const [proofView, setProofView] = useState<ProofView>(initialTool === 'operations' ? 'data' : initialTool === 'training' || initialTool === 'ai' || initialTool === 'audit' ? 'audit' : 'overview');
+  const [proofView, setProofView] = useState<ProofView>(() => initialProofView(initialTool));
   const [week, setWeek] = useState(1);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -137,7 +153,7 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
 
     {section === 'execute' && <>
       <Subnav value={executeView} onChange={setExecuteView} items={[['edge', 'Ticket builder'], ['shop', 'Line shop'], ['venues', 'Venue routing']]} />
-      {executeView === 'edge' && <><NextAction eyebrow="Execution focus" title={teaser?.live ? teaser.headline : 'Verify the payout before building a ticket'} detail={teaser?.detail ?? 'Reading the latest price gate…'} action={() => undefined} tone="light" /><Panel fallback="Loading ticket evidence…"><Edges /></Panel></>}
+      {executeView === 'edge' && <><NextAction eyebrow="Execution focus" title={teaser?.live ? teaser.headline : 'Verify the payout before building a ticket'} detail={teaser?.detail ?? 'Reading the latest price gate…'} action={() => setExecuteView('shop')} tone="light" /><Panel fallback="Loading ticket evidence…"><Edges /></Panel></>}
       {executeView === 'shop' && <Panel fallback="Loading line shop…"><LineShop /></Panel>}
       {executeView === 'venues' && <Panel fallback="Loading venue routes…"><Venues /></Panel>}
     </>}
@@ -153,8 +169,11 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
           "Promotion gates" and "Decision bases" are both what the model is
           allowed to claim. Splitting each pair bought nothing but another click
           and another thing to scan. */}
-      <Subnav value={proofView} onChange={setProofView} items={[['overview', 'Architecture'], ['audit', 'Audit'], ['diagnostics', 'Diagnostics'], ['data', 'Data health']]} />
+      <Subnav value={proofView} onChange={setProofView} items={[['overview', 'Architecture'], ['forward', 'Forward ledger'], ['ensemble', 'Ensemble'], ['audit', 'Audit'], ['diagnostics', 'Diagnostics'], ['data', 'Data health'], ['variables', 'Variables']]} />
       {proofView === 'overview' && <Panel fallback="Loading the unified engine…"><UnifiedEngineRoom /></Panel>}
+      {proofView === 'forward' && <Panel fallback="Loading the forward ledger…"><FootballFirst embedded /></Panel>}
+      {proofView === 'ensemble' && <Panel fallback="Loading ensemble lines…"><EnsemblePage /></Panel>}
+      {proofView === 'variables' && <Panel fallback="Loading the variable catalog…"><VariableCatalog /></Panel>}
       {proofView === 'audit' && <><Training focus="ai" /><Training focus="replay" /><Panel fallback="Reading promotion gates…"><Gates /></Panel><Panel fallback="Compiling decision bases…"><Decisions /></Panel></>}
       {proofView === 'diagnostics' && <Panel fallback="Measuring model health…"><Diagnostics /></Panel>}
       {proofView === 'data' && <NflModelOperations />}

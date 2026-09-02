@@ -330,11 +330,14 @@ export function finalizeClosingSnapshots(now = new Date().toISOString()) {
     WHERE captured_at=? AND event_id=? AND book=? AND market=? AND player=? AND side=?`);
   let finalized = 0, unmatched = 0;
   for (const quote of pending) {
+    // The close is the last capture before kickoff that is NOT this quote. Without
+    // the exclusion the final capture of every quote closed against itself and
+    // reported a CLV of exactly zero — a fabricated number, not a measurement.
     const close = rows(`SELECT line,american_price,implied_probability FROM nfl_prop_clv
                         WHERE event_id=? AND book=? AND market=? AND player=? AND side=?
-                          AND captured_at < ?
+                          AND captured_at < ? AND captured_at > ?
                         ORDER BY captured_at DESC LIMIT 1`, quote.event_id, quote.book,
-    quote.market, quote.player, quote.side, quote.commence_time)[0];
+    quote.market, quote.player, quote.side, quote.commence_time, quote.captured_at)[0];
     if (!close) { unmatched++; continue; }
     const clv = Number.isFinite(close.implied_probability) && Number.isFinite(quote.implied_probability)
       ? close.implied_probability - quote.implied_probability : null;

@@ -77,7 +77,7 @@ import { nflFeatureCoverage } from '../services/nfl-feature-coverage.js';
 import { weeklyFeatureStoreStatus } from '../services/nfl-weekly-feature-store.js';
 import { teamCardCoverage } from '../services/nfl-team-card.js';
 import { nflRebuildProgress } from '../services/nfl-rebuild-progress.js';
-import { expertCouncilStatus } from '../services/nfl-expert-council.js';
+import { expertCouncilStatus, captureForwardExpertWeek } from '../services/nfl-expert-council.js';
 
 const r = Router();
 // Mutations are split between research/training and live operational execution.
@@ -244,7 +244,10 @@ r.post('/engine/learning-epoch', (req, res, next) => {
 r.post('/online-neural/capture', (req, res, next) => {
   try {
     const neural = captureOnlineNeuralWeek(ssn(req), wk(req), { horizons: ['manual'] });
-    res.json({ ...neural, risk_lab: captureRiskLabWeek(ssn(req), wk(req), { horizons: ['manual'] }) });
+    // The expert council freezes alongside the neural and risk-lab heads; it was
+    // the one forward ledger with no manual capture path.
+    res.json({ ...neural, risk_lab: captureRiskLabWeek(ssn(req), wk(req), { horizons: ['manual'] }),
+      expert_council: captureForwardExpertWeek(ssn(req), wk(req), { horizon: 'manual' }) });
   }
   catch (e) { next(e); }
 });

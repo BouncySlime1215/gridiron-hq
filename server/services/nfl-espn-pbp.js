@@ -255,6 +255,15 @@ export async function pollLiveGames({ date = null } = {}) {
   const events = j.events ?? [];
   const season = j.season?.year ?? null;
   const week = j.week?.number ?? null;
+  // ESPN season types: 1 preseason, 2 regular season, 3 postseason. Preseason
+  // plays filed under a regular-season week number poison every team rate that
+  // reads them (332 August plays were stored as "2026 Week 4" before this).
+  const seasonType = j.season?.type ?? null;
+  if (seasonType != null && seasonType !== 2) {
+    return { polled_at: new Date().toISOString(), season, week, season_type: seasonType,
+      games_on_slate: events.length, games_live: 0, results: [],
+      note: 'Not a regular-season slate; live play ingestion only records season type 2.' };
+  }
 
   const live = events.filter(e => {
     const s = e.status?.type?.name;

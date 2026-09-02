@@ -63,15 +63,54 @@ function recordUsage(headers) {
     new Date().toISOString());
 }
 
+/**
+ * The one credit reserve. Every metered call in the repo used to carry its own
+ * threshold (50 here, 60 there, none in the evidence daemon), and the path with
+ * no threshold is the one that drained the month. The guard lives here so no
+ * call site can bypass it: a request whose estimated cost would push the
+ * account below the reserve is refused before `fetch`, recorded, and returns
+ * null exactly like a quota error — callers already handle that.
+ */
+export const CREDIT_RESERVE = Math.max(0, Number(process.env.ODDS_API_RESERVE) || 50);
+let _lastHold = null;
+
+/** Featured markets bill one credit per market per region; event markets bill per market returned. */
+export function estimateCost(params = {}) {
+  const markets = String(params.markets ?? '').split(',').filter(Boolean).length || 1;
+  const regions = String(params.regions ?? 'us').split(',').filter(Boolean).length || 1;
+  return markets * regions;
+}
+
+export function reserveStatus() {
+  const u = usage();
+  const remaining = Number.isFinite(u.requests_remaining) ? u.requests_remaining : null;
+  return {
+    reserve: CREDIT_RESERVE, requests_remaining: remaining,
+    spendable: remaining == null ? null : Math.max(0, remaining - CREDIT_RESERVE),
+    exhausted: remaining != null && remaining <= CREDIT_RESERVE,
+    last_hold: _lastHold,
+    resets: 'The Odds API resets usage on the first of every month (UTC).'
+  };
+}
+
 export function usage() {
   const u = rows('SELECT * FROM odds_usage WHERE id = 1')[0] ?? null;
   return { has_key: hasKey(), ...(u ?? { requests_used: null, requests_remaining: null, last_call_at: null }) };
 }
 
-async function get(path, params, { cacheKey, ttlMs }) {
+async function get(path, params, { cacheKey, ttlMs, bypassReserve = false }) {
   if (!hasKey()) return null;
   const cached = readCache(cacheKey, ttlMs);
   if (cached) return cached;
+
+  // Fail closed against the reserve. Unknown usage (a fresh database) is
+  // allowed through once so the first response can populate the counter.
+  const known = rows('SELECT requests_remaining FROM odds_usage WHERE id = 1')[0]?.requests_remaining;
+  const cost = estimateCost(params);
+  if (!bypassReserve && Number.isFinite(known) && known - cost < CREDIT_RESERVE) {
+    _lastHold = { at: new Date().toISOString(), path, cost, requests_remaining: known, reserve: CREDIT_RESERVE };
+    return null;
+  }
 
   const qs = new URLSearchParams({ apiKey: process.env.ODDS_API_KEY, ...params });
   const res = await fetch(`${BASE}${path}?${qs}`, { signal: AbortSignal.timeout(25000) });

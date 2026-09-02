@@ -190,6 +190,17 @@ async function refreshNflLineSnapshots() {
 }
 
 /**
+ * SportsGameOdds — a second, free multi-book source on its own budget. A
+ * no-op until SPORTSGAMEODDS_API_KEY is set; it never touches the Odds API
+ * reserve, so it can run at a normal cadence even while that reserve is held.
+ */
+async function refreshSportsGameOdds() {
+  const { hasKey, captureSportsGameOddsSnapshot } = await import('./sportsgameodds.js');
+  if (!hasKey()) return { skipped: true, reason: 'no SPORTSGAMEODDS_API_KEY configured' };
+  return captureSportsGameOddsSnapshot();
+}
+
+/**
  * Multi-horizon, pre-event evidence captures. This stays light: it only runs
  * windows that are due and groups requests by NFL week / MLB slate date.
  */
@@ -355,6 +366,33 @@ async function refreshNflModelGrowth() {
 }
 
 /**
+ * The forward decision ledger for the CURRENT week, unattended.
+ *
+ * Until now the only writer of `nfl_pick_decisions`, the pregame snapshots and
+ * the expert council's forward rows was a human clicking a button. A frozen
+ * forward ledger that depends on someone remembering to click is not frozen.
+ * This job derives the live week from the schedule, records every decision
+ * (including every abstention) under the production policy, freezes pregame
+ * context, and captures the council. It stakes nothing and locks no picks.
+ */
+async function refreshNflDecisionLedger() {
+  const { currentNflWeek } = await import('./weekly-learning.js');
+  const { autoPickDecisionBoard, persistPickDecisions } = await import('./nfl-auto-picks.js');
+  const { capturePregameSnapshots } = await import('./nfl-pregame.js');
+  const { captureForwardExpertWeek } = await import('./nfl-expert-council.js');
+  const { season, week } = currentNflWeek();
+  if (!Number.isInteger(week) || week < 1 || week > 18) return { skipped: true, reason: 'no regular-season week is upcoming' };
+  const board = autoPickDecisionBoard(season, week);
+  const decisions = persistPickDecisions(season, week, board);
+  let pregame = null, council = null;
+  try { pregame = capturePregameSnapshots(season, week); } catch (e) { pregame = { error: e.message }; }
+  try { council = captureForwardExpertWeek(season, week, { horizon: 'scheduled' }); } catch (e) { council = { error: e.message }; }
+  return { season, week, decisions: board.decisions?.length ?? null, selected: board.selected?.length ?? 0,
+    abstention_reasons: board.abstention_reasons ?? null, persisted: decisions, pregame, expert_council: council,
+    staking: 'zero units; this ledger records decisions, it does not place or size bets' };
+}
+
+/**
  * Each job carries how stale it is allowed to get. These are tuned to how fast
  * the underlying data actually changes — a schedule shifts hourly during a
  * slate, box scores only settle after games end, and NFL lines move all week.
@@ -367,8 +405,12 @@ export const JOBS = {
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, tier: 'heavy', label: "Tomorrow's MLB picks" },
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live',
     label: 'Player team assignments — the actual fix for stale roster spots' },
-  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 3 * 60, tier: 'metered', label: 'NFL betting lines' },
+  // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a
+  // usable closing reference for settlement and so finals land within the hour.
+  nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, tier: 'metered', label: 'Multi-book line snapshots (CLV)' },
+  nfl_sgo_snapshot: { run: refreshSportsGameOdds, maxAgeMinutes: 30, tier: 'metered',
+    label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
   // Free — ESPN's public scoreboard, no key and no quota — so this runs far more
   // often than the metered jobs. It is the trigger that tells the paid capture
   // above when a credit is actually worth spending.
@@ -417,6 +459,8 @@ export const JOBS = {
   // week is ahead of the feature warehouse.
   nfl_model_growth: { run: refreshNflModelGrowth, maxAgeMinutes: 6 * 60, tier: 'growth',
     label: 'NFL finalized-week ingest, shadow settlement, and next-week fit' },
+  nfl_decision_ledger: { run: refreshNflDecisionLedger, maxAgeMinutes: 3 * 60, tier: 'growth',
+    label: 'NFL current-week decision ledger, pregame snapshots, and expert council freeze (zero units)' },
   nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'NFL chronological prop calibration registry' },
   /*
@@ -466,7 +510,10 @@ export async function runIfStale(name, { force = false } = {}) {
   }
   try {
     const detail = await job.run();
-    record(name, 'ok', detail);
+    // A job that chose not to do its work (reserve hold, no key, no due window)
+    // is not healthy; recording it as 'ok' told every freshness view that a
+    // capture happened when nothing did.
+    record(name, detail?.skipped === true ? 'skipped' : 'ok', detail);
     return { job: name, ran: true, detail };
   } catch (e) {
     // A failed refresh must never take a page down — the stale data is still

@@ -144,7 +144,8 @@ export function settleForwardPicks() {
     const g = row(
       `SELECT spread, total, team_score, opp_score FROM game_lines
        WHERE season = ? AND week = ? AND team = ? AND home = 1`, p.season, p.week, p.home);
-    if (!g || g.team_score == null) continue;
+    // Both scores, or nothing: a half-ingested final would grade as NaN → 'Lost'.
+    if (!g || g.team_score == null || g.opp_score == null) continue;
 
     const actualMargin = g.team_score - g.opp_score;
     const actualTotal = g.team_score + g.opp_score;

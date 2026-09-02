@@ -107,6 +107,10 @@ export function availabilityDeficit(season, week) {
  */
 export function availabilityEdge(season, week, home, away) {
   const d = availabilityDeficit(season, week);
+  // No injury report for the week is missing evidence, not "everyone healthy".
+  // A silent zero here is exactly the guardrail the data-consistency audit
+  // forbids; return null so consumers abstain instead of reading a clean bill.
+  if (!d.size) return null;
   const h = d.get(String(home).toUpperCase()) ?? 0;
   const a = d.get(String(away).toUpperCase()) ?? 0;
   return a - h;

@@ -47,12 +47,23 @@ async function boxscoreLineup(gamePk) {
 
 const normalize = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+/**
+ * MLB odds share the NFL account's 500 monthly credits, and every game costs
+ * three of them per fetch. With `ttlMs: 0` on a five-minute daemon this path
+ * spent the entire month inside a day (498 credits on 2026-09-01) and starved
+ * the NFL capture windows the plan depends on. MLB quotes are therefore opt-in
+ * (`MLB_ODDS_CAPTURE=1`) and, when enabled, reuse a fetch for an hour.
+ */
+const MLB_ODDS_ENABLED = process.env.MLB_ODDS_CAPTURE === '1';
+const MLB_ODDS_TTL_MS = 60 * 60e3;
+
 export async function captureMlbPregame(date) {
   const today = appDate();
   if (date < today) throw new Error('pregame snapshots cannot be created retroactively');
   await syncProbableStarters(5);
   const games = rows('SELECT * FROM mlb_games WHERE date=? ORDER BY game_time', date);
-  const events = hasKey() ? await mlbEvents({ ttlMs: 0 }) : [];
+  const oddsEnabled = hasKey() && MLB_ODDS_ENABLED;
+  const events = oddsEnabled ? await mlbEvents({ ttlMs: MLB_ODDS_TTL_MS }) : [];
   let latestCapturedAt = new Date().toISOString();
   let quoteCount = 0;
   for (const g of games) {
@@ -61,9 +72,9 @@ export async function captureMlbPregame(date) {
     const lineup = await boxscoreLineup(g.game_pk);
     const event = (events ?? []).find(e => normalize(e.home_team) === normalize(g.home_team)
       && normalize(e.away_team) === normalize(g.away_team));
-    let oddsStatus = hasKey() ? 'event_not_matched' : 'no_odds_key';
+    let oddsStatus = !hasKey() ? 'no_odds_key' : !MLB_ODDS_ENABLED ? 'odds_capture_disabled' : 'event_not_matched';
     if (event) {
-      const payload = await mlbEventOdds(event.id, { markets: MLB_MARKETS, ttlMs: 0 });
+      const payload = await mlbEventOdds(event.id, { markets: MLB_MARKETS, ttlMs: MLB_ODDS_TTL_MS });
       oddsStatus = payload?.bookmakers?.length ? 'captured' : 'no_markets_posted';
       latestCapturedAt = new Date().toISOString();
       for (const book of payload?.bookmakers ?? []) for (const market of book.markets ?? []) {
@@ -86,7 +97,9 @@ export async function captureMlbPregame(date) {
       JSON.stringify(starters), JSON.stringify(lineup.lineups), JSON.stringify(lineup.scratches), lineup.status, oddsStatus);
   }
   const result = { date, captured_at: latestCapturedAt, games: games.length, quotes: quoteCount,
-    odds_available: hasKey(), mode: 'pregame_forward_only' };
+    odds_available: oddsEnabled, odds_capture_enabled: MLB_ODDS_ENABLED, mode: 'pregame_forward_only',
+    note: oddsEnabled ? undefined
+      : 'MLB market quotes are disabled (set MLB_ODDS_CAPTURE=1) so the shared Odds API budget is reserved for NFL.' };
   const versions = { nrfi: 'mlb-nrfi-v2-cutoff', pitcher_strikeouts: 'mlb-k-v2-cutoff', batter_total_bases: 'mlb-tb-v2-cutoff' };
   for (const market of Object.keys(versions)) {
     captureEvidenceManifest({ sport: 'MLB', market, modelVersion: versions[market], cutoffAt: latestCapturedAt,

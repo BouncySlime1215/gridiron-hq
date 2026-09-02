@@ -22,9 +22,13 @@ function deterministicSeed(value) {
   return crypto.createHash('sha256').update(value).digest().readUInt32BE(0);
 }
 
+function gameRow(season, week, home) {
+  return rows(`SELECT gameday,gametime,neutral_site FROM game_lines
+    WHERE season=? AND week=? AND team=? AND home=1 LIMIT 1`, season, week, home)[0] ?? null;
+}
+
 function gameCutoff(season, week, home) {
-  const game = rows(`SELECT gameday,gametime FROM game_lines
-    WHERE season=? AND week=? AND team=? AND home=1 LIMIT 1`, season, week, home)[0];
+  const game = gameRow(season, week, home);
   const kickoff = game?.gameday ? nflKickoffDate(game.gameday, game.gametime || '23:59') : null;
   return kickoff?.toISOString() ?? new Date().toISOString();
 }
@@ -41,10 +45,14 @@ export function unifiedGameProjection({ season, week, home, away, trials = 8000,
   const postedSpread = Number.isFinite(spread) ? spread : line.ensemble.market_spread;
   const postedTotal = Number.isFinite(total) ? total : line.ensemble.market_total;
   const engineVersion = nflEngineVersionFor(Number(season), Number(week));
+  // No home field at a neutral site: the simulator's default 1.6-point bonus is
+  // a 23% chance of a free touchdown for the nominal home team.
+  const neutral = Boolean(gameRow(Number(season), Number(week), h)?.neutral_site);
   const simulation = simulateMatchup({
     home: h, away: a, season: Number(season), week: Number(week),
     trials: Math.min(20000, Math.max(500, Number(trials) || 8000)),
     spread: postedSpread, total: postedTotal, sampleDrives,
+    homeFieldPoints: neutral ? 0 : 1.6,
     targetMargin: line.ensemble.projected_margin,
     targetTotal: line.ensemble.projected_total,
     seed: deterministicSeed(`${engineVersion}|${season}|${week}|${h}|${a}`)

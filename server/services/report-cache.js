@@ -65,6 +65,11 @@ export const REPORTS = Object.freeze({
     module: './football-first.js', fn: 'residualModel', args: [Number(process.env.NFL_SEASON) || new Date().getUTCFullYear(), 'margin'],
     label: 'Football-first coefficient fit for the current season (~90 s)'
   },
+  line_move_study: {
+    deps: ['nfl_odds_archive', { table: 'game_lines', stamp: 'gameday' }, 'nfl_verified_events'],
+    module: './line-move-study.js', fn: 'lineMoveStudy', args: [{}],
+    label: 'Beat the close: does anything predict the open-to-close move (Phase 1 study)'
+  },
   // Cheap, deterministic, serializable: proves the worker path itself works.
   policy_contract: {
     deps: [],

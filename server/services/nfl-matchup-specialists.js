@@ -149,7 +149,7 @@ function solve(A, b) {
   return M.map((row, i) => row[n] / row[i]);
 }
 
-function ridge(X, y, lambda) {
+export function ridge(X, y, lambda) {
   const k = X[0].length;
   const mx = Array.from({ length: k }, (_, j) => mean(X.map(row => row[j])));
   const sx = Array.from({ length: k }, (_, j) => Math.sqrt(mean(X.map(row => (row[j] - mx[j]) ** 2))) || 1);

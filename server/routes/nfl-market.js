@@ -13,7 +13,7 @@ import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-da
 import { sportsGameOddsSnapshotStatus, captureSportsGameOddsSnapshot } from '../services/sportsgameodds.js';
 import { bookFeedStatus, captureBookFeeds } from '../services/book-feeds.js';
 import { polymarketMovement, refreshPolymarketLineWatch } from '../services/polymarket-lines.js';
-import { reportCacheStatus, refreshReport } from '../services/report-cache.js';
+import { reportCacheStatus, refreshReport, serveReport } from '../services/report-cache.js';
 import { oddsArchiveStatus, backfillOddsArchive } from '../services/odds-archive.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
@@ -88,6 +88,11 @@ r.post('/reports/:name/refresh', requireModelPermission('model:train'), (req, re
     refreshReport(req.params.name, { force: true }).catch(() => {});
     res.status(202).json({ queued: true, report: req.params.name });
   } catch (e) { next(e); }
+});
+
+/** Beat the close, Phase 1: served from the worker store; never computed on a request. */
+r.get('/line-move-study', (_req, res, next) => {
+  try { res.json(serveReport('line_move_study')); } catch (e) { next(e); }
 });
 
 r.get('/odds-archive', (_req, res, next) => {

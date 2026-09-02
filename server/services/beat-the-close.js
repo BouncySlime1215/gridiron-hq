@@ -50,6 +50,20 @@ export const RULES = Object.freeze({
     basis: 'Phase 1 §13: +0.47 CLV, 62.1%, n 753 outdoor held out, Holm p < 0.01; the opener does not price kickoff-hour wind' }
 });
 
+/**
+ * One row per rule, tracking retirement — never deleted, only ever written
+ * forward. `consecutive_negative_weeks` counts weekly reads in a row whose
+ * bootstrap interval sat entirely below zero; two in a row retires the rule.
+ * `last_read_season`/`last_read_week` make weeklyRead() idempotent — calling
+ * it twice for the same week must not double-count that week's read.
+ */
+db.exec(`CREATE TABLE IF NOT EXISTS nfl_rule_state (
+  signal TEXT PRIMARY KEY,
+  consecutive_negative_weeks INTEGER NOT NULL DEFAULT 0,
+  last_read_season INTEGER, last_read_week INTEGER,
+  retired_at TEXT, retired_reason TEXT
+)`);
+
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_signal_snapshots (
   captured_at TEXT NOT NULL,
   season INTEGER NOT NULL, week INTEGER NOT NULL,
@@ -206,12 +220,14 @@ export function decideBeatTheClose({ season = null, week = null, now = new Date(
   const s = season ?? (Number(process.env.NFL_SEASON) || new Date().getUTCFullYear());
   const w = week ?? currentNflWeek(s).week;
   const names = teamNames();
-  let frozen = 0, already = 0, below = 0, noPrice = 0;
+  const retired = retiredSignals();
+  let frozen = 0, already = 0, below = 0, noPrice = 0, retiredSkipped = 0;
   const decisions = [];
   for (const { game, signals } of slateSignals(s, w, now, names)) {
     for (const sig of signals) {
       const rule = RULES[sig.signal];
       if (!rule) continue;
+      if (retired.has(sig.signal)) { retiredSkipped++; continue; }
       let side;
       if (rule.side) {
         // One-directional, absolute-threshold rule (wind_total): the raw
@@ -257,7 +273,8 @@ export function decideBeatTheClose({ season = null, week = null, now = new Date(
       decisions.push({ game: `${game.away} at ${game.home}`, market: sig.market, side, signal: sig.signal, value: sig.value, centered: sig.centered, line: quote.line, price: quote.price, book: quote.book, slice: feature.slice });
     }
   }
-  return { version: BEAT_THE_CLOSE_VERSION, season: s, week: w, frozen, already_frozen: already, below_threshold: below, no_reachable_price: noPrice, decisions };
+  return { version: BEAT_THE_CLOSE_VERSION, season: s, week: w, frozen, already_frozen: already, below_threshold: below,
+    no_reachable_price: noPrice, retired_skipped: retiredSkipped, decisions };
 }
 
 /* ------------------------------------------------------------ settlement */
@@ -302,20 +319,32 @@ export function runBeatTheClose(options = {}) {
 
 /* ---------------------------------------------------------------- status */
 
-export function beatTheCloseStatus() {
+/**
+ * Every beat-the-close decision, parsed and split into clean vs stale-price
+ * (see book-feeds.js#isFreshQuote — a decision frozen at a price the book
+ * had stopped updating is kept as a row, since frozen rows are never
+ * rewritten, but it is not evidence about the signal). Shared by
+ * beatTheCloseStatus() and weeklyRead() so the exclusion rule can't drift
+ * between the two.
+ */
+function cleanDecisions({ signal = null, throughSeason = null, throughWeek = null } = {}) {
+  const filters = [`sport='NFL'`, `model_version LIKE 'beat-the-close-v%'`];
+  const params = [];
+  if (signal) { filters.push('model_version=?'); params.push(`${BEAT_THE_CLOSE_VERSION}:${signal}`); }
+  if (throughSeason != null) { filters.push('(season < ? OR (season = ? AND week <= ?))'); params.push(throughSeason, throughSeason, throughWeek); }
   const decisions = rows(`SELECT id, season, week, home_team, away_team, market, selection, model_version, line, american_price, quote_at,
       captured_at, settled_at, result, clv_points, feature_snapshot_json FROM shadow_decisions
-    WHERE sport='NFL' AND model_version LIKE 'beat-the-close-v%' ORDER BY captured_at DESC`);
-  // A decision frozen at a price the book had stopped updating (see
-  // book-feeds.js#isFreshQuote) is kept as a row — frozen rows are never
-  // rewritten — but it is not evidence about the signal, so it is excluded
-  // from every read here and counted separately.
+    WHERE ${filters.join(' AND ')} ORDER BY captured_at DESC`, ...params);
   for (const d of decisions) {
     try { d.feature = JSON.parse(d.feature_snapshot_json || '{}'); } catch { d.feature = {}; }
     d.stale_price = d.feature.stale_price_at_decision === true;
   }
   const clean = decisions.filter(d => !d.stale_price);
-  const excludedStale = decisions.length - clean.length;
+  return { all: decisions, clean, excludedStale: decisions.length - clean.length };
+}
+
+export function beatTheCloseStatus() {
+  const { all: decisions, clean, excludedStale } = cleanDecisions();
   const bySignal = {};
   for (const d of clean) {
     const signal = d.model_version.split(':').at(-1);
@@ -348,4 +377,80 @@ export function beatTheCloseStatus() {
     snapshots, latest_signals: latestSignals,
     gate: 'Phase 3: ≥ 200 settled decisions with a week-clustered CLV interval above zero; a signal whose live CLV interval sits below zero two weeks running is retired. Stake stays 0.',
     authority: 'shadow only; no staking authority' };
+}
+
+/* ------------------------------------------------------------ weekly read */
+
+const BOOTSTRAP_ITERS = 1000;
+function seededRandom(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+
+/**
+ * Every rule's read as of one settled week: mean CLV over all clean settled
+ * history through that week (a single week is too small to bootstrap on its
+ * own), a week-clustered bootstrap interval (resampling WEEKS, not
+ * decisions, since games in the same week share news and weather), direction
+ * and positive share, and the historical coefficient the rule was built
+ * from, for comparison. Also advances retirement state in `nfl_rule_state`:
+ * two consecutive weekly reads whose interval sits entirely below zero
+ * retire the rule. Calling this twice for the same (season, week) is a
+ * no-op on the retirement counter — the state table's `last_read_*` guards
+ * it — so a re-triggered read never double-counts a bad week.
+ */
+export function weeklyRead(season, week) {
+  const reads = {};
+  const rand = seededRandom(20260902);
+  for (const signal of Object.keys(RULES)) {
+    const { clean } = cleanDecisions({ signal, throughSeason: season, throughWeek: week });
+    const settled = clean.filter(d => d.settled_at != null && Number.isFinite(d.clv_points));
+    const thisWeek = settled.filter(d => d.season === season && d.week === week);
+    const byWeek = new Map();
+    for (const d of settled) { const key = `${d.season}|${d.week}`; const list = byWeek.get(key) ?? []; list.push(d.clv_points); byWeek.set(key, list); }
+    const clusters = [...byWeek.values()];
+    let interval = null, meanClv = null;
+    if (clusters.length >= 2) {
+      const means = [];
+      for (let b = 0; b < BOOTSTRAP_ITERS; b++) {
+        const sample = [];
+        for (let i = 0; i < clusters.length; i++) sample.push(...clusters[Math.floor(rand() * clusters.length)]);
+        means.push(mean(sample));
+      }
+      means.sort((a, b) => a - b);
+      interval = [r3(means[Math.floor(0.025 * means.length)]), r3(means[Math.floor(0.975 * means.length)])];
+      meanClv = r3(mean(settled.map(d => d.clv_points)));
+    }
+    const belowZero = interval != null && interval[1] < 0;
+
+    const state = row('SELECT * FROM nfl_rule_state WHERE signal=?', signal)
+      ?? { signal, consecutive_negative_weeks: 0, last_read_season: null, last_read_week: null, retired_at: null, retired_reason: null };
+    const alreadyReadThisWeek = state.last_read_season === season && state.last_read_week === week;
+    if (!alreadyReadThisWeek && interval != null) {
+      const nextStreak = belowZero ? state.consecutive_negative_weeks + 1 : 0;
+      const retiring = !state.retired_at && nextStreak >= 2;
+      run(`INSERT INTO nfl_rule_state (signal,consecutive_negative_weeks,last_read_season,last_read_week,retired_at,retired_reason)
+           VALUES (?,?,?,?,?,?)
+           ON CONFLICT(signal) DO UPDATE SET consecutive_negative_weeks=excluded.consecutive_negative_weeks,
+             last_read_season=excluded.last_read_season, last_read_week=excluded.last_read_week,
+             retired_at=COALESCE(nfl_rule_state.retired_at, excluded.retired_at),
+             retired_reason=COALESCE(nfl_rule_state.retired_reason, excluded.retired_reason)`,
+      signal, nextStreak, season, week,
+      retiring ? new Date().toISOString() : null,
+      retiring ? `two consecutive weekly reads (through ${season} W${week}) with the CLV interval entirely below zero` : null);
+    }
+    const freshState = row('SELECT * FROM nfl_rule_state WHERE signal=?', signal);
+    reads[signal] = {
+      week: { settled: thisWeek.length, mean_clv: thisWeek.length ? r3(mean(thisWeek.map(d => d.clv_points))) : null },
+      through_week: { settled: settled.length, weeks: clusters.length, mean_clv: meanClv, clv_interval: interval,
+        positive_share: settled.length ? r3(settled.filter(d => d.clv_points > 0).length / settled.length) : null,
+        readable: settled.length >= 30 },
+      historical_basis: RULES[signal].basis,
+      retired_at: freshState?.retired_at ?? null, retired_reason: freshState?.retired_reason ?? null,
+      consecutive_negative_weeks: freshState?.consecutive_negative_weeks ?? 0
+    };
+  }
+  return { version: BEAT_THE_CLOSE_VERSION, season, week, reads };
+}
+
+/** Retired signals ({signal: retired_at}), read fresh on every call — never cached. */
+function retiredSignals() {
+  return new Map(rows('SELECT signal, retired_at FROM nfl_rule_state WHERE retired_at IS NOT NULL').map(r => [r.signal, r.retired_at]));
 }

@@ -134,12 +134,31 @@ every metered call goes through `odds-api.js#get()`; missing evidence is null.
   17 km/h, NYG–DAL); all below the 25 km/h threshold, so the rule correctly
   froze zero decisions this run rather than forcing one — exactly the
   behaviour a real, non-overfit rule should show most weeks.
-- [ ] **0.6 Weekly read + retirement.** `beat-the-close.js#weeklyRead(season, week)`:
-  per signal — settled, mean CLV, week-clustered bootstrap interval, direction,
-  positive share, the historical coefficient beside it; writes into the
-  look-back `reads`. Retirement: two consecutive weeks with the interval below
-  zero set `RULES[x].retired_at` in a new `nfl_rule_state` table (recorded,
-  never deleted). Route `GET /api/nfl-market/beat-the-close/weekly/:season/:week`.
+- [x] **0.6 Weekly read + retirement.** `beat-the-close.js#weeklyRead(season, week)`:
+  per rule — this week's settled count and mean CLV, plus a cumulative
+  through-that-week read (settled count, week count, mean CLV, a
+  week-clustered bootstrap interval resampling WEEKS not decisions since
+  games in the same week share news and weather, positive share, `readable`
+  at ≥30 settled) and the historical coefficient beside it for comparison.
+  A week-clustered interval genuinely needs ≥2 weeks of settled data to
+  exist at all, so a rule's first measurable read can never by itself
+  retire it — confirmed by test, not just asserted. Retirement: two
+  consecutive weekly reads whose interval sits entirely below zero set
+  `retired_at`/`retired_reason` in a new `nfl_rule_state` table (signal,
+  streak, last-read season/week, retired_at — never deleted, never
+  overwritten once set); `decideBeatTheClose` now checks it and skips a
+  retired signal before it can freeze another decision
+  (`retired_skipped` in the result). Calling `weeklyRead` twice for the
+  same week is a no-op on the streak (`last_read_season/week` guards it).
+  Refactored `beatTheCloseStatus`'s stale-price exclusion into a shared
+  `cleanDecisions()` helper so `weeklyRead` can't drift from it. Route
+  `GET /api/nfl-market/beat-the-close/weekly/:season/:week`.
+  `test/beat-the-close-weekly-read.test.js` (7 cases) covers the
+  no-interval-from-one-week case, the two-consecutive-reads retirement
+  path, idempotent re-reads, that a retirement is never un-set or moved by
+  a later read, that one rule's retirement never touches another's state,
+  and that a retired signal is actually skipped by the decision engine —
+  not yet live-verified since no real week has settled.
 - [ ] **0.7 Keep the app up. Nick.** Preview launch config only; check
   `ps aux | grep server/index.js` shows one `--watch` pair. Odds API has 2
   credits until Oct 1; nothing depends on it.

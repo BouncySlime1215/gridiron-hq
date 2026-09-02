@@ -16,7 +16,7 @@ import { propFeedStatus, capturePropFeeds } from '../services/prop-feeds.js';
 import { polymarketMovement, refreshPolymarketLineWatch } from '../services/polymarket-lines.js';
 import { reportCacheStatus, refreshReport, serveReport } from '../services/report-cache.js';
 import { oddsArchiveStatus, backfillOddsArchive } from '../services/odds-archive.js';
-import { beatTheCloseStatus, runBeatTheClose } from '../services/beat-the-close.js';
+import { beatTheCloseStatus, runBeatTheClose, weeklyRead } from '../services/beat-the-close.js';
 import { verifyForwardEvidence } from '../services/nfl-evidence-provenance.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
@@ -115,6 +115,9 @@ r.get('/beat-the-close', (_req, res, next) => {
 });
 r.post('/beat-the-close/run', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(runBeatTheClose()); } catch (e) { next(e); }
+});
+r.get('/beat-the-close/weekly/:season/:week', (req, res, next) => {
+  try { res.json(weeklyRead(Number(req.params.season), Number(req.params.week))); } catch (e) { next(e); }
 });
 
 /** Beat the close, Phase 1: served from the worker store; never computed on a request. */

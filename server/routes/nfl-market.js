@@ -16,6 +16,7 @@ import { polymarketMovement, refreshPolymarketLineWatch } from '../services/poly
 import { reportCacheStatus, refreshReport, serveReport } from '../services/report-cache.js';
 import { oddsArchiveStatus, backfillOddsArchive } from '../services/odds-archive.js';
 import { beatTheCloseStatus, runBeatTheClose } from '../services/beat-the-close.js';
+import { verifyForwardEvidence } from '../services/nfl-evidence-provenance.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
 import { currentNflWeek } from '../services/weekly-learning.js';
@@ -78,6 +79,14 @@ r.get('/evidence/book-feeds', (_req, res, next) => {
 
 r.post('/evidence/book-feeds/capture', requireModelPermission('model:train'), async (_req, res, next) => {
   try { res.json(await captureBookFeeds()); } catch (e) { next(e); }
+});
+
+/** Every timestamp inside a frozen forward payload must precede its kickoff cutoff. */
+r.get('/evidence/provenance', (req, res, next) => {
+  try {
+    res.json(verifyForwardEvidence({ season: req.query.season ? Number(req.query.season) : null,
+      week: req.query.week ? Number(req.query.week) : null }));
+  } catch (e) { next(e); }
 });
 
 r.get('/reports', (_req, res, next) => {

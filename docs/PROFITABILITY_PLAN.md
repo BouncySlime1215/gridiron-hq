@@ -22,6 +22,11 @@ captured on 2026-08-27.
 
 ## 0. Current work queue — audit findings come first
 
+> **Next session:** follow `docs/NEXT_SESSION_PLAN.md` — coordinator shrinkage
+> and de-duplication first, then the loud roles, then new market-orthogonal
+> evidence (sharp-vs-soft archive, QB-adjusted Elo, QBR/participation/contracts,
+> kickoff weather), then the full resumable 2022–2025 diagnostic.
+
 This is the canonical "what needs to get done" list. Its ordering is binding:
 the cutoff-safe audit is a diagnostic instrument, so every reproducible
 failure it reveals is triaged before speculative model expansion. A task is not

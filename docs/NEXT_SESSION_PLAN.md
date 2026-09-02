@@ -88,6 +88,40 @@ combined forecast must beat the raw mean. Add to
 
 ---
 
+## 1b. Close the postgame feedback loop (learn from the assessment, not just record it)
+
+**What exists.** Settlement grades every frozen row (residual, direction,
+squared error, Brier); `nfl-postgame-truth.js` records usage surprises,
+structural trends, in-game injuries and variance markers (turnovers,
+non-offensive scores, explosive plays, reversed challenges); the weekly
+look-back chains the grades. **What is missing:** none of that changes the
+next prediction. A pick lost to a pick-six and a pick lost to a wrong read
+teach the same lesson today.
+
+**Build.**
+1. Per game, decompose the actual residual into a *variance share* and a
+   *model share* from the play-by-play we already hold: points from
+   turnover returns and short fields after turnovers, special-teams and
+   defensive touchdowns, missed or blocked kicks, and scoring after the win
+   probability passed 97% (garbage time). Store both on the settlement row
+   (`variance_points`, `adjusted_residual`) with the itemised markers.
+2. Use `adjusted_residual` as the training target for Stage A shrinkage and
+   for the matchup and neural refits; keep the raw residual for the ledger
+   and the bet grade, because the bet still lost.
+3. Grade reasoning separately from result: a role that was directionally
+   right on the adjusted residual but wrong on the raw one is recorded as
+   `right_read_variance_loss`; the reverse as `wrong_read_variance_win`.
+   Both counts go into the look-back and the specialist audit.
+4. Weekly "what the league taught us" record: the three largest weight
+   moves, the three largest adjusted misses with their markers, and any
+   role that flipped from gain to no-gain, written into the look-back's
+   `reads`.
+
+**Gate.** On the rerun, the coordinator's error ratio on the ADJUSTED
+residual must be reported next to the raw one; if shrinkage learns more
+from the adjusted target (lower raw-residual RMSE on held-out weeks), keep
+it; if not, the decomposition stays as diagnostics only.
+
 ## 2. Make the loud roles honest at the source
 
 Shrinkage rescues the coordinator; it does not fix a role that is wrong by
@@ -239,6 +273,7 @@ evidence so far says the problem is calibration, not capacity.
 
 ```
 [ ] 1  Coordinator: Stage A shrinkage + Stage B families, tests, audit fields
+[ ] 1b Postgame decomposition (variance vs model share), adjusted target, reasoning-vs-result grades
 [ ] 2  Rulebook / player builder / game replay / specialist team changes, re-audited
 [ ] 3a Sharp-vs-soft role from the odds archive (hold out 2024–25)
 [ ] 3b QB-adjusted Elo role (538 data + reproduced update rule)

@@ -184,3 +184,145 @@ Phase 2 (Weeks 1–6)
 Phase 3 (season)
 [ ] 200 settled decisions; bootstrap CLV interval; reachable-price rule; then staking discussion
 ```
+
+---
+
+## Execution map for Phase 1 — start here when told to go
+
+Every step names its file, its inputs, its check, and its commit. Steps 1–4
+are server work and must be done in one batch between server restarts; step 5
+is client-only; step 6 is docs.
+
+### Step 0 — preflight (5 minutes)
+
+```
+git status --short            # must be clean on phase3-live-draft-reliability
+npm test | tail -3            # 384 pass
+curl -s localhost:5178/api/nfl-market/odds-archive | head -c 400
+```
+Expect `by_season` with 2022–2025 and 10–11 books each. If the archive is
+thin, run the backfill first (`POST /api/nfl-market/odds-archive/backfill`)
+and wait for `/odds-archive/progress` to report `running: false`.
+
+### Step 1 — dataset builder (`server/services/line-move-study.js`, ~1.5 h)
+
+`buildLineMoveDataset({ seasons = [2022, 2023, 2024, 2025] })` returns one
+row per game and market:
+
+1. Games: `game_lines WHERE home=1 AND season IN (...) AND team_score IS NOT NULL`,
+   joined to `nfl_odds_archive` on `(season, week, home)`.
+2. Pinnacle open/close: rows with `book='pinnacle'`, `market='spreads'`,
+   `side=home`, `phase in ('open','close')` → `open_pin`, `close_pin`,
+   `opener_at`, `close_at` (the book timestamps). Totals: `side='Over'`.
+3. Soft books: every other book, same side; `open_soft`/`close_soft` = median,
+   `dispersion_open/close` = max − min, `books_open/close` = count.
+4. Drop rows with fewer than 3 books at either end or a missing Pinnacle
+   line; record the drop counts in the report.
+5. `move = close_pin − open_pin`; `move_sign` (0 excluded from the sign
+   model); `key_cross` for spreads (crossed 3 or 7 in either direction).
+6. Features (each with a `known_at` stamp):
+   - T0: `sharp_soft_gap = open_pin − open_soft`; `dispersion_open`;
+     `home_fav`, `fav_size = |open_pin|`, `primetime` (gametime ≥ 20:00 ET or
+     Thursday/Monday), `div_game`, `rest_diff`, `key_proximity`
+     (distance of `open_pin` to nearest of 3/7);
+     `prior_cover_home/away` (last week's cover margin from game_lines
+     spread and scores, strictly earlier week), `ats_streak_home/away`
+     (consecutive covers, prior weeks), `prior_mov_home/away`;
+     model disagreement: `nfl_market_vs_open` (`predictGame(home, away, season).spread` − open), and the four
+     matchup roles via `matchupOpinion(role, season, week, home, away).forecast`
+     (already cutoff-safe, cached per week);
+     `team_move_tendency_prev_season` (mean signed move toward the home
+     side for each team last season, from the archive itself).
+   - T1/T2: `injury_burden_delta_home/away` = `teamEventVector(team, {before: T})`
+     minus the same at `opener_at`; `qb_change_home/away` (event archive
+     `weekly_roster_status_change` or injury report for the snap-leading QB
+     between `opener_at` and T); `trades_since_open`.
+     T1 = Wednesday 16:00Z, T2 = Friday 16:00Z of game week, computed from
+     `gameday`. Never later than `close_at`.
+   - Optional, only if time remains: `ensemble_vs_open` from `ensembleLine`
+     (seconds per game; run once, cache in the report).
+7. Persist nothing except through the report store; the dataset is
+   recomputed by the worker. Return `{ rows, dropped, seasons, built_at }`.
+
+Check: `node -e` printing row counts per season and market (expect ≈ 260–285
+per season per market) and a spot check of one game against
+`/api/nfl-market/odds-archive` raw rows.
+
+### Step 2 — models (`line-move-study.js`, ~1.5 h)
+
+Reuse `ridge()` from `nfl-matchup-specialists.js` (export it) for magnitude;
+add a small L2-regularised logistic (Newton, 25 iterations) for `move_sign`.
+
+- Standardise features on the training fold only.
+- **Walk-forward:** for each (season, week) from 2022 W5 on, fit on all
+  earlier rows, predict that week. **Holdout:** fit on 2022–2023, predict
+  2024–2025 once.
+- Per feature set (T0 only; T0+T1; T0+T2) and per market: direction
+  accuracy, Brier of the sign model, magnitude RMSE versus predicting zero
+  move, and **CLV in points** = `move` in the predicted direction, averaged,
+  with a week-clustered bootstrap (1,000 resamples of weeks) 95% interval
+  and the share of games with positive CLV.
+- Per single feature: the same CLV number using that feature alone
+  (sign of its standardised coefficient on the training fold), so the
+  report says which signal carries it. Holm correction across the feature
+  list for the "beats zero" p-values.
+- Slices on the holdout: spread/total, `fav_size` buckets (≤3, 3.5–7, >7),
+  primetime, `key_cross`; any slice under 30 games is `readable: false`.
+- Secondary: ATS units at the opener price versus at the close for the
+  predicted side, stated as "what CLV was worth here", not as evidence.
+
+Output shape: `{ dataset: {...counts}, headline: { by_decision_time: [...], by_market: [...] },
+features: [{ name, known_at, coefficient, interval, clv_alone, p_holm }],
+slices: {...}, gate: { passed: [...signals], rule } , rule }`.
+
+Gate written into the report: a signal passes only with holdout mean CLV
+≥ +0.3 points, interval excluding zero, ≥ 300 games, one decision time.
+
+### Step 3 — worker store, route (~20 min)
+
+- `report-cache.js` `REPORTS.line_move_study`: deps `nfl_odds_archive`,
+  `game_lines`, `nfl_verified_events`; module `./line-move-study.js`;
+  fn `lineMoveStudy`; args `[{}]`; label "Beat the close: open-to-close study".
+- `server/routes/nfl-market.js`: `GET /line-move-study` → `serveReport('line_move_study')`;
+  it is refreshed by the existing `nfl_reports` job and by
+  `POST /reports/line_move_study/refresh`.
+
+### Step 4 — test (`test/line-move-study.test.js`, ~45 min)
+
+Seed a temp database: 4 seasons × 18 weeks × 8 synthetic games with
+Pinnacle and three soft books; make `sharp_soft_gap` move the line with a
+coefficient of 0.5 and every other feature pure noise; add verified events
+that change burden after the opener for a subset. Assert:
+- the builder drops games with < 3 books and reports the count;
+- the holdout report ranks `sharp_soft_gap` first with a positive CLV
+  interval and no noise feature passes the gate after Holm;
+- a slice with under 30 games is `readable: false`;
+- no feature uses a timestamp after `close_at` (assert on `known_at`).
+
+Then `npm test`, `npm run lint`, commit:
+"Beat-the-close study: open-to-close dataset, walk-forward and holdout fits, CLV gate".
+
+### Step 5 — Diagnostics tab (client only, ~30 min)
+
+`client/src/pages/betting/Diagnostics.tsx`: tab "Beat the close" reading
+`/nfl-market/line-move-study`; pending state like the others; headline
+cards (holdout games, mean CLV with interval, direction accuracy, signals
+passing the gate), a feature table (coefficient, interval, CLV alone,
+Holm p, decision time), and the slice tables greyed under the read floor.
+`npm run typecheck`, commit.
+
+### Step 6 — results into the docs (~20 min)
+
+`DIAGNOSTIC_2026_09_02.md` §9: the headline table by decision time and
+market, the passing signals with thresholds, and the plain conclusion —
+either "these signals predict the move; Phase 2 rules are X" or "nothing
+predicts the move; Phase 2 is price and speed only". Tick the Phase 1
+checklist. Commit, push.
+
+### Time and sequencing
+
+About five hours of work; the worker's first run takes a few minutes. Steps
+1–4 change server files: do not open an audit week during them. Start the
+report worker (`POST /api/nfl-market/reports/line_move_study/refresh`) right
+after the step-4 commit so the numbers are in the store by the time the tab
+is built.

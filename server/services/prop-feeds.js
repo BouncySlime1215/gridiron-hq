@@ -166,15 +166,22 @@ export function parseUnderdog(payload, capturedAt, resolve = teamResolver()) {
     const [awayTitle, homeTitle] = (game.full_team_names_title ?? '').split(' @ ');
     const home = resolve(homeTitle), away = resolve(awayTitle);
     if (!home || !away) continue;
-    const player = players.get(appearance.player_id);
+    const p = players.get(appearance.player_id);
+    // Underdog's player objects carry first_name/last_name, never a combined
+    // full_name field — using one that does not exist silently produced the
+    // market's own title string ("Mark Andrews Receiving Yards O/U") as the
+    // "player name" for effectively every row, which is why nfl_prop_clv's
+    // identity match rate looked catastrophic before this fix.
+    const player = p ? `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() : null;
     const lineValue = Number(line.stat_value);
     for (const opt of line.options ?? []) {
       const price = Number(opt.american_price);
       if (!Number.isFinite(price) || (opt.choice !== 'higher' && opt.choice !== 'lower')) continue;
+      if (!player) continue;
       out.push({
         event_id: eventKey(game.scheduled_at, away.abbr, home.abbr),
         commence_time: game.scheduled_at, home_team: home.name, away_team: away.name,
-        book: 'underdog', market: ourMarket, player: player?.full_name ?? line.over_under.title ?? 'unknown',
+        book: 'underdog', market: ourMarket, player,
         side: opt.choice === 'higher' ? 'Over' : 'Under', line: lineValue, american_price: price,
         provider: 'underdog', book_updated_at: null, is_opener: 0, captured_at: capturedAt
       });

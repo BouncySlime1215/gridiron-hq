@@ -188,19 +188,42 @@ Not built now.
   the boot job list. `FREE_PROP_FEEDS=0` disables. Confirmed live: the
   running dev server picked up the change via `node --watch` and ran the
   boot capture on its own before any manual test.
-- [ ] **1.4 Wire the CLV loop.** `nfl-prop-clv.js` currently imports
-  `playerProps` from `odds-api.js`; make its capture read
-  `nfl_prop_quote_snapshots` regardless of provider, run
-  `reconcilePropQuoteMatches` (already in code) per capture, and freeze one
-  deduplicated shadow decision per event/player/market when
-  `|model − devigged market| ≥ threshold` under policy
-  `nfl-prop-shadow-2026.1` (frozen; a threshold change needs a version bump).
-  Closing quote = the last pre-kickoff quote at the same book; CLV in cents
-  and in probability against Pinnacle's prop where it exists, else the
-  consensus. Settlement from `nfl-pbp.js#playerWeeks`.
-- [ ] **1.5 Coverage gate (A1).** `propMatchCoverage` ≥ 95% of supported-market
-  quotes matched or carrying an explicit abstention reason before any read.
-  Weekly reconciliation report on the Profitability page.
+- [x] **1.4 Wire the CLV loop.** `nfl-prop-clv.js#captureFreePropMarket` reads
+  `nfl_prop_quote_snapshots` (any provider), reuses the existing matching/
+  probability pipeline (`projectionMatch`, `probabilityForQuote`,
+  `attachFairProbabilities`, `weekForEvent`) unchanged, and writes into
+  `nfl_prop_clv` — every downstream reader (`propEdgeEvidence`,
+  `finalizeClosingSnapshots`, `settlePropQuotes`, `propMatchCoverage`,
+  `betting-hub.js`'s already-wired `propEdgeEvidence()` display) works
+  without modification. Batched by `(event_id, captured_at)` before devigging
+  — `attachFairProbabilities` pairs a side against its opposite without
+  keying on capture time, so a naive all-history scan would pair an Over
+  from one hour against an Under from a different hour; a test
+  (`test/prop-clv-free-capture.test.js`, 4 cases) catches exactly that.
+  Scheduled as `nfl_prop_clv_free` (live tier, hourly, boot job), after
+  `nfl_prop_feeds` so quotes exist before they're matched.
+  **A real bug found and fixed during first live verification:** Underdog's
+  player objects carry `first_name`/`last_name`, never a combined
+  `full_name` — the parser's `player?.full_name` was always `undefined`, so
+  effectively every Underdog row silently stored the market's own title
+  string ("Mark Andrews Receiving Yards O/U") as the player name instead of
+  the player. Fixed in `prop-feeds.js`; a row with no resolvable player is
+  now dropped rather than stored under a fake name (test added). This was
+  the majority cause of the coverage number below before the fix.
+- [x] **1.5 Coverage gate (A1) — passes on real Week 1 data.**
+  `propMatchCoverage()` **97.67%** (1,676 of 1,716 quotes resolved or
+  carrying an explicit abstention reason), clearing the 95% target, after
+  the fix above (was 32.7% before it). Breakdown is honest, not padded:
+  1,142 quotes `role_ineligible` (identity resolved, pregame role/volume
+  gate correctly abstained — expected, not a defect), 406 `modeled` (real
+  probability vs. devigged market price), 80 `projection_missing`, 48
+  `unsupported_participant` (team-defense TD markets), 40 still
+  `identity_unresolved` (mostly Action Network's handful of live rows).
+  **64 real shadow prop decisions exist** with genuine model-vs-market edge
+  computed (`propEdgeEvidence()`); 0 settled (all games days away — correct,
+  not a bug). Weekly reconciliation report: not yet built as a UI page, but
+  the numbers above are already live at `GET /api/nfl-betting/props/clv/status`
+  and the existing Profitability page's `prop_edge` panel.
 - [ ] **1.6 Tests.** Fixture JSON per provider (captured today in the scratchpad:
   `an_p5.json`, `bp_of.json`, `ud.json`, `kambi_ev.json`, `pin_sp.json`);
   parser tests; a dedup test; a "pick'em never becomes a book" test; an
@@ -334,6 +357,24 @@ move against the same opened sample; calibration worsens while win rate rises.
 - Two cheap audit items kept: `CREATE INDEX` on `players(team_id)` and
   `ranking_entries(player_id)` (do in a no-audit window); check
   `model.js` holdout-open does the existence check inside the transaction.
+- **Full re-check against the other three audit files** (`PERFORMANCE_AUDIT.md`,
+  `DATABASE_AUDIT.md`, `ARCHITECTURAL_BLUEPRINT.md`, all in the 2026-09-02
+  scratchpad), read in full 2026-09-02: nothing changes the plan above.
+  Every performance finding is scoped to `trade-engine.js`, `projections.js`
+  and `betting-hub.js` UI latency (fantasy trade search, page load speed) —
+  none affects whether a bet has positive CLV. Every database finding is
+  scoped to fantasy tables (`players`, `drafts`, `ranking_entries`,
+  `news_items`, `users`) — none touches `nfl_line_snapshots`,
+  `nfl_prop_quote_snapshots`, `nfl_odds_archive`, `shadow_decisions`, or
+  `game_lines`; those tables aren't FK-linked to the fantasy schema the
+  audit is describing, so the "orphaned records" and "missing index" risks
+  it raises don't reach the betting data. The blueprint's Part 1.5 describes
+  a generic `AUTHORITY`/inverse-variance model-combining scheme that isn't
+  what's running — the actual coordinator is `nfl-expert-coordinator.js` v4
+  (walk-forward shrinkage + family de-duplication, see run 17 above); the
+  audit was evidently reading an older or fantasy-side governance file, not
+  a live discrepancy worth chasing. The two index recommendations already
+  kept above cover the one item worth doing.
 - `market-movement.js#nflMarketMovement`'s "first vs last" movement mixes
   whichever book happened to report first and last, not one book's own
   series — a real bug, but the function is explicitly labelled descriptive

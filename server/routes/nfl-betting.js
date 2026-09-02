@@ -64,7 +64,7 @@ import { captureOnlineNeuralWeek, nflOnlineNeuralStatus, settleOnlineNeuralExamp
   trainOnlineNeuralThroughSettled } from '../services/nfl-online-neural.js';
 import { captureRiskLabWeek, nflRiskLabStatus, settleRiskLabPredictions,
   trainRiskLabThroughSettled } from '../services/nfl-risk-lab.js';
-import { reconcilePropQuoteMatches, settlePropQuotes } from '../services/nfl-prop-clv.js';
+import { reconcilePropQuoteMatches, settlePropQuotes, captureFreePropMarket, propClvStatus } from '../services/nfl-prop-clv.js';
 import { newsSignalCoverage, syncAiNewsSignals, syncStructuredNewsSignals, teamNewsSignals } from '../services/nfl-news-signal.js';
 import { passingSpecialistAudit } from '../services/nfl-passing-specialists.js';
 import { recordPickExplanation, recentPickExplanations } from '../services/nfl-pick-explanation-audit.js';
@@ -174,6 +174,17 @@ r.get('/props/quotes/status', (req, res, next) => {
 
 r.post('/props/quotes/reconcile', (_req, res, next) => {
   try { res.json(reconcilePropQuoteMatches({ force: true })); }
+  catch (e) { next(e); }
+});
+
+/** Match the free-provider quotes (prop-feeds.js) into nfl_prop_clv. No key, no credits. */
+r.post('/props/quotes/capture-free', (_req, res, next) => {
+  try { res.json(captureFreePropMarket()); }
+  catch (e) { next(e); }
+});
+
+r.get('/props/clv/status', (_req, res, next) => {
+  try { res.json(propClvStatus()); }
   catch (e) { next(e); }
 });
 

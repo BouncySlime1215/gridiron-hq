@@ -319,6 +319,88 @@ export async function capturePropMarket({ season, week, maxEvents = 12, schedule
       credit_reserve: PROP_CREDIT_RESERVE } : null };
 }
 
+function seasonForCommence(commenceTime) {
+  const d = new Date(commenceTime);
+  // January/February games belong to the season that started the previous
+  // calendar year (the same convention currentNflWeek's caller uses).
+  return d.getUTCMonth() <= 1 ? d.getUTCFullYear() - 1 : d.getUTCFullYear();
+}
+
+/**
+ * The same matching and probability pipeline as `capturePropMarket()`, fed
+ * from `nfl_prop_quote_snapshots` (`prop-feeds.js`'s free providers) instead
+ * of the metered Odds API. `nfl_prop_quote_snapshots` holds one row per
+ * (capture, event, book, market, player, side, line); this copies each into
+ * `nfl_prop_clv`'s row shape so every downstream reader — `propEdgeEvidence`,
+ * `finalizeClosingSnapshots`, `settlePropQuotes`, `propMatchCoverage` — works
+ * unchanged regardless of which source produced the quote. `INSERT OR IGNORE`
+ * on the shared primary key makes re-running this idempotent as new captures
+ * land; only quotes captured within `sinceHours` are scanned, so a season of
+ * accumulated snapshots does not get re-walked on every scheduled tick.
+ */
+export function captureFreePropMarket({ sinceHours = 24 * 14 } = {}) {
+  const since = new Date(Date.now() - sinceHours * HOUR).toISOString();
+  const quotes = rows(`SELECT * FROM nfl_prop_quote_snapshots WHERE provider IS NOT NULL AND captured_at >= ?
+    ORDER BY event_id, captured_at`, since);
+  if (!quotes.length) return { skipped: true, reason: 'no free-provider quotes captured yet' };
+
+  const insert = db.prepare(`INSERT OR IGNORE INTO nfl_prop_clv
+    (captured_at,event_id,book,market,player,side,line,american_price,
+     model_probability,implied_probability,edge,season,week,commence_time,home_team,away_team,
+     model_match_status,model_match_reason,matched_player_id,capture_horizon_hours)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const knownPlayers = knownPlayerIndex();
+  const projectionsByWeek = new Map();
+  const weekByEvent = new Map();
+
+  // attachFairProbabilities devigs a side against its opposite within the
+  // SAME batch by (event, book, market, player, line, side) — it does not
+  // key on captured_at, so every batch handed to it must already share one
+  // capture instant, or an "over" from one hour could be paired against an
+  // "under" from a different hour and report a fabricated no-vig price.
+  const batches = new Map();
+  for (const q of quotes) {
+    const key = `${q.event_id}|${q.captured_at}`;
+    if (!batches.has(key)) batches.set(key, []);
+    batches.get(key).push(q);
+  }
+
+  let stored = 0, seen = 0;
+  for (const batch of batches.values()) {
+    const sample = batch[0];
+    const eventSeason = seasonForCommence(sample.commence_time);
+    if (!weekByEvent.has(sample.event_id)) {
+      weekByEvent.set(sample.event_id, weekForEvent(
+        { home_team: sample.home_team, away_team: sample.away_team, commence_time: sample.commence_time },
+        eventSeason, null));
+    }
+    const eventWeek = weekByEvent.get(sample.event_id);
+    const projKey = `${eventSeason}|${eventWeek}`;
+    if (!projectionsByWeek.has(projKey)) {
+      const projections = Number.isInteger(eventWeek) ? projectWeek(eventSeason, eventWeek) : [];
+      projectionsByWeek.set(projKey, new Map(projections.map(p => [normalizeName(p.name), p])));
+    }
+    const projectionIndex = projectionsByWeek.get(projKey);
+    for (const q of attachFairProbabilities(batch)) {
+      seen++;
+      if (q.commence_time && new Date(q.commence_time).getTime() <= new Date(q.captured_at).getTime()) continue;
+      const match = projectionMatch(q, projectionIndex, knownPlayers);
+      const modelProbability = match.projection ? probabilityForQuote(q, projectionIndex) : null;
+      const edge = Number.isFinite(modelProbability) && Number.isFinite(q.implied_probability)
+        ? modelProbability - q.implied_probability : null;
+      stored += insert.run(q.captured_at, q.event_id, q.book, q.market, q.player, q.side,
+        q.line, q.american_price, modelProbability, q.implied_probability, edge,
+        eventSeason ?? null, eventWeek ?? null, q.commence_time ?? null,
+        q.home_team ?? null, q.away_team ?? null,
+        match.status, match.reason, match.projection?.player_id ?? match.matched_player_id ?? null,
+        null).changes;
+    }
+  }
+  const closing = finalizeClosingSnapshots();
+  return { captured_at: new Date().toISOString(), quotes_seen: seen, stored, closing,
+    modeled: rows(`SELECT COUNT(*) n FROM nfl_prop_clv WHERE captured_at >= ? AND model_probability IS NOT NULL`, since)[0]?.n ?? 0 };
+}
+
 /** Freeze the last book-specific quote before kickoff as the close. */
 export function finalizeClosingSnapshots(now = new Date().toISOString()) {
   const pending = rows(`SELECT * FROM nfl_prop_clv

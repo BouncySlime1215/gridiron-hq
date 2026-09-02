@@ -84,7 +84,7 @@ test('Action Network rows persist through the same nfl_prop_quote_snapshots tabl
 test('Underdog: the supported stat maps to Over/Under with two-sided real prices; an unsupported stat is skipped', () => {
   const payload = {
     games: [{ id: 178892, sport_id: 'NFL', full_team_names_title: 'New England Patriots @ Seattle Seahawks', scheduled_at: '2026-09-10T00:20:00Z' }],
-    players: [{ id: 'p1', full_name: 'DK Metcalf' }],
+    players: [{ id: 'p1', first_name: 'DK', last_name: 'Metcalf' }],
     appearances: [{ id: 'a1', match_id: 178892, player_id: 'p1' }],
     over_under_lines: [
       {
@@ -113,6 +113,21 @@ test('Underdog: the supported stat maps to Over/Under with two-sided real prices
   assert.equal(over.home_team, 'Seattle Seahawks');
   assert.equal(over.away_team, 'New England Patriots');
   assert.equal(over.event_id, 'nfl:2026-09-10:NE@SEA', 'joins the same canonical key Action Network uses for this game');
+});
+
+test('Underdog: an appearance whose player_id has no matching player is skipped, never stored under the market title as a fake name', () => {
+  const payload = {
+    games: [{ id: 178892, sport_id: 'NFL', full_team_names_title: 'New England Patriots @ Seattle Seahawks', scheduled_at: '2026-09-10T00:20:00Z' }],
+    players: [], // the roster this player_id points to was never fetched
+    appearances: [{ id: 'a1', match_id: 178892, player_id: 'missing-player' }],
+    over_under_lines: [{
+      stat_value: '61.5',
+      over_under: { category: 'player_prop', appearance_stat: { appearance_id: 'a1', stat: 'receiving_yds' }, title: 'Some Player Receiving Yards O/U' },
+      options: [{ choice: 'higher', american_price: '-112' }, { choice: 'lower', american_price: '-112' }]
+    }]
+  };
+  const { rows: parsed } = pf.__test.parseUnderdog(payload, '2026-09-02T18:00:00Z');
+  assert.equal(parsed.length, 0, 'no row is written under a market-title string standing in for a player name');
 });
 
 test('propFeedStatus summarises by provider and market once rows exist', () => {

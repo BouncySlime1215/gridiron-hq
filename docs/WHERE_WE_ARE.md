@@ -58,18 +58,20 @@ model's Week 1 paper bets were recorded at those phantom prices. That is
 fixed now, and those bets are marked so they cannot flatter the results.
 
 The other piece of today's work is a real start on player props, the
-market this brief called the single biggest unlock. A new connector now
-pulls real prop prices for free from two sites (Underdog and Action
-Network). The first live pull already brought in 840 real, two-sided
-prices covering all sixteen Week 1 games — yards, catches, and rushing
-props with real payout odds attached, not just a number. The second site
-is wired up correctly but came back empty on its first try, because those
-particular sportsbooks simply have not posted those bets yet this many
-days before kickoff. That is normal and expected, and it will fill in on
-its own as the week goes on. The next step is connecting these real prices
-to the model's own predictions so we can finally see, for the first time,
-whether its strongest skill is actually worth anything against real money
-lines.
+market this brief called the single biggest unlock, and it went further
+than expected. A new connector now pulls real prop prices for free from
+two sites (Underdog and Action Network), and those prices are now hooked
+directly into the model's own predictions. That connection had never
+existed before today. The first real pull brought in 840 genuine,
+two-sided prices covering all sixteen Week 1 games, and after finding and
+fixing a data bug (the site was giving us player names in a format our
+code wasn't reading correctly), the model correctly identified the right
+player for 98 percent of those bets. From that, it has already produced
+64 real cases where its own number disagrees with the market's price. None
+of those has been graded yet, since Week 1 hasn't happened, but for the
+first time this project has a live, honest scoreboard for its best skill
+instead of an empty one. The next step is simply letting the record build
+up until there are enough graded bets to trust it.
 
 ## The one real finding
 

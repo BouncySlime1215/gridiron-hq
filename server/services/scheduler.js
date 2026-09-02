@@ -378,6 +378,22 @@ async function refreshPropCapture() {
   return { captured, closing, settlement, reconciliation: reconcilePropQuoteMatches(), archive: propClvStatus() };
 }
 
+/**
+ * The free-provider counterpart: captureFreePropMarket() reads the quotes
+ * prop-feeds.js already stored (Action Network, Underdog), matches them to
+ * the model and devigs them into nfl_prop_clv. No key, no credits, so this
+ * runs regardless of whether refreshPropCapture is skipped for lack of one.
+ */
+async function refreshFreePropClv() {
+  const { captureFreePropMarket, settlePropQuotes, reconcilePropQuoteMatches, propClvStatus } = await import('./nfl-prop-clv.js');
+  const captured = captureFreePropMarket();
+  const due = rows(`SELECT DISTINCT season,week FROM nfl_prop_clv
+                    WHERE settled=0 AND season IS NOT NULL AND week IS NOT NULL
+                      AND commence_time <= ?`, new Date().toISOString());
+  const settlement = due.map(x => ({ ...x, ...settlePropQuotes(x) }));
+  return { captured, settlement, reconciliation: reconcilePropQuoteMatches(), archive: propClvStatus() };
+}
+
 /** Turn fresh reporting into typed, cutoff-safe context shared by fantasy and betting. */
 async function refreshNflNewsSignals() {
   const { syncStructuredNewsSignals, syncAiNewsSignals, newsSignalCoverage } = await import('./nfl-news-signal.js');
@@ -527,6 +543,8 @@ export const JOBS = {
    */
   nfl_prop_capture: { run: refreshPropCapture, maxAgeMinutes: 60, tier: 'metered',
     label: 'NFL prop market capture (CLV evidence)' },
+  nfl_prop_clv_free: { run: refreshFreePropClv, maxAgeMinutes: 60, tier: 'live',
+    label: 'Free prop quotes matched to the model and devigged into CLV evidence' },
   rss_news: { run: refreshRssNews, maxAgeMinutes: 15, tier: 'live',
     label: 'Publisher RSS news, normalized and typed' },
   espn_news: { run: refreshEspnNews, maxAgeMinutes: 30, tier: 'live',
@@ -655,7 +673,7 @@ export function startScheduler({
   const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
     'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
     'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
-    'nfl_book_feeds', 'nfl_prop_feeds', 'polymarket_line_watch', 'beat_the_close'];
+    'nfl_book_feeds', 'nfl_prop_feeds', 'nfl_prop_clv_free', 'polymarket_line_watch', 'beat_the_close'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

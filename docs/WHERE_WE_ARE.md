@@ -73,6 +73,21 @@ first time this project has a live, honest scoreboard for its best skill
 instead of an empty one. The next step is simply letting the record build
 up until there are enough graded bets to trust it.
 
+Two more pieces went in today. The wind rule (bet the under when it's
+windy at kickoff) is now actually running, checking real weather forecasts
+for every outdoor Week 1 game. None of them are windy enough yet, so it
+correctly isn't betting anything this week, which is the right behavior,
+not a failure. And there's now an automatic check that runs every week
+once games finish: if any of these rules loses money two weeks in a row,
+it retires itself and stops betting, rather than quietly continuing to
+lose. That safety net didn't exist until today.
+
+One pattern worth naming: three separate pieces of new code today each
+had a real bug that would have made them silently do nothing or do the
+wrong thing, and each was only found by testing them against real data
+before trusting the result. That is exactly the discipline this project
+is built around, and it is working as intended.
+
 ## The one real finding
 
 The sportsbooks' **opening** line is beatable in a narrow way. When our team

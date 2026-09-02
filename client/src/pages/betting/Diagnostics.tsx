@@ -19,6 +19,7 @@ export default function Diagnostics() {
   const { data: abst } = useApi<any>(tab === 'abstentions' ? '/betting/abstentions' : null);
   const { data: slices } = useApi<any>(tab === 'slices' ? '/nfl-betting/diagnostic/slices' : null);
   const { data: close } = useApi<any>(tab === 'close' ? '/nfl-market/line-move-study' : null);
+  const { data: live } = useApi<any>(tab === 'close' ? '/nfl-market/beat-the-close' : null);
   const { data: pipe } = useApi<any>(tab === 'pipeline' ? '/betting/pipeline' : null);
   const { data: lat } = useApi<any>(tab === 'pipeline' ? '/betting/latency' : null);
 
@@ -223,6 +224,28 @@ export default function Diagnostics() {
                   </table>
                 </div>
               ))}
+              {live && (
+                <div className="card p-4">
+                  <h3 className="text-sm font-semibold text-slate-900">Live (Phase 2) · zero units · graded by CLV against Pinnacle's close</h3>
+                  <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {Object.entries(live.by_signal ?? {}).map(([signal, b]: any) => (
+                      <div key={signal} className="rounded-xl border border-slate-200 p-3">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">{signal.replaceAll('_', ' ')}</div>
+                        <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{b.settled ? `${b.mean_clv} pts` : `${b.frozen} frozen`}</div>
+                        <div className="text-xs text-slate-500">{b.settled} settled · {b.record}{b.readable ? '' : ' · not yet readable'}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {!!live.decisions?.length && <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs">
+                    <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1 pr-3">Game</th><th className="py-1 pr-3">Market</th><th className="py-1 pr-3">Side</th><th className="py-1 pr-3">Signal</th><th className="py-1 pr-3">Line</th><th className="py-1 pr-3">Price</th><th className="py-1 pr-3">Book</th><th className="py-1 pr-3">CLV</th><th className="py-1 pr-3">Result</th></tr></thead>
+                    <tbody>{live.decisions.slice(0, 40).map((d: any) => <tr key={d.id} className="border-t border-slate-100 text-slate-700">
+                      <td className="py-1 pr-3 font-medium">{d.away_team} at {d.home_team}</td><td className="py-1 pr-3">{d.market}</td><td className="py-1 pr-3">{d.selection}</td>
+                      <td className="py-1 pr-3">{d.feature?.signal?.replaceAll('_', ' ')} {d.feature?.centered}</td><td className="py-1 pr-3 tabular-nums">{d.line}</td><td className="py-1 pr-3 tabular-nums">{d.american_price}</td>
+                      <td className="py-1 pr-3">{d.feature?.book}</td><td className="py-1 pr-3 tabular-nums">{d.clv_points ?? '—'}</td><td className="py-1 pr-3">{d.result ?? 'pending'}</td></tr>)}</tbody>
+                  </table></div>}
+                  <p className="mt-2 text-[11px] text-slate-500">{live.gate}</p>
+                </div>
+              )}
               {close.units && <div className="card p-4 text-xs text-slate-600">Spreads, T0 model, predicted side at −110: {close.units.units_at_opener}u at the opener versus {close.units.units_at_close}u at the close over {close.units.n} games. {close.units.note}</div>}
               <div className="card p-4 text-xs text-slate-600">{close.rule}</div>
             </>

@@ -524,3 +524,15 @@ posted line, which for a few games is a minute after the listed kickoff.
 2. The totals T0 model as a whole, same threshold.
 3. `qb_out_delta` and `trades_since_open` as live candidates, graded
    against the line captured at the moment the event became known.
+
+### Phase 2 live — started 2026-09-03
+
+`beat-the-close.js` runs hourly on the live tier: every Phase 1 signal is
+snapshotted per game (raw and centered across the slate, because the ratings
+line sits a constant above the 2026 market on totals and an uncentered
+threshold would bet every under), the two rules freeze zero-unit shadow
+decisions at the best reachable line and price on the latest board, and
+settlement grades each by CLV against Pinnacle's last pre-kickoff line.
+Week 1: 13 spread and 15 total decisions frozen (8 spreads in the
+favourites-≤-3 slice where the historical edge lived). Nothing is readable
+before 30 settled decisions; the Phase 3 gate is 200.

@@ -176,10 +176,11 @@ Phase 1 (one session) — DONE 2026-09-03
 [x] results in DIAGNOSTIC §9: ratings_vs_open at the opener passes on its own (+0.58, 57.7%, n 570);
     totals T0 model passes (+0.36); the sharp-soft gap was a timestamp leak and is flat; units not yet positive
 
-Phase 2 (Weeks 1–6)
-[ ] nfl_signal_snapshots at every capture
-[ ] beat_the_close shadow decisions at zero units at the best reachable price
-[ ] CLV per decision in settlement and look-back; event-to-move window measured
+Phase 2 (Weeks 1–6) — running since 2026-09-03 (`beat-the-close.js`, job `beat_the_close` hourly)
+[x] nfl_signal_snapshots at every capture (ratings vs opener, QB out, injury burden, trades, Pinnacle move so far; raw and slate-centered)
+[x] beat_the_close shadow decisions at zero units at the best reachable price (Week 1: 13 spreads, 15 totals frozen)
+[x] CLV per decision at settlement against Pinnacle's last pre-kickoff line; GET /api/nfl-market/beat-the-close
+[ ] CLV in the weekly look-back; event-to-move window measured
 [ ] weekly read; retire rules whose live CLV interval sits below zero twice
 
 Phase 3 (season)

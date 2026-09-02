@@ -212,6 +212,12 @@ async function refreshPolymarketLineWatch() {
   return poll();
 }
 
+/** Beat the close: signal snapshots, zero-unit shadow decisions at the best reachable price, CLV settlement. */
+async function refreshBeatTheClose() {
+  const { runBeatTheClose } = await import('./beat-the-close.js');
+  return runBeatTheClose();
+}
+
 /** Heavy reports (abstention audit, diagnostic, walk-forward, calibration, football-first fit) in worker threads. */
 async function refreshReports() {
   const { refreshStaleReports } = await import('./report-cache.js');
@@ -431,6 +437,8 @@ export const JOBS = {
     label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
   nfl_book_feeds: { run: refreshBookFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free multi-book quotes: Pinnacle, OddsTrader (11 books), BetRivers, Bovada' },
+  beat_the_close: { run: refreshBeatTheClose, maxAgeMinutes: 60, tier: 'live',
+    label: 'Beat the close: signal snapshots, zero-unit shadow decisions, CLV settlement' },
   polymarket_line_watch: { run: refreshPolymarketLineWatch, maxAgeMinutes: 15, tier: 'live',
     label: 'Polymarket implied spread/total movement (line-movement source)' },
   // Free — ESPN's public scoreboard, no key and no quota — so this runs far more
@@ -627,7 +635,7 @@ export function startScheduler({
   const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
     'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
     'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
-    'nfl_book_feeds', 'polymarket_line_watch'];
+    'nfl_book_feeds', 'polymarket_line_watch', 'beat_the_close'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

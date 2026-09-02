@@ -15,6 +15,7 @@ import { bookFeedStatus, captureBookFeeds } from '../services/book-feeds.js';
 import { polymarketMovement, refreshPolymarketLineWatch } from '../services/polymarket-lines.js';
 import { reportCacheStatus, refreshReport, serveReport } from '../services/report-cache.js';
 import { oddsArchiveStatus, backfillOddsArchive } from '../services/odds-archive.js';
+import { beatTheCloseStatus, runBeatTheClose } from '../services/beat-the-close.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
 import { currentNflWeek } from '../services/weekly-learning.js';
@@ -88,6 +89,14 @@ r.post('/reports/:name/refresh', requireModelPermission('model:train'), (req, re
     refreshReport(req.params.name, { force: true }).catch(() => {});
     res.status(202).json({ queued: true, report: req.params.name });
   } catch (e) { next(e); }
+});
+
+/** Beat the close, Phase 2: live signal snapshots and the zero-unit shadow rule, graded by CLV. */
+r.get('/beat-the-close', (_req, res, next) => {
+  try { res.json(beatTheCloseStatus()); } catch (e) { next(e); }
+});
+r.post('/beat-the-close/run', requireModelPermission('model:train'), (_req, res, next) => {
+  try { res.json(runBeatTheClose()); } catch (e) { next(e); }
 });
 
 /** Beat the close, Phase 1: served from the worker store; never computed on a request. */

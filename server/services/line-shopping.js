@@ -19,6 +19,7 @@
  */
 import { rows, run, db } from '../db/index.js';
 import { hasKey, gameOdds } from './odds-api.js';
+import { isFreshQuote } from './book-feeds.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_line_snapshots (
@@ -108,8 +109,13 @@ export function latestSnapshotPayload({ markets = 'spreads,totals', maxAgeMinute
   if (!latest.length) return null;
   const events = new Map();
   for (const l of latest) {
+    // Consumers of this payload (nfl-sharp.js's divergence and steam readers
+    // among them) treat every bookmaker here as quoting right now. An
+    // aggregator-served book whose own price has not refreshed in days is
+    // not that — see book-feeds.js#isFreshQuote.
     const quotes = rows(`SELECT * FROM nfl_line_snapshots WHERE event_id=? AND captured_at=?
-      AND market IN (${wanted.map(() => '?').join(',')})`, l.event_id, l.captured_at, ...wanted);
+      AND market IN (${wanted.map(() => '?').join(',')})`, l.event_id, l.captured_at, ...wanted)
+      .filter(q => isFreshQuote(l.captured_at, q.book_updated_at));
     if (!quotes.length) continue;
     const ev = { id: l.event_id, commence_time: quotes[0].commence_time, home_team: quotes[0].home_team,
       away_team: quotes[0].away_team, captured_at: l.captured_at, bookmakers: new Map() };

@@ -18,6 +18,7 @@
  */
 import { db, rows, run } from '../db/index.js';
 import './line-shopping.js';   // owns nfl_line_snapshots, read below
+import { isFreshQuote } from './book-feeds.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_bet_log (
@@ -111,8 +112,9 @@ export function closingConsensus(eventId, market, side, commenceTime) {
   ...(cutoff ? [eventId, market, cutoff] : [eventId, market]))[0]?.at;
   if (!at) return null;
 
-  const quotes = rows(`SELECT side, line, price FROM nfl_line_snapshots
-                       WHERE event_id=? AND market=? AND captured_at=?`, eventId, market, at);
+  const quotes = rows(`SELECT side, line, price, book_updated_at FROM nfl_line_snapshots
+                       WHERE event_id=? AND market=? AND captured_at=?`, eventId, market, at)
+    .filter(q => isFreshQuote(at, q.book_updated_at));
   const ours = quotes.filter(q => q.side === side);
   if (!ours.length) return null;
 

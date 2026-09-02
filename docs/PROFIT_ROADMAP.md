@@ -85,12 +85,19 @@ every metered call goes through `odds-api.js#get()`; missing evidence is null.
   filters `by_signal`/`by_slice` on the flag; `excluded_stale` count and
   `excluded_stale_rule` in the payload; rows stay in `decisions` (never
   rewritten) with `stale_price` marked. Test added.
-- [ ] **0.4 Other readers of `nfl_line_snapshots`.** Apply `isFreshQuote` where a
-  cross-book comparison is made: `nfl-sharp.js` (sharp board), `nfl-clv.js`,
-  `nfl-expert-council.js` price-shopper live path, `market-movement.js`,
-  `nfl-evidence.js` capture dispatcher. Movement-over-time readers
-  (`signal-latency.js`, `nfl-news-market-latency.js`, `nfl-specialists.js`)
-  compare a book with itself and are exempt; say so in a comment. One commit.
+- [x] **0.4 Other readers of `nfl_line_snapshots`.** Applied `isFreshQuote`
+  to the three genuine cross-book comparisons found: `line-shopping.js#latestSnapshotPayload`
+  (the shared feed `nfl-sharp.js`'s divergence/steam reader consumes when the
+  metered API is unavailable, which is now — 2 credits left), `nfl-expert-council.js#shoppingFor`
+  (the live price-shopper council role; archive rows are unaffected since
+  their `book_updated_at` already equals their own `captured_at`), and
+  `nfl-clv.js#closingConsensus` (the modal/median close used to grade CLV).
+  `market-movement.js#nflMarketMovement` was checked and left alone: it
+  already mixes books across a time series and is explicitly labelled
+  "descriptive only... not a betting signal" — a real bug (it does not group
+  by book at all) but not a decision-affecting one; noted in §6.
+  Movement-over-time readers (`signal-latency.js`, `nfl-news-market-latency.js`,
+  `nfl-specialists.js`) compare a book with itself and are exempt.
 - [ ] **0.5 `wind_total` live rule.** `nfl-weather.js`: add
   `forecastKickoffWind(season, week, home)` from
   `https://api.open-meteo.com/v1/forecast?latitude&longitude&hourly=wind_speed_10m,wind_gusts_10m,precipitation&forecast_days=16`
@@ -305,6 +312,11 @@ move against the same opened sample; calibration worsens while win rate rises.
 - Two cheap audit items kept: `CREATE INDEX` on `players(team_id)` and
   `ranking_entries(player_id)` (do in a no-audit window); check
   `model.js` holdout-open does the existence check inside the transaction.
+- `market-movement.js#nflMarketMovement`'s "first vs last" movement mixes
+  whichever book happened to report first and last, not one book's own
+  series — a real bug, but the function is explicitly labelled descriptive
+  and feeds no decision. Fix by grouping the inner query on `book` too,
+  same session as 3.1's weekly-read work, not before.
 - Neural/sequence/graph modules (plan Priority 5): not until something linear
   has positive forward CLV.
 - Community-edge literature sweep (the third research agent hit a rate limit):

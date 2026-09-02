@@ -24,6 +24,7 @@ import { buildPlayerWeekEngine, teamWeekEventExpectations } from './player-week-
 import { teamRosterStrength } from './nfl-roster-strength.js';
 import { matchupTeamCards } from './nfl-team-card.js';
 import { orthogonalSpecialistPrediction } from './nfl-orthogonal-specialists.js';
+import { isFreshQuote } from './book-feeds.js';
 
 export const EXPERT_COUNCIL_VERSION = 'nfl-expert-council-v4-shared-weekly-state';
 
@@ -389,7 +390,11 @@ function shoppingFor(home, away, cutoff) {
       const h = normalize(row.home_team), a = normalize(row.away_team);
       const homeAliases = aliases.get(home) ?? [normalize(home)], awayAliases = aliases.get(away) ?? [normalize(away)];
       return homeAliases.some(alias => alias && h.includes(alias)) && awayAliases.some(alias => alias && a.includes(alias));
-    });
+    })
+    // Archive rows carry each book's own real timestamp as both captured_at and
+    // book_updated_at, so this never drops them; a live capture where the
+    // aggregator served a book's cached price does get dropped here.
+    .filter(row => isFreshQuote(row.captured_at, row.book_updated_at));
   if (!snapshots.length) return null;
   // The decision board: each book's LATEST pre-kickoff quote per side. A live
   // capture stamps every book with one captured_at, but archive rows carry

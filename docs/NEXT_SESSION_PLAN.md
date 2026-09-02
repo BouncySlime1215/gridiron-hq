@@ -291,10 +291,18 @@ evidence so far says the problem is calibration, not capacity.
 [~] 3c espn_qbr synced 2016–2025 (nfl-qbr.js, daily job); qb_state council role and study features live; participation/contracts and pressure v2 still open
 [~] 3d Open-Meteo kickoff-hour weather (nfl-weather.js, daily job) as study features; weather_total role and total-residual lifecycle still open
 [ ] 3e/3f Special teams and crew tendency roles (only if 3a–3d leave gain on the table)
-[ ] 4  Full 2022–2025 diagnostic via the resumable rebuild; numbers into the docs
-[ ] 5  Manifest v2, evidence-provenance verifier, audit UI path, empty-state tests
+[~] 4  Full 2022–2025 diagnostic: run 16 (56 weeks, 17 roles, archive evidence, coordinator v4) opened 2026-09-03 via `scripts/nfl-blind-audit.mjs run 16`; numbers into the docs when complete
+[x] 5  Manifest v2 (retries, calibration, per-phase timing), evidence-provenance verifier, audit UI honest-path strip, empty-state tests (14 surfaces)
 [ ] 6  Forward ledger watched, untouched
 ```
 
 Each ticked item ends with: tests green, `npm run lint`, commit, push to
 `origin/phase3-live-draft-reliability`.
+
+## Deferred until run 16 completes (server files are frozen while it runs)
+
+- `beatTheCloseStatus()` must tolerate a missing `shadow_decisions` table on a
+  fresh database (the empty-state test imports the ledger module first as a
+  workaround).
+- Weather features: fold the run-16 look-back and the study's weather grade
+  into the docs; decide whether a `weather_total` role is worth registering.

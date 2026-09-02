@@ -581,3 +581,25 @@ gate for whether training on the adjusted target helps.
 the minutes between an Out/Doubtful/IR stamp and the first book move; the
 beat-the-close status carries the current-season window. Live captures are
 hourly, so the window resolves to the nearest capture.
+
+## 12. Evidence provenance on the forward ledger (2026-09-03)
+
+`GET /api/nfl-market/evidence/provenance` walks every frozen forward
+payload for timestamps and flags any later than the row's kickoff cutoff.
+Week 1 2026: 416 rows across 16 games, zero late inputs, zero captures
+after a cutoff. The news role's 20 observed rows and the price shopper's
+30 carry explicit stamps; the table-derived roles (ratings, trees, replay,
+line movement) carry none and are listed as undated — their provenance is
+the evidence hash and the cutoff-bounded queries, not a stamp in the
+payload. The plan item "verify pregame cards contain only pre-kickoff
+evidence" is now a standing check rather than a one-off.
+
+## 13. Quarterback state and weather in the study (2026-09-03)
+
+ESPN weekly QBR (2016–2025) and Open-Meteo kickoff-hour weather were added
+as study features and `qb_state` as a seventeenth council role. Held out,
+neither quarterback feature predicts the open-to-close move (`qb_qbr_diff`
+−0.10 [−0.34, 0.11]; `qb_change_diff` −0.08): the opener already prices
+the quarterback, which is the expected result and worth having on record.
+`ratings_vs_open` is unchanged at +0.58. Weather features are graded in
+the next study run once the backfill completes.

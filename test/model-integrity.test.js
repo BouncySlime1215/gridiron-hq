@@ -509,8 +509,13 @@ test('blind audit manifest publishes hashes, per-season results and explicit tel
   assert.equal(manifest.results.overall.bets, 3);
   assert.equal(manifest.results.by_season[0].bets, 2);
   assert.equal(manifest.results.by_season[1].units, 0.91);
-  assert.equal(manifest.failures.retries.recorded, false);
-  assert.equal(manifest.calibration.available, false);
+  // Manifest v2 persists retry attempts; a clean run has none.
+  assert.equal(manifest.failures.retries.recorded, true);
+  assert.equal(manifest.failures.retries.count, 0);
+  assert.equal(manifest.schema_version, 'nfl-audit-run-manifest-v2');
+  // v2 embeds the slice diagnostic's calibration when audit rows exist, and says why when they do not.
+  assert.equal(typeof manifest.calibration.available, 'boolean');
+  assert.ok(manifest.calibration.available ? manifest.calibration.coordinator : manifest.calibration.reason);
 });
 
 test('blind audit freezes canonical NFL players without coupling to fantasy seed churn', () => {

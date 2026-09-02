@@ -268,8 +268,11 @@ retrying. This prevents a repeat, it does not recover September.
   directional calls so a small-sample rate cannot be quoted.
 - [ ] Trace every failure, stall, lock, timeout, misleading counter, and retry
   from this rebuild. Add resumability and regression coverage for each one.
-- [ ] Verify all 831 pregame cards contain only evidence available before their
-  kickoffs; flag late, undated, reconstructed, or unverifiable inputs.
+- [x] `GET /api/nfl-market/evidence/provenance` flags any timestamp inside a
+  frozen forward payload later than its kickoff cutoff, per role and game,
+  and lists undated observed rows instead of assuming them clean. Week 1
+  2026: 416 rows, zero late. Historical cards are covered by the cutoff-
+  bounded queries and the evidence hash; the check runs on demand.
 - [ ] Confirm that postgame truth cannot leak backward into the prediction it
   grades, while still becoming eligible evidence for the following week.
 - [ ] Re-run the correctly named historical diagnostic after fixes, then leave

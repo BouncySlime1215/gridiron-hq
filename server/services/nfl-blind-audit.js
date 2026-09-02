@@ -8,6 +8,7 @@
  * the exact code, input tables, candidate registry and policy, then refuses to
  * open week N+1 if any of them change after preregistration.
  */
+import { sliceDiagnostic } from './nfl-slice-diagnostic.js';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -548,7 +549,7 @@ function runManifest(record, weeks) {
     table, rows: state.rows ?? 0, hash: state.hash ?? null, missing: Boolean(state.missing), scope: state.scope ?? null
   }));
   return {
-    schema_version: 'nfl-audit-run-manifest-v1', run_id: record.id, label: record.label,
+    schema_version: 'nfl-audit-run-manifest-v2', run_id: record.id, label: record.label,
     classification: spec.classification, status: record.status,
     hashes: { spec: record.spec_hash, code: record.code_hash, data: record.data_hash,
       commit: spec.provenance?.code?.commit ?? null,
@@ -572,10 +573,22 @@ function runManifest(record, weeks) {
       missing_cells: weeks.flatMap(item => (item.result?.weekly_input?.completeness?.missing_cells ?? [])
         .map(cell => ({ season: item.season, week: item.week, ...cell }))) },
     failures: { count: failures.length, items: failures,
-      retries: { recorded: false, count: null, reason: 'audit protocol v1 did not persist retry attempts' } },
+      retries: (() => { const list = rows('SELECT ordinal, at, error FROM nfl_blind_audit_retries WHERE run_id=? ORDER BY id', record.id);
+        return { recorded: true, count: list.length, items: list.slice(0, 50) }; })() },
     results: { overall: bettingSummary(weeks), by_season: bySeason },
-    calibration: { available: false,
-      reason: 'audit protocol v1 did not persist probability forecasts on the identical settled selection rows' },
+    calibration: (() => {
+      try {
+        const slices = sliceDiagnostic({ auditRunId: record.id });
+        return slices.available ? { available: true, source: 'nfl-slice-diagnostic (coordinator implied direction probability vs empirical)',
+          coordinator: slices.coordinator_calibration, by_specialist: slices.by_specialist.map(s => ({ id: s.id, expected_calibration_error: s.calibration?.expected_calibration_error ?? null, n: s.calibration?.n ?? 0 })) }
+          : { available: false, reason: slices.reason };
+      } catch (error) { return { available: false, reason: error.message }; }
+    })(),
+    timing_by_phase: (() => {
+      const t = rows(`SELECT AVG(freeze_check_ms) freeze, AVG(compute_ms) compute, AVG(persist_ms) persist, AVG(total_ms) total, COUNT(*) n
+        FROM nfl_blind_audit_week_performance WHERE run_id=?`, record.id)[0];
+      return t?.n ? { measured_weeks: t.n, average_ms: { freeze_check: Math.round(t.freeze), compute: Math.round(t.compute), persist: Math.round(t.persist), total: Math.round(t.total) } } : null;
+    })(),
     interpretation: final?.interpretation ?? 'Historical chronological replay only; no profitability promotion authority.'
   };
 }
@@ -745,7 +758,23 @@ function weekLookback(result, prior = null) {
     rule: 'Graded after the week is opened, chained from the previous look-back; the next week trains only on rows settled before its cutoff.' };
 }
 
+db.exec(`CREATE TABLE IF NOT EXISTS nfl_blind_audit_retries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, ordinal INTEGER, at TEXT NOT NULL, error TEXT NOT NULL
+)`);
+
+/** Open the next week; a failed attempt is recorded as a retry against the run (manifest v2) and rethrown. */
 export function runNextBlindAuditWeek(id) {
+  try { return openNextWeek(id); } catch (error) {
+    try {
+      const record = rows('SELECT next_ordinal FROM nfl_blind_audit_runs WHERE id=?', Number(id))[0];
+      run('INSERT INTO nfl_blind_audit_retries (run_id, ordinal, at, error) VALUES (?,?,?,?)', Number(id), record?.next_ordinal ?? null,
+        new Date().toISOString(), String(error?.message ?? error));
+    } catch { /* the retry log must never mask the real error */ }
+    throw error;
+  }
+}
+
+function openNextWeek(id) {
   const startedAt = performance.now();
   const record = rows('SELECT * FROM nfl_blind_audit_runs WHERE id=?', Number(id))[0];
   if (!record) throw new Error('blind audit not found');

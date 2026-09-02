@@ -250,9 +250,15 @@ retrying. This prevents a repeat, it does not recover September.
   selected side, market, line, price, book, eligibility or abstention reason
   (zero units); and settlement once the game is scored. `expertCouncilGame`
   returns it as `combined_decision`.
-- [ ] Diagnose accuracy and calibration by season, week, matchup type, market,
-  specialist, confidence bucket, and data-coverage bucket. Treat 2021 as
-  quarantined evidence unless its missing fields are genuinely repaired.
+- [x] `GET /api/nfl-betting/diagnostic/slices` (`nfl-slice-diagnostic.js`)
+  cuts the historical diagnostic's immutable expert rows by season, week,
+  matchup type (divisional × favourite size), roof, market (spread residual;
+  totals are graded in the replay ledger), specialist, confidence bucket
+  (|forecast| / uncertainty) and data-coverage bucket (observed specialists per
+  game), with directional rate, RMSE and implied-versus-empirical calibration
+  per slice. 2021 is quarantined by default (`include_quarantined=1` to see
+  it), every slice carries its sample, and `readable` is false under 30
+  directional calls so a small-sample rate cannot be quoted.
 - [ ] Trace every failure, stall, lock, timeout, misleading counter, and retry
   from this rebuild. Add resumability and regression coverage for each one.
 - [ ] Verify all 831 pregame cards contain only evidence available before their

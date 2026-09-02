@@ -344,3 +344,11 @@ chain week to week; the final aggregate carries `by_week` and `reporting`,
 and the manifest reports complete weeks and missing cells. The Training page
 trail shows the look-back under each opened week. Verified in
 `test/blind-audit-lookback.test.js` and on a live run (see below).
+
+### Accuracy and calibration by slice — ADDED
+
+`/api/nfl-betting/diagnostic/slices` cuts the historical diagnostic's expert
+rows by season, week, matchup type, roof, specialist, confidence and coverage
+bucket, with calibration (implied direction probability from the forecast and
+its uncertainty against the empirical hit rate). 2021 is quarantined; slices
+under 30 directional calls are marked unreadable.

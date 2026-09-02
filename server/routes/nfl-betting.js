@@ -57,6 +57,7 @@ import { signalQualityCatalog } from '../services/model-signal-quality.js';
 import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '../services/nfl-profitability.js';
 import { nflDiagnostic } from '../services/nfl-diagnostic.js';
 import { serveReport, refreshReport } from '../services/report-cache.js';
+import { sliceDiagnostic } from '../services/nfl-slice-diagnostic.js';
 import { runNflModelGrowthCycle } from '../services/nfl-model-growth.js';
 import { captureOnlineNeuralWeek, nflOnlineNeuralStatus, settleOnlineNeuralExamples,
   trainOnlineNeuralThroughSettled } from '../services/nfl-online-neural.js';
@@ -183,6 +184,14 @@ r.post('/props/quotes/settle', (req, res, next) => {
 r.get('/profitability', (_req, res, next) => {
   try { res.json(profitabilityOperations()); }
   catch (e) { next(e); }
+});
+
+/** Accuracy and calibration by season, week, matchup type, market, specialist, confidence and coverage. */
+r.get('/diagnostic/slices', (req, res, next) => {
+  try {
+    res.json(sliceDiagnostic({ auditRunId: req.query.run ? Number(req.query.run) : null,
+      includeQuarantined: req.query.include_quarantined === '1' }));
+  } catch (e) { next(e); }
 });
 
 r.get('/diagnostic', (req, res, next) => {

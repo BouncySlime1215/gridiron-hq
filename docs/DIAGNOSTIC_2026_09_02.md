@@ -377,3 +377,63 @@ quotes). Week 6: 8 of 12 (the online neural warmed up). The coordinator
 abstained both weeks (warm-up needs 128 games over 8 settled weeks) and said
 so; bets 3-1 then 1-1, cumulative 4-2 (+1.62u), which the reads refuse to
 call a rate. Manifest: 2 complete weeks, 0 missing cells.
+
+## 8. Round 5 — every module reports; audit of the twelve; new matchup roles
+
+### Historical evidence for the non-reporting roles — ADDED
+
+- **Odds archive** (`odds-archive.js`): OddsTrader's odds service answers a
+  past date with every event's opening and last pre-kickoff line per book,
+  with the book's own timestamp. One request returns the archive from that
+  date forward (41 MB). Backfilled 2022–2025: 10–11 books per game, 267/284
+  games in 2022 (from October 7) and 285/285 in 2023–2025, 135,930 snapshot
+  rows with `captured_at` = the book timestamp, and every blank
+  `game_lines` opener filled from the median opening line. The line-movement
+  reader and the price shopper now have genuine evidence for the historical
+  diagnostic; nothing is manufactured from a consensus row.
+- **Verified news**: the reaction role falls back to the timestamped verified
+  event archive (official injury reports, roster status changes, trades)
+  bounded by the kickoff cutoff. Nick's rule — week-2 news must not touch
+  week 1 — is enforced by `available_at <= kickoff` plus archive v2's
+  conservative stamps (inactive lists at kickoff minus 90 minutes, trades the
+  morning after) and proven in `test/verified-events-cutoff.test.js`.
+- **Live updater**: reports its possession-ledger reconstruction for audited
+  games, Brier-scored, marked `historical_reconstruction` forever.
+
+### Audit of the twelve (run 10, 323 games, 2022–2023) — FINDINGS
+
+`GET /api/nfl-betting/specialists/audit` (`nfl-specialist-audit.js`).
+
+| Role | mean abs forecast | error ÷ market | direction | verdict |
+|---|---:|---:|---:|---|
+| Similar-game finder | 0.91 | 1.001 | 51.0% | neutral |
+| Boosted trees | 0.63 | 1.004 | 53.7% | neutral |
+| Coordinator | 0.42 | 1.004 | 47.3% | neutral |
+| Online neural | 2.16 | 1.017 | 53.0% | neutral |
+| Game replay | 2.38 | 1.029 | 49.7% | adds error |
+| Specialist team | 2.42 | 1.042 | 49.4% | adds error |
+| Football rulebook | 3.80 | 1.080 | 45.8% | adds error |
+| Player-built team | 5.15 | 1.122 | 51.8% | adds error |
+
+Market residual RMSE 11.65 points; no role reduces it. The loud roles are the
+wrong ones: forecast size carries no accuracy (rulebook's 2+ point calls hit
+47.9%). Four roles are one opinion counted four times (game replay ~
+specialist team 0.92, ~ rulebook 0.89, specialist team ~ rulebook 0.83,
+~ player builder 0.74). When five or more roles agree (139 games) they are
+right 49.6%. Conclusion: the fix is not more of the same roles; it is
+shrinking each forecast by its own walk-forward error, weighting correlated
+roles as one signal, and adding evidence the market does not already price —
+which the archive, verified events and the new matchup roles supply.
+
+### New matchup and situational roles — ADDED (Priority 4 candidates)
+
+`nfl-matchup-specialists.js` registers four council roles: line and QB
+continuity (from snaps), tendency matchup, situational efficiency (early-down
+EPA, explosive plays, red zone, third down, series success) and pressure
+matchup. Each is a ridge fit of the market residual on strictly-prior team
+profiles (this season blended with last while thin), trained only on games
+settled before the target week, capped at ±4, abstaining with a reason below
+200 training games or when a profile is missing. First real opinions (2023
+W5 KC v DEN): 0.0 / +0.6 / +0.6 / +0.3 points with 12.8-point uncertainty —
+humble by construction. The council is now sixteen roles; the matrix,
+completeness check and audit adapt to the registry.

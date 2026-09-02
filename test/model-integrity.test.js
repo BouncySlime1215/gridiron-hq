@@ -73,8 +73,9 @@ test.after(() => {
 });
 
 test('expert council registers every modelling role and missing evidence abstains instead of becoming zero', () => {
-  assert.equal(NFL_EXPERTS.length, 12);
-  assert.equal(new Set(NFL_EXPERTS.map(expert => expert.id)).size, 12);
+  // Twelve original roles plus the four Priority 4 matchup candidates.
+  assert.equal(NFL_EXPERTS.length, 16);
+  assert.equal(new Set(NFL_EXPERTS.map(expert => expert.id)).size, 16);
   const missing = expertCouncilTest.output('news_reaction', { observed: false, missingReason: 'no verified claims' });
   assert.equal(missing.observed, false);
   assert.equal(missing.forecast_residual, null);
@@ -479,7 +480,7 @@ test('blind audit preregisters a fixed chronological week sequence and honest cl
   assert.deepEqual(protocol.schedule[0], { season: 2021, week: 5 });
   assert.deepEqual(protocol.schedule.at(-1), { season: 2025, week: 18 });
   assert.equal(protocol.schedule.length, 70);
-  assert.equal(protocol.expert_ids.length, 12);
+  assert.equal(protocol.expert_ids.length, NFL_EXPERTS.length);
   assert.match(protocol.expert_council, /expert-council/);
   assert.ok(protocol.rules.some(x => /2026 forward shadow/i.test(x)));
 });

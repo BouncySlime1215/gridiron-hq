@@ -7,11 +7,19 @@
  * single blowout week from taking over the answer.
  */
 import { rows } from '../db/index.js';
+import { NFL_EXPERTS } from './nfl-expert-council.js';
 
-export const EXPERT_COORDINATOR_VERSION = 'robust-contextual-week-balanced-residual-v2';
-const IDS = ['rulebook', 'player_builder', 'game_replay', 'similar_games', 'boosted_tree',
-  'deep_residual', 'specialist_team', 'line_movement', 'news_reaction', 'live_updater',
-  'price_shopper', 'player_opportunity'];
+export const EXPERT_COORDINATOR_VERSION = 'robust-contextual-week-balanced-residual-v3-registry';
+// The role list is the council's registry, read lazily: the council imports
+// this module, so reading NFL_EXPERTS at module load would hit the import
+// cycle before the registry exists. A role added to the registry (the four
+// Priority 4 matchup candidates) is coordinated automatically; a hard-coded
+// list here silently left them out.
+const IDS = new Proxy([], { get(_target, prop) {
+  const list = NFL_EXPERTS.map(expert => expert.id);
+  const value = list[prop];
+  return typeof value === 'function' ? value.bind(list) : value;
+} });
 const MIN_GAMES = 128;
 const MIN_WEEKS = 8;
 const RIDGE = 36;

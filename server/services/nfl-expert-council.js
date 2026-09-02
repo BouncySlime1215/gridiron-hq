@@ -6,6 +6,7 @@
  * authority separately. The blind audit settles those opinions week by week;
  * only earlier settled rows may become training data for a later week.
  */
+import { MATCHUP_ROLES, matchupOpinion } from './nfl-matchup-specialists.js';
 import { teamEventVector } from './nfl-event-archive.js';
 import crypto from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
@@ -38,7 +39,12 @@ export const NFL_EXPERTS = Object.freeze([
   { id: 'news_reaction', name: 'Verified-news reaction', kind: 'event_evidence', lifecycle: 'pregame', score: 'market_residual' },
   { id: 'live_updater', name: 'Live game updater', kind: 'state_conditioned', lifecycle: 'in_game', score: 'brier_and_calibration' },
   { id: 'price_shopper', name: 'Price shopper', kind: 'execution', lifecycle: 'decision_time', score: 'price_and_clv' },
-  { id: 'player_opportunity', name: 'Player opportunity engine', kind: 'reconciled_player_usage', lifecycle: 'pregame', score: 'volume_mae' }
+  { id: 'player_opportunity', name: 'Player opportunity engine', kind: 'reconciled_player_usage', lifecycle: 'pregame', score: 'volume_mae' },
+  // Priority 4 matchup and situational candidates (nfl-matchup-specialists.js).
+  { id: 'trench_continuity', name: 'Line and QB continuity', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
+  { id: 'tendency_matchup', name: 'Tendency matchup', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
+  { id: 'situational_efficiency', name: 'Situational efficiency', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
+  { id: 'pressure_matchup', name: 'Pressure matchup', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' }
 ]);
 
 db.exec(`
@@ -594,7 +600,12 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
         active_lifecycle: 'collecting multi-book snapshots for execution scoring' } }),
     output('player_opportunity', { observed: opportunity.teams?.some(team => team.players > 0),
       missingReason: 'reconciled player opportunity packet unavailable', detail: { unit_edges: unitEdges,
-        player_opportunity: opportunity, settlement: opportunitySettlement } })
+        player_opportunity: opportunity, settlement: opportunitySettlement } }),
+    ...MATCHUP_ROLES.map(role => {
+      const opinion = matchupOpinion(role, season, week, game.home, game.away);
+      return output(role, { forecast: opinion.forecast, uncertainty: opinion.uncertainty,
+        missingReason: opinion.missing_reason, detail: opinion, authority: 'historical_candidate_only' });
+    })
   ];
   const actualResidual = data.y[targetIndex];
   return {

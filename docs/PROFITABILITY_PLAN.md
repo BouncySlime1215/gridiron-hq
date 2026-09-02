@@ -350,6 +350,10 @@ Implementation order:
 
 - [ ] Learn which specialist deserves more weight for each matchup type while
   preventing duplicated signals from receiving duplicated influence.
+  Measured 2026-09-02 (`/specialists/audit`): game replay, specialist team,
+  rulebook and player builder are correlated 0.74–0.92 and all add error;
+  no role reduces the market's 11.65-point RMSE. De-duplication in the
+  coordinator is the open piece.
 - [x] Genuine multi-book opening and pre-kickoff quotes for 2022–2025, each
   with the book's own timestamp, from the OddsTrader archive
   (`odds-archive.js`, eleven books incl. Pinnacle, Bovada, BetOnline). Stored
@@ -377,6 +381,12 @@ Implementation order:
   conflict.
 
 ### Priority 4 — matchup and situational evidence candidates
+
+Four candidates are now council roles (`nfl-matchup-specialists.js`, added
+2026-09-02): line/QB continuity, tendency matchup, situational efficiency and
+pressure matchup. Each is cutoff-safe, prior-games-only, capped and
+abstaining; the walk-forward historical diagnostic and the specialist audit
+decide whether any of them earns weight.
 
 These are candidates, not assumed edges. Each must be cutoff-safe, ablated,
 walk-forward tested, multiplicity-corrected, and rejected if it does not improve

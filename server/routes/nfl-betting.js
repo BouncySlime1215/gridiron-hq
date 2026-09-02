@@ -58,6 +58,7 @@ import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '.
 import { nflDiagnostic } from '../services/nfl-diagnostic.js';
 import { serveReport, refreshReport } from '../services/report-cache.js';
 import { sliceDiagnostic } from '../services/nfl-slice-diagnostic.js';
+import { specialistAudit } from '../services/nfl-specialist-audit.js';
 import { runNflModelGrowthCycle } from '../services/nfl-model-growth.js';
 import { captureOnlineNeuralWeek, nflOnlineNeuralStatus, settleOnlineNeuralExamples,
   trainOnlineNeuralThroughSettled } from '../services/nfl-online-neural.js';
@@ -183,6 +184,12 @@ r.post('/props/quotes/settle', (req, res, next) => {
 
 r.get('/profitability', (_req, res, next) => {
   try { res.json(profitabilityOperations()); }
+  catch (e) { next(e); }
+});
+
+/** Why none of the twelve clears breakeven: scale, conviction and duplication per specialist. */
+r.get('/specialists/audit', (req, res, next) => {
+  try { res.json(specialistAudit({ auditRunId: req.query.run ? Number(req.query.run) : null })); }
   catch (e) { next(e); }
 });
 

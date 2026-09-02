@@ -11,7 +11,7 @@ import { useApi } from '../../api';
  * because that is what they are.
  */
 
-type Tab = 'profitability' | 'abstentions' | 'slices' | 'close' | 'pipeline';
+type Tab = 'profitability' | 'abstentions' | 'slices' | 'close' | 'props' | 'pipeline';
 
 export default function Diagnostics() {
   const [tab, setTab] = useState<Tab>('profitability');
@@ -20,13 +20,17 @@ export default function Diagnostics() {
   const { data: slices } = useApi<any>(tab === 'slices' ? '/nfl-betting/diagnostic/slices' : null);
   const { data: close } = useApi<any>(tab === 'close' ? '/nfl-market/line-move-study' : null);
   const { data: live } = useApi<any>(tab === 'close' ? '/nfl-market/beat-the-close' : null);
+  const { data: propFeeds } = useApi<any>(tab === 'props' ? '/nfl-market/evidence/prop-feeds' : null);
+  const { data: propClv } = useApi<any>(tab === 'props' ? '/nfl-betting/props/clv/status' : null);
+  const { data: bettingSummary } = useApi<any>(tab === 'props' ? '/betting/summary' : null);
+  const edgeProps = bettingSummary?.edges?.prop_edge;
   const { data: pipe } = useApi<any>(tab === 'pipeline' ? '/betting/pipeline' : null);
   const { data: lat } = useApi<any>(tab === 'pipeline' ? '/betting/latency' : null);
 
   return (
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-slate-200">
-        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['slices', 'Accuracy by slice'], ['close', 'Beat the close'], ['pipeline', 'Data pipeline']] as [Tab, string][])
+        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['slices', 'Accuracy by slice'], ['close', 'Beat the close'], ['props', 'Props'], ['pipeline', 'Data pipeline']] as [Tab, string][])
           .map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
@@ -249,6 +253,76 @@ export default function Diagnostics() {
               {close.units && <div className="card p-4 text-xs text-slate-600">Spreads, T0 model, predicted side at −110: {close.units.units_at_opener}u at the opener versus {close.units.units_at_close}u at the close over {close.units.n} games. {close.units.note}</div>}
               <div className="card p-4 text-xs text-slate-600">{close.rule}</div>
             </>
+      )}
+
+      {tab === 'props' && (
+        <>
+          <div className="card p-4">
+            <h2 className="font-semibold text-slate-900">Player props: capture, matching, and shadow edge</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Free feeds (Action Network, Underdog) into <code>nfl_prop_quote_snapshots</code>, matched to
+              the model's own probability, devigged, and compared. One shadow decision per event/player/
+              market at zero units, graded by CLV once the game settles.
+            </p>
+          </div>
+
+          {!propClv ? <div className="card p-6 text-sm text-slate-500">Reading prop capture status…</div> : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Stat label="Quotes captured" value={propClv.quotes == null ? '—' : Number(propClv.quotes).toLocaleString()} />
+              <Stat label="Events covered" value={String(propClv.events ?? '—')} />
+              <Stat label="Modeled" value={String(propClv.modeled ?? '—')} />
+              <Stat label="Settled" value={String(propClv.settled ?? '—')} />
+            </div>
+          )}
+
+          {propFeeds && (
+            <div className="card overflow-x-auto p-4">
+              <h3 className="text-sm font-semibold text-slate-900">Capture by provider</h3>
+              <table className="mt-2 w-full text-left text-xs">
+                <thead className="text-[10px] uppercase tracking-wide text-slate-400">
+                  <tr><th className="py-1 pr-3">Provider</th><th className="py-1 pr-3">Quotes</th><th className="py-1 pr-3">Games</th><th className="py-1 pr-3">Books</th><th className="py-1 pr-3">Latest</th></tr>
+                </thead>
+                <tbody>{(propFeeds.by_provider ?? []).map((p: any) => (
+                  <tr key={p.provider} className="border-t border-slate-100 text-slate-700">
+                    <td className="py-1 pr-3 font-medium">{p.provider}</td><td className="py-1 pr-3 tabular-nums">{p.n}</td>
+                    <td className="py-1 pr-3 tabular-nums">{p.games}</td><td className="py-1 pr-3 tabular-nums">{p.books}</td>
+                    <td className="py-1 pr-3 text-slate-500">{p.latest ? new Date(p.latest).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {!propFeeds.by_provider?.length && <p className="mt-2 text-xs text-slate-500">No free-provider quotes captured yet.</p>}
+
+              <h3 className="mt-4 text-sm font-semibold text-slate-900">By market</h3>
+              <table className="mt-2 w-full text-left text-xs">
+                <thead className="text-[10px] uppercase tracking-wide text-slate-400">
+                  <tr><th className="py-1 pr-3">Market</th><th className="py-1 pr-3">Quotes</th><th className="py-1 pr-3">Players</th></tr>
+                </thead>
+                <tbody>{(propFeeds.by_market ?? []).map((m: any) => (
+                  <tr key={m.market} className="border-t border-slate-100 text-slate-700">
+                    <td className="py-1 pr-3 font-medium">{String(m.market).replace('player_', '').replaceAll('_', ' ')}</td>
+                    <td className="py-1 pr-3 tabular-nums">{m.n}</td><td className="py-1 pr-3 tabular-nums">{m.players}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+
+          {edgeProps && (
+            <div className={`card p-5 ${edgeProps.status === 'measurable' ? 'border-emerald-200 bg-emerald-50/40'
+              : edgeProps.status === 'not_yet_measured' ? 'border-amber-200 bg-amber-50/40' : ''}`}>
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Shadow edge (zero units)</div>
+              <p className="mt-1 text-sm text-slate-800">{edgeProps.verdict}</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Stat label="Shadow decisions" value={String(edgeProps.shadow_decisions ?? '—')} />
+                <Stat label="Settled bets" value={`${edgeProps.settled_bets ?? 0}/200`} />
+                <Stat label="Win rate" value={edgeProps.win_rate == null ? '—' : `${(edgeProps.win_rate * 100).toFixed(1)}%`} />
+                <Stat label="Median CLV (prob.)" value={edgeProps.median_clv_probability == null ? '—' : Number(edgeProps.median_clv_probability).toFixed(4)} />
+              </div>
+              <p className="mt-3 text-xs text-slate-500">{edgeProps.breakeven_note}</p>
+              {edgeProps.to_start && <p className="mt-1 text-xs text-slate-500">{edgeProps.to_start}</p>}
+            </div>
+          )}
+        </>
       )}
 
       {tab === 'pipeline' && (

@@ -272,8 +272,14 @@ Not built now.
   parser tests; a dedup test; a "pick'em never becomes a book" test; an
   end-to-end test that a seeded quote + seeded model distribution freezes one
   decision and settles it.
-- [ ] **1.7 UI.** Props tab in the NFL hub: capture coverage by book, matched %,
-  decisions frozen, CLV once ≥ 30 settled. Client only.
+- [x] **1.7 UI.** Props tab added to `client/src/pages/betting/Diagnostics.tsx`
+  (Betting → NFL → Engine → Diagnostics → Props): capture by provider and by
+  market from `/nfl-market/evidence/prop-feeds`, quote/event/settled counts
+  from `/nfl-betting/props/clv/status`, and the shadow-edge verdict from
+  `/betting/summary`'s `edges.prop_edge` (not `/betting/status`, which does
+  not carry it — caught by live verification, not just typecheck). Client
+  only, verified in the browser with real data (2,556 quotes, 64 shadow
+  decisions) and no console errors.
 
 Gate to leave Phase 1: Week 1 captured from ≥ 4 books with openers, ≥ 200
 matched quotes, decisions frozen before Thursday kickoff.

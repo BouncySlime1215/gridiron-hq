@@ -135,7 +135,11 @@ export default function Training({ focus = 'replay' }: { focus?: 'replay' | 'ai'
       .then(x => setAiLogs(x.logs)).catch(() => {});
   }, [latestAiPayload, aiRun]);
   useEffect(() => {
-    if (!blindRun && blindApi.data?.audits?.length) setBlindRun(blindApi.data.audits[0]);
+    if (blindRun || !blindApi.data?.audits?.length) return;
+    const latest = blindApi.data.audits[0];
+    setBlindRun(latest);
+    api<BlindAudit>(`/nfl-betting/blind-audits/${latest.id}?week_limit=8&compact=1`)
+      .then(setBlindRun).catch(e => setBlindError(e.message));
   }, [blindApi.data, blindRun]);
   useEffect(() => {
     if (!aiRun || aiRun.status !== 'running') return;

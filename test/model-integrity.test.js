@@ -964,6 +964,30 @@ test('online neural updates are deterministic, bounded and improve a learnable w
   assert.equal(predictNetwork(initial, [1, 0, 0]), 0, 'cold start must exactly defer to the market');
 });
 
+test('blind-audit dashboard projection removes heavyweight traces without changing visible counts', () => {
+  const projected = blindAuditTest.dashboardWeekResult({
+    expert_council: {
+      games: [{ game: { home: 'AAA', away: 'BBB' }, heavyweight_trace: 'x'.repeat(10_000) }],
+      coordinator: { ready: true, training_games: 12 },
+      experts: [{ id: 'pace', name: 'Pace', observed: 1, games: 1, directional_rate: 1 }]
+    },
+    postgame_truth: [{
+      game: { home: 'AAA', away: 'BBB', week: 4, unused: 'large' },
+      filtration: { core_training_eligible: true, deep_postgame_eligible: false, variance_markers: ['turnover'] },
+      usage_surprises: [{ full_evidence: 'large' }, { full_evidence: 'large' }],
+      structural_trends: [{ full_evidence: 'large' }],
+      in_game_injuries: [{ returned_in_game: false, breaking_point: true, full_evidence: 'large' }]
+    }]
+  });
+  assert.equal(projected.expert_council.games.length, 1);
+  assert.equal(projected.postgame_truth[0].usage_surprises.length, 2);
+  assert.equal(projected.postgame_truth[0].structural_trends.length, 1);
+  assert.deepEqual(projected.postgame_truth[0].in_game_injuries, [
+    { returned_in_game: false, breaking_point: true }
+  ]);
+  assert.ok(JSON.stringify(projected).length < 1_000, 'dashboard projection must stay compact');
+});
+
 test('safe stake sizing stays at zero until every evidence gate passes', () => {
   const blocked = safeStakeFor({ winProb: 0.62, americanOdds: -110, bankroll: 1000,
     calibrationPassed: false, forwardSettled: 20, uncertaintyWidth: 18 });

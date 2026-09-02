@@ -333,7 +333,11 @@ r.get('/blind-audits', (_req, res, next) => {
 
 r.get('/blind-audits/:id', (req, res, next) => {
   try {
-    const audit = blindAuditStatus(req.params.id);
+    const requestedLimit = req.query.week_limit == null ? null : Number(req.query.week_limit);
+    const audit = blindAuditStatus(req.params.id, {
+      weekLimit: Number.isFinite(requestedLimit) ? Math.max(0, Math.min(20, requestedLimit)) : null,
+      compact: req.query.compact === '1'
+    });
     if (!audit) return res.status(404).json({ error: 'blind audit not found' });
     res.json(audit);
   } catch (e) { next(e); }

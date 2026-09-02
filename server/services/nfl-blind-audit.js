@@ -629,19 +629,52 @@ export function failBlindAudit(id, error) {
   return blindAuditStatus(record.id);
 }
 
-export function blindAuditStatus(id) {
+function dashboardWeekResult(result) {
+  const council = result?.expert_council;
+  const truth = Array.isArray(result?.postgame_truth) ? result.postgame_truth : [];
+  return {
+    expert_council: council ? {
+      games: Array.from({ length: council.games?.length ?? 0 }, () => null),
+      coordinator: council.coordinator ?? null,
+      experts: council.experts ?? []
+    } : undefined,
+    postgame_truth: truth.map(game => ({
+      game: game.game ? { home: game.game.home, away: game.game.away, week: game.game.week } : null,
+      filtration: game.filtration ? {
+        core_training_eligible: game.filtration.core_training_eligible,
+        deep_postgame_eligible: game.filtration.deep_postgame_eligible,
+        variance_markers: game.filtration.variance_markers ?? []
+      } : null,
+      usage_surprises: Array.from({ length: game.usage_surprises?.length ?? 0 }, () => null),
+      structural_trends: Array.from({ length: game.structural_trends?.length ?? 0 }, () => null),
+      in_game_injuries: (game.in_game_injuries ?? []).map(injury => ({
+        returned_in_game: injury.returned_in_game,
+        breaking_point: injury.breaking_point
+      }))
+    }))
+  };
+}
+
+export function blindAuditStatus(id, { weekLimit = null, compact = false } = {}) {
   const record = parseRun(rows('SELECT * FROM nfl_blind_audit_runs WHERE id=?', Number(id))[0]);
   if (!record) return null;
-  const weeks = rows(`SELECT ordinal,season,week,opened_at,prior_chain_hash,result_hash,chain_hash,
+  const opened = rows('SELECT COUNT(*) AS count FROM nfl_blind_audit_weeks WHERE run_id=?', record.id)[0]?.count ?? 0;
+  const limit = weekLimit == null ? '' : ' LIMIT ?';
+  const params = weekLimit == null ? [record.id] : [record.id, Math.max(0, Number(weekLimit) || 0)];
+  const selectedWeeks = rows(`SELECT ordinal,season,week,opened_at,prior_chain_hash,result_hash,chain_hash,
                              result_json,fault_json FROM nfl_blind_audit_weeks
-                      WHERE run_id=? ORDER BY ordinal`, record.id).map(x => ({ ...x,
-    result: JSON.parse(x.result_json), faults: JSON.parse(x.fault_json), result_json: undefined, fault_json: undefined }));
+                      WHERE run_id=? ORDER BY ordinal DESC${limit}`, ...params);
+  const weeks = selectedWeeks.reverse().map(x => {
+    const result = JSON.parse(x.result_json);
+    return { ...x, result: compact ? dashboardWeekResult(result) : result,
+      faults: JSON.parse(x.fault_json), result_json: undefined, fault_json: undefined };
+  });
   const timings = rows(`SELECT freeze_check_ms,compute_ms,persist_ms,total_ms
     FROM nfl_blind_audit_week_performance WHERE run_id=? ORDER BY ordinal`, record.id);
   const average = key => timings.length
     ? Math.round(timings.reduce((sum, item) => sum + item[key], 0) / timings.length) : null;
   const averageTotalMs = average('total_ms');
-  return { ...record, progress: { opened: weeks.length, total: record.spec.schedule.length,
+  return { ...record, progress: { opened, total: record.spec.schedule.length,
     next: record.spec.schedule[record.next_ordinal] ?? null },
   performance: { measured_weeks: timings.length,
     average_freeze_check_ms: average('freeze_check_ms'), average_compute_ms: average('compute_ms'),
@@ -649,11 +682,15 @@ export function blindAuditStatus(id) {
     estimated_remaining_ms: averageTotalMs == null ? null
       : averageTotalMs * Math.max(0, record.spec.schedule.length - weeks.length),
     latest: timings.at(-1) ?? null },
-  manifest: runManifest(record, weeks), weeks };
+  manifest: weekLimit == null && !compact ? runManifest(record, weeks) : undefined,
+  weeks };
 }
 
 export function listBlindAudits() {
-  return rows('SELECT id FROM nfl_blind_audit_runs ORDER BY id DESC').map(x => blindAuditStatus(x.id));
+  return rows('SELECT id FROM nfl_blind_audit_runs ORDER BY id DESC').map(x => blindAuditStatus(x.id, {
+    weekLimit: 0,
+    compact: true
+  }));
 }
 
 export function blindAuditProtocol() {
@@ -661,4 +698,4 @@ export function blindAuditProtocol() {
     warning: 'Do not preregister until the model code is committed and the input data snapshot is frozen.' };
 }
 
-export const __test = { bettingSummary, runManifest, inputDataState, inputMutationState };
+export const __test = { bettingSummary, runManifest, inputDataState, inputMutationState, dashboardWeekResult };

@@ -11,20 +11,21 @@ import { useApi } from '../../api';
  * because that is what they are.
  */
 
-type Tab = 'profitability' | 'abstentions' | 'slices' | 'pipeline';
+type Tab = 'profitability' | 'abstentions' | 'slices' | 'close' | 'pipeline';
 
 export default function Diagnostics() {
   const [tab, setTab] = useState<Tab>('profitability');
   const { data: profit } = useApi<any>(tab === 'profitability' ? '/nfl-betting/diagnostic' : null);
   const { data: abst } = useApi<any>(tab === 'abstentions' ? '/betting/abstentions' : null);
   const { data: slices } = useApi<any>(tab === 'slices' ? '/nfl-betting/diagnostic/slices' : null);
+  const { data: close } = useApi<any>(tab === 'close' ? '/nfl-market/line-move-study' : null);
   const { data: pipe } = useApi<any>(tab === 'pipeline' ? '/betting/pipeline' : null);
   const { data: lat } = useApi<any>(tab === 'pipeline' ? '/betting/latency' : null);
 
   return (
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-slate-200">
-        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['slices', 'Accuracy by slice'], ['pipeline', 'Data pipeline']] as [Tab, string][])
+        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['slices', 'Accuracy by slice'], ['close', 'Beat the close'], ['pipeline', 'Data pipeline']] as [Tab, string][])
           .map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
@@ -174,6 +175,56 @@ export default function Diagnostics() {
                 </table>
               </div>
               <div className="card p-4 text-xs text-slate-600">{slices.rule}</div>
+            </>
+      )}
+
+      {tab === 'close' && (
+        !close ? <div className="card p-6 text-sm text-slate-500">Reading the open-to-close study…</div>
+          : close.pending ? <Pending label="Beat-the-close study" note={close.note} />
+          : !close.available ? <div className="card p-6 text-sm text-slate-600">{close.reason}</div>
+            : <>
+              <div className={`card p-5 ${close.gate.passed_decision_times.length ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40'}`}>
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Does anything predict the open-to-close move?</div>
+                <h2 className="mt-1 text-lg font-black text-slate-950">{close.gate.verdict}</h2>
+                <p className="mt-2 text-sm text-slate-700">
+                  {close.dataset.rows.toLocaleString()} game-markets from {close.seasons[0]}–{close.seasons.at(-1)}; held out from {close.holdout_from}.
+                  Gate: {close.gate.rule}
+                </p>
+              </div>
+              <div className="card overflow-x-auto p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Headline by market and decision time (held-out seasons)</h3>
+                <p className="mt-1 text-xs text-slate-500">CLV is the number of points the close moved in the predicted direction from the line you could bet at that time. T1/T2 have no stored line, so their CLV is an upper bound.</p>
+                <table className="mt-2 w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1 pr-3">Market</th><th className="py-1 pr-3">Time</th><th className="py-1 pr-3">Games</th><th className="py-1 pr-3">Mean CLV</th><th className="py-1 pr-3">95% interval</th><th className="py-1 pr-3">Direction</th><th className="py-1 pr-3">Basis</th></tr></thead>
+                  <tbody>{close.headline.map((h: any) => <tr key={`${h.market}-${h.decision_time}`} className={`border-t border-slate-100 ${h.holdout?.clv_interval?.[0] > 0 ? 'text-slate-900' : 'text-slate-500'}`}>
+                    <td className="py-1 pr-3 font-medium">{h.market}</td><td className="py-1 pr-3">{h.decision_time}</td><td className="py-1 pr-3 tabular-nums">{h.holdout?.n ?? '—'}</td>
+                    <td className="py-1 pr-3 tabular-nums font-semibold">{h.holdout?.mean_clv ?? '—'}</td><td className="py-1 pr-3 tabular-nums">{h.holdout ? `${h.holdout.clv_interval[0]} to ${h.holdout.clv_interval[1]}` : '—'}</td>
+                    <td className="py-1 pr-3 tabular-nums">{h.holdout?.direction_accuracy == null ? '—' : `${(h.holdout.direction_accuracy * 100).toFixed(1)}%`}</td><td className="py-1 pr-3 text-[10px]">{h.clv_basis}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <div className="card overflow-x-auto p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Single signals, held out, each against the line bettable when it was known</h3>
+                <table className="mt-2 w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1 pr-3">Market</th><th className="py-1 pr-3">Signal</th><th className="py-1 pr-3">Known at</th><th className="py-1 pr-3">Mean CLV</th><th className="py-1 pr-3">95% interval</th><th className="py-1 pr-3">Direction</th><th className="py-1 pr-3">Holm p</th></tr></thead>
+                  <tbody>{close.features.map((f: any) => <tr key={`${f.market}-${f.name}`} className={`border-t border-slate-100 ${f.p_holm < 0.05 && f.clv_interval[0] > 0 ? 'text-slate-900' : 'text-slate-400'}`}>
+                    <td className="py-1 pr-3">{f.market}</td><td className="py-1 pr-3 font-medium">{f.name.split(':')[1].replaceAll('_', ' ')}</td><td className="py-1 pr-3">{f.known_at}</td>
+                    <td className="py-1 pr-3 tabular-nums font-semibold">{f.mean_clv}</td><td className="py-1 pr-3 tabular-nums">{f.clv_interval[0]} to {f.clv_interval[1]}</td>
+                    <td className="py-1 pr-3 tabular-nums">{f.direction_accuracy == null ? '—' : `${(f.direction_accuracy * 100).toFixed(1)}%`}</td><td className="py-1 pr-3 tabular-nums">{f.p_holm}</td></tr>)}</tbody>
+                </table>
+              </div>
+              {Object.entries(close.slices ?? {}).map(([market, list]: any) => (
+                <div key={market} className="card overflow-x-auto p-4">
+                  <h3 className="text-sm font-semibold text-slate-900">Slices · {market} (held out, T2 model)</h3>
+                  <table className="mt-2 w-full text-left text-xs">
+                    <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1 pr-3">Slice</th><th className="py-1 pr-3">Games</th><th className="py-1 pr-3">Mean CLV</th><th className="py-1 pr-3">95% interval</th><th className="py-1 pr-3">Direction</th></tr></thead>
+                    <tbody>{list.map((s: any) => <tr key={s.slice} className={`border-t border-slate-100 ${s.readable ? 'text-slate-800' : 'text-slate-400'}`}>
+                      <td className="py-1 pr-3 font-medium">{s.slice}</td><td className="py-1 pr-3 tabular-nums">{s.n}</td><td className="py-1 pr-3 tabular-nums">{s.mean_clv ?? '—'}</td>
+                      <td className="py-1 pr-3 tabular-nums">{s.clv_interval ? `${s.clv_interval[0]} to ${s.clv_interval[1]}` : '—'}</td><td className="py-1 pr-3 tabular-nums">{s.direction_accuracy == null ? '—' : `${(s.direction_accuracy * 100).toFixed(1)}%`}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              ))}
+              {close.units && <div className="card p-4 text-xs text-slate-600">Spreads, T0 model, predicted side at −110: {close.units.units_at_opener}u at the opener versus {close.units.units_at_close}u at the close over {close.units.n} games. {close.units.note}</div>}
+              <div className="card p-4 text-xs text-slate-600">{close.rule}</div>
             </>
       )}
 

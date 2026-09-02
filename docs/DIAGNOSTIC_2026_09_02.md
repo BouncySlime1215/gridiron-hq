@@ -352,3 +352,28 @@ rows by season, week, matchup type, roof, specialist, confidence and coverage
 bucket, with calibration (implied direction probability from the forecast and
 its uncertainty against the empirical hit rate). 2021 is quarantined; slices
 under 30 directional calls are marked unreadable.
+
+### Audit freeze scope — FIXED
+
+Runs 12 and 13 (2026-09-02) each computed a full week and were then voided:
+run 12 by the API server hot-reloading on a source edit mid-request, run 13 by
+the post-compute freeze recheck, because `repositoryState()` hashed the whole
+working tree and a client file had changed while the week ran. The code freeze
+now covers `server/`, `scripts/`, `package.json` and the lockfile, which is
+every path that can change an audited number; docs, client and tests are
+outside it. Runs 9 and 10 (2026-09-01) were sealed as failed by the rebuild
+runner after scheduled jobs mutated `nfl_ensemble_fit_artifacts` and `players`
+during the run; the ephemeral-artifact guard and the scoped `players` hash
+that Codex added address those two tables.
+
+### Live verification — run 14 (2022 Weeks 5–6), complete
+
+Two weeks opened in 167 s and 80 s. Every week carried its full input record
+(224/224 and 196/196 cells; zero reporting faults) and a chained look-back.
+Week 5: 7 of 12 specialists on every game; the five misses each carry a
+reason (online neural cold start, no stored open-to-decision pair, no
+verified news before kickoff, no live state pregame, no historical multi-book
+quotes). Week 6: 8 of 12 (the online neural warmed up). The coordinator
+abstained both weeks (warm-up needs 128 games over 8 settled weeks) and said
+so; bets 3-1 then 1-1, cumulative 4-2 (+1.62u), which the reads refuse to
+call a rate. Manifest: 2 complete weeks, 0 missing cells.

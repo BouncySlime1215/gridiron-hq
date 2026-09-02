@@ -57,7 +57,12 @@ async function hourAt(lat, lon, kickoffIso) {
 /** Fetch kickoff-hour weather for every outdoor, non-neutral game not already stored. */
 export async function syncGameWeather({ seasons = [2022, 2023, 2024, 2025], pauseMs = 150, onProgress = null } = {}) {
   const games = outdoorGames(seasons);
-  const have = new Set(rows('SELECT season, week, home FROM nfl_game_weather').map(r => `${r.season}|${r.week}|${r.home}`));
+  // Only a real archive row (the game already happened) should block a re-fetch —
+  // a forecast row (source='open-meteo-forecast', written for a game still ahead of
+  // kickoff) must not survive past kickoff; this is what lets the forecast get
+  // replaced by what actually happened once the archive has it.
+  const have = new Set(rows(`SELECT season, week, home FROM nfl_game_weather WHERE source='open-meteo-archive'`)
+    .map(r => `${r.season}|${r.week}|${r.home}`));
   let written = 0, skipped = 0;
   const failures = [];
   for (let i = 0; i < games.length; i++) {
@@ -78,6 +83,55 @@ export async function syncGameWeather({ seasons = [2022, 2023, 2024, 2025], paus
     if (pauseMs) await new Promise(resolve => setTimeout(resolve, pauseMs));
   }
   return { version: NFL_WEATHER_VERSION, games: games.length, written, skipped, failures: failures.slice(0, 20), failure_count: failures.length };
+}
+
+async function forecastHourAt(lat, lon, kickoffIso) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    '&hourly=temperature_2m,wind_speed_10m,wind_gusts_10m,precipitation&forecast_days=16&timezone=UTC';
+  const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  if (!res.ok) throw new Error(`open-meteo ${res.status}`);
+  const j = await res.json();
+  const hour = kickoffIso.slice(0, 13);
+  const idx = (j.hourly?.time ?? []).findIndex(t => t.startsWith(hour));
+  if (idx < 0) return null;
+  const pick = key => (Number.isFinite(j.hourly[key]?.[idx]) ? j.hourly[key][idx] : null);
+  return { temp_c: pick('temperature_2m'), wind_kmh: pick('wind_speed_10m'), gust_kmh: pick('wind_gusts_10m'), precip_mm: pick('precipitation') };
+}
+
+/**
+ * Forecast kickoff-hour wind for outdoor games still ahead of kickoff, within
+ * Open-Meteo's 16-day forecast horizon (verified 2026-09-02: 384 hourly rows).
+ * `INSERT OR REPLACE` deliberately overwrites the same game's row on every run
+ * — the forecast changes as kickoff approaches, and `nfl_signal_snapshots`
+ * (via beat-the-close.js's `wind_forecast_kmh` signal, snapshotted hourly) is
+ * where the Wednesday-forecast-vs-Friday-forecast-vs-actual history lives, not
+ * this table. Once the game kicks off, `syncGameWeather`'s archive read takes
+ * over the same row (see the `source` filter there).
+ */
+export async function syncForecastWeather({ pauseMs = 150 } = {}) {
+  const season = Number(process.env.NFL_SEASON) || new Date().getUTCFullYear();
+  const now = new Date().toISOString();
+  const horizonMs = 16 * 24 * 3600000;
+  const games = outdoorGames([season]).filter(g => {
+    const kickoff = nflKickoffDate(g.gameday, g.gametime || '13:00')?.toISOString();
+    return kickoff && kickoff > now && new Date(kickoff).getTime() - Date.now() <= horizonMs;
+  });
+  let written = 0;
+  const failures = [];
+  for (const g of games) {
+    const stadium = STADIUMS[g.home];
+    if (!stadium || stadium.indoor) continue;
+    const kickoff = nflKickoffDate(g.gameday, g.gametime || '13:00').toISOString();
+    try {
+      const w = await forecastHourAt(stadium.lat, stadium.lon, kickoff);
+      if (!w) { failures.push({ game: `${g.season} W${g.week} ${g.home}`, error: 'hour outside forecast horizon' }); continue; }
+      run(`INSERT OR REPLACE INTO nfl_game_weather (season,week,home,kickoff,temp_c,wind_kmh,gust_kmh,precip_mm,source,fetched_at)
+           VALUES (?,?,?,?,?,?,?,?,'open-meteo-forecast',datetime('now'))`, g.season, g.week, g.home, kickoff, w.temp_c, w.wind_kmh, w.gust_kmh, w.precip_mm);
+      written++;
+    } catch (error) { failures.push({ game: `${g.season} W${g.week} ${g.home}`, error: error.message }); }
+    if (pauseMs) await new Promise(resolve => setTimeout(resolve, pauseMs));
+  }
+  return { version: NFL_WEATHER_VERSION, games: games.length, written, failures: failures.slice(0, 20), failure_count: failures.length };
 }
 
 export function gameWeather(season, week, home) {

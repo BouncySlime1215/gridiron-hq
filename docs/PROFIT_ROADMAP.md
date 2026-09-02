@@ -98,18 +98,42 @@ every metered call goes through `odds-api.js#get()`; missing evidence is null.
   by book at all) but not a decision-affecting one; noted in §6.
   Movement-over-time readers (`signal-latency.js`, `nfl-news-market-latency.js`,
   `nfl-specialists.js`) compare a book with itself and are exempt.
-- [ ] **0.5 `wind_total` live rule.** `nfl-weather.js`: add
-  `forecastKickoffWind(season, week, home)` from
-  `https://api.open-meteo.com/v1/forecast?latitude&longitude&hourly=wind_speed_10m,wind_gusts_10m,precipitation&forecast_days=16`
-  (verified: 384 hourly rows, 16 days) using `STADIUMS`; store in
-  `nfl_game_weather` with `source='open-meteo-forecast'` and `forecast_at`.
-  `beat-the-close.js` RULES gains `wind_total: { market: 'totals',
-  threshold_kmh: 25, side: 'Under' }` — fires when the forecast for the
-  kickoff hour ≥ 25 km/h, the game is outdoor (`STADIUMS` roof), and
-  Pinnacle's total has not moved down ≥ 0.5 from the opener. Snapshot the
-  forecast value in `nfl_signal_snapshots` (`signal='wind_forecast_kmh'`) at
-  every hourly run so the Friday-forecast-vs-actual question is answerable.
-  Test with a seeded forecast. Job: existing `beat_the_close` hourly.
+- [x] **0.5 `wind_total` live rule — built, tested, and one real bug caught
+  before it shipped silently broken.** `nfl-weather.js#syncForecastWeather`
+  fetches kickoff-hour wind from Open-Meteo's forecast endpoint (verified:
+  384 hourly rows, 16-day horizon) for every outdoor game ahead of kickoff,
+  `INSERT OR REPLACE`-ing the same `nfl_game_weather` row as the forecast
+  changes; `source='open-meteo-forecast'` until `syncGameWeather`'s archive
+  read takes the row over after kickoff (its "already have this game" check
+  now filters on `source='open-meteo-archive'` specifically — before this
+  fix, a forecast row would have permanently blocked the real post-game
+  weather from ever being recorded). Wired into the existing hourly
+  `beat_the_close` scheduler job (`refreshBeatTheClose` now runs
+  `syncForecastWeather()` first). `beat-the-close.js` RULES gains
+  `wind_total: { market: 'totals', threshold: 25, side: 'Under',
+  requireNotMovedDown: 0.5 }`; because this rule is one-directional and
+  absolute-threshold — unlike `ratings_vs_open[_total]`, which are
+  bidirectional and slate-centered — `decideBeatTheClose` gained a second
+  branch for `rule.side` rules that reads the raw value and additionally
+  requires the total to not have already drifted toward Under since the
+  opener (betting after the market has priced it in is not the measured
+  edge). The signal is pushed as `wind_total` (matching its RULES key
+  exactly, the same convention `ratings_vs_open` follows) and lands in
+  `nfl_signal_snapshots` on every hourly run regardless of whether it
+  clears the threshold, so the Wednesday-vs-Friday-forecast question is
+  answerable later. **Caught while testing:** the first version pushed the
+  signal as `wind_forecast_kmh` — a name that does not match the `wind_total`
+  RULES key — so `RULES[sig.signal]` never found it and the rule would have
+  run forever without ever freezing a single decision, with no error and no
+  visible symptom. `test/beat-the-close-wind.test.js` (5 cases: fires,
+  below-threshold, already-moved, dome-exclusion, no-reachable-price) and
+  `test/nfl-weather-forecast.test.js` (3 cases: forecast write, overwrite on
+  re-fetch, archive takeover after kickoff) both pass; the first wind test
+  is what caught the naming bug. **Live-verified against real Week 1 data:**
+  9 outdoor games now carry a real Open-Meteo forecast (highest currently
+  17 km/h, NYG–DAL); all below the 25 km/h threshold, so the rule correctly
+  froze zero decisions this run rather than forcing one — exactly the
+  behaviour a real, non-overfit rule should show most weeks.
 - [ ] **0.6 Weekly read + retirement.** `beat-the-close.js#weeklyRead(season, week)`:
   per signal — settled, mean CLV, week-clustered bootstrap interval, direction,
   positive share, the historical coefficient beside it; writes into the

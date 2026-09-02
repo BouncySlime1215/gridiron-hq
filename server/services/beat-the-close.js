@@ -28,6 +28,7 @@ import { currentNflWeek } from './weekly-learning.js';
 import { gameCutoff } from './game-cutoff.js';
 import { verifiedEventMarketLatency } from './nfl-news-market-latency.js';
 import { isFreshQuote } from './book-feeds.js';
+import { gameWeather, STADIUMS } from './nfl-weather.js';
 
 export const BEAT_THE_CLOSE_VERSION = 'beat-the-close-v1.1';
 /**
@@ -39,7 +40,14 @@ export const BEAT_THE_CLOSE_VERSION = 'beat-the-close-v1.1';
  */
 export const RULES = Object.freeze({
   ratings_vs_open: { market: 'spreads', threshold: 0.5, basis: 'Phase 1: +0.58 CLV, 57.7%, n 570 held out; strongest on favourites ≤ 3' },
-  ratings_vs_open_total: { market: 'totals', threshold: 1.0, basis: 'Phase 1: totals T0 model +0.36 as a whole; the ratings term alone was weak (+0.08) — candidate, not a passed signal' }
+  ratings_vs_open_total: { market: 'totals', threshold: 1.0, basis: 'Phase 1: totals T0 model +0.36 as a whole; the ratings term alone was weak (+0.08) — candidate, not a passed signal' },
+  // Not centered across the slate and not bidirectional, unlike the two rules
+  // above: the study measured an ABSOLUTE kickoff-hour wind speed against the
+  // held-out totals close, in one direction only (nothing found a calm-air
+  // Over edge). `side` and `requireNotMovedDown` route this through a
+  // different branch of decideBeatTheClose() below.
+  wind_total: { market: 'totals', threshold: 25, side: 'Under', requireNotMovedDown: 0.5,
+    basis: 'Phase 1 §13: +0.47 CLV, 62.1%, n 753 outdoor held out, Holm p < 0.01; the opener does not price kickoff-hour wind' }
 });
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_signal_snapshots (
@@ -140,6 +148,15 @@ export function signalsFor(game, { now = new Date().toISOString(), names = teamN
     push('injury_burden_delta', (atT.away.injury_burden - at0.away.injury_burden) - (atT.home.injury_burden - at0.home.injury_burden));
     push('trades_since_open', (atT.home.trade_arrivals - at0.home.trade_arrivals) + (atT.away.trade_arrivals - at0.away.trade_arrivals));
     if (current) push('pinnacle_move_so_far', market === 'spreads' ? opener.line - current.line : current.line - opener.line);
+    if (market === 'totals' && !STADIUMS[game.home]?.indoor) {
+      const weather = gameWeather(game.season, game.week, game.home);
+      if (weather && Number.isFinite(weather.wind_kmh)) {
+        // Pushed under the same name as its RULES key — decideBeatTheClose()
+        // looks a decision up by RULES[sig.signal], so the two must match
+        // exactly, the same convention ratings_vs_open[_total] already follow.
+        push('wind_total', weather.wind_kmh, { source: weather.source, gust_kmh: weather.gust_kmh, fetched_at: weather.fetched_at });
+      }
+    }
   }
   return out;
 }
@@ -194,9 +211,26 @@ export function decideBeatTheClose({ season = null, week = null, now = new Date(
   for (const { game, signals } of slateSignals(s, w, now, names)) {
     for (const sig of signals) {
       const rule = RULES[sig.signal];
-      if (!rule || !Number.isFinite(sig.centered)) continue;
-      if (Math.abs(sig.centered) < rule.threshold) { below++; continue; }
-      const side = sig.market === 'spreads' ? (sig.centered > 0 ? game.home : game.away) : (sig.centered > 0 ? 'Over' : 'Under');
+      if (!rule) continue;
+      let side;
+      if (rule.side) {
+        // One-directional, absolute-threshold rule (wind_total): the raw
+        // forecast value against a fixed line, not the slate-centered value,
+        // and only while the total has not already drifted the predicted
+        // way — betting the under after the market has already priced the
+        // wind in is not the measured edge.
+        if (!Number.isFinite(sig.value) || sig.value < rule.threshold) { below++; continue; }
+        if (rule.requireNotMovedDown != null) {
+          const movedTowardUnder = Number.isFinite(sig.current_line) && Number.isFinite(sig.opener_line)
+            ? sig.opener_line - sig.current_line : 0;
+          if (movedTowardUnder >= rule.requireNotMovedDown) { below++; continue; }
+        }
+        side = rule.side;
+      } else {
+        if (!Number.isFinite(sig.centered)) continue;
+        if (Math.abs(sig.centered) < rule.threshold) { below++; continue; }
+        side = sig.market === 'spreads' ? (sig.centered > 0 ? game.home : game.away) : (sig.centered > 0 ? 'Over' : 'Under');
+      }
       const modelVersion = `${BEAT_THE_CLOSE_VERSION}:${sig.signal}`;
       const eventKey = `${s}:${w}:${game.home}:${game.away}`;
       const marketKey = sig.market === 'spreads' ? 'spread' : 'total';
@@ -210,11 +244,14 @@ export function decideBeatTheClose({ season = null, week = null, now = new Date(
         book: quote.book, books_on_board: quote.books, stake_units: 0, basis: rule.basis, decided_at: now };
       // Store the line in HOME-perspective terms for spreads so settlement is one formula.
       const homeLine = sig.market === 'spreads' ? (side === game.home ? quote.line : -quote.line) : quote.line;
+      const reason = rule.side
+        ? `signal ${sig.signal} ${sig.value} ≥ ${rule.threshold} and the total has not moved down since the opener; zero units; graded by CLV`
+        : `signal ${sig.signal} centered ${sig.centered} (raw ${sig.value}, slate mean ${sig.slate_mean}) ≥ ${rule.threshold}; zero units; graded by CLV`;
       run(`INSERT INTO shadow_decisions
         (sport,event_key,market,selection,model_version,probability,market_probability,uncertainty,regime,decision,reason,captured_at,
          season,week,home_team,away_team,line,american_price,quote_at,feature_snapshot_json)
         VALUES ('NFL',?,?,?,?,NULL,NULL,NULL,'beat_the_close','observe',?,?,?,?,?,?,?,?,?,?)`,
-      eventKey, marketKey, side, modelVersion, `signal ${sig.signal} centered ${sig.centered} (raw ${sig.value}, slate mean ${sig.slate_mean}) ≥ ${rule.threshold}; zero units; graded by CLV`, now,
+      eventKey, marketKey, side, modelVersion, reason, now,
       s, w, game.home, game.away, homeLine, quote.price, quote.captured_at, JSON.stringify(feature));
       frozen++;
       decisions.push({ game: `${game.away} at ${game.home}`, market: sig.market, side, signal: sig.signal, value: sig.value, centered: sig.centered, line: quote.line, price: quote.price, book: quote.book, slice: feature.slice });

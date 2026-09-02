@@ -231,7 +231,12 @@ async function refreshQbrAndWeather() {
 /** Beat the close: signal snapshots, zero-unit shadow decisions at the best reachable price, CLV settlement. */
 async function refreshBeatTheClose() {
   const { runBeatTheClose } = await import('./beat-the-close.js');
-  return runBeatTheClose();
+  // Kickoff-hour wind forecasts change as the week goes on; refresh them
+  // before the signal snapshot below reads gameWeather() so wind_total sees
+  // the current forecast, not whatever was true the last time this ran.
+  const { syncForecastWeather } = await import('./nfl-weather.js');
+  const forecast = await syncForecastWeather().catch(error => ({ error: error.message }));
+  return { forecast, ...runBeatTheClose() };
 }
 
 /** Heavy reports (abstention audit, diagnostic, walk-forward, calibration, football-first fit) in worker threads. */

@@ -32,6 +32,7 @@
  * set FREE_BOOK_FEEDS=0 to disable. If a feed changes shape it reports
  * `events: 0` with the error, never a malformed row.
  */
+import { teamResolver } from './team-codes.js';
 import { db, rows, run } from '../db/index.js';
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
@@ -55,42 +56,8 @@ const american = v => { const n = num(String(v ?? '').replace('+', '')); return 
 
 /* ------------------------------------------------------------- team names */
 
-let _resolver = null;
-/** Resolve any feed's team spelling to {abbr, name} using nfl_teams. */
-export function teamResolver() {
-  if (_resolver) return _resolver;
-  const teams = rows('SELECT abbr, name FROM nfl_teams');
-  const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const byAbbr = new Map(), byName = new Map(), byNick = new Map(), byCity = new Map();
-  for (const t of teams) {
-    byAbbr.set(norm(t.abbr), t);
-    byName.set(norm(t.name), t);
-    const words = String(t.name).split(/\s+/);
-    byNick.set(norm(words.at(-1)), t);
-    byCity.set(norm(words.slice(0, -1).join(' ')), t);
-  }
-  // ESPN/Kambi spellings that differ from nfl_teams.abbr.
-  const aliases = { wsh: 'was', la: 'lar', jac: 'jax', ny: null };
-  _resolver = candidate => {
-    const raw = String(candidate ?? '').trim();
-    if (!raw) return null;
-    const n = norm(raw);
-    if (byName.has(n)) return byName.get(n);
-    const abbrKey = aliases[n] === undefined ? n : aliases[n];
-    if (abbrKey && byAbbr.has(abbrKey)) return byAbbr.get(abbrKey);
-    // "SEA Seahawks", "NY Giants", "Los Angeles Rams", "Seattle"
-    const words = raw.split(/\s+/);
-    const nick = norm(words.at(-1));
-    if (byNick.has(nick)) return byNick.get(nick);
-    if (byCity.has(n)) return byCity.get(n);
-    const lead = norm(words[0]);
-    const leadKey = aliases[lead] === undefined ? lead : aliases[lead];
-    if (leadKey && byAbbr.has(leadKey)) return byAbbr.get(leadKey);
-    return null;
-  };
-  return _resolver;
-}
-export function clearTeamResolverCache() { _resolver = null; }
+// The resolver lives in team-codes.js (the one map); re-exported for existing callers.
+export { teamResolver, clearTeamResolverCache } from './team-codes.js';
 
 const eventKey = (commence, away, home) => `nfl:${String(commence ?? '').slice(0, 10)}:${away}@${home}`;
 

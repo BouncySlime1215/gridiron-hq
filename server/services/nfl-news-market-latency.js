@@ -2,7 +2,7 @@
 import { rows } from '../db/index.js';
 
 const r2 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(2);
-const normalize = value => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+import { normalizeToken as normalize } from './team-codes.js';
 const minutes = (a, b) => (new Date(b).getTime() - new Date(a).getTime()) / 60000;
 const median = values => {
   if (!values.length) return null;

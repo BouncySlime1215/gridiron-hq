@@ -8,6 +8,7 @@
  * evidence receives more recency weight as games settle, so the prior adapts
  * without ever reading the target game's outcome.
  */
+import { gameCutoff } from './game-cutoff.js';
 import './nfl-advanced.js';
 import './nfl-pbp.js';
 import { db, rows, run } from '../db/index.js';
@@ -60,10 +61,7 @@ const unitFor = position => SPECIAL.has(position) ? 'special_teams' : DEFENSE.ha
 const snapField = position => unitFor(position) === 'defense' ? 'defense_pct'
   : unitFor(position) === 'special_teams' ? 'st_pct' : 'offense_pct';
 
-function gameCutoff(season, week, team) {
-  const game = rows(`SELECT gameday FROM game_lines WHERE season=? AND week=? AND team=? LIMIT 1`, season, week, team)[0];
-  return game?.gameday ? `${game.gameday}T23:59:59Z` : null;
-}
+// The shared cutoff (game-cutoff.js): the scheduled kickoff, not the end of the day.
 
 /** Historical depth releases are incomplete before 2024. Reconstruct the
  * active position order from participation strictly before the target week. */

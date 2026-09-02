@@ -183,15 +183,24 @@ retrying. This prevents a repeat, it does not recover September.
 - [x] One forward-sample target: `FORWARD_SAMPLE_TARGETS` in `nfl-policy.js`
   (200 overall, 75 per market, per §2) replaces the 250/250/200/200 copies in
   four services.
-- [ ] One team-code map, one name normalizer, one cutoff representation, used by
-  every ingestion path. Eight normalizers and five maps exist today (the
-  Washington postgame-truth join and the officials crosswalk were fixed at
-  their specific call sites, not consolidated repo-wide).
-- [ ] Reconcile the audit names across code and docs (the forward-sample
-  target is done; see above).
-- [ ] `nfl-market.js`'s alpha/carryover grid search is still fit over the
-  entire history rather than a separate held-out window (only its
-  serving-time application of the fitted carryover was fixed this round).
+- [x] One team-code map, one name normalizer, one cutoff representation:
+  `team-codes.js` (`canonicalTeamCode`, `espnTeamCode`, `teamResolver`,
+  `normalizeToken`, `LEGACY_CODE_PAIRS`) now backs gamescript (nflverse and
+  ESPN sync), nfl-advanced (`normalizeDepthTeam`, `reconcileHistoricalTeamCodes`,
+  which now also reconciles `game_lines` so OAK/SD/STL games belong to LV/LAC/LAR
+  in the ratings walk), book-feeds and polymarket-lines, sportsgameodds,
+  postgame truth (WAS/WSH on both sides of the play join) and news latency.
+  `game-cutoff.js` is the one kickoff cutoff; the unified engine and roster
+  strength had used the scheduled kickoff and the end of the game day
+  respectively for the same game.
+- [x] Audit names reconciled: the 2021–25 replay is the **historical
+  diagnostic** (`historical_diagnostic` in profitability readiness and the
+  diagnostic; the preregistration label and protocol say so), and **blind
+  audit** means the preregistered 2026 forward ledger. UI labels follow.
+- [x] `nfl-market.js` selects alpha/carryover on every season before the last
+  completed one, holds that season out, and reports `fitWindow` with the
+  selection score, the held-out score of the chosen pair and the pair
+  hindsight would have picked.
 
 **Operating rules added by this diagnostic.**
 

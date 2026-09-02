@@ -106,14 +106,46 @@ export function fitModel() {
 
   const ALPHAS = [0.05, 0.08, 0.1, 0.13, 0.16, 0.2];
   const CARRYOVERS = [0.5, 0.65, 0.75, 0.85, 1.0];
+  // Hyperparameters are selected on every season before the last completed
+  // one and the last completed season is held out, so the grid search never
+  // grades itself on the games it tuned on (PROFITABILITY_PLAN Priority 0).
+  // The ratings themselves are then walked over the full history with the
+  // selected pair, because serving wants the newest ratings, not the
+  // selection window's. The held-out score is reported next to the
+  // in-hindsight best on that season so the gap is visible.
+  const lastSeason = games[games.length - 1].season;
+  const selection = games.filter(g => g.season < lastSeason);
+  const holdout = games.filter(g => g.season === lastSeason);
+  const selectOn = selection.length >= 500 ? selection : games;
   let best = null;
+  let holdoutBest = null;
   for (const alpha of ALPHAS) {
     for (const carryover of CARRYOVERS) {
-      const { results } = simulate(games, { alpha, carryover, hfa, leagueAvg });
+      const { results } = simulate(selectOn, { alpha, carryover, hfa, leagueAvg });
       const score = gridScore(results, 5);
       if (!best || score < best.score) best = { alpha, carryover, score };
+      if (holdout.length && selectOn !== games) {
+        const full = simulate(games, { alpha, carryover, hfa, leagueAvg });
+        const hs = gridScore(full.results.filter(r => r.g.season === lastSeason), 5);
+        if (!holdoutBest || hs < holdoutBest.score) holdoutBest = { alpha, carryover, score: hs };
+        if (alpha === best.alpha && carryover === best.carryover) best.holdoutScore = hs;
+      }
     }
   }
+  if (holdout.length && selectOn !== games && best.holdoutScore == null) {
+    const full = simulate(games, { alpha: best.alpha, carryover: best.carryover, hfa, leagueAvg });
+    best.holdoutScore = gridScore(full.results.filter(r => r.g.season === lastSeason), 5);
+  }
+  const fitWindow = {
+    selection_seasons: selectOn === games ? [games[0].season, lastSeason] : [selection[0].season, lastSeason - 1],
+    holdout_season: selectOn === games ? null : lastSeason,
+    selected: { alpha: best.alpha, carryover: best.carryover, selection_score: +best.score.toFixed(4),
+      holdout_score: best.holdoutScore == null ? null : +best.holdoutScore.toFixed(4) },
+    holdout_best_in_hindsight: holdoutBest ? { alpha: holdoutBest.alpha, carryover: holdoutBest.carryover,
+      score: +holdoutBest.score.toFixed(4) } : null,
+    note: 'alpha/carryover chosen on the selection seasons only; the holdout score is what that choice ' +
+      'actually did on the last completed season, next to the pair hindsight would have picked.'
+  };
 
   const { off, def, results } = simulate(games, { alpha: best.alpha, carryover: best.carryover, hfa, leagueAvg });
   const warm = results.filter(r => r.g.season >= LEAGUE_MIN_SEASON + 5);
@@ -131,7 +163,7 @@ export function fitModel() {
   const totalStd = stdev(totalResiduals);
 
   _cache = {
-    off, def, hfa, leagueAvg, alpha: best.alpha, carryover: best.carryover,
+    off, def, hfa, leagueAvg, alpha: best.alpha, carryover: best.carryover, fitWindow,
     marginStd, totalStd, marginBias, totalBias, marginResiduals, totalResiduals, results,
     warmGames: warm.length, totalGames: games.length,
     // The last season with a completed game in the data. `simulate()` only

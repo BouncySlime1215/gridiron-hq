@@ -17,6 +17,7 @@
  * All are free, keyless and small (largest is ~10MB gzipped), so each is fetched
  * whole and parsed incrementally rather than streamed with an accumulator.
  */
+import { canonicalTeamCode, LEGACY_CODE_PAIRS } from './team-codes.js';
 import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { db, rows, run } from '../db/index.js';
@@ -115,7 +116,8 @@ async function eachRow(url, onRow) {
 
 const n = v => { if (v === '' || v == null || v === 'NA') return null; const x = Number(v); return Number.isFinite(x) ? x : null; };
 const pick = (o, keys) => Object.fromEntries(keys.map(k => [k, n(o[k])]).filter(([, v]) => v != null));
-export const normalizeDepthTeam = value => ({ LA: 'LAR', JAC: 'JAX', OAK: 'LV', SD: 'LAC', STL: 'LAR' }[value] ?? value);
+/** The shared team-code map (team-codes.js); kept under its old name for existing callers. */
+export const normalizeDepthTeam = value => (value == null || value === '' ? value : canonicalTeamCode(value));
 
 /* ------------------------------------------------------------ Next Gen Stats */
 
@@ -382,9 +384,13 @@ export function reconcileHistoricalTeamCodes() {
     ['player_week_usage', ['team', 'opponent']],
     ['nfl_ngs', ['team']], ['nfl_pfr_adv', ['team', 'opponent']],
     ['nfl_snaps', ['team']], ['nfl_injuries', ['team']],
-    ['nfl_play_formations', ['possession']]
+    ['nfl_play_formations', ['possession']],
+    // Relocated franchises keep their identity in the ratings walk: OAK games
+    // are Raiders games. game_lines carried OAK/SD/STL while every feature
+    // table had already been reconciled, so the two split at the join.
+    ['game_lines', ['team', 'opponent']]
   ];
-  const aliases = [['LA', 'LAR'], ['JAC', 'JAX'], ['OAK', 'LV'], ['SD', 'LAC'], ['STL', 'LAR']];
+  const aliases = LEGACY_CODE_PAIRS;
   const changes = [];
   db.exec('BEGIN');
   try {

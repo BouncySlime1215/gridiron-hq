@@ -251,8 +251,8 @@ function ProfitReadiness({ readiness: r }: { readiness: ProfitabilityOps['readin
       <div className="text-[10px] font-black uppercase tracking-[0.14em] text-amber-700">Honest distance to profit</div>
       <div className="mt-1 text-xl font-black tracking-tight text-amber-950">{r.verdict}</div>
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <MiniReadout label="Historical blind audit" value={`${r.blind_audit.opened}/${r.blind_audit.total || '—'} · ${r.blind_audit.status}`} />
-        <MiniReadout label="Untouched forward proof" value={`${r.blind_audit.forward.settled}/${r.blind_audit.forward.target} settled`} />
+        <MiniReadout label="Historical diagnostic (opened seasons)" value={`${r.blind_audit.opened}/${r.blind_audit.total || '—'} · ${r.blind_audit.status}`} />
+        <MiniReadout label="Blind audit · 2026 forward ledger" value={`${r.blind_audit.forward.settled}/${r.blind_audit.forward.target} settled`} />
         <MiniReadout label="AI risk review" value={`${r.ai_review.reviewed} reviewed · ${r.ai_review.kept} kept · ${r.ai_review.staked}u`} />
       </div>
     </div>

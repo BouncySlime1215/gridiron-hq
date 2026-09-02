@@ -145,7 +145,7 @@ function profitabilityPhases({ matches, horizons, settlements, edge, teaser, gro
     {
       id: 'integrity', order: 0, title: 'Evidence integrity', state: blindRow?.status === 'complete' ? 'complete' : 'in_progress',
       completed: Number(blindRow?.next_ordinal ?? 0), total: blindTotal || 70,
-      headline: blindRow?.status === 'complete' ? 'Historical audit sealed' : 'Historical audit still opening weeks',
+      headline: blindRow?.status === 'complete' ? 'Historical diagnostic sealed' : 'Historical diagnostic still opening weeks',
       detail: blindFinal?.betting
         ? `${blindFinal.betting.bets} historical bets · ${blindFinal.betting.roi == null ? 'ROI unavailable' : `${(blindFinal.betting.roi * 100).toFixed(1)}% ROI`}. Diagnostic evidence only.`
         : 'The week-chain freezes code, inputs and policy before each historical week opens.',
@@ -198,6 +198,14 @@ function profitabilityPhases({ matches, horizons, settlements, edge, teaser, gro
     verdict: teaser.wong_price_gate_passed
       ? 'Execution-ready for a capped paper pilot; forward profitability is not yet proven.'
       : 'One manual price check away from testing the only measured-positive strategy; zero forward profit proof so far.',
+    // Naming, reconciled with PROFITABILITY_PLAN §1: the 2021–25 replay is the
+    // HISTORICAL DIAGNOSTIC (outcome-blind mechanically, but those seasons have
+    // been opened for development); the BLIND AUDIT is the preregistered 2026
+    // forward ledger. `blind_audit` stays as a key for existing readers.
+    audit_names: { historical_diagnostic: 'nfl_blind_audit_runs (2021–25 outcome-blind replay of opened seasons)',
+      blind_audit: 'preregistered 2026 forward ledger (nfl_pick_decisions + shadow_decisions)' },
+    historical_diagnostic: { id: blindRow?.id ?? null, status: blindRow?.status ?? 'not_started', opened: Number(blindRow?.next_ordinal ?? 0), total: blindTotal,
+      classification: blindSpec?.classification ?? null, final: blindFinal },
     blind_audit: { id: blindRow?.id ?? null, status: blindRow?.status ?? 'not_started', opened: Number(blindRow?.next_ordinal ?? 0), total: blindTotal,
       classification: blindSpec?.classification ?? null, final: blindFinal, forward: firewall.forward },
     ai_review: { id: aiRow?.id ?? null, status: aiRow?.status ?? 'not_started', reviewed: aiResult?.reviewed ?? 0,

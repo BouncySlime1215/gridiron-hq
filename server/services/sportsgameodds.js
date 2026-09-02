@@ -25,6 +25,7 @@
  * never guessed into a row. Run `sportsGameOddsSnapshotStatus()` after the
  * first real key is added to confirm the shape still holds.
  */
+import { teamResolver as sharedTeamResolver, normalizeToken as normalizeTeam } from './team-codes.js';
 import { db, run, rows } from '../db/index.js';
 
 const BASE = 'https://api.sportsgameodds.com/v2';
@@ -80,20 +81,10 @@ async function fetchNflEvents() {
   return { events: Array.isArray(events) ? events : [] };
 }
 
-const normalizeTeam = value => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-/** Resolve SportsGameOdds' team naming to this app's canonical abbreviation via nfl_teams. */
+/** Resolve SportsGameOdds' team naming to this app's canonical abbreviation (team-codes.js). */
 function teamResolver() {
-  const teams = rows('SELECT abbr, name FROM nfl_teams');
-  const byNormalizedName = new Map(teams.map(t => [normalizeTeam(t.name), t.abbr]));
-  const byAbbr = new Map(teams.map(t => [normalizeTeam(t.abbr), t.abbr]));
-  return candidate => {
-    const norm = normalizeTeam(candidate);
-    if (!norm) return null;
-    return byAbbr.get(norm) ?? byNormalizedName.get(norm)
-      ?? [...byNormalizedName.entries()].find(([name]) => name.includes(norm) || norm.includes(name))?.[1]
-      ?? null;
-  };
+  const resolve = sharedTeamResolver();
+  return candidate => resolve(candidate)?.abbr ?? null;
 }
 
 /** Best-effort team-name extraction across the couple of shapes SGO's docs show. */

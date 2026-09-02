@@ -5,6 +5,7 @@
  * and create next-week training context, but it cannot rewrite a frozen pick or
  * censor a chaotic loss. Every valid final remains a label.
  */
+import { canonicalTeamCode, espnTeamCode } from './team-codes.js';
 import crypto from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
 import { teamTrends } from './weekly-trends.js';
@@ -61,8 +62,9 @@ const namesMatch = (left, right) => {
   return a.first === b.first;
 };
 const stablePlayerKey = value => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-const TEAM_CODE_ALIASES = Object.freeze({ BLT: 'BAL', ARZ: 'ARI', LA: 'LAR', JAC: 'JAX', WAS: 'WSH', OAK: 'LV', SD: 'LAC' });
-const canonicalTeam = value => TEAM_CODE_ALIASES[String(value ?? '').toUpperCase()] ?? String(value ?? '').toUpperCase();
+// One map (team-codes.js). The ESPN play log spells Washington WSH, so the
+// play query accepts the canonical code and ESPN's spelling on both sides.
+const canonicalTeam = canonicalTeamCode;
 
 function gameRows(season, week, home) {
   const game = rows(`SELECT season,week,team home,opponent away,team_score home_score,opp_score away_score,
@@ -72,7 +74,7 @@ function gameRows(season, week, home) {
   // game_lines carries nflverse codes (WAS); the ESPN play log carries ESPN codes
   // (WSH). Accept either spelling on both sides, or every Washington packet is
   // silently empty — 158 of 158 were, before this.
-  const pbpHome = canonicalTeam(game.home), pbpAway = canonicalTeam(game.away);
+  const pbpHome = espnTeamCode(game.home), pbpAway = espnTeamCode(game.away);
   const plays = rows(`SELECT * FROM nfl_play_by_play WHERE season=? AND week=?
     AND ((offense IN (?,?) AND defense IN (?,?)) OR (offense IN (?,?) AND defense IN (?,?)))
     ORDER BY sequence,play_id`,

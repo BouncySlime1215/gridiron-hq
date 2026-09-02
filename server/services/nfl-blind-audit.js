@@ -234,7 +234,7 @@ function normalizeSpec(input = {}) {
   };
 }
 
-export function preregisterBlindAudit({ label = 'NFL five-year blind replay', allowDirty = false, ...input } = {}) {
+export function preregisterBlindAudit({ label = 'NFL five-year historical diagnostic (outcome-blind replay of opened seasons)', allowDirty = false, ...input } = {}) {
   const code = repositoryState();
   if (code.dirty && !allowDirty) {
     throw new Error('blind audit preregistration requires a clean committed repository state');
@@ -695,6 +695,8 @@ export function listBlindAudits() {
 
 export function blindAuditProtocol() {
   return { ...normalizeSpec({}), input_tables: INPUT_TABLES,
+    naming: 'This replay is the HISTORICAL DIAGNOSTIC: mechanically outcome-blind, but 2021–25 have been opened for ' +
+      'development and cannot claim a newly discovered edge. The BLIND AUDIT is the preregistered 2026 forward ledger.',
     warning: 'Do not preregister until the model code is committed and the input data snapshot is frozen.' };
 }
 

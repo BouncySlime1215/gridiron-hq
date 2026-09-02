@@ -7,13 +7,13 @@
  * curve. News is attached only after source verification and has zero direct
  * numeric authority.
  */
+import { gameCutoff as sharedGameCutoff } from './game-cutoff.js';
 import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { simulateMatchup } from './nfl-drive-sim.js';
 import { nflEngineStatus, nflEngineVersionFor } from './nfl-engine-registry.js';
 import { teamNewsSignals } from './nfl-news-signal.js';
-import { nflKickoffDate } from './date-util.js';
 import { ask } from './gridiron-model.js';
 import { expertCouncilGame } from './nfl-expert-council.js';
 import { gameInjuryCarryover } from './nfl-postgame-truth.js';
@@ -27,11 +27,8 @@ function gameRow(season, week, home) {
     WHERE season=? AND week=? AND team=? AND home=1 LIMIT 1`, season, week, home)[0] ?? null;
 }
 
-function gameCutoff(season, week, home) {
-  const game = gameRow(season, week, home);
-  const kickoff = game?.gameday ? nflKickoffDate(game.gameday, game.gametime || '23:59') : null;
-  return kickoff?.toISOString() ?? new Date().toISOString();
-}
+// The shared cutoff (game-cutoff.js); a game not yet in game_lines is cut at now.
+const gameCutoff = (season, week, home) => sharedGameCutoff(season, week, home) ?? new Date().toISOString();
 
 export function unifiedGameProjection({ season, week, home, away, trials = 8000,
   spread = null, total = null, sampleDrives = false } = {}) {

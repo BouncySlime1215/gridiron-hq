@@ -14,6 +14,7 @@
  * Lines come from two free sources: nflverse's historical `games.csv` for fitting, and
  * ESPN's public scoreboard for the current slate. Neither needs an API key.
  */
+import { canonicalTeamCode } from './team-codes.js';
 import { db, rows, row, run } from '../db/index.js';
 import { parseCsv } from './nflverse.js';
 import { mean } from './stats-util.js';
@@ -123,9 +124,10 @@ async function syncHistoricalLinesImpl() {
       // nflverse states spread_line from the HOME team's perspective, positive = home favoured.
       const homeSpread = -Number(r[iSpread]);
       if (!Number.isFinite(total) || !Number.isFinite(homeSpread) || !season || !week) continue;
-      // nflverse abbreviates the Rams "LA"; the rest of this app (and ESPN) uses "LAR" —
-      // without this they split into two team identities for the same current franchise.
-      const home = r[iHome] === 'LA' ? 'LAR' : r[iHome], away = r[iAway] === 'LA' ? 'LAR' : r[iAway];
+      // One map (team-codes.js): nflverse writes the Rams "LA" and keeps OAK/SD/STL
+      // for pre-move seasons; the app keys a franchise by its current code so a
+      // relocation does not split one team's history into two identities.
+      const home = canonicalTeamCode(r[iHome]), away = canonicalTeamCode(r[iAway]);
       const homeScore = int(r[iHomeScore]), awayScore = int(r[iAwayScore]);
       const homeMl = int(r[iHomeMl]), awayMl = int(r[iAwayMl]);
       const homeSpreadOdds = int(r[iHomeSpreadOdds]), awaySpreadOdds = int(r[iAwaySpreadOdds]);
@@ -189,9 +191,9 @@ export async function syncCurrentLines(season, weeks = 18) {
   // stay null, or every future game silently looks like a 0-0 final.
   const int = v => { if (v === '' || v == null) return null; const n = Number(v); return Number.isFinite(n) ? Math.round(n) : null; };
   const num = v => { if (v === '' || v == null) return null; const n = Number(String(v).replace(/^[ou]/i, '')); return Number.isFinite(n) ? n : null; };
-  // ESPN abbreviates Washington "WSH"; nflverse's historical data (and the rest of
-  // this app) uses "WAS" — normalize so the two don't split into separate teams.
-  const normAbbr = a => (a === 'WSH' ? 'WAS' : a);
+  // ESPN abbreviates Washington "WSH"; the app's canonical codes are nflverse's
+  // (team-codes.js) — normalize so the two don't split into separate teams.
+  const normAbbr = a => (a == null ? a : canonicalTeamCode(a));
   let updated = 0, finals = 0;
   for (let week = 1; week <= weeks; week++) {
     try {

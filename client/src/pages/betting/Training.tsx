@@ -225,7 +225,7 @@ export default function Training({ focus = 'replay' }: { focus?: 'replay' | 'ai'
 
   if (focus === 'ai') return (
     <div className="space-y-5">
-      <SectionHeading eyebrow="Proof & AI" title="AI blind-audit review"
+      <SectionHeading eyebrow="Proof & AI" title="AI outcome-blind review"
         description="The saved verdict, stake decisions and evidence trace are here—not buried below the historical replay." />
       {aiRun?.status === 'complete' && aiRun.result?.kept === 0 && <Notice title="AI verdict: abstain from every candidate" tone="warn">
         The latest review examined {aiRun.result.reviewed} candidates and kept none. That is a valid risk-gate result: the evidence packet did not justify a stake. It does not authorize betting and it does not imply the report failed.
@@ -256,7 +256,7 @@ export default function Training({ focus = 'replay' }: { focus?: 'replay' | 'ai'
       <section className="my-5">
         <SectionHeading eyebrow="Sealed audit controller" title="One irreversible week at a time"
           description="The controller hashes the committed code, exact model-input tables, model registry and policy. It refuses the next week if any frozen input changes." />
-        {blindError && <Notice title="Blind audit action unavailable" tone="bad">{blindError}</Notice>}
+        {blindError && <Notice title="Historical diagnostic action unavailable" tone="bad">{blindError}</Notice>}
         <div className="card overflow-hidden">
           <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
             <div>

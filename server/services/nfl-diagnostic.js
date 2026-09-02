@@ -110,6 +110,8 @@ export function nflDiagnostic() {
     profitability: {
       state: profitability.state,
       staking_authority: profitability.staking_authority,
+      // Same object under the plan's name; `historical_blind_audit` kept for readers.
+      historical_diagnostic: betting ? { ...betting } : null,
       historical_blind_audit: betting ? {
         bets: number(betting.bets), wins: number(betting.wins), losses: number(betting.losses),
         profit_units: historicalProfit,

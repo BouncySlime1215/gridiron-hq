@@ -536,3 +536,30 @@ settlement grades each by CLV against Pinnacle's last pre-kickoff line.
 Week 1: 13 spread and 15 total decisions frozen (8 spreads in the
 favourites-≤-3 slice where the historical edge lived). Nothing is readable
 before 30 settled decisions; the Phase 3 gate is 200.
+
+### Stale duplicate server — STOPPED (2026-09-03)
+
+A second `node server/index.js` (pid 82640, port 5299) had been running for
+8 days 21 hours on code from 2026-08-25, with its own scheduler against the
+same SQLite file: duplicate captures, an old decision ledger, and metered
+Odds API calls outside the reserve guard. Stopped. Only the preview
+launch (`node --watch`, port 5177 behind Vite on 5178) should run the app.
+
+## 10. Coordinator v4 — walk-forward shrinkage and families (2026-09-03)
+
+`nfl-expert-coordinator.js` v4. Stage A: each role enters at the scale its
+past forecasts earned on prior settled games (k = cov/var, capped 0..1) and
+at zero unless the correlation is real (t > 2) and a scale fitted on half
+the games still reduces error on the other half. Stage B: roles whose
+forecasts correlate above 0.6 form a family with one coefficient. The
+combined-decision trace shows each role's shrink, reason and family;
+`/specialists/audit` reports the same under `coordinator`.
+
+On run 10 (323 games, 22 weeks) the honest answer is stark: every scored
+role is shrunk to zero — rulebook t 0.02, specialist team t 0.04, game
+replay t 0.32, boosted trees t 0.32, similar games t 0.69, player builder
+t 0.74, online neural t 0.96 — and the four loud roles form one family
+(r 0.71–0.92). The coordinator therefore forecasts the market (its
+intercept) and says why per role, instead of spreading 0.35 weights over
+noise. That is the correct behaviour for the evidence, and it is why the
+beat-the-close program, not another role, is the path to profit.

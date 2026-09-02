@@ -9,7 +9,7 @@
 import { rows } from '../db/index.js';
 import { NFL_EXPERTS } from './nfl-expert-council.js';
 
-export const EXPERT_COORDINATOR_VERSION = 'robust-contextual-week-balanced-residual-v3-registry';
+export const EXPERT_COORDINATOR_VERSION = 'robust-contextual-week-balanced-residual-v4-shrink-families';
 // The role list is the council's registry, read lazily: the council imports
 // this module, so reading NFL_EXPERTS at module load would hit the import
 // cycle before the registry exists. A role added to the registry (the four
@@ -28,6 +28,16 @@ const MAX_WEIGHT = 0.35;
 const MAX_TOTAL_INFLUENCE = 0.8;
 const MIN_REGIME_GAMES = 96;
 const MIN_REGIME_WEEKS = 6;
+// Stage A: per-role walk-forward shrinkage. A role enters at the scale its
+// past forecasts have earned (cov/var on prior settled games, capped 0..1),
+// and at zero when it has no walk-forward gain. Stage B: roles whose shrunk
+// forecasts correlate above the threshold form a family that gets ONE
+// coefficient, so a duplicated opinion is counted once. Audit 2026-09-02:
+// four roles correlated 0.74-0.92 all added error at full scale.
+const SHRINK_RIDGE = 4;
+const SHRINK_MIN_GAMES = 60;
+const FAMILY_CORRELATION = 0.6;
+const FAMILY_MIN_OVERLAP = 50;
 
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 const mean = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
@@ -81,6 +91,75 @@ function design(game, centers, scales) {
   return values;
 }
 
+/** Stage A: what each role's forecast has earned on these settled games. */
+function shrinkageScales(games) {
+  const out = {};
+  for (const id of IDS) {
+    const pairs = games.map(game => [game.experts.get(id), game.target]).filter(([f]) => Number.isFinite(f));
+    if (pairs.length < SHRINK_MIN_GAMES) { out[id] = { k: 0, gain: null, n: pairs.length, reason: `fewer than ${SHRINK_MIN_GAMES} settled forecasts` }; continue; }
+    const scaleOf = list => {
+      const mf = mean(list.map(([f]) => f)), my = mean(list.map(([, y]) => y));
+      const cov = mean(list.map(([f, y]) => (f - mf) * (y - my))), vf = mean(list.map(([f]) => (f - mf) ** 2));
+      return { k: clamp(cov / (vf + SHRINK_RIDGE), 0, 1), mf, my, cov, vf };
+    };
+    const gainOf = (list, k, mf) => Math.sqrt(mean(list.map(([, y]) => y * y))) - Math.sqrt(mean(list.map(([f, y]) => (y - k * (f - mf)) ** 2)));
+    const all = scaleOf(pairs);
+    // A least-squares scale always "gains" in sample. Two guards make the gain
+    // walk-forward: the correlation must be a real one (t > 2) and the scale
+    // fitted on one half of the games must still reduce error on the other.
+    const vy = mean(pairs.map(([, y]) => (y - all.my) ** 2));
+    const r = all.vf && vy ? all.cov / Math.sqrt(all.vf * vy) : 0;
+    const t = Math.abs(r) * Math.sqrt(Math.max(1, pairs.length - 2)) / Math.sqrt(Math.max(1e-9, 1 - r * r));
+    const a = pairs.filter((_, i) => i % 2 === 0), b = pairs.filter((_, i) => i % 2 === 1);
+    const crossGain = mean([gainOf(b, scaleOf(a).k, scaleOf(a).mf), gainOf(a, scaleOf(b).k, scaleOf(b).mf)]);
+    const k = all.k;
+    out[id] = t > 2 && crossGain > 0 && k > 0
+      ? { k: r3(k), gain: r3(crossGain), t: r3(t), n: pairs.length, reason: null }
+      : { k: 0, gain: r3(crossGain), t: r3(t), n: pairs.length, reason: 'shrunk to zero: no walk-forward gain' };
+  }
+  return out;
+}
+
+/** Stage B: families of roles whose forecasts say the same thing (single linkage on correlation). */
+function familiesOf(games) {
+  const ids = [...IDS];
+  const parent = Object.fromEntries(ids.map(id => [id, id]));
+  const find = id => (parent[id] === id ? id : (parent[id] = find(parent[id])));
+  const correlations = [];
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+    const pairs = games.map(game => [game.experts.get(ids[i]), game.experts.get(ids[j])]).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b));
+    if (pairs.length < FAMILY_MIN_OVERLAP) continue;
+    const ma = mean(pairs.map(([a]) => a)), mb = mean(pairs.map(([, b]) => b));
+    const cov = pairs.reduce((sum, [a, b]) => sum + (a - ma) * (b - mb), 0);
+    const va = pairs.reduce((sum, [a]) => sum + (a - ma) ** 2, 0), vb = pairs.reduce((sum, [, b]) => sum + (b - mb) ** 2, 0);
+    const r = va && vb ? cov / Math.sqrt(va * vb) : 0;
+    if (r >= FAMILY_CORRELATION) { parent[find(ids[i])] = find(ids[j]); correlations.push({ a: ids[i], b: ids[j], r: r3(r), n: pairs.length }); }
+  }
+  const groups = new Map();
+  for (const id of ids) { const root = find(id); const list = groups.get(root) ?? []; list.push(id); groups.set(root, list); }
+  const families = [...groups.values()].filter(list => list.length > 1).map((members, index) => ({ id: `family_${index + 1}`, members }));
+  return { families, correlations };
+}
+
+/**
+ * The v4 design: one column per family (mean of its members' shrunk,
+ * standardised forecasts), one per singleton, then a missingness flag per
+ * role. `columns` records what each column is so the trace can explain it.
+ */
+function designV4(game, fit) {
+  const values = [1];
+  for (const column of fit.columns) {
+    const parts = column.members.map(id => {
+      const value = game.experts.get(id);
+      const k = fit.shrinkage[id]?.k ?? 0;
+      return Number.isFinite(value) ? k * clamp((value - fit.centers[id]) / fit.scales[id], -4, 4) : null;
+    }).filter(Number.isFinite);
+    values.push(parts.length ? mean(parts) : 0);
+  }
+  for (const id of IDS) values.push(Number.isFinite(game.experts.get(id)) ? 0 : 1);
+  return values;
+}
+
 function fitRows(games) {
   const centers = {}, scales = {};
   for (const id of IDS) {
@@ -89,7 +168,12 @@ function fitRows(games) {
     const deviations = values.map(value => Math.abs(value - centers[id]));
     scales[id] = Math.max(1, median(deviations) * 1.4826);
   }
-  const X = games.map(game => design(game, centers, scales)), y = games.map(game => game.target);
+  const shrinkage = shrinkageScales(games);
+  const { families, correlations } = familiesOf(games);
+  const inFamily = new Set(families.flatMap(f => f.members));
+  const columns = [...families, ...IDS.filter(id => !inFamily.has(id)).map(id => ({ id, members: [id] }))];
+  const proto = { centers, scales, shrinkage, columns };
+  const X = games.map(game => designV4(game, proto)), y = games.map(game => game.target);
   const weekCounts = new Map();
   for (const game of games) weekCounts.set(`${game.season}|${game.week}`, (weekCounts.get(`${game.season}|${game.week}`) ?? 0) + 1);
   let coefficients = new Array(X[0].length).fill(0);
@@ -112,16 +196,17 @@ function fitRows(games) {
     coefficients = solve(A, b);
   }
   coefficients[0] = clamp(coefficients[0], -1, 1);
-  for (let j = 1; j <= IDS.length; j++) coefficients[j] = clamp(coefficients[j], -MAX_WEIGHT, MAX_WEIGHT);
-  const total = coefficients.slice(1, IDS.length + 1).reduce((sum, value) => sum + Math.abs(value), 0);
+  const nColumns = columns.length;
+  for (let j = 1; j <= nColumns; j++) coefficients[j] = clamp(coefficients[j], -MAX_WEIGHT, MAX_WEIGHT);
+  const total = coefficients.slice(1, nColumns + 1).reduce((sum, value) => sum + Math.abs(value), 0);
   if (total > MAX_TOTAL_INFLUENCE) {
     const shrink = MAX_TOTAL_INFLUENCE / total;
-    for (let j = 1; j <= IDS.length; j++) coefficients[j] *= shrink;
+    for (let j = 1; j <= nColumns; j++) coefficients[j] *= shrink;
   }
   const fitted = X.map(row => row.reduce((sum, value, j) => sum + value * coefficients[j], 0));
   const errors = fitted.map((value, index) => y[index] - value);
   const errorCenter = median(errors), robustSigma = Math.max(6, median(errors.map(error => Math.abs(error - errorCenter))) * 1.4826);
-  return { coefficients, centers, scales, robustSigma };
+  return { coefficients, centers, scales, robustSigma, shrinkage, families, family_correlations: correlations, columns };
 }
 
 function enrichGameContexts(games) {
@@ -181,25 +266,46 @@ export function fitExpertCoordinator(beforeSeason, beforeWeek, { auditRunId = nu
   return { version: EXPERT_COORDINATOR_VERSION, ready: true, games: games.length, weeks,
     ...fit, regimes, authority: 'historical_candidate_only',
     safeguards: { target: 'market residual', week_balanced: true, loss: `Huber(${HUBER_DELTA})`, ridge: RIDGE,
+      walk_forward_shrinkage: { ridge: SHRINK_RIDGE, min_games: SHRINK_MIN_GAMES, rule: 'k = cov/var capped 0..1; zero without walk-forward gain' },
+      families: { correlation: FAMILY_CORRELATION, min_overlap: FAMILY_MIN_OVERLAP, found: fit.families.map(f => f.members) },
       deduplicated_by_game_and_expert: true, max_expert_weight: MAX_WEIGHT,
       max_total_expert_influence: MAX_TOTAL_INFLUENCE, contextual_regimes: true,
       min_regime_games: MIN_REGIME_GAMES, min_regime_weeks: MIN_REGIME_WEEKS } };
 }
 
-function coordinateWith(fit, experts) {
+/** A fit without columns/shrinkage (hand-built or pre-v4) is treated as singletons at full scale. */
+function normaliseFit(fit) {
+  if (fit.columns && fit.shrinkage) return fit;
+  return { ...fit, columns: fit.columns ?? IDS.map(id => ({ id, members: [id] })),
+    shrinkage: fit.shrinkage ?? Object.fromEntries(IDS.map(id => [id, { k: 1, reason: 'legacy fit: unshrunk' }])) };
+}
+
+function coordinateWith(rawFit, experts) {
+  const fit = normaliseFit(rawFit);
   const game = { experts: new Map(experts.map(expert => [expert.id,
     expert.observed && Number.isFinite(expert.forecast_residual) ? expert.forecast_residual : null])) };
-  const x = design(game, fit.centers, fit.scales);
-  const activeWeight = IDS.reduce((sum, id, index) => Number.isFinite(game.experts.get(id))
-    ? sum + Math.abs(fit.coefficients[index + 1]) : sum, 0);
+  const x = designV4(game, fit);
+  const nColumns = fit.columns.length;
+  // A member's learned weight is its family's coefficient divided by the
+  // members that are present, so the trace still reads per role.
+  const columnOf = new Map();
+  fit.columns.forEach((column, index) => column.members.forEach(id => columnOf.set(id, index)));
+  const present = column => column.members.filter(id => Number.isFinite(game.experts.get(id))).length;
+  const memberWeight = id => { const index = columnOf.get(id); const column = fit.columns[index];
+    const n = present(column); return n ? fit.coefficients[index + 1] / n : 0; };
+  const activeWeight = IDS.reduce((sum, id) => Number.isFinite(game.experts.get(id)) ? sum + Math.abs(memberWeight(id)) : sum, 0);
   const contributions = IDS.map((id, index) => {
-    const raw = game.experts.get(id), learnedWeight = fit.coefficients[index + 1];
-    return { id, raw, learned_weight: r3(learnedWeight),
+    const raw = game.experts.get(id), learnedWeight = memberWeight(id), columnIndex = columnOf.get(id), column = fit.columns[columnIndex];
+    const k = fit.shrinkage[id]?.k ?? 0;
+    const shrunk = Number.isFinite(raw) ? k * clamp((raw - fit.centers[id]) / fit.scales[id], -4, 4) : null;
+    return { id, raw, shrink: k, shrink_reason: fit.shrinkage[id]?.reason ?? null,
+      family: column.members.length > 1 ? column.id : null, family_members: column.members.length > 1 ? column.members : undefined,
+      learned_weight: r3(learnedWeight),
       normalized_weight: Number.isFinite(raw) && activeWeight > 0 ? r3(learnedWeight / activeWeight) : 0,
-      missingness_weight: r3(fit.coefficients[1 + IDS.length + index]),
-      value: r3(x[index + 1] * learnedWeight) };
+      missingness_weight: r3(fit.coefficients[1 + nColumns + index]),
+      value: Number.isFinite(shrunk) ? r3(shrunk * learnedWeight) : 0 };
   }).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-  const missingOffset = IDS.reduce((sum, _id, index) => sum + x[1 + IDS.length + index] * fit.coefficients[1 + IDS.length + index], 0);
+  const missingOffset = IDS.reduce((sum, _id, index) => sum + x[1 + nColumns + index] * fit.coefficients[1 + nColumns + index], 0);
   const forecast = fit.coefficients[0] + contributions.reduce((sum, item) => sum + item.value, 0) + missingOffset;
   const disagreement = Math.sqrt(mean(experts.filter(expert => Number.isFinite(expert.forecast_residual))
     .map(expert => (expert.forecast_residual - forecast) ** 2)));
@@ -235,4 +341,4 @@ export function coordinateExperts(fit, experts, context = {}) {
     note: 'A circumstance-aware candidate correction to the market, not stake permission.' };
 }
 
-export const __test = { pivotRows, fitRows, design, regimeLabels, coordinateWith };
+export const __test = { pivotRows, fitRows, design, designV4, regimeLabels, coordinateWith, shrinkageScales, familiesOf };

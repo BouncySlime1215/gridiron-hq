@@ -355,8 +355,11 @@ Implementation order:
 
 ### Priority 3 — coordinate and strengthen the existing engine
 
-- [ ] Learn which specialist deserves more weight for each matchup type while
-  preventing duplicated signals from receiving duplicated influence.
+- [x] Coordinator v4 (2026-09-03): per-role walk-forward shrinkage (a role
+  enters at the scale it has earned; zero without a real, cross-validated
+  gain) and correlated-role families with one coefficient. Matchup-type
+  regimes already existed. On run 10 every scored role shrinks to zero and
+  the four loud roles are one family.
   Measured 2026-09-02 (`/specialists/audit`): game replay, specialist team,
   rulebook and player builder are correlated 0.74–0.92 and all add error;
   no role reduces the market's 11.65-point RMSE. De-duplication in the

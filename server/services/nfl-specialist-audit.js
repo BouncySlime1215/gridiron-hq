@@ -16,6 +16,7 @@
  */
 import { rows } from '../db/index.js';
 import { NFL_EXPERTS } from './nfl-expert-council.js';
+import { fitExpertCoordinator } from './nfl-expert-coordinator.js';
 
 export const BREAKEVEN_RATE = 0.5238;
 const r3 = value => (Number.isFinite(value) ? +value.toFixed(3) : null);
@@ -97,7 +98,18 @@ export function specialistAudit({ auditRunId = null, excludeSeasons = [2021] } =
     'No role clears 52.4% on a sample that could support the claim. The fix is not more roles: it is shrinking every forecast toward zero by its own walk-forward error, de-duplicating correlated roles, and adding evidence the market does not already price (opening-to-close movement, verified availability, multi-book price) now that those feeds exist for 2022–2025.'
   ].filter(Boolean);
 
-  return { available: true, audit_run_id: runId, games: games.size, breakeven_rate: BREAKEVEN_RATE,
+  // What the v4 coordinator would do with these roles: the scale each has
+  // earned walk-forward, which ones it zeroes, and which it pools as one.
+  let coordinator = null;
+  try {
+    const fit = fitExpertCoordinator(9999, 1, { auditRunId: runId });
+    coordinator = fit.ready ? { version: fit.version, games: fit.games, weeks: fit.weeks,
+      shrinkage: Object.fromEntries(Object.entries(fit.shrinkage).map(([id, v]) => [id, { k: v.k, gain: v.gain, t: v.t, n: v.n, reason: v.reason }])),
+      families: fit.families, family_correlations: fit.family_correlations,
+      column_weights: fit.columns.map((c, i) => ({ column: c.id, members: c.members, weight: +fit.coefficients[i + 1].toFixed(4) })) }
+      : { ready: false, reason: fit.reason };
+  } catch (error) { coordinator = { ready: false, reason: error.message }; }
+  return { available: true, audit_run_id: runId, games: games.size, breakeven_rate: BREAKEVEN_RATE, coordinator,
     market_rmse: r3(marketRmse), specialists, duplicates, consensus: { ...consensus, agree_rate: agreeN ? r4(agreeRight / agreeN) : null },
     findings,
     rule: 'Scored on the immutable weekly expert rows of the latest historical diagnostic; 2021 excluded; every rate carries its sample.' };

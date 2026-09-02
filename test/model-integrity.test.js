@@ -122,7 +122,8 @@ test('robust expert coordinator caps correlated influence and survives a giant w
       target: index === 159 ? 150 : signal * 0.7 + ((index % 3) - 1), experts };
   });
   const fit = expertCoordinatorTest.fitRows(games);
-  const directionalWeights = fit.coefficients.slice(1, NFL_EXPERTS.length + 1);
+  // v4: one directional coefficient per column (families pooled), then missingness flags.
+  const directionalWeights = fit.coefficients.slice(1, fit.columns.length + 1);
   assert.ok(directionalWeights.every(weight => Math.abs(weight) <= 0.350001));
   assert.ok(directionalWeights.reduce((sum, weight) => sum + Math.abs(weight), 0) <= 0.800001);
   assert.ok(Math.abs(fit.coefficients[0]) <= 1);

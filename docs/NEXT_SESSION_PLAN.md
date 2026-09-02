@@ -282,8 +282,8 @@ evidence so far says the problem is calibration, not capacity.
 ## 7. Checklist for the session
 
 ```
-[ ] 0.5 Beat-the-close study, Phase 1 (BEAT_THE_CLOSE_PLAN.md)
-[ ] 1  Coordinator: Stage A shrinkage + Stage B families, tests, audit fields
+[x] 0.5 Beat-the-close study, Phase 1 (BEAT_THE_CLOSE_PLAN.md) — done; Phase 2 live
+[x] 1  Coordinator: Stage A shrinkage + Stage B families, tests, audit fields (every role shrinks to zero on run 10; one family of four)
 [ ] 1b Postgame decomposition (variance vs model share), adjusted target, reasoning-vs-result grades
 [ ] 2  Rulebook / player builder / game replay / specialist team changes, re-audited
 [ ] 3a Sharp-vs-soft role from the odds archive (hold out 2024–25)

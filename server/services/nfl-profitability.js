@@ -268,7 +268,7 @@ export function profitabilityOperations() {
         { id: 'neural_residual', label: 'Online neural residual', state: neural.production_eligible ? 'review_eligible' : 'adaptive_shadow',
           detail: `${neural.trained_weeks} complete weeks trained; it cannot size a bet before its clustered forward gate passes.` },
         { id: 'advanced_risk_lab', label: 'Advanced ML challenger lab', state: 'restricted_research',
-          detail: `${riskLab.models.length} models: deep ensemble, Bayesian online learner, and contextual mixture-of-experts. All are frozen pregame and locked to 0 units.` }
+          detail: `${riskLab.models.length} models: deep ensemble, Bayesian learner, contextual mixture, and a shared spread/total encoder. All are frozen pregame and locked to 0 units.` }
       ]
     },
     external_benchmarks: { ffopportunity: ffOpportunityStatus() },

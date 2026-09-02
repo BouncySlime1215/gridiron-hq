@@ -1,6 +1,6 @@
 # NFL Profitability Plan
 
-**Version 1.1 · 2026-09-01**
+**Version 1.2 · 2026-09-01**
 
 This is the execution plan that follows from the completed model diagnostic.
 It is not a promise of profit. Its purpose is to make a profitable result
@@ -131,6 +131,45 @@ not by themselves establish that a causal lesson is correct.
   concurrent-writer, and interrupted-rebuild tests on the packaged Mac and
   Windows flows.
 
+#### Speed contract and budgets
+
+Speed is part of model quality. A slow capture can miss a price, a slow rebuild
+reduces the number of honest experiments that can be run, and a frozen UI hides
+failures. Every material path therefore records wall-clock duration, rows or
+games processed, cache state, and peak payload size. Measurements are taken on
+the packaged local application after one cold run and at least three warm runs.
+
+| Path | Initial budget | Required behavior |
+|---|---:|---|
+| Warm application start | under 2 seconds | Health check is cached; a full database scan is explicit maintenance, never an import side effect. |
+| Health and progress APIs | p95 under 100 ms | No model rebuild, data sync, or full-table hash on a read request. |
+| Dashboard summary APIs | p95 under 250 ms and under 250 KB | Return summaries; large traces load only on demand with a bounded page or week limit. |
+| Game/audit drill-down | p95 under 1 second and under 1 MB | Paginated, cancellable, and never returns the full multi-year trace implicitly. |
+| Progress heartbeat | at least every second | Includes elapsed time, phase, throughput, ETA, retry count, and last durable checkpoint. |
+| Checkpoint persistence | under 250 ms outside model compute | One writer, bounded transaction, idempotent resume key. |
+| Weekly rebuild | continuously measured | Freeze check, feature build, model inference, postgame work, and persistence are timed separately. |
+
+The first completed speed repair reduced the blind-audit summary response from
+47.9 MB to 45 KB and its measured warm latency from roughly 722 ms to 2–5 ms.
+Audit input verification now uses a persistent mutation journal and performs a
+full content hash only after relevant source data changes. These measurements
+are regression baselines, not permission to stop profiling.
+
+Implementation order:
+
+1. Instrument first so an optimization cannot merely move hidden work into a
+   different request or process.
+2. Remove accidental repeated work: full-table scans, repeated JSON parsing,
+   duplicated ensemble fits, and unbounded API serialization.
+3. Cache only immutable or content-addressed artifacts. Every cache key includes
+   the code/model version, learning epoch, evidence cutoff, and input hash.
+4. Batch independent games and feature reads while keeping one coordinated
+   database writer. Parallelism may change latency, never prediction order.
+5. Stream or page large traces and render the current week before historical
+   detail. Cancellation must leave a durable, resumable checkpoint.
+6. Add performance regression tests for payload limits and known hot paths.
+   A statistically or operationally meaningful slowdown blocks release.
+
 ### Priority 3 — coordinate and strengthen the existing engine
 
 - [ ] Learn which specialist deserves more weight for each matchup type while
@@ -259,6 +298,94 @@ confirm or reject the lesson.
   the language model may extract evidence but may never create football facts.
 - [ ] A self-auditing feature learner that proposes interactions and retains only
   effects that repeat across walk-forward seasons and survive the full pipeline.
+
+#### Neural architecture — staged, shared, and uncertainty-first
+
+The current neural stack is a useful starting point, not the intended final
+architecture. It has a bounded online residual head, a five-member deep residual
+ensemble, a Bayesian online challenger, and a contextual mixture-of-experts.
+They remain shadow models because adding layers does not create evidence.
+
+Build neural capability in this order:
+
+**N0 — strong non-neural controls.** Every neural experiment is paired with a
+shrunk linear/GBM control using the identical frozen rows. If the network cannot
+beat the simpler control out of sample, reject it regardless of training loss.
+
+**N1 — multi-task game encoder.** Build one cutoff-safe representation shared by
+correlated heads: team plays, pass rate, sacks/scrambles, passing efficiency,
+score margin, total points, and calibrated uncertainty. Each head has its own
+mask, loss scale, baseline, and coverage report, so a missing prop label cannot
+silently become zero. Auxiliary heads survive only when they improve the primary
+head in chronological ablation.
+
+**N2 — play-sequence network.** Encode a possession as ordered state transitions
+containing score, clock, field position, down, distance, personnel, motion,
+pressure, and outcome. Train only on possessions completed before the target
+cutoff. Compare a compact gated recurrent/temporal-convolution model with pooled
+drive summaries; keep the sequence model only if ordering adds repeatable value.
+
+**N3 — player-interaction graph.** Nodes represent active players and position
+units; typed edges represent protection, route/coverage, substitution, and
+shared-unit relationships. Availability changes propagate through observed
+replacement and continuity edges. Unknown players or edges raise uncertainty;
+they do not inherit league-average health. Compare against the existing explicit
+replacement-value model before retaining a graph network.
+
+**N4 — matchup embeddings and retrieval.** Learn time-aware team, coach, player,
+scheme, and game-state embeddings from cutoff-safe structured evidence. Retrieve
+only earlier games, record exact neighbors and distances, and apply recency decay.
+Text embeddings may retrieve sourced evidence but cannot directly create a
+numeric football feature.
+
+**N5 — dynamic mixture and uncertainty.** Route among market, linear, simulation,
+player, sequence, graph, and neural specialists with a small preregistered gate.
+Penalize correlated experts, cap any one family, expose gate weights on every
+decision, and abstain when ensemble disagreement, missingness, epistemic spread,
+or regime-change probability is high. Calibrate outcome and interval coverage
+separately by market.
+
+All neural artifacts must contain the feature schema, label schema, cutoff rule,
+training range, seed, hyperparameters, parent artifact, code hash, input hash,
+learning epoch, per-head coverage, calibration, and chronological metrics. A
+training job predicts the complete week with frozen weights, settles the week,
+then updates; it never learns game one before predicting game two in that week.
+
+#### AI system — evidence workers, critic, and learning memory
+
+AI is used where language and investigation help, not as an untraceable score
+generator. Each worker writes a versioned typed object, retains its source and
+publication timestamp, states uncertainty, and fails closed when evidence is
+missing or contradictory.
+
+1. **Verified-news extractor:** converts primary-source injury, role, roster,
+   coach, and transaction reports into typed claims. Unsupported prose stays in
+   quarantine and has zero numeric authority.
+2. **Evidence librarian:** deduplicates claims, links them to canonical people,
+   teams, games, and cutoffs, and retrieves the exact prior evidence used by a
+   model or explanation.
+3. **Pregame adversarial critic:** attempts to disprove the frozen pick, finds
+   duplicated evidence and contradictions, names missing facts, and can lower
+   confidence or force abstention. It cannot raise the numerical forecast.
+4. **Postgame analyst:** produces the machine-readable “why we were wrong” packet,
+   preserves alternative explanations, identifies the earliest divergence, and
+   separates repeatable structure from high-variance events.
+5. **Counterfactual reviewer:** requests bounded replays without a pivotal injury,
+   turnover, drop, penalty, or weather transition. Its output is diagnostic and
+   cannot rewrite the settled prediction.
+6. **Data-quality agent:** watches source latency, identity conflicts, schema
+   changes, impossible values, missing horizons, and stale caches; it opens a
+   visible incident instead of filling gaps with plausible text.
+7. **Experiment reviewer:** summarizes ablations and multiplicity-corrected
+   results, checks preregistration and leakage constraints, and explicitly records
+   rejection as useful evidence.
+
+AI work is asynchronous and content-addressed. Extraction and retrieval are
+batched, repeated documents reuse cached typed facts, and dashboard reads never
+wait for an LLM call. Every material AI decision is reproducible from its stored
+prompt/version, structured inputs, cited sources, typed output, and validation
+errors. No AI worker can place a bet, change a settled label, promote a model, or
+write directly into a production feature without a deterministic validator.
 
 ### Promotion rule
 

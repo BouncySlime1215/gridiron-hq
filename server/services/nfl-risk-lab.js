@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { db, row, rows, run } from '../db/index.js';
 import { activeLearningEpoch } from './nfl-engine-registry.js';
 
-export const RISK_LAB_SCHEMA = 'nfl-risk-lab-v1';
+export const RISK_LAB_SCHEMA = 'nfl-risk-lab-v2-multitask';
 export const RISK_MODELS = Object.freeze({
   deep_ensemble: {
     label: 'Deep residual ensemble', technology: 'five independently initialized 35→24→12→1 networks',
@@ -23,6 +23,10 @@ export const RISK_MODELS = Object.freeze({
   contextual_moe: {
     label: 'Contextual mixture of experts', technology: 'softmax regime gate over restricted model families',
     advantage: 'learns when a failed standalone family is conditionally useful'
+  },
+  multitask_encoder: {
+    label: 'Multi-task game encoder', technology: 'shared 35→16 representation with masked spread and total residual heads',
+    advantage: 'tests whether related game targets improve one shared cutoff-safe representation'
   }
 });
 const MODEL_IDS = Object.keys(RISK_MODELS);
@@ -49,6 +53,80 @@ function createDeepNetwork(inputSize, seed) {
     w1: matrix(h1, inputSize, Math.sqrt(2 / inputSize)), b1: Array(h1).fill(0),
     w2: matrix(h2, h1, Math.sqrt(2 / h1)), b2: Array(h2).fill(0),
     w3: Array(h2).fill(0), b3: 0, updates: 0, examples_seen: 0 };
+}
+
+function createMultiTaskNetwork(inputSize, seed = 211) {
+  const random = seeded(seed), hidden = 16;
+  return {
+    input_size: inputSize, hidden_size: hidden,
+    w1: Array.from({ length: hidden }, () => Array.from({ length: inputSize },
+      () => (random() * 2 - 1) * Math.sqrt(2 / Math.max(1, inputSize)))),
+    b1: Array(hidden).fill(0),
+    spread: { weights: Array(hidden).fill(0), bias: 0, bound: 7 },
+    total: { weights: Array(hidden).fill(0), bias: 0, bound: 14 },
+    updates: 0, examples_seen: 0
+  };
+}
+
+function multiTaskForward(network, input) {
+  const hidden = network.w1.map((weights, j) => Math.tanh(dot(weights, input) + network.b1[j]));
+  const output = head => {
+    const z = dot(head.weights, hidden) + head.bias;
+    return { z, value: head.bound * Math.tanh(z) };
+  };
+  return { hidden, spread: output(network.spread), total: output(network.total) };
+}
+
+function trainMultiTask(source, examples, { epochs = 28, learningRate = 0.008, l2 = 0.0008 } = {}) {
+  const network = structuredClone(source);
+  const usable = examples.filter(example => Number.isFinite(example.target) || Number.isFinite(example.total_target));
+  if (!usable.length) return network;
+  for (let epoch = 0; epoch < epochs; epoch++) {
+    const gw1 = network.w1.map(weights => weights.map(() => 0)), gb1 = network.b1.map(() => 0);
+    const gradients = {
+      spread: { weights: network.spread.weights.map(() => 0), bias: 0, count: 0 },
+      total: { weights: network.total.weights.map(() => 0), bias: 0, count: 0 }
+    };
+    for (const example of usable) {
+      const forward = multiTaskForward(network, example.payload.values);
+      const hiddenGradient = network.b1.map(() => 0);
+      for (const [name, targetKey] of [['spread', 'target'], ['total', 'total_target']]) {
+        const target = example[targetKey];
+        if (!Number.isFinite(target)) continue;
+        const head = network[name], prediction = forward[name];
+        const error = prediction.value - clamp(target, -head.bound, head.bound);
+        const dz = (Math.abs(error) <= 3 ? error : 3 * Math.sign(error))
+          * head.bound * (1 - Math.tanh(prediction.z) ** 2);
+        gradients[name].bias += dz; gradients[name].count++;
+        for (let j = 0; j < network.hidden_size; j++) {
+          gradients[name].weights[j] += dz * forward.hidden[j];
+          hiddenGradient[j] += dz * head.weights[j] * (1 - forward.hidden[j] ** 2);
+        }
+      }
+      for (let j = 0; j < network.hidden_size; j++) {
+        gb1[j] += hiddenGradient[j];
+        for (let i = 0; i < network.input_size; i++) {
+          gw1[j][i] += hiddenGradient[j] * example.payload.values[i];
+        }
+      }
+    }
+    for (const name of ['spread', 'total']) {
+      const count = Math.max(1, gradients[name].count), head = network[name];
+      head.bias -= learningRate * gradients[name].bias / count;
+      for (let j = 0; j < network.hidden_size; j++) {
+        head.weights[j] -= learningRate * (gradients[name].weights[j] / count + l2 * head.weights[j]);
+      }
+    }
+    const n = usable.length;
+    for (let j = 0; j < network.hidden_size; j++) {
+      network.b1[j] -= learningRate * gb1[j] / n;
+      for (let i = 0; i < network.input_size; i++) {
+        network.w1[j][i] -= learningRate * (gw1[j][i] / n + l2 * network.w1[j][i]);
+      }
+    }
+  }
+  network.updates += 1; network.examples_seen += usable.length;
+  return network;
 }
 
 function deepForward(network, input) {
@@ -111,7 +189,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS nfl_risk_lab_predictions (
   captured_at TEXT NOT NULL, engine_version TEXT, feature_hash TEXT NOT NULL,
   features_json TEXT NOT NULL, market_margin REAL NOT NULL,
   predicted_residual REAL NOT NULL, predicted_uncertainty REAL,
+  market_total REAL, predicted_total_residual REAL, predicted_total_uncertainty REAL,
   actual_margin REAL, target_residual REAL, settled_at TEXT, trained_at TEXT,
+  actual_total REAL, target_total_residual REAL,
   selected_for_training INTEGER,
   PRIMARY KEY(season,week,home,horizon,model_id,epoch_id)
 );
@@ -126,6 +206,15 @@ CREATE TABLE IF NOT EXISTS nfl_risk_lab_artifacts (
 );
 `);
 
+const riskPredictionColumns = new Set(db.prepare('PRAGMA table_info(nfl_risk_lab_predictions)').all()
+  .map(item => item.name));
+for (const [column, type] of [
+  ['market_total', 'REAL'], ['predicted_total_residual', 'REAL'], ['predicted_total_uncertainty', 'REAL'],
+  ['actual_total', 'REAL'], ['target_total_residual', 'REAL']
+]) {
+  if (!riskPredictionColumns.has(column)) db.exec(`ALTER TABLE nfl_risk_lab_predictions ADD COLUMN ${column} ${type}`);
+}
+
 function coldState(modelId, inputSize) {
   if (modelId === 'deep_ensemble') {
     return { input_size: inputSize, networks: [11, 29, 47, 71, 101].map(seed => createDeepNetwork(inputSize, seed)) };
@@ -134,6 +223,7 @@ function coldState(modelId, inputSize) {
     return { input_size: inputSize, weights: Array(inputSize).fill(0), precision: Array(inputSize).fill(1),
       noise_variance: 25, updates: 0, examples_seen: 0 };
   }
+  if (modelId === 'multitask_encoder') return createMultiTaskNetwork(inputSize);
   return { input_size: inputSize, gate: null, expert_names: null, updates: 0, examples_seen: 0 };
 }
 
@@ -172,6 +262,12 @@ function expertPacket(payload) {
 
 export function predictRiskModel(modelId, state, payload) {
   const input = payload.values;
+  if (modelId === 'multitask_encoder') {
+    const prediction = multiTaskForward(state, input);
+    return { residual: prediction.spread.value, total_residual: prediction.total.value,
+      uncertainty: null, total_uncertainty: null,
+      detail: { representation: `${state.input_size}→${state.hidden_size}`, heads: ['spread', 'total'] } };
+  }
   if (modelId === 'deep_ensemble') {
     const predictions = state.networks.map(network => deepForward(network, input).output);
     return { residual: clamp(mean(predictions), -OUTPUT_BOUND, OUTPUT_BOUND),
@@ -251,6 +347,7 @@ export function trainRiskState(modelId, source, examples) {
     return state;
   }
   if (modelId === 'bayesian_online') return trainBayesian(source, examples);
+  if (modelId === 'multitask_encoder') return trainMultiTask(source, examples);
   return trainMoe(source, examples);
 }
 
@@ -271,10 +368,12 @@ export function captureRiskLabWeek(season, week, { horizons = null } = {}) {
       const prediction = predictRiskModel(modelId, active.state, payload);
       const result = run(`INSERT OR IGNORE INTO nfl_risk_lab_predictions
         (season,week,home,away,horizon,model_id,epoch_id,captured_at,engine_version,
-         feature_hash,features_json,market_margin,predicted_residual,predicted_uncertainty)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, item.season, item.week, item.home, item.away,
+         feature_hash,features_json,market_margin,predicted_residual,predicted_uncertainty,
+         market_total,predicted_total_residual,predicted_total_uncertainty)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, item.season, item.week, item.home, item.away,
       item.horizon, modelId, epochId, item.captured_at, item.engine_version, item.feature_hash,
-      item.features_json, item.market_margin, r3(prediction.residual), r3(prediction.uncertainty));
+      item.features_json, item.market_margin, r3(prediction.residual), r3(prediction.uncertainty),
+      item.market_total, r3(prediction.total_residual), r3(prediction.total_uncertainty));
       if (result.changes) captured++; else existing++;
     }
   }
@@ -283,7 +382,7 @@ export function captureRiskLabWeek(season, week, { horizons = null } = {}) {
 }
 
 export function settleRiskLabPredictions() {
-  const due = rows(`SELECT p.season,p.week,p.home,g.team_score,g.opp_score,p.market_margin
+  const due = rows(`SELECT p.season,p.week,p.home,g.team_score,g.opp_score,p.market_margin,p.market_total
     FROM nfl_risk_lab_predictions p JOIN game_lines g
       ON g.season=p.season AND g.week=p.week AND g.team=p.home AND g.home=1
     WHERE p.settled_at IS NULL AND g.team_score IS NOT NULL AND g.opp_score IS NOT NULL
@@ -291,10 +390,12 @@ export function settleRiskLabPredictions() {
   const settledAt = new Date().toISOString();
   let settled = 0;
   for (const item of due) {
-    const actual = item.team_score - item.opp_score;
-    settled += run(`UPDATE nfl_risk_lab_predictions SET actual_margin=?,target_residual=?,settled_at=?
+    const actual = item.team_score - item.opp_score, actualTotal = item.team_score + item.opp_score;
+    const totalResidual = Number.isFinite(item.market_total) ? actualTotal - item.market_total : null;
+    settled += run(`UPDATE nfl_risk_lab_predictions
+      SET actual_margin=?,target_residual=?,actual_total=?,target_total_residual=?,settled_at=?
       WHERE season=? AND week=? AND home=? AND settled_at IS NULL`, actual,
-    actual - item.market_margin, settledAt, item.season, item.week, item.home).changes;
+    actual - item.market_margin, actualTotal, totalResidual, settledAt, item.season, item.week, item.home).changes;
   }
   return { games: due.length, predictions_settled: settled };
 }
@@ -319,7 +420,8 @@ function selected(records) {
 
 function metricsFor(modelId) {
   const epochId = activeLearningEpoch()?.id ?? 1;
-  const data = rows(`SELECT season,week,market_margin,predicted_residual,predicted_uncertainty,actual_margin
+  const data = rows(`SELECT season,week,market_margin,predicted_residual,predicted_uncertainty,actual_margin,
+      market_total,predicted_total_residual,actual_total
     FROM nfl_risk_lab_predictions WHERE epoch_id=? AND model_id=? AND selected_for_training=1
       AND actual_margin IS NOT NULL ORDER BY season,week`, epochId, modelId);
   const weekly = new Map();
@@ -336,7 +438,13 @@ function metricsFor(modelId) {
   const interval = half == null ? null : [r3(improvement - half), r3(improvement + half)];
   const covered = data.filter(item => item.predicted_uncertainty != null
     && Math.abs(item.actual_margin - item.market_margin - item.predicted_residual) <= 1.645 * item.predicted_uncertainty).length;
+  const totalRows = data.filter(item => [item.market_total, item.predicted_total_residual, item.actual_total]
+    .every(Number.isFinite));
+  const totalImprovement = totalRows.length ? mean(totalRows.map(item =>
+    Math.abs(item.actual_total - item.market_total)
+      - Math.abs(item.actual_total - (item.market_total + item.predicted_total_residual)))) : null;
   return { examples: data.length, weeks: weeklyMeans.length, mae_improvement: r3(improvement),
+    auxiliary_total_examples: totalRows.length, auxiliary_total_mae_improvement: r3(totalImprovement),
     weekly_clustered_improvement_ci90: interval,
     uncertainty_coverage_90: data.length ? r3(covered / data.length) : null,
     review_eligible: data.length >= 128 && weeklyMeans.length >= 8 && interval?.[0] > 0,
@@ -355,14 +463,16 @@ export function trainRiskLabThroughSettled() {
     for (const modelId of MODEL_IDS) {
       const modelRows = current.filter(item => item.model_id === modelId);
       if (!modelRows.length) continue;
-      const decoded = modelRows.map(record => ({ record, payload: parse(record.features_json), target: record.target_residual }))
+      const decoded = modelRows.map(record => ({ record, payload: parse(record.features_json),
+        target: record.target_residual, total_target: record.target_total_residual }))
         .filter(item => Array.isArray(item.payload?.values));
       if (!decoded.length) continue;
       const active = activeState(modelId, decoded[0].payload.values.length);
-      const replay = rows(`SELECT features_json,target_residual FROM nfl_risk_lab_predictions
+      const replay = rows(`SELECT features_json,target_residual,target_total_residual FROM nfl_risk_lab_predictions
         WHERE epoch_id=? AND model_id=? AND selected_for_training=1 AND trained_at IS NOT NULL
           AND (season<? OR (season=? AND week<?)) ORDER BY season DESC,week DESC LIMIT 256`,
-      epochId, modelId, season, season, week).map(item => ({ payload: parse(item.features_json), target: item.target_residual }))
+      epochId, modelId, season, season, week).map(item => ({ payload: parse(item.features_json),
+        target: item.target_residual, total_target: item.target_total_residual }))
         .filter(item => Array.isArray(item.payload?.values));
       const next = trainRiskState(modelId, active.state, [...replay, ...decoded]);
       const stateHash = hash(next), createdAt = new Date().toISOString();

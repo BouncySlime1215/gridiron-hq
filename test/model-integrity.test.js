@@ -1203,7 +1203,7 @@ test('learning reset is explicit, reversible by lineage, and deletes no evidence
 });
 
 test('restricted ML lab contains uncertainty-aware and regime-aware challengers', () => {
-  assert.deepEqual(Object.keys(RISK_MODELS), ['deep_ensemble', 'bayesian_online', 'contextual_moe']);
+  assert.deepEqual(Object.keys(RISK_MODELS), ['deep_ensemble', 'bayesian_online', 'contextual_moe', 'multitask_encoder']);
   const deep = riskLab.coldState('deep_ensemble', 2);
   const prediction = predictRiskModel('deep_ensemble', deep, { names: ['a', 'b'], values: [1, -1] });
   assert.equal(prediction.residual, 0, 'cold residual must equal the market');
@@ -1211,6 +1211,23 @@ test('restricted ML lab contains uncertainty-aware and regime-aware challengers'
   const examples = Array.from({ length: 20 }, () => ({ payload: { names: ['a', 'b'], values: [1, -1] }, target: 3 }));
   const trained = trainRiskState('deep_ensemble', deep, examples);
   assert.ok(predictRiskModel('deep_ensemble', trained, examples[0].payload).residual > 1);
+});
+
+test('multi-task neural encoder learns masked spread and total heads from one frozen representation', () => {
+  const payload = { names: ['signal', 'context'], values: [1, 0.25] };
+  const cold = riskLab.coldState('multitask_encoder', payload.values.length);
+  const before = predictRiskModel('multitask_encoder', cold, payload);
+  assert.equal(before.residual, 0);
+  assert.equal(before.total_residual, 0);
+  const examples = [
+    ...Array.from({ length: 30 }, () => ({ payload, target: 3, total_target: 6 })),
+    ...Array.from({ length: 10 }, () => ({ payload, target: 3, total_target: null }))
+  ];
+  const trained = trainRiskState('multitask_encoder', cold, examples);
+  const after = predictRiskModel('multitask_encoder', trained, payload);
+  assert.ok(Math.abs(3 - after.residual) < Math.abs(3 - before.residual));
+  assert.ok(Math.abs(6 - after.total_residual) < Math.abs(6 - before.total_residual));
+  assert.equal(trained.examples_seen, examples.length);
 });
 
 test('Bayesian risk challenger adapts online while retaining predictive uncertainty', () => {

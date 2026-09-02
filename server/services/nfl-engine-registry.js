@@ -112,7 +112,8 @@ export function nflEngineComponents(season, predictsWeek) {
       advanced_risk_lab: riskFits.length ? riskFits : [
         { model_id: 'deep_ensemble', version: 'cold-start' },
         { model_id: 'bayesian_online', version: 'cold-start' },
-        { model_id: 'contextual_moe', version: 'cold-start' }
+        { model_id: 'contextual_moe', version: 'cold-start' },
+        { model_id: 'multitask_encoder', version: 'cold-start' }
       ]
     },
     capability_authority: (() => {

@@ -296,7 +296,11 @@ export function teamRosterStrength(season, week, team) {
   const gradeMap = licensedGrades(season, week, team);
   const rookieMap = rookieProfiles(season);
   const changeMap = teamChangeProfiles(gameCutoff(season, week, team));
-  const players = chart.map(player => rankPlayer({ ...player, season, week }, snapMap, featureMap, gradeMap, rookieMap, changeMap))
+  // Preserve the requested team on every player context. Depth rows already
+  // contain it today, but older/imported chart shapes may omit it; rookie
+  // evidence needs an explicit team to resolve the game's immutable cutoff.
+  const players = chart.map(player => rankPlayer({ ...player, season, week, team },
+    snapMap, featureMap, gradeMap, rookieMap, changeMap))
     .sort((a, b) => b.rating - a.rating);
   const byGroup = new Map();
   for (const player of players) {

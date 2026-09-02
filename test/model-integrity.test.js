@@ -751,15 +751,23 @@ test('preseason roster prior ranks full depth and only uses earlier licensed gra
     (2099,1,'TST','p2','Backup Two','QB',2,'QB2','2099-08-01T00:00:00Z'),
     (2099,1,'TST','p3','Wide Three','WR',1,'WR1','2099-08-01T00:00:00Z');
     INSERT INTO nfl_snaps (season,week,player,team,position,offense_snaps,offense_pct)
-      VALUES (2099,1,'Starter One','TST','QB',60,1.0);`);
+      VALUES (2099,1,'Starter One','TST','QB',60,1.0);
+    INSERT INTO game_lines (season,week,team,opponent,home,spread,total,gameday)
+      VALUES (2099,2,'TST','OPP',1,-3,44,'2099-09-10');
+    INSERT INTO nfl_rookie_evidence
+      (season,player_id,player_name,position,evidence_type,values_json,available_at,captured_at,source,source_ref,verification_state)
+      VALUES (2099,1,'Starter One','QB','draft','{"draft_round":1,"draft_pick":1}',
+        '2099-04-30T00:00:00Z','2099-04-30T00:00:00Z','unit','unit-roster-cutoff','verified');`);
   importLicensedPffGrades([{ season: 2099, week: 1, team: 'TST', player_id: 'p1',
     player_name: 'Starter One', position: 'QB', overall_grade: 88 }]);
   clearRosterStrengthCache();
   const result = teamRosterStrength(2099, 2, 'TST');
   assert.equal(result.available, true);
   assert.equal(result.players.length, 3);
-  assert.equal(result.players[0].player, 'Starter One');
-  assert.equal(result.players[0].licensed_pff_grade, 88);
+  const starter = result.players.find(player => player.player === 'Starter One');
+  const backup = result.players.find(player => player.player === 'Backup Two');
+  assert.equal(starter.licensed_pff_grade, 88);
+  assert.ok(starter.rating > backup.rating);
   assert.ok(result.depth_score < result.starter_score);
 });
 

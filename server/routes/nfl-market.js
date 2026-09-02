@@ -14,6 +14,7 @@ import { sportsGameOddsSnapshotStatus, captureSportsGameOddsSnapshot } from '../
 import { bookFeedStatus, captureBookFeeds } from '../services/book-feeds.js';
 import { polymarketMovement, refreshPolymarketLineWatch } from '../services/polymarket-lines.js';
 import { reportCacheStatus, refreshReport } from '../services/report-cache.js';
+import { oddsArchiveStatus, backfillOddsArchive } from '../services/odds-archive.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
 import { currentNflWeek } from '../services/weekly-learning.js';
@@ -88,6 +89,25 @@ r.post('/reports/:name/refresh', requireModelPermission('model:train'), (req, re
     res.status(202).json({ queued: true, report: req.params.name });
   } catch (e) { next(e); }
 });
+
+r.get('/odds-archive', (_req, res, next) => {
+  try { res.json(oddsArchiveStatus()); } catch (e) { next(e); }
+});
+
+/** Historical per-book opening and closing quotes for 2022-2025; runs in the background and answers at once. */
+let archiveJob = null;
+r.post('/odds-archive/backfill', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    if (archiveJob) return res.status(202).json({ running: true, ...archiveJob.progress });
+    const seasons = Array.isArray(req.body?.seasons) ? req.body.seasons.map(Number) : [2022, 2023, 2024, 2025];
+    archiveJob = { progress: { seasons, started_at: new Date().toISOString() } };
+    backfillOddsArchive({ seasons, onProgress: p => { archiveJob.progress = { ...archiveJob.progress, ...p }; } })
+      .then(result => { archiveJob = null; console.log('[odds-archive] backfill', JSON.stringify(result).slice(0, 400)); })
+      .catch(error => { archiveJob = null; console.error('[odds-archive] backfill failed', error.message); });
+    res.status(202).json({ queued: true, seasons });
+  } catch (e) { next(e); }
+});
+r.get('/odds-archive/progress', (_req, res) => res.json(archiveJob ? { running: true, ...archiveJob.progress } : { running: false }));
 
 r.get('/polymarket/lines', (req, res, next) => {
   try { res.json(polymarketMovement({ hours: Number(req.query.hours) || 168 })); } catch (e) { next(e); }

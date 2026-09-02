@@ -19,6 +19,7 @@ import { nflFeatureCoverage, freezeFeatureCoverageSnapshot } from '../server/ser
 import { preregisterBlindAudit, runNextBlindAuditWeek,
   blindAuditStatus, failBlindAudit } from '../server/services/nfl-blind-audit.js';
 import { backfillPossessionLedger, liveLedgerStatus } from '../server/services/nfl-live-ledger.js';
+import { backfillOddsArchive } from '../server/services/odds-archive.js';
 
 const SEASONS = [2022, 2023, 2024, 2025];
 const START_WEEK = 5, END_WEEK = 18;
@@ -140,6 +141,11 @@ await phase('charted_play_context', async () => {
 
 await phase('team_code_reconciliation', () => reconcileHistoricalTeamCodes());
 
+// Recorded per-book opening and pre-kickoff quotes for the audited seasons, so
+// the line-movement reader and the price shopper have genuine evidence.
+await phase('odds_archive_backfill', () => backfillOddsArchive({ seasons: SEASONS,
+  onProgress: state => recordProgress('odds_archive_backfill', state, 'game days') }));
+
 await phase('team_feature_vectors', () => backfillTeamFeatureVectors({
   seasons: SEASONS, startWeek: START_WEEK, endWeek: END_WEEK,
   onProgress: state => recordProgress('team_feature_vectors', state, 'team-weeks')
@@ -223,7 +229,16 @@ await phase(CHRONOLOGICAL_PHASE, () => {
       log('chronological_audit_progress', status.progress);
     }
   } catch (error) {
-    failBlindAudit(auditId, error);
+    // A freeze violation or a transient source failure is a reason to STOP,
+    // not to seal the run: the audit is week-chained and resumes at
+    // next_ordinal, so the next invocation continues from the last sealed
+    // week (runs 9 and 10 lost 23 opened weeks to sealing here). Only an
+    // exhausted schedule or a corrupted chain is unrecoverable.
+    const message = String(error?.message ?? error);
+    const unrecoverable = /no remaining weeks|already complete|sealed as|chain/i.test(message);
+    if (unrecoverable) failBlindAudit(auditId, error);
+    log('chronological_audit_interrupted', { audit_id: auditId, error: message,
+      sealed: unrecoverable, resume: unrecoverable ? null : 'rerun this script; it resumes at the next unopened week' });
     throw error;
   }
   return status;

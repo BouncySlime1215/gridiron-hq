@@ -6,6 +6,7 @@
  * authority separately. The blind audit settles those opinions week by week;
  * only earlier settled rows may become training data for a later week.
  */
+import { teamEventVector } from './nfl-event-archive.js';
 import crypto from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
 import { ensembleLine } from './nfl-ensemble.js';
@@ -283,12 +284,33 @@ function newsFor(line, beforeIso) {
   const ids = teamIds.map(team => team.id);
   const feedStories = ids.length ? rows(`SELECT COUNT(*) n FROM news_items WHERE published_at<=? AND published_at>=?
     AND team_id IN (${ids.map(() => '?').join(',')})`, beforeIso, since, ...ids)[0]?.n ?? 0 : 0;
-  const burdenEdge = r3((away.unavailable_burden ?? 0) - (home.unavailable_burden ?? 0));
+  let burdenEdge = r3((away.unavailable_burden ?? 0) - (home.unavailable_burden ?? 0));
   // A raw research opinion, not a hard-coded production weight. Each verified
   // unavailable player contributes probability x source confidence; the
   // weekly coordinator learns whether and how strongly this scale matters.
-  const forecast = claims > 0 ? Math.max(-4, Math.min(4, burdenEdge * 0.75)) : feedStories >= 3 ? 0 : null;
-  return { home, away, verified_claims: claims,
+  let forecast = claims > 0 ? Math.max(-4, Math.min(4, burdenEdge * 0.75)) : feedStories >= 3 ? 0 : null;
+  // Before the typed news feed existed (it starts 2026-08) the verified event
+  // archive carries the same facts with timestamps: official injury reports,
+  // roster status changes and trades, each `available_at` before the cutoff.
+  // PROFITABILITY_PLAN Priority 3: "backfill verified, timestamped injury,
+  // practice, transaction, roster and role news". Unverified or post-kickoff
+  // knowledge never enters: the archive query is bounded by `before`.
+  let archive = null;
+  if (forecast == null) {
+    const homeEvents = teamEventVector(line.home, { before: beforeIso, sinceDays: 10 });
+    const awayEvents = teamEventVector(line.away, { before: beforeIso, sinceDays: 10 });
+    if ((homeEvents.events + awayEvents.events) > 0) {
+      const edge = r3((awayEvents.injury_burden ?? 0) - (homeEvents.injury_burden ?? 0));
+      burdenEdge = edge;
+      forecast = Math.max(-4, Math.min(4, edge * 0.5));
+      archive = { source: 'nfl_verified_events', home_events: homeEvents.events, away_events: awayEvents.events,
+        home_injury_burden: r3(homeEvents.injury_burden), away_injury_burden: r3(awayEvents.injury_burden),
+        home_active_states: homeEvents.active_player_states.slice(0, 12).map(e => ({ player: e.player_name, status: e.status_after, at: e.available_at, source: e.source })),
+        away_active_states: awayEvents.active_player_states.slice(0, 12).map(e => ({ player: e.player_name, status: e.status_after, at: e.available_at, source: e.source })),
+        cutoff: beforeIso };
+    }
+  }
+  return { home, away, verified_claims: claims, verified_event_archive: archive,
     feed_stories: Number(feedStories), burden_edge: burdenEdge, forecast: r3(forecast),
     evidence_state: claims > 0 ? 'verified_material_claims' : feedStories >= 3 ? 'observed_no_material_claim' : 'feed_coverage_missing' };
 }
@@ -327,6 +349,27 @@ function auditedNeuralFor(line, { season, week, cutoff, auditRunId = null }) {
     metrics: { examples: examples.length, weeks: trainedWeeks, production_eligible: false },
     authority: 'historical_candidate_only', learning_source: 'immutable deduplicated expert rows from strictly earlier weeks',
     feature_vector: { schema: 'nfl-online-neural-features-v2-verified-news', names: current.names, values: current.values } };
+}
+
+/**
+ * The live updater's historical record: the possession-by-possession win
+ * probabilities the ledger reconstructed for this game, settled against the
+ * final. Scored by Brier, never by margin residual, and marked
+ * `historical_reconstruction` forever — it is what the live model WOULD have
+ * said at each possession, not a forward prediction.
+ */
+function liveLedgerFor(season, week, home) {
+  const settled = rows(`SELECT p.possession_index,p.sequence,s.home_probability,s.brier,s.home_won,p.classification,p.state_json
+    FROM nfl_live_possession_predictions p JOIN nfl_live_possession_settlements s ON s.prediction_id=p.prediction_id
+    WHERE p.season=? AND p.week=? AND p.home_team=? ORDER BY p.sequence`, season, week, home);
+  if (!settled.length) return null;
+  const briers = settled.map(row => row.brier).filter(Number.isFinite);
+  const half = settled.find(row => { try { return JSON.parse(row.state_json).period >= 3; } catch { return false; } }) ?? null;
+  return { classification: settled[0].classification, possessions: settled.length,
+    mean_brier: r3(mean(briers)), opening_home_probability: r3(settled[0].home_probability),
+    second_half_home_probability: half ? r3(half.home_probability) : null,
+    final_home_won: Boolean(settled[0].home_won), score_target: 'brier_and_calibration',
+    note: 'possession-level reconstruction settled against the final; not a pregame opinion and never a forward call' };
 }
 
 function shoppingFor(home, away, cutoff) {
@@ -472,6 +515,7 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
   const movement = movementFor(season, week, game.home, line.ensemble.market_spread);
   const news = newsFor(line, cutoff);
   const shopping = shoppingFor(game.home, game.away, cutoff);
+  const liveLedger = liveLedgerFor(season, week, game.home);
   const opportunity = opportunityFor(season, week, game.home, game.away);
   const opportunitySettlement = opportunity.teams?.length ? settleOpportunity(season, week, opportunity)
     : { status: 'pending', reason: opportunity.error ?? 'player opportunity packet unavailable' };
@@ -541,8 +585,10 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
     output('news_reaction', { forecast: news.forecast, observed: Number.isFinite(news.forecast),
       missingReason: news.evidence_state === 'feed_coverage_missing' ? 'verified news feed coverage missing before kickoff' : null,
       detail: news, authority: 'historical_candidate_only' }),
-    output('live_updater', { observed: false, missingReason: 'pregame audit has no live game state',
-      authority: 'different_lifecycle', detail: { required: ['clock', 'score', 'possession', 'field_position', 'timeouts'] } }),
+    output('live_updater', { observed: Boolean(liveLedger), forecast: null,
+      missingReason: 'no possession ledger for this game (pregame audit has no live game state)',
+      authority: liveLedger ? 'historical_reconstruction' : 'different_lifecycle',
+      detail: liveLedger ?? { required: ['clock', 'score', 'possession', 'field_position', 'timeouts'] } }),
     output('price_shopper', { observed: Boolean(shopping), missingReason: 'historical multi-book decision quotes unavailable for this game',
       authority: 'execution_only', detail: shopping ?? { market_spread: line.ensemble.market_spread,
         active_lifecycle: 'collecting multi-book snapshots for execution scoring' } }),

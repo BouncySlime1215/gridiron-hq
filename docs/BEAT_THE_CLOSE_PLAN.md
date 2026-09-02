@@ -169,11 +169,12 @@ CLV significance is not yet, and the reads must say so.
 ## Checklist
 
 ```
-Phase 1 (one session)
-[ ] dataset builder from nfl_odds_archive + verified events + model outputs, T0/T1/T2 stamped
-[ ] walk-forward + 2024–25 holdout; CLV-in-points as the gate; slices; multiplicity
-[ ] line-move-study.js in the worker report store; route; Diagnostics tab; test
-[ ] results in DIAGNOSTIC §9; signals that pass the gate listed with thresholds
+Phase 1 (one session) — DONE 2026-09-03
+[x] dataset builder from nfl_odds_archive + verified events + model outputs, T0/S/T1/T2 stamped
+[x] walk-forward + 2024–25 holdout; CLV-in-points as the gate; slices; multiplicity
+[x] line-move-study.js in the worker report store; route; Diagnostics tab; test
+[x] results in DIAGNOSTIC §9: ratings_vs_open at the opener passes on its own (+0.58, 57.7%, n 570);
+    totals T0 model passes (+0.36); the sharp-soft gap was a timestamp leak and is flat; units not yet positive
 
 Phase 2 (Weeks 1–6)
 [ ] nfl_signal_snapshots at every capture

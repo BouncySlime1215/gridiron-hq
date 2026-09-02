@@ -449,3 +449,78 @@ kept only rows sharing the single newest capture stamp, which for per-book
 timestamps is one book. Fixed to take each book's latest pre-kickoff quote
 (`test/price-shopper-archive.test.js`); on 2022 W5 DEN v IND it now sees a
 multi-book board.
+
+## 9. Beat the close — Phase 1 results (2026-09-03)
+
+`GET /api/nfl-market/line-move-study` (`line-move-study.js`, worker-served),
+Diagnostics → "Beat the close". Dataset: 2,244 game-markets (1,122 games,
+2022–2025), Pinnacle opener and close plus ten soft books, no drops. Held
+out: 2024–2025 (570 per market). CLV = points the close moved in the
+predicted direction from the line bettable at that decision time.
+
+### The leak that was caught first
+
+The first run showed a sharp-versus-soft opener gap "predicting" the move
+with 65% direction and 0.7 points of CLV. The soft books post their openers
+hours after Pinnacle (median lag in the archive is a working day), so at
+Pinnacle's opener the gap is not knowable and, measured later, it partly
+IS Pinnacle's move. Re-measured at the soft-open time against the soft
+opener you could actually bet, the gap is flat: −0.21 [−0.35, −0.05] on
+spreads, +0.05 on totals. It is recorded as a non-signal.
+
+### What survives, held out
+
+| Market | Decision time | Games | Mean CLV | 95% interval | Direction | Basis |
+|---|---|---:|---:|---|---:|---|
+| Spreads | T0 (Pinnacle opener) | 570 | +0.24 | 0.03 to 0.45 | 51.3% | bettable |
+| Spreads | T1 (Wednesday) | 570 | +0.53 | 0.24 to 0.83 | 56.8% | upper bound |
+| Spreads | T2 (Friday) | 570 | +0.55 | 0.25 to 0.87 | 56.2% | upper bound |
+| Totals | T0 (Pinnacle opener) | 570 | +0.36 | 0.21 to 0.53 | 56.4% | bettable |
+| Totals | T1 / T2 | 570 | +0.44 | 0.29 to 0.64 | 58–59% | upper bound |
+
+Single signals, each against the line bettable when it was known, Holm
+corrected across the whole list:
+
+- **`ratings_vs_open` (spreads, T0): +0.58 [0.27, 0.95], 57.7% direction,
+  Holm p < 0.01.** The walk-forward ratings line minus Pinnacle's opener
+  predicts the close: the opener under-reacts to fundamentals and the market
+  catches up. This is the one signal that passes the gate on its own at a
+  bettable time. Magnitude fit: 2.32 RMSE versus 2.41 for "no move".
+- Totals T0 passes as a combined model (+0.36) but no single totals feature
+  survives Holm; the combination is `div_game`, `primetime` (negative),
+  `ratings_vs_open` (+0.08 alone). Treat as a weaker, model-level signal.
+- `qb_out_delta` (T1/T2, +0.25, 57%) and `trades_since_open` (T2, +0.32,
+  59%, Holm 0.06): news effects in the expected direction, but only against
+  the opener — the archive has no Wednesday or Friday line, so how much of
+  that move was still available is unknown until the live phase.
+- Nothing else. The four matchup roles, rest, division, primetime, prior
+  cover and ATS streaks, dispersion and last season's move tendency are all
+  inside noise on the holdout. Key-number crossings look enormous (+3.9 on
+  53 games) but that slice conditions on the close and is not a decision.
+
+Slice that matters: **favourites of 3 or fewer** (268 held-out games): +1.04
+[0.49, 1.66], 57.9% direction. Favourites of 3.5–7: +0.09, flat. The
+opener's under-reaction is a close-game phenomenon.
+
+### What CLV was worth, and the caveats
+
+Betting the T0 spread model's side at −110 on the held-out games lost
+35.8 units at the opener and 26.4 at the close over 570 bets (vig alone is
+−26). Positive CLV did not turn into positive units on this sample; the
+difference from vig is inside one standard deviation of 570 bets. CLV is
+the right gate for a season, but it is not cash yet.
+
+Caveats to carry into Phase 2: (1) the ratings line's alpha/carryover pair
+was selected on seasons through 2024, which overlaps the holdout — a grid
+of thirty pairs is a weak leak, but the first live pre-check is to refit
+the selection on ≤2023 and confirm the T0 number; (2) T1/T2 numbers are
+upper bounds by construction; (3) the Pinnacle "close" is the book's last
+posted line, which for a few games is a minute after the listed kickoff.
+
+### Phase 2 signals (docs/BEAT_THE_CLOSE_PLAN.md)
+
+1. `ratings_vs_open` on spreads at the opener, threshold to set from the
+   magnitude model (start at |predicted move| ≥ 0.5), favourites ≤ 3 first.
+2. The totals T0 model as a whole, same threshold.
+3. `qb_out_delta` and `trades_since_open` as live candidates, graded
+   against the line captured at the moment the event became known.

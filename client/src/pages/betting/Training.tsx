@@ -243,6 +243,17 @@ export default function Training({ focus = 'replay' }: { focus?: 'replay' | 'ai'
 
   return (
     <div>
+      {/* One honest path through the audit: what was covered, what was frozen,
+          what was decided each week, what the look-back said, and the manifest. */}
+      <ol className="mb-4 grid gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 text-[11px] sm:grid-cols-5">
+        {[
+          ['1 · Coverage', 'Which sources exist for each audited week; a missing source is a listed gap, never a zero.'],
+          ['2 · Frozen evidence', 'Every role\'s opinion, the coordinator and the combined decision are sealed per game before outcomes are read; provenance checks every timestamp against kickoff.'],
+          ['3 · Weekly decisions', 'The production policy\'s pick, line and price per game at zero units, with the abstention reason when it passed.'],
+          ['4 · Look-back', 'Each week graded after opening: per-role coverage and direction, coordinator weight moves, running bets and CLV, chained week to week.'],
+          ['5 · Manifest', 'Hashes, reporting completeness, retries, per-phase timing, calibration and year-by-year results for the whole run.']
+        ].map(([title, detail]) => <li key={title} className="bg-white px-3 py-2"><div className="font-black text-slate-900">{title}</div><div className="mt-0.5 leading-4 text-slate-500">{detail}</div></li>)}
+      </ol>
       <div className="flex items-end gap-3 mb-4 flex-wrap">
         <SectionHeading eyebrow="Evidence lab" title="Outcome-blind development replay"
           description="Replay frozen policies chronologically without releasing game outcomes to the predictor. These opened seasons diagnose the model; they are not untouched profitability proof." />

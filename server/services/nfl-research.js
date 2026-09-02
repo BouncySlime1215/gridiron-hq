@@ -1,6 +1,7 @@
 /** NFL market-residual research, ablations and promotion readiness. */
 import { db, rows, run } from '../db/index.js';
 import { accuracy, nestedEvaluationRows } from './nfl-market.js';
+import { FORWARD_SAMPLE_TARGETS } from './nfl-policy.js';
 import { trainingIteration, latestTrainingAudit } from './nfl-replay.js';
 import { latestCoverCalibration } from './nfl-cover-calibration.js';
 import { pregameSnapshotCoverage } from './nfl-pregame.js';
@@ -148,7 +149,7 @@ export function nflOperations({ persist = false, refreshResidual = false } = {})
       actual: calibration?.metrics?.walk_forward_calibrated_brier ?? null, target: `< ${calibration?.metrics?.walk_forward_market_brier ?? 'market Brier'}` },
     { id: 'exact_policy', label: 'Frozen exact policy has credible positive ROI', passed: !!overall && overall.roi > 0 && (overall.uncertainty?.probability_roi_above_zero ?? 0) >= 0.75,
       actual: overall?.roi ?? null, target: 'ROI > 0 and P(ROI>0) ≥ 75%' },
-    { id: 'forward_sample', label: 'Forward evidence sample', passed: forwardSettled.length >= 250, actual: forwardSettled.length, target: '≥ 250 settled decisions' },
+    { id: 'forward_sample', label: 'Forward evidence sample', passed: forwardSettled.length >= FORWARD_SAMPLE_TARGETS.overall, actual: forwardSettled.length, target: `≥ ${FORWARD_SAMPLE_TARGETS.overall} settled decisions` },
     { id: 'quote_provenance', label: 'Decision-time quote provenance is preserved', passed: preservedHistoricalQuotes >= 1000,
       actual: preservedHistoricalQuotes, target: '≥ 1,000 historical events with immutable quote snapshots' },
     { id: 'untouched_holdout', label: 'Untouched forward holdout is mature', passed: dataEvidence.firewall.untouched_gate_passed,

@@ -14,9 +14,17 @@ interface HubStatus {
   data: {
     credits_remaining: number | null;
     free_detector: { events_tracked: number; moves: number; worth_capturing: number };
+    free_feeds?: { enabled: boolean; latest_capture: string | null; books: number; games: number; quotes: number };
+    line_movement?: { source: string; games: number; recent_moves: number; latest: string | null };
     capture_stale: boolean;
   };
 }
+
+const ago = (iso: string | null | undefined) => {
+  if (!iso) return 'never';
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
+};
 
 /** The four steps, named for what you do at each one rather than for its module. */
 const stages: { id: Stage; label: string; detail: string }[] = [
@@ -63,14 +71,21 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
     </section>
 
     {status && <div className="grid gap-2 sm:grid-cols-3">
-      <TruthChip label="Watching for free"
-        value={`${status.data.free_detector.events_tracked} games · ${status.data.free_detector.moves} lines moved`}
-        detail={status.data.free_detector.worth_capturing > 0
-          ? `${status.data.free_detector.worth_capturing} moved enough to be worth spending a price check on`
-          : 'Nothing moved enough to be worth spending a price check on'} />
+      <TruthChip label="Line movement (Polymarket)"
+        value={status.data.line_movement
+          ? `${status.data.line_movement.games} games priced · ${status.data.line_movement.recent_moves} moves in 3 days`
+          : `${status.data.free_detector.events_tracked} games · ${status.data.free_detector.moves} lines moved`}
+        detail={status.data.line_movement?.latest
+          ? `Exchange-implied spread and total, read every 30 minutes · last move ${ago(status.data.line_movement.latest)}${status.data.free_detector.worth_capturing > 0 ? ` · ${status.data.free_detector.worth_capturing} worth a price check` : ''}`
+          : 'No exchange line movement logged yet'} />
       <TruthChip label="Prices"
-        value={status.data.capture_stale ? 'Too old to bet on' : 'Fresh and comparable'}
-        detail={`${status.data.credits_remaining ?? '—'} paid price checks left this month`}
+        value={status.data.capture_stale ? 'Too old to bet on'
+          : status.data.free_feeds?.latest_capture
+            ? `${status.data.free_feeds.books} books · ${status.data.free_feeds.games} games · free`
+            : 'Fresh and comparable'}
+        detail={status.data.free_feeds?.latest_capture
+          ? `Pinnacle, BetRivers, Bovada and the OddsTrader books, captured ${ago(status.data.free_feeds.latest_capture)} · ${status.data.credits_remaining ?? '—'} paid checks left as backup`
+          : `${status.data.credits_remaining ?? '—'} paid price checks left this month`}
         warn={status.data.capture_stale} />
       <TruthChip label="Real money"
         value={status.model.sizing_allowed ? 'Model is cleared to bet' : 'Fake money only'}

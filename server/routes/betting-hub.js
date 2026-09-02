@@ -25,6 +25,8 @@ import { requireModelPermission } from '../modeling/authz.js';
 import { latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 import { abstentionAudit } from '../services/nfl-abstention-audit.js';
 import { teaserExecutionBoard } from '../services/nfl-teaser-execution.js';
+import { bookFeedStatus } from '../services/book-feeds.js';
+import { polymarketMovement } from '../services/polymarket-lines.js';
 
 const r = Router();
 
@@ -231,6 +233,8 @@ r.get('/status', (_req, res, next) => {
     const odds = oddsUsage();
     const board = executionBoardSummary();
     const movement = espnWatchStatus();
+    const feeds = bookFeedStatus();
+    const poly = polymarketMovement({ hours: 72, limit: 20 });
     const props = propEdgeEvidence();
     const cal = latestCoverCalibration(Number(process.env.NFL_SEASON) || 2026);
     const teaserHist = wongHistory();
@@ -283,6 +287,16 @@ r.get('/status', (_req, res, next) => {
         // reported next to the metered one rather than hidden on another page.
         free_detector: { events_tracked: movement.events_tracked, moves: movement.moves_detected,
           last_poll: movement.last_poll, worth_capturing: movement.worth_capturing },
+        // Free multi-book quotes (Pinnacle, OddsTrader's 11 books, BetRivers,
+        // Bovada) and Polymarket's implied line are what actually price the
+        // slate now; the metered feed is a supplement.
+        free_feeds: (() => {
+          const latest = feeds.recent_captures?.[0] ?? null;
+          return { enabled: feeds.enabled, latest_capture: latest?.captured_at ?? null,
+            books: latest?.books ?? 0, games: latest?.events ?? 0, quotes: latest?.quotes ?? 0 };
+        })(),
+        line_movement: { source: 'polymarket', games: poly.games, recent_moves: poly.recent_moves?.length ?? 0,
+          latest: poly.recent_moves?.[0]?.captured_at ?? null },
         capture_stale: board.stale, latest_multibook_capture: board.latest_capture
       }
     });

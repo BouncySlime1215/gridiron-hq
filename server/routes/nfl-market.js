@@ -11,6 +11,8 @@ import { nflOperations, runNflFeatureAblations, refreshNflResidualAudit } from '
 import { promoteEligibleAudit } from '../services/model-governance.js';
 import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-daemon.js';
 import { sportsGameOddsSnapshotStatus, captureSportsGameOddsSnapshot } from '../services/sportsgameodds.js';
+import { bookFeedStatus, captureBookFeeds } from '../services/book-feeds.js';
+import { polymarketMovement, refreshPolymarketLineWatch } from '../services/polymarket-lines.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
 import { currentNflWeek } from '../services/weekly-learning.js';
@@ -65,6 +67,22 @@ r.post('/evidence/capture', requireModelPermission('model:train'), async (req, r
 
 r.get('/evidence/sgo-status', (_req, res, next) => {
   try { res.json(sportsGameOddsSnapshotStatus()); } catch (e) { next(e); }
+});
+
+r.get('/evidence/book-feeds', (_req, res, next) => {
+  try { res.json(bookFeedStatus()); } catch (e) { next(e); }
+});
+
+r.post('/evidence/book-feeds/capture', requireModelPermission('model:train'), async (_req, res, next) => {
+  try { res.json(await captureBookFeeds()); } catch (e) { next(e); }
+});
+
+r.get('/polymarket/lines', (req, res, next) => {
+  try { res.json(polymarketMovement({ hours: Number(req.query.hours) || 168 })); } catch (e) { next(e); }
+});
+
+r.post('/polymarket/lines/poll', requireModelPermission('model:train'), async (_req, res, next) => {
+  try { res.json(await refreshPolymarketLineWatch()); } catch (e) { next(e); }
 });
 
 r.post('/evidence/sgo-capture', requireModelPermission('model:train'), async (_req, res, next) => {

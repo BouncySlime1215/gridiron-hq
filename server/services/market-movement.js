@@ -1,5 +1,6 @@
 /** Price/line movement diagnostics. Forecasts are labelled hypotheses, never edge. */
 import { rows } from '../db/index.js';
+import { polymarketMovement } from './polymarket-lines.js';
 
 const r3 = n => n == null || !Number.isFinite(n) ? null : +n.toFixed(3);
 const elapsedHours = (a, b) => Math.max((new Date(b) - new Date(a)) / 3600000, 1 / 60);
@@ -20,8 +21,13 @@ export function nflMarketMovement() {
       label:'descriptive only; projected close is a linear extrapolation, not a betting signal' };
   });
   const total = rows('SELECT COUNT(*) n,COUNT(DISTINCT captured_at) captures FROM nfl_line_snapshots')[0];
-  return { available:moves.length>0, quotes:total?.n??0,captures:total?.captures??0,moves,
-    note:moves.length ? 'Movement is based on stored timestamped prices. It cannot be used until sufficient forward closing outcomes accumulate.' : 'Awaiting at least two real-price snapshots of the same NFL market side.' };
+  // Polymarket is the primary movement source: an exchange-priced implied line
+  // every thirty minutes, independent of any sportsbook feed or credit.
+  let polymarket = null;
+  try { polymarket = polymarketMovement({ hours: 168, limit: 40 }); } catch (error) { polymarket = { error: error.message }; }
+  return { available:moves.length>0 || (polymarket?.games ?? 0) > 0, quotes:total?.n??0,captures:total?.captures??0,moves,
+    polymarket,
+    note:moves.length ? 'Movement is based on stored timestamped prices. It cannot be used until sufficient forward closing outcomes accumulate.' : 'Book snapshots: awaiting at least two real-price captures of the same market side. Polymarket implied lines are reported above regardless.' };
 }
 
 export function mlbMarketMovement() {

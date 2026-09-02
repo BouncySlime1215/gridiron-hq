@@ -243,6 +243,35 @@ documented oddID shape (`points-{home|away}-game-sp-{home|away}`,
 - `npm run typecheck`, `npm run lint` pass.
 - New test files: `test/sportsgameodds.test.js`, `test/nfl-model-fixes.test.js`.
 
+## 6. Round 3 — free quotes and Polymarket movement
+
+Asked to find a GitHub odds scraper, I evaluated `nkgilley/sbrscrape`,
+`declanwalpole/sportsbook-odds-scraper`, `FinnedAI/sportsbookreview-scraper`
+and the DraftKings/Bovada/Kambi/Pinnacle endpoints those projects and their
+readers rely on, then probed each endpoint directly from this machine rather
+than adding a Python dependency:
+
+| Endpoint | Result | Used |
+|---|---|---|
+| OddsTrader GraphQL (what `sbrscrape` actually reads) | 200, 47 games, 11 books, per-book timestamp | yes |
+| Pinnacle guest API (`guest.api.arcadia.pinnacle.com`, league 889) | 200, 16 matchups, straight spread/total/ML | yes |
+| Kambi (BetRivers, `eu-offering-api.kambicdn.com`) | 200, 17 events | yes |
+| Bovada coupon endpoint | 200, 16 events | yes |
+| DraftKings `sites/US-SB/api/v5/eventgroups/88808` | 403 Access Denied | no |
+| Caesars `api.americanwagering.com` | 403 | no |
+| SportsbookReview `_next/data` JSON | requires a build id scraped from HTML; not used | no |
+
+Implemented as `server/services/book-feeds.js` (parsers verified against
+real payloads saved to `test/fixtures/`, 7 tests) and, on the owner's
+instruction to use the already-connected Polymarket for line movement,
+`server/services/polymarket-lines.js` (6 tests). Details in the plan's
+Priority 0. Live after restart: 1,354 quotes / 11 books / 47 games in one
+free capture; 57 Polymarket-priced games across Weeks 1–4 with 90 material
+moves since 08-29.
+
+One correction to my own earlier note: the SportsGameOdds account is no
+longer the gating decision. It remains a fine optional second provider.
+
 ### Still open after round 2
 Everything in the original §3 not listed as fixed in round 2: the redundant
 `(g.team || g.opponent) IS NOT NULL` tautology is now removed as part of the

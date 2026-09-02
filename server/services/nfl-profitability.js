@@ -4,6 +4,7 @@ import { propClvStatus, propDecisionPolicyHash, PROP_DECISION_POLICY,
   propEdgeEvidence, propHorizonCoverage, propMarketScorecards,
   propMatchCoverage, propSettlementHealth } from './nfl-prop-clv.js';
 import { usage as oddsUsage } from './odds-api.js';
+import { FORWARD_SAMPLE_TARGETS } from './nfl-policy.js';
 import { ffOpportunityStatus } from './ffopportunity.js';
 import { validationFirewall } from './nfl-evidence.js';
 import { nflModelGrowthStatus } from './nfl-model-growth.js';
@@ -188,7 +189,7 @@ function profitabilityPhases({ matches, horizons, settlements, edge, teaser, gro
           ? 'Learning loop armed; waiting for the first finalized week'
           : `Learning pipeline needs attention: ${growth.state.replaceAll('_', ' ')}`,
       detail: 'The failed historical model remains retired from staking. New finalized weeks now become cutoff-safe features and immutable labels for challenger research.',
-      next_action: 'Keep forecasts paper-only while the automatic ingest/refit loop accumulates 250 independent forward decisions and positive CLV.'
+      next_action: `Keep forecasts paper-only while the automatic ingest/refit loop accumulates ${FORWARD_SAMPLE_TARGETS.overall} independent forward decisions and positive CLV.`
     }
   ];
 
@@ -224,8 +225,8 @@ export function profitabilityOperations() {
       label: `T-${h.hours_before_kickoff}h capture ≥90%`, passed: h.passed, actual: h.rate, target: 0.9 })),
     { id: 'settlement', label: 'Result resolution ≥99%', passed: settlements.passed,
       actual: settlements.resolution_rate, target: 0.99 },
-    { id: 'forward_sample', label: 'At least 200 settled independent props',
-      passed: (edge.settled_bets ?? 0) >= 200, actual: edge.settled_bets ?? 0, target: 200 },
+    { id: 'forward_sample', label: `At least ${FORWARD_SAMPLE_TARGETS.overall} settled independent props`,
+      passed: (edge.settled_bets ?? 0) >= FORWARD_SAMPLE_TARGETS.overall, actual: edge.settled_bets ?? 0, target: FORWARD_SAMPLE_TARGETS.overall },
     { id: 'teaser_price', label: 'Reachable Wong teaser price ≥-115', passed: teaser.wong_price_gate_passed,
       actual: teaser.latest_reachable?.american_price ?? null, target: -115 }
   ];

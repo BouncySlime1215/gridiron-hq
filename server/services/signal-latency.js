@@ -27,6 +27,7 @@
  * require spending credits, and the account has one left.
  */
 import { rows, row } from '../db/index.js';
+import './polymarket-lines.js'; // owns polymarket_line_moves, read by the movement union below
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -50,14 +51,24 @@ function teamKey(name) {
  * before we knew is not evidence that we knew first, and conflating the two is
  * the easiest way to manufacture a fake edge here.
  */
+// Both movement logs share these columns. Polymarket rows use the capture time
+// of the exchange quote as their timestamp, which is when the market moved,
+// not when this app noticed — the honest stamp for a latency measurement.
+const MOVE_UNION = `
+  SELECT observed_at, home_team, away_team, home_spread, prev_home_spread,
+         spread_delta, total, prev_total, total_delta, 'espn' AS source
+  FROM espn_line_moves WHERE first_sighting = 0
+  UNION ALL
+  SELECT captured_at AS observed_at, home_team, away_team, home_spread, prev_home_spread,
+         spread_delta, total, prev_total, total_delta, 'polymarket' AS source
+  FROM polymarket_line_moves WHERE first_sighting = 0`;
+
 function nextMoveAfter(team, publishedAt, { windowHours = 48 } = {}) {
   if (!team || !publishedAt) return null;
   const t = teamKey(team);
   const until = new Date(new Date(publishedAt).getTime() + windowHours * 3600000).toISOString();
   return row(
-    `SELECT observed_at, home_team, away_team, home_spread, prev_home_spread,
-            spread_delta, total, prev_total, total_delta
-     FROM espn_line_moves
+    `SELECT * FROM (${MOVE_UNION})
      WHERE (home_team = ? OR away_team = ?)
        AND observed_at > ? AND observed_at <= ?
      ORDER BY observed_at ASC LIMIT 1`, t, t, publishedAt, until);
@@ -69,7 +80,7 @@ function priorMoveBefore(team, publishedAt, { windowHours = 12 } = {}) {
   const t = teamKey(team);
   const since = new Date(new Date(publishedAt).getTime() - windowHours * 3600000).toISOString();
   return row(
-    `SELECT observed_at, spread_delta FROM espn_line_moves
+    `SELECT observed_at, spread_delta FROM (${MOVE_UNION})
      WHERE (home_team = ? OR away_team = ?)
        AND observed_at >= ? AND observed_at < ?
      ORDER BY observed_at DESC LIMIT 1`, t, t, since, publishedAt);

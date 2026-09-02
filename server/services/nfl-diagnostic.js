@@ -1,6 +1,7 @@
 /** One evidence-first health report for the unified NFL engine. */
 import { rows } from '../db/index.js';
 import { profitabilityOperations } from './nfl-profitability.js';
+import { FORWARD_SAMPLE_TARGETS } from './nfl-policy.js';
 import { newsSignalCoverage } from './nfl-news-signal.js';
 import { allSources } from './source-registry.js';
 import { schedulerStatus } from './scheduler.js';
@@ -118,7 +119,7 @@ export function nflDiagnostic() {
       forward: {
         shadow_decisions: number(edge.shadow_decisions), settled_bets: number(edge.settled_bets),
         profit_units: edge.profit_units ?? null, roi: edge.roi ?? null,
-        mean_clv: edge.mean_clv ?? null, target_settled: 200
+        mean_clv: edge.mean_clv ?? null, target_settled: FORWARD_SAMPLE_TARGETS.overall
       },
       gates: profitability.gates
     },
@@ -149,7 +150,7 @@ export function nflDiagnostic() {
     engine: profitability.gridiron_engine,
     bottlenecks,
     next_profit_review: {
-      minimum_evidence: '200 settled independent forward decisions with preserved decision and close prices',
+      minimum_evidence: `${FORWARD_SAMPLE_TARGETS.overall} settled independent forward decisions with preserved decision and close prices`,
       pass_conditions: ['positive mean and median CLV', 'week-clustered confidence interval above zero',
         'acceptable calibration and identity/settlement coverage', 'no look-ahead or reconstructed quotes'],
       warning: 'A higher backtest hit rate alone is not evidence of future profit.'

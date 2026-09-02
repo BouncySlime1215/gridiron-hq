@@ -18,6 +18,7 @@ import { captureOnlineNeuralWeek } from './nfl-online-neural.js';
 import { captureRiskLabWeek } from './nfl-risk-lab.js';
 import { captureForwardExpertWeek } from './nfl-expert-council.js';
 import { hasKey as hasSgoKey, captureSportsGameOddsSnapshot } from './sportsgameodds.js';
+import { captureBookFeeds } from './book-feeds.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS evidence_capture_windows (
@@ -133,6 +134,10 @@ export async function runEvidenceDaemon({ force = false } = {}) {
         // reserve above. Its own failure never blocks this capture window;
         // the Odds API result above is still the primary source when present.
         const sgo = hasSgoKey() ? await captureSportsGameOddsSnapshot().catch(error => ({ error: error.message })) : null;
+        // The free book feeds cost nothing, so every window gets a real
+        // multi-book quote set (Pinnacle included) whether or not the Odds
+        // API reserve is being held.
+        const free = await captureBookFeeds().catch(error => ({ error: error.message }));
         const shadow = recordNflShadowBoard(season, week);
         const neural = captureOnlineNeuralWeek(season, week, {
           horizons: windows.map(window => window.horizon)
@@ -145,10 +150,10 @@ export async function runEvidenceDaemon({ force = false } = {}) {
         // Complete if EITHER provider produced real quotes — the Odds API
         // reserve being held is not a partial capture if SportsGameOdds just
         // supplied the multi-book evidence instead.
-        const complete = !odds.error || (sgo && !sgo.error && sgo.quotes > 0);
-        mark(windows, complete ? 'captured' : 'partial', { context, odds, sgo, shadow, neural, risk_lab: riskLab,
+        const complete = !odds.error || (sgo && !sgo.error && sgo.quotes > 0) || (free && !free.error && free.quotes > 0);
+        mark(windows, complete ? 'captured' : 'partial', { context, odds, sgo, free_feeds: free, shadow, neural, risk_lab: riskLab,
           expert_council: expertCouncil, mode: 'forward_shadow' });
-        detail.nfl.push({ season, week, windows: windows.length, context, odds, sgo, shadow, neural,
+        detail.nfl.push({ season, week, windows: windows.length, context, odds, sgo, free_feeds: free, shadow, neural,
           risk_lab: riskLab, expert_council: expertCouncil });
       } catch (error) {
         mark(windows, 'partial', { error: error.message, mode: 'source_quarantined' });
@@ -184,17 +189,26 @@ export function evidenceDaemonStatus() {
     WHERE event_at >= ? AND status IN ('queued','partial') ORDER BY due_at LIMIT 12`, new Date().toISOString());
   const latest = rows('SELECT * FROM evidence_daemon_runs ORDER BY id DESC LIMIT 1')[0] ?? null;
   const partial = rows(`SELECT COUNT(*) count FROM evidence_capture_windows WHERE status='partial'`)[0]?.count ?? 0;
+  // A window whose due time AND kickoff have both passed while it is still
+  // queued was missed: the process was not running (or the daemon was stuck)
+  // when it came due. The plan asks for this to be an alert, not a backfill.
+  const missed = rows(`SELECT sport, horizon, COUNT(*) count FROM evidence_capture_windows
+    WHERE status='queued' AND due_at < ? AND event_at < ? AND horizon <> 'open'
+    GROUP BY sport, horizon ORDER BY sport, horizon`, new Date().toISOString(), new Date().toISOString());
+  const missedNfl = missed.filter(m => m.sport === 'NFL').reduce((n, m) => n + m.count, 0);
   const reserve = reserveStatus();
   return {
     running: false, odds_feed: hasKey(), odds_reserve: reserve, sgo_feed: hasSgoKey(),
-    by_status: byStatus, by_horizon: byHorizon, next,
+    by_status: byStatus, by_horizon: byHorizon, next, missed_windows: missed,
     latest_run: latest && { ...latest, detail: latest.detail_json ? JSON.parse(latest.detail_json) : null, detail_json: undefined },
     alerts: [
       ...(hasKey() ? [] : [{ severity: 'warn', code: 'odds_feed_missing', message: 'No ODDS_API_KEY: context is captured but real-price, line-movement and CLV evidence remain blocked.' }]),
       ...(hasKey() && reserve.exhausted ? [{ severity: hasSgoKey() ? 'warn' : 'error', code: 'odds_quota_exhausted',
         message: `Odds API has ${reserve.requests_remaining} credits left against a ${reserve.reserve}-credit reserve; paid multi-book capture is paused until the monthly reset.`
           + (hasSgoKey() ? ' SportsGameOdds is filling in as the second provider.' : ' Free ESPN reference lines continue; set SPORTSGAMEODDS_API_KEY for a free second source.') }] : []),
-      ...(partial ? [{ severity: 'warn', code: 'partial_windows', message: `${partial} due capture windows have context only; each retries at most ${MAX_PARTIAL_ATTEMPTS} times.` }] : [])
+      ...(partial ? [{ severity: 'warn', code: 'partial_windows', message: `${partial} due capture windows have context only; each retries at most ${MAX_PARTIAL_ATTEMPTS} times.` }] : []),
+      ...(missedNfl ? [{ severity: 'error', code: 'missed_windows',
+        message: `${missedNfl} NFL capture window${missedNfl === 1 ? ' was' : 's were'} missed (kickoff passed while still queued: ${missed.filter(m => m.sport === 'NFL').map(m => `${m.horizon}×${m.count}`).join(', ')}). The app was not running when they came due; they are not backfilled.` }] : [])
     ]
   };
 }

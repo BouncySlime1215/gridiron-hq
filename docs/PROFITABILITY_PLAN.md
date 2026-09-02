@@ -150,19 +150,45 @@ retrying. This prevents a repeat, it does not recover September.
   `old_game_id` crosswalk at ingest; verified live: 21,977 of 22,012
   assignments matched, `refereeTotals()` now returns 3,014 referee-games
   instead of the old 44,392.
-- [ ] Add a provider-agnostic quote adapter (`provider`, `book_updated_at`)
-  that both the Odds API and SportsGameOdds paths write through, and wire the
-  dormant `nfl_quote_tape` to a real producer. `nfl_line_snapshots` today
-  works for both providers because SportsGameOdds writes the same row shape,
-  but there is no shared `book_updated_at`/provider column yet — a T-1h
-  capture whose book last updated four hours earlier is still indistinguishable
-  from a fresh one.
+- [x] **Free multi-book quotes, no key, no credits** (`server/services/book-feeds.js`,
+  2026-09-02 round 3). Four public endpoints, each isolated: the OddsTrader
+  aggregator that `sbrscrape` (github.com/nkgilley/sbrscrape) reads (11 books
+  in one call with a per-book change stamp), **Pinnacle's guest API** (the
+  sharp reference this plan has wanted, previously 4 credits a call), Kambi
+  (BetRivers) and Bovada. Verified live: one capture wrote 1,354 quotes from
+  11 books across 47 games. Same game keyed identically across feeds; a book
+  present in two feeds is kept from the more direct one. Scheduled hourly
+  (`nfl_book_feeds`) and run at every evidence-daemon NFL window. Set
+  `FREE_BOOK_FEEDS=0` to disable. These are the books' own undocumented site
+  endpoints; DraftKings and Caesars block server requests and are not read.
+- [x] Provider-agnostic snapshot columns: `nfl_line_snapshots.provider` and
+  `book_updated_at` (Odds API, SportsGameOdds and each free feed write through
+  the same row shape). The immutable `nfl_quote_tape` now has real producers:
+  every Odds API snapshot and every free-feed capture is appended.
+- [x] **Line movement source = Polymarket** (`server/services/polymarket-lines.js`).
+  Polymarket lists every game with an alternate-spread ladder and a totals
+  ladder, and `polymarket.js` has stored their books every 30 minutes since
+  2026-08-29. The point where the ladder's cover probability crosses 50% is
+  the market's implied spread/total; it is read off every capture with a
+  monotone (isotonic) fit so a thin leg's placeholder midpoint cannot invent
+  a crossing, legs with a real two-sided book are preferred, out-of-band
+  crossings are rejected, and a move is logged only when the number shifts
+  ≥0.5. Rebuilt from stored quotes: 57 games (Weeks 1–4), 90 material moves
+  since 08-29, implied openers within half a point of the books. Feeds the
+  capture dispatcher, the news→market latency measurement (unioned with the
+  ESPN log), and the movement panel. Scheduled every 15 minutes.
+- [x] The sharp board reads stored snapshots first (Pinnacle from the free
+  feed) and only spends a metered `eu` call when nothing recent is stored and
+  the reserve allows it. `provenance` says which.
+- [x] One forward-sample target: `FORWARD_SAMPLE_TARGETS` in `nfl-policy.js`
+  (200 overall, 75 per market, per §2) replaces the 250/250/200/200 copies in
+  four services.
 - [ ] One team-code map, one name normalizer, one cutoff representation, used by
   every ingestion path. Eight normalizers and five maps exist today (the
   Washington postgame-truth join and the officials crosswalk were fixed at
   their specific call sites, not consolidated repo-wide).
-- [ ] Reconcile the forward-sample target (200 vs 250) and the audit names across
-  code and docs.
+- [ ] Reconcile the audit names across code and docs (the forward-sample
+  target is done; see above).
 - [ ] `nfl-market.js`'s alpha/carryover grid search is still fit over the
   entire history rather than a separate held-out window (only its
   serving-time application of the fitted carryover was fixed this round).
@@ -892,15 +918,28 @@ correct, which is exactly the uncertain quantity being tested.
 0. Keep the app running through 2026-09-15. The decision ledger, pregame
    snapshots, council freeze, shadow board, and settlement are all scheduled
    now, and all of them are process-local timers.
-1. Decide the Weeks 1–4 quote source (Priority 0). Without it, Week 1 evidence
-   is decisions, context and the ESPN reference close — enough to grade
-   direction and abstention discipline, not enough for multi-book CLV.
-2. Ship unmatched-prop reconciliation and explicit abstention reasons.
-3. Missed-horizon alerting: the quota alert exists; add the per-horizon miss.
-4. Add reachable teaser-price entry and archive.
-5. Freeze/hash the 2026 prop decision policy.
-6. Display capture coverage, model-match coverage, and the credit reserve in the
-   NFL hub (the reserve status is on `/api/nfl-market/evidence/status`).
+1. Quote source for Weeks 1–4: **resolved without spending.** The free book
+   feeds capture 11 books including Pinnacle hourly and at every capture
+   window, and Polymarket supplies the movement series. Multi-book CLV is
+   measurable for Week 1. The Odds API upgrade and the SportsGameOdds account
+   remain optional extras, not blockers.
+2. Unmatched-prop reconciliation and explicit abstention reasons — **in code**:
+   `reconcilePropQuoteMatches` runs inside the hourly prop job and writes a
+   `model_match_status`/`model_match_reason` per quote; `propMatchCoverage`
+   reports the 95% gate. What is missing is prop quotes themselves (the
+   metered feed is the only prop source; the free feeds carry sides/totals).
+3. Missed-window alerting — **done** (`missed_windows` and a `missed_windows`
+   alert on `/api/nfl-market/evidence/status`: a window whose due time and
+   kickoff both passed while still queued). Prop horizon misses were already
+   in `propHorizonCoverage`.
+4. Reachable teaser-price entry and archive — exists (`POST
+   /api/nfl-betting/teasers/prices`, the form in Profitability Control).
+5. Freeze/hash the 2026 prop decision policy — **done**; `nfl-prop-clv.js`
+   freezes `nfl-prop-shadow-2026.1` into `nfl_prop_policy_archive` at import
+   and throws if the policy text changes without a version bump.
+6. Display capture coverage and the reserve in the NFL hub — **done**: the
+   workspace strip now shows Polymarket line movement, the free-feed capture
+   (books, games, age) and the paid credits left as backup.
 
 ### Weeks 1–4
 

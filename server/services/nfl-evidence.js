@@ -9,6 +9,7 @@
  */
 import { db, rows, run } from '../db/index.js';
 import { hasKey } from './odds-api.js';
+import { FORWARD_SAMPLE_TARGETS } from './nfl-policy.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_source_registry (
@@ -128,8 +129,8 @@ export function validationFirewall() {
   const totalTrials = Object.values(trialCounts).reduce((a, b) => a + Number(b || 0), 0);
   return {
     state: 'development_replay_opened', windows, trial_counts: trialCounts, total_recorded_trials: totalTrials,
-    forward: { decisions: Number(forward.decisions || 0), settled: Number(forward.settled || 0), target: 250 },
-    untouched_gate_passed: Number(forward.settled || 0) >= 250,
+    forward: { decisions: Number(forward.decisions || 0), settled: Number(forward.settled || 0), target: FORWARD_SAMPLE_TARGETS.overall },
+    untouched_gate_passed: Number(forward.settled || 0) >= FORWARD_SAMPLE_TARGETS.overall,
     multiple_testing: {
       required: totalTrials > 1,
       status: 'track_all_trials',

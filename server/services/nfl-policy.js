@@ -20,6 +20,20 @@ export const NFL_PRODUCTION_POLICY = Object.freeze({
   requireCalibratedAdvantage: true
 });
 
+/**
+ * The forward-evidence sample gates from PROFITABILITY_PLAN.md §2. One
+ * definition: four services used to carry their own copies (250 in two of
+ * them, 200 in the other two), so the same ledger could read "gate passed"
+ * on one page and "accumulating" on another. The plan (v1.3) governs: 200
+ * settled independent decisions overall before any aggregate CLV claim, 75
+ * in a market before a market-specific claim.
+ */
+export const FORWARD_SAMPLE_TARGETS = Object.freeze({
+  overall: 200,
+  per_market: 75,
+  source: 'PROFITABILITY_PLAN.md §2 Market-edge gates'
+});
+
 // Historical diagnostics grade the selector that existed before the current
 // calibration gate. Name that contract explicitly so an audit manifest never
 // claims to test today's production policy while executing this older rule.

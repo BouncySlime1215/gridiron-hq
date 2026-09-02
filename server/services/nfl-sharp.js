@@ -25,7 +25,8 @@
  * CLV, the premise is wrong and the ledger will say so.
  */
 import { rows } from '../db/index.js';
-import { hasKey, gameOdds } from './odds-api.js';
+import { hasKey, gameOdds, reserveStatus } from './odds-api.js';
+import { latestSnapshotPayload } from './line-shopping.js';
 import { americanToProb, americanToDecimal, noVigProbability } from './nfl-clv.js';
 
 /**
@@ -79,12 +80,22 @@ function twoSided(outcomes) {
  * book with a stale or erroneous number cannot define the reference. When only
  * Pinnacle is present the median is Pinnacle, which is the intended behaviour.
  */
-export async function sharpBoard({ markets = 'spreads,totals', includePinnacle = true } = {}) {
-  if (!hasKey()) return { error: 'no ODDS_API_KEY configured' };
-  // us covers the books worth betting into; eu is the only route to Pinnacle.
-  const regions = includePinnacle ? 'us,eu' : 'us';
-  const data = await gameOdds({ markets, regions });
-  if (!data) return { error: 'odds fetch returned nothing (quota, or no slate posted)' };
+export async function sharpBoard({ markets = 'spreads,totals', includePinnacle = true, source = 'auto' } = {}) {
+  // Stored quotes first. The free book feeds write Pinnacle and ten other
+  // books every hour into nfl_line_snapshots, which is the same evidence the
+  // metered `eu` call would buy for four credits. Only fall through to the
+  // paid call when nothing recent is stored and the reserve allows it.
+  let data = source === 'live' ? null : latestSnapshotPayload({ markets, maxAgeMinutes: 180 });
+  let provenance = 'stored_snapshots';
+  if (!data?.length && source !== 'snapshots') {
+    if (!hasKey()) return { error: 'no ODDS_API_KEY configured and no stored quotes in the last 3 hours' };
+    if (reserveStatus().exhausted) return { error: 'odds quota at reserve and no stored quotes in the last 3 hours; the free book feeds fill this hourly' };
+    // us covers the books worth betting into; eu is the only route to Pinnacle.
+    const regions = includePinnacle ? 'us,eu' : 'us';
+    data = await gameOdds({ markets, regions });
+    provenance = 'the_odds_api';
+  }
+  if (!data?.length) return { error: 'no quotes available (quota, or no slate posted)' };
 
   const games = [];
   for (const ev of data) {
@@ -124,7 +135,8 @@ export async function sharpBoard({ markets = 'spreads,totals', includePinnacle =
       markets: perMarket
     });
   }
-  return { games, sharp_books_seen: [...new Set(data.flatMap(e => (e.bookmakers ?? []).map(b => b.key)))].filter(k => SHARP_BOOKS.includes(k)) };
+  return { games, provenance, as_of: data[0]?.captured_at ?? new Date().toISOString(),
+    sharp_books_seen: [...new Set(data.flatMap(e => (e.bookmakers ?? []).map(b => b.key)))].filter(k => SHARP_BOOKS.includes(k)) };
 }
 
 /**

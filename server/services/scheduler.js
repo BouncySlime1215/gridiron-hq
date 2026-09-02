@@ -200,6 +200,18 @@ async function refreshSportsGameOdds() {
   return captureSportsGameOddsSnapshot();
 }
 
+/** Free multi-book feeds (Pinnacle guest, OddsTrader aggregator, Kambi, Bovada). No credits, no key. */
+async function refreshBookFeeds() {
+  const { captureBookFeeds } = await import('./book-feeds.js');
+  return captureBookFeeds();
+}
+
+/** Polymarket implied spread/total per game, logged whenever it moves — the line-movement source. */
+async function refreshPolymarketLineWatch() {
+  const { refreshPolymarketLineWatch: poll } = await import('./polymarket-lines.js');
+  return poll();
+}
+
 /**
  * Multi-horizon, pre-event evidence captures. This stays light: it only runs
  * windows that are due and groups requests by NFL week / MLB slate date.
@@ -411,6 +423,10 @@ export const JOBS = {
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, tier: 'metered', label: 'Multi-book line snapshots (CLV)' },
   nfl_sgo_snapshot: { run: refreshSportsGameOdds, maxAgeMinutes: 30, tier: 'metered',
     label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
+  nfl_book_feeds: { run: refreshBookFeeds, maxAgeMinutes: 60, tier: 'live',
+    label: 'Free multi-book quotes: Pinnacle, OddsTrader (11 books), BetRivers, Bovada' },
+  polymarket_line_watch: { run: refreshPolymarketLineWatch, maxAgeMinutes: 15, tier: 'live',
+    label: 'Polymarket implied spread/total movement (line-movement source)' },
   // Free — ESPN's public scoreboard, no key and no quota — so this runs far more
   // often than the metered jobs. It is the trigger that tells the paid capture
   // above when a credit is actually worth spending.
@@ -602,7 +618,8 @@ export function startScheduler({
   // on the main thread twenty seconds after boot made every API request hang.
   const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
     'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
-    'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play'];
+    'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
+    'nfl_book_feeds', 'polymarket_line_watch'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

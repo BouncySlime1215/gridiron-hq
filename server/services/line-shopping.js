@@ -30,6 +30,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_lines_event ON nfl_line_snapshots(event_id, market);
 `);
+// Provider-agnostic columns. `provider` says which feed wrote the row (the
+// Odds API, SportsGameOdds, or one of the free book feeds); `book_updated_at`
+// is the book's own last-change stamp when the feed exposes one, so a capture
+// whose book last moved four hours earlier is not mistaken for a fresh quote.
+for (const [col, type] of [['provider', 'TEXT'], ['book_updated_at', 'TEXT']]) {
+  const cols = db.prepare('PRAGMA table_info(nfl_line_snapshots)').all().map(c => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE nfl_line_snapshots ADD COLUMN ${col} ${type}`);
+}
 
 const americanToProb = o => (o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -55,17 +63,26 @@ export async function snapshotLines({ markets = 'h2h,spreads,totals' } = {}) {
     for (const b of ev.bookmakers ?? []) {
       for (const m of b.markets ?? []) {
         for (const o of m.outcomes ?? []) {
-          run(`INSERT INTO nfl_line_snapshots
-              (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+          const result = run(`INSERT INTO nfl_line_snapshots
+              (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price,
+               provider, book_updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT DO NOTHING`,
             at, ev.id, ev.commence_time, ev.home_team, ev.away_team,
-            b.key, m.key, o.name, o.point ?? null, o.price ?? null);
-          n++;
+            b.key, m.key, o.name, o.point ?? null, o.price ?? null,
+            'the-odds-api', m.last_update ?? b.last_update ?? null);
+          n += result.changes ?? 0;
         }
       }
     }
   }
+  // The immutable quote tape is the evidence store the plan calls for; this
+  // was its intended producer and it was never wired. Failure here must not
+  // lose the snapshot above.
+  try {
+    const { ingestQuoteSnapshot } = await import('./nfl-quote-tape.js');
+    ingestQuoteSnapshot(data, { requestedAt: at, markets, sourceRef: 'snapshot_lines' });
+  } catch { /* tape is supplementary evidence; the snapshot table is the working copy */ }
   // The shopping board memoises the latest simultaneous quote set per market.
   // A fresh capture is exactly the event that makes that memo wrong, so drop it
   // here rather than relying on a TTL that would serve a stale board in the
@@ -74,6 +91,37 @@ export async function snapshotLines({ markets = 'h2h,spreads,totals' } = {}) {
   clearShoppingBoardCache();
 
   return { captured_at: at, games: data.length, quotes: n };
+}
+
+/**
+ * The most recent simultaneous capture, rebuilt in the Odds API's payload
+ * shape (events → bookmakers → markets → outcomes) so any consumer written
+ * against `gameOdds()` can read stored quotes instead of spending a credit.
+ * With the free book feeds writing hourly, this is usually fresher than the
+ * metered call would be — and it includes Pinnacle.
+ */
+export function latestSnapshotPayload({ markets = 'spreads,totals', maxAgeMinutes = 180 } = {}) {
+  const wanted = String(markets).split(',').map(s => s.trim()).filter(Boolean);
+  const since = new Date(Date.now() - maxAgeMinutes * 60000).toISOString();
+  const latest = rows(`SELECT event_id, MAX(captured_at) captured_at FROM nfl_line_snapshots
+    WHERE captured_at >= ? AND market IN (${wanted.map(() => '?').join(',')}) GROUP BY event_id`, since, ...wanted);
+  if (!latest.length) return null;
+  const events = new Map();
+  for (const l of latest) {
+    const quotes = rows(`SELECT * FROM nfl_line_snapshots WHERE event_id=? AND captured_at=?
+      AND market IN (${wanted.map(() => '?').join(',')})`, l.event_id, l.captured_at, ...wanted);
+    if (!quotes.length) continue;
+    const ev = { id: l.event_id, commence_time: quotes[0].commence_time, home_team: quotes[0].home_team,
+      away_team: quotes[0].away_team, captured_at: l.captured_at, bookmakers: new Map() };
+    for (const q of quotes) {
+      const bk = ev.bookmakers.get(q.book) ?? { key: q.book, title: q.book, last_update: q.book_updated_at ?? l.captured_at, markets: new Map() };
+      const mk = bk.markets.get(q.market) ?? { key: q.market, last_update: q.book_updated_at ?? l.captured_at, outcomes: [] };
+      mk.outcomes.push({ name: q.side, point: q.line, price: q.price });
+      bk.markets.set(q.market, mk); ev.bookmakers.set(q.book, bk);
+    }
+    events.set(l.event_id, { ...ev, bookmakers: [...ev.bookmakers.values()].map(b => ({ ...b, markets: [...b.markets.values()] })) });
+  }
+  return [...events.values()].sort((a, b) => String(a.commence_time).localeCompare(String(b.commence_time)));
 }
 
 /**

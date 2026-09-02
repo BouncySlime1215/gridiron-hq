@@ -284,3 +284,63 @@ remain queued and are not touched by this pass. `nfl-market.js`'s own fitting
 methodology (alpha/carryover chosen by grid search over the ENTIRE history,
 not a separate held-out window) is a deeper redesign and stays open; only its
 serving-time application of the fitted carryover was fixed.
+
+## 7. Round 4 — speed contract, one map, weekly look-back
+
+### Heavy reports off the request thread — FIXED
+
+Measured on the live server: the abstention audit took **267 s** and the
+football-first walk-forward **74 s** of synchronous CPU per cold read. Node
+serves every request on one thread, so a 170 ms profitability read timed out
+at 120 s behind them, and the hourly line sync bumped the in-memory
+fingerprint every hour. `report-cache.js` computes the abstention audit, NFL
+diagnostic, walk-forward, confidence calibration and football-first fit in
+worker threads on the growth tick (`nfl_reports`) and stores the answer in
+`nfl_cached_reports`; routes return it in under 20 ms with `computed_at`,
+`duration_ms` and `stale`, or `pending` before the first run.
+`GET /api/nfl-market/reports` is the store. Measured after: abstentions 13 ms,
+diagnostic 17 ms, walk-forward 15 ms (worker 179 s), football-first fit
+(worker 98 s) while every other route stayed responsive.
+
+### One team-code map, one cutoff — FIXED
+
+`team-codes.js` replaces five alias maps and eight normalizers. Reconciling
+`game_lines` moved 924 OAK/SD/STL rows to LV/LAC/LAR: the ratings walk had
+been resetting a relocated franchise to a stranger. `game-cutoff.js` is the
+one kickoff cutoff (the unified engine and roster strength disagreed by a
+whole game day).
+
+### nfl-market held-out fit — FIXED
+
+alpha/carryover are selected on 1999–2024 and 2025 is held out. Result:
+selected (0.08, 0.5), selection score 10.53, held-out 10.12, and hindsight on
+2025 picks the same pair — no evidence of grid overfit.
+
+### Audit names — FIXED
+
+Historical diagnostic = the 2021–25 outcome-blind replay; blind audit = the
+preregistered 2026 forward ledger. Code keys, labels and protocol text agree.
+
+### Combined decision row — FIXED
+
+Forward captures now freeze a `combined_decision` row per game with every
+contributor's raw opinion, learned and normalized weights, disagreement, the
+final number, the production policy's selected side/line/price/book or
+abstention reason (zero units), and settlement.
+
+### Weekly input and look-back in the historical diagnostic — FIXED
+
+Nick's note: on audit run 8 not every item reported, and the replay must give
+its input weekly and look back on it properly. Each opened week now records
+`weekly_input` — a game × specialist matrix (all twelve roles, status
+forecast/support/missing/not_recorded with the reason), the coordinator, the
+combined decision and the production pick — with a completeness check that
+files a `reporting` fault for any absent cell. It then records `lookback`:
+every specialist graded this week and cumulatively (coverage, directional
+calls, RMSE, missing reasons), the coordinator's combined calls and its
+largest weight moves since the previous week, the week's and running bets, and
+plain-language reads that refuse to read one week as a hit rate. Look-backs
+chain week to week; the final aggregate carries `by_week` and `reporting`,
+and the manifest reports complete weeks and missing cells. The Training page
+trail shows the look-back under each opened week. Verified in
+`test/blind-audit-lookback.test.js` and on a live run (see below).

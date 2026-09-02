@@ -638,6 +638,29 @@ export function captureForwardExpertWeek(season, week, { horizon = 'manual' } = 
     const outputs = [...item.experts, ...(coordinator.ready ? [{ id: 'coordinator', observed: true,
       forecast_residual: coordinator.forecast_residual, uncertainty: coordinator.uncertainty,
       authority: coordinator.authority, missing_reason: null, detail: coordinator }] : [])];
+    // The combined decision is its own frozen row: every contributor's raw
+    // opinion, learned and normalized weight, the disagreement, the final
+    // number, the side and price the production policy actually selected (or
+    // its abstention reason), and — after settlement — the result. Without it
+    // the per-expert rows had to be reassembled by hand to answer "what did the
+    // council decide", and the selected price was not recorded anywhere.
+    const trace = combinedDecisionTrace(item.game, item.experts, coordinator);
+    const decision = rows(`SELECT selection,market,line,american_price,book,quote_at,eligible,abstention_reason,policy_rank
+      FROM nfl_pick_decisions WHERE season=? AND week=? AND matchup=? ORDER BY recorded_at DESC LIMIT 1`,
+    season, week, `${item.game.away} at ${item.game.home}`)[0] ?? null;
+    trace.selection = {
+      side: decision?.eligible ? decision.selection : null,
+      market: decision?.market ?? null, line: decision?.line ?? null, price: decision?.american_price ?? null,
+      book: decision?.book ?? null, quote_at: decision?.quote_at ?? null,
+      stake_units: 0, eligible: decision ? Boolean(decision.eligible) : null,
+      abstention_reason: decision?.abstention_reason ?? null, policy_rank: decision?.policy_rank ?? null,
+      reason: !decision ? 'no production decision recorded for this game yet'
+        : decision.eligible ? 'production policy selection (zero units: shadow ledger)' : decision.abstention_reason
+    };
+    outputs.push({ id: 'combined_decision', observed: coordinator.ready,
+      forecast_residual: trace.final_prediction.forecast_residual, uncertainty: coordinator.uncertainty ?? null,
+      authority: trace.authority, missing_reason: coordinator.ready ? null : (coordinator.reason ?? 'coordinator warmup incomplete'),
+      detail: trace });
     for (const expert of outputs) {
       const result = run(`INSERT OR IGNORE INTO nfl_expert_forward_predictions
         (season,week,home,away,expert_id,horizon,council_version,engine_version,evidence_hash,evidence_cutoff,
@@ -800,9 +823,21 @@ export function expertCouncilGame(season, week, home) {
     ORDER BY p.expert_id`, season, week, String(home).toUpperCase());
   if (!predictions.length) return { available: false, season, week, home,
     reason: 'No pre-kickoff council horizon has been frozen for this game.' };
+  const combinedRow = predictions.find(row => row.expert_id === 'combined_decision') ?? null;
+  let combined = null;
+  if (combinedRow) {
+    try { combined = JSON.parse(combinedRow.payload_json || 'null'); } catch { combined = null; }
+    if (combined) combined.settlement = { ...(combined.settlement ?? {}),
+      actual_residual: combinedRow.actual_residual ?? combined.settlement?.actual_residual ?? null,
+      directional_correct: combinedRow.directional_correct == null ? (combined.settlement?.directional_correct ?? null)
+        : Boolean(combinedRow.directional_correct),
+      squared_error: combinedRow.squared_error ?? null };
+  }
   return { available: true, version: EXPERT_COUNCIL_VERSION, season, week, home,
     captured_at: predictions.reduce((latest, row) => !latest || row.captured_at > latest ? row.captured_at : latest, null),
-    experts: predictions.map(row => ({ id: row.expert_id, horizon: row.horizon, observed: Boolean(row.observed),
+    combined_decision: combined ?? { state: 'not_recorded',
+      reason: 'captured before combined-decision rows existed; the next horizon capture records one' },
+    experts: predictions.filter(row => row.expert_id !== 'combined_decision').map(row => ({ id: row.expert_id, horizon: row.horizon, observed: Boolean(row.observed),
       forecast_residual: row.forecast_residual, uncertainty: row.uncertainty, authority: row.authority,
       missing_reason: row.missing_reason, actual_residual: row.actual_residual,
       directional_correct: row.directional_correct == null ? null : Boolean(row.directional_correct) })),

@@ -217,18 +217,39 @@ retrying. This prevents a repeat, it does not recover September.
 
 ### Priority 1 — close everything revealed by audit run 8
 
+- [x] Every opened week of the historical diagnostic records its weekly input
+  (game × specialist matrix with reasons, coordinator, combined decision,
+  production pick) with a completeness check that files a reporting fault for
+  any absent cell, and a chained look-back (per-specialist week and cumulative
+  grades, coordinator weight moves, running bets, plain-language reads). The
+  final aggregate carries `expert_learning.by_week` and `reporting`; the
+  manifest reports complete weeks and missing cells.
 - [ ] Publish the final run manifest: exact code/data hashes, coverage, timing,
-  failures, retries, results, calibration, and year-by-year measurements.
-- [ ] Replace the misleading "nine reporting" display with a game × specialist
-  matrix. Distinguish the eight observed supporting outputs, seven directional
-  callers, four zero-coverage modules, intentional lifecycle differences, and
-  genuine errors. Make every missing opinion explicit.
-- [ ] Make all twelve specialists report reliably whenever their required
-  cutoff-safe evidence exists. Never silently replace a missing opinion with
-  zero.
-- [ ] Verify that the combined decision records the contributing specialists,
-  their raw opinions, learned weights, normalized weights, disagreement, final
-  prediction, selected side, price, and settlement for every game.
+  failures, retries, results, calibration, and year-by-year measurements
+  (reporting completeness and weekly look-backs are in; per-phase latency,
+  retries and calibration on settled rows remain v1 limitations).
+- [x] The game × specialist matrix (`expertCouncilStatus().matrix`, the
+  "Game × specialist truth matrix" panel) reports `forecast`, `support`,
+  `missing`, `not_recorded` and lifecycle states per cell, and the headline
+  counts observed output, numeric forecasts, not-run, zero-coverage and
+  lifecycle differences separately. Historical (2022–25) state on 2026-09-02:
+  7 forecasting, 1 partial (online neural, 48 cold-start misses), 2 zero
+  coverage (line movement, verified news: no historical tape), 2 different
+  lifecycle (live updater, price shopper), 1 different score (player
+  opportunity).
+- [x] On the 2026 Week 1 forward capture every specialist whose evidence exists
+  reports: line movement 16/16 (free book feeds + Polymarket), price shopper
+  15/16 (multi-book quotes), verified news 10/16 (the six misses carry
+  `verified news feed coverage missing before kickoff`), live updater 0/16 with
+  the explicit in-game lifecycle reason. Missing opinions are rows with a
+  reason, never zeros.
+- [x] The combined decision is now its own frozen forward row
+  (`expert_id = 'combined_decision'` in `nfl_expert_forward_predictions`):
+  contributors with raw opinion, learned and normalized weight, contribution and
+  missing reason; disagreement; final prediction; the production policy's
+  selected side, market, line, price, book, eligibility or abstention reason
+  (zero units); and settlement once the game is scored. `expertCouncilGame`
+  returns it as `combined_decision`.
 - [ ] Diagnose accuracy and calibration by season, week, matchup type, market,
   specialist, confidence bucket, and data-coverage bucket. Treat 2021 as
   quarantined evidence unless its missing fields are genuinely repaired.

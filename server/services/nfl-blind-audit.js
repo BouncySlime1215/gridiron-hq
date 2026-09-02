@@ -480,6 +480,15 @@ function aggregate(weeks) {
     expert_learning: {
       games: expertGames.length, experts: expertLearning,
       coordinator_ready_games: expertGames.filter(game => game.coordinator?.ready).length,
+      by_week: weeks.map(x => x.result.lookback).filter(Boolean).map(lookback => ({
+        season: lookback.season, week: lookback.week, games: lookback.games,
+        reported_on_every_game: lookback.specialists.filter(item => item.week.observed === lookback.games).length,
+        missing_opinions: lookback.specialists.reduce((sum, item) => sum + item.week.missing, 0),
+        coordinator_ready_games: lookback.coordinator.ready_games,
+        coordinator_directional: lookback.coordinator.week })),
+      reporting: { weeks: weeks.length,
+        complete_weeks: weeks.filter(x => x.result.weekly_input?.completeness?.complete).length,
+        missing_cells: weeks.reduce((sum, x) => sum + (x.result.weekly_input?.completeness?.missing_cells?.length ?? 0), 0) },
       rule: 'Every expert is scored on the same weeks. Coverage and abstentions remain visible; no best-looking subset is promoted here.'
     },
     postgame_learning: {
@@ -547,6 +556,11 @@ function runManifest(record, weeks) {
       coordinator_ready_games: final?.expert_learning?.coordinator_ready_games ?? 0,
       specialists: final?.expert_learning?.experts ?? [],
       deep_postgame_games: final?.postgame_learning?.deep_gameplay_coverage ?? 0 },
+    reporting: { weeks: weeks.length,
+      complete_weeks: weeks.filter(item => item.result?.weekly_input?.completeness?.complete).length,
+      weeks_without_input_record: weeks.filter(item => !item.result?.weekly_input).length,
+      missing_cells: weeks.flatMap(item => (item.result?.weekly_input?.completeness?.missing_cells ?? [])
+        .map(cell => ({ season: item.season, week: item.week, ...cell }))) },
     failures: { count: failures.length, items: failures,
       retries: { recorded: false, count: null, reason: 'audit protocol v1 did not persist retry attempts' } },
     results: { overall: bettingSummary(weeks), by_season: bySeason },
@@ -554,6 +568,150 @@ function runManifest(record, weeks) {
       reason: 'audit protocol v1 did not persist probability forecasts on the identical settled selection rows' },
     interpretation: final?.interpretation ?? 'Historical chronological replay only; no profitability promotion authority.'
   };
+}
+
+/* ------------------------------------------------ weekly input and look-back */
+
+/**
+ * What every specialist said about every game BEFORE the week's outcomes, as a
+ * game × specialist record, plus the production pick for the game. Audit run 8
+ * stored the council per game but the interface collapsed it to a "nine
+ * reporting" count, and nothing checked that all twelve roles, the
+ * coordinator and the combined decision were actually present for every game.
+ * `completeness` is that check; a week that is missing cells is a reporting
+ * fault, not a quiet success.
+ */
+function weeklyInput(expertCouncil, betting = null) {
+  const picks = new Map((betting?.picks ?? []).map(pick => [pick.matchup, pick]));
+  const games = (expertCouncil?.games ?? []).map(item => {
+    const home = item.game?.home, away = item.game?.away;
+    const byId = new Map((item.experts ?? []).map(expert => [expert.id, expert]));
+    const specialists = NFL_EXPERTS.map(registry => {
+      const expert = byId.get(registry.id);
+      if (!expert) return { id: registry.id, status: 'not_recorded', observed: false, forecast_residual: null,
+        uncertainty: null, missing_reason: 'no row recorded for this specialist' };
+      return { id: registry.id,
+        status: expert.observed ? (Number.isFinite(expert.forecast_residual) ? 'forecast' : 'support') : 'missing',
+        observed: Boolean(expert.observed), forecast_residual: expert.forecast_residual ?? null,
+        uncertainty: expert.uncertainty ?? null, missing_reason: expert.missing_reason ?? null };
+    });
+    const pick = picks.get(`${away} at ${home}`) ?? null;
+    return { season: item.game?.season, week: item.game?.week, home, away,
+      evidence_cutoff: item.game?.evidence_cutoff ?? null, market_margin: item.game?.market_margin ?? null,
+      specialists,
+      coordinator: item.coordinator ? { ready: Boolean(item.coordinator.ready),
+        forecast_residual: item.coordinator.forecast_residual ?? null, reason: item.coordinator.reason ?? null } : null,
+      combined_decision: item.combined_decision ?? null,
+      production_pick: pick ? { market: pick.market, selection: pick.selection, line: pick.line, units: pick.units ?? null }
+        : { market: null, selection: null, line: null, units: 0, reason: 'no production pick for this game' } };
+  });
+  return { games, completeness: reportingCompleteness(games) };
+}
+
+function reportingCompleteness(games) {
+  const missingCells = [];
+  for (const game of games) {
+    for (const cell of game.specialists) if (cell.status === 'not_recorded') missingCells.push({ game: `${game.away} at ${game.home}`, specialist: cell.id });
+    if (!game.coordinator) missingCells.push({ game: `${game.away} at ${game.home}`, specialist: 'coordinator' });
+    if (!game.combined_decision) missingCells.push({ game: `${game.away} at ${game.home}`, specialist: 'combined_decision' });
+  }
+  const expected = games.length * (NFL_EXPERTS.length + 2);
+  return { games: games.length, expected_cells: expected, recorded_cells: expected - missingCells.length,
+    complete: missingCells.length === 0, missing_cells: missingCells,
+    rule: 'Every game must carry all twelve specialist rows, the coordinator and the combined decision; a missing opinion is a row with a reason, never an absent cell.' };
+}
+
+/**
+ * The look-back for one opened week: what each specialist and the coordinator
+ * said, graded against what happened, this week and cumulatively through this
+ * week (chained from the previous week's look-back so the trail is readable
+ * week by week rather than only in the final aggregate). Plain-language reads
+ * refuse to claim anything a week of games cannot support.
+ */
+function weekLookback(result, prior = null) {
+  const council = result?.expert_council;
+  const games = council?.games ?? [];
+  const bySpecialist = NFL_EXPERTS.map(registry => {
+    const outputs = games.map(game => game.experts?.find(expert => expert.id === registry.id)).filter(Boolean);
+    const observed = outputs.filter(expert => expert.observed);
+    const directional = observed.filter(expert => expert.directional_correct != null);
+    const correct = directional.filter(expert => expert.directional_correct).length;
+    const errors = observed.map(expert => expert.squared_error).filter(Number.isFinite);
+    const reasons = {};
+    for (const expert of outputs) if (!expert.observed) reasons[expert.missing_reason ?? '(no reason recorded)'] = (reasons[expert.missing_reason ?? '(no reason recorded)'] ?? 0) + 1;
+    const previous = prior?.specialists?.find(item => item.id === registry.id)?.cumulative ?? null;
+    const cumulative = {
+      games: (previous?.games ?? 0) + outputs.length,
+      observed: (previous?.observed ?? 0) + observed.length,
+      directional_calls: (previous?.directional_calls ?? 0) + directional.length,
+      directional_correct: (previous?.directional_correct ?? 0) + correct,
+      squared_error_sum: +((previous?.squared_error_sum ?? 0) + errors.reduce((sum, value) => sum + value, 0)).toFixed(3),
+      scored: (previous?.scored ?? 0) + errors.length
+    };
+    cumulative.coverage = cumulative.games ? +(cumulative.observed / cumulative.games).toFixed(4) : 0;
+    cumulative.directional_rate = cumulative.directional_calls ? +(cumulative.directional_correct / cumulative.directional_calls).toFixed(4) : null;
+    cumulative.rmse = cumulative.scored ? +Math.sqrt(cumulative.squared_error_sum / cumulative.scored).toFixed(3) : null;
+    return { id: registry.id, name: registry.name, lifecycle: registry.lifecycle, score: registry.score,
+      week: { games: outputs.length, observed: observed.length, missing: outputs.length - observed.length, missing_reasons: reasons,
+        directional_calls: directional.length, directional_correct: correct,
+        directional_rate: directional.length ? +(correct / directional.length).toFixed(4) : null,
+        rmse: errors.length ? +Math.sqrt(errors.reduce((sum, value) => sum + value, 0) / errors.length).toFixed(3) : null },
+      cumulative };
+  });
+  const coordinatorGames = games.filter(game => game.coordinator?.ready);
+  const coordinatorDirectional = games.map(game => game.combined_decision?.settlement?.directional_correct).filter(value => value != null);
+  const coordinatorCorrect = coordinatorDirectional.filter(Boolean).length;
+  const weights = {};
+  for (const game of coordinatorGames) for (const item of game.coordinator?.contributions ?? []) {
+    if (!Number.isFinite(item.learned_weight)) continue;
+    const entry = weights[item.id] ?? (weights[item.id] = { sum: 0, n: 0 });
+    entry.sum += item.learned_weight; entry.n++;
+  }
+  const meanWeights = Object.fromEntries(Object.entries(weights).map(([id, value]) => [id, +(value.sum / value.n).toFixed(4)]));
+  const priorWeights = prior?.coordinator?.mean_learned_weights ?? null;
+  const weightShift = priorWeights ? Object.entries(meanWeights).map(([id, weight]) => ({ id, from: priorWeights[id] ?? null, to: weight,
+    change: priorWeights[id] == null ? null : +(weight - priorWeights[id]).toFixed(4) }))
+    .filter(item => item.change != null).sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 3) : [];
+  const priorCoordinator = prior?.coordinator?.cumulative ?? null;
+  const coordinatorCumulative = {
+    games: (priorCoordinator?.games ?? 0) + games.length,
+    ready_games: (priorCoordinator?.ready_games ?? 0) + coordinatorGames.length,
+    directional_calls: (priorCoordinator?.directional_calls ?? 0) + coordinatorDirectional.length,
+    directional_correct: (priorCoordinator?.directional_correct ?? 0) + coordinatorCorrect
+  };
+  coordinatorCumulative.directional_rate = coordinatorCumulative.directional_calls
+    ? +(coordinatorCumulative.directional_correct / coordinatorCumulative.directional_calls).toFixed(4) : null;
+  const metrics = result?.betting?.metrics ?? {};
+  const priorBetting = prior?.betting?.cumulative ?? null;
+  const bettingCumulative = { bets: (priorBetting?.bets ?? 0) + (metrics.bets ?? 0), wins: (priorBetting?.wins ?? 0) + (metrics.wins ?? 0),
+    losses: (priorBetting?.losses ?? 0) + (metrics.losses ?? 0), units: +((priorBetting?.units ?? 0) + (metrics.units ?? 0)).toFixed(3) };
+  bettingCumulative.roi = bettingCumulative.bets ? +(bettingCumulative.units / bettingCumulative.bets).toFixed(4) : null;
+  const missingThisWeek = bySpecialist.filter(item => item.week.missing > 0);
+  const reads = [
+    `${games.length} games; ${bySpecialist.filter(item => item.week.observed === games.length && games.length).length} of ${NFL_EXPERTS.length} specialists reported on every game.`,
+    missingThisWeek.length
+      ? `Missing opinions: ${missingThisWeek.map(item => `${item.name} ${item.week.missing}/${item.week.games} (${Object.keys(item.week.missing_reasons).join('; ')})`).join(' · ')}.`
+      : 'No missing opinions this week.',
+    coordinatorGames.length
+      ? `Coordinator combined ${coordinatorGames.length} games` + (coordinatorDirectional.length
+        ? `, ${coordinatorCorrect}/${coordinatorDirectional.length} directionally right this week; ${coordinatorCumulative.directional_correct}/${coordinatorCumulative.directional_calls} to date.`
+        : '.')
+      : `Coordinator abstained on all ${games.length} games (${council?.coordinator?.reason ?? 'warm-up'}); their opinions are still recorded for the next week's training.`,
+    weightShift.length ? `Largest weight moves since last week: ${weightShift.map(item => `${item.id} ${item.change > 0 ? '+' : ''}${item.change}`).join(', ')}.` : null,
+    games.length < MIN_READ_SAMPLE
+      ? `One week is ${games.length} games: a specialist's weekly hit rate is noise; only the cumulative column can be read, and only once it clears ${MIN_READ_SAMPLE} directional calls.`
+      : null
+  ].filter(Boolean);
+  return { season: result?.expert_council?.season ?? null, week: result?.expert_council?.week ?? null,
+    games: games.length, specialists: bySpecialist,
+    coordinator: { ready_games: coordinatorGames.length, training_games: council?.coordinator?.training_games ?? null,
+      training_weeks: council?.coordinator?.training_weeks ?? null, reason: council?.coordinator?.reason ?? null,
+      week: { directional_calls: coordinatorDirectional.length, directional_correct: coordinatorCorrect },
+      mean_learned_weights: meanWeights, weight_shift: weightShift, cumulative: coordinatorCumulative },
+    betting: { week: { bets: metrics.bets ?? 0, wins: metrics.wins ?? 0, losses: metrics.losses ?? 0, units: metrics.units ?? 0 },
+      cumulative: bettingCumulative },
+    reads,
+    rule: 'Graded after the week is opened, chained from the previous look-back; the next week trains only on rows settled before its cutoff.' };
 }
 
 export function runNextBlindAuditWeek(id) {
@@ -573,16 +731,30 @@ export function runNextBlindAuditWeek(id) {
     const expertCouncil = weeklyExpertAudit(target.season, target.week, { auditRunId: record.id });
     const postgamePackets = expertCouncil.games.map(item => buildPostgameTruth(target.season, target.week,
       item.game.home, { expertPacket: item }));
-    return { expertCouncil, postgamePackets, result: {
+    const betting = bettingWeekResult(target.season, target.week);
+    const result = {
       cutoff: `${target.season}-W${target.week - 1}`,
       player: playerWeekResult(target.season, target.week),
-      betting: bettingWeekResult(target.season, target.week),
+      betting,
       expert_council: expertCouncil,
+      // The week's input, frozen before its outcomes are read: every
+      // specialist's opinion for every game, the coordinator, the combined
+      // decision and the production pick, with a completeness check.
+      weekly_input: weeklyInput(expertCouncil, betting),
       postgame_truth: postgamePackets.map(postgameAuditSummary)
-    } };
+    };
+    return { expertCouncil, postgamePackets, result };
   });
+  // The look-back, chained from the previous opened week's.
+  const priorLookback = (() => {
+    const previous = rows(`SELECT result_json FROM nfl_blind_audit_weeks WHERE run_id=? ORDER BY ordinal DESC LIMIT 1`, record.id)[0];
+    if (!previous) return null;
+    try { return JSON.parse(previous.result_json)?.lookback ?? null; } catch { return null; }
+  })();
+  result.lookback = weekLookback(result, priorLookback);
   const computeMs = performance.now() - computeStartedAt;
   const fault = { player: result.player.faults, betting: result.betting.faults,
+    reporting: result.weekly_input.completeness.complete ? [] : result.weekly_input.completeness.missing_cells,
     classification: 'outcome-visible fault pass; no model mutation authorized' };
   const prior = rows(`SELECT chain_hash FROM nfl_blind_audit_weeks
                       WHERE run_id=? ORDER BY ordinal DESC LIMIT 1`, record.id)[0]?.chain_hash ?? record.spec_hash;
@@ -633,6 +805,11 @@ function dashboardWeekResult(result) {
   const council = result?.expert_council;
   const truth = Array.isArray(result?.postgame_truth) ? result.postgame_truth : [];
   return {
+    lookback: result?.lookback ?? null,
+    reporting: result?.weekly_input?.completeness
+      ? { complete: result.weekly_input.completeness.complete, recorded_cells: result.weekly_input.completeness.recorded_cells,
+        expected_cells: result.weekly_input.completeness.expected_cells, missing: result.weekly_input.completeness.missing_cells.length }
+      : null,
     expert_council: council ? {
       games: Array.from({ length: council.games?.length ?? 0 }, () => null),
       coordinator: council.coordinator ?? null,
@@ -700,4 +877,5 @@ export function blindAuditProtocol() {
     warning: 'Do not preregister until the model code is committed and the input data snapshot is frozen.' };
 }
 
-export const __test = { bettingSummary, runManifest, inputDataState, inputMutationState, dashboardWeekResult };
+export const __test = { bettingSummary, runManifest, inputDataState, inputMutationState, dashboardWeekResult,
+  weeklyInput, reportingCompleteness, weekLookback };

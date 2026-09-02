@@ -11,19 +11,20 @@ import { useApi } from '../../api';
  * because that is what they are.
  */
 
-type Tab = 'profitability' | 'abstentions' | 'pipeline';
+type Tab = 'profitability' | 'abstentions' | 'slices' | 'pipeline';
 
 export default function Diagnostics() {
   const [tab, setTab] = useState<Tab>('profitability');
   const { data: profit } = useApi<any>(tab === 'profitability' ? '/nfl-betting/diagnostic' : null);
   const { data: abst } = useApi<any>(tab === 'abstentions' ? '/betting/abstentions' : null);
+  const { data: slices } = useApi<any>(tab === 'slices' ? '/nfl-betting/diagnostic/slices' : null);
   const { data: pipe } = useApi<any>(tab === 'pipeline' ? '/betting/pipeline' : null);
   const { data: lat } = useApi<any>(tab === 'pipeline' ? '/betting/latency' : null);
 
   return (
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-slate-200">
-        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['pipeline', 'Data pipeline']] as [Tab, string][])
+        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['slices', 'Accuracy by slice'], ['pipeline', 'Data pipeline']] as [Tab, string][])
           .map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
@@ -130,6 +131,50 @@ export default function Diagnostics() {
                 {abst.note && <p className="text-xs text-slate-500">{abst.note}</p>}
               </>
             )
+      )}
+
+      {tab === 'slices' && (
+        !slices ? <div className="card p-6 text-sm text-slate-500">Cutting the historical diagnostic by season, matchup, specialist, confidence and coverage…</div>
+          : !slices.available ? <div className="card p-6 text-sm text-slate-600">{slices.reason}</div>
+            : <>
+              <div className="card p-4">
+                <h2 className="font-semibold text-slate-900">Where the council is actually right</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Historical diagnostic run {slices.audit_run_id} · {slices.games} games · {slices.quarantine.rows_excluded} rows from {slices.quarantine.seasons.join(', ')} quarantined.
+                  A slice under {slices.read_floor} directional calls is shown greyed and must not be quoted.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Stat label="Spread calls (coordinator)" value={String(slices.market.spread.directional_calls)} />
+                <Stat label="Directional rate" value={slices.market.spread.directional_rate == null ? '—' : `${(slices.market.spread.directional_rate * 100).toFixed(1)}%`} />
+                <Stat label="RMSE (pts)" value={slices.market.spread.rmse == null ? '—' : String(slices.market.spread.rmse)} />
+                <Stat label="Calibration error" value={slices.coordinator_calibration.expected_calibration_error == null ? '—' : String(slices.coordinator_calibration.expected_calibration_error)} />
+              </div>
+              {[['By season', slices.by_season], ['By matchup type', slices.by_matchup_type], ['By roof', slices.by_roof],
+                ['By confidence bucket', slices.by_confidence_bucket], ['By data-coverage bucket', slices.by_coverage_bucket], ['By week', slices.by_week]].map(([title, list]: any) => (
+                <div key={title} className="card overflow-x-auto p-4">
+                  <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+                  <table className="mt-2 w-full text-left text-xs">
+                    <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1 pr-3">Slice</th><th className="py-1 pr-3">Calls</th><th className="py-1 pr-3">Right</th><th className="py-1 pr-3">RMSE</th><th className="py-1 pr-3">Coverage</th></tr></thead>
+                    <tbody>{list.map((row: any) => <tr key={String(row.key)} className={`border-t border-slate-100 ${row.readable ? 'text-slate-800' : 'text-slate-400'}`}>
+                      <td className="py-1 pr-3 font-medium">{String(row.key).replaceAll('_', ' ')}</td><td className="py-1 pr-3 tabular-nums">{row.directional_calls}</td>
+                      <td className="py-1 pr-3 tabular-nums">{row.directional_rate == null ? '—' : `${(row.directional_rate * 100).toFixed(1)}%`}</td>
+                      <td className="py-1 pr-3 tabular-nums">{row.rmse ?? '—'}</td><td className="py-1 pr-3 tabular-nums">{row.coverage == null ? '—' : `${Math.round(row.coverage * 100)}%`}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              ))}
+              <div className="card overflow-x-auto p-4">
+                <h3 className="text-sm font-semibold text-slate-900">By specialist</h3>
+                <table className="mt-2 w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1 pr-3">Specialist</th><th className="py-1 pr-3">Coverage</th><th className="py-1 pr-3">Calls</th><th className="py-1 pr-3">Right</th><th className="py-1 pr-3">RMSE</th><th className="py-1 pr-3">Calibration error</th></tr></thead>
+                  <tbody>{slices.by_specialist.map((row: any) => <tr key={row.id} className={`border-t border-slate-100 ${row.readable ? 'text-slate-800' : 'text-slate-400'}`}>
+                    <td className="py-1 pr-3 font-medium">{row.name}</td><td className="py-1 pr-3 tabular-nums">{row.coverage == null ? '—' : `${Math.round(row.coverage * 100)}%`}</td>
+                    <td className="py-1 pr-3 tabular-nums">{row.directional_calls}</td><td className="py-1 pr-3 tabular-nums">{row.directional_rate == null ? '—' : `${(row.directional_rate * 100).toFixed(1)}%`}</td>
+                    <td className="py-1 pr-3 tabular-nums">{row.rmse ?? '—'}</td><td className="py-1 pr-3 tabular-nums">{row.calibration?.expected_calibration_error ?? '—'}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <div className="card p-4 text-xs text-slate-600">{slices.rule}</div>
+            </>
       )}
 
       {tab === 'pipeline' && (

@@ -130,11 +130,21 @@ function inputMutationState(afterId = 0) {
   return { latest: Number(latest), changed };
 }
 
+/**
+ * The paths whose content can change an audited number. Docs, the client
+ * bundle and tests cannot, and hashing the whole tree meant a paragraph added
+ * to PROFITABILITY_PLAN.md during a two-minute week open voided the run at
+ * the post-compute recheck (run 13, 2026-09-02). The freeze still covers every
+ * line of server code, the runners and the dependency manifest.
+ */
+const AUDITED_CODE_PATHS = Object.freeze(['server', 'scripts', 'package.json', 'package-lock.json']);
+
 function repositoryState() {
   const cwd = process.cwd();
   const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
-  const diff = execFileSync('git', ['diff', '--binary', 'HEAD'], { cwd, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
-  const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'],
+  const diff = execFileSync('git', ['diff', '--binary', 'HEAD', '--', ...AUDITED_CODE_PATHS],
+    { cwd, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
+  const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z', '--', ...AUDITED_CODE_PATHS],
     { cwd, encoding: 'utf8' }).split('\0').filter(Boolean).sort();
   const content = createHash('sha256').update(commit).update('\0').update(diff);
   for (const path of untracked) content.update('\0').update(path).update('\0').update(readFileSync(resolve(cwd, path)));
@@ -225,7 +235,7 @@ function normalizeSpec(input = {}) {
     rules: [
       'One week opens once and cannot be overwritten.',
       'Every prediction is generated from information strictly before its target week.',
-      'Code and model-input data must match preregistration before every opened week.',
+      'Server code, runners, dependencies and model-input data must match preregistration before every opened week (docs, client and tests are outside the freeze).',
       'Persistent ensemble-fit artifacts are neither read nor written while an audited week is computed.',
       'Fault attribution is descriptive and cannot alter the frozen model during this run.',
       'Historical ROI is reported but cannot establish production profitability without real archived quotes and forward CLV.',

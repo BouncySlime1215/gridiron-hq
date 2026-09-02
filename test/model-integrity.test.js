@@ -73,9 +73,10 @@ test.after(() => {
 });
 
 test('expert council registers every modelling role and missing evidence abstains instead of becoming zero', () => {
-  // Twelve original roles plus the Priority 4 matchup candidates and quarterback state.
-  assert.equal(NFL_EXPERTS.length, 17);
-  assert.equal(new Set(NFL_EXPERTS.map(expert => expert.id)).size, 17);
+  // Twelve original roles, the Priority 4 matchup candidates and quarterback state,
+  // and the two Phase 2 external published lines (nfelo, TeamRankings).
+  assert.equal(NFL_EXPERTS.length, 19);
+  assert.equal(new Set(NFL_EXPERTS.map(expert => expert.id)).size, 19);
   const missing = expertCouncilTest.output('news_reaction', { observed: false, missingReason: 'no verified claims' });
   assert.equal(missing.observed, false);
   assert.equal(missing.forecast_residual, null);

@@ -29,6 +29,8 @@ import { gameCutoff } from './game-cutoff.js';
 import { verifiedEventMarketLatency } from './nfl-news-market-latency.js';
 import { isFreshQuote } from './book-feeds.js';
 import { gameWeather, STADIUMS } from './nfl-weather.js';
+import { nfeloFeatures } from './nfelo.js';
+import { externalRatingsFeatures } from './nfl-external-ratings.js';
 
 export const BEAT_THE_CLOSE_VERSION = 'beat-the-close-v1.1';
 /**
@@ -47,7 +49,14 @@ export const RULES = Object.freeze({
   // Over edge). `side` and `requireNotMovedDown` route this through a
   // different branch of decideBeatTheClose() below.
   wind_total: { market: 'totals', threshold: 25, side: 'Under', requireNotMovedDown: 0.5,
-    basis: 'Phase 1 §13: +0.47 CLV, 62.1%, n 753 outdoor held out, Holm p < 0.01; the opener does not price kickoff-hour wind' }
+    basis: 'Phase 1 §13: +0.47 CLV on the ACTUAL kickoff-hour wind; re-measured on the lead-2 forecast that was knowable (2024–25): +0.28 [0.11, 0.45], 56.2% — under the +0.3 gate. Candidate; the live CLV decides.' },
+  // Phase 2 external lines (docs/PROFIT_ROADMAP.md 2.1, 2.6), same convention as
+  // ratings_vs_open: value > 0 means the external number sits past the opener
+  // toward home. Both passed the study's gate held out on 2024–25.
+  nfelo_pre_vs_open: { market: 'spreads', threshold: 0.5,
+    basis: 'Phase 2: nfelo pre-regression line vs Pinnacle opener, +0.68 CLV [0.36, 1.05], 63.6%, n 570 held out, Holm p < 0.01' },
+  teamrankings_vs_open: { market: 'spreads', threshold: 0.5,
+    basis: 'Phase 2: TeamRankings predictive rating vs Pinnacle opener (Wednesday snapshot), +0.55 CLV [0.23, 0.92], 57.7%, n 570 held out, Holm p < 0.01' }
 });
 
 /**
@@ -154,6 +163,14 @@ export function signalsFor(game, { now = new Date().toISOString(), names = teamN
       push(market === 'spreads' ? 'ratings_vs_open' : 'ratings_vs_open_total',
         market === 'spreads' ? pred.predicted_margin + opener.line : pred.predicted_total - opener.line,
         { predicted_margin: pred.predicted_margin, predicted_total: pred.predicted_total });
+    }
+    if (market === 'spreads') {
+      // External published lines, same sign convention (a home line is negative when home is favoured,
+      // so opener − external line is positive when the external number leans further toward home).
+      const nf = nfeloFeatures(game.season, game.week, game.home, game.away);
+      if (Number.isFinite(nf.nfelo_pre_line)) push('nfelo_pre_vs_open', opener.line - nf.nfelo_pre_line, { nfelo_pre_line: nf.nfelo_pre_line, qb_adj_diff: nf.qb_adj_diff });
+      const ext = externalRatingsFeatures(game.season, game.week, game.home, game.away);
+      if (Number.isFinite(ext.teamrankings_diff)) push('teamrankings_vs_open', ext.teamrankings_diff + opener.line, { teamrankings_diff: ext.teamrankings_diff, fpi_diff: ext.fpi_diff });
     }
     const at0 = { home: teamEventVector(game.home, { before: opener.at, sinceDays: 10 }), away: teamEventVector(game.away, { before: opener.at, sinceDays: 10 }) };
     const atT = { home: teamEventVector(game.home, { before: now, sinceDays: 10 }), away: teamEventVector(game.away, { before: now, sinceDays: 10 }) };

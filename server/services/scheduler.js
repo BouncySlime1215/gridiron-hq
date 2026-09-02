@@ -206,6 +206,33 @@ async function refreshBookFeeds() {
   return captureBookFeeds();
 }
 
+/** Rotowire (incl. Circa) and SBR game lines — the only free Circa source. */
+async function refreshExtraBookFeeds() {
+  const { captureExtraBookFeeds } = await import('./book-feeds-extra.js');
+  return captureExtraBookFeeds();
+}
+
+/** nfelo's QB-adjusted Elo, per-game HFA, pre-regression line and public splits (free CSVs). */
+async function refreshNfelo() {
+  const { syncNfelo } = await import('./nfelo.js');
+  return syncNfelo();
+}
+
+/** ESPN FPI (weekly snapshot — no history endpoint) and TeamRankings predictive (Wednesday snapshots). */
+async function refreshExternalRatings() {
+  const { syncFpi, syncTeamRankings } = await import('./nfl-external-ratings.js');
+  const fpi = await syncFpi().catch(error => ({ error: error.message }));
+  const teamrankings = await syncTeamRankings({ seasons: [], current: true }).catch(error => ({ error: error.message }));
+  return { fpi, teamrankings };
+}
+
+/** What the wind forecast said N days before each past kickoff (Open-Meteo previous-runs); fills in newly played games. */
+async function refreshForecastHistory() {
+  const { syncForecastHistory } = await import('./nfl-weather-history.js');
+  const season = Number(process.env.NFL_SEASON) || new Date().getUTCFullYear();
+  return syncForecastHistory({ seasons: [season - 1, season] });
+}
+
 /** Free player-prop feeds (Action Network, Underdog). No credits, no key. */
 async function refreshPropFeeds() {
   const { capturePropFeeds } = await import('./prop-feeds.js');
@@ -474,6 +501,14 @@ export const JOBS = {
     label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
   nfl_prop_feeds: { run: refreshPropFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free player-prop quotes: Action Network, Underdog' },
+  nfl_book_feeds_extra: { run: refreshExtraBookFeeds, maxAgeMinutes: 60, tier: 'live',
+    label: 'Free game lines: Rotowire (Circa, DK, FD, MGM, Caesars, BetRivers, Fanatics, theScore, Betr) and SBR (bet365, Hard Rock)' },
+  nfelo_sync: { run: refreshNfelo, maxAgeMinutes: 6 * 60, tier: 'growth',
+    label: 'nfelo: QB-adjusted Elo, per-game HFA, pre-regression line, public splits' },
+  nfl_external_ratings: { run: refreshExternalRatings, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'ESPN FPI weekly snapshot and TeamRankings predictive (Wednesday)' },
+  nfl_forecast_history: { run: refreshForecastHistory, maxAgeMinutes: 24 * 60, tier: 'heavy',
+    label: 'Open-Meteo previous-runs: what the wind forecast said before each played kickoff' },
   nfl_book_feeds: { run: refreshBookFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free multi-book quotes: Pinnacle, OddsTrader (11 books), BetRivers, Bovada' },
   nfl_qbr_weather: { run: refreshQbrAndWeather, maxAgeMinutes: 24 * 60, tier: 'growth',
@@ -678,7 +713,7 @@ export function startScheduler({
   const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
     'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
     'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
-    'nfl_book_feeds', 'nfl_prop_feeds', 'nfl_prop_clv_free', 'polymarket_line_watch', 'beat_the_close'];
+    'nfl_book_feeds', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free', 'polymarket_line_watch', 'beat_the_close'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

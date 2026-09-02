@@ -25,6 +25,8 @@
  */
 import { rows } from '../db/index.js';
 import { teamQbrProfile } from './nfl-qbr.js';
+import { nfeloFeatures } from './nfelo.js';
+import { externalRatingsFeatures } from './nfl-external-ratings.js';
 
 export const MATCHUP_SPECIALISTS_VERSION = 'nfl-matchup-specialists-v1';
 const MIN_TRAINING_ROWS = 200;
@@ -120,7 +122,30 @@ function continuityProfile(season, week, team) {
 
 /* ----------------------------------------------------------- differentials */
 
+/** The closing home spread for one game, the same market the audit grades residuals against. */
+function closingSpread(season, week, home, away) {
+  const g = rows('SELECT spread FROM game_lines WHERE season=? AND week=? AND team=? AND opponent=? AND home=1 LIMIT 1', season, week, home, away)[0];
+  return g && Number.isFinite(g.spread) ? g.spread : null;
+}
+
 function differential(role, season, week, home, away) {
+  // External published lines (Phase 2 candidates): how far a public model's
+  // own pregame number sits from the close. Published pregame quantities, so
+  // cutoff-safe by construction; the ridge below still has to earn them a
+  // scale on strictly earlier settled games. Caveat carried in the docs: both
+  // publishers tuned their parameters on history that overlaps 2022–2025.
+  if (role === 'nfelo_line') {
+    const spread = closingSpread(season, week, home, away);
+    const nf = nfeloFeatures(season, week, home, away);
+    if (spread == null || !Number.isFinite(nf.nfelo_pre_line)) return null;
+    return [spread - nf.nfelo_pre_line, Number.isFinite(nf.qb_adj_diff) ? nf.qb_adj_diff : 0];
+  }
+  if (role === 'teamrankings_line') {
+    const spread = closingSpread(season, week, home, away);
+    const ext = externalRatingsFeatures(season, week, home, away);
+    if (spread == null || !Number.isFinite(ext.teamrankings_diff)) return null;
+    return [ext.teamrankings_diff + spread];
+  }
   if (role === 'qb_state') {
     const h = teamQbrProfile(season, week, home), a = teamQbrProfile(season, week, away);
     if (!h || !a || !Number.isFinite(h.starter_qbr) || !Number.isFinite(a.starter_qbr)) return null;
@@ -200,7 +225,7 @@ function fitRole(role, season, week) {
  * points, capped; null with a reason when the role must abstain.
  */
 export function matchupOpinion(role, season, week, home, away) {
-  if (!ROLE_FEATURES[role] && role !== 'trench_continuity' && role !== 'qb_state') return { forecast: null, uncertainty: null, missing_reason: `unknown role ${role}` };
+  if (!ROLE_FEATURES[role] && !['trench_continuity', 'qb_state', 'nfelo_line', 'teamrankings_line'].includes(role)) return { forecast: null, uncertainty: null, missing_reason: `unknown role ${role}` };
   const d = differential(role, season, week, home, away);
   if (!d || d.some(v => !Number.isFinite(v))) {
     return { forecast: null, uncertainty: null, missing_reason: `no cutoff-safe ${role.replaceAll('_', ' ')} profile for both teams before week ${week}` };
@@ -215,3 +240,9 @@ export function matchupOpinion(role, season, week, home, away) {
 }
 
 export const MATCHUP_ROLES = Object.freeze(['trench_continuity', 'tendency_matchup', 'situational_efficiency', 'pressure_matchup', 'qb_state']);
+/**
+ * Kept separate from MATCHUP_ROLES on purpose: these read the CLOSING spread,
+ * so they belong in the close-graded audit but must never enter the
+ * open-to-close study as a T0 feature (that would leak the close).
+ */
+export const EXTERNAL_LINE_ROLES = Object.freeze(['nfelo_line', 'teamrankings_line']);

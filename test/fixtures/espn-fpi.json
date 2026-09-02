@@ -1,0 +1,344 @@
+{
+  "requestedSeason": {
+    "year": 2026,
+    "displayName": "2026",
+    "type": {
+      "id": "2",
+      "name": "Regular Season"
+    }
+  },
+  "currentValues": {
+    "sport": "football",
+    "league": "nfl",
+    "season": 2026,
+    "conference": "9",
+    "limit": 1000,
+    "lang": "en",
+    "sort": {
+      "stat": "fpi.fpi",
+      "direction": "desc"
+    },
+    "region": "us"
+  },
+  "lastUpdated": "2026-08-31T14:44Z",
+  "categories": [
+    {
+      "name": "fpi",
+      "displayName": "FPI",
+      "labels": [
+        "FPI",
+        "EFF OFF",
+        "EFF DEF",
+        "EFF ST",
+        "FPI",
+        "SOR RNK",
+        "AVGSOSRNK",
+        "REM SOS RNK",
+        "GC",
+        "AVGWP RNK",
+        null,
+        "W",
+        "L",
+        "T"
+      ],
+      "names": [
+        "fpi",
+        "epaoffense",
+        "epadefense",
+        "epaspecialteams",
+        "fpirank",
+        "accomplishmentrank",
+        "avgsosrank",
+        "sosremainingrank",
+        "gamecontrolrank",
+        "avgingamewprank",
+        "rankchange7days",
+        "numwins",
+        "numlosses",
+        "numties"
+      ],
+      "displayNames": [
+        "FPI",
+        "Epa Offense",
+        "Epa Defense",
+        "Epa Special Teams",
+        "FPI RK",
+        "Accomplishment RK",
+        "AvgInSOS RK",
+        "SOS Remaining RK",
+        "GameControl RK",
+        "AvgInGameWp RK",
+        "7-Day RK CHG",
+        "Num Wins",
+        "Num Losses",
+        "Num Ties"
+      ],
+      "descriptions": [
+        "Football Power Index that measures team's true strength on net points scale; expected point margin vs average opponent on neutral field.",
+        "Offensive component of FPI. Offensive contribution to expected point margin vs average opponent on neutral field.",
+        "Defensive component of FPI. Defensive contribution to expected point margin vs average opponent on neutral field.",
+        "Special teams component of FPI. Special teams contribution to expected point margin vs average opponent on neutral field.",
+        "Football Power Index rank vs all NFL teams.",
+        "Strength of Record rank. Reflects chance that an average Top 25 team would have team's record or better, given the schedule.",
+        "Rank among all NFL teams of games already played schedule strength, from perspective of an average NFL team.",
+        "Rank among all NFL teams of remaining schedule strength, from perspective of an average team.",
+        "Game Control rank. Reflects chance that an average Top 25 team would control games from start to end the way this team did, given the schedule.",
+        "Team's average in-game win probability rank adjusted for chance that an average NFL team would control games from start to end the way this team did, given the schedule.",
+        "FPI Rank change from previous week.",
+        "Won Games",
+        "Lost Games ",
+        "Tied Games"
+      ]
+    }
+  ],
+  "teams": [
+    {
+      "team": {
+        "id": "14",
+        "abbreviation": "LAR",
+        "displayName": "Los Angeles Rams",
+        "name": "Rams"
+      },
+      "categories": [
+        {
+          "name": "fpi",
+          "displayName": "FPI",
+          "totals": [
+            "5.9",
+            "4",
+            "2",
+            "0",
+            "1st",
+            "-",
+            "-",
+            "3rd",
+            "-",
+            "-",
+            "-",
+            "0",
+            "0",
+            "0"
+          ],
+          "values": [
+            5.854,
+            4.114,
+            1.635,
+            0.105,
+            1,
+            0,
+            0,
+            3,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ranks": [
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-"
+          ]
+        }
+      ]
+    },
+    {
+      "team": {
+        "id": "2",
+        "abbreviation": "BUF",
+        "displayName": "Buffalo Bills",
+        "name": "Bills"
+      },
+      "categories": [
+        {
+          "name": "fpi",
+          "displayName": "FPI",
+          "totals": [
+            "4.1",
+            "4",
+            "0",
+            "0",
+            "2nd",
+            "-",
+            "-",
+            "19th",
+            "-",
+            "-",
+            "-",
+            "0",
+            "0",
+            "0"
+          ],
+          "values": [
+            4.11,
+            3.944,
+            0.16,
+            0.006,
+            2,
+            0,
+            0,
+            19,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ranks": [
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-"
+          ]
+        }
+      ]
+    },
+    {
+      "team": {
+        "id": "26",
+        "abbreviation": "SEA",
+        "displayName": "Seattle Seahawks",
+        "name": "Seahawks"
+      },
+      "categories": [
+        {
+          "name": "fpi",
+          "displayName": "FPI",
+          "totals": [
+            "3.6",
+            "1",
+            "2",
+            "0",
+            "3rd",
+            "-",
+            "-",
+            "6th",
+            "-",
+            "-",
+            "-",
+            "0",
+            "0",
+            "0"
+          ],
+          "values": [
+            3.552,
+            1.25,
+            2.139,
+            0.164,
+            3,
+            0,
+            0,
+            6,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ranks": [
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-"
+          ]
+        }
+      ]
+    },
+    {
+      "team": {
+        "id": "28",
+        "abbreviation": "WSH",
+        "displayName": "Washington Commanders",
+        "name": "Commanders"
+      },
+      "categories": [
+        {
+          "name": "fpi",
+          "displayName": "FPI",
+          "totals": [
+            "-1.4",
+            "0",
+            "-1",
+            "0",
+            "22nd",
+            "-",
+            "-",
+            "5th",
+            "-",
+            "-",
+            "-",
+            "0",
+            "0",
+            "0"
+          ],
+          "values": [
+            -1.4,
+            -0.074,
+            -1.207,
+            -0.119,
+            22,
+            0,
+            0,
+            5,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "ranks": [
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-",
+            "-"
+          ]
+        }
+      ]
+    }
+  ]
+}

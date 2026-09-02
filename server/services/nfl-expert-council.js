@@ -6,7 +6,7 @@
  * authority separately. The blind audit settles those opinions week by week;
  * only earlier settled rows may become training data for a later week.
  */
-import { MATCHUP_ROLES, matchupOpinion } from './nfl-matchup-specialists.js';
+import { MATCHUP_ROLES, EXTERNAL_LINE_ROLES, matchupOpinion } from './nfl-matchup-specialists.js';
 import { teamEventVector } from './nfl-event-archive.js';
 import crypto from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
@@ -46,7 +46,10 @@ export const NFL_EXPERTS = Object.freeze([
   { id: 'tendency_matchup', name: 'Tendency matchup', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
   { id: 'situational_efficiency', name: 'Situational efficiency', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
   { id: 'pressure_matchup', name: 'Pressure matchup', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
-  { id: 'qb_state', name: 'Quarterback state', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' }
+  { id: 'qb_state', name: 'Quarterback state', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
+  // Phase 2 external published lines (nfl-matchup-specialists.js EXTERNAL_LINE_ROLES).
+  { id: 'nfelo_line', name: 'nfelo pre-regression line', kind: 'external_model', lifecycle: 'pregame', score: 'market_residual' },
+  { id: 'teamrankings_line', name: 'TeamRankings predictive line', kind: 'external_model', lifecycle: 'pregame', score: 'market_residual' }
 ]);
 
 db.exec(`
@@ -616,7 +619,7 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
     output('player_opportunity', { observed: opportunity.teams?.some(team => team.players > 0),
       missingReason: 'reconciled player opportunity packet unavailable', detail: { unit_edges: unitEdges,
         player_opportunity: opportunity, settlement: opportunitySettlement } }),
-    ...MATCHUP_ROLES.map(role => {
+    ...[...MATCHUP_ROLES, ...EXTERNAL_LINE_ROLES].map(role => {
       const opinion = matchupOpinion(role, season, week, game.home, game.away);
       return output(role, { forecast: opinion.forecast, uncertainty: opinion.uncertainty,
         missingReason: opinion.missing_reason, detail: opinion, authority: 'historical_candidate_only' });

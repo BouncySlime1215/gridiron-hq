@@ -661,6 +661,45 @@ function reportingCompleteness(games) {
  * week by week rather than only in the final aggregate). Plain-language reads
  * refuse to claim anything a week of games cannot support.
  */
+/**
+ * Opener-time rules replayed on one audited week from stored, pregame-published
+ * numbers only: Pinnacle's archived opener and close (`nfl_odds_archive`), nfelo's
+ * pre-regression line (`nfl_nfelo_games`) and TeamRankings' Wednesday predictive
+ * rating (`nfl_external_ratings`). Rule: when the external number sits ≥ 0.5 points
+ * past the opener toward a side, take that side at the opener; CLV = how far
+ * Pinnacle's close then moved toward it. Same sign convention as line-move-study.js
+ * (y = open − close is positive when the close moved toward home). No fitting, no
+ * centering, no stake — a diagnostic the look-back can chain week over week.
+ */
+function historicalOpenerReplay(season, week, threshold = 0.5) {
+  const pin = rows(`SELECT eid, home, away, phase, line FROM nfl_odds_archive
+    WHERE season=? AND week=? AND book='pinnacle' AND market='spreads' AND side=home AND phase IN ('open','close')`, season, week);
+  const games = new Map();
+  for (const r of pin) { const g = games.get(r.eid) ?? { home: r.home, away: r.away }; g[r.phase] = r.line; games.set(r.eid, g); }
+  const nfelo = new Map(rows(`SELECT home, away, home_line_pre_regression pre FROM nfl_nfelo_games WHERE season=? AND week=?`, season, week)
+    .map(r => [`${r.home}|${r.away}`, r.pre]));
+  const tr = new Map(rows(`SELECT team, rating FROM nfl_external_ratings WHERE source='teamrankings_predictive' AND season=? AND week=?`, season, week)
+    .map(r => [r.team, r.rating]));
+  const out = { nfelo_pre_vs_open: { decisions: 0, clv_sum: 0, positive: 0 }, teamrankings_vs_open: { decisions: 0, clv_sum: 0, positive: 0 } };
+  for (const g of games.values()) {
+    if (!Number.isFinite(g.open) || !Number.isFinite(g.close)) continue;
+    const y = g.open - g.close;
+    const grade = (rule, value) => {
+      if (!Number.isFinite(value) || Math.abs(value) < threshold) return;
+      const clv = value > 0 ? y : -y;
+      out[rule].decisions++; out[rule].clv_sum = +(out[rule].clv_sum + clv).toFixed(3); if (clv > 0) out[rule].positive++;
+    };
+    const pre = nfelo.get(`${g.home}|${g.away}`);
+    if (Number.isFinite(pre)) grade('nfelo_pre_vs_open', g.open - pre);
+    const h = tr.get(g.home), a = tr.get(g.away);
+    if (Number.isFinite(h) && Number.isFinite(a)) grade('teamrankings_vs_open', (h - a) + g.open);
+  }
+  for (const rule of Object.keys(out)) {
+    out[rule].mean_clv = out[rule].decisions ? +(out[rule].clv_sum / out[rule].decisions).toFixed(3) : null;
+  }
+  return out;
+}
+
 function weekLookback(result, prior = null) {
   const council = result?.expert_council;
   const games = council?.games ?? [];
@@ -729,6 +768,23 @@ function weekLookback(result, prior = null) {
     cumulative: { frozen: (priorBtc?.frozen ?? 0) + btcRows.length, settled: (priorBtc?.settled ?? 0) + btcSettled.length,
       clv_sum: +((priorBtc?.clv_sum ?? 0) + btcSettled.reduce((s, r) => s + r.clv_points, 0)).toFixed(3) } };
   beatTheClose.cumulative.mean_clv = beatTheClose.cumulative.settled ? +(beatTheClose.cumulative.clv_sum / beatTheClose.cumulative.settled).toFixed(3) : null;
+  // Historical replay of the opener-time rules (the archive holds Pinnacle's opener and
+  // close per game): the two external lines are published pregame numbers, so the rule
+  // "take the side the external line leans to when it sits ≥ 0.5 past the opener" can
+  // be graded by CLV against Pinnacle's close for every audited week. Cumulative across
+  // the chain like everything else in this look-back. Reported, never staked.
+  let replay = {};
+  // The external-line tables exist only once their loaders have been imported; a
+  // database without them (tests, a fresh install) gets an empty replay, not a crash.
+  try { replay = season != null && week != null ? historicalOpenerReplay(season, week) : {}; } catch { replay = {}; }
+  const priorReplay = prior?.beat_the_close?.historical_cumulative ?? {};
+  beatTheClose.historical = replay;
+  beatTheClose.historical_cumulative = Object.fromEntries(Object.keys({ ...priorReplay, ...replay }).map(rule => {
+    const p = priorReplay[rule] ?? { decisions: 0, clv_sum: 0, positive: 0 }, w = replay[rule] ?? { decisions: 0, clv_sum: 0, positive: 0 };
+    const decisions = p.decisions + w.decisions, clvSum = +(p.clv_sum + w.clv_sum).toFixed(3);
+    return [rule, { decisions, clv_sum: clvSum, positive: p.positive + w.positive,
+      mean_clv: decisions ? +(clvSum / decisions).toFixed(3) : null, positive_share: decisions ? +((p.positive + w.positive) / decisions).toFixed(3) : null }];
+  }));
   const metrics = result?.betting?.metrics ?? {};
   const priorBetting = prior?.betting?.cumulative ?? null;
   const bettingCumulative = { bets: (priorBetting?.bets ?? 0) + (metrics.bets ?? 0), wins: (priorBetting?.wins ?? 0) + (metrics.wins ?? 0),
@@ -748,6 +804,10 @@ function weekLookback(result, prior = null) {
     weightShift.length ? `Largest weight moves since last week: ${weightShift.map(item => `${item.id} ${item.change > 0 ? '+' : ''}${item.change}`).join(', ')}.` : null,
     games.length < MIN_READ_SAMPLE
       ? `One week is ${games.length} games: a specialist's weekly hit rate is noise; only the cumulative column can be read, and only once it clears ${MIN_READ_SAMPLE} directional calls.`
+      : null,
+    Object.keys(replay).length
+      ? `Opener-rule replay (CLV vs Pinnacle close): ` + Object.entries(beatTheClose.historical_cumulative)
+        .map(([rule, c]) => `${rule} ${replay[rule]?.decisions ?? 0} this week, ${c.decisions} to date at ${c.mean_clv ?? 'n/a'} pts (${c.positive_share == null ? 'n/a' : Math.round(c.positive_share * 100) + '% positive'})`).join(' · ') + '.'
       : null,
     btcRows.length
       ? `Beat the close: ${btcRows.length} zero-unit decisions this week, ${btcSettled.length} settled` +

@@ -13,6 +13,11 @@ import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-da
 import { sportsGameOddsSnapshotStatus, captureSportsGameOddsSnapshot } from '../services/sportsgameodds.js';
 import { bookFeedStatus, captureBookFeeds } from '../services/book-feeds.js';
 import { propFeedStatus, capturePropFeeds } from '../services/prop-feeds.js';
+import { extraBookFeedStatus, captureExtraBookFeeds } from '../services/book-feeds-extra.js';
+import { sharpLag } from '../services/sharp-lag.js';
+import { nfeloStatus, syncNfelo } from '../services/nfelo.js';
+import { externalRatingsStatus } from '../services/nfl-external-ratings.js';
+import { forecastHistoryStatus } from '../services/nfl-weather-history.js';
 import { polymarketMovement, refreshPolymarketLineWatch } from '../services/polymarket-lines.js';
 import { reportCacheStatus, refreshReport, serveReport } from '../services/report-cache.js';
 import { oddsArchiveStatus, backfillOddsArchive } from '../services/odds-archive.js';
@@ -81,6 +86,27 @@ r.get('/evidence/book-feeds', (_req, res, next) => {
 r.post('/evidence/book-feeds/capture', requireModelPermission('model:train'), async (_req, res, next) => {
   try { res.json(await captureBookFeeds()); } catch (e) { next(e); }
 });
+
+r.get('/evidence/book-feeds-extra', (_req, res, next) => {
+  try { res.json(extraBookFeedStatus()); } catch (e) { next(e); }
+});
+r.post('/evidence/book-feeds-extra/capture', requireModelPermission('model:train'), async (_req, res, next) => {
+  try { res.json(await captureExtraBookFeeds()); } catch (e) { next(e); }
+});
+
+/** Top-down: how long each soft book takes to follow a Pinnacle move, and what the lag was worth (CLV once settled). */
+r.get('/sharp-lag', (req, res, next) => {
+  try {
+    res.json(sharpLag({ sinceDays: req.query.days ? Number(req.query.days) : 14, market: req.query.market === 'totals' ? 'totals' : 'spreads' }));
+  } catch (e) { next(e); }
+});
+
+r.get('/nfelo/status', (_req, res, next) => { try { res.json(nfeloStatus()); } catch (e) { next(e); } });
+r.post('/nfelo/sync', requireModelPermission('model:train'), async (_req, res, next) => {
+  try { res.json(await syncNfelo()); } catch (e) { next(e); }
+});
+r.get('/external-ratings/status', (_req, res, next) => { try { res.json(externalRatingsStatus()); } catch (e) { next(e); } });
+r.get('/weather-history/status', (_req, res, next) => { try { res.json(forecastHistoryStatus()); } catch (e) { next(e); } });
 
 r.get('/evidence/prop-feeds', (_req, res, next) => {
   try { res.json(propFeedStatus()); } catch (e) { next(e); }

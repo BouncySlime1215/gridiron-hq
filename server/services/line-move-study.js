@@ -27,6 +27,9 @@ import { matchupOpinion, MATCHUP_ROLES, ridge } from './nfl-matchup-specialists.
 import { teamEventVector } from './nfl-event-archive.js';
 import { teamQbrProfile } from './nfl-qbr.js';
 import { gameWeather } from './nfl-weather.js';
+import { forecastHistoryFeatures } from './nfl-weather-history.js';
+import { nfeloFeatures } from './nfelo.js';
+import { externalRatingsFeatures } from './nfl-external-ratings.js';
 
 export const LINE_MOVE_STUDY_VERSION = 'beat-the-close-phase1-v1';
 export const CLV_GATE_POINTS = 0.3;
@@ -196,6 +199,30 @@ export function buildLineMoveDataset({ seasons = [2022, 2023, 2024, 2025], inclu
       features.T2.precip_mm = wx?.precip_mm ?? 0;
       features.T2.cold_c = wx && Number.isFinite(wx.temp_c) ? Math.max(0, 5 - wx.temp_c) : 0;
       features.T2.outdoor_weather_known = wx ? 1 : 0;
+      // What the forecast actually SAID N days out (Open-Meteo previous-runs;
+      // multi-day leads exist from 2024 on). This is the honest version of the
+      // wind feature above, which uses the kickoff hour's actual weather.
+      const fh = forecastHistoryFeatures(g.season, g.week, g.home);
+      features.T1.wind_kmh_forecast_lead3 = fh.wind_kmh_lead3 ?? 0;
+      features.T1.wind_forecast_known_lead3 = Number.isFinite(fh.wind_kmh_lead3) ? 1 : 0;
+      features.T2.wind_kmh_forecast_lead2 = fh.wind_kmh_lead2 ?? 0;
+      features.T2.wind_forecast_known_lead2 = Number.isFinite(fh.wind_kmh_lead2) ? 1 : 0;
+      // nfelo (greerreNFL): QB-adjusted Elo and the model's PRE-market-regression
+      // line — the regressed line already leans on the opener, so it would just
+      // re-measure the opener. Home-minus-away; home line negative = home favoured.
+      const nf = nfeloFeatures(g.season, g.week, g.home, g.away);
+      if (g.market === 'spreads') {
+        features.T0.nfelo_qb_adj_diff = nf.qb_adj_diff ?? 0;
+        features.T0.nfelo_qbelo_diff = nf.qbelo_diff ?? 0;
+        features.T0.nfelo_pre_vs_open = Number.isFinite(nf.nfelo_pre_line) ? open - nf.nfelo_pre_line : 0;
+        features.T0.nfelo_hfa_pts = Number.isFinite(nf.hfa_mod) ? nf.hfa_mod / 25 : 0; // 25 Elo ≈ 1 point (538 convention)
+        // Public splits are Action's LAST reading, not the opener's — an upper bound, so T2.
+        features.T2.public_home_tickets = Number.isFinite(nf.tickets_pct_home) ? nf.tickets_pct_home - 0.5 : 0;
+        features.T2.public_money_minus_tickets = Number.isFinite(nf.money_pct_home) && Number.isFinite(nf.tickets_pct_home) ? nf.money_pct_home - nf.tickets_pct_home : 0;
+      }
+      // TeamRankings predictive rating, snapshotted on the game week's Wednesday → T1.
+      const ext = externalRatingsFeatures(g.season, g.week, g.home, g.away);
+      if (g.market === 'spreads') features.T1.teamrankings_vs_open = Number.isFinite(ext.teamrankings_diff) ? ext.teamrankings_diff + open : 0;
       const at0 = { home: teamEventVector(g.home, { before: T.T0, sinceDays: 10 }), away: teamEventVector(g.away, { before: T.T0, sinceDays: 10 }) };
       for (const t of ['T1', 'T2']) {
         const atT = { home: teamEventVector(g.home, { before: T[t], sinceDays: 10 }), away: teamEventVector(g.away, { before: T[t], sinceDays: 10 }) };

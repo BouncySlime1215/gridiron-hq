@@ -25,6 +25,7 @@
  */
 import { rows } from '../db/index.js';
 import { bestExecution, impliedProb } from './nfl-execution-edge.js';
+import { isFreshQuote } from './book-feeds.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const dec = american => (american >= 0 ? 1 + american / 100 : 1 + 100 / -american);
@@ -64,6 +65,12 @@ export function signedMarginDistribution() {
  * An event whose latest snapshot has a single book is skipped rather than
  * reported with an empty comparison — one book is not a shopping decision, and
  * silently showing it as "best available" would overstate what we know.
+ *
+ * Sharing a `captured_at` instant controls for OUR poll latency, not for the
+ * aggregator's: a book's own price can sit uncached in the aggregator's
+ * response for days after it moved (`book-feeds.js#isFreshQuote`), so a quote
+ * with a stale `book_updated_at` is dropped here too before two books are
+ * ever compared as if both were live.
  */
 let _quoteCache = new Map();
 export function clearShoppingBoardCache() { _quoteCache = new Map(); }
@@ -77,7 +84,7 @@ export function simultaneousQuotes(market = 'spreads') {
   // that cost twice and took 17 seconds to answer.
   const all = rows(
     `SELECT s.event_id, s.captured_at, s.book, s.side, s.line, s.price AS american_price,
-            s.commence_time, s.home_team, s.away_team
+            s.commence_time, s.home_team, s.away_team, s.book_updated_at
      FROM nfl_line_snapshots s
      JOIN (SELECT event_id, MAX(captured_at) AS captured_at
            FROM nfl_line_snapshots WHERE market = ? GROUP BY event_id) latest
@@ -86,12 +93,14 @@ export function simultaneousQuotes(market = 'spreads') {
 
   const byEvent = new Map();
   for (const q of all) {
+    if (!isFreshQuote(q.captured_at, q.book_updated_at)) continue;
     if (!byEvent.has(q.event_id)) {
       byEvent.set(q.event_id, { event_id: q.event_id, captured_at: q.captured_at, market,
         home_team: q.home_team ?? null, away_team: q.away_team ?? null,
         commence_time: q.commence_time ?? null, quotes: [] });
     }
-    byEvent.get(q.event_id).quotes.push(q);
+    const { book_updated_at, ...quote } = q;
+    byEvent.get(q.event_id).quotes.push(quote);
   }
 
   const out = [];

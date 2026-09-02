@@ -40,6 +40,30 @@ const ENABLED = process.env.FREE_BOOK_FEEDS !== '0';
 
 export const enabled = () => ENABLED;
 
+/**
+ * How old a book's own `book_updated_at` stamp may be before a quote is no
+ * longer treated as reachable. Measured 2026-09-02 on the live capture: the
+ * OddsTrader aggregator does not refresh every book on every poll, so a
+ * quote can sit in `nfl_line_snapshots` for weeks after the book itself
+ * moved on — Unibet's spread stamps ran a median 288 hours old (p90 2,576h)
+ * against gtbets' median 5.9h, and the two disagreed on 22 of 34 live lines
+ * by half a point or more. Comparing quotes captured at the same instant
+ * (`nfl-shopping-board.js`'s rule) does not catch this: two books can share
+ * a fresh `captured_at` while one carries a stale `book_updated_at` because
+ * the aggregator served a cached price for it. 72 hours keeps every book
+ * whose feed is actually refreshing (medians all under 4 days) and drops
+ * only the quotes an aggregator has stopped tracking. A null stamp (Pinnacle
+ * and Bovada, captured directly rather than through the aggregator) is not
+ * penalised — `captured_at` itself is the freshness signal there.
+ */
+export const STALE_BOOK_HOURS = 72;
+
+export function isFreshQuote(capturedAt, bookUpdatedAt, maxAgeHours = STALE_BOOK_HOURS) {
+  if (!bookUpdatedAt) return true;
+  const ageHours = (new Date(capturedAt) - new Date(bookUpdatedAt)) / 3600000;
+  return !(Number.isFinite(ageHours) && ageHours > maxAgeHours);
+}
+
 const ODDSTRADER_BOOKS = Object.freeze({
   10: 'pinnacle', 8: 'betonlineag', 9: 'sportsbetting', 16: 'gtbets', 28: 'everygame', 29: 'lowvig',
   36: 'unibet', 44: 'heritage', 82: 'bodog', 84: 'bovada', 3: 'bookmaker', 20: 'betanysports',

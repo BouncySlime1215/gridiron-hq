@@ -27,6 +27,7 @@ import { teamEventVector } from './nfl-event-archive.js';
 import { currentNflWeek } from './weekly-learning.js';
 import { gameCutoff } from './game-cutoff.js';
 import { verifiedEventMarketLatency } from './nfl-news-market-latency.js';
+import { isFreshQuote } from './book-feeds.js';
 
 export const BEAT_THE_CLOSE_VERSION = 'beat-the-close-v1.1';
 /**
@@ -87,19 +88,26 @@ export function pinnacleLineAt(season, week, home, away, market, before = null, 
   return archived ? { line: archived.line, at: archived.at, source: 'archive:pinnacle:close' } : null;
 }
 
-/** Best reachable quote on the latest capture for one side: the most favourable line, then price. */
+/**
+ * Best reachable quote on the latest capture for one side: the most
+ * favourable line, then price, among books whose OWN price is not stale
+ * (see `isFreshQuote` — the aggregator can serve a cached number for a book
+ * it has not actually re-polled, which is not a real reachable price).
+ */
 export function bestReachable(home, away, market, side, names = teamNames()) {
   const sideName = side === home ? (names.get(home) ?? home) : side === away ? (names.get(away) ?? away) : side;
   const latest = row(`SELECT MAX(captured_at) at FROM nfl_line_snapshots WHERE provider LIKE 'free:%' AND market=? AND home_team=? AND away_team=?`,
     market, names.get(home) ?? home, names.get(away) ?? away)?.at;
   if (!latest) return null;
-  const quotes = rows(`SELECT book, line, price FROM nfl_line_snapshots WHERE captured_at=? AND market=? AND home_team=? AND away_team=? AND side=?`,
+  const allQuotes = rows(`SELECT book, line, price, book_updated_at FROM nfl_line_snapshots WHERE captured_at=? AND market=? AND home_team=? AND away_team=? AND side=?`,
     latest, market, names.get(home) ?? home, names.get(away) ?? away, sideName);
+  const quotes = allQuotes.filter(q => isFreshQuote(latest, q.book_updated_at));
   if (!quotes.length) return null;
   // A bettor wants the largest line for a spread side (more points) or an under, the smallest for an over; then the best price.
   const wantHigh = market === 'spreads' || side === 'Under';
   const ordered = [...quotes].sort((a, b) => (wantHigh ? b.line - a.line : a.line - b.line) || b.price - a.price);
-  return { ...ordered[0], captured_at: latest, books: quotes.length };
+  const { book_updated_at, ...best } = ordered[0];
+  return { ...best, captured_at: latest, books: quotes.length, stale_dropped: allQuotes.length - quotes.length };
 }
 
 /* ------------------------------------------------------------- signals */
@@ -261,16 +269,26 @@ export function beatTheCloseStatus() {
   const decisions = rows(`SELECT id, season, week, home_team, away_team, market, selection, model_version, line, american_price, quote_at,
       captured_at, settled_at, result, clv_points, feature_snapshot_json FROM shadow_decisions
     WHERE sport='NFL' AND model_version LIKE 'beat-the-close-v%' ORDER BY captured_at DESC`);
-  const bySignal = {};
+  // A decision frozen at a price the book had stopped updating (see
+  // book-feeds.js#isFreshQuote) is kept as a row — frozen rows are never
+  // rewritten — but it is not evidence about the signal, so it is excluded
+  // from every read here and counted separately.
   for (const d of decisions) {
+    try { d.feature = JSON.parse(d.feature_snapshot_json || '{}'); } catch { d.feature = {}; }
+    d.stale_price = d.feature.stale_price_at_decision === true;
+  }
+  const clean = decisions.filter(d => !d.stale_price);
+  const excludedStale = decisions.length - clean.length;
+  const bySignal = {};
+  for (const d of clean) {
     const signal = d.model_version.split(':').at(-1);
     const b = bySignal[signal] ?? (bySignal[signal] = { frozen: 0, settled: 0, clv: [], won: 0, lost: 0, push: 0 });
     b.frozen++;
     if (d.settled_at != null) { b.settled++; if (Number.isFinite(d.clv_points)) b.clv.push(d.clv_points); if (d.result === 'Won') b.won++; else if (d.result === 'Lost') b.lost++; else if (d.result === 'Push') b.push++; }
   }
   const bySlice = {};
-  for (const d of decisions) {
-    let slice = 'unknown'; try { slice = JSON.parse(d.feature_snapshot_json || '{}').slice ?? 'unknown'; } catch { /* keep unknown */ }
+  for (const d of clean) {
+    const slice = d.feature.slice ?? 'unknown';
     const b = bySlice[slice] ?? (bySlice[slice] = { frozen: 0, settled: 0, clv: [] });
     b.frozen++; if (d.settled_at != null) { b.settled++; if (Number.isFinite(d.clv_points)) b.clv.push(d.clv_points); }
   }
@@ -286,8 +304,10 @@ export function beatTheCloseStatus() {
   let window = null;
   try { window = verifiedEventMarketLatency({ limit: 400, since: '2026-08-01T00:00:00Z' }); } catch (error) { window = { error: error.message }; }
   return { version: BEAT_THE_CLOSE_VERSION, rules: RULES, by_signal: summary, by_slice: sliceSummary,
+    excluded_stale: excludedStale,
+    excluded_stale_rule: 'decisions whose chosen quote was stamped more than STALE_BOOK_HOURS before the board are kept as rows but excluded from every read above',
     event_to_move_window: window ? { ...window, examples: window.examples?.slice(0, 8) } : null,
-    decisions: decisions.slice(0, 60).map(d => ({ ...d, feature: JSON.parse(d.feature_snapshot_json || '{}'), feature_snapshot_json: undefined })),
+    decisions: decisions.slice(0, 60).map(d => ({ ...d, feature_snapshot_json: undefined })),
     snapshots, latest_signals: latestSignals,
     gate: 'Phase 3: ≥ 200 settled decisions with a week-clustered CLV interval above zero; a signal whose live CLV interval sits below zero two weeks running is retired. Stake stays 0.',
     authority: 'shadow only; no staking authority' };

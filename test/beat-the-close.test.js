@@ -49,6 +49,20 @@ test('the opener comes from the archive and the best reachable price is the most
   assert.equal(bestAway.line, 3.5, 'the away side wants the most points');
 });
 
+test('a book whose own quote is stale is not reachable, even when it was captured at the fresh instant', () => {
+  // gtbets is captured in the same Wednesday batch as everyone else but its underlying
+  // price has not moved in 10 days — the aggregator served a cached number, not a live one.
+  const staleAt = '2026-08-30T16:00:00Z'; // 10 days before `wed`
+  run(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  wed, 'nfl:2026-09-13:DEN@KC', '2026-09-13T17:00:01Z', 'Kansas City Chiefs', 'Denver Broncos',
+  'gtbets', 'spreads', 'Kansas City Chiefs', -2.5, -105, 'free:oddstrader', staleAt);
+  const best = btc.bestReachable('KC', 'DEN', 'spreads', 'KC');
+  assert.equal(best.book, 'bovada', 'gtbets would win on line and price, but its stamp is 10 days stale');
+  assert.equal(best.stale_dropped, 1, 'the stale gtbets quote is reported as dropped, not silently missing');
+});
+
 test('a signal over its threshold freezes one zero-unit decision and settlement grades it by CLV against the close', () => {
   const now = '2026-09-09T17:00:00Z';
   // Force the ratings signal: the ratings model is not fitted in this database, so predictGame errors and
@@ -75,4 +89,14 @@ test('a signal over its threshold freezes one zero-unit decision and settlement 
   assert.equal(status.by_signal.ratings_vs_open.settled, 1);
   assert.equal(status.by_signal.ratings_vs_open.mean_clv, 1.5);
   assert.equal(status.by_signal.ratings_vs_open.readable, false, 'one decision is not a read');
+});
+
+test('a decision flagged stale_price_at_decision is excluded from every read but still counted', () => {
+  run(`INSERT INTO shadow_decisions (sport,event_key,market,selection,model_version,regime,decision,reason,captured_at,season,week,home_team,away_team,line,american_price,quote_at,settled_at,result,clv_points,feature_snapshot_json)
+       VALUES ('NFL','2026:1:GB:MIN','spread','GB','beat-the-close-v1:ratings_vs_open','beat_the_close','observe','test',?,2026,1,'GB','MIN',-1,-118,?,?,'Won',3.2,?)`,
+  wed, wed, '2026-09-14T04:00:00Z', JSON.stringify({ stake_units: 0, stale_price_at_decision: true, stale_price_age_hours: 527 }));
+  const status = btc.beatTheCloseStatus();
+  assert.equal(status.excluded_stale, 1, 'the tainted decision is counted as excluded');
+  assert.equal(status.by_signal.ratings_vs_open.settled, 1, 'the earlier clean decision still reads normally, not 2');
+  assert.equal(status.by_signal.ratings_vs_open.mean_clv, 1.5, 'the average is unchanged: the phantom +3.2 CLV never enters it');
 });

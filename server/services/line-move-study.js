@@ -25,6 +25,8 @@ import { rows } from '../db/index.js';
 import { fitModel, fitRatings } from './nfl-market.js';
 import { matchupOpinion, MATCHUP_ROLES, ridge } from './nfl-matchup-specialists.js';
 import { teamEventVector } from './nfl-event-archive.js';
+import { teamQbrProfile } from './nfl-qbr.js';
+import { gameWeather } from './nfl-weather.js';
 
 export const LINE_MOVE_STUDY_VERSION = 'beat-the-close-phase1-v1';
 export const CLV_GATE_POINTS = 0.3;
@@ -183,11 +185,22 @@ export function buildLineMoveDataset({ seasons = [2022, 2023, 2024, 2025], inclu
           features.T0[`${role}_forecast`] = Number.isFinite(o.forecast) ? o.forecast : 0;
         }
       }
+      // Quarterback state from weekly QBR, strictly prior weeks (3c).
+      const qh = teamQbrProfile(g.season, g.week, g.home), qa = teamQbrProfile(g.season, g.week, g.away);
+      features.T0.qb_qbr_diff = qh && qa && Number.isFinite(qh.starter_qbr) && Number.isFinite(qa.starter_qbr) ? qh.starter_qbr - qa.starter_qbr : 0;
+      features.T0.qb_change_diff = (qh?.starter_changed ?? 0) - (qa?.starter_changed ?? 0);
+      // Kickoff-hour weather (3d): the actual hour stands in for a Friday forecast, so it is a T2 feature.
+      const wx = gameWeather(g.season, g.week, g.home);
+      features.T2 = { ...features.T2 };
+      features.T2.wind_kmh = wx?.wind_kmh ?? 0;
+      features.T2.precip_mm = wx?.precip_mm ?? 0;
+      features.T2.cold_c = wx && Number.isFinite(wx.temp_c) ? Math.max(0, 5 - wx.temp_c) : 0;
+      features.T2.outdoor_weather_known = wx ? 1 : 0;
       const at0 = { home: teamEventVector(g.home, { before: T.T0, sinceDays: 10 }), away: teamEventVector(g.away, { before: T.T0, sinceDays: 10 }) };
       for (const t of ['T1', 'T2']) {
         const atT = { home: teamEventVector(g.home, { before: T[t], sinceDays: 10 }), away: teamEventVector(g.away, { before: T[t], sinceDays: 10 }) };
         const qbOut = side => atT[side].active_player_states.filter(e => e.position === 'QB' && /out|reserve|doubtful/i.test(String(e.status_after ?? '')) && e.available_at > T.T0).length;
-        features[t] = {
+        features[t] = { ...features[t],
           injury_burden_delta: ((atT.away.injury_burden - at0.away.injury_burden) - (atT.home.injury_burden - at0.home.injury_burden)),
           qb_out_delta: qbOut('away') - qbOut('home'),
           events_since_open: (atT.home.events - at0.home.events) + (atT.away.events - at0.away.events),

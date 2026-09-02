@@ -24,6 +24,7 @@
  * remove error. None of them has staking authority.
  */
 import { rows } from '../db/index.js';
+import { teamQbrProfile } from './nfl-qbr.js';
 
 export const MATCHUP_SPECIALISTS_VERSION = 'nfl-matchup-specialists-v1';
 const MIN_TRAINING_ROWS = 200;
@@ -120,6 +121,11 @@ function continuityProfile(season, week, team) {
 /* ----------------------------------------------------------- differentials */
 
 function differential(role, season, week, home, away) {
+  if (role === 'qb_state') {
+    const h = teamQbrProfile(season, week, home), a = teamQbrProfile(season, week, away);
+    if (!h || !a || !Number.isFinite(h.starter_qbr) || !Number.isFinite(a.starter_qbr)) return null;
+    return [h.starter_qbr - a.starter_qbr, h.starter_changed - a.starter_changed, Math.min(h.starter_starts, 6) - Math.min(a.starter_starts, 6)];
+  }
   if (role === 'trench_continuity') {
     const h = continuityProfile(season, week, home), a = continuityProfile(season, week, away);
     if (!h || !a) return null;
@@ -194,7 +200,7 @@ function fitRole(role, season, week) {
  * points, capped; null with a reason when the role must abstain.
  */
 export function matchupOpinion(role, season, week, home, away) {
-  if (!ROLE_FEATURES[role] && role !== 'trench_continuity') return { forecast: null, uncertainty: null, missing_reason: `unknown role ${role}` };
+  if (!ROLE_FEATURES[role] && role !== 'trench_continuity' && role !== 'qb_state') return { forecast: null, uncertainty: null, missing_reason: `unknown role ${role}` };
   const d = differential(role, season, week, home, away);
   if (!d || d.some(v => !Number.isFinite(v))) {
     return { forecast: null, uncertainty: null, missing_reason: `no cutoff-safe ${role.replaceAll('_', ' ')} profile for both teams before week ${week}` };
@@ -208,4 +214,4 @@ export function matchupOpinion(role, season, week, home, away) {
     provenance: 'ridge fit of the market residual on strictly-prior team profiles; earlier settled games only' };
 }
 
-export const MATCHUP_ROLES = Object.freeze(['trench_continuity', 'tendency_matchup', 'situational_efficiency', 'pressure_matchup']);
+export const MATCHUP_ROLES = Object.freeze(['trench_continuity', 'tendency_matchup', 'situational_efficiency', 'pressure_matchup', 'qb_state']);

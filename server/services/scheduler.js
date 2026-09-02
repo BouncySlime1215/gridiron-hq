@@ -212,6 +212,16 @@ async function refreshPolymarketLineWatch() {
   return poll();
 }
 
+/** Weekly QBR (nflverse) and kickoff-hour weather (Open-Meteo) for the study and the qb_state role. */
+async function refreshQbrAndWeather() {
+  const { syncQbr } = await import('./nfl-qbr.js');
+  const { syncGameWeather } = await import('./nfl-weather.js');
+  const season = Number(process.env.NFL_SEASON) || new Date().getUTCFullYear();
+  const qbr = await syncQbr({ seasons: [season - 1, season] }).catch(error => ({ error: error.message }));
+  const weather = await syncGameWeather({ seasons: [season - 1, season] }).catch(error => ({ error: error.message }));
+  return { qbr, weather };
+}
+
 /** Beat the close: signal snapshots, zero-unit shadow decisions at the best reachable price, CLV settlement. */
 async function refreshBeatTheClose() {
   const { runBeatTheClose } = await import('./beat-the-close.js');
@@ -437,6 +447,8 @@ export const JOBS = {
     label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
   nfl_book_feeds: { run: refreshBookFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free multi-book quotes: Pinnacle, OddsTrader (11 books), BetRivers, Bovada' },
+  nfl_qbr_weather: { run: refreshQbrAndWeather, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'Weekly ESPN QBR and kickoff-hour weather for the current and prior season' },
   beat_the_close: { run: refreshBeatTheClose, maxAgeMinutes: 60, tier: 'live',
     label: 'Beat the close: signal snapshots, zero-unit shadow decisions, CLV settlement' },
   polymarket_line_watch: { run: refreshPolymarketLineWatch, maxAgeMinutes: 15, tier: 'live',

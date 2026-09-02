@@ -44,7 +44,8 @@ export const NFL_EXPERTS = Object.freeze([
   { id: 'trench_continuity', name: 'Line and QB continuity', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
   { id: 'tendency_matchup', name: 'Tendency matchup', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
   { id: 'situational_efficiency', name: 'Situational efficiency', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
-  { id: 'pressure_matchup', name: 'Pressure matchup', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' }
+  { id: 'pressure_matchup', name: 'Pressure matchup', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' },
+  { id: 'qb_state', name: 'Quarterback state', kind: 'matchup_candidate', lifecycle: 'pregame', score: 'market_residual' }
 ]);
 
 db.exec(`

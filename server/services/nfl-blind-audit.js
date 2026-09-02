@@ -691,6 +691,21 @@ function weekLookback(result, prior = null) {
   };
   coordinatorCumulative.directional_rate = coordinatorCumulative.directional_calls
     ? +(coordinatorCumulative.directional_correct / coordinatorCumulative.directional_calls).toFixed(4) : null;
+  // Beat-the-close shadow decisions for this week (zero units, graded by CLV).
+  const season = result?.expert_council?.season ?? null, week = result?.expert_council?.week ?? null;
+  let btcRows = [];
+  try {
+    btcRows = season != null && week != null ? rows(`SELECT clv_points, result, settled_at FROM shadow_decisions
+      WHERE sport='NFL' AND model_version LIKE 'beat-the-close-v%' AND season=? AND week=?`, season, week) : [];
+  } catch { btcRows = []; }
+  const btcSettled = btcRows.filter(r => r.settled_at != null && Number.isFinite(r.clv_points));
+  const priorBtc = prior?.beat_the_close?.cumulative ?? null;
+  const beatTheClose = { week: { frozen: btcRows.length, settled: btcSettled.length,
+      mean_clv: btcSettled.length ? +(btcSettled.reduce((s, r) => s + r.clv_points, 0) / btcSettled.length).toFixed(3) : null,
+      positive: btcSettled.filter(r => r.clv_points > 0).length },
+    cumulative: { frozen: (priorBtc?.frozen ?? 0) + btcRows.length, settled: (priorBtc?.settled ?? 0) + btcSettled.length,
+      clv_sum: +((priorBtc?.clv_sum ?? 0) + btcSettled.reduce((s, r) => s + r.clv_points, 0)).toFixed(3) } };
+  beatTheClose.cumulative.mean_clv = beatTheClose.cumulative.settled ? +(beatTheClose.cumulative.clv_sum / beatTheClose.cumulative.settled).toFixed(3) : null;
   const metrics = result?.betting?.metrics ?? {};
   const priorBetting = prior?.betting?.cumulative ?? null;
   const bettingCumulative = { bets: (priorBetting?.bets ?? 0) + (metrics.bets ?? 0), wins: (priorBetting?.wins ?? 0) + (metrics.wins ?? 0),
@@ -710,6 +725,11 @@ function weekLookback(result, prior = null) {
     weightShift.length ? `Largest weight moves since last week: ${weightShift.map(item => `${item.id} ${item.change > 0 ? '+' : ''}${item.change}`).join(', ')}.` : null,
     games.length < MIN_READ_SAMPLE
       ? `One week is ${games.length} games: a specialist's weekly hit rate is noise; only the cumulative column can be read, and only once it clears ${MIN_READ_SAMPLE} directional calls.`
+      : null,
+    btcRows.length
+      ? `Beat the close: ${btcRows.length} zero-unit decisions this week, ${btcSettled.length} settled` +
+        (btcSettled.length ? `, mean CLV ${beatTheClose.week.mean_clv} (${beatTheClose.week.positive} positive); ${beatTheClose.cumulative.settled} settled to date at ${beatTheClose.cumulative.mean_clv}.` : '.') +
+        (beatTheClose.cumulative.settled < 200 ? ' Below the 200-decision gate; not evidence yet.' : '')
       : null
   ].filter(Boolean);
   return { season: result?.expert_council?.season ?? null, week: result?.expert_council?.week ?? null,
@@ -720,6 +740,7 @@ function weekLookback(result, prior = null) {
       mean_learned_weights: meanWeights, weight_shift: weightShift, cumulative: coordinatorCumulative },
     betting: { week: { bets: metrics.bets ?? 0, wins: metrics.wins ?? 0, losses: metrics.losses ?? 0, units: metrics.units ?? 0 },
       cumulative: bettingCumulative },
+    beat_the_close: beatTheClose,
     reads,
     rule: 'Graded after the week is opened, chained from the previous look-back; the next week trains only on rows settled before its cutoff.' };
 }

@@ -287,9 +287,9 @@ evidence so far says the problem is calibration, not capacity.
 [x] 1b Postgame decomposition (variance vs model share), adjusted target in the coordinator and audit; reasoning-vs-result grades still open
 [ ] 2  Rulebook / player builder / game replay / specialist team changes, re-audited
 [ ] 3a Sharp-vs-soft role from the odds archive (hold out 2024–25)
-[ ] 3b QB-adjusted Elo role (538 data + reproduced update rule)
-[ ] 3c espn_qbr + pbp_participation back to 2016 + contracts; qb_state, pressure v2
-[ ] 3d Meteostat kickoff weather; weather_total role; total-residual lifecycle
+[-] 3b QB-adjusted Elo: FiveThirtyEight's file is gone (projects.fivethirtyeight.com now serves HTML; the GitHub copy is 404). Retired; quarterback state comes from ESPN QBR (3c) instead
+[~] 3c espn_qbr synced 2016–2025 (nfl-qbr.js, daily job); qb_state council role and study features live; participation/contracts and pressure v2 still open
+[~] 3d Open-Meteo kickoff-hour weather (nfl-weather.js, daily job) as study features; weather_total role and total-residual lifecycle still open
 [ ] 3e/3f Special teams and crew tendency roles (only if 3a–3d leave gain on the table)
 [ ] 4  Full 2022–2025 diagnostic via the resumable rebuild; numbers into the docs
 [ ] 5  Manifest v2, evidence-provenance verifier, audit UI path, empty-state tests

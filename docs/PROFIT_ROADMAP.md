@@ -287,45 +287,90 @@ first in `line-move-study.js` on the 2024–25 holdout with Holm correction,
 promoted to a live rule only if it passes the Phase 1 gate (+0.3 CLV,
 interval above zero, n ≥ 300, one decision time).
 
-- [ ] **2.1 nfelo QB-adjusted Elo** (replaces the retired 538 file).
-  `raw.githubusercontent.com/greerreNFL/nfeloqb/main/qb_elos.csv` — 538 schema
-  through 2026 W1, maintained. Loader `server/services/nfelo.js` (daily job,
-  growth tier), tables `nfl_nfelo_qb`, `nfl_nfelo_games`
-  (`output_data/nfelo_games.csv`: `home_538_qb_adj`, `nfelo_dif_base`,
-  `home_line_pre_regression` from `historic_projected_spreads.csv` — use the
-  PRE-regression line or you re-measure the opener). Study features:
-  `qb_adj_diff`, `nfelo_pre_vs_open`. No license in the repo: private research
-  use only, note it.
-- [ ] **2.2 Per-game HFA + stadium coordinates.** `greerreNFL/nfelohfa/main/estimated_hfa.csv`
-  and `greerreNFL/Stadiums/main/data/stadiums.csv` (lat/lon/roof/tz keyed to
-  nflverse `stadium_id`). Replace the flat HFA in the ratings line
-  (`nfl-market.js`) behind a flag; compare walk-forward RMSE and the
-  ratings_vs_open CLV with and without. Use the coordinates for 0.5.
-- [ ] **2.3 Forecast-known-at-time wind.** Open-Meteo
-  `historical-forecast-api.open-meteo.com` and `previous-runs-api` give what
-  the forecast WAS N days before kickoff. Rebuild the wind study with the
-  Wednesday and Friday forecasts instead of the actual weather; that is the
-  honest version of §0 item 2 and sets the live threshold.
-- [ ] **2.4 Public splits.** `greerreNFL/nfelomarket_data/main/Data/lines.csv`
-  (ticket % and money %, ~7k games) and Action Network
-  `/web/v2/markets/event/{id}/history` (tick-level line history) → study
-  features `public_side_pct`, `rlm` (line moved against ≥ 65% tickets).
-  Interaction with the ratings sign.
-- [ ] **2.5 Sharp-vs-soft, live version (NEXT_SESSION_PLAN 3a).** With hourly
-  per-book quotes and `book_updated_at`, measure per soft book: minutes to
-  follow a Pinnacle move, and the CLV of taking the soft book's number when
-  it lags Pinnacle by ≥ 0.5 with a fresh stamp. Report by book in
-  `/api/nfl-market/sharp-lag`. This is the top-down method; it needs Week
-  1–3 data before a rule exists.
-- [ ] **2.6 Second ratings opinion.** ESPN FPI
-  (`site.web.api.espn.com/apis/fitt/v3/sports/football/nfl/powerindex`) and
-  TeamRankings predictive (`?date=` gives history) as `fpi_vs_open`; value is
-  disagreement with our ratings, not a new line. Cheapest item; do last.
-- [ ] **2.7 Circa and openers breadth.** Rotowire
-  `rotowire.com/betting/nfl/tables/nfl-games.php?week=N` (10 books incl.
-  `circasports_*`) and SBR `_next/data/{buildId}/…/full-game.json` (8 books
-  with `openingLine`). Into `nfl_line_snapshots` via `book-feeds.js`, with
-  stamps where given.
+**Done 2026-09-02 (all seven items; commit 926692a). Study results, held out
+2024–25, single feature against the line bettable when known, Holm-corrected
+across the whole list:**
+
+| Feature | When | Mean CLV | 95% interval | Direction | Gate |
+|---|---|---:|---|---:|---|
+| `nfelo_pre_vs_open` | T0 | **+0.68** | 0.36 to 1.05 | 63.6% | pass |
+| `ratings_vs_open` (ours, unchanged) | T0 | +0.58 | 0.27 to 0.95 | 57.7% | pass |
+| `teamrankings_vs_open` | T1 (Wed) | +0.55 | 0.23 to 0.92 | 57.7% | pass |
+| `nfelo_qb_adj_diff` | T0 | +0.33 | 0.13 to 0.55 | 55.5% | pass (component of the line above) |
+| `public_home_tickets` / `money_minus_tickets` | T2 | +0.25 | 0.04 to 0.45 | 57.0% | fails Holm (p 0.39) |
+| `nfelo_hfa_pts` | T0 | +0.17 | −0.03 to 0.37 | 55.7% | no |
+| wind, actual kickoff weather (totals) | T2 | +0.47 | 0.27 to 0.68 | 62.1% | pass — but see next row |
+| **wind, lead-2 forecast that was knowable** (totals, 2024–25) | T2 | **+0.28** | 0.11 to 0.45 | 56.2% | **under the +0.3 gate** |
+| `nfelo_qbelo_diff` | T0 | **−0.48** | −0.83 to −0.16 | 44.5% | significant the *wrong* way |
+
+- [x] **2.1 nfelo QB-adjusted Elo + pre-regression line.** `server/services/nfelo.js`
+  (job `nfelo_sync`, 6 h): `nfl_nfelo_qb`, `nfl_nfelo_games` (with
+  `home_line_pre_regression` merged from `historic_projected_spreads.csv`),
+  `nfl_nfelo_lines`, `nfl_stadiums`, `nfl_team_stadiums`; 1,709 games
+  2020–2026, canonical codes (nfelo still writes OAK for the Raiders — mapped
+  to LV). nfelo's pre-regression line beats the opener harder than our own
+  ratings do. **Promoted to a live zero-unit rule** `nfelo_pre_vs_open`
+  (threshold 0.5) — 15 Week 1 decisions frozen on the first run. The raw
+  QB-Elo strength gap goes the other way (−0.48): the opener over-reacts to
+  it. Recorded, not promoted (not preregistered). Caveat that stays: nfelo's
+  published history is a backfill from a model whose parameters were tuned on
+  2009–2025; the forward ledger is the test that counts. No license in the
+  repo: private research use.
+- [x] **2.2 Per-game HFA + stadium coordinates.** Loaded (`hfa_mod` per game,
+  67 stadiums with lat/lon/roof). As a study feature the per-game HFA is
+  inside noise (+0.17, interval crosses zero), so the flat HFA in
+  `nfl-market.js` stays; the ratings-line flag is not worth building on this
+  evidence. Coordinates are available for 0.5 (the embedded `STADIUMS` map
+  already agrees with them).
+- [x] **2.3 Forecast-known-at-time wind.** `server/services/nfl-weather-history.js`
+  (Open-Meteo previous-runs; job `nfl_forecast_history`, daily):
+  `nfl_game_weather_forecast_history`, leads 0/1/2/3/5 days, 753 games. The
+  previous-runs store begins Jan 2024, so multi-day leads exist for 2024–25
+  only. **Finding:** of the 8 games in 2024 that were actually ≥ 25 km/h at
+  kickoff, the lead-2 forecast flagged 3 and raised 5 false alarms; the
+  wind edge measured on actual weather (+0.47) is +0.28 on what was
+  knowable — under the gate. `wind_total` stays live as a candidate with
+  its basis text corrected; the live CLV decides. The study now carries both
+  versions (`wind_kmh` and `wind_kmh_forecast_lead2`).
+- [x] **2.4 Public splits.** Ticket/money % from nfelo's `lines.csv` (spread
+  only; 2021–23 are empty upstream). Stored as T2 (Action's LAST reading, an
+  upper bound). +0.25 CLV but fails Holm; RLM not built (it conditions on
+  the move). Action Network's tick-level history is available for a later
+  forward-only study.
+- [x] **2.5 Sharp-vs-soft, live version.** `server/services/sharp-lag.js`,
+  `GET /api/nfl-market/sharp-lag?market=spreads|totals&days=14`: per soft
+  book, minutes to follow a Pinnacle move, share followed within 60/180 min,
+  lag opportunities and their CLV once settled; stale stamps and in-play
+  prints excluded. First day of captures: zero Pinnacle spread moves, one
+  totals move (ATL–PIT 41.5 → 42.5; Bovada and Unibet already there,
+  BetRivers 29 min behind). Needs Weeks 1–3 before a rule exists.
+- [x] **2.6 Second ratings opinion.** `server/services/nfl-external-ratings.js`
+  (job `nfl_external_ratings`, daily): ESPN FPI snapshotted weekly from 2026
+  W1 (no history endpoint), TeamRankings predictive snapshotted on every game
+  week's Wednesday 2022–2026 (`?date=` backfill, 73 requests, all 32 names
+  resolved). TeamRankings vs the opener passes the gate and is **live as a
+  zero-unit rule** `teamrankings_vs_open`; note the raw ≥0.5 replay over all
+  of 2022–25 W5–18 is weaker (+0.17 on 725 decisions) than the held-out
+  coefficient read (+0.55) — treat it as the weaker of the two lines.
+- [x] **2.7 Circa and openers breadth.** `server/services/book-feeds-extra.js`
+  (job `nfl_book_feeds_extra`, hourly): Rotowire (Circa, DK, FD, MGM,
+  Caesars, BetRivers, Fanatics, theScore, Betr — with prices) and SBR
+  (bet365, Hard Rock; per-book openers returned, not yet stored). 1,056 rows
+  on the first capture; Circa NE@SEA −3.5/44. No per-book stamps, so these
+  are treated as direct captures like Pinnacle/Bovada.
+
+**Into the audit.** Two council roles (`nfelo_line`, `teamrankings_line`,
+kind `external_model`) grade the same external lines against the CLOSE like
+every other role; they are kept out of the study's T0 features because they
+read the close. The weekly look-back now replays the opener rules from the
+archived Pinnacle open/close and chains CLV week over week
+(`beat_the_close.historical` / `historical_cumulative`), so the historical
+diagnostic reports the line-move edge beside the ATS record. **Run 19**
+(56 weeks, 19 roles, spec identical to runs 8 and 17 otherwise) started
+2026-09-02; run 18 is the default 70-week registration and is unused.
+Backfill coverage for the audit: nfelo 2021–26, TeamRankings 18 weeks ×
+2022–25, forecast leads 2024–25, odds archive 2022–25; props and Circa have
+no past to backfill.
 
 ---
 

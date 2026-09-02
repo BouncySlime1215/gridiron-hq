@@ -82,6 +82,29 @@ once games finish: if any of these rules loses money two weeks in a row,
 it retires itself and stops betting, rather than quietly continuing to
 lose. That safety net didn't exist until today.
 
+Later the same day, the second phase of the roadmap went in: five new free
+sources of information. The most useful is a public, well-maintained
+rating system called nfelo that adjusts each team's strength for who is
+playing quarterback. Tested the same honest way as everything else, on
+games it had never seen, its pregame number beats the sportsbooks' opening
+line even more reliably than our own ratings do, and it is now running
+live alongside them at paper stakes. A second public rating (TeamRankings)
+also passes and is live. Circa's lines, the sharpest Las Vegas book, are
+now captured every hour. And a measurement now runs of how quickly each
+soft sportsbook copies Pinnacle when it moves, which is where the "bet the
+slow book" idea will be judged.
+
+One finding cut the other way, and it is worth being plain about. The wind
+rule was measured using the actual weather at kickoff. Re-measured using
+only what the forecast said two days before the game, which is all anyone
+could really have known, the edge shrinks by about 40 percent and falls
+just short of the bar we set. It stays running on paper, but it is a
+candidate now, not a proven rule.
+
+A new run of the full four-season audit (run 19) started this evening with
+the new rating systems included as specialists and with the early-line
+rules graded inside the audit itself. It takes a couple of hours.
+
 One pattern worth naming: three separate pieces of new code today each
 had a real bug that would have made them silently do nothing or do the
 wrong thing, and each was only found by testing them against real data

@@ -304,5 +304,8 @@ Each ticked item ends with: tests green, `npm run lint`, commit, push to
 - `beatTheCloseStatus()` must tolerate a missing `shadow_decisions` table on a
   fresh database (the empty-state test imports the ledger module first as a
   workaround).
-- Weather features: fold the run-16 look-back and the study's weather grade
-  into the docs; decide whether a `weather_total` role is worth registering.
+- Weather: wind predicts totals moving down (+0.47 CLV, 62%, held out). Build
+  the `wind_total` live rule in beat-the-close.js from the Open-Meteo forecast
+  endpoint for the kickoff hour (threshold 25 km/h, bet the under at the best
+  reachable number when Pinnacle's total has not yet moved), and register a
+  `weather_total` council role on the total residual.

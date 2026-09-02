@@ -601,5 +601,16 @@ as study features and `qb_state` as a seventeenth council role. Held out,
 neither quarterback feature predicts the open-to-close move (`qb_qbr_diff`
 −0.10 [−0.34, 0.11]; `qb_change_diff` −0.08): the opener already prices
 the quarterback, which is the expected result and worth having on record.
-`ratings_vs_open` is unchanged at +0.58. Weather features are graded in
-the next study run once the backfill completes.
+`ratings_vs_open` is unchanged at +0.58.
+
+**Weather (753 outdoor games, kickoff-hour Open-Meteo archive):** on
+totals, wind alone earns +0.47 CLV [0.27, 0.68] with 62.1% direction on the
+held-out seasons, Holm p < 0.01 — the total moves toward the under and the
+opener has not priced the wind. The T2 totals model rises from +0.44 to
++0.66 [0.49, 0.86] at 64.7% direction. Two caveats keep this a candidate:
+the study uses the actual kickoff-hour weather as a stand-in for a Friday
+forecast, and T2 CLV is against the opener (no Friday line is stored). On
+spreads, weather carries nothing. The live rule to build once run 16 frees
+the server: `wind_total`, bet the under at the best reachable number when
+the Open-Meteo forecast for the kickoff hour shows ≥ 25 km/h and Pinnacle's
+total has not yet moved down, graded by CLV like the others.

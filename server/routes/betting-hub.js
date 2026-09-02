@@ -26,6 +26,7 @@ import { latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 import { abstentionAudit } from '../services/nfl-abstention-audit.js';
 import { teaserExecutionBoard } from '../services/nfl-teaser-execution.js';
 import { bookFeedStatus } from '../services/book-feeds.js';
+import { serveReport } from '../services/report-cache.js';
 import { polymarketMovement } from '../services/polymarket-lines.js';
 
 const r = Router();
@@ -414,13 +415,9 @@ r.post('/teasers/executions/:id/settle', async (req, res, next) => {
  */
 r.get('/abstentions', (_req, res, next) => {
   try {
-    // 66 seconds cold: replays five seasons of decisions on every request. Same
-    // treatment as accuracy and board/explained — fingerprinted on the tables it
-    // reads, so it recomputes when the data moves and not before.
-    res.json(cached('abstention_audit',
-      fingerprint([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_pick_decisions',
-        'nfl_team_week_features']),
-      () => abstentionAudit()));
+    // 66 seconds of synchronous replay. Served from the worker-computed store;
+    // a stale answer queues a background refresh and this never blocks the app.
+    res.json(serveReport('abstention_audit'));
   } catch (e) { next(e); }
 });
 

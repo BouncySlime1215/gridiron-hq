@@ -13,6 +13,7 @@ import { runEvidenceDaemon, evidenceDaemonStatus } from '../services/evidence-da
 import { sportsGameOddsSnapshotStatus, captureSportsGameOddsSnapshot } from '../services/sportsgameodds.js';
 import { bookFeedStatus, captureBookFeeds } from '../services/book-feeds.js';
 import { polymarketMovement, refreshPolymarketLineWatch } from '../services/polymarket-lines.js';
+import { reportCacheStatus, refreshReport } from '../services/report-cache.js';
 import { nflIntelligence } from '../services/model-intelligence.js';
 import { nflEvidenceCoverage } from '../services/nfl-evidence.js';
 import { currentNflWeek } from '../services/weekly-learning.js';
@@ -75,6 +76,17 @@ r.get('/evidence/book-feeds', (_req, res, next) => {
 
 r.post('/evidence/book-feeds/capture', requireModelPermission('model:train'), async (_req, res, next) => {
   try { res.json(await captureBookFeeds()); } catch (e) { next(e); }
+});
+
+r.get('/reports', (_req, res, next) => {
+  try { res.json(reportCacheStatus()); } catch (e) { next(e); }
+});
+
+r.post('/reports/:name/refresh', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    refreshReport(req.params.name, { force: true }).catch(() => {});
+    res.status(202).json({ queued: true, report: req.params.name });
+  } catch (e) { next(e); }
 });
 
 r.get('/polymarket/lines', (req, res, next) => {

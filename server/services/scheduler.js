@@ -212,6 +212,12 @@ async function refreshPolymarketLineWatch() {
   return poll();
 }
 
+/** Heavy reports (abstention audit, diagnostic, walk-forward, calibration, football-first fit) in worker threads. */
+async function refreshReports() {
+  const { refreshStaleReports } = await import('./report-cache.js');
+  return refreshStaleReports();
+}
+
 /**
  * Multi-horizon, pre-event evidence captures. This stays light: it only runs
  * windows that are due and groups requests by NFL week / MLB slate date.
@@ -477,6 +483,8 @@ export const JOBS = {
     label: 'NFL finalized-week ingest, shadow settlement, and next-week fit' },
   nfl_decision_ledger: { run: refreshNflDecisionLedger, maxAgeMinutes: 3 * 60, tier: 'growth',
     label: 'NFL current-week decision ledger, pregame snapshots, and expert council freeze (zero units)' },
+  nfl_reports: { run: refreshReports, maxAgeMinutes: 3 * 60, tier: 'growth',
+    label: 'Heavy dashboard reports computed off-thread (worker) and served from SQLite' },
   nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'NFL chronological prop calibration registry' },
   /*
@@ -627,6 +635,9 @@ export function startScheduler({
   // growth check its own delayed boot pass: it is cheap when no week is new and
   // waits until the UI has been interactive for a while before any ingest.
   setTimeout(() => { runIfStale('nfl_model_growth').catch(() => {}); }, Math.max(90000, bootDelayMs + 60000));
+  // Worker-thread reports: start after the interactive boot work so the first
+  // dashboard reads are served from the store within a few minutes of launch.
+  setTimeout(() => { runIfStale('nfl_reports').catch(() => {}); }, Math.max(150000, bootDelayMs + 120000));
 
   const live = jobsInTier('live');
   const metered = jobsInTier('metered');

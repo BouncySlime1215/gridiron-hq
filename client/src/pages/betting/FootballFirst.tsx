@@ -31,10 +31,19 @@ export default function FootballFirst({ embedded = false }: { embedded?: boolean
 
   // The fit is ninety seconds of work, so it is never done inside a page load.
   // The panel asks for it explicitly and says how long it will take.
+  // The server queues it in a worker thread and answers at once, so the page
+  // polls the coefficients until the fit lands rather than holding a request.
   const runFit = async () => {
     setFitting(true);
-    try { await api('/nfl-betting/football-first/fit', { method: 'POST', body: JSON.stringify({ season }) }); coef.refetch(); }
-    finally { setFitting(false); }
+    try {
+      await api('/nfl-betting/football-first/fit', { method: 'POST', body: JSON.stringify({ season }) });
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 15000));
+        const latest = await api<any>(`/nfl-betting/football-first/coefficients?season=${season}`);
+        if (latest?.fitted) break;
+      }
+      coef.refetch();
+    } finally { setFitting(false); }
   };
 
   const record = async () => {
@@ -66,7 +75,14 @@ export default function FootballFirst({ embedded = false }: { embedded?: boolean
       </header>
 
       {/* The measured state, stated before anything else. */}
-      {walk.data && !walk.data.error && <Verdict walk={walk.data} calib={calib.data} />}
+      {walk.data?.pending && (
+        <section className="tr-rise rounded-2xl border border-slate-200 bg-white p-4">
+          <h2 className="text-lg font-black tracking-tight text-slate-950">Walk-forward is computing in the background</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{walk.data.note}</p>
+        </section>
+      )}
+      {walk.data && !walk.data.error && !walk.data.pending
+        && <Verdict walk={walk.data} calib={calib.data?.pending ? null : calib.data} />}
 
       {/* What the fit currently weights. */}
       {coef.data?.fitted && <Coefficients c={coef.data} />}
@@ -76,7 +92,7 @@ export default function FootballFirst({ embedded = false }: { embedded?: boolean
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{coef.data.why}</p>
           <button onClick={runFit} disabled={fitting}
             className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-50">
-            {fitting ? 'Fitting — about 90 seconds…' : 'Compute the fit once'}
+            {fitting ? 'Fitting in a worker thread — about 90 seconds…' : 'Compute the fit once'}
           </button>
         </section>
       )}

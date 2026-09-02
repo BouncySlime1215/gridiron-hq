@@ -36,6 +36,7 @@ export default function Diagnostics() {
 
       {tab === 'profitability' && (
         !profit ? <div className="card p-6 text-sm text-slate-500">Measuring evidence, profit and feed health…</div>
+          : profit.pending ? <Pending label="Profit diagnostic" note={profit.note} />
           : profit.error ? <div className="card p-6 text-sm text-rose-600">{profit.error}</div>
             : <>
               <div className={`card p-5 ${profit.profitability?.state === 'review_eligible'
@@ -77,6 +78,7 @@ export default function Diagnostics() {
 
       {tab === 'abstentions' && (
         !abst ? <div className="card p-6 text-sm text-slate-500">Grading the games the policy refused…</div>
+          : abst.pending ? <Pending label="Abstention audit" note={abst.note} />
           : abst.error ? <div className="card p-6 text-sm text-rose-600">{abst.error}</div>
             : (
               <>
@@ -235,4 +237,17 @@ function MiniStat({ label, value, warn = false }: { label: string; value: unknow
     <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
     <div className={`mt-0.5 text-lg font-bold tabular-nums ${warn ? 'text-amber-800' : 'text-slate-900'}`}>{value == null ? '—' : String(value)}</div>
   </div>;
+}
+
+/**
+ * The heavy reports are computed in a worker thread on the server's growth
+ * tick and served from SQLite, so a first visit can land before the first run.
+ */
+function Pending({ label, note }: { label: string; note?: string }) {
+  return (
+    <div className="card p-6 text-sm text-slate-600">
+      <div className="font-semibold text-slate-900">{label} is computing in the background</div>
+      <p className="mt-1">{note ?? 'Reload in a few minutes.'}</p>
+    </div>
+  );
 }

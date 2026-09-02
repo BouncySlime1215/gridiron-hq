@@ -56,6 +56,7 @@ import { tdCalibrationCatalog } from '../services/nfl-prop-calibration.js';
 import { signalQualityCatalog } from '../services/model-signal-quality.js';
 import { profitabilityOperations, recordTeaserPrice, teaserPriceLedger } from '../services/nfl-profitability.js';
 import { nflDiagnostic } from '../services/nfl-diagnostic.js';
+import { serveReport, refreshReport } from '../services/report-cache.js';
 import { runNflModelGrowthCycle } from '../services/nfl-model-growth.js';
 import { captureOnlineNeuralWeek, nflOnlineNeuralStatus, settleOnlineNeuralExamples,
   trainOnlineNeuralThroughSettled } from '../services/nfl-online-neural.js';
@@ -184,8 +185,10 @@ r.get('/profitability', (_req, res, next) => {
   catch (e) { next(e); }
 });
 
-r.get('/diagnostic', (_req, res, next) => {
-  try { res.json(nflDiagnostic()); }
+r.get('/diagnostic', (req, res, next) => {
+  // Four seconds of synchronous work per read; served from the worker store
+  // (see report-cache.js). `?live=1` keeps the old inline path for debugging.
+  try { res.json(req.query.live === '1' ? nflDiagnostic() : serveReport('nfl_diagnostic')); }
   catch (e) { next(e); }
 });
 
@@ -1647,13 +1650,16 @@ r.get('/football-first/coefficients', (req, res, next) => {
     const season = Number(req.query.season) || new Date().getFullYear();
     const cachedFit = peekResidualModel(season, 'margin');
     if (cachedFit) return res.json({ ...cachedFit, features: FF_FEATURES, cached: true });
+    // The worker store: computed off-thread on the growth tick, and on demand
+    // via POST /football-first/fit, which now queues rather than blocks.
+    const stored = serveReport('football_first_fit');
+    if (!stored.pending && !stored._report?.error) return res.json({ ...stored, features: FF_FEATURES, cached: true });
     res.status(202).json({
-      fitted: false, computing: false, features: FF_FEATURES, season,
+      fitted: false, computing: Boolean(stored.computing || stored._report?.refreshing), features: FF_FEATURES, season,
       why: 'The coefficient fit has not been computed for this season yet. It walks about a ' +
         'thousand games building injury, efficiency and tendency features and takes roughly ninety ' +
-        'seconds, which is far too long to hold a request open — doing it here would block every ' +
-        'other route on the server for the duration.',
-      how: 'POST /api/nfl-betting/football-first/fit to compute and cache it once.'
+        'seconds, so it runs in a worker thread rather than on a request.',
+      how: 'POST /api/nfl-betting/football-first/fit queues it; reload in a couple of minutes.'
     });
   } catch (e) { next(e); }
 });
@@ -1661,25 +1667,34 @@ r.get('/football-first/coefficients', (req, res, next) => {
 /** Compute the fit once, deliberately out of band. */
 r.post('/football-first/fit', (req, res, next) => {
   try {
-    const season = Number(req.body?.season) || new Date().getFullYear();
-    const started = Date.now();
-    const m = residualModel(season, 'margin');
-    res.json({ ...m, features: FF_FEATURES, took_ms: Date.now() - started });
+    // Queued in a worker; the request returns at once. `?inline=1` keeps the
+    // old blocking behaviour for a shell session that wants the number back.
+    if (req.query.inline === '1') {
+      const season = Number(req.body?.season) || new Date().getFullYear();
+      const started = Date.now();
+      const m = residualModel(season, 'margin');
+      return res.json({ ...m, features: FF_FEATURES, took_ms: Date.now() - started });
+    }
+    refreshReport('football_first_fit', { force: true }).catch(() => {});
+    res.status(202).json({ queued: true, report: 'football_first_fit',
+      note: 'Fitting in a worker thread (~90 s). GET /football-first/coefficients will return it when done.' });
   } catch (e) { next(e); }
 });
 
 /** The weekly walk-forward: refit every week, predict the next. */
 r.get('/walk-forward', (req, res, next) => {
   try {
-    res.json(walkForward({
-      minLean: Math.max(0.25, Math.min(5, Number(req.query.min_lean) || 1.0))
-    }));
+    // Off-thread by default; a non-default minLean is an ad-hoc question and
+    // runs inline so the answer matches the parameter.
+    const minLean = Math.max(0.25, Math.min(5, Number(req.query.min_lean) || 1.0));
+    res.json(minLean === 1.0 ? serveReport('walk_forward') : walkForward({ minLean }));
   } catch (e) { next(e); }
 });
 
 /** Whether the confidence number means what it says. */
-r.get('/confidence/calibration', (_req, res, next) => {
-  try { res.json(confidenceCalibration({})); } catch (e) { next(e); }
+r.get('/confidence/calibration', (req, res, next) => {
+  try { res.json(req.query.live === '1' ? confidenceCalibration({}) : serveReport('confidence_calibration')); }
+  catch (e) { next(e); }
 });
 
 /** Quarterback room and replacement value for one team. */

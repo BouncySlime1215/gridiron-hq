@@ -277,6 +277,21 @@ Audit input verification now uses a persistent mutation journal and performs a
 full content hash only after relevant source data changes. These measurements
 are regression baselines, not permission to stop profiling.
 
+The second speed repair (2026-09-02) moved every replay-backed read off the
+request thread. Measured on the live server, the abstention audit took 267 s
+and the football-first walk-forward 74 s of synchronous CPU per cold read, and
+because Node serves every request on one thread a 170 ms profitability read
+timed out at 120 s behind them. `server/services/report-cache.js` now computes
+the abstention audit, NFL diagnostic, walk-forward, confidence calibration and
+football-first coefficient fit in worker threads (own SQLite connection, WAL)
+on the growth tick (`nfl_reports`, every 3 h) and stores the answer in
+`nfl_cached_reports` keyed on a data fingerprint that counts scored games and
+decisions rather than the hourly line refresh. The routes return the stored
+answer in under 15 ms with `_report.computed_at`, `duration_ms` and `stale`,
+or `{pending: true}` before the first run; they never compute inline.
+`GET /api/nfl-market/reports` shows the store; `POST /reports/:name/refresh`
+queues one.
+
 Implementation order:
 
 1. Instrument first so an optimization cannot merely move hidden work into a

@@ -22,7 +22,9 @@ captured on 2026-08-27.
 
 ## 0. Current work queue — audit findings come first
 
-> **Next session:** follow `docs/NEXT_SESSION_PLAN.md` — coordinator shrinkage
+> **Next session:** start with `docs/BEAT_THE_CLOSE_PLAN.md` (does anything
+> we hold predict the open-to-close move; CLV in points is the gate), then
+> follow `docs/NEXT_SESSION_PLAN.md` — coordinator shrinkage
 > and de-duplication first, then the loud roles, then new market-orthogonal
 > evidence (sharp-vs-soft archive, QB-adjusted Elo, QBR/participation/contracts,
 > kickoff weather), then the full resumable 2022–2025 diagnostic.

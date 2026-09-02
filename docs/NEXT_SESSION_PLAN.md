@@ -36,6 +36,16 @@ earlier one has a failing gate.
 
 ---
 
+## 0.5. First: the beat-the-close study (`docs/BEAT_THE_CLOSE_PLAN.md`, Phase 1)
+
+Before touching the coordinator, spend the first session on the question
+that can actually pay: does anything we hold predict the line's move from
+open to close? The dataset (per-book openers and closes 2022–2025, verified
+events, the model's own outputs stamped by decision time), the CLV-in-points
+gate and the deliverables are specified there. The coordinator work below is
+still right, but its weights should come from whatever predicts the LINE,
+so the study goes first.
+
 ## 1. Fix the coordinator: walk-forward shrinkage and de-duplication (the item from the audit)
 
 **Why first.** The coordinator (`nfl-expert-coordinator.js`) is a week-balanced
@@ -272,6 +282,7 @@ evidence so far says the problem is calibration, not capacity.
 ## 7. Checklist for the session
 
 ```
+[ ] 0.5 Beat-the-close study, Phase 1 (BEAT_THE_CLOSE_PLAN.md)
 [ ] 1  Coordinator: Stage A shrinkage + Stage B families, tests, audit fields
 [ ] 1b Postgame decomposition (variance vs model share), adjusted target, reasoning-vs-result grades
 [ ] 2  Rulebook / player builder / game replay / specialist team changes, re-audited

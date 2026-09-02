@@ -205,7 +205,7 @@ export function buildLineMoveDataset({ seasons = [2022, 2023, 2024, 2025], inclu
   }
   out.sort((p, q) => p.season - q.season || p.week - q.week || String(p.home).localeCompare(q.home));
   return { version: LINE_MOVE_STUDY_VERSION, seasons, rows: out, dropped, built_at: new Date().toISOString(),
-    ratings_line: market?.error ? null : `walk-forward ratings line (alpha/carryover selected on seasons ≤ ${market.fitWindow?.selection_seasons?.[1]})`,
+    ratings_line: !market || market.error ? null : `walk-forward ratings line (alpha/carryover selected on seasons ≤ ${market.fitWindow?.selection_seasons?.[1]})`,
     selection_through: selectionThrough };
 }
 

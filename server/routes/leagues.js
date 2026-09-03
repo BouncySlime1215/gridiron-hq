@@ -1,17 +1,31 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
+import { assertLeagueMember, assertCommissioner } from '../platform/auth.js';
 
 const r = Router();
 
 const ESPN_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 
+// Authentication (who is this caller) is applied by the mount site
+// (server/index.js: app.use('/api/leagues', ...legacyAuthenticated, leaguesRouter)),
+// same as news/players/tradelab/trades — so req.auth is always populated by the
+// time a handler here runs in production. What was actually missing is
+// per-league AUTHORIZATION: every :id route below accepted any authenticated
+// caller for any league, letting one account read another's ESPN/Sleeper
+// cookies via /:id/data, overwrite them via PUT, or purge someone else's league
+// and drafts via DELETE. drafts.js and model.js already gate their league-scoped
+// routes on assertLeagueMember/assertCommissioner; this file was the gap. Every
+// existing league already has a commissioner membership row, so this doesn't
+// lock anyone out of data they already had.
+
 r.get('/', (req, res) => {
-  res.json(rows(`SELECT id, platform, league_id, season, name, my_team_id, team_count, ppr, superflex,
-                        league_type, fetched_at, connection_status, sync_error,
-                        espn_s2 IS NOT NULL AS has_cookies
-                 FROM leagues ORDER BY id`));
+  res.json(rows(`SELECT l.id, l.platform, l.league_id, l.season, l.name, l.my_team_id, l.team_count, l.ppr,
+                        l.superflex, l.league_type, l.fetched_at, l.connection_status, l.sync_error,
+                        l.espn_s2 IS NOT NULL AS has_cookies
+                 FROM leagues l JOIN league_memberships m ON m.league_id = l.id
+                 WHERE m.user_id = ? ORDER BY l.id`, req.auth.userId));
 });
 
 r.post('/', (req, res) => {
@@ -30,6 +44,7 @@ r.post('/', (req, res) => {
 });
 
 r.put('/:id', (req, res) => {
+  assertCommissioner(req.auth.userId, req.params.id);
   const { my_team_id, espn_s2, swid } = req.body;
   run(`UPDATE leagues SET my_team_id = COALESCE(?, my_team_id),
        espn_s2 = COALESCE(?, espn_s2), swid = COALESCE(?, swid) WHERE id = ?`,
@@ -51,6 +66,7 @@ function removalImpact(leagueId) {
 }
 
 r.get('/:id/removal-impact', (req, res) => {
+  assertLeagueMember(req.auth.userId, req.params.id);
   const lg = row('SELECT id, name FROM leagues WHERE id = ?', req.params.id);
   if (!lg) return res.status(404).json({ error: 'league not found' });
   res.json({ league: lg.name, ...removalImpact(req.params.id) });
@@ -71,6 +87,7 @@ r.get('/:id/removal-impact', (req, res) => {
  * same transaction, so it can't leave the same orphans behind.
  */
 r.delete('/:id', (req, res) => {
+  assertCommissioner(req.auth.userId, req.params.id);
   const lg = row('SELECT id FROM leagues WHERE id = ?', req.params.id);
   if (!lg) return res.status(404).json({ error: 'league not found' });
   const impact = removalImpact(req.params.id);
@@ -162,6 +179,7 @@ async function syncSleeperLeague(lg) {
 
 r.post('/:id/sync', async (req, res, next) => {
   try {
+    assertLeagueMember(req.auth.userId, req.params.id);
     const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
     if (!lg) return res.status(404).json({ error: 'league not found' });
     const result = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
@@ -184,13 +202,18 @@ r.post('/:id/sync', async (req, res, next) => {
 
     res.json({ ok: true, ...result, values });
   } catch (e) {
-    run(`UPDATE leagues SET connection_status='sync_failed', sync_error=? WHERE id=?`,
-      String(e.message ?? e).slice(0, 500), req.params.id);
+    // An auth rejection isn't a sync failure — don't overwrite the league's real
+    // sync_error with "forbidden" just because an unauthorized caller tried.
+    if (e.status !== 401 && e.status !== 403) {
+      run(`UPDATE leagues SET connection_status='sync_failed', sync_error=? WHERE id=?`,
+        String(e.message ?? e).slice(0, 500), req.params.id);
+    }
     next(e);
   }
 });
 
 r.get('/:id/data', (req, res) => {
+  assertLeagueMember(req.auth.userId, req.params.id);
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
   if (!lg) return res.status(404).json({ error: 'league not found' });
   res.json({ ...lg, payload: lg.payload ? JSON.parse(lg.payload) : null });
@@ -251,6 +274,7 @@ function extractRosters(lg) {
 }
 
 r.get('/:id/analysis', (req, res) => {
+  assertLeagueMember(req.auth.userId, req.params.id);
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
   if (!lg?.payload) return res.status(400).json({ error: 'league not synced yet' });
 

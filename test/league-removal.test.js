@@ -13,16 +13,24 @@ await runMigrations();
 // Creates drafts.league_row_id / espn_league_id at import time.
 await import('../server/services/espn-draft.js');
 const { default: leaguesRouter } = await import('../server/routes/leagues.js');
+const { requireAuthenticated, hashSessionToken } = await import('../server/platform/auth.js');
 const express = (await import('express')).default;
 
+// Mounted with plain requireAuthenticated rather than the full legacyAuthenticated
+// wrapper (which also rate-limits) — this suite is about removal semantics, which
+// test/legacy-route-security.test.js already covers for the anonymous-401 case.
+// leagues.js itself checks per-league commissioner/member authorization on every
+// :id route, so requests still need a real req.auth; each test authenticates as
+// that league's commissioner via leagueWithDraftHistory().
 const app = express();
 app.use(express.json());
-// Mounted without the legacy auth wrapper: this suite is about removal semantics,
-// which test/legacy-route-security.test.js already covers for auth.
-app.use('/api/leagues', leaguesRouter);
+app.use('/api/leagues', requireAuthenticated, leaguesRouter);
+app.use((err, req, res, next) => res.status(err.status ?? 500).json({ error: err.message }));
 const server = app.listen(0);
 const { port } = server.address();
 const base = `http://127.0.0.1:${port}/api/leagues`;
+
+function authHeaders(token) { return { authorization: `Bearer ${token}` }; }
 
 test.after(() => {
   server.close();
@@ -41,20 +49,28 @@ function leagueWithDraftHistory() {
   run(`INSERT INTO players (name, position, fantasy_relevant) VALUES ('Removal Test Player','WR',1)`);
   const playerId = row('SELECT last_insert_rowid() AS id').id;
   run(`INSERT INTO draft_picks (draft_id, pick_number, team_slot, player_id) VALUES (?,1,1,?)`, draftId, playerId);
-  return { leagueId, draftId };
+
+  const token = `removal-test-token-${n}`;
+  run('INSERT INTO users (subject, display_name) VALUES (?,?)', `removal-test-${n}`, `Removal Tester ${n}`);
+  const userId = row('SELECT last_insert_rowid() AS id').id;
+  run('INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,?)', leagueId, userId, 'commissioner');
+  run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES (?,?,datetime('now','+1 day'))`,
+    userId, hashSessionToken(token));
+
+  return { leagueId, draftId, token };
 }
 
 test('removal impact reports the draft history at stake before anything is destroyed', async () => {
-  const { leagueId } = leagueWithDraftHistory();
-  const body = await (await fetch(`${base}/${leagueId}/removal-impact`)).json();
+  const { leagueId, token } = leagueWithDraftHistory();
+  const body = await (await fetch(`${base}/${leagueId}/removal-impact`, { headers: authHeaders(token) })).json();
   assert.equal(body.drafts, 1);
   assert.equal(body.draft_picks, 1);
   assert.deepEqual(body.draft_names, ['a real draft']);
 });
 
 test('the default removal disconnects: credentials go, draft history stays', async () => {
-  const { leagueId, draftId } = leagueWithDraftHistory();
-  const body = await (await fetch(`${base}/${leagueId}`, { method: 'DELETE' })).json();
+  const { leagueId, draftId, token } = leagueWithDraftHistory();
+  const body = await (await fetch(`${base}/${leagueId}`, { method: 'DELETE', headers: authHeaders(token) })).json();
 
   assert.equal(body.disconnected, true);
   assert.ok(row('SELECT id FROM leagues WHERE id = ?', leagueId), 'league row must survive');
@@ -77,8 +93,8 @@ test('a purge removes dependent drafts too, leaving no orphans behind', async ()
   // pointing at a league row that no longer existed — no error, no warning. The
   // declared FK does not save you, because espn-draft.js's import-time
   // `ALTER TABLE drafts ADD COLUMN league_row_id INTEGER` has no REFERENCES clause.
-  const { leagueId, draftId } = leagueWithDraftHistory();
-  const body = await (await fetch(`${base}/${leagueId}?purge=1`, { method: 'DELETE' })).json();
+  const { leagueId, draftId, token } = leagueWithDraftHistory();
+  const body = await (await fetch(`${base}/${leagueId}?purge=1`, { method: 'DELETE', headers: authHeaders(token) })).json();
 
   assert.equal(body.purged, true);
   assert.equal(body.removed.drafts, 1);
@@ -90,16 +106,33 @@ test('a purge removes dependent drafts too, leaving no orphans behind', async ()
     'no orphaned drafts may remain');
 });
 
-test('removing an unknown league is a clean 404, not a silent success', async () => {
-  const res = await fetch(`${base}/999999`, { method: 'DELETE' });
-  assert.equal(res.status, 404);
+test('removing an unknown league rejects rather than silently succeeding', async () => {
+  // Membership is checked before existence (so a non-member can't use the response
+  // to probe which ids exist) — a real commissioner of some *other* league still
+  // gets rejected here, not a 404, because they have no membership row for 999999.
+  const { token } = leagueWithDraftHistory();
+  const res = await fetch(`${base}/999999`, { method: 'DELETE', headers: authHeaders(token) });
+  assert.equal(res.status, 403);
+});
+
+test('removing a league with no authentication at all is rejected, not silently applied', async () => {
+  const { leagueId } = leagueWithDraftHistory();
+  const res = await fetch(`${base}/${leagueId}`, { method: 'DELETE' });
+  assert.equal(res.status, 401);
 });
 
 test('a league with no draft history still disconnects cleanly', async () => {
   run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid)
        VALUES ('espn','8888',2026,'No Drafts','s2','{swid}')`);
   const id = row('SELECT last_insert_rowid() AS id').id;
-  const body = await (await fetch(`${base}/${id}`, { method: 'DELETE' })).json();
+  const token = 'removal-test-token-no-drafts';
+  run('INSERT INTO users (subject, display_name) VALUES (?,?)', 'removal-test-no-drafts', 'No Drafts Tester');
+  const userId = row('SELECT last_insert_rowid() AS id').id;
+  run('INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,?)', id, userId, 'commissioner');
+  run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES (?,?,datetime('now','+1 day'))`,
+    userId, hashSessionToken(token));
+
+  const body = await (await fetch(`${base}/${id}`, { method: 'DELETE', headers: authHeaders(token) })).json();
   assert.equal(body.disconnected, true);
   assert.equal(body.retained.drafts, 0);
 });

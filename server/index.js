@@ -92,8 +92,12 @@ app.use('/api/nfl-betting', nflBettingRouter);
 app.use('/api/betting', bettingHubRouter);
 
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message });
+  // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real
+  // status (401/403); every route that throws them was getting a 500 back
+  // because this handler ignored it, turning "forbidden" into "internal error".
+  const status = Number.isInteger(err.status) ? err.status : 500;
+  if (status >= 500) console.error(err);
+  res.status(status).json({ error: err.message });
 });
 
 /**

@@ -63,6 +63,28 @@ db.exec(`
   );
 `);
 
+// Added alongside position: players.csv's own birth_date/rookie_season/draft
+// capital, added via ALTER-if-absent (same pattern nfl-prop-clv.js uses) since
+// the table above already shipped without them. Real values a boom/bust
+// feature set needs (an actual age and rookie flag, not a proxy inferred from
+// how far back this app's own usage history happens to reach) rather than a
+// second table and a second join.
+{
+  const cols = db.prepare(`PRAGMA table_info(nflverse_player_positions)`).all().map(c => c.name);
+  const addCol = (name, type) => { if (!cols.includes(name)) db.exec(`ALTER TABLE nflverse_player_positions ADD COLUMN ${name} ${type}`); };
+  addCol('birth_date', 'TEXT');
+  addCol('rookie_season', 'INTEGER');
+  addCol('draft_year', 'INTEGER');
+  addCol('draft_round', 'INTEGER');
+  addCol('draft_pick', 'INTEGER');
+}
+
+/** One player's real birth date / draft capital, by nflverse gsis_id. */
+export function nflversePlayerBio(gsisId) {
+  return row(`SELECT birth_date, rookie_season, draft_year, draft_round, draft_pick
+              FROM nflverse_player_positions WHERE gsis_id = ?`, gsisId);
+}
+
 const playerCols = db.prepare(`PRAGMA table_info(players)`).all().map(c => c.name);
 if (!playerCols.includes('gsis_id')) db.exec(`ALTER TABLE players ADD COLUMN gsis_id TEXT`);
 
@@ -123,6 +145,8 @@ export async function syncCrosswalk() {
   const at = indexer(header);
   const iGsis = at('gsis_id'), iEspn = at('espn_id'), iName = at('display_name'), iPos = at('position');
   const iPosGroup = at('position_group'), iNgs = at('ngs_position');
+  const iBirth = at('birth_date'), iRookieSeason = at('rookie_season'),
+    iDraftYear = at('draft_year'), iDraftRound = at('draft_round'), iDraftPick = at('draft_pick');
   if (iGsis < 0 || iEspn < 0) throw new Error('players.csv is missing gsis_id/espn_id');
 
   const byEspn = new Map(rows('SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL')
@@ -166,10 +190,13 @@ export async function syncCrosswalk() {
   const addHistorical = db.prepare(`INSERT INTO players
     (name,position,team_id,depth_rank,phase,fantasy_relevant,espn_id,gsis_id)
     VALUES (?,?,NULL,99,'historical',0,?,?)`);
-  const upPos = db.prepare(`INSERT INTO nflverse_player_positions (gsis_id, position, position_group, ngs_position)
-    VALUES (?,?,?,?)
+  const upPos = db.prepare(`INSERT INTO nflverse_player_positions
+      (gsis_id, position, position_group, ngs_position, birth_date, rookie_season, draft_year, draft_round, draft_pick)
+    VALUES (?,?,?,?,?,?,?,?,?)
     ON CONFLICT(gsis_id) DO UPDATE SET position=excluded.position,
-      position_group=excluded.position_group, ngs_position=excluded.ngs_position`);
+      position_group=excluded.position_group, ngs_position=excluded.ngs_position,
+      birth_date=excluded.birth_date, rookie_season=excluded.rookie_season,
+      draft_year=excluded.draft_year, draft_round=excluded.draft_round, draft_pick=excluded.draft_pick`);
   let matched = 0, ambiguous = 0, createdHistorical = 0;
   db.exec('BEGIN');
   try {
@@ -179,7 +206,9 @@ export async function syncCrosswalk() {
       // Every player who has ever appeared in nflverse gets a position row —
       // this is the comprehensive lookup nfl_player_week_features backfills from.
       upPos.run(gsis, rec[iPos] || null, iPosGroup < 0 ? null : (rec[iPosGroup] || null),
-        iNgs < 0 ? null : (rec[iNgs] || null));
+        iNgs < 0 ? null : (rec[iNgs] || null),
+        iBirth < 0 ? null : (rec[iBirth] || null),
+        numAt(rec, iRookieSeason), numAt(rec, iDraftYear), numAt(rec, iDraftRound), numAt(rec, iDraftPick));
       let id = byGsis.get(gsis) ?? byEspn.get(String(rec[iEspn]));
       if (!id) {
         const found = findPlayerMatch(noEspnCandidates,

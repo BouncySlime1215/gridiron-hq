@@ -16,11 +16,25 @@
  * The "figure out the reasoning" half fits nfl-gbm.js's existing, walk-
  * forward-safe gradient-boosted trees (reused, not reinvented) against that
  * rank-gap target, using only features knowable BEFORE the season being
- * predicted: prior-season workload/availability, a share trend across the
- * two prior seasons, whether the player has any usage history at all yet
- * (a rookie/first-year-in-data proxy), and whether the team the market had
- * him on entering the season just changed head coaches (nfl-coaches.js,
- * real per-team-season history back to 2015).
+ * predicted:
+ *   - real age entering the season (nflverse's players.csv birth_date,
+ *     nflverse.js#nflversePlayerBio — not a proxy)
+ *   - real rookie flag (nflverse's own rookie_season field, not "first year
+ *     we happen to have usage data on him")
+ *   - prior-season injury-report burden (nfl_injuries — weeks actually
+ *     listed with a real designation, not a games-played proxy)
+ *   - a team-SHARE trend across the two prior seasons (own opportunities /
+ *     that team's total opportunities that season — a true share, not a raw
+ *     count that conflates "more competitive team" with "bigger role")
+ *   - whether the team the market had him on entering the season just
+ *     changed head coaches (nfl-coaches.js, real per-team-season history)
+ *
+ * An earlier version of this file used cruder proxies for all but the last
+ * of these (games-played instead of real injury designations, a raw
+ * opportunity count instead of a team share, "no usage history yet" instead
+ * of the real rookie flag) and its walk-forward gate came back a clean null
+ * — see docs/WORK_LOG.md-style history in this file's git log. This version
+ * exists to find out whether that was a real ceiling or just weak features.
  *
  * Gate: exactly nfl-gbm.js's own walk-forward discipline (see
  * `gbmWalkForward`) — train only on seasons strictly before the held-out
@@ -65,85 +79,88 @@ function actualSeasonOutcome(season, scoring = PPR) {
   return new Map(list.map(r => [r.player_key, r]));
 }
 
+/** normalized name -> gsis_id, so historical-adp.js's name-only rows (see its
+ *  own doc-comment on why it keeps no player_id) can reach nflverse's bio
+ *  table. Only players with a gsis_id are useful here, same convention as
+ *  nflverse.js's own crosswalk. */
+function nameToGsis() {
+  const list = rows(`SELECT name, gsis_id FROM players WHERE gsis_id IS NOT NULL`);
+  const map = new Map();
+  for (const p of list) map.set(normalizePlayerName(p.name), p.gsis_id);
+  return map;
+}
+
+/** Real age as of September 1 of `season` (the standard "age entering the
+ *  season" convention) from a birth_date string (YYYY-MM-DD). Null when the
+ *  birth date itself is missing rather than guessed. */
+function ageEnteringSeason(birthDate, season) {
+  if (!birthDate) return null;
+  const [by, bm] = birthDate.split('-').map(Number);
+  if (!Number.isFinite(by)) return null;
+  const turnsAgeThisYear = (bm ?? 1) <= 9; // birthday falls on/before Sept 1
+  return season - by - (turnsAgeThisYear ? 0 : 1);
+}
+
 /**
- * Games a player actually appeared in during `season` — a genuine
- * availability signal (injury, suspension, benching), not assumed from age
- * or position. Keyed by normalized name, same as opportunityTotals() below,
- * since historical-adp.js's rows carry no player_id to join on directly.
+ * Real per-player, per-team-share of that team's total opportunities
+ * (attempts+carries+targets) for a season — not a raw count, so a bigger
+ * role reads as a bigger role regardless of how run-heavy or pass-heavy the
+ * team as a whole is. Keyed by normalized name (see nameToGsis's comment).
  */
-function gamesPlayed(season) {
-  const rowsBySeason = rows(`SELECT p.name, COUNT(*) AS games FROM player_week_usage u
-                             JOIN players p ON p.id = u.player_id
-                             WHERE u.season = ? GROUP BY u.player_id`, season);
+function opportunityShares(season) {
+  const weeks = rows(`SELECT p.name, u.team,
+      (COALESCE(u.attempts,0)+COALESCE(u.carries,0)+COALESCE(u.targets,0)) AS opp
+    FROM player_week_usage u JOIN players p ON p.id = u.player_id WHERE u.season = ?`, season);
+  const byPlayer = new Map(); // key -> { team -> opp } (most-used team wins ties)
+  const byTeam = new Map();   // team -> total opp
+  for (const w of weeks) {
+    if (!w.team) continue;
+    const key = normalizePlayerName(w.name);
+    if (!key) continue;
+    const perTeam = byPlayer.get(key) ?? new Map();
+    perTeam.set(w.team, (perTeam.get(w.team) ?? 0) + w.opp);
+    byPlayer.set(key, perTeam);
+    byTeam.set(w.team, (byTeam.get(w.team) ?? 0) + w.opp);
+  }
+  const shares = new Map();
+  for (const [key, perTeam] of byPlayer) {
+    let team = null, own = 0;
+    for (const [t, opp] of perTeam) if (opp > own) { team = t; own = opp; }
+    const teamTotal = byTeam.get(team) ?? 0;
+    shares.set(key, teamTotal > 0 ? own / teamTotal : 0);
+  }
+  return shares;
+}
+
+/**
+ * Real weeks a player was listed on the injury report at all in `season` —
+ * a genuine designation-based burden, not a "weeks he happened not to play"
+ * proxy (which conflates injury with a bye week, a healthy scratch, or
+ * simply not being on a roster that week).
+ */
+function injuryReportWeeks(season) {
+  const list = rows(`SELECT full_name, COUNT(DISTINCT week) AS weeks FROM nfl_injuries
+                     WHERE season = ? AND report_status IS NOT NULL AND report_status != ''
+                     GROUP BY full_name`, season);
   const byKey = new Map();
-  for (const r of rowsBySeason) byKey.set(normalizePlayerName(r.name), r.games);
+  for (const r of list) byKey.set(normalizePlayerName(r.full_name), r.weeks);
   return byKey;
 }
 
-/** Total opportunities (attempts+carries+targets) per player-season — a
- *  volume proxy that doesn't require computing full team-share denominators
- *  for a first pass. */
-function opportunityTotals(season) {
-  const rowsBySeason = rows(`SELECT player_id, name,
-      SUM(COALESCE(attempts,0)+COALESCE(carries,0)+COALESCE(targets,0)) AS opportunities
-    FROM player_week_usage u JOIN players p ON p.id = u.player_id
-    WHERE season = ? GROUP BY player_id`, season);
-  const byKey = new Map();
-  for (const r of rowsBySeason) byKey.set(normalizePlayerName(r.name), r.opportunities);
-  return byKey;
-}
-
-/** Whether ANY usage row exists for this player before `season` — a proxy
- *  for "first year we have data on him," not literal rookie status (a
- *  veteran who entered the league before 2021 reads the same way; stated
- *  as a limitation, not hidden). */
+/** Whether ANY usage row exists for this player before `season` at all — a
+ *  fallback rookie signal for players nflverse's own rookie_season field
+ *  doesn't resolve (kept only as a fallback now that the real flag exists;
+ *  see FEATURE_NAMES). */
 function priorHistoryKeys(beforeSeason) {
   const rowsBySeason = rows(`SELECT DISTINCT p.name FROM player_week_usage u
     JOIN players p ON p.id = u.player_id WHERE u.season < ?`, beforeSeason);
   return new Set(rowsBySeason.map(r => normalizePlayerName(r.name)));
 }
 
-const FEATURE_NAMES = ['ecr_rank', 'prior_games_played', 'opportunity_trend', 'is_first_year_in_data', 'coaching_change'];
-
-/**
- * One season's rows: preseason ECR joined to actual outcome, with the
- * walk-forward-safe feature set above. Every feature here is computable from
- * information available before `season` starts (historical-adp.js's ECR is
- * itself a preseason scrape; prior-season workload/opportunity is by
- * definition from the season before).
- */
-function seasonRows(season, scoring) {
-  const preseason = historicalAdpFor(season);
-  if (!preseason.length) return [];
-  const outcome = actualSeasonOutcome(season, scoring);
-  const priorOpportunity = opportunityTotals(season - 1);
-  const twoAgoOpportunity = opportunityTotals(season - 2);
-  const priorGames = gamesPlayed(season - 1);
-  const priorHistory = priorHistoryKeys(season);
-  const coachChanges = coachChangesFor(season);
-
-  const out = [];
-  for (const p of preseason) {
-    const outcomeRow = outcome.get(p.player_key);
-    if (!outcomeRow) continue; // never appeared in real usage that season — no outcome to grade against
-    const priorOpp = priorOpportunity.get(p.player_key) ?? 0;
-    const twoAgoOpp = twoAgoOpportunity.get(p.player_key) ?? 0;
-    const priorGamesPlayed = priorGames.get(p.player_key) ?? 0;
-    out.push({
-      season, player_key: p.player_key, name: p.name, position: p.position,
-      ecr_rank: p.ecr_rank, actual_rank: outcomeRow.actual_rank,
-      rank_gap: p.ecr_rank - outcomeRow.actual_rank, // positive = boom, negative = bust
-      features: [
-        p.ecr_rank,
-        priorGamesPlayed,
-        priorOpp - twoAgoOpp,
-        priorHistory.has(p.player_key) ? 0 : 1,
-        coachChanges.has(canonicalTeamCode(p.team)) && coachChanges.get(canonicalTeamCode(p.team)).changed ? 1 : 0
-      ]
-    });
-  }
-  return out;
-}
+const FEATURE_NAMES = [
+  'ecr_rank', 'age_entering_season', 'is_rookie_season', 'prior_injury_report_weeks',
+  'opportunity_share_trend', 'coaching_change'
+];
 
 function coachChangesFor(season) {
   // Lazy import: nfl-coaches.js is a shared-engine file with its own broader
@@ -156,16 +173,70 @@ export async function primeCoachChanges(seasons) {
   for (const season of seasons) coachChangesCache.set(season, coachChanges(season));
 }
 
+let bioLookup = null;
+async function bioFor(gsisId) {
+  if (!gsisId) return null;
+  if (!bioLookup) bioLookup = (await import('./nflverse.js')).nflversePlayerBio;
+  return bioLookup(gsisId);
+}
+
+/**
+ * One season's rows: preseason ECR joined to actual outcome, with the
+ * walk-forward-safe feature set above. Every feature here is computable from
+ * information available before `season` starts (historical-adp.js's ECR is
+ * itself a preseason scrape; prior-season injury/share data is by definition
+ * from the season before; age and rookie status are fixed historical facts).
+ * Async because it resolves each player's gsis_id-keyed bio row.
+ */
+async function seasonRows(season, scoring) {
+  const preseason = historicalAdpFor(season);
+  if (!preseason.length) return [];
+  const outcome = actualSeasonOutcome(season, scoring);
+  const gsisByName = nameToGsis();
+  const priorInjuryWeeks = injuryReportWeeks(season - 1);
+  const priorShare = opportunityShares(season - 1);
+  const twoAgoShare = opportunityShares(season - 2);
+  const priorHistory = priorHistoryKeys(season);
+  const coachChanges = coachChangesFor(season);
+
+  const out = [];
+  for (const p of preseason) {
+    const outcomeRow = outcome.get(p.player_key);
+    if (!outcomeRow) continue; // never appeared in real usage that season — no outcome to grade against
+    const gsisId = gsisByName.get(p.player_key);
+    const bio = await bioFor(gsisId);
+    const age = ageEnteringSeason(bio?.birth_date, season);
+    const isRookie = bio?.rookie_season != null
+      ? (bio.rookie_season === season ? 1 : 0)
+      : (priorHistory.has(p.player_key) ? 0 : 1); // fallback when nflverse has no rookie_season for this gsis_id
+    out.push({
+      season, player_key: p.player_key, name: p.name, position: p.position,
+      ecr_rank: p.ecr_rank, actual_rank: outcomeRow.actual_rank,
+      rank_gap: p.ecr_rank - outcomeRow.actual_rank, // positive = boom, negative = bust
+      features: [
+        p.ecr_rank,
+        age ?? -1, // -1 (not 0/mean) so a missing birth_date is distinguishable to the tree, not a fabricated age
+        isRookie,
+        priorInjuryWeeks.get(p.player_key) ?? 0,
+        (priorShare.get(p.player_key) ?? 0) - (twoAgoShare.get(p.player_key) ?? 0),
+        coachChanges.has(canonicalTeamCode(p.team)) && coachChanges.get(canonicalTeamCode(p.team)).changed ? 1 : 0
+      ]
+    });
+  }
+  return out;
+}
+
 /**
  * Every season's boom/bust rows in [fromSeason, throughSeason], with the
  * GBM-ready feature matrix. `primeCoachChanges` must be awaited first if
- * the coaching-change feature is wanted (kept a separate async step so this
- * function itself stays synchronous, matching nfl-gbm.js#buildGbmDataset).
+ * the coaching-change feature is wanted (kept a separate async priming step
+ * so the coaching lookup itself stays synchronous per-row, matching
+ * nfl-gbm.js#buildGbmDataset's own structure).
  */
-export function buildBoomBustDataset({ fromSeason = 2021, throughSeason = 2025, scoring = PPR } = {}) {
+export async function buildBoomBustDataset({ fromSeason = 2021, throughSeason = 2025, scoring = PPR } = {}) {
   const allRows = [];
   for (let season = fromSeason; season <= throughSeason; season++) {
-    allRows.push(...seasonRows(season, scoring));
+    allRows.push(...await seasonRows(season, scoring));
   }
   const X = allRows.map(r => r.features);
   const y = allRows.map(r => r.rank_gap);
@@ -183,7 +254,7 @@ export function buildBoomBustDataset({ fromSeason = 2021, throughSeason = 2025, 
  */
 export async function boomBustWalkForward({ fromSeason = 2021, throughSeason = 2025 } = {}) {
   await primeCoachChanges(Array.from({ length: throughSeason - fromSeason + 1 }, (_, i) => fromSeason + i));
-  const full = buildBoomBustDataset({ fromSeason, throughSeason });
+  const full = await buildBoomBustDataset({ fromSeason, throughSeason });
 
   const results = [];
   for (let testSeason = fromSeason + 1; testSeason <= throughSeason; testSeason++) {
@@ -221,8 +292,8 @@ function mean(a) { return a.length ? a.reduce((s, v) => s + v, 0) / a.length : n
 /** Convenience row-level view for one season: preseason rank, actual rank,
  *  label and magnitude — the shape a UI or downstream consumer wants,
  *  independent of the GBM/walk-forward machinery above. */
-export function classify(season) {
-  return seasonRows(season, PPR)
+export async function classify(season) {
+  return (await seasonRows(season, PPR))
     .map(r => ({
       ...r,
       label: r.rank_gap > 15 ? 'boom' : r.rank_gap < -15 ? 'bust' : 'as expected'

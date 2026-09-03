@@ -38,12 +38,48 @@ if (await isReady()) {
   process.exit(0);
 }
 
-// A fresh clone has no build; rather than fail with a blank page, build on demand.
-if (!fs.existsSync(path.join(ROOT, 'client', 'dist', 'index.html'))) {
-  console.log('Building the interface (first run only)…');
+/**
+ * Newest mtime across everything that feeds the build, so a stale dist/ (built
+ * before a `git pull` landed client changes) gets caught the same way a missing
+ * one does. Comparing directory mtimes isn't enough — editing a file inside a
+ * folder doesn't bump the folder's own mtime — so this walks every file.
+ */
+function newestMtimeMs(entry) {
+  let newest = 0;
+  const stack = [entry];
+  while (stack.length) {
+    const p = stack.pop();
+    let st;
+    try { st = fs.statSync(p); } catch { continue; }
+    if (st.isDirectory()) {
+      if (path.basename(p) === 'node_modules') continue;
+      for (const child of fs.readdirSync(p)) stack.push(path.join(p, child));
+    } else if (st.mtimeMs > newest) {
+      newest = st.mtimeMs;
+    }
+  }
+  return newest;
+}
+
+const DIST = path.join(ROOT, 'client', 'dist');
+const BUILD_MARKER = path.join(DIST, '.source-mtime');
+const sourceMtime = Math.max(
+  newestMtimeMs(path.join(ROOT, 'client', 'src')),
+  newestMtimeMs(path.join(ROOT, 'client', 'index.html')),
+  newestMtimeMs(path.join(ROOT, 'client', 'vite.config.ts')),
+  newestMtimeMs(path.join(ROOT, 'package.json'))
+);
+const builtMtime = fs.existsSync(BUILD_MARKER) ? Number(fs.readFileSync(BUILD_MARKER, 'utf8')) || 0 : 0;
+
+// A fresh clone has no build; a `git pull` that touched client/ leaves a stale one.
+// Either way, rather than serve a broken or out-of-date interface, rebuild first.
+if (!fs.existsSync(path.join(DIST, 'index.html')) || sourceMtime > builtMtime) {
+  console.log(builtMtime ? 'Interface changed since the last build — rebuilding…'
+    : 'Building the interface (first run only)…');
   const r = spawnSync(IS_WIN ? 'npm.cmd' : 'npm', ['run', 'build'],
     { cwd: ROOT, stdio: 'inherit', shell: IS_WIN });
   if (r.status !== 0) { console.error('Build failed.'); process.exit(1); }
+  fs.writeFileSync(BUILD_MARKER, String(sourceMtime));
 }
 
 const server = spawn(process.execPath, ['--env-file-if-exists=.env', 'server/index.js'],

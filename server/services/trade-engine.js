@@ -105,6 +105,12 @@ export function assetUniverse(lg, formatKey, requested = null) {
       { table: 'player_week_usage', stamp: 'week' },
       { table: 'nfl_injuries', stamp: 'id' },
       { table: 'game_lines', stamp: 'week' },
+      // buildAssetUniverse() also calls seasonEndingEspnIds(), which reads
+      // news_items directly — omitted here, a genuine new release/season-ending
+      // report (or a fix to how that news is matched) would never invalidate this
+      // cache until an unrelated table happened to change, silently continuing
+      // to bench an actually-available player.
+      { table: 'news_items', stamp: 'id' },
       'trending_players', 'player_metrics', 'schedule_games'
     ], `${lg.id}:${formatKey}:${target.season}:${target.week}`),
     () => buildAssetUniverse(lg, formatKey, target));

@@ -12,6 +12,7 @@
  */
 import { rows, row, run, db } from '../db/index.js';
 import { reconcileDraftBoard, openQuarantine } from './draft-reconcile.js';
+import { normalizePlayerName } from './player-identity.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
@@ -136,7 +137,7 @@ async function espnPlayerPool(season) {
  * fallback used to sit here; that's exactly what put unresolved kickers, defenses,
  * and deep-league fliers on the board under a made-up position (Phase 3C).
  */
-async function resolveEspnPlayers(espnIds, season) {
+export async function resolveEspnPlayers(espnIds, season) {
   const known = new Map(rows(
     `SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL`).map(p => [p.espn_id, p.id]));
   const missing = espnIds.filter(id => !known.has(id));
@@ -145,12 +146,35 @@ async function resolveEspnPlayers(espnIds, season) {
   let pool;
   try { pool = await espnPlayerPool(season); } catch { pool = new Map(); }
   const teamIdByAbbr = new Map(rows(`SELECT id, abbr FROM nfl_teams`).map(t => [t.abbr, t.id]));
+
+  // Seed/import rows with no espn_id yet are the same players ESPN is about to hand
+  // us an id for; inserting unconditionally created a permanent twin row (fixed in
+  // trade-engine.js#resolvePlayer as a read-time workaround, but the duplicate
+  // itself was never stopped at the source). Claim the existing row by normalized
+  // name + position when exactly one candidate matches; an ambiguous name (two
+  // real players sharing it at the same position) falls back to inserting, same
+  // as before, rather than risk claiming the wrong one.
+  const unclaimed = new Map();
+  for (const p of rows(`SELECT id, name, position FROM players WHERE espn_id IS NULL`)) {
+    const key = `${normalizePlayerName(p.name)}|${p.position}`;
+    (unclaimed.get(key) ?? unclaimed.set(key, []).get(key)).push(p.id);
+  }
+
   for (const espnId of missing) {
     const info = pool.get(espnId);
     if (!info?.name || !info?.position) continue; // genuinely unresolvable — leave for quarantine, do not fabricate
+    const teamId = teamIdByAbbr.get(info.proTeam) ?? null;
+    const candidates = unclaimed.get(`${normalizePlayerName(info.name)}|${info.position}`);
+    if (candidates?.length === 1) {
+      const [claimId] = candidates;
+      run(`UPDATE players SET espn_id = ?, team_id = COALESCE(?, team_id), fantasy_relevant = 1 WHERE id = ?`,
+        espnId, teamId, claimId);
+      known.set(espnId, claimId);
+      continue;
+    }
     run(`INSERT INTO players (name, position, team_id, espn_id, fantasy_relevant)
          VALUES (?,?,?,?,1)`,
-      info.name, info.position, teamIdByAbbr.get(info.proTeam) ?? null, espnId);
+      info.name, info.position, teamId, espnId);
     known.set(espnId, row('SELECT last_insert_rowid() AS id').id);
   }
   return known;

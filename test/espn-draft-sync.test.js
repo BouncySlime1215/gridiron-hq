@@ -11,7 +11,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { db, rows, row, run } = await import('../server/db/index.js');
 // espnCookies() reads app_settings, created by claude.js's import-time db.exec().
 await import('../server/services/claude.js');
-const { ensureLiveDraft, syncLiveDraft } = await import('../server/services/espn-draft.js');
+const { ensureLiveDraft, syncLiveDraft, resolveEspnPlayers } = await import('../server/services/espn-draft.js');
 const { openQuarantine } = await import('../server/services/draft-reconcile.js');
 
 test.after(() => {
@@ -175,4 +175,42 @@ test('a re-sync that transiently fails to match the team does not un-confirm an 
   const second = await ensureLiveDraft(leagueRowId);
   assert.equal(second.my_slot_confirmed, true, 'the previously confirmed slot must survive a transient lookup miss');
   assert.equal(row('SELECT my_slot FROM drafts WHERE id=?', second.draft_id).my_slot, 1);
+});
+
+function stubEspnPool(players) {
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ players }) });
+}
+
+test('resolving an ESPN id claims a matching unresolved seed row instead of creating a twin', async () => {
+  run(`INSERT INTO players (name, position, fantasy_relevant) VALUES ('Real Player', 'WR', 1)`);
+  const seedId = row('SELECT last_insert_rowid() AS id').id;
+  stubEspnPool([{ player: { id: 424242, fullName: 'Real Player', defaultPositionId: 3, proTeamId: 0 } }]);
+
+  const known = await resolveEspnPlayers([424242], 2099);
+  assert.equal(known.get(424242), seedId, 'must claim the existing seed row, not insert a new one');
+  assert.equal(rows(`SELECT COUNT(*) AS n FROM players WHERE name = 'Real Player'`)[0].n, 1,
+    'exactly one row for this player must exist after resolution');
+  assert.equal(row('SELECT espn_id FROM players WHERE id=?', seedId).espn_id, 424242);
+});
+
+test('an ambiguous seed name (two real players sharing it) is left alone, not claimed at random', async () => {
+  run(`INSERT INTO players (name, position, fantasy_relevant) VALUES ('Twin Name', 'RB', 1)`);
+  const first = row('SELECT last_insert_rowid() AS id').id;
+  run(`INSERT INTO players (name, position, fantasy_relevant) VALUES ('Twin Name', 'RB', 1)`);
+  const second = row('SELECT last_insert_rowid() AS id').id;
+  stubEspnPool([{ player: { id: 424243, fullName: 'Twin Name', defaultPositionId: 2, proTeamId: 0 } }]);
+
+  const known = await resolveEspnPlayers([424243], 2098);
+  const claimedId = known.get(424243);
+  assert.ok(claimedId !== first && claimedId !== second,
+    'an ambiguous match must not silently claim either existing row');
+  assert.equal(rows(`SELECT COUNT(*) AS n FROM players WHERE name = 'Twin Name'`)[0].n, 3,
+    'falls back to inserting a new row rather than guessing');
+});
+
+test('a genuinely new player (no seed row at all) is still inserted', async () => {
+  stubEspnPool([{ player: { id: 424244, fullName: 'Brand New Rookie', defaultPositionId: 4, proTeamId: 0 } }]);
+  const known = await resolveEspnPlayers([424244], 2097);
+  assert.ok(known.get(424244), 'must resolve to some player id');
+  assert.equal(row('SELECT name, position FROM players WHERE espn_id=424244').name, 'Brand New Rookie');
 });

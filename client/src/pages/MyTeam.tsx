@@ -4,6 +4,7 @@ import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
 import FormationView from '../components/FormationView';
 import TeamScout from '../components/TeamScout';
+import PostDraftPlan from '../components/PostDraftPlan';
 import { Headshot } from '../components/PlayerRow';
 import { PageError } from '../components/PageState';
 
@@ -204,6 +205,10 @@ export default function MyTeam() {
           <button className="text-emerald-600 underline" onClick={sync}>Sync</button> to pull rosters from{' '}
           {active.platform === 'espn' ? 'ESPN' : 'Sleeper'}.
         </div>
+      )}
+
+      {synced && active?.platform === 'espn' && myTeamId && (
+        <PostDraftPlan leagueId={active.id} teamId={myTeamId} />
       )}
 
       {synced && lineupDiff && !lineupDiff.error && !lineupDiff.matches && (

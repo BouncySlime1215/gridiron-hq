@@ -30,7 +30,7 @@ import { syncAll as syncNflversePlayerFeeds } from '../services/nflverse.js';
 import { boardFor, accuracy, clearNflMarketCache } from '../services/nfl-market.js';
 import { standing as spreadStanding, allPickResults } from '../services/nfl-auto-picks.js';
 import { usage as oddsUsage, cacheStatus } from '../services/odds-api.js';
-import { standouts, reconcile } from '../services/betting-fantasy-link.js';
+import { standouts, reconcile, bettingModelReliability } from '../services/betting-fantasy-link.js';
 import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsembleCache, clearEnsembleLineCache } from '../services/nfl-ensemble.js';
 import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit,
   candidateInputComparison, saveCandidateInputAudit, latestCandidateInputAudit } from '../services/nfl-replay.js';
@@ -528,6 +528,16 @@ r.get('/sentiment', (req, res, next) => {
 });
 
 /* -------------------------------------------------- betting -> fantasy */
+
+/**
+ * What's actually proven out of sample vs. merely descriptive, for any fantasy
+ * feature (or AI narration) deciding how much to trust a betting-model signal.
+ * See betting-fantasy-link.js#bettingModelReliability for the full explanation
+ * and evidence citations.
+ */
+r.get('/fantasy/reliability', (req, res) => {
+  res.json(bettingModelReliability());
+});
 
 /** Players the betting model is highest on this week, in fantasy points. */
 r.get('/fantasy/standouts', (req, res, next) => {

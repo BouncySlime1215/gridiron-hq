@@ -66,6 +66,51 @@ r.get('/:leagueId/scout', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* --------------------------------------------------- post-draft action plan */
+/**
+ * "Draft's done, now what" — assembles the three things My Team already
+ * computes separately (selfScout's roster read, findTrades' real deals,
+ * bestLineup's optimal starters) into one response for a single new card.
+ * No new modeling: this is composition, not analysis.
+ */
+r.get('/:leagueId/post-draft-plan', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    if (lg.platform !== 'espn') return res.status(400).json({ error: 'Post-draft plan is ESPN-only for now.' });
+
+    const { formatKey } = deriveFormat(lg);
+    const assets = assetUniverse(lg, formatKey);
+    const teams = loadRosters(lg, assets);
+    // Same signal leagues.js/analysis and tradelab.js already use: an ESPN league
+    // with no matched roster players hasn't drafted this season yet.
+    const rosteredCount = teams.reduce((s, t) => s + t.players.length, 0);
+    if (rosteredCount === 0) {
+      return res.json({
+        drafted: false,
+        message: 'This league hasn’t drafted yet for this season — the post-draft plan will populate once the draft completes.'
+      });
+    }
+
+    const teamId = req.query.team_id ?? lg.my_team_id;
+    const scout = selfScout(lg, teamId);
+    if (scout.error) return res.status(400).json(scout);
+
+    const trades = findTrades(lg, {
+      myTeamId: teamId, maxPerSide: 2, requireMutual: true, limit: 5
+    });
+
+    res.json({
+      drafted: true,
+      team: scout.team,
+      self_scout: scout,
+      // selfScout already runs bestLineup() under the SCORED (K/DEF-excluded) slot
+      // set — reuse its lineup rather than recomputing it.
+      lineup: scout.lineup,
+      trades
+    });
+  } catch (e) { next(e); }
+});
+
 /* ----------------------------------------------------------------- the brain */
 
 /** Where you stand: rank, holes, and which hole is worth paying to fix. */

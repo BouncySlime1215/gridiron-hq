@@ -3,6 +3,12 @@
  *
  * Props and fantasy now consume one player-week event state. This module is an
  * agreement assertion and explanation layer, not a second projection model.
+ *
+ * It is also the ONE place fantasy code should reach for betting-model context —
+ * see docs/ARCHITECTURE_MODEL_VS_FANTASY.md for the full map of which service
+ * belongs to which side and why. Reaching into an `nfl-*` service directly from
+ * fantasy code (or vice versa) bypasses the one place this agreement is asserted
+ * and tested.
  */
 import { gameScriptFor } from './gamescript.js';
 import { rolesFor, injuryFor } from './nfl-advanced.js';
@@ -138,6 +144,67 @@ export function reconcileRoster(season, week, players, scoring = PPR) {
     .map(p => reconcile(season, week, p.player_id, p.fantasy_points, scoring))
     .filter(Boolean)
     .sort((a, b) => (b.pct_gap ?? -9) - (a.pct_gap ?? -9));
+}
+
+/**
+ * What the betting model's own out-of-sample track record says is actually
+ * trustworthy, for any fantasy-side caller (or AI narration) deciding how much
+ * weight to put on a betting-model signal like `game_script` above.
+ *
+ * This is the one thing `bettingViewOf`/`reconcile` above do NOT encode: they
+ * report what the market/model currently says, not whether that kind of signal
+ * has ever been shown to mean anything out of sample. Without this, a fantasy
+ * feature (or an LLM writing "the model likes this side, so...") has no way to
+ * know that side-picking has been proven to have zero edge twice, while player
+ * props and market-derived game-script both have real, measured skill.
+ *
+ * Deliberately static, not computed live: re-running the underlying gates
+ * (`nfl-props.js#allBaselineGates`, `nfl-expert-coordinator.js`'s role weights)
+ * on every request would be wasteful, and this project's own rule is not to
+ * re-litigate a settled result — see docs/WORK_LOG.md's "Do not re-litigate."
+ * Update this object only when a genuinely new out-of-sample result lands;
+ * each entry cites exactly where that evidence lives.
+ */
+export function bettingModelReliability() {
+  return {
+    side_picking: {
+      proven: false,
+      because: 'Run 17: 831 games, 2022-2025, 0 of 17 specialist roles earned '
+        + 'non-zero weight; coordinator called the side 49.85% of the time. '
+        + 'Settled twice (matches an earlier full run). Do not treat `game_script` '
+        + 'spread/total direction here as "the model thinks this side wins" — it '
+        + "is the market's own line, used only as a game-flow input, never a "
+        + 'validated pick.',
+      evidence: 'docs/WORK_LOG.md#2026-08-27, docs/PROFIT_ROADMAP.md §0'
+    },
+    game_script_as_context: {
+      proven: 'not-applicable',
+      because: 'This is the sportsbook market\'s own posted line (spread/total), '
+        + 'not a model prediction, so there is no "our edge" claim to prove — '
+        + 'it is exactly as reliable as the market itself, which is why '
+        + '`bettingViewOf` uses it for pass/rush game-script multipliers '
+        + 'regardless of the side-picking finding above.',
+      evidence: 'server/services/gamescript.js'
+    },
+    player_props: {
+      proven: true,
+      because: 'Model skill measured real vs. season-to-date-average baselines, '
+        + 'with a paired bootstrap 90% CI excluding zero, on all four graded '
+        + 'point metrics (passing/rushing/receiving yards, receptions), plus '
+        + 'strong Brier skill on 2+ TD (+27.3%) and any-type TD (+20.6%). This '
+        + 'is the one place a fantasy feature can lean on a betting-side number '
+        + 'as validated, not just descriptive.',
+      evidence: 'docs/WORK_LOG.md#2026-08-27 (baselineGateTest), '
+        + 'server/services/nfl-props.js#allBaselineGates'
+    },
+    execution_edge: {
+      proven: true,
+      because: 'Books disagree ~0.81 pts/game on average across ~6.4 books; '
+        + 'best-vs-median price worth 2.57%/bet. Real, but about price/timing, '
+        + 'not player evaluation — not fantasy-relevant on its own.',
+      evidence: 'docs/PROFIT_ROADMAP.md §0'
+    }
+  };
 }
 
 /** Every player the betting model is unusually high on this week. */

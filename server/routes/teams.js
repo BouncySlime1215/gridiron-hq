@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { unitGrades } from './nfldata.js';
-import { SEASON_ENDING_RE, RELEASED_RE } from '../services/player-availability.js';
+import { SEASON_ENDING_RE, RELEASED_RE, textMentionsFullName } from '../services/player-availability.js';
 import { teamTendencies } from '../services/nfl-team-tendencies.js';
 
 const EDITABLE = ['head_coach', 'oc_name', 'dc_name', 'off_scheme', 'off_scheme_detail',
@@ -38,11 +38,12 @@ function seasonEndingPlayerIds(teamId) {
                            WHERE team_id = ? AND COALESCE(published_at, date) >= datetime('now', '-45 days')`, teamId);
   const flagged = new Set();
   for (const player of roster) {
-    const lastName = player.name.split(' ').slice(-1)[0];
-    const nameRe = new RegExp(`\\b${lastName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     for (const n of recentNews) {
       const text = `${n.headline ?? ''} ${n.body ?? ''}`;
-      if (!nameRe.test(text)) continue;
+      // Full-name match, not last-name-only: team news is dense with roster-cut
+      // items ("Released WR Noah Brown") that used to falsely flag every other
+      // player sharing that surname on the same team as also released.
+      if (!textMentionsFullName(text, player.name)) continue;
       if (SEASON_ENDING_RE.test(text) || RELEASED_RE.test(text)) { flagged.add(player.espn_id); break; }
     }
   }

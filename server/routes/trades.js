@@ -9,7 +9,7 @@ import { Router } from 'express';
 import { row, rows } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
-  findTrades, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
+  findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
   assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff
 } from '../services/trade-engine.js';
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
@@ -449,6 +449,19 @@ r.get('/:leagueId/find', (req, res, next) => {
       requireMutual: req.query.mutual !== '0',
       limit: Math.min(50, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
+      excludeIds: excludeSet(req)
+    }));
+  } catch (e) { next(e); }
+});
+
+/** "Do this trade, then this one opens up" — see findTradeSequences(). */
+r.get('/:leagueId/find/sequences', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(findTradeSequences(lg, {
+      myTeamId: req.query.team_id,
+      maxPerSide: Math.min(3, Number(req.query.max_per_side) || 2),
+      requireMutual: req.query.mutual !== '0',
       excludeIds: excludeSet(req)
     }));
   } catch (e) { next(e); }

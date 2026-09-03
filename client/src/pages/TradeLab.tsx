@@ -303,14 +303,51 @@ function Untouchables({ players, ids, onToggle }: { players: any[]; ids: number[
 }
 
 /* ------------------------------------------------------------- find deals */
+
+/** The same "headline pieces" idea the server collapses duplicate packages on
+ *  (see findTrades in trade-engine.js) — used client-side so "seen" tracking
+ *  survives the throw-in players changing between refreshes of the same idea. */
+function dealSignature(d: any): string {
+  const headline = (list: any[]) => list.slice().sort((a, b) => (b.value ?? 0) - (a.value ?? 0))[0]?.id;
+  return `${d.partner_id}:${headline(d.i_give)}>${headline(d.i_get)}`;
+}
+
+function seenKey(leagueId: number, teamId: string | null) { return `gh:trades-seen:${leagueId}:${teamId ?? ''}`; }
+
+function loadSeen(leagueId: number, teamId: string | null): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(seenKey(leagueId, teamId)) ?? '[]')); }
+  catch { return new Set(); }
+}
+
+function saveSeen(leagueId: number, teamId: string | null, seen: Set<string>) {
+  try { localStorage.setItem(seenKey(leagueId, teamId), JSON.stringify([...seen])); } catch { /* private mode, etc. */ }
+}
+
 function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
   leagueId: number; teamId: string | null; untouchable: number[]; untouchableNames: string[];
 }) {
   const [mutual, setMutual] = useState(true);
   const [size, setSize] = useState(2);
+  const [hideSeen, setHideSeen] = useState(true);
+  const [seen, setSeen] = useState<Set<string>>(() => loadSeen(leagueId, teamId));
+  useEffect(() => { setSeen(loadSeen(leagueId, teamId)); }, [leagueId, teamId]);
+
   const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
-  const q = `/trades/${leagueId}/find?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}&limit=15${exclude}`;
+  // 50 is the server's own ceiling (trades.js clamps it there) — once the deal-idea
+  // collapse removes redundant throw-in variants, a league this size usually still
+  // has 30-45 distinct ideas behind the top 15 that were never being shown at all.
+  const q = `/trades/${leagueId}/find?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}&limit=50${exclude}`;
   const { data, loading } = useApi<any>(teamId ? q : null);
+
+  const allDeals = data?.deals ?? [];
+  const hiddenCount = hideSeen ? allDeals.filter((d: any) => seen.has(dealSignature(d))).length : 0;
+  const visible = hideSeen ? allDeals.filter((d: any) => !seen.has(dealSignature(d))) : allDeals;
+
+  const dismiss = (d: any) => {
+    const next = new Set(seen); next.add(dealSignature(d));
+    setSeen(next); saveSeen(leagueId, teamId, next);
+  };
+  const resetSeen = () => { setSeen(new Set()); saveSeen(leagueId, teamId, new Set()); };
 
   return (
     <div>
@@ -327,7 +364,12 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
             <option value={3}>up to 3-for-3</option>
           </select>
         </label>
-        {data && <span className="text-slate-400 ml-auto">Best → worst · {data.considered} clean candidate deals evaluated</span>}
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input type="checkbox" checked={hideSeen} onChange={e => setHideSeen(e.target.checked)} className="accent-emerald-600" />
+          <span className="text-slate-600">Hide deals I&apos;ve dismissed</span>
+        </label>
+        {hiddenCount > 0 && <button className="text-slate-400 underline hover:text-slate-600" onClick={resetSeen}>{hiddenCount} hidden — show again</button>}
+        {data && <span className="text-slate-400 ml-auto">Best → worst · {allDeals.length} distinct ideas from {data.considered} candidates evaluated</span>}
       </div>
 
       {loading && <div className="card p-6 text-sm text-slate-500">Searching every roster in the league…</div>}
@@ -337,8 +379,52 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
           bigger packages find fits that 1-for-1s miss.
         </div>
       )}
+      {data?.deals?.length > 0 && visible.length === 0 && (
+        <div className="card p-6 text-sm text-slate-500">
+          You&apos;ve dismissed every deal that clears the bar right now. <button className="underline" onClick={resetSeen}>Show them again</button>,
+          or check back after the next data refresh — new rosters and projections surface new ideas.
+        </div>
+      )}
       <div className="space-y-3">
-        {(data?.deals ?? []).map((d: any, i: number) => <TradeCard key={i} deal={d} leagueId={leagueId} untouchableNames={untouchableNames} />)}
+        {visible.map((d: any, i: number) => (
+          <TradeCard key={dealSignature(d) || i} deal={d} leagueId={leagueId} untouchableNames={untouchableNames}
+            onDismiss={() => dismiss(d)} />
+        ))}
+      </div>
+
+      <TradeSequences leagueId={leagueId} teamId={teamId} mutual={mutual} size={size} exclude={exclude} untouchableNames={untouchableNames} />
+    </div>
+  );
+}
+
+/**
+ * findTrades() prices every deal against the roster you have right now, so it
+ * can't see a deal that only makes sense *after* another one — the throw-in
+ * you'd only have post-trade, or a hole the first deal just opened that a
+ * second one happens to fill. This runs that one step ahead and shows the
+ * chain: take this trade, and these become live next.
+ */
+function TradeSequences({ leagueId, teamId, mutual, size, exclude, untouchableNames }: {
+  leagueId: number; teamId: string | null; mutual: boolean; size: number; exclude: string; untouchableNames: string[];
+}) {
+  const q = `/trades/${leagueId}/find/sequences?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}${exclude}`;
+  const { data, loading } = useApi<any>(teamId ? q : null);
+  if (loading || !data?.step1 || !data?.sequences?.length) return null;
+
+  return (
+    <div className="mt-6">
+      <h3 className="text-sm font-bold text-slate-800 mb-1">Do this, then this opens up</h3>
+      <p className="text-xs text-slate-500 mb-3">
+        Every deal above is priced against your roster as it is right now. These only become live
+        <em> after</em> you make the trade below — the engine re-ran the whole search assuming you'd already made it.
+      </p>
+      <div className="rounded-xl border-2 border-dashed border-slate-300 p-3 mb-3 bg-slate-50">
+        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">Step 1 — do this first</div>
+        <TradeCard deal={data.step1} leagueId={leagueId} untouchableNames={untouchableNames} compact />
+      </div>
+      <div className="pl-4 border-l-2 border-slate-200 ml-3 space-y-3">
+        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Step 2 — then one of these</div>
+        {data.sequences.map((d: any, i: number) => <TradeCard key={i} deal={d} leagueId={leagueId} untouchableNames={untouchableNames} />)}
       </div>
     </div>
   );

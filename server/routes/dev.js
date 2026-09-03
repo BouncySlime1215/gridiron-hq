@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getApiKey, setApiKey, clearApiKey, usageSummary, PRICING } from '../services/claude.js';
+import { getApiKey, setApiKey, clearApiKey, getWorkspaceId, setWorkspaceId, clearWorkspaceId, usageSummary, PRICING } from '../services/claude.js';
 import { rows, row } from '../db/index.js';
 import { canonicalGsisLabelConflicts, playerIdentityRepairPlan } from '../services/player-repair.js';
 import { allSources } from '../services/source-registry.js';
@@ -18,8 +18,10 @@ r.get('/status', (req, res) => {
     market: row(`SELECT MAX(fetched_at) AS at, COUNT(*) AS n FROM player_metrics`),
     stats: row(`SELECT MAX(fetched_at) AS at, COUNT(*) AS n FROM player_season_stats`)
   };
+  const workspaceId = getWorkspaceId();
   res.json({
     api_key: key ? { configured: true, masked: mask(key) } : { configured: false },
+    workspace_id: workspaceId ? { configured: true, value: workspaceId } : { configured: false },
     pricing: PRICING['claude-haiku-4-5-20251001'],
     model: 'claude-haiku-4-5-20251001',
     usage,
@@ -37,6 +39,21 @@ r.put('/key', (req, res) => {
 });
 
 r.delete('/key', (req, res) => { clearApiKey(); res.json({ ok: true }); });
+
+// Only needed for Anthropic Console's newer "identity-linked" API keys, which
+// are rejected with a 400 on every call until a request also declares the
+// workspace it acts in. There's no way to detect this from the key string
+// alone, so the field stays optional and empty for everyone else.
+r.put('/workspace-id', (req, res) => {
+  const { workspace_id } = req.body ?? {};
+  if (!workspace_id || typeof workspace_id !== 'string' || !workspace_id.trim()) {
+    return res.status(400).json({ error: 'workspace_id required' });
+  }
+  const result = setWorkspaceId(workspace_id.trim());
+  res.json({ ok: true, ...result });
+});
+
+r.delete('/workspace-id', (req, res) => { clearWorkspaceId(); res.json({ ok: true }); });
 
 r.get('/usage', (req, res) => res.json(usageSummary(Number(req.query.days) || 30)));
 r.get('/player-identity/repair-plan', (req, res) => res.json(playerIdentityRepairPlan()));
@@ -60,6 +77,7 @@ r.post('/refresh-all', async (req, res, next) => {
     const { syncPlayersFromESPN, syncGeneralNews } = await import('./espn.js');
     const { syncStats } = await import('./stats.js');
     const { syncTop100 } = await import('./accolades.js');
+    const { clearModelCache } = await import('./model.js');
 
     const step = async (name, fn) => {
       try { return { name, ok: true, ...(await fn()) }; }
@@ -74,6 +92,10 @@ r.post('/refresh-all', async (req, res, next) => {
     results.push(await step('stats', () => syncStats()));
     results.push(await step('news', syncGeneralNews));
     results.push(await step('NFL Top 100', () => syncTop100()));
+
+    // syncSchedules() clears the matchup cache itself; the model cache also
+    // memoises per-league projections and should not survive a full data refresh.
+    clearModelCache();
 
     res.json({ ok: true, steps: results,
       failed: results.filter(r => !r.ok).map(r => `${r.name}: ${r.error}`) });

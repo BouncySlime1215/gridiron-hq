@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
-import { scheduleOutlook } from '../services/matchups.js';
+import { scheduleOutlook, clearMatchupCache } from '../services/matchups.js';
 import { recordSync } from '../services/scheduler.js';
 import { captureCurrentRosterSnapshot } from '../services/nfl-player-state.js';
 
@@ -135,7 +135,12 @@ export async function syncSchedules(season = SEASON) {
   for (let i = 0; i < abbrs.length; i += 8) {
     const batch = abbrs.slice(i, i + 8);
     const results = await Promise.allSettled(batch.map(async abbr => {
-      const resp = await fetch(`${SITE}/teams/${ABBR_TO_ESPN[abbr]}/schedule?season=${season}`, { headers: { Accept: 'application/json' } });
+      // seasontype=2 is the regular season; ESPN defaults this endpoint to whatever
+      // season type is currently in progress, which for most of the year is the
+      // 3-game preseason — every schedule row on this table was preseason without
+      // it, so every trade/matchup/lineup call built on schedule_games saw no game
+      // for the actual week it asked about and fell back to zero.
+      const resp = await fetch(`${SITE}/teams/${ABBR_TO_ESPN[abbr]}/schedule?season=${season}&seasontype=2`, { headers: { Accept: 'application/json' } });
       if (!resp.ok) throw new Error(`schedule ${abbr} ${resp.status}`);
       return { abbr, data: await resp.json() };
     }));
@@ -159,6 +164,11 @@ export async function syncSchedules(season = SEASON) {
   }
   const result = { teams, games };
   recordSync('espn_schedules', teams < abbrs.length ? 'error' : 'ok', result);
+  // matchupModel() caches every team's slate for the life of the process with no
+  // fingerprint of its own — without this, a corrected schedule sits in the
+  // database while every trade, lineup, and matchup call keeps serving whatever
+  // it first memoised after boot.
+  clearMatchupCache();
   return result;
 }
 

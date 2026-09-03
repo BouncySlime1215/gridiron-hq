@@ -1,17 +1,30 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
+import { assertLeagueMember } from '../platform/auth.js';
 
 const r = Router();
 
 const ESPN_BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 
+/**
+ * Every :id route below acts on one league, so every one of them needs this —
+ * the router-level auth in index.js only proves *a* local user is asking, not
+ * that this league is theirs. Mirrors the try/catch-and-respond convention
+ * already used for the same check in drafts.js and model.js.
+ */
+function requireMember(req, res, leagueId) {
+  try { assertLeagueMember(req.auth.userId, leagueId); return true; }
+  catch (e) { res.status(e.status ?? 403).json({ error: e.message }); return false; }
+}
+
 r.get('/', (req, res) => {
-  res.json(rows(`SELECT id, platform, league_id, season, name, my_team_id, team_count, ppr, superflex,
-                        league_type, fetched_at, connection_status, sync_error,
-                        espn_s2 IS NOT NULL AS has_cookies
-                 FROM leagues ORDER BY id`));
+  res.json(rows(`SELECT l.id, l.platform, l.league_id, l.season, l.name, l.my_team_id, l.team_count, l.ppr,
+                        l.superflex, l.league_type, l.fetched_at, l.connection_status, l.sync_error,
+                        l.espn_s2 IS NOT NULL AS has_cookies
+                 FROM leagues l JOIN league_memberships m ON m.league_id = l.id AND m.user_id = ?
+                 ORDER BY l.id`, req.auth.userId));
 });
 
 r.post('/', (req, res) => {
@@ -30,6 +43,7 @@ r.post('/', (req, res) => {
 });
 
 r.put('/:id', (req, res) => {
+  if (!requireMember(req, res, req.params.id)) return;
   const { my_team_id, espn_s2, swid } = req.body;
   run(`UPDATE leagues SET my_team_id = COALESCE(?, my_team_id),
        espn_s2 = COALESCE(?, espn_s2), swid = COALESCE(?, swid) WHERE id = ?`,
@@ -51,6 +65,7 @@ function removalImpact(leagueId) {
 }
 
 r.get('/:id/removal-impact', (req, res) => {
+  if (!requireMember(req, res, req.params.id)) return;
   const lg = row('SELECT id, name FROM leagues WHERE id = ?', req.params.id);
   if (!lg) return res.status(404).json({ error: 'league not found' });
   res.json({ league: lg.name, ...removalImpact(req.params.id) });
@@ -71,6 +86,7 @@ r.get('/:id/removal-impact', (req, res) => {
  * same transaction, so it can't leave the same orphans behind.
  */
 r.delete('/:id', (req, res) => {
+  if (!requireMember(req, res, req.params.id)) return;
   const lg = row('SELECT id FROM leagues WHERE id = ?', req.params.id);
   if (!lg) return res.status(404).json({ error: 'league not found' });
   const impact = removalImpact(req.params.id);
@@ -161,6 +177,7 @@ async function syncSleeperLeague(lg) {
 }
 
 r.post('/:id/sync', async (req, res, next) => {
+  if (!requireMember(req, res, req.params.id)) return;
   try {
     const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
     if (!lg) return res.status(404).json({ error: 'league not found' });
@@ -191,6 +208,7 @@ r.post('/:id/sync', async (req, res, next) => {
 });
 
 r.get('/:id/data', (req, res) => {
+  if (!requireMember(req, res, req.params.id)) return;
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
   if (!lg) return res.status(404).json({ error: 'league not found' });
   res.json({ ...lg, payload: lg.payload ? JSON.parse(lg.payload) : null });
@@ -251,6 +269,7 @@ function extractRosters(lg) {
 }
 
 r.get('/:id/analysis', (req, res) => {
+  if (!requireMember(req, res, req.params.id)) return;
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
   if (!lg?.payload) return res.status(400).json({ error: 'league not synced yet' });
 

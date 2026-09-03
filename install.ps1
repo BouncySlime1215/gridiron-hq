@@ -71,7 +71,11 @@ if (-not (Test-NodeOk)) {
 
       $ProgressPreference = 'SilentlyContinue'   # the progress bar makes this ~10x slower
       Invoke-WebRequest -Uri "https://nodejs.org/dist/$ver/$zipName.zip" -OutFile $zip -TimeoutSec 600
-      $sums = Invoke-WebRequest -Uri "https://nodejs.org/dist/$ver/SHASUMS256.txt" -TimeoutSec 60
+      # -UseBasicParsing: this is a plain-text checksum file, not HTML, so there is
+      # nothing to parse — but without the flag, PowerShell tries anyway and stops
+      # to ask a scary-looking "Script Execution Risk" question that a first-time
+      # installer should never have to answer.
+      $sums = Invoke-WebRequest -Uri "https://nodejs.org/dist/$ver/SHASUMS256.txt" -TimeoutSec 60 -UseBasicParsing
       $expectedLine = ($sums.Content -split "`n") | Where-Object { $_ -match "\s$([regex]::Escape($zipName)).zip\s*$" } | Select-Object -First 1
       if (-not $expectedLine) { throw 'Official checksum did not list the downloaded Node archive.' }
       $expected = ($expectedLine.Trim() -split '\s+')[0].ToLowerInvariant()

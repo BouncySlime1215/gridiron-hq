@@ -15,10 +15,15 @@ await import('../server/services/espn-draft.js');
 const { default: leaguesRouter } = await import('../server/routes/leagues.js');
 const express = (await import('express')).default;
 
+run(`INSERT INTO users (subject, display_name) VALUES ('league-removal-test', 'Removal Test User')`);
+const TEST_USER_ID = row('SELECT last_insert_rowid() AS id').id;
+
 const app = express();
 app.use(express.json());
-// Mounted without the legacy auth wrapper: this suite is about removal semantics,
-// which test/legacy-route-security.test.js already covers for auth.
+// Faked rather than the real bearer-token flow, which test/legacy-route-security.test.js
+// already covers — this suite is about removal semantics once a member is calling in,
+// not about proving who's calling. requireMember() in leagues.js still runs for real.
+app.use((req, res, next) => { req.auth = { userId: TEST_USER_ID }; next(); });
 app.use('/api/leagues', leaguesRouter);
 const server = app.listen(0);
 const { port } = server.address();
@@ -36,6 +41,7 @@ function leagueWithDraftHistory() {
   run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid)
        VALUES ('espn', ?, 2026, 'Test League', 's2-secret', '{swid}')`, String(9000 + n));
   const leagueId = row('SELECT last_insert_rowid() AS id').id;
+  run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,'commissioner')`, leagueId, TEST_USER_ID);
   run(`INSERT INTO drafts (name, type, league_row_id, season) VALUES ('a real draft','live',?,2026)`, leagueId);
   const draftId = row('SELECT last_insert_rowid() AS id').id;
   run(`INSERT INTO players (name, position, fantasy_relevant) VALUES ('Removal Test Player','WR',1)`);
@@ -90,15 +96,19 @@ test('a purge removes dependent drafts too, leaving no orphans behind', async ()
     'no orphaned drafts may remain');
 });
 
-test('removing an unknown league is a clean 404, not a silent success', async () => {
+test('removing a league nobody is a member of is refused, not a silent success', async () => {
+  // No membership row exists for 999999 (nor does the league itself), so membership
+  // is what stops this, before existence is ever checked — the caller learns
+  // nothing about whether the ID is real, only that it isn't theirs.
   const res = await fetch(`${base}/999999`, { method: 'DELETE' });
-  assert.equal(res.status, 404);
+  assert.equal(res.status, 403);
 });
 
 test('a league with no draft history still disconnects cleanly', async () => {
   run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid)
        VALUES ('espn','8888',2026,'No Drafts','s2','{swid}')`);
   const id = row('SELECT last_insert_rowid() AS id').id;
+  run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,'commissioner')`, id, TEST_USER_ID);
   const body = await (await fetch(`${base}/${id}`, { method: 'DELETE' })).json();
   assert.equal(body.disconnected, true);
   assert.equal(body.retained.drafts, 0);

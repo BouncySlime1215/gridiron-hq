@@ -492,7 +492,13 @@ r.get('/:leagueId/find', (req, res, next) => {
       // Off by default in the UI's "aggressive" mode: deals that only help me are
       // still worth seeing, they just need a better sales pitch.
       requireMutual: req.query.mutual !== '0',
-      limit: Math.min(50, Number(req.query.limit) || 20),
+      // The search itself already evaluates every combination regardless of this
+      // number — it only controls how much of the already-fully-computed, sorted,
+      // deduplicated result gets returned. Raised well past the old 50 so the
+      // trade-finder's reload has real distinct ideas to page through across many
+      // clicks before it has to honestly say the well is dry, rather than
+      // silently re-serving (or worse, being unable to serve) the same top 50.
+      limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
     }));

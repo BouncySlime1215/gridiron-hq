@@ -47,7 +47,7 @@ export const num = (n: number | null | undefined, d = 2) =>
  * for a real ESPN/Sleeper trade grade (neither exposes one via API; showing fake
  * numbers under their names would be dishonest). This is our math, relabeled.
  */
-function engineGrade(deal: any): { letter: string; tone: 'good' | 'accent' | 'warn' | 'crit' } {
+export function engineGrade(deal: any): { letter: string; tone: 'good' | 'accent' | 'warn' | 'crit' } {
   const holes = deal.them?.new_holes?.length ?? 0;
   const flags = deal.red_flags?.length ?? 0;
   const d = deal.me?.ppg_delta ?? 0;

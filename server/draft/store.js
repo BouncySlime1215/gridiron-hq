@@ -41,14 +41,23 @@ function authenticatedActor(actor) {
   return Number(actor.userId);
 }
 
+// A mock draft has no league_row_id, so there is no league_memberships row to
+// check — assertLeagueMember/assertCommissioner reject every leagueless draft
+// unconditionally. Its one owner is implicitly its own commissioner: the real
+// per-team gate for actual picks is ownsDraftTeam() against draft_team_ownership,
+// not a league role, so synthesising 'commissioner' here only grants access to
+// the commissioner-only *draft-management* actions (pause, undo, simulate),
+// which for a solo mock draft the owner should always have anyway.
 function memberActor(actor, draft) {
   const userId = authenticatedActor(actor);
+  if (draft.league_row_id == null) return { userId, role: 'commissioner' };
   const membership = assertLeagueMember(userId, draft.league_row_id);
   return { userId, role: membership.role };
 }
 
 function commissionerActor(actor, draft) {
   const userId = authenticatedActor(actor);
+  if (draft.league_row_id == null) return { userId, role: 'commissioner' };
   return { userId, role: assertCommissioner(userId, draft.league_row_id).role };
 }
 
@@ -106,7 +115,9 @@ export function makePick({ draftId, playerId, expectedRevision = null, idempoten
       const access = memberActor(actor, draft);
       actorId = access.userId;
       actorRole = access.role;
-      if (source !== 'user') assertCommissioner(actorId, draft.league_row_id);
+      // memberActor() already synthesised 'commissioner' for a leagueless draft;
+      // re-checking against league_memberships here would reject it again.
+      if (source !== 'user' && draft.league_row_id != null) assertCommissioner(actorId, draft.league_row_id);
     }
 
     if (idempotencyKey) {

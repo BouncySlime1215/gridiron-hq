@@ -22,6 +22,9 @@ export default function DevHub() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [repair, setRepair] = useState<any>(null);
+  const [workspaceInput, setWorkspaceInput] = useState('');
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceMsg, setWorkspaceMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -48,7 +51,25 @@ export default function DevHub() {
     refetch();
   };
 
+  const saveWorkspace = async () => {
+    setWorkspaceBusy(true); setWorkspaceMsg(null);
+    try {
+      const r = await api('/dev/workspace-id', { method: 'PUT', body: JSON.stringify({ workspace_id: workspaceInput }) });
+      setWorkspaceMsg(r.persisted ? 'Saved to .env.' : 'Saved for this session.');
+      setWorkspaceInput('');
+      refetch();
+    } catch (e: any) { setWorkspaceMsg(e.message); }
+    finally { setWorkspaceBusy(false); }
+  };
+
+  const removeWorkspace = async () => {
+    await api('/dev/workspace-id', { method: 'DELETE' });
+    setWorkspaceMsg('Removed.');
+    refetch();
+  };
+
   const configured = data?.api_key?.configured;
+  const workspaceConfigured = data?.workspace_id?.configured;
   const today = data?.usage?.today;
 
   return (
@@ -107,6 +128,40 @@ export default function DevHub() {
                 <p className="text-[11px] text-slate-400 mt-2">
                   Stored locally in <code className="font-mono">.env</code> (gitignored). Powers buy/sell verdicts,
                   news explanations, the camp roundup and team-outlook refreshes.
+                </p>
+              </div>
+
+              {/* Workspace ID — only needed for identity-linked keys */}
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
+                  Workspace ID <span className="font-normal normal-case text-slate-400">(only if your key needs one)</span>
+                </h3>
+                {workspaceConfigured ? (
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 font-mono text-slate-600">
+                      {data.workspace_id.value}
+                    </code>
+                    <button onClick={removeWorkspace} className="text-xs text-rose-600 hover:underline ml-auto">remove</button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={workspaceInput}
+                      onChange={e => setWorkspaceInput(e.target.value)}
+                      placeholder="wrkspc-…"
+                      className="input flex-1 font-mono text-xs" />
+                    <button className="btn-primary" onClick={saveWorkspace} disabled={workspaceBusy || !workspaceInput}>
+                      {workspaceBusy ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                )}
+                {workspaceMsg && <p className="text-xs text-amber-600 mt-2">{workspaceMsg}</p>}
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Only needed if AI features error with something like <em>"anthropic-workspace-id is
+                  required"</em> — that means your key is Anthropic Console's newer per-person type,
+                  which has to be told which workspace to act in. Find it in the Console under Settings →
+                  the workspace's name. A plain API key never needs this — leave it blank.
                 </p>
               </div>
 

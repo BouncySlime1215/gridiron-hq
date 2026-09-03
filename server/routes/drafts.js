@@ -35,8 +35,13 @@ function handleDraftError(e, res, next) {
 function draftAccess(req, draftId, commissioner = false) {
   const draft = row('SELECT * FROM drafts WHERE id = ?', draftId);
   if (!draft) throw new DraftNotFoundError('draft not found');
-  const membership = commissioner
-    ? assertCommissioner(req.auth.userId, draft.league_row_id)
+  // A mock draft has no league_row_id, so there is no membership to check —
+  // league_memberships never has a row keyed to a null league, which made
+  // assertLeagueMember/assertCommissioner reject every mock draft outright.
+  // Access to a leagueless draft is scoped by draft_team_ownership instead,
+  // exactly like a live tracker scopes picks once a slot is claimed.
+  const membership = draft.league_row_id == null ? null
+    : commissioner ? assertCommissioner(req.auth.userId, draft.league_row_id)
     : assertLeagueMember(req.auth.userId, draft.league_row_id);
   return { draft, membership };
 }
@@ -237,8 +242,17 @@ r.post('/', (req, res) => {
     name, type = 'mock', team_count = 12, rounds = 16, my_slot = 1, ranking_set_id = null, pick_seconds = 90,
     order_type = 'snake', roster_positions = null, league_row_id
   } = req.body;
-  try { assertCommissioner(req.auth.userId, Number(league_row_id)); }
-  catch (e) { return handleDraftError(e, res, () => {}); }
+  // A mock draft is a personal practice tool with no real roster at stake, so it
+  // has no league to be commissioner of — the client's mock-draft form has never
+  // collected a league_row_id, so requiring one here unconditionally 403'd every
+  // mock draft. A live draft tracker mirrors an actual league's draft, so that
+  // one still needs real commissioner authority over the league it's tracking.
+  if (league_row_id != null) {
+    try { assertCommissioner(req.auth.userId, Number(league_row_id)); }
+    catch (e) { return handleDraftError(e, res, () => {}); }
+  } else if (type !== 'mock') {
+    return res.status(400).json({ error: 'league_row_id required for a live draft tracker' });
+  }
   if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'name required' });
   if (!['mock', 'live_tracking'].includes(type)) return res.status(400).json({ error: 'invalid draft type' });
   if (!Number.isInteger(team_count) || team_count < 2 || team_count > 20) {

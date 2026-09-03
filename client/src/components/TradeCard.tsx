@@ -130,8 +130,8 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
   );
 }
 
-export default function TradeCard({ deal, leagueId, compact = false, untouchableNames = [] }: {
-  deal: any; leagueId: number; compact?: boolean; untouchableNames?: string[];
+export default function TradeCard({ deal, leagueId, compact = false, untouchableNames = [], onDismiss }: {
+  deal: any; leagueId: number; compact?: boolean; untouchableNames?: string[]; onDismiss?: () => void;
 }) {
   const [copy, setCopy] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -188,6 +188,11 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           title="This engine's own grade — not a real ESPN or Sleeper trade grade, neither exposes one via API">
           {grade.letter}
         </span>
+        {(deal.tags ?? []).map((t: string) => (
+          <span key={t} className="text-[10px] font-semibold text-[var(--accent)] bg-[var(--accent-tint)] border border-[var(--accent)]/30 px-2 py-0.5 rounded-full">
+            {t}
+          </span>
+        ))}
         {deal.mutual && (
           <span className="text-[10px] font-semibold text-good bg-good-tint border border-good px-2 py-0.5 rounded-full"
             title="Both starting lineups improve — this is the kind of deal that actually gets accepted">
@@ -227,6 +232,12 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         </div>
       )}
 
+      {deal.conflicts_with_earlier && (
+        <div className="mb-3 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+          ⚠ Sends {deal.conflicts_with_earlier.join(', ')} — already spoken for by a deal above. Pick one; you can't do both.
+        </div>
+      )}
+
       <div className="space-y-1.5 mb-3">
         <div className="flex items-start gap-2 flex-wrap">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-crit w-14 shrink-0 pt-1.5">You give</span>
@@ -255,6 +266,11 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <button className="btn-ghost text-xs" onClick={senseCheck} disabled={senseBusy}>
           {senseBusy ? 'Checking…' : '🔍 AI sense check'}
         </button>
+        {onDismiss && (
+          <button className="btn-ghost text-xs text-[var(--muted)] ml-auto" onClick={onDismiss} title="Hide this idea — it won't come back on refresh">
+            ✕ Not interested
+          </button>
+        )}
         {err && <span className="text-[11px] text-rose-600">{err}</span>}
       </div>
 

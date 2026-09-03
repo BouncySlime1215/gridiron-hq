@@ -414,6 +414,35 @@ const slim = p => ({
   role_change: p.role_change, matchup: p.matchup
 });
 
+/**
+ * Label the *shape* of a deal, not just its grade — "clears the bar" and "why
+ * you'd actually make this one" are different questions, and a flat list of
+ * fifteen lineup-gain numbers reads as one repetitive idea even when it isn't.
+ * Every input here is already computed for the card; this just names the
+ * pattern instead of making the manager infer it from raw numbers.
+ */
+function tagDeal(give, get, ev) {
+  const tags = [];
+  const avg = (list, key, fallback) => list.length
+    ? list.reduce((s, p) => s + (p[key] ?? fallback), 0) / list.length : fallback;
+  const youngest = list => Math.min(...list.map(p => p.age ?? 99));
+  const oldest = list => Math.max(...list.map(p => p.age ?? 0));
+
+  if (give.length + get.length >= 4) tags.push('Blockbuster');
+  // playoff_sos is a multiplier already centred near 1; lower is an easier stretch.
+  if (avg(get, 'playoff_sos', 1) < avg(give, 'playoff_sos', 1) - 0.05) tags.push('Playoff Push');
+  if (youngest(get) <= 24 && oldest(give) >= youngest(get) + 3) tags.push('Youth Play');
+  if (oldest(give) >= 29 && youngest(get) < oldest(give)) tags.push('Sell High');
+  // role_change is only ever set when the weekly engine detected a real usage
+  // shift — a change of role, not noise — so this is evidence, not a guess.
+  if (get.some(p => p.role_change)) tags.push('Buy Low');
+  if (give.some(p => p.injury) && !get.some(p => p.injury)) tags.push('Sell the Injury Risk');
+  if (Math.abs(ev.their_value_pct) <= 4 && ev.me.ppg_delta > 0.4) tags.push('Fair & Clean');
+  else if (ev.their_value_pct < -6 && ev.me.ppg_delta > 0.6) tags.push('Value Win');
+  if (!tags.length) tags.push('Straight Upgrade');
+  return tags.slice(0, 2);
+}
+
 function fairnessLabel(delta, total) {
   if (!total) return 'unpriced';
   const pct = (delta / total) * 100;
@@ -462,10 +491,15 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
  * @param opts.max_per_side  package size cap (2 keeps it realistic and fast)
  * @param opts.require_mutual only surface deals that also improve their lineup
  */
-export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null } = {}) {
+export function findTrades(lg, {
+  myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null,
+  // Lets findTradeSequences() re-run this exact search against a hypothetical
+  // post-trade roster without duplicating any of the logic below.
+  teamsOverride = null, assetsOverride = null
+} = {}) {
   const { formatKey } = deriveFormat(lg);
-  const assets = assetUniverse(lg, formatKey);
-  const teams = loadRosters(lg, assets);
+  const assets = assetsOverride ?? assetUniverse(lg, formatKey);
+  const teams = teamsOverride ?? loadRosters(lg, assets);
   const slots = lineupSlots(lg);
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your team not found in this league' };
@@ -535,6 +569,7 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
           i_give: give.map(slim), i_get: get.map(slim),
+          tags: tagDeal(give, get, ev),
           ...ev,
           // Lineup gain is the point, but among deals that land the same lineup the
           // one where I surrender less market value is strictly better — without this
@@ -563,8 +598,78 @@ export function findTrades(lg, { myTeamId, maxPerSide = 2, requireMutual = true,
     ? unique.filter(d => d.mutual && d.plausible && d.red_flags.length === 0)
     : unique;
 
+  // Every deal above is computed independently against your CURRENT roster, so
+  // two of them can both plan on trading away the same player — real, but only
+  // one is actually executable. Rather than silently presenting both as if you
+  // could do either, mark the lower-ranked one so the UI can say "pick one."
+  const claimed = new Set();
+  for (const d of result) {
+    const overlap = d.i_give.filter(p => claimed.has(p.id)).map(p => p.name);
+    d.conflicts_with_earlier = overlap.length ? overlap : null;
+    if (!overlap.length) for (const p of d.i_give) claimed.add(p.id);
+  }
+
   return { me: { roster_id: me.roster_id, owner: me.owner }, slots, model_context: assets.context, considered: deals.length,
            excluded_never_trade: [...blockedManagers], deals: result.slice(0, limit) };
+}
+
+/**
+ * "Do this trade, then this one opens up." findTrades() prices every deal
+ * against your roster as it is *right now* — it has no way to notice that
+ * taking its own #1 suggestion changes what your #2 suggestion should even
+ * be. This runs the search twice: once for real, then again against a
+ * roster with the top deal already applied, so a genuinely sequential idea
+ * (the throw-in you'd only have *after* the first trade, a hole the first
+ * trade just opened that a second deal happens to fill) can surface instead
+ * of being invisible because it didn't pencil out against the roster you
+ * currently have.
+ */
+export function findTradeSequences(lg, opts = {}) {
+  const { formatKey } = deriveFormat(lg);
+  const assets = assetUniverse(lg, formatKey);
+  const teams = loadRosters(lg, assets);
+  const first = findTrades(lg, { ...opts, limit: 50, teamsOverride: teams, assetsOverride: assets });
+  if (first.error) return first;
+
+  const step1 = first.deals.find(d => d.mutual && d.plausible && !d.conflicts_with_earlier);
+  if (!step1) return { ...first, sequences: [] };
+
+  const me = teams.find(t => t.roster_id === first.me.roster_id);
+  const partner = teams.find(t => String(t.roster_id) === String(step1.partner_id));
+  if (!me || !partner) return { ...first, sequences: [] };
+
+  // Apply step1 to a cloned roster set — everyone else's roster is untouched,
+  // so any *new* idea below is attributable to this one trade, not noise.
+  const giveIds = new Set(step1.i_give.map(p => p.id));
+  const getIds = new Set(step1.i_get.map(p => p.id));
+  const hypothetical = teams.map(t => {
+    if (t.roster_id === me.roster_id) {
+      return { ...t, players: [...t.players.filter(p => !giveIds.has(p.id)), ...partner.players.filter(p => getIds.has(p.id))] };
+    }
+    if (t.roster_id === partner.roster_id) {
+      return { ...t, players: [...t.players.filter(p => !getIds.has(p.id)), ...me.players.filter(p => giveIds.has(p.id))] };
+    }
+    return t;
+  });
+
+  const second = findTrades(lg, { ...opts, limit: 50, teamsOverride: hypothetical, assetsOverride: assets });
+  const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
+  const step1Key = `${step1.partner_id}:${headline(step1.i_give)}>${headline(step1.i_get)}`;
+  const firstKeys = new Set(first.deals.map(d => `${d.partner_id}:${headline(d.i_give)}>${headline(d.i_get)}`));
+
+  // Only surface a step 2 that (a) wasn't already a standalone idea today, so
+  // this list is additive, not a repeat of the main board, and (b) doesn't
+  // just re-trade the same two pieces back — that isn't a second move.
+  const unlocked = (second.deals ?? [])
+    .filter(d => {
+      const key = `${d.partner_id}:${headline(d.i_give)}>${headline(d.i_get)}`;
+      if (key === step1Key || firstKeys.has(key)) return false;
+      if (d.i_give.some(p => getIds.has(p.id)) && String(d.partner_id) === String(partner.roster_id)) return false;
+      return d.mutual && d.plausible;
+    })
+    .slice(0, 5);
+
+  return { ...first, step1, sequences: unlocked.map(d => ({ ...d, unlocked_by: step1Key })) };
 }
 
 /**

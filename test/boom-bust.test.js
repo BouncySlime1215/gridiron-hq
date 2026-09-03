@@ -113,6 +113,28 @@ test('the feature vector carries real age, real rookie flag, and real injury-rep
   assert.equal(features.prior_injury_report_weeks, 2, 'two real 2022 injury-report weeks, not a games-played proxy');
 });
 
+test('actual_rank is computed within the maxAdpRank population, not the full ~800-player universe', async () => {
+  // Two ADP-eligible players (ranks 1 and 2) plus one player ranked outside
+  // maxAdpRank=1 who nonetheless outproduces both. If ranking were done over
+  // the whole matched universe, the excluded player would still count toward
+  // rank 1's or rank 2's rank-gap; restricted to maxAdpRank=1, only the #1
+  // player is graded at all, and must rank #1 within that population of one.
+  adp(2024, 'Elite Star', 'WR', 'KC', 1);
+  adp(2024, 'Steady Eddie', 'WR', 'MIA', 2);
+  for (let w = 1; w <= 3; w++) {
+    usage(2024, w, 'Elite Star', { receptions: 5, receiving_yards: 50, targets: 6 });
+    usage(2024, w, 'Steady Eddie', { receptions: 5, receiving_yards: 50, targets: 6 });
+    usage(2024, w, 'Waiver Boom', { receptions: 20, receiving_yards: 300, receiving_tds: 3, targets: 25 }); // huge, but not ADP-eligible here
+  }
+  const { X, meta, featureNames } = await buildBoomBustDataset({ fromSeason: 2024, throughSeason: 2024, maxAdpRank: 1 });
+  assert.equal(meta.length, 1, 'only the maxAdpRank=1 player is in scope at all');
+  assert.equal(meta[0].name, 'Elite Star');
+  const ecrIdx = featureNames.indexOf('ecr_rank');
+  assert.equal(X[0][ecrIdx], 1);
+  assert.equal(meta[0].actual_rank, 1, 'the sole in-population player must rank #1 within that population, regardless of Waiver Boom\'s real points');
+  assert.equal(meta[0].rank_gap, 0);
+});
+
 test('buildBoomBustDataset produces one feature row per matched player, aligned X/y', async () => {
   const { X, y, meta, featureNames } = await buildBoomBustDataset({ fromSeason: 2022, throughSeason: 2022 });
   assert.equal(X.length, y.length);

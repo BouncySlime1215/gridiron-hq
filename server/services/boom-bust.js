@@ -218,28 +218,20 @@ async function bioFor(gsisId) {
 }
 
 /**
- * One season's rows: preseason ECR joined to actual outcome, with the
- * walk-forward-safe feature set above. Every feature here is computable from
- * information available before `season` starts (historical-adp.js's ECR is
- * itself a preseason scrape; prior-season injury/share data is by definition
- * from the season before; age and rookie status are fixed historical facts).
+ * Every preseason-ADP-eligible player's feature vector for `season`, with NO
+ * requirement that an actual outcome exist yet — this is what makes it safe
+ * to call for genuine forward prediction (the whole point of a boom/bust
+ * signal is to have it BEFORE the season, not to recompute it in hindsight).
+ * `seasonRows` below is the training-time variant that additionally requires
+ * and joins a real outcome; this is the shared feature-construction core.
  * Async because it resolves each player's gsis_id-keyed bio row.
  */
-async function seasonRows(season, scoring, { maxAdpRank = 200 } = {}) {
+async function preseasonFeatureRows(season, { maxAdpRank = 200 } = {}) {
   // Restricted to a realistic rosterable/fantasy-relevant population (top
   // ~200 preseason consensus, roughly a 12-team league's full draftable
-  // pool across QB/RB/WR/TE). Ranking over the full ~800-player universe —
-  // where a waiver-wire player finishing #620 instead of #650 counts as a
-  // "30-spot boom" — buries any real signal under noise nobody would call
-  // boom or bust in practice. Both the preseason rank AND the actual-outcome
-  // rank below are computed within this SAME restricted population, so the
-  // gap stays apples-to-apples rather than comparing a rank in a 200-player
-  // pool to one in an 800-player pool.
+  // pool across QB/RB/WR/TE) — see seasonRows' training-time comment for why.
   const preseason = historicalAdpFor(season).filter(p => p.ecr_rank <= maxAdpRank);
   if (!preseason.length) return [];
-  const fullOutcome = actualSeasonOutcome(season, scoring);
-  const restrictedKeys = new Set(preseason.map(p => p.player_key));
-  const outcome = reRankWithin(fullOutcome, restrictedKeys);
   const gsisByName = nameToGsis();
   const priorInjuryWeeks = injuryReportWeeks(season - 1);
   const priorShare = opportunityShares(season - 1);
@@ -249,8 +241,6 @@ async function seasonRows(season, scoring, { maxAdpRank = 200 } = {}) {
 
   const out = [];
   for (const p of preseason) {
-    const outcomeRow = outcome.get(p.player_key);
-    if (!outcomeRow) continue; // never appeared in real usage that season — no outcome to grade against
     const gsisId = gsisByName.get(p.player_key);
     const bio = await bioFor(gsisId);
     const age = ageEnteringSeason(bio?.birth_date, season);
@@ -258,9 +248,8 @@ async function seasonRows(season, scoring, { maxAdpRank = 200 } = {}) {
       ? (bio.rookie_season === season ? 1 : 0)
       : (priorHistory.has(p.player_key) ? 0 : 1); // fallback when nflverse has no rookie_season for this gsis_id
     out.push({
-      season, player_key: p.player_key, name: p.name, position: p.position,
-      ecr_rank: p.ecr_rank, actual_rank: outcomeRow.actual_rank,
-      rank_gap: p.ecr_rank - outcomeRow.actual_rank, // positive = boom, negative = bust
+      season, player_key: p.player_key, name: p.name, position: p.position, team: p.team,
+      ecr_rank: p.ecr_rank,
       features: [
         p.ecr_rank,
         age ?? -1, // -1 (not 0/mean) so a missing birth_date is distinguishable to the tree, not a fabricated age
@@ -269,6 +258,33 @@ async function seasonRows(season, scoring, { maxAdpRank = 200 } = {}) {
         (priorShare.get(p.player_key) ?? 0) - (twoAgoShare.get(p.player_key) ?? 0),
         coachChanges.has(canonicalTeamCode(p.team)) && coachChanges.get(canonicalTeamCode(p.team)).changed ? 1 : 0
       ]
+    });
+  }
+  return out;
+}
+
+/**
+ * Training-time rows: preseason features (above) joined to the actual
+ * outcome, restricted and re-ranked to the same maxAdpRank population (see
+ * the population-restriction comment above — ranking over the full
+ * ~800-player universe let deep-waiver noise swamp any real signal). Rows
+ * with no matched real outcome are dropped; they have nothing to train or
+ * grade against.
+ */
+async function seasonRows(season, scoring, { maxAdpRank = 200 } = {}) {
+  const featureRows = await preseasonFeatureRows(season, { maxAdpRank });
+  if (!featureRows.length) return [];
+  const fullOutcome = actualSeasonOutcome(season, scoring);
+  const restrictedKeys = new Set(featureRows.map(r => r.player_key));
+  const outcome = reRankWithin(fullOutcome, restrictedKeys);
+
+  const out = [];
+  for (const r of featureRows) {
+    const outcomeRow = outcome.get(r.player_key);
+    if (!outcomeRow) continue; // never appeared in real usage that season — no outcome to grade against
+    out.push({
+      ...r, actual_rank: outcomeRow.actual_rank,
+      rank_gap: r.ecr_rank - outcomeRow.actual_rank // positive = boom, negative = bust
     });
   }
   return out;
@@ -289,6 +305,30 @@ export async function buildBoomBustDataset({ fromSeason = 2021, throughSeason = 
   const X = allRows.map(r => r.features);
   const y = allRows.map(r => r.rank_gap);
   return { X, y, meta: allRows, featureNames: FEATURE_NAMES };
+}
+
+/**
+ * The genuine forward-use function: predicts `season`'s rank-gap for every
+ * ADP-eligible player using a GBM trained ONLY on seasons strictly before it
+ * — never `season` itself, since a real forward prediction cannot see the
+ * outcome it doesn't have yet. This is what fantasy-coordinator.js consumes
+ * as an expert signal. `classify()`/`buildBoomBustDataset()` above compute
+ * the ACTUAL rank-gap in hindsight (for training and grading); this is the
+ * only function in this file safe to call before a season's outcome exists.
+ *
+ * Returns null (not a fabricated guess) when fewer than 30 training rows
+ * exist — the same floor `boomBustWalkForward`'s own gate uses.
+ */
+export async function predictRankGap(season, { earliestSeason = 2021, maxAdpRank = 200 } = {}) {
+  await primeCoachChanges(Array.from({ length: season - earliestSeason }, (_, i) => earliestSeason + i));
+  const train = await buildBoomBustDataset({ fromSeason: earliestSeason, throughSeason: season - 1, maxAdpRank });
+  if (train.X.length < 30) return null;
+  const model = fitGbm(train.X, train.y);
+
+  const target = await preseasonFeatureRows(season, { maxAdpRank });
+  const out = new Map();
+  for (const r of target) out.set(r.player_key, { ...r, predicted_rank_gap: predictGbm(model, r.features) });
+  return out;
 }
 
 /**

@@ -12,7 +12,7 @@ const { db, row, run } = await import('../server/db/index.js');
 // created ad-hoc at import time by nflverse.js (same "~40 files create
 // tables on import" pattern the rest of the suite relies on).
 await import('../server/services/nflverse.js');
-const { classify, buildBoomBustDataset, boomBustWalkForward } = await import('../server/services/boom-bust.js');
+const { classify, buildBoomBustDataset, boomBustWalkForward, predictRankGap } = await import('../server/services/boom-bust.js');
 
 db.exec(`CREATE TABLE IF NOT EXISTS nfl_historical_adp (
   season INTEGER NOT NULL, source TEXT NOT NULL, player_key TEXT NOT NULL,
@@ -141,6 +141,23 @@ test('buildBoomBustDataset produces one feature row per matched player, aligned 
   assert.equal(X.length, meta.length);
   assert.equal(X.length, 44, 'all 44 seeded players (4 named + 40 filler) have both an ADP row and real usage that season');
   assert.ok(featureNames.length > 0 && X[0].length === featureNames.length);
+});
+
+test('predictRankGap never looks at the target season\'s own outcome', async () => {
+  // Only 2022 has usage/outcome data seeded (from the first test above); 2023
+  // has an ADP row but deliberately NO usage rows at all, so if predictRankGap
+  // ever touched 2023's own outcome it would have nothing to read and this
+  // would either throw or return null for that player specifically.
+  adp(2023, 'Elite Star', 'WR', 'KC', 1);
+  const predictions = await predictRankGap(2023, { earliestSeason: 2022 });
+  assert.ok(predictions, 'must produce predictions from 2022 training data alone');
+  assert.ok(predictions.has('elite star'));
+  assert.equal(typeof predictions.get('elite star').predicted_rank_gap, 'number');
+});
+
+test('predictRankGap returns null rather than a fabricated prediction when there is no real training data', async () => {
+  const predictions = await predictRankGap(2021, { earliestSeason: 2021 }); // nothing before 2021 exists
+  assert.equal(predictions, null);
 });
 
 test('walk-forward honestly reports a skip rather than forcing a bootstrap on too few rows', async () => {

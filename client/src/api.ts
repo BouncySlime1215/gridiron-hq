@@ -48,7 +48,40 @@ export function setAuthToken(token: string | null) {
   else window.localStorage.removeItem('gridiron_session_token');
 }
 
-export function useApi<T = any>(path: string | null) {
+// Shared request de-duplication + a short stale-time cache, both keyed by the
+// exact request path (GET requests only — useApi never sends a method).
+//
+// Two problems this solves at the root instead of at each call site:
+//  1. Several pages mount more than one component that reads the SAME endpoint
+//     at the SAME time (e.g. BettingWorkspace and the page around it both read
+//     `/betting/status`). Without this, each `useApi` call fired its own fetch,
+//     so one page load meant the identical request hit the network 2-3 times.
+//     Now a request already in flight for a path is joined instead of repeated.
+//  2. Low-churn global data (league list, ESPN connect status, model setup
+//     status, dev status) got re-fetched on every remount even though nothing
+//     about it changes between one view and the next few seconds/minutes. A
+//     short stale window lets a fresh remount reuse the last answer instantly —
+//     no spinner, no network call — instead of re-asking the server.
+//
+// A request the caller explicitly triggers via `refetch()` (after a mutation,
+// or a manual "refresh" button) always bypasses the cache — the whole point of
+// calling it is "the server state just changed, go get the truth."
+const DEFAULT_STALE_MS = 60_000;
+const responseCache = new Map<string, { data: any; ts: number }>();
+const inFlightRequests = new Map<string, Promise<any>>();
+
+function sharedGet<T>(path: string): Promise<T> {
+  const existing = inFlightRequests.get(path);
+  if (existing) return existing;
+  const request = api<T>(path)
+    .then(data => { responseCache.set(path, { data, ts: Date.now() }); return data; })
+    .finally(() => { if (inFlightRequests.get(path) === request) inFlightRequests.delete(path); });
+  inFlightRequests.set(path, request);
+  return request;
+}
+
+export function useApi<T = any>(path: string | null, opts?: { staleTime?: number }) {
+  const staleTime = opts?.staleTime ?? DEFAULT_STALE_MS;
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(!!path);
   const [error, setError] = useState<string | null>(null);
@@ -62,56 +95,62 @@ export function useApi<T = any>(path: string | null) {
   const prevPath = useRef<string | null>(null);
   const requestId = useRef(0);
   const inFlight = useRef(0);
-  const controller = useRef<AbortController | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const refetch = useCallback(() => {
+  const refetch = useCallback((force = false) => {
     if (!path) return;
     if (prevPath.current !== null && prevPath.current !== path) {
       hasData.current = false;
       setData(null);
     }
     prevPath.current = path;
+
+    if (force) responseCache.delete(path);
+    else {
+      const cached = responseCache.get(path);
+      if (cached && Date.now() - cached.ts < staleTime) {
+        hasData.current = true; setData(cached.data); setError(null);
+        setLoading(false); setRefreshing(false);
+        return Promise.resolve();
+      }
+    }
+
     if (!hasData.current) setLoading(true);
     else setRefreshing(true);
-    controller.current?.abort();
-    const abort = new AbortController();
-    controller.current = abort;
     const id = ++requestId.current;
     inFlight.current++;
-    return api<T>(path, { signal: abort.signal })
+    return sharedGet<T>(path)
       .then(d => {
         // Stale-response protection matters only once there is something to
         // protect. Discarding every response whose id is not the newest is
         // correct for an overwrite and wrong for a first paint: under repeated
-        // mount/abort cycles the request that actually SUCCEEDS is often an
+        // mount/remount cycles the request that actually SUCCEEDS is often an
         // older one, and dropping it left the page with no data and a loading
         // flag that never cleared.
         if (id !== requestId.current && hasData.current) return;
         hasData.current = true; setData(d); setError(null);
       })
       .catch(e => {
-        if (e?.name !== 'AbortError' && id === requestId.current) setError(e.message);
+        if (id === requestId.current) setError(e.message);
       })
       .finally(() => {
         inFlight.current = Math.max(0, inFlight.current - 1);
         // Clearing `loading` is a DIFFERENT question from who may write data, and
         // conflating the two is what left pages spinning forever with a 200 in
         // the network tab. React's StrictMode mounts, cleans up, and mounts
-        // again; the cleanup aborts the first request, so whether the surviving
-        // response still matches `requestId` depends on a race. Loading is now
-        // tied to whether anything is still in flight, which is what the flag
-        // actually means, and to whether data has arrived by any route.
+        // again, so whether the surviving response still matches `requestId`
+        // depends on a race. Loading is tied to whether anything is still in
+        // flight, which is what the flag actually means, and to whether data
+        // has arrived by any route.
         if (inFlight.current === 0 || hasData.current) {
           setLoading(false); setRefreshing(false);
         }
       });
-  }, [path]);
+  }, [path, staleTime]);
 
   useEffect(() => {
     refetch();
-    return () => controller.current?.abort();
   }, [refetch]);
-  return { data, loading, refreshing, error, refetch };
+  return { data, loading, refreshing, error, refetch: () => refetch(true) };
 }
 
 /** Headshot URL from whichever platform id we have. */

@@ -131,7 +131,14 @@ export default function Players() {
   const { data: sets } = useApi<any[]>('/rankings');
   const [setId, setSetId] = useState<number | null>(null);
   const active = setId ?? sets?.[0]?.id ?? null;
-  const { data: board, refetch } = useApi<any[]>(active ? `/edge/board?set_id=${active}` : '/edge/board');
+  // Wait for `/rankings` to resolve before firing `/edge/board` at all. Building
+  // the board path as soon as this component mounts (falling back to no set_id)
+  // meant it fired once immediately and then again the instant the rankings sets
+  // loaded and picked a default `active` id — an aborted, wasted first request on
+  // every single page load. `sets` starts null and flips to an array (even an
+  // empty one) once the fetch resolves, so it's a reliable "have we heard back yet".
+  const boardPath = sets ? (active ? `/edge/board?set_id=${active}` : '/edge/board') : null;
+  const { data: board, refetch } = useApi<any[]>(boardPath);
   const open = usePlayerCard();
 
   const [view, setView] = useState<keyof typeof VIEWS>('board');

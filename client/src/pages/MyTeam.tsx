@@ -52,7 +52,7 @@ export default function MyTeam() {
   }, [lg]);
 
   const scoutUrl = active && synced ? `/trades/${active.id}/scout${myTeamId ? `?team_id=${myTeamId}` : ''}` : null;
-  const { data: scout } = useApi<any>(scoutUrl);
+  const { data: scout, loading: scoutLoading } = useApi<any>(scoutUrl);
   const diffUrl = active && synced && myTeamId ? `/trades/${active.id}/lineup-diff?team_id=${myTeamId}` : null;
   const { data: lineupDiff } = useApi<any>(diffUrl);
   // The season-sim engine (title/playoff odds) and selfScout (weekly floor/ceiling)
@@ -257,7 +257,7 @@ export default function MyTeam() {
             ))}
           </div>
 
-          {tab === 'scout' && active && <TeamScout leagueId={active.id} teamId={myTeamId} />}
+          {tab === 'scout' && active && <TeamScout data={scout} loading={scoutLoading} />}
 
           {tab === 'ceiling' && active && <CeilingLineup leagueId={active.id} teamId={myTeamId} />}
 

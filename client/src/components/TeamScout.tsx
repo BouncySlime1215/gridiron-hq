@@ -1,4 +1,3 @@
-import { useApi } from '../api';
 import { PlayerPill, num } from './TradeCard';
 
 /**
@@ -6,6 +5,11 @@ import { PlayerPill, num } from './TradeCard';
  * specific moves that fix it. Everything is measured against the other teams in
  * the league — "good at RB" only means anything relative to the nine managers you
  * actually play.
+ *
+ * The scout report is fetched once by the parent (MyTeam) — it needs the same
+ * `/trades/:id/scout` payload for its own header stats and the roster tab, so this
+ * component takes the data as a prop instead of re-fetching it. Fetching it here
+ * too used to fire the identical request twice, back to back, on every page load.
  */
 
 const STATUS_TONE: Record<string, string> = {
@@ -19,10 +23,7 @@ const PRIORITY_TONE: Record<string, string> = {
   low: 'border-slate-200 bg-slate-50/60'
 };
 
-export default function TeamScout({ leagueId, teamId }: { leagueId: number; teamId?: string | null }) {
-  const { data: s, loading } = useApi<any>(
-    leagueId ? `/trades/${leagueId}/scout${teamId ? `?team_id=${teamId}` : ''}` : null);
-
+export default function TeamScout({ data: s, loading }: { data: any; loading?: boolean }) {
   if (loading) return <div className="card p-6 text-sm text-slate-500">Scouting your roster against the league…</div>;
   if (!s || s.error) return <div className="card p-6 text-sm text-slate-500">{s?.error ?? 'No analysis available.'}</div>;
 

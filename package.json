@@ -10,7 +10,7 @@
     "install-app": "node scripts/install.mjs",
     "start": "node scripts/start.mjs",
     "build": "vite build --config client/vite.config.ts",
-    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test": "node --experimental-test-module-mocks --test --test-concurrency=1 test/*.test.js",
     "typecheck": "tsc --noEmit",
     "lint": "node scripts/lint.mjs",
     "start:smoke": "node scripts/start-smoke.mjs",

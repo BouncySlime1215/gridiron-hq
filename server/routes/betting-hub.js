@@ -28,6 +28,9 @@ import { teaserExecutionBoard } from '../services/nfl-teaser-execution.js';
 import { bookFeedStatus } from '../services/book-feeds.js';
 import { serveReport } from '../services/report-cache.js';
 import { polymarketMovement } from '../services/polymarket-lines.js';
+import { getApiKey } from '../services/claude.js';
+import { explainPage } from '../services/nfl-page-explain.js';
+import { recordPageExplanation, recentPageExplanations } from '../services/nfl-page-explain-audit.js';
 
 const r = Router();
 
@@ -810,6 +813,41 @@ r.post('/decisions/record', async (req, res, next) => {
     const { recordSeasonBases } = await import('../services/decision-basis.js');
     res.json(await recordSeasonBases({ season: Number(req.query.season) || 2025 }));
   } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------- "what am I looking at" */
+
+/**
+ * The floating page assistant mounted once in BettingWorkspace, reachable on
+ * every page under that shell (Command, all of /betting/nfl, all of
+ * /betting/mlb). Takes a small, page-specific `visible_summary` the caller
+ * already had in hand for rendering — never the raw API payload — plus the
+ * current route/section/subview and, optionally, a typed follow-up question.
+ * Same explanation-only discipline as /nfl-betting/explain/ai: this can
+ * never place a bet, size a stake, or override a gate/verdict, only describe
+ * what's already on screen using the desk's own glossary.
+ */
+r.post('/explain/page', async (req, res, next) => {
+  try {
+    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
+    const b = req.body ?? {};
+    const route = typeof b.route === 'string' ? b.route.trim() : '';
+    if (!route) return res.status(400).json({ error: 'route is required' });
+    const section = typeof b.section === 'string' ? b.section : null;
+    const subview = typeof b.subview === 'string' ? b.subview : null;
+    const question = typeof b.question === 'string' && b.question.trim() ? b.question : null;
+    const visibleSummary = (b.visible_summary && typeof b.visible_summary === 'object' && !Array.isArray(b.visible_summary))
+      ? b.visible_summary : {};
+
+    const translation = await explainPage({ route, section, subview, visibleSummary, question });
+    const audit = recordPageExplanation({ route, section, subview, question, visibleSummary, translation });
+    res.json({ ...translation, audit });
+  } catch (e) { next(e); }
+});
+
+r.get('/explain/page/audits', (req, res, next) => {
+  try { res.json({ explanations: recentPageExplanations({ limit: req.query.limit }) }); }
+  catch (e) { next(e); }
 });
 
 export default r;

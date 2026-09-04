@@ -1,5 +1,6 @@
 import { useApi } from '../../api';
 import { NOT_PROVEN_MESSAGE } from './copy';
+import { usePageExplain } from '../../components/betting/PageExplainContext';
 
 /**
  * Why staking is blocked, condition by condition.
@@ -53,6 +54,13 @@ export default function Gates() {
   const { data, loading } = useApi<Cal>('/nfl-betting/calibration/cover');
   const cal = data?.calibration;
   const m = cal?.metrics;
+
+  // Small, honest summary — must run before any early return so hook order
+  // never changes between renders.
+  usePageExplain('engine', 'gates', {
+    calibration_stored: !!cal, forward_gate_passed: m?.forward_gate_passed ?? null,
+    walk_forward_n: m?.walk_forward_n ?? null
+  });
 
   if (loading) return <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading calibration…</div>;
   if (!cal || !m) {

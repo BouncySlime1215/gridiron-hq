@@ -7,6 +7,7 @@ import { ModelLoadingSignature } from '../components/betting/ModelLoadingSignatu
 import { NflModelOperations } from '../components/betting/ModelOperations';
 import Training from './betting/Training';
 import { NOT_PROVEN_MESSAGE } from './betting/copy';
+import { usePageExplain } from '../components/betting/PageExplainContext';
 
 const Edges = lazy(() => import('./betting/Edges'));
 const LineShop = lazy(() => import('./betting/LineShop'));
@@ -138,6 +139,19 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
     activeStage={activeStage}
     actions={section === 'board' ? <><select aria-label="NFL week" value={week} onChange={event => setWeek(Number(event.target.value))} className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-bold text-white">{Array.from({ length: 18 }, (_, index) => <option className="text-slate-900" key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><button onClick={refreshLines} disabled={running} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-950">Refresh prices</button></> : undefined}>
 
+    {/* BettingWorkspace's PageExplainContext.Provider only wraps its `children` —
+        it does not wrap NflMarketBoard itself (which is BettingWorkspace's
+        parent/caller), so the registration has to happen from a component
+        actually rendered as a child, not from a hook called directly in this
+        function body. */}
+    <BoardPageExplainRegistration
+      section={section} subview={section === 'board' ? decideView : section === 'execute' ? executeView : section === 'engine' ? proofView : null}
+      summary={section === 'board' && decideView === 'games' ? {
+        games_shown: rows.length, eligible: rows.filter(row => row.eligible).length,
+        tracked: bets.data?.bets.length ?? 0, model_probabilities_hidden: !hub.data?.model.sizing_allowed,
+        evidence_status: candidates.data?.evidence_status ?? 'unknown'
+      } : {}} />
+
     <WorkspaceNav value={section} onChange={setSection} items={[
       { id: 'board', label: 'Board', detail: 'Rank, filter, review, track', count: rows.length || undefined },
       { id: 'execute', label: 'Execute', detail: 'Edges, prices, venues' },
@@ -198,6 +212,15 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
       {proofView === 'data' && <NflModelOperations />}
     </>}
   </BettingWorkspace>;
+}
+
+/** See the comment at its call site: this has to be an actual child component
+ * for usePageExplain's useContext() call to see BettingWorkspace's provider. */
+function BoardPageExplainRegistration({ section, subview, summary }: {
+  section: Section; subview: string | null; summary: Record<string, unknown>;
+}) {
+  usePageExplain(section, subview, summary);
+  return null;
 }
 
 function DecisionQueue({ rows, loading, error, policy, bets, tracking, openExplain, explanations, onExplain, onTrack, onRun, running, runResult }: {

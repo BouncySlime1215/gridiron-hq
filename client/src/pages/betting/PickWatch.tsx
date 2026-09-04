@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, useApi } from '../../api';
 import { EmptyState, StatusPill } from '../../components/betting/BettingUI';
+import { usePageExplain } from '../../components/betting/PageExplainContext';
 
 /**
  * Live pick watch.
@@ -80,6 +81,14 @@ export default function PickWatch() {
   };
 
   const lastChecked = board?.picks[0]?.checked_at ?? runResult?.checked_at ?? null;
+
+  // Small, honest summary of what's actually rendered — costs nothing extra
+  // since `board` already has every one of these fields for the tiles below.
+  usePageExplain('execute', 'watch', {
+    open_picks: board?.open ?? 0, more_favorable: board?.more_favorable ?? 0,
+    less_favorable: board?.less_favorable ?? 0, actionable: board?.actionable ?? 0,
+    gate_status: board?.any_gate_open ? 'gate_open_actionable' : 'watching_no_action'
+  });
 
   return (
     <div>

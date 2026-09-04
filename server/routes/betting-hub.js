@@ -545,6 +545,35 @@ r.get('/audits/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * Decay watch: does a finding that already cleared its gate still hold up on
+ * fresh, post-approval data? Distinct from /audits above — this never
+ * re-runs a sealed audit, it grades already-shipped artifacts (coordinator
+ * weights, calibration gates) against data they have never seen. Report
+ * only: flags for human review, changes nothing on its own.
+ */
+r.get('/decay-watch', async (req, res, next) => {
+  try {
+    const { decayWatchStatus } = await import('../services/decay-watch.js');
+    res.json(decayWatchStatus());
+  } catch (e) { next(e); }
+});
+
+r.get('/decay-watch/history', async (req, res, next) => {
+  try {
+    const { decayWatchHistory } = await import('../services/decay-watch.js');
+    res.json({ runs: decayWatchHistory(Math.min(200, Number(req.query.limit) || 50)) });
+  } catch (e) { next(e); }
+});
+
+r.post('/decay-watch/run', async (req, res, next) => {
+  try {
+    const { runDecayWatch } = await import('../services/decay-watch.js');
+    res.json(await runDecayWatch({ minN: Number(req.query.min_n) || undefined,
+      alpha: Number(req.query.alpha) || undefined }));
+  } catch (e) { next(e); }
+});
+
 /** Is every built module actually wired into the running application? */
 r.get('/system/connectivity', async (req, res, next) => {
   try {

@@ -224,7 +224,10 @@ function pairedP(data, candidate, trials = 2000) {
   return { brier_delta: +observed.toFixed(6), p_value: +((extreme + 1) / (trials + 1)).toFixed(6), trials };
 }
 
-function tdRows(replayRows) {
+// Exported so decay-watch.js can build the exact same per-row shape for
+// data strictly AFTER a fit's train_through season — never to re-run this
+// audit itself, only to grade the already-frozen model against fresh rows.
+export function tdRows(replayRows) {
   return replayRows.filter(r => r.eligibility?.markets?.player_anytime_td)
     .map(r => ({ p: r.market.anytime_td, y: r.actual.anytime_td,
       position: r.position, season: r.season, week: r.week }));

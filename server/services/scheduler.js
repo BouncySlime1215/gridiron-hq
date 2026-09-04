@@ -384,6 +384,18 @@ async function refreshTradeAssetUniverse() {
   return { leagues_warmed: results.filter(r => r.ok).length, failures: results.filter(r => !r.ok) };
 }
 
+/**
+ * Does an already-approved finding still work on fresh, out-of-sample data?
+ * See decay-watch.js's header for why this is a genuinely separate check
+ * from audit-registry.js's sealed audits (it never re-runs one) and from
+ * nfl-model-watch.js's discovery loop (it watches shipped things, not
+ * candidates). Report-only: it flags for human review, never reverts.
+ */
+async function refreshDecayWatch() {
+  const { runDecayWatch } = await import('./decay-watch.js');
+  return runDecayWatch();
+}
+
 /** Refit the TD calibrator on fixed chronological eras; promotion still requires replication. */
 async function refreshNflPropCalibration() {
   const { propReplayRows } = await import('./nfl-props.js');
@@ -744,6 +756,20 @@ export const JOBS = {
    */
   nfl_model_watch: { run: refreshModelWatch, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'Model drift watch and candidate discovery (report only)' },
+  /*
+   * Distinct from nfl_model_watch above: that job re-evaluates CANDIDATES
+   * against sealed audits. This job re-evaluates things ALREADY APPROVED
+   * and shipped (the fantasy coordinator's weights, the anytime-TD
+   * calibrator) against fresh, strictly-post-approval data, using the
+   * always-valid sequential test so it can be checked again every day as
+   * more data lands without inflating the false-positive rate. 'growth'
+   * tier so it actually runs on the default (non-AUTO_HEAVY_SYNC) timer —
+   * a decay check that only ever ran behind a flag nobody sets would be
+   * exactly the "silently never runs" bug this project has already found
+   * and fixed several times over.
+   */
+  decay_watch: { run: refreshDecayWatch, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'Post-approval decay watch: do shipped findings still hold on fresh data? (report only)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
   nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live',

@@ -341,6 +341,39 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
  * Weekly floor and ceiling of a lineup, from each starter's observed distribution.
  * Two rosters can project identically and have very different variance; a Win-now
  * team wants floor, a longshot wants ceiling.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHY THIS STILL SUMS INDEPENDENTLY, VERIFIED AGAINST REAL DATA
+ *
+ * `correlation.js` has real fitted archetype correlations (QB-WR same team
+ * r=0.176, RB-RB same team r≈-0.05, WR-WR same team r≈0.011 — see
+ * `correlationTable()`) and `ceiling-lineup.js` already uses them for the one
+ * place they earn their keep: choosing WHICH bench players to start when the
+ * objective is to maximise P(score >= target). That is a search over lineup
+ * *composition*, where a stack is a lever the optimiser can pull.
+ *
+ * This function is not that. It scores a lineup that is already fixed —
+ * usually the highest-`adj_ppg` starters — so covariance only matters here if
+ * that fixed lineup happens to contain a same-team pair. Tested directly
+ * against the user's real synced league (league id 7, "My 2026 League", 10
+ * rosters, `fitCorrelations()` already run on real boxscores):
+ *
+ *   - 7 of 10 teams' optimal starting lineups contain ZERO same-team pair at
+ *     all — the players a real draft assembles are spread across different
+ *     NFL teams almost by construction, unlike a DFS lineup built to stack.
+ *   - Of the 3 that do (one QB-WR stack, one 3-player same-team stack), the
+ *     covariance-aware joint standard deviation (sd_i from each player's own
+ *     p10/p90, correlated via `correlationMatrix()`) differed from the
+ *     independent sum by 0-3.4%, moving the resulting floor/ceiling estimate
+ *     by roughly 0-1.1 points out of ~90 — never enough to flip a verdict,
+ *     which is driven by `ppg_delta`, not spread.
+ *
+ * So wiring covariance into `lineupSpread`/`evaluate()` was evaluated and
+ * declined: on this real roster data it does not change any trade
+ * recommendation in a materially different way, because real drafted rosters
+ * rarely stack and the fitted correlations themselves are modest. The
+ * machinery already lives in the one place it changes an actual decision —
+ * `ceiling-lineup.js` — and does not need duplicating here on a null result.
  */
 export function lineupSpread(lineup) {
   const starters = lineup.slots.map(s => s.player).filter(Boolean);

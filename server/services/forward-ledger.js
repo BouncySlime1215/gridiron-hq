@@ -36,6 +36,30 @@
  * against a price rather than against a coin flip. A model with no edge shows no
  * CLV within weeks; one with an edge shows it long before the win rate is
  * conclusive. Both are tracked, and CLV is the one to watch first.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * NO POST-TRADE/POST-BET ATTRIBUTION HERE — YET, HONESTLY, BECAUSE THE DATA ISN'T
+ *
+ * `week-postmortem.js` decomposes a fantasy week into decision cost / projection
+ * error / variance because it has thousands of real completed weeks to draw the
+ * "what would have happened" distribution from. A betting equivalent — which
+ * factor, model, or book contributed what to a period's P&L, Brinson-style —
+ * would need the same thing: real settled rows to decompose.
+ *
+ * Checked directly (2026-09-04): `forward_picks` has 0 rows and `nfl_bet_log`
+ * (nfl-clv.js) has 0 rows. There is nothing settled to attribute — not a thin
+ * sample that would produce a wide-error estimate, an *empty* one. Building a
+ * decomposition function against zero rows would be scaffolding around a
+ * placeholder, not a measurement, and it could not be tested against anything
+ * real. Both tables are already shaped for this the day real settled bets
+ * exist — `nfl_bet_log` carries `source`, `book`, `market` and `model_edge` per
+ * row, which is exactly what a factor/book/model split needs — so the schema
+ * is not the gap. The gap is that no bet has been placed and settled through
+ * either ledger yet. Revisit this once `forwardLedger().settled` or an
+ * `nfl_bet_log` grade count is large enough to say anything (the same
+ * `distance_to_proof` reasoning below applies: a handful of settled bets
+ * split three ways by factor produces bins of one or two, which is not an
+ * attribution, it's noise dressed up as one).
  */
 import { rows, row, run } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';

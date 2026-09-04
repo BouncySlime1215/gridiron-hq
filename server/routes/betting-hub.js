@@ -560,6 +560,66 @@ r.get('/watch/log', async (req, res, next) => {
 });
 
 /**
+ * Naive proportional-split de-vig vs Shin's method, computed on real live
+ * multi-book quotes (not a hardcoded example). For every two-sided price
+ * quoted by the same book on the same event, both fair-probability methods
+ * are computed and compared; rows are sorted by how much they disagree, so
+ * the skewed lines where Shin's correction actually matters — heavy
+ * favorites, where the naive split misprices the favorite-longshot bias —
+ * surface first.
+ */
+r.get('/devig/compare', async (req, res, next) => {
+  try {
+    const { shinDevig, proportionalDevig } = await import('../services/nfl-devig.js');
+    const { simultaneousQuotes } = await import('../services/nfl-shopping-board.js');
+    const market = req.query.market === 'totals' ? 'totals' : 'spreads';
+    const events = simultaneousQuotes(market);
+
+    const out = [];
+    for (const ev of events) {
+      const bySide = new Map();
+      for (const q of ev.quotes) {
+        if (!q.side) continue;
+        if (!bySide.has(q.side)) bySide.set(q.side, []);
+        bySide.get(q.side).push(q);
+      }
+      const sides = [...bySide.keys()];
+      if (sides.length !== 2) continue; // a two-outcome devig needs exactly two sides
+      const [sideA, sideB] = sides;
+      const byBook = new Map();
+      for (const q of bySide.get(sideA)) byBook.set(q.book, { book: q.book, a: q });
+      for (const q of bySide.get(sideB)) {
+        if (byBook.has(q.book)) byBook.get(q.book).b = q;
+      }
+      for (const { book, a, b } of byBook.values()) {
+        if (!a || !b) continue; // needs the same book quoting both sides
+        const naive = proportionalDevig(a.american_price, b.american_price);
+        const shin = shinDevig(a.american_price, b.american_price);
+        if (!naive || !shin) continue;
+        out.push({
+          event_id: ev.event_id,
+          matchup: ev.away_team && ev.home_team ? `${ev.away_team} at ${ev.home_team}` : ev.event_id,
+          market, book, captured_at: ev.captured_at,
+          side_a: sideA, price_a: a.american_price, side_b: sideB, price_b: b.american_price,
+          naive_prob_a: +naive.probA.toFixed(4), naive_prob_b: +naive.probB.toFixed(4),
+          shin_prob_a: +shin.probA.toFixed(4), shin_prob_b: +shin.probB.toFixed(4),
+          shin_z: shin.z == null ? null : +shin.z.toFixed(4),
+          divergence: +Math.abs(shin.probA - naive.probA).toFixed(4)
+        });
+      }
+    }
+    out.sort((x, y) => y.divergence - x.divergence);
+    res.json({
+      market, pairs: out.slice(0, Math.min(200, Number(req.query.limit) || 40)),
+      note: out.length
+        ? 'Sorted by disagreement between the two methods. A near-even price (e.g. -110/-110) always ' +
+          'shows zero divergence — the gap only opens up as one side gets more lopsided.'
+        : 'No live two-sided multi-book quotes captured yet for this market.'
+    });
+  } catch (e) { next(e); }
+});
+
+/**
  * The audit registry: preregistered, sealed-on-first-run, and counted against a
  * multiple-comparisons correction so repeated testing cannot quietly manufacture
  * a discovery.

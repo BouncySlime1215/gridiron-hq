@@ -9,6 +9,7 @@ import Training from './betting/Training';
 
 const Edges = lazy(() => import('./betting/Edges'));
 const LineShop = lazy(() => import('./betting/LineShop'));
+const PickWatch = lazy(() => import('./betting/PickWatch'));
 const Venues = lazy(() => import('./betting/Venues'));
 const NflProps = lazy(() => import('./betting/NflProps'));
 const FieldSim = lazy(() => import('./betting/FieldSim'));
@@ -25,9 +26,9 @@ const EnsemblePage = lazy(() => import('./betting/Ensemble'));
 const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 
 type Section = 'board' | 'execute' | 'live' | 'engine';
-type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info' | 'forward';
+type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'watch' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info' | 'forward';
 type DecideView = 'games' | 'props';
-type ExecuteView = 'edge' | 'shop' | 'venues';
+type ExecuteView = 'edge' | 'shop' | 'venues' | 'watch';
 type ProofView = 'overview' | 'forward' | 'audit' | 'diagnostics' | 'data' | 'ensemble' | 'variables';
 
 interface AllGameRow {
@@ -53,7 +54,7 @@ interface AiExplanation { paragraph: string; limitations: string[]; audit: { id:
 interface TrackedBet { id: number; matchup: string; selection: string; side: string | null; american_price: number; status: string }
 
 const normalizeSection = (tool: InitialTool): Section => {
-  if (['edges', 'lines', 'venues', 'execute'].includes(tool)) return 'execute';
+  if (['edges', 'lines', 'venues', 'watch', 'execute'].includes(tool)) return 'execute';
   if (['simulator', 'replay'].includes(tool)) return 'live';
   if (['training', 'operations', 'ensemble', 'variables', 'model', 'audit', 'ai', 'info', 'proof', 'forward'].includes(tool)) return 'engine';
   return 'board';
@@ -71,7 +72,7 @@ const initialProofView = (tool: InitialTool): ProofView => {
 export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?: InitialTool }) {
   const [section, setSection] = useState<Section>(() => normalizeSection(initialTool));
   const [decideView, setDecideView] = useState<DecideView>(initialTool === 'props' ? 'props' : 'games');
-  const [executeView, setExecuteView] = useState<ExecuteView>(initialTool === 'venues' ? 'venues' : initialTool === 'lines' ? 'shop' : 'edge');
+  const [executeView, setExecuteView] = useState<ExecuteView>(initialTool === 'venues' ? 'venues' : initialTool === 'lines' ? 'shop' : initialTool === 'watch' ? 'watch' : 'edge');
   const [proofView, setProofView] = useState<ProofView>(() => initialProofView(initialTool));
   const [week, setWeek] = useState(1);
   const [running, setRunning] = useState(false);
@@ -152,10 +153,11 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
     </>}
 
     {section === 'execute' && <>
-      <Subnav value={executeView} onChange={setExecuteView} items={[['edge', 'Ticket builder'], ['shop', 'Line shop'], ['venues', 'Venue routing']]} />
+      <Subnav value={executeView} onChange={setExecuteView} items={[['edge', 'Ticket builder'], ['shop', 'Line shop'], ['venues', 'Venue routing'], ['watch', 'Pick watch']]} />
       {executeView === 'edge' && <><NextAction eyebrow="Execution focus" title={teaser?.live ? teaser.headline : 'Verify the payout before building a ticket'} detail={teaser?.detail ?? 'Reading the latest price gate…'} action={() => setExecuteView('shop')} tone="light" /><Panel fallback="Loading ticket evidence…"><Edges /></Panel></>}
       {executeView === 'shop' && <Panel fallback="Loading line shop…"><LineShop /></Panel>}
       {executeView === 'venues' && <Panel fallback="Loading venue routes…"><Venues /></Panel>}
+      {executeView === 'watch' && <Panel fallback="Loading the pick watch board…"><PickWatch /></Panel>}
     </>}
 
     {section === 'live' && <Panel fallback="Building field replay…"><FieldSim /></Panel>}

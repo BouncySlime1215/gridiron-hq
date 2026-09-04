@@ -7,9 +7,11 @@ export default defineConfig({
   root: path.dirname(fileURLToPath(import.meta.url)),
   plugins: [react()],
   server: {
-    port: 5178,
+    // Overridable so a second dev instance (e.g. a background verification
+    // session) can run alongside the usual one without a port clash.
+    port: Number(process.env.VITE_CLIENT_PORT) || 5178,
     proxy: {
-      '/api': 'http://localhost:5177'
+      '/api': process.env.VITE_API_PROXY || 'http://localhost:5177'
     }
   }
 });

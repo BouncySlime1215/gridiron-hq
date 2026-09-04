@@ -27,10 +27,16 @@
  * a game in one simultaneous quote set. A book that appears in two feeds is
  * kept once, from the more direct source.
  *
- * These are undocumented endpoints used by the books' own web pages. They
- * are polled gently (hourly by default) with an ordinary browser user agent;
- * set FREE_BOOK_FEEDS=0 to disable. If a feed changes shape it reports
- * `events: 0` with the error, never a malformed row.
+ * These are undocumented endpoints used by the books' own web pages, polled
+ * with an ordinary browser user agent; set FREE_BOOK_FEEDS=0 to disable. If a
+ * feed changes shape it reports `events: 0` with the error, never a malformed
+ * row. Cadence is deliberately split (see scheduler.js's nfl_book_feeds_fast
+ * and nfl_book_feeds_slow): Pinnacle and OddsTrader poll every 5 minutes —
+ * Pinnacle's own documented commercial API tolerates 10 requests/second, and
+ * this is the same infrastructure the guest endpoint sits on — while Kambi
+ * and Bovada, with no published rate limit found anywhere, stay hourly. Every
+ * provider also backs off on its own after a failure rather than being
+ * retried on the very next tick — see the backoff block below.
  */
 import { teamResolver } from './team-codes.js';
 import { db, rows, run } from '../db/index.js';
@@ -246,6 +252,48 @@ const PROVIDERS = {
     'https://www.bovada.lv/services/sports/event/coupon/events/A/description/football/nfl?marketFilterId=def&preMatchOnly=true&eventsLimit=50&lang=en'))
 };
 
+/* ------------------------------------------------------- provider backoff */
+
+/**
+ * Skip a provider for a while after it fails, instead of hitting it again on
+ * the very next scheduled tick. These are undocumented endpoints with no
+ * published rate limit — a failure is the only signal available that a poll
+ * was unwelcome (a block, a schema change, a timeout), and hammering it again
+ * ninety seconds later is exactly the syndicate-like traffic pattern books are
+ * documented to watch for. Doubles from 2 minutes up to a 60-minute cap per
+ * consecutive failure, and forgets the moment a capture succeeds again — a
+ * transient blip costs one skipped cycle, not a standing outage.
+ *
+ * Bounded by construction: at most one entry per key in PROVIDERS (four),
+ * never per request, so this cannot grow across a multi-day run.
+ */
+const BACKOFF_BASE_MS = 2 * 60 * 1000;
+const BACKOFF_MAX_MS = 60 * 60 * 1000;
+const _providerBackoff = new Map(); // provider -> { until, failures }
+
+function inBackoff(name) {
+  const b = _providerBackoff.get(name);
+  return Boolean(b && Date.now() < b.until);
+}
+function backoffRemainingMs(name) {
+  const b = _providerBackoff.get(name);
+  return b ? Math.max(0, b.until - Date.now()) : 0;
+}
+function recordProviderFailure(name) {
+  const prev = _providerBackoff.get(name) ?? { failures: 0 };
+  const failures = prev.failures + 1;
+  const delay = Math.min(BACKOFF_BASE_MS * 2 ** (failures - 1), BACKOFF_MAX_MS);
+  _providerBackoff.set(name, { failures, until: Date.now() + delay });
+}
+function recordProviderSuccess(name) { _providerBackoff.delete(name); }
+
+/** For tests and the status endpoint: how each provider's backoff currently stands. */
+export function bookFeedBackoffStatus() {
+  return Object.fromEntries([..._providerBackoff.entries()]
+    .map(([name, b]) => [name, { failures: b.failures, backing_off: inBackoff(name), remaining_ms: backoffRemainingMs(name) }]));
+}
+export function __resetBookFeedBackoff() { _providerBackoff.clear(); }
+
 /* --------------------------------------------------------------- capture */
 
 /** Merge every provider's quotes into one simultaneous, deduplicated set. */
@@ -267,7 +315,13 @@ export async function captureBookFeeds({ providers = Object.keys(PROVIDERS) } = 
   if (!ENABLED) return { skipped: true, reason: 'FREE_BOOK_FEEDS=0' };
   const byProvider = {}, errors = {};
   await Promise.all(providers.map(async name => {
-    try { byProvider[name] = await PROVIDERS[name](); } catch (error) { errors[name] = error.message; byProvider[name] = []; }
+    if (inBackoff(name)) {
+      byProvider[name] = [];
+      errors[name] = `skipped: backing off ${Math.round(backoffRemainingMs(name) / 1000)}s after a recent failure`;
+      return;
+    }
+    try { byProvider[name] = await PROVIDERS[name](); recordProviderSuccess(name); }
+    catch (error) { errors[name] = error.message; byProvider[name] = []; recordProviderFailure(name); }
   }));
   const merged = mergeQuotes(byProvider);
   const at = new Date().toISOString();
@@ -314,7 +368,12 @@ export function bookFeedStatus() {
   const byProvider = rows(`SELECT provider, COUNT(*) quotes, MAX(captured_at) latest
     FROM nfl_line_snapshots WHERE provider LIKE 'free:%' GROUP BY provider`);
   return { enabled: ENABLED, providers: Object.keys(PROVIDERS), recent_captures: latest, by_provider: byProvider,
-    note: 'Public book endpoints, polled hourly with a browser user agent. Set FREE_BOOK_FEEDS=0 to disable. These feed the same snapshot table and quote tape as the Odds API and cost nothing.' };
+    backoff: bookFeedBackoffStatus(),
+    note: 'Public book endpoints. Pinnacle/OddsTrader poll every 5 minutes (API-like, high published rate limits); ' +
+      'Kambi/Bovada poll hourly (undocumented scrapes, no published limit — kept conservative). A failing provider ' +
+      'backs off instead of retrying immediately; see backoff above. Set FREE_BOOK_FEEDS=0 to disable. These feed the ' +
+      'same snapshot table and quote tape as the Odds API and cost nothing.' };
 }
 
-export const __test = { parseOddstrader, parsePinnacle, parseKambi, parseBovada, mergeQuotes, eventKey };
+export const __test = { parseOddstrader, parsePinnacle, parseKambi, parseBovada, mergeQuotes, eventKey,
+  inBackoff, recordProviderFailure, recordProviderSuccess, backoffRemainingMs };

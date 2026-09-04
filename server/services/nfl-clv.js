@@ -19,6 +19,7 @@
 import { db, rows, run } from '../db/index.js';
 import './line-shopping.js';   // owns nfl_line_snapshots, read below
 import { isFreshQuote } from './book-feeds.js';
+import { shinNoVig, proportionalNoVig } from './nfl-devig.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_bet_log (
@@ -202,15 +203,20 @@ export function fairProbabilityOfOurBet({ market, ourLine, closeLine, closeFairP
  *
  * Raw implied probabilities sum to more than 1 — that excess is the vig, and
  * comparing a bet price against a vigged probability would score every bet as
- * losing value. Proportional (multiplicative) de-vigging is used because it is
- * the standard and needs nothing beyond the two prices.
+ * losing value. Shin's method (see nfl-devig.js) is the default here — it
+ * corrects for the favorite-longshot bias a naive proportional split misses
+ * on a skewed line. `proportionalNoVigProbability` below is kept, unused by
+ * this module, for anything that wants to compare the two methods directly.
  */
 export function noVigProbability(ourPrice, theirPrice) {
-  const a = americanToProb(ourPrice), b = americanToProb(theirPrice);
-  if (a == null) return null;
-  if (b == null) return a;               // one-sided quote: best available is the raw implied
-  const sum = a + b;
-  return sum > 0 ? a / sum : null;
+  if (theirPrice == null) return americanToProb(ourPrice); // one-sided quote: best available is the raw implied
+  return shinNoVig(ourPrice, theirPrice);
+}
+
+/** The legacy proportional-split method, kept only for side-by-side comparison. */
+export function proportionalNoVigProbability(ourPrice, theirPrice) {
+  if (theirPrice == null) return americanToProb(ourPrice);
+  return proportionalNoVig(ourPrice, theirPrice);
 }
 
 /**

@@ -24,6 +24,7 @@ import { fitEnsemble, ensembleLine } from './nfl-ensemble.js';
 import { mean, quantile, random, withRandomSeed } from './stats-util.js';
 import { NFL_PRODUCTION_POLICY, NFL_HISTORICAL_REPLAY_POLICY,
   applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
+import { shinNoVig } from './nfl-devig.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_replay_runs (
@@ -55,13 +56,8 @@ db.exec(`
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
-const americanToProb = odds => (odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100));
-/** No-vig probability of the first side, from both sides' real American prices. */
-const noVigProb = (oddsA, oddsB) => {
-  if (oddsA == null || oddsB == null) return null;
-  const a = americanToProb(oddsA), b = americanToProb(oddsB);
-  return a + b > 0 ? a / (a + b) : null;
-};
+/** No-vig probability of the first side, from both sides' real American prices — Shin's method (nfl-devig.js). */
+const noVigProb = (oddsA, oddsB) => shinNoVig(oddsA, oddsB);
 
 export function uncertainty(bets) {
   const settled = bets.filter(b => b.result === 'Won' || b.result === 'Lost');

@@ -216,6 +216,41 @@ const PROVIDERS = {
   }
 };
 
+/* ------------------------------------------------------- provider backoff */
+
+/**
+ * Same backoff mechanism as book-feeds.js (see its header for why): a
+ * provider that fails is skipped for a while rather than retried on the next
+ * tick, doubling from 2 minutes up to a 60-minute cap per consecutive
+ * failure, and forgotten as soon as a capture succeeds. Bounded to at most
+ * two entries (rotowire, sbr) — cannot grow across a multi-day run.
+ */
+const BACKOFF_BASE_MS = 2 * 60 * 1000;
+const BACKOFF_MAX_MS = 60 * 60 * 1000;
+const _providerBackoff = new Map();
+
+function inBackoff(name) {
+  const b = _providerBackoff.get(name);
+  return Boolean(b && Date.now() < b.until);
+}
+function backoffRemainingMs(name) {
+  const b = _providerBackoff.get(name);
+  return b ? Math.max(0, b.until - Date.now()) : 0;
+}
+function recordProviderFailure(name) {
+  const prev = _providerBackoff.get(name) ?? { failures: 0 };
+  const failures = prev.failures + 1;
+  const delay = Math.min(BACKOFF_BASE_MS * 2 ** (failures - 1), BACKOFF_MAX_MS);
+  _providerBackoff.set(name, { failures, until: Date.now() + delay });
+}
+function recordProviderSuccess(name) { _providerBackoff.delete(name); }
+
+export function extraBookFeedBackoffStatus() {
+  return Object.fromEntries([..._providerBackoff.entries()]
+    .map(([name, b]) => [name, { failures: b.failures, backing_off: inBackoff(name), remaining_ms: backoffRemainingMs(name) }]));
+}
+export function __resetExtraBookFeedBackoff() { _providerBackoff.clear(); }
+
 /* --------------------------------------------------------------- capture */
 
 // `nfl_line_snapshots` keys on (captured_at, event, book, market, side) with
@@ -243,7 +278,13 @@ export async function captureExtraBookFeeds({ providers = Object.keys(PROVIDERS)
   if (!ENABLED) return { skipped: true, reason: 'FREE_BOOK_FEEDS=0' };
   const byProvider = {}, errors = {};
   await Promise.all(providers.map(async name => {
-    try { byProvider[name] = await PROVIDERS[name]({ week }); } catch (error) { errors[name] = error.message; byProvider[name] = []; }
+    if (inBackoff(name)) {
+      byProvider[name] = [];
+      errors[name] = `skipped: backing off ${Math.round(backoffRemainingMs(name) / 1000)}s after a recent failure`;
+      return;
+    }
+    try { byProvider[name] = await PROVIDERS[name]({ week }); recordProviderSuccess(name); }
+    catch (error) { errors[name] = error.message; byProvider[name] = []; recordProviderFailure(name); }
   }));
   const merged = mergeExtraQuotes(byProvider);
   const at = new Date().toISOString();
@@ -284,7 +325,9 @@ export function extraBookFeedStatus() {
   const circa = rows(`SELECT captured_at, COUNT(*) quotes FROM nfl_line_snapshots WHERE book='circa'
     GROUP BY captured_at ORDER BY captured_at DESC LIMIT 3`);
   return { enabled: ENABLED, providers: Object.keys(PROVIDERS), by_provider: byProvider, circa_recent: circa,
-    note: 'Rotowire odds table (Circa, DK, FD, MGM, Caesars, BetRivers, Hard Rock, Fanatics, theScore, Betr) and sportsbookreview.com (eight books with openers). Same snapshot table as the other free feeds; not written to the quote tape. Set FREE_BOOK_FEEDS=0 to disable.' };
+    backoff: extraBookFeedBackoffStatus(),
+    note: 'Rotowire odds table (Circa, DK, FD, MGM, Caesars, BetRivers, Hard Rock, Fanatics, theScore, Betr) and sportsbookreview.com (eight books with openers). Same snapshot table as the other free feeds; not written to the quote tape. Both are undocumented consumer-site endpoints kept on the conservative hourly cadence, and a failing provider backs off instead of retrying immediately — see backoff above. Set FREE_BOOK_FEEDS=0 to disable.' };
 }
 
-export const __test = { parseRotowire, parseSbr, sbrBuildId, easternToIso, eventKey };
+export const __test = { parseRotowire, parseSbr, sbrBuildId, easternToIso, eventKey,
+  inBackoff, recordProviderFailure, recordProviderSuccess, backoffRemainingMs };

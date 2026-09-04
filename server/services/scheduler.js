@@ -259,10 +259,37 @@ async function refreshSportsGameOdds() {
   return captureSportsGameOddsSnapshot();
 }
 
-/** Free multi-book feeds (Pinnacle guest, OddsTrader aggregator, Kambi, Bovada). No credits, no key. */
-async function refreshBookFeeds() {
+/**
+ * Free multi-book feeds (Pinnacle guest, OddsTrader aggregator, Kambi, Bovada) —
+ * split into two jobs on deliberately different cadences.
+ *
+ * Pinnacle and OddsTrader are the "API-like" half: Pinnacle's own documented
+ * commercial API rate limit is 10 requests/second for reads (github.com/
+ * pinnacleapi/pinnacleapi-documentation), and this project's guest endpoint is
+ * the same infrastructure nfl-sharp.js already treats as the sharp reference —
+ * built for frequent machine consumption, not a page a human refreshes. Kalshi
+ * (~30 req/s on public market data) and Polymarket (Gamma ~400 req/s, CLOB
+ * ~900 req/s per their published docs) are in the same tier below for the same
+ * reason. A poll every 5 minutes uses a vanishingly small fraction of any of
+ * those budgets, so it moves here instead of the hourly cadence the fragile
+ * scrapes below still use.
+ *
+ * Kambi and Bovada are undocumented consumer-site endpoints with no published
+ * rate limit anywhere — real research turned up general warnings about books
+ * detecting and soft-blocking syndicate-like automated traffic (captchas, IP
+ * bans), but no actual number to size a cadence against. That is an honest
+ * judgment call, not a researched one: left at the existing hourly cadence
+ * rather than guessing a tighter number has no real backing.
+ */
+async function refreshBookFeedsFast() {
   const { captureBookFeeds } = await import('./book-feeds.js');
-  return captureBookFeeds();
+  return captureBookFeeds({ providers: ['oddstrader', 'pinnacle'] });
+}
+
+/** The fragile-scrape half of the free book feeds — see refreshBookFeedsFast's header. */
+async function refreshBookFeedsSlow() {
+  const { captureBookFeeds } = await import('./book-feeds.js');
+  return captureBookFeeds({ providers: ['kambi', 'bovada'] });
 }
 
 /** Rotowire (incl. Circa) and SBR game lines — the only free Circa source. */
@@ -576,6 +603,18 @@ async function refreshNflNewsSignals() {
   return { rules, ai, coverage: newsSignalCoverage() };
 }
 
+/**
+ * Re-shop every currently open spread/total pick against the live multi-book
+ * snapshot and log the result — see nfl-pick-watch.js's header for the full
+ * scope (a monitoring/alert board, not a bet router; every row stays at
+ * recommended_stake_units=0 until model-governance.js says a champion is
+ * actually in production for that market).
+ */
+async function refreshPickWatch() {
+  const { reshopOpenPicks } = await import('./nfl-pick-watch.js');
+  return reshopOpenPicks();
+}
+
 /** Run the report-only evaluation pass. */
 async function refreshModelWatch() {
   const { runModelWatch } = await import('./nfl-model-watch.js');
@@ -657,13 +696,26 @@ export const JOBS = {
     label: 'ESPN FPI weekly snapshot and TeamRankings predictive (Wednesday)' },
   nfl_forecast_history: { run: refreshForecastHistory, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'Open-Meteo previous-runs: what the wind forecast said before each played kickoff' },
-  nfl_book_feeds: { run: refreshBookFeeds, maxAgeMinutes: 60, tier: 'live',
-    label: 'Free multi-book quotes: Pinnacle, OddsTrader (11 books), BetRivers, Bovada' },
+  nfl_book_feeds_fast: { run: refreshBookFeedsFast, maxAgeMinutes: 5, tier: 'live',
+    label: 'Free multi-book quotes (API-like, polled fast): Pinnacle, OddsTrader (11 books)' },
+  nfl_book_feeds_slow: { run: refreshBookFeedsSlow, maxAgeMinutes: 60, tier: 'live',
+    label: 'Free multi-book quotes (undocumented scrapes, kept conservative): BetRivers (Kambi), Bovada' },
   nfl_qbr_weather: { run: refreshQbrAndWeather, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Weekly ESPN QBR and kickoff-hour weather for the current and prior season' },
   beat_the_close: { run: refreshBeatTheClose, maxAgeMinutes: 60, tier: 'live',
     label: 'Beat the close: signal snapshots, zero-unit shadow decisions, CLV settlement' },
-  polymarket_line_watch: { run: refreshPolymarketLineWatch, maxAgeMinutes: 15, tier: 'live',
+  // Pure SQLite reads plus rankBooks (no network call of its own), so this
+  // rides the live tier's 90-second tick at a genuinely short cadence — the
+  // market snapshots it reads are refreshed no faster than every 5 minutes
+  // anyway (nfl_book_feeds_fast above), so anything shorter would just
+  // re-log an unchanged comparison.
+  nfl_pick_watch: { run: refreshPickWatch, maxAgeMinutes: 5, tier: 'live',
+    label: 'Re-shop every open pick against the live market and log the result (monitoring only, see nfl-pick-watch.js)' },
+  // Polymarket's own published limits (Gamma ~400 req/s, CLOB ~900 req/s —
+  // docs.polymarket.com/api-reference/rate-limits) leave enormous headroom
+  // over a poll this infrequent; tightened from 15 to 3 minutes so a real
+  // move shows up on this project's live board closer to when it happens.
+  polymarket_line_watch: { run: refreshPolymarketLineWatch, maxAgeMinutes: 3, tier: 'live',
     label: 'Polymarket implied spread/total movement (line-movement source)' },
   // Free — ESPN's public scoreboard, no key and no quota — so this runs far more
   // often than the metered jobs. It is the trigger that tells the paid capture
@@ -679,16 +731,21 @@ export const JOBS = {
   // Free and unauthenticated, like the ESPN feeds. Kalshi is an order book
   // rather than a bookmaker's number, and its trade tape carries size and
   // aggressor side — information no sportsbook feed exposes.
+  // Kalshi publishes a ~30 req/s budget for public market data
+  // (docs.kalshi.com/getting_started/rate_limits) — a poll every few minutes
+  // is negligible against that, so this moved from 20 minutes to 3.
   prediction_markets: { run: () => import('./prediction-markets.js').then(async m => ({
     quotes: await m.captureKalshi({}), flow: await m.captureKalshiFlow({}) })),
-  maxAgeMinutes: 20, tier: 'live', label: 'Prediction market quotes and trade tape (free)' },
+  maxAgeMinutes: 3, tier: 'live', label: 'Prediction market quotes and trade tape (free)' },
   // Free, no key. Polymarket is the only venue measured cheaper than Kalshi,
   // and its hourly price history is the only source here that can show how a
-  // price moved around a news event after the fact.
+  // price moved around a news event after the fact. Polymarket's published
+  // Gamma/CLOB rate limits (see polymarket_line_watch above) leave the same
+  // headroom, so this also moved from 30 minutes to 3.
   polymarket: { run: () => import('./polymarket.js').then(async m => ({
     markets: await m.ingestPolymarketNfl({ maxPages: 4 }),
     books: await m.captureOrderBooks({ minVolume: 1000, limit: 40 }) })),
-  maxAgeMinutes: 30, tier: 'live', label: 'Polymarket NFL markets and order books (free)' },
+  maxAgeMinutes: 3, tier: 'live', label: 'Polymarket NFL markets and order books (free)' },
   // Free and keyless for discovery. Transcription shells out to yt-dlp, which
   // is why this sits on a slow cadence rather than the 90-second tick.
   press_conferences: { run: () => import('./press-conference.js').then(async m => {
@@ -889,7 +946,8 @@ export function startScheduler({
   const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
     'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'nfl_forward_settle',
     'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
-    'nfl_book_feeds', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free', 'polymarket_line_watch', 'beat_the_close'];
+    'nfl_book_feeds_fast', 'nfl_book_feeds_slow', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free',
+    'polymarket_line_watch', 'beat_the_close', 'nfl_pick_watch'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

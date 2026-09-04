@@ -11,6 +11,7 @@ import { NFL_PRODUCTION_POLICY, applyNflPolicy } from './nfl-policy.js';
 import { calibratedCoverProbability } from './nfl-cover-calibration.js';
 import { pregameSnapshotFor } from './nfl-pregame.js';
 import { onlineNeuralPrediction } from './nfl-online-neural.js';
+import { shinNoVig } from './nfl-devig.js';
 
 const COORDINATED_DECISION_VERSION = 'coordinated-market-residual-v1';
 
@@ -223,12 +224,9 @@ export function persistPickDecisions(season, week, decisionBoard) {
   return { recorded_at: at, decisions: decisionBoard.decisions.length };
 }
 
-const americanToProbability = odds => odds == null ? null
-  : (odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100));
-
+/** No-vig fair probability, via Shin's method (see nfl-devig.js). */
 function noVigProbability(odds, oppositeOdds) {
-  const a = americanToProbability(odds), b = americanToProbability(oppositeOdds);
-  return a != null && b != null && a + b > 0 ? a / (a + b) : null;
+  return shinNoVig(odds, oppositeOdds);
 }
 
 const americanToDecimal = odds => (odds > 0 ? 1 + odds / 100 : 1 + 100 / Math.abs(odds));

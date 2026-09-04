@@ -27,6 +27,7 @@ import { playerSignalTrace } from './model-signal-quality.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
 import { calibratedTotalProbability } from './nfl-total-calibration.js';
+import { shinNoVig } from './nfl-devig.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_total_picks (
@@ -567,10 +568,10 @@ const pOver = (samples, line) => mean(samples.map(v => (v > line ? 1 : 0)));
 /* -------------------------------------------------------------- odds math */
 
 const americanToProb = o => (o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100));
+/** No-vig fair probability, via Shin's method (see nfl-devig.js). */
 function noVig(a, b) {
   if (a == null || b == null) return null;
-  const pa = americanToProb(a), pb = americanToProb(b);
-  return pa + pb > 0 ? pa / (pa + pb) : null;
+  return shinNoVig(a, b);
 }
 
 /* ------------------------------------------------------------------ board */

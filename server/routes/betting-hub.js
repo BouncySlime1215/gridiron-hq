@@ -527,6 +527,39 @@ r.get('/execution/ledger', async (req, res, next) => {
 });
 
 /**
+ * The live pick-watch board: every currently open spread/total pick, its
+ * frozen model view from generation, and its CURRENT best price/line from
+ * the live multi-book snapshot — see nfl-pick-watch.js's header for the full
+ * scope. `recommended_stake_units` stays 0 and `status` reads
+ * "watching_no_action" for every row until model-governance.js's registry
+ * says a champion has actually been promoted to production for that market;
+ * this reads that gate live rather than hardcoding the answer, so a future
+ * promotion shows up here automatically.
+ */
+r.get('/watch/board', async (req, res, next) => {
+  try {
+    const { pickWatchBoard } = await import('../services/nfl-pick-watch.js');
+    res.json(pickWatchBoard());
+  } catch (e) { next(e); }
+});
+
+/** Force an immediate re-shop cycle rather than waiting for the scheduler's next tick. */
+r.post('/watch/run', async (req, res, next) => {
+  try {
+    const { reshopOpenPicks } = await import('../services/nfl-pick-watch.js');
+    res.json(reshopOpenPicks());
+  } catch (e) { next(e); }
+});
+
+/** The raw watch log — the queryable audit trail so this feature's own claims stay checkable. */
+r.get('/watch/log', async (req, res, next) => {
+  try {
+    const { pickWatchLog } = await import('../services/nfl-pick-watch.js');
+    res.json(pickWatchLog({ limit: Math.min(1000, Number(req.query.limit) || 200) }));
+  } catch (e) { next(e); }
+});
+
+/**
  * The audit registry: preregistered, sealed-on-first-run, and counted against a
  * multiple-comparisons correction so repeated testing cannot quietly manufacture
  * a discovery.

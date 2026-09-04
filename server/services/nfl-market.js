@@ -20,6 +20,7 @@
  */
 import { rows } from '../db/index.js';
 import { normalCdf, mean, stdev } from './stats-util.js';
+import { shinNoVig } from './nfl-devig.js';
 
 const LEAGUE_MIN_SEASON = 1999;
 
@@ -248,13 +249,8 @@ export function predictGame(homeTeam, awayTeam, season = null, { neutral = false
 
 /* ---------------------------------------------------------- odds conversion */
 
-const americanToProb = odds => (odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100));
-/** No-vig probability of side A, from both sides' real American prices. */
-function noVigProb(oddsA, oddsB) {
-  if (oddsA == null || oddsB == null) return null;
-  const a = americanToProb(oddsA), b = americanToProb(oddsB);
-  return a + b > 0 ? a / (a + b) : null;
-}
+/** No-vig probability of side A, from both sides' real American prices — Shin's method (nfl-devig.js). */
+const noVigProb = (oddsA, oddsB) => shinNoVig(oddsA, oddsB);
 
 /* -------------------------------------------------------------------- board */
 

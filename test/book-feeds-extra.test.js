@@ -167,4 +167,25 @@ test('the kill switch is honoured per provider list and status reads back what w
   } finally {
     globalThis.fetch = realFetch;
   }
+  feeds.__resetExtraBookFeedBackoff();
+});
+
+// Same self-protective behavior as book-feeds.js: a provider that fails is
+// skipped for a while instead of being hit again on the very next tick.
+test('a provider that fails backs off, and a later success clears the backoff', async () => {
+  feeds.__resetExtraBookFeedBackoff();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('simulated block'); };
+  try {
+    const first = await feeds.captureExtraBookFeeds({ providers: ['sbr'] });
+    assert.equal(first.errors.sbr, 'simulated block');
+    assert.ok(feeds.__test.inBackoff('sbr'), 'a real failure must start a backoff window');
+    const second = await feeds.captureExtraBookFeeds({ providers: ['sbr'] });
+    assert.match(second.errors.sbr, /backing off/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  feeds.__test.recordProviderSuccess('sbr');
+  assert.equal(feeds.__test.inBackoff('sbr'), false);
+  feeds.__resetExtraBookFeedBackoff();
 });

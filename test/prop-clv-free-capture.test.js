@@ -47,10 +47,13 @@ test('a captured batch is copied into nfl_prop_clv with a real devigged probabil
 
 test('two batches captured an hour apart are devigged independently, never mixed across time', () => {
   const t1 = '2026-09-03T13:00:00Z', t2 = '2026-09-03T14:00:00Z';
-  // At t1 the book prices Over heavily (-300/+250, no-vig ~72%); at t2 it has
-  // moved to even (-110/-110, ~50%). If attachFairProbabilities ever paired an
-  // Over from one batch with an Under from the other, at least one of these
-  // would devig against the wrong price and the two would not read this far apart.
+  // At t1 the book prices Over heavily (-300/+250, Shin no-vig ~73.2% — see
+  // nfl-devig.js; the naive proportional split would say ~72.4%, understating
+  // the favorite the way the favorite-longshot literature predicts); at t2 it
+  // has moved to even (-110/-110, ~50%). If attachFairProbabilities ever
+  // paired an Over from one batch with an Under from the other, at least one
+  // of these would devig against the wrong price and the two would not read
+  // this far apart.
   snap(t1, 'draftkings', 'Over', 45.5, -300);
   snap(t1, 'draftkings', 'Under', 45.5, 250);
   snap(t2, 'draftkings', 'Over', 45.5, -110);
@@ -59,7 +62,7 @@ test('two batches captured an hour apart are devigged independently, never mixed
   clv.captureFreePropMarket();
   const t1Over = rows(`SELECT implied_probability FROM nfl_prop_clv WHERE captured_at=? AND book='draftkings' AND side='Over'`, t1)[0];
   const t2Over = rows(`SELECT implied_probability FROM nfl_prop_clv WHERE captured_at=? AND book='draftkings' AND side='Over'`, t2)[0];
-  assert.ok(Math.abs(t1Over.implied_probability - 0.7241) < 0.005, 'no-vig -300 vs +250 is about 72.4%');
+  assert.ok(Math.abs(t1Over.implied_probability - 0.7321) < 0.005, 'Shin no-vig -300 vs +250 is about 73.2%');
   assert.ok(Math.abs(t2Over.implied_probability - 0.5) < 0.01, 'the even-priced batch still devigs to ~50%');
 });
 

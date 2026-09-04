@@ -41,6 +41,7 @@ import { hasKey, events, playerProps, flattenAllProps, PROP_MARKETS, usage } fro
 import { playerWeeks } from './nfl-pbp.js';
 import { projectWeek } from './nfl-props.js';
 import { normalizePlayerName } from './player-identity.js';
+import { shinNoVig } from './nfl-devig.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_prop_clv (
@@ -154,11 +155,10 @@ function knownPlayerIndex() {
   return known;
 }
 
+/** No-vig fair probability of `ownPrice`, via Shin's method (see nfl-devig.js). */
 export function noVigPropProbability(ownPrice, oppositePrice) {
-  const own = impliedFromAmerican(ownPrice);
-  if (!Number.isFinite(oppositePrice)) return own;
-  const opposite = impliedFromAmerican(oppositePrice);
-  return own + opposite > 0 ? own / (own + opposite) : null;
+  if (!Number.isFinite(oppositePrice)) return impliedFromAmerican(ownPrice);
+  return shinNoVig(ownPrice, oppositePrice);
 }
 
 function attachFairProbabilities(quotes) {

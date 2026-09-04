@@ -140,3 +140,42 @@ test('a capture writes one simultaneous quote set into nfl_line_snapshots and th
     globalThis.fetch = realFetch;
   }
 });
+
+// A failing provider should be skipped for a while rather than re-hit on the
+// very next scheduled tick — the self-protective behavior real research on
+// bot-detection motivated (see book-feeds.js's header for the backoff block).
+test('a provider that fails backs off, and a later success clears the backoff', async () => {
+  feeds.__resetBookFeedBackoff();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('simulated block'); };
+  try {
+    const first = await feeds.captureBookFeeds({ providers: ['bovada'] });
+    assert.equal(first.errors.bovada, 'simulated block');
+    assert.ok(feeds.__test.inBackoff('bovada'), 'a real failure must start a backoff window');
+
+    // Retried immediately, it should be skipped rather than hitting the
+    // (still-failing) endpoint again — the backoff message says so, and the
+    // provider count in the parsed tally stays at zero rather than growing.
+    const second = await feeds.captureBookFeeds({ providers: ['bovada'] });
+    assert.match(second.errors.bovada, /backing off/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  // A later success clears the backoff rather than leaving it stuck forever.
+  feeds.__test.recordProviderSuccess('bovada');
+  assert.equal(feeds.__test.inBackoff('bovada'), false);
+});
+
+test('backoff doubles with consecutive failures, up to a one-hour cap', () => {
+  feeds.__resetBookFeedBackoff();
+  feeds.__test.recordProviderFailure('kambi');
+  const first = feeds.__test.backoffRemainingMs('kambi');
+  feeds.__test.recordProviderFailure('kambi');
+  const second = feeds.__test.backoffRemainingMs('kambi');
+  assert.ok(second > first, `expected the second failure's backoff (${second}ms) to exceed the first (${first}ms)`);
+  for (let i = 0; i < 10; i++) feeds.__test.recordProviderFailure('kambi');
+  assert.ok(feeds.__test.backoffRemainingMs('kambi') <= 60 * 60 * 1000 + 1000,
+    'backoff must not grow without bound across many consecutive failures');
+  feeds.__resetBookFeedBackoff();
+});

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { PlayerCardProvider } from './components/PlayerCard';
 import { LeagueProvider } from './state/league';
@@ -71,31 +71,78 @@ function RouteSkeleton() {
 }
 
 export default function App() {
+  // Desktop rail state: icon-only vs full-width, persisted across sittings.
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('gh:sidebar') === 'collapsed' || window.innerWidth < 900);
   useEffect(() => { localStorage.setItem('gh:sidebar', collapsed ? 'collapsed' : 'open'); }, [collapsed]);
+
+  // Mobile drawer state: independent of the desktop rail. Below the `md`
+  // breakpoint the sidebar is off-canvas by default and only appears as an
+  // overlay when explicitly opened — a permanent icon rail was eating ~35-40%
+  // of a phone-width viewport on every page.
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mobilePanel = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const onChange = (e: MediaQueryList | MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+      if (!e.matches) setMobileNavOpen(false); // widened past mobile: drop the drawer state
+    };
+    onChange(mq);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const location = useLocation();
   const inBetting = location.pathname.startsWith('/betting') || location.pathname.startsWith('/props') || location.pathname.startsWith('/nfl-board');
   const pageLabel = destinationLabel(location.pathname);
 
+  // Close the drawer on navigation and give it focus + a scroll lock while
+  // open, matching the modal-with-scrim conventions already established by
+  // EspnConnectGate.
+  useEffect(() => { setMobileNavOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileNavOpen(false); };
+    window.addEventListener('keydown', onKey);
+    mobilePanel.current?.focus();
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [mobileNavOpen]);
+
+  // Only the desktop rail collapses to icons; on mobile the drawer always
+  // shows full labels when open.
+  const railCollapsed = collapsed && !isMobile;
+
   return <LeagueProvider><PlayerCardProvider>
     <div className="flex min-h-screen bg-white">
-      <aside style={{ width: collapsed ? 64 : 244 }} className={`sticky top-0 flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 py-4 transition-[width] duration-200 ${collapsed ? 'px-2' : 'px-3'}`}>
-        <div className={`mb-4 ${collapsed ? 'text-center' : 'px-2'}`}>
-          <div className="text-xl font-extrabold tracking-tight text-slate-950">{collapsed ? 'GH' : <>Gridiron <span className="text-emerald-700">HQ</span></>}</div>
-          {!collapsed && <div className="text-xs text-slate-500">Fantasy + market intelligence</div>}
+      {isMobile && mobileNavOpen && (
+        <div className="fixed inset-0 z-30 bg-slate-950/60 backdrop-blur-sm" aria-hidden="true" onClick={() => setMobileNavOpen(false)} />
+      )}
+      <aside ref={mobilePanel} tabIndex={-1} role={isMobile ? 'dialog' : undefined} aria-modal={isMobile ? mobileNavOpen : undefined}
+        aria-label="Navigation drawer" aria-hidden={isMobile && !mobileNavOpen}
+        style={{ width: isMobile ? 260 : (collapsed ? 64 : 244) }}
+        className={`flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 py-4 outline-none ${railCollapsed ? 'px-2' : 'px-3'} ${isMobile
+          ? `fixed inset-y-0 left-0 z-40 transition-transform duration-200 ${mobileNavOpen ? 'translate-x-0' : '-translate-x-full'}`
+          : 'sticky top-0 transition-[width] duration-200'}`}>
+        <div className={`mb-4 ${railCollapsed ? 'text-center' : 'px-2'}`}>
+          <div className="text-xl font-extrabold tracking-tight text-slate-950">{railCollapsed ? 'GH' : <>Gridiron <span className="text-emerald-700">HQ</span></>}</div>
+          {!railCollapsed && <div className="text-xs text-slate-500">Fantasy + market intelligence</div>}
         </div>
 
         <nav aria-label="Primary navigation" className="min-h-0 flex-1 overflow-y-auto">
           {NAV_GROUPS.map(group => <div key={group.label} className="mb-3">
-            {!collapsed && <div className="mb-1 border-t border-slate-200 px-2 pt-3"><div className="text-[10px] font-extrabold uppercase tracking-[.12em] text-slate-500">{group.label}</div><div className="text-[10px] text-slate-400">{group.question}</div></div>}
-            {collapsed && <div className="mx-2 my-2 border-t border-slate-200" />}
-            {group.items.map(item => <NavLink key={item.to} to={item.to} end={item.end} title={collapsed ? item.label : undefined} className={({ isActive }) => `mb-0.5 flex items-center gap-2 rounded-md py-2 text-sm font-semibold transition-colors ${collapsed ? 'justify-center px-0' : 'px-2'} ${isActive ? 'bg-white text-emerald-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>
+            {!railCollapsed && <div className="mb-1 border-t border-slate-200 px-2 pt-3"><div className="text-[10px] font-extrabold uppercase tracking-[.12em] text-slate-500">{group.label}</div><div className="text-[10px] text-slate-400">{group.question}</div></div>}
+            {railCollapsed && <div className="mx-2 my-2 border-t border-slate-200" />}
+            {group.items.map(item => <NavLink key={item.to} to={item.to} end={item.end} title={railCollapsed ? item.label : undefined} className={({ isActive }) => `mb-0.5 flex items-center gap-2 rounded-md py-2 text-sm font-semibold transition-colors ${railCollapsed ? 'justify-center px-0' : 'px-2'} ${isActive ? 'bg-white text-emerald-800 shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>
               <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md border text-[10px] font-extrabold ${item.live ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600'}`}>{item.icon}</span>
-              {!collapsed && <span>{item.label}</span>}
+              {!railCollapsed && <span>{item.label}</span>}
             </NavLink>)}
           </div>)}
         </nav>
-        {!collapsed && <div className="px-2 pt-2 text-[10px] text-slate-400">Local app · data stays on your Mac</div>}
+        {!railCollapsed && <div className="px-2 pt-2 text-[10px] text-slate-400">Local app · data stays on your Mac</div>}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -103,9 +150,16 @@ export default function App() {
             was dismissed for this sitting; the modal itself otherwise. */}
         <EspnConnectGate />
         <DataSetupBanner />
-        <header className="sticky top-0 z-30 flex h-12 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
-          <button onClick={() => setCollapsed(v => !v)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><rect x="1" y="2" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" /><line x1="5.5" y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" /></svg>
+        <header className="sticky top-0 z-20 flex h-12 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
+          <button onClick={() => (isMobile ? setMobileNavOpen(v => !v) : setCollapsed(v => !v))}
+            aria-label={isMobile ? (mobileNavOpen ? 'Close navigation' : 'Open navigation') : (collapsed ? 'Expand sidebar' : 'Collapse sidebar')}
+            aria-expanded={isMobile ? mobileNavOpen : undefined}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50">
+            {isMobile && mobileNavOpen ? (
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><rect x="1" y="2" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" /><line x1="5.5" y1="2" x2="5.5" y2="13" stroke="currentColor" strokeWidth="1.4" /></svg>
+            )}
           </button>
           <span className="hidden text-sm font-semibold text-slate-500 sm:inline">{inBetting ? 'Betting' : 'Gridiron HQ'} <span className="mx-1 text-slate-300">/</span> <span className="text-slate-800">{pageLabel}</span></span>
           {!inBetting && <LeagueSwitcher />}

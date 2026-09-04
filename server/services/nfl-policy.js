@@ -48,7 +48,7 @@ export const NFL_HISTORICAL_REPLAY_POLICY = Object.freeze({
 
 export function normalizeNflPolicy(raw = {}) {
   const markets = (raw.markets ?? NFL_PRODUCTION_POLICY.markets)
-    .filter(m => m === 'spread' || m === 'total');
+    .filter(m => m === 'spread' || m === 'total' || m === 'moneyline');
   const minEdge = Number(raw.minEdge ?? NFL_PRODUCTION_POLICY.minEdge);
   const maxDisagreement = raw.maxDisagreement === null ? null
     : Number(raw.maxDisagreement ?? NFL_PRODUCTION_POLICY.maxDisagreement);
@@ -78,7 +78,11 @@ export function applyNflPolicy(rawCandidates, rawPolicy = NFL_PRODUCTION_POLICY)
   const evaluated = rawCandidates.map((candidate, inputIndex) => {
     let abstentionReason = null;
     if (!policy.markets.includes(candidate.market)) abstentionReason = 'market_not_in_policy';
-    else if (candidate.line == null) abstentionReason = 'missing_line';
+    // Moneyline has no line by definition — it is priced entirely off the
+    // American odds — so requiring one here would abstain on every candidate
+    // regardless of whether a real edge exists, which is a missing-data check
+    // mistakenly applied to a market that was never supposed to have that field.
+    else if (candidate.market !== 'moneyline' && candidate.line == null) abstentionReason = 'missing_line';
     else if (candidate.american_price == null) abstentionReason = 'missing_price';
     else if (!Number.isFinite(candidate.edge_points)) abstentionReason = 'missing_model_edge';
     else if (policy.requireCalibratedAdvantage && candidate.calibration_eligible !== true) {

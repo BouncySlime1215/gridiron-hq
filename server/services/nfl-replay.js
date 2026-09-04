@@ -55,6 +55,13 @@ db.exec(`
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
+const americanToProb = odds => (odds > 0 ? 100 / (odds + 100) : Math.abs(odds) / (Math.abs(odds) + 100));
+/** No-vig probability of the first side, from both sides' real American prices. */
+const noVigProb = (oddsA, oddsB) => {
+  if (oddsA == null || oddsB == null) return null;
+  const a = americanToProb(oddsA), b = americanToProb(oddsB);
+  return a + b > 0 ? a / (a + b) : null;
+};
 
 export function uncertainty(bets) {
   const settled = bets.filter(b => b.result === 'Won' || b.result === 'Lost');
@@ -121,6 +128,7 @@ export function replaySeason(season, {
            gl.spread_odds AS home_spread_odds,
            away.spread_odds AS away_spread_odds,
            gl.total_over_odds, gl.total_under_odds,
+           gl.moneyline AS home_ml, away.moneyline AS away_ml,
            gl.source, gl.fetched_at
     FROM game_lines gl
     LEFT JOIN game_lines away ON away.season=gl.season AND away.week=gl.week AND away.team=gl.opponent
@@ -193,6 +201,7 @@ export function replaySeason(season, {
           season, week: g.week, home: g.home, away: g.away, market: 'total',
           side: `${over ? 'Over' : 'Under'} ${g.total}`, line: g.total,
           american_price: over ? g.total_over_odds : g.total_under_odds,
+          opposite_price: over ? g.total_under_odds : g.total_over_odds,
           model_margin: e.projected_total, market_margin: g.total,
           edge: r2(edge), edge_points: Math.abs(edge), disagreement: e.model_disagreement_total,
           actual_margin: actualMargin, actual_total: actualTotal,
@@ -200,6 +209,46 @@ export function replaySeason(season, {
           won, pushed, book: g.source ?? null, quote_source: g.source ?? null, quote_at: g.fetched_at ?? null,
           feature_snapshot: { total_models_active: e.models_contributing_total ?? null }
         });
+    }
+
+    // Moneyline is graded from the SAME margin distribution spread already uses
+    // (e.distribution.home_win_probability is just that distribution read at a
+    // threshold of zero instead of the spread line — see predictiveDistribution
+    // in nfl-ensemble.js), so it can never disagree with the spread call about
+    // which team the model likes; only the market comparison differs.
+    //
+    // Its edge is measured in probability, not points, so it is expressed here
+    // as percentage points of no-vig edge (0.03 -> 3) rather than game points.
+    // That keeps it on the same numeric scale the shared minEdge/maxDisagreement
+    // policy thresholds already use for spread, instead of a probability edge
+    // (almost always < 1) being compared against a game-point threshold like 3
+    // and abstaining on every candidate regardless of whether a real edge exists.
+    const homeWinP = e.distribution?.home_win_probability;
+    if (markets.includes('moneyline') && homeWinP != null && g.home_ml != null && g.away_ml != null) {
+      const marketP = noVigProb(g.home_ml, g.away_ml);
+      if (marketP != null) {
+        const edgeProb = homeWinP - marketP;
+        const backHome = edgeProb > 0;
+        const won = backHome ? actualMargin > 0 : actualMargin < 0;
+        const pushed = actualMargin === 0; // an outright tie; exceedingly rare in the NFL
+        weekly.push({
+          season, week: g.week, home: g.home, away: g.away, market: 'moneyline',
+          side: backHome ? g.home : g.away, line: null,
+          american_price: backHome ? g.home_ml : g.away_ml,
+          opposite_price: backHome ? g.away_ml : g.home_ml,
+          model_margin: e.projected_margin, market_margin: null,
+          edge: r2(edgeProb), edge_points: r2(Math.abs(edgeProb) * 100),
+          disagreement: e.model_disagreement_margin,
+          actual_margin: actualMargin, actual_total: actualTotal,
+          result: pushed ? 'Push' : won ? 'Won' : 'Lost',
+          won, pushed, book: g.source ?? null, quote_source: g.source ?? null, quote_at: g.fetched_at ?? null,
+          feature_snapshot: {
+            model_probability: r2(backHome ? homeWinP : 1 - homeWinP),
+            market_probability: r2(backHome ? marketP : 1 - marketP),
+            derived_from: 'shared margin-residual distribution (same as spread)'
+          }
+        });
+      }
     }
   }
   commitWeek();
@@ -270,6 +319,9 @@ function segmentsFor(b, ctx) {
     segs.push(['side', b.side.includes(b.home) ? 'backed home' : 'backed away']);
     segs.push(['role', b.line < 0 ? 'home favoured' : 'home underdog']);
     segs.push(['spread size', Math.abs(b.line) >= 7 ? 'big spread (7+)' : Math.abs(b.line) <= 3 ? 'short spread (<=3)' : 'mid spread']);
+  } else if (b.market === 'moneyline') {
+    segs.push(['side', b.side === b.home ? 'backed home' : 'backed away']);
+    segs.push(['role', b.american_price < 0 ? 'backed favourite' : 'backed underdog']);
   } else {
     segs.push(['side', /Over/.test(b.side) ? 'took over' : 'took under']);
     segs.push(['total size', b.line >= 48 ? 'high total (48+)' : b.line <= 41 ? 'low total (<=41)' : 'mid total']);
@@ -316,9 +368,9 @@ export function analyzeErrors(bets, { minBets = 25 } = {}) {
       if (b.american_price != null) e.breakEven.push(b.american_price > 0
         ? 100 / (b.american_price + 100) : Math.abs(b.american_price) / (Math.abs(b.american_price) + 100));
       // Signed model error: positive means the model was too high on its side.
-      e.signed.push(b.market === 'spread'
-        ? b.model_margin - b.actual_margin
-        : b.model_margin - b.actual_total);
+      e.signed.push(b.market === 'total'
+        ? b.model_margin - b.actual_total
+        : b.model_margin - b.actual_margin);
       buckets.set(key, e);
     }
   }

@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { db, rows, run } from '../db/index.js';
 import { replaySeasonWeekly } from './weekly-backtest.js';
-import { replaySeason } from './nfl-replay.js';
+import { replaySeason, uncertainty } from './nfl-replay.js';
 import { PLAYER_HEAD_REGISTRY_VERSION, PLAYER_HEADS } from './player-head-registry.js';
 import { PLAYER_WEEK_ENGINE_VERSION } from './player-week-engine.js';
 import { NFL_HISTORICAL_REPLAY_POLICY } from './nfl-policy.js';
@@ -235,7 +235,7 @@ function normalizeSpec(input = {}) {
     classification: 'historical_algorithmically_blind_replay',
     seasons, startWeek, endWeek,
     schedule: scheduleFor(seasons, startWeek, endWeek),
-    domains: ['player_week', 'spread', 'total'],
+    domains: ['player_week', 'spread', 'total', 'moneyline'],
     player_engine: PLAYER_WEEK_ENGINE_VERSION,
     player_head_registry: PLAYER_HEAD_REGISTRY_VERSION,
     player_head_ids: PLAYER_HEADS.map(x => x.id),
@@ -321,9 +321,35 @@ function playerWeekResult(season, week) {
   };
 }
 
+/**
+ * Every audited betting domain, replayed and combined for one week.
+ *
+ * Each market is replayed SEPARATELY (its own `applyNflPolicy` pass, its own
+ * weekly cap) rather than pooled into one combined-ranked candidate list.
+ * Spread and total edges are measured in game points; moneyline's is measured
+ * in percentage points of no-vig win-probability edge (see nfl-replay.js).
+ * Those are not the same unit, so letting one shared `maxPicksPerWeek` rank
+ * across all three by raw `edge_points` would silently let whichever market's
+ * numbers happen to run larger crowd the others out of the week's picks —
+ * itself a cross-market consistency failure, and a more basic one than
+ * calibration. Replaying markets independently and merging the results avoids
+ * that, and it means adding total/moneyline here changes nothing about the
+ * spread-only figures this audit already reported historically.
+ */
+const AUDITED_BETTING_MARKETS = ['spread', 'total', 'moneyline'];
+
 function bettingWeekResult(season, week) {
-  const replay = replaySeason(season, { startWeek: week, endWeek: week });
-  if (replay.error) return { metrics: { error: replay.error }, faults: [], picks: [] };
+  const perMarket = AUDITED_BETTING_MARKETS
+    .map(market => ({ market, replay: replaySeason(season, { startWeek: week, endWeek: week, markets: [market] }) }))
+    .filter(x => !x.replay.error);
+  if (!perMarket.length) {
+    return { metrics: { error: `no completed games stored for ${season}` }, faults: [], picks: [] };
+  }
+  const replay = {
+    bets: perMarket.flatMap(x => x.replay.bets),
+    decisions: perMarket.flatMap(x => x.replay.decisions),
+    summary: combineBettingSummaries(perMarket.map(x => x.replay))
+  };
 
   // Every pick, translated. A hundred recorded losses tell you the model is bad
   // without telling you why, and why is the only part that leads anywhere. The
@@ -360,12 +386,43 @@ function bettingWeekResult(season, week) {
     .map(x => ({ market: x.market, matchup: `${x.away} at ${x.home}`, selection: x.side,
       model: x.model_margin, market_line: x.market_margin, actual_margin: x.actual_margin,
       actual_total: x.actual_total, result: x.result,
-      miss_size: x.market === 'spread'
-        ? +Math.abs(x.model_margin - x.actual_margin).toFixed(3)
-        : +Math.abs(x.model_margin - x.actual_total).toFixed(3) }))
+      // Total's model number is on the total scale; spread's and moneyline's
+      // are both on the margin scale (moneyline has no market-side number of
+      // its own — it borrows spread's margin call, see nfl-replay.js).
+      miss_size: x.market === 'total'
+        ? +Math.abs(x.model_margin - x.actual_total).toFixed(3)
+        : +Math.abs(x.model_margin - x.actual_margin).toFixed(3) }))
     .sort((a, b) => b.miss_size - a.miss_size).slice(0, 10);
 
   return { metrics: replay.summary, faults: misses, picks };
+}
+
+/** Merges N independent per-market replay summaries into one week's totals. */
+function combineBettingSummaries(replays) {
+  const bets = replays.flatMap(r => r.bets);
+  const wins = bets.filter(b => b.result === 'Won').length;
+  const losses = bets.filter(b => b.result === 'Lost').length;
+  const pushes = bets.filter(b => b.result === 'Push').length;
+  const units = bets.reduce((s, b) => s + b.units, 0);
+  const abstentions = {};
+  let candidates = 0, selected = 0;
+  for (const r of replays) {
+    candidates += r.decisions.length;
+    selected += r.summary.decision_audit.selected;
+    for (const [reason, n] of Object.entries(r.summary.decision_audit.abstentions)) {
+      abstentions[reason] = (abstentions[reason] ?? 0) + n;
+    }
+  }
+  const by_market = Object.fromEntries(replays.map(r => [r.summary.config.policy.markets[0], r.summary]));
+  return {
+    bets: bets.length, wins, losses, pushes,
+    win_rate: wins + losses ? +(wins / (wins + losses)).toFixed(3) : null,
+    units: +units.toFixed(3), roi: bets.length ? +(units / bets.length).toFixed(3) : null,
+    config: replays[0].summary.config,
+    decision_audit: { candidates, selected, abstentions },
+    uncertainty: uncertainty(bets),
+    by_market
+  };
 }
 
 /**

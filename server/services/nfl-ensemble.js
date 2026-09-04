@@ -222,6 +222,12 @@ function predictiveDistribution(hist, { margin, total, homeSpread, marketTotal, 
   const inflation = 1 + Math.min(0.25, Math.max(0, disagreement ?? 0) / 30);
   const marginSamples = marginResiduals.map(x => Math.round(margin + (x - residualMedian) * inflation));
   const grade = marginSamples.map(x => homeSpread == null ? null : Math.sign(x + homeSpread));
+  // The moneyline call is the same margin samples graded at a threshold of zero
+  // instead of the spread line. It is deliberately NOT a second, independently
+  // fitted distribution: home winning outright and home covering a spread are
+  // both just thresholds on one shared margin distribution, so deriving both
+  // from marginSamples is what keeps them arithmetically unable to disagree.
+  const winGrade = marginSamples.map(x => Math.sign(x));
   const totalResiduals = cohort.map(x => x.total_residual).filter(Number.isFinite);
   const totalMedian = quantile(totalResiduals, 0.5) ?? 0;
   const totalSamples = total == null ? [] : totalResiduals.map(x => Math.round(total + (x - totalMedian)));
@@ -236,6 +242,8 @@ function predictiveDistribution(hist, { margin, total, homeSpread, marketTotal, 
     home_cover_probability: homeSpread == null ? null : r2(grade.filter(x => x > 0).length / grade.length),
     away_cover_probability: homeSpread == null ? null : r2(grade.filter(x => x < 0).length / grade.length),
     push_probability: homeSpread == null ? null : r2(grade.filter(x => x === 0).length / grade.length),
+    home_win_probability: r2(winGrade.filter(x => x > 0).length / winGrade.length),
+    away_win_probability: r2(winGrade.filter(x => x < 0).length / winGrade.length),
     margin_interval_80: [r2(quantile(marginSamples, 0.1)), r2(quantile(marginSamples, 0.9))],
     margin_interval_50: [r2(quantile(marginSamples, 0.25)), r2(quantile(marginSamples, 0.75))],
     uncertainty_width_80: r2(quantile(marginSamples, 0.9) - quantile(marginSamples, 0.1)),

@@ -12,8 +12,9 @@
  * "does he clear 1.5 total bases", which is a question about a distribution.
  */
 import { rows } from '../db/index.js';
-import { mean, shrink } from './stats-util.js';
+import { mean, shrink, shrinkRate } from './stats-util.js';
 import { starterFor } from './mlb.js';
+import { nrfiKs } from './mlb-shrinkage-fit.js';
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const leagueCache = new Map();
@@ -270,8 +271,16 @@ export function nrfiFor(season, homeTeamId, awayTeamId, throughDate, { venue = n
                        FROM mlb_games
                        WHERE season = ? AND date < ? AND yrfi IS NOT NULL`, season, throughDate)[0];
   const prior = ((league?.home_rate ?? 0.27) + (league?.away_rate ?? 0.23)) / 2;
-  const hRate = shrink(h.first_inning_score_rate, prior, h.games, 12);
-  const aRate = shrink(a.first_inning_score_rate, prior, a.games, 12);
+  // k is fit from real between-team/between-venue variance (mlb-shrinkage-fit.js)
+  // rather than hand-picked — a modelAudit run of 751 graded picks found the
+  // hardcoded 12/40 produced an INVERTED calibration slope (more "confident"
+  // picks won less often), a winner's-curse symptom of under-corrected
+  // shrinkage. The blend itself now happens in the arcsine-stabilized domain
+  // (shrinkRate) so the correction is uniform across the probability range
+  // instead of warping near 0.5.
+  const { team_first_inning: teamK, venue_yrfi: venueK } = nrfiKs(throughDate);
+  const hRate = shrinkRate(h.first_inning_score_rate, prior, h.games, teamK);
+  const aRate = shrinkRate(a.first_inning_score_rate, prior, a.games, teamK);
   const homeStarter = starterFor(homeTeamId, throughDate);
   const awayStarter = starterFor(awayTeamId, throughDate);
   const hp = homeStarter ? projectPitcher(homeStarter.player_id, season, throughDate, { opponentId: awayTeamId }) : null;
@@ -282,7 +291,7 @@ export function nrfiFor(season, homeTeamId, awayTeamId, throughDate, { venue = n
   const allRows = rows(`SELECT yrfi FROM mlb_games WHERE season=? AND date<? AND yrfi IS NOT NULL`, season, throughDate);
   const leagueYrfi = allRows.length ? mean(allRows.map(x => x.yrfi)) : 0.5;
   const venueYrfi = venueRows.length
-    ? shrink(mean(venueRows.map(x => x.yrfi)), leagueYrfi, venueRows.length, 40)
+    ? shrinkRate(mean(venueRows.map(x => x.yrfi)), leagueYrfi, venueRows.length, venueK)
     : leagueYrfi;
   const park = Math.max(0.9, Math.min(1.1, venueYrfi / Math.max(0.05, leagueYrfi)));
   const hAdj = Math.max(0.04, Math.min(0.65, hRate * (ap?.run_environment_factor ?? 1) * park));

@@ -17,6 +17,36 @@
 export const shrink = (observed, prior, n, k) =>
   n > 0 ? (n * observed + k * prior) / (n + k) : prior;
 
+/**
+ * Anscombe/arcsine variance-stabilizing transform for a proportion, and its
+ * inverse. A raw proportion's sampling variance is p(1-p)/n — smallest near 0
+ * or 1, largest near 0.5 — so blending two proportions with a single fixed k
+ * (as `shrink` does) over-corrects near the middle of the range and
+ * under-corrects near the edges. Transforming first makes the variance
+ * ~1/(4n) regardless of p, so one k applies uniformly. Maps [0,1] -> [0, pi].
+ */
+export const arcsine = p => 2 * Math.asin(Math.sqrt(Math.max(0, Math.min(1, p))));
+export const arcsineInverse = y => Math.sin(Math.max(0, Math.min(Math.PI, y)) / 2) ** 2;
+
+/**
+ * Empirical-Bayes shrinkage for a RATE (a win/score/occurrence frequency),
+ * done in the arcsine-stabilized domain rather than directly on the raw
+ * proportion — the rate-stat sibling of `shrink`. Use this instead of `shrink`
+ * whenever `observed` and `prior` are both proportions in [0,1] (a team's
+ * first-inning score rate, a venue's YRFI rate, a hit rate, ...); keep using
+ * plain `shrink` for stats that are not bounded proportions (counts, per-game
+ * rates like attempts/game, ratios centered elsewhere than [0,1]).
+ *
+ * `k === Infinity` means "no detectable between-group variance" (see
+ * shrinkage-fit.js's fitK) — trust the prior completely rather than let the
+ * formula divide Infinity by Infinity into NaN.
+ */
+export const shrinkRate = (observed, prior, n, k) => {
+  if (!(n > 0)) return prior;
+  if (k === Infinity) return prior;
+  return arcsineInverse(shrink(arcsine(observed), arcsine(prior), n, k));
+};
+
 export const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0);
 
 export function weightedMean(values, weights) {

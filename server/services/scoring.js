@@ -27,15 +27,18 @@ const ESPN_STAT = {
   3: 'pass_yd',      // passing yards
   4: 'pass_td',
   20: 'pass_int',
+  24: 'rec_yd',      // receiving yards
+  25: 'rec_td',       // receiving touchdown
   42: 'rush_yd',
   43: 'rush_td',
-  44: 'rec',         // ESPN uses 53 for receptions in most leagues; 44 appears in some
-  53: 'rec',
-  42.1: null,
-  72: 'fumble_lost',
-  104: 'rec_td',
-  105: 'rec_yd',
-  106: 'rec_yd'
+  53: 'rec',         // receptions
+  72: 'fumble_lost'
+  // 19/26/44/206 are 2pt conversions (passing/receiving/rushing/return) — no
+  // dedicated bucket exists for these yet, so they're deliberately left
+  // unmapped rather than folded into an unrelated category. 44 was previously
+  // mapped to 'rec' by mistake (it is rushing 2pt, not an alternate reception
+  // id), which silently doubled every league's real reception value since a
+  // later item in the array always overwrote the correct one from 53.
 };
 
 /**

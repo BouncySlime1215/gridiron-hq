@@ -126,6 +126,7 @@ function featureRows(seasons) {
         ...opp(['def_pass_epa_per_play', 'def_completion_pct', 'def_cpoe']), game.total ?? 45]
     };
     out.push({ season: row.season, week: row.week, playerId: row.player_id,
+      team: row.team, opponent: game.opponent,
       actualYards, actualAttempts, actualYpa, modelYards: yards, modelAttempts: attempts,
       modelYpa: ypa, features });
     if (actualAttempts > 10) {
@@ -156,6 +157,9 @@ function grade(rowsToGrade, predictions, residualSd, seed) {
   const championErrors = rowsToGrade.map(row => Math.abs(row.modelYards - row.actualYards));
   const candidateErrors = rowsToGrade.map((row, i) => Math.abs(predictions[i] - row.actualYards));
   const actual = rowsToGrade.map(row => row.actualYards);
+  // Cluster by the actual game (both teams): QB rows from the same game
+  // share weather/game-script/pace-driven error correlation.
+  const groups = rowsToGrade.map(row => `${row.season}|${row.week}|${[row.team, row.opponent].filter(Boolean).sort().join('-')}`);
   const intervalHalf = 1.2816 * residualSd;
   const coverage = predictions.filter((prediction, i) => Math.abs(actual[i] - prediction) <= intervalHalf).length / predictions.length;
   return {
@@ -165,7 +169,7 @@ function grade(rowsToGrade, predictions, residualSd, seed) {
     champion_spearman: r4(correlation(ranks(rowsToGrade.map(row => row.modelYards)), ranks(actual))),
     candidate_spearman: r4(correlation(ranks(predictions), ranks(actual))),
     coverage_80: r4(coverage), residual_sd: r4(residualSd),
-    bootstrap: pairedBootstrapDiff(championErrors, candidateErrors, { iterations: 2000, seed })
+    bootstrap: pairedBootstrapDiff(championErrors, candidateErrors, { iterations: 2000, seed, groups })
   };
 }
 

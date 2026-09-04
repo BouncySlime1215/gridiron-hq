@@ -38,13 +38,16 @@ function score(rows, key) {
 function comparison(rows, key) {
   const champion = score(rows, 'modelYards');
   const candidate = score(rows, key);
+  // Cluster by the actual game (both teams): QB rows drawn from the same
+  // game share weather/game-script/pace-driven error correlation.
+  const groups = rows.map(row => `${row.season}|${row.week}|${[row.team, row.opponent].filter(Boolean).sort().join('-')}`);
   return {
     n: rows.length,
     model_mae: champion.mae,
     candidate_mae: candidate.mae,
     delta_mae: r3(candidate.mae - champion.mae),
     bootstrap: pairedBootstrapDiff(champion.errors, candidate.errors,
-      { iterations: 2000, seed: 20260827 }),
+      { iterations: 2000, seed: 20260827, groups }),
     production_authority: 0
   };
 }
@@ -118,6 +121,7 @@ export function passingComponentDiagnostic(seasons = [2022, 2023, 2024, 2025],
       if ([priorAttempts, priorYpa, seasonYards].every(Number.isFinite)) {
         gradeable.push({
           season: row.season, week: row.week, playerId: row.player_id,
+          team: row.team, opponent: row.opponent,
           modelAttempts, modelYpa, modelYards, actualAttempts, actualYpa, actualYards,
           seasonYards,
           priorAttemptsModelYpa: priorAttempts * modelYpa,

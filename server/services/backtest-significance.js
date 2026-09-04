@@ -28,27 +28,70 @@ import { crps } from './backtest.js';
  * SAME units (players), in the SAME order, estimate how much `mean(b) -
  * mean(a)` would move under resampling of which units were tested.
  *
+ * When units cluster into groups whose members are not independent (e.g.
+ * several player-weeks drawn from the same NFL game share weather, game
+ * script, and pace), plain per-unit resampling understates the true
+ * sampling variance: correlated units move together in reality but are
+ * shuffled independently by the resample, which inflates the effective
+ * sample size and makes the reported CI too narrow (Brill, Yurko & Wyner,
+ * "Exploring the Difficulty of Estimating Win Probability: A Simulation
+ * Study," arXiv:2406.16171, 2024 — NFL play-by-play bootstraps at 60%
+ * actual coverage vs 90% nominal for exactly this reason). Passing `groups`
+ * (same length as valuesA/valuesB, one cluster key per unit) switches to a
+ * block bootstrap: whole groups are resampled with replacement instead of
+ * individual units, preserving within-group correlation.
+ *
+ * @param {number[]} valuesA
+ * @param {number[]} valuesB
+ * @param {object} [opts]
+ * @param {number} [opts.iterations]
+ * @param {number} [opts.seed]
+ * @param {Array} [opts.groups] - per-unit cluster key (e.g. game id). When
+ *   given, resampling draws whole groups rather than individual units.
  * @returns {mean_diff, ci90:[lo,hi], p_b_better, significant, n, iterations}
  *   `significant` is true only when the 90% interval excludes zero — i.e. the
  *   direction of the difference would survive a different, similarly-drawn
  *   test set. `p_b_better` is the fraction of resamples where b <= a (b
  *   better-or-tied on a lower-is-better metric like CRPS or absolute error).
  */
-export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed = 1 } = {}) {
+export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed = 1, groups } = {}) {
   const n = Math.min(valuesA.length, valuesB.length);
   if (n < 10) return { error: `too few paired observations (${n}) to bootstrap meaningfully` };
 
   const diffs = new Array(iterations);
-  withRandomSeed(seed, () => {
-    for (let it = 0; it < iterations; it++) {
-      let sumA = 0, sumB = 0;
-      for (let i = 0; i < n; i++) {
-        const idx = Math.floor(random() * n);
-        sumA += valuesA[idx]; sumB += valuesB[idx];
-      }
-      diffs[it] = (sumB - sumA) / n;
+  if (groups && groups.length >= n) {
+    const byGroup = new Map();
+    for (let i = 0; i < n; i++) {
+      const key = groups[i];
+      if (!byGroup.has(key)) byGroup.set(key, []);
+      byGroup.get(key).push(i);
     }
-  });
+    const groupIndexLists = [...byGroup.values()];
+    const numGroups = groupIndexLists.length;
+    withRandomSeed(seed, () => {
+      for (let it = 0; it < iterations; it++) {
+        let sumA = 0, sumB = 0, count = 0;
+        for (let g = 0; g < numGroups; g++) {
+          const idxs = groupIndexLists[Math.floor(random() * numGroups)];
+          for (const idx of idxs) {
+            sumA += valuesA[idx]; sumB += valuesB[idx]; count++;
+          }
+        }
+        diffs[it] = (sumB - sumA) / count;
+      }
+    });
+  } else {
+    withRandomSeed(seed, () => {
+      for (let it = 0; it < iterations; it++) {
+        let sumA = 0, sumB = 0;
+        for (let i = 0; i < n; i++) {
+          const idx = Math.floor(random() * n);
+          sumA += valuesA[idx]; sumB += valuesB[idx];
+        }
+        diffs[it] = (sumB - sumA) / n;
+      }
+    });
+  }
   diffs.sort((x, y) => x - y);
   const mean_diff = diffs.reduce((s, x) => s + x, 0) / iterations;
   const lo = diffs[Math.floor(iterations * 0.05)];

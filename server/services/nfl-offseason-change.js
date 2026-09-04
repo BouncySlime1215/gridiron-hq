@@ -270,7 +270,7 @@ export function validateTeamChangeAdjustment({ fitSeasons = [2023, 2024], testSe
   const factors = ratioFor(fitSeasons);
 
   const prior = seasonTeams(testSeason - 1);
-  const usage = rows(`SELECT player_id, position, team, week,
+  const usage = rows(`SELECT player_id, position, team, week, opponent,
                              COALESCE(targets,0)+COALESCE(carries,0)+COALESCE(attempts,0) opp
                       FROM player_week_usage
                       WHERE season = ? AND week BETWEEN 2 AND ? AND team IS NOT NULL`,
@@ -284,18 +284,22 @@ export function validateTeamChangeAdjustment({ fitSeasons = [2023, 2024], testSe
     if (!(naive > 0)) continue;
     const moved = u.team !== before.team;
     const factor = moved ? (factors[u.position] ?? 1) : 1;
-    rowsOut.push({ actual: u.opp, unadjusted: naive, adjusted: naive * factor, moved });
+    rowsOut.push({ actual: u.opp, unadjusted: naive, adjusted: naive * factor, moved,
+      team: u.team, week: u.week, opponent: u.opponent });
   }
   if (rowsOut.length < 30) return { error: `too few rows (${rowsOut.length})`, factors };
 
+  // Cluster by the actual game (both teams): several rows here share one
+  // real NFL game and its correlated error (weather, game script, pace).
+  const gameKey = r => `${testSeason}|${r.week}|${[r.team, r.opponent].filter(Boolean).sort().join('-')}`;
   const errU = rowsOut.map(r => Math.abs(r.unadjusted - r.actual));
   const errA = rowsOut.map(r => Math.abs(r.adjusted - r.actual));
-  const test = pairedBootstrapDiff(errU, errA, { iterations: 2000, seed: 11 });
+  const test = pairedBootstrapDiff(errU, errA, { iterations: 2000, seed: 11, groups: rowsOut.map(gameKey) });
   const movers = rowsOut.filter(r => r.moved);
   const errUM = movers.map(r => Math.abs(r.unadjusted - r.actual));
   const errAM = movers.map(r => Math.abs(r.adjusted - r.actual));
   const moversTest = movers.length >= 30
-    ? pairedBootstrapDiff(errUM, errAM, { iterations: 2000, seed: 11 }) : { error: 'too few movers' };
+    ? pairedBootstrapDiff(errUM, errAM, { iterations: 2000, seed: 11, groups: movers.map(gameKey) }) : { error: 'too few movers' };
 
   const mae = a => +(a.reduce((s, x) => s + x, 0) / a.length).toFixed(3);
   return {

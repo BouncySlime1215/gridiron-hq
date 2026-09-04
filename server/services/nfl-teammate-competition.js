@@ -144,6 +144,10 @@ export function validateCompetitionAdjustment({ fitSeasons = [2023, 2024], testS
   // measureCompetitionEffect does not return points; recompute inline for scoring.
   const scored = competitionPoints([testSeason], window);
   const errBase = scored.map(p => Math.abs(p.own_recent - p.actual_share));
+  // Share is measured within one team's offense, so teammates sharing the
+  // same team-week are the correlated cluster here (a hot/cold game script
+  // moves every teammate's share together, not just the one being scored).
+  const groups = scored.map(p => `${p.season}|${p.week}|${p.team}`);
   const out = {};
   for (const s of strengths) {
     const errAdj = scored.map(p => {
@@ -151,7 +155,7 @@ export function validateCompetitionAdjustment({ fitSeasons = [2023, 2024], testS
       const damp = 1 - s * (p.mate_momentum - 1);
       return Math.abs(p.own_recent * Math.max(0.5, Math.min(1.5, damp)) - p.actual_share);
     });
-    const bs = pairedBootstrapDiff(errBase, errAdj, { iterations: 2000, seed: 31 });
+    const bs = pairedBootstrapDiff(errBase, errAdj, { iterations: 2000, seed: 31, groups });
     out[s] = { adjusted_mae: r4(mean(errAdj)), bootstrap: bs,
       improves: bs.significant === true && bs.mean_diff < 0 };
   }
@@ -197,7 +201,8 @@ function competitionPoints(seasons, window) {
         const mateRecent = mean(mates.filter(m => mateRecentWeeks.has(m.week)).map(m => m.share));
         const mateOlder = mean(mates.filter(m => !mateRecentWeeks.has(m.week)).map(m => m.share));
         if (!(mateOlder > 0) || mateRecent == null) continue;
-        points.push({ own_recent: ownRecent, mate_momentum: mateRecent / mateOlder,
+        points.push({ season, week: targetGame.week, team: targetGame.team,
+          own_recent: ownRecent, mate_momentum: mateRecent / mateOlder,
           actual_share: targetGame.share });
       }
     }

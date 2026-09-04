@@ -142,7 +142,8 @@ export function propGradeReport(metricKey, seasons, { reconciliationStrength = 0
     // Identical-rows rule: every predictor must have an opinion, or nobody is scored on it.
     if (!Number.isFinite(r.broad[metricKey])) continue;
     if (Object.values(b).some(v => !Number.isFinite(v))) continue;
-    rows.push({ season: r.season, actual: r.actual[metricKey], model: r.broad[metricKey], baselines: b });
+    rows.push({ season: r.season, week: r.week, team: r.team, opponent: r.opponent,
+      actual: r.actual[metricKey], model: r.broad[metricKey], baselines: b });
   }
 
   const names = ['model', ...Object.keys(BASELINES)];
@@ -167,10 +168,14 @@ export function propGradeReport(metricKey, seasons, { reconciliationStrength = 0
       every_season: wins.length === seasonList.length, won_in: wins }];
   }));
 
+  // Cluster by the actual game (both teams): multiple rows here share one
+  // real NFL game and its correlated errors (weather, game script, pace).
+  const groups = rows.map(x => `${x.season}|${x.week}|${[x.team, x.opponent].filter(Boolean).sort().join('-')}`);
+
   const vsBaseline = Object.fromEntries(Object.keys(BASELINES).map(name => {
     const modelErr = rows.map(x => Math.abs(x.model - x.actual));
     const baseErr = rows.map(x => Math.abs(x.baselines[name] - x.actual));
-    const test = pairedBootstrapDiff(baseErr, modelErr, { iterations: 2000, seed: 7 });
+    const test = pairedBootstrapDiff(baseErr, modelErr, { iterations: 2000, seed: 7, groups });
     // Directional: using the baseline's number as the line, does the model pick the right side?
     const directional = rows.filter(x => x.model !== x.baselines[name]);
     const correct = directional.filter(x =>

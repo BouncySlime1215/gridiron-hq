@@ -353,7 +353,7 @@ export function validateInjuryAdjustment({ fitSeasons = [2023, 2024], testSeason
     return 1;
   };
 
-  const errBase = [], errAdj = [];
+  const errBase = [], errAdj = [], groups = [];
   const history = new Map();
   for (const r of [...playerWeeks(testSeason).filter(x => x.week >= 3)].sort((a, b) => a.week - b.week)) {
     const opp = (r.features.targets ?? 0) + (r.features.carries ?? 0) + (r.features.pass_attempts ?? 0);
@@ -364,12 +364,15 @@ export function validateInjuryAdjustment({ fitSeasons = [2023, 2024], testSeason
         const inj = injuryContext(r.player_id, testSeason, r.week);
         errBase.push(Math.abs(baseline - opp));
         errAdj.push(Math.abs(baseline * factorFor(inj) - opp));
+        // Cluster by the actual game (both teams): several rows here share
+        // one real NFL game and its correlated error (weather, game script, pace).
+        groups.push(`${testSeason}|${r.week}|${[r.team, r.opponent].filter(Boolean).sort().join('-')}`);
       }
     }
     if (opp > 0) { hist.push(opp); history.set(r.player_id, hist); }
   }
   if (errBase.length < 50) return { error: `too few rows (${errBase.length})` };
-  const test = pairedBootstrapDiff(errBase, errAdj, { iterations: 2000, seed: 23 });
+  const test = pairedBootstrapDiff(errBase, errAdj, { iterations: 2000, seed: 23, groups });
   const mae = a => r3(a.reduce((s, x) => s + x, 0) / a.length);
   return {
     fit_seasons: fitSeasons, test_season: testSeason, n: errBase.length,

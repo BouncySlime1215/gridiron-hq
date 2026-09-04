@@ -117,6 +117,7 @@ export function validateOpponentEfficiency({ fitThrough = 2024, testSeason = 202
         if (hist && hist.length >= 2) {
           const ownRate = hist.reduce((s, x) => s + x, 0) / hist.length;
           rowsOut.push({ player_id: r.player_id, position: r.position, opponent: r.opponent,
+            team: r.team, week: r.week,
             own_rate: ownRate, actual_rate: n / d, opportunities: d });
         }
         const arr = history.get(r.player_id) ?? [];
@@ -127,12 +128,15 @@ export function validateOpponentEfficiency({ fitThrough = 2024, testSeason = 202
     if (rowsOut.length < 50) { out[metricKey] = { error: `too few rows (${rowsOut.length})` }; continue; }
 
     const errBase = rowsOut.map(x => Math.abs(x.own_rate - x.actual_rate));
+    // Cluster by the actual game (both teams): several rows here share one
+    // real NFL game and its correlated error (weather, game script, pace).
+    const groups = rowsOut.map(x => `${testSeason}|${x.week}|${[x.team, x.opponent].filter(Boolean).sort().join('-')}`);
     const mae = a => r4(a.reduce((s, x) => s + x, 0) / a.length);
     const perK = {};
     for (const k of kValues) {
       const errAdj = rowsOut.map(x =>
         Math.abs(x.own_rate * opponentEfficiencyMult(metricKey, testSeason, x.opponent, x.position, k) - x.actual_rate));
-      const test = pairedBootstrapDiff(errBase, errAdj, { iterations: 2000, seed: 17 });
+      const test = pairedBootstrapDiff(errBase, errAdj, { iterations: 2000, seed: 17, groups });
       perK[k] = { adjusted_mae: mae(errAdj), bootstrap: test,
         improves: test.significant === true && test.mean_diff < 0 };
     }

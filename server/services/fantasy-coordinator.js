@@ -11,7 +11,12 @@
  * being corrected is this app's own structural projection, not a sportsbook
  * line. Contextual regimes (nfl-expert-coordinator.js's per-situation sub-
  * fits) are deliberately not ported in this first pass — a real refinement,
- * not required to prove the core mechanism works.
+ * not required to prove the core mechanism works. They are now available
+ * (see `regimeLabels`/`fit.regimes` below): market spread/total are real,
+ * pre-outcome context (the same fields nfl-expert-coordinator.js regimes on),
+ * not expert forecasts, so gating on them cannot leak the target. Passing
+ * `context` to `coordinateFantasy` is opt-in — a caller that omits it
+ * (trade-engine.js today) still gets the unchanged global-only correction.
  *
  * TARGET: actual_weekly_points - structural_ppg (a residual off the
  * structural projection, which plays the role the market line plays on the
@@ -52,6 +57,29 @@
  * result, not a reason to force boom_bust_signal's weight up by hand — the
  * whole point of walk-forward shrinkage is that a signal earns its weight
  * or gets none.
+ *
+ * REGIME EXPERIMENT (verified live, real 2022-2025 data, `regimeLabels`/
+ * `fit.regimes` above): does letting an expert's weight vary by real game
+ * context — the team's own market spread/total that week, mirroring
+ * nfl-expert-coordinator.js's regimes exactly — beat this coordinator's
+ * plain global blend, the way mixture-of-experts architectures (Jacobs,
+ * Jordan, Nowlan & Hinton 1991) let a gating network trust an expert
+ * per-input rather than with one fixed weight? Walk-forward result: no.
+ * 2023 shows a nominally significant gate (p=0.002) but the actual MAE gap
+ * is 4.3344 vs 4.3334 — 0.001 fantasy points, noise, not a real effect —
+ * and 2024/2025 show no improvement at all (p=0.81, p=0.90) with the
+ * regime blend fractionally worse than global-only in both. Unlike the
+ * betting side, where spread/total genuinely separates situations experts
+ * read differently, a player-week's fantasy residual apparently doesn't
+ * split that way across ensemble_shift/game_script_delta — game_script_delta
+ * already IS the market-conditioned signal here, so gating on the same
+ * market inputs again adds no new information. `coordinateFantasy`'s
+ * `context` parameter stays implemented and opt-in (real machinery, tests
+ * pass, nothing here is fabricated) but is deliberately NOT wired into any
+ * call site: an unvalidated regime split has no business changing a real
+ * projection. A different context variable (weather/dome, injury-report
+ * status, a receiver's target-share concentration) might still separate
+ * fantasy regimes meaningfully — this result only rules out spread/total.
  *
  * This clears Phase 3's gate. Phase 4 (below `activeFantasyCoordinatorFit`/
  * `weeklyExpertValues`): trade-engine.js's current-week projection now
@@ -96,6 +124,14 @@ const SHRINK_RIDGE = 4;
 const SHRINK_MIN_GAMES = 60;
 const FAMILY_CORRELATION = 0.6;
 const FAMILY_MIN_OVERLAP = 50;
+// Contextual regimes, same shape and same thresholds-by-proportion as
+// nfl-expert-coordinator.js: a per-situation sub-fit blended into the global
+// one, weighted by how much settled evidence backs that situation. Gated on
+// market_spread/market_total (the team's own Vegas line for that week) —
+// real context set before kickoff, not an expert's forecast — so a regime
+// can never be "trained" on information the target itself produced.
+const MIN_REGIME_ROWS = 150;
+const MIN_REGIME_WEEKS = 6;
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const mean = v => (v.length ? v.reduce((s, x) => s + x, 0) / v.length : 0);
@@ -178,6 +214,20 @@ function familiesOf(examples) {
   for (const id of ids) { const root = find(id); const list = groups.get(root) ?? []; list.push(id); groups.set(root, list); }
   const families = [...groups.values()].filter(l => l.length > 1).map((members, i) => ({ id: `family_${i + 1}`, members }));
   return { families, correlations };
+}
+
+/**
+ * Real, pre-outcome game context (never an expert forecast, never the
+ * target): the team's own week's spread and implied total. Mirrors
+ * nfl-expert-coordinator.js's regimeLabels bucketing exactly, so "large
+ * spread" and "high total" mean the same thing on both sides of this app.
+ */
+function regimeLabels(example) {
+  return [
+    `phase:${example.week <= 4 ? 'early' : example.week >= 15 ? 'late' : 'middle'}`,
+    `spread:${Number.isFinite(example.market_spread) && Math.abs(example.market_spread) >= 6.5 ? 'large' : 'competitive'}`,
+    `total:${Number.isFinite(example.market_total) && example.market_total >= 47 ? 'high' : 'ordinary'}`
+  ];
 }
 
 function design(example, fit) {
@@ -279,6 +329,9 @@ export async function buildFantasyCoordinatorExamples({ fromSeason = 2022, throu
         const playerKey = actualRow.name ? normalizePlayerName(actualRow.name) : null;
         examples.push({
           season, week, player_id: actualRow.player_id,
+          team: actualRow.team, opponent: actualRow.opponent,
+          market_spread: Number.isFinite(gs?.line?.spread) ? gs.line.spread : null,
+          market_total: Number.isFinite(gs?.line?.total) ? gs.line.total : null,
           target: actualPoints - projection.structural_ppg,
           experts: {
             ensemble_shift: Number.isFinite(projection.ensemble_shift) ? projection.ensemble_shift : null,
@@ -300,12 +353,21 @@ export function fitFantasyCoordinator(examples) {
       reason: `warmup requires ${MIN_ROWS} rows` };
   }
   const fit = fitRows(examples);
-  return { version: FANTASY_COORDINATOR_VERSION, ready: true, ...fit,
+  const labels = [...new Set(examples.flatMap(regimeLabels))], regimes = [];
+  for (const label of labels) {
+    const subset = examples.filter(e => regimeLabels(e).includes(label));
+    const regimeWeeks = new Set(subset.map(e => `${e.season}|${e.week}`)).size;
+    if (subset.length < MIN_REGIME_ROWS || regimeWeeks < MIN_REGIME_WEEKS) continue;
+    regimes.push({ label, rows: subset.length, weeks: regimeWeeks,
+      shrinkage: subset.length / (subset.length + 192), fit: fitRows(subset) });
+  }
+  return { version: FANTASY_COORDINATOR_VERSION, ready: true, ...fit, regimes,
     authority: 'historical_candidate_only',
     safeguards: { target: 'structural-projection residual', loss: `Huber(${HUBER_DELTA})`, ridge: RIDGE,
       walk_forward_shrinkage: { ridge: SHRINK_RIDGE, min_games: SHRINK_MIN_GAMES, rule: 'k = cov/var capped 0..1; zero without walk-forward gain' },
       families: { correlation: FAMILY_CORRELATION, min_overlap: FAMILY_MIN_OVERLAP, found: fit.families.map(f => f.members) },
-      max_expert_weight: MAX_WEIGHT, max_total_expert_influence: MAX_TOTAL_INFLUENCE } };
+      max_expert_weight: MAX_WEIGHT, max_total_expert_influence: MAX_TOTAL_INFLUENCE,
+      contextual_regimes: true, min_regime_rows: MIN_REGIME_ROWS, min_regime_weeks: MIN_REGIME_WEEKS } };
 }
 
 /**
@@ -367,10 +429,9 @@ export function weeklyExpertValues(projection, season, week, scoring = PPR) {
   };
 }
 
-/** Apply a fit to one player-week's expert values, returning the corrected
- *  fantasy-point projection and a per-expert contribution trace. */
-export function coordinateFantasy(fit, expertValues, structuralPpg) {
-  if (!fit?.ready) return { ready: false, reason: fit?.reason ?? 'not fitted', structural_ppg: structuralPpg };
+/** One fit (global or a single regime's sub-fit) applied to one player-week's
+ *  expert values — the shared math `coordinateFantasy` blends across. */
+function coordinateOne(fit, expertValues) {
   const example = { experts: expertValues };
   const x = design(example, fit);
   const nColumns = fit.columns.length;
@@ -391,11 +452,46 @@ export function coordinateFantasy(fit, expertValues, structuralPpg) {
   });
   const missingOffset = EXPERT_IDS.reduce((s, _id, i) => s + x[1 + nColumns + i] * fit.coefficients[1 + nColumns + i], 0);
   const correction = fit.coefficients[0] + contributions.reduce((s, c) => s + c.value, 0) + missingOffset;
+  return { correction, contributions };
+}
+
+/**
+ * Apply a fit to one player-week's expert values, returning the corrected
+ * fantasy-point projection and a per-expert contribution trace.
+ *
+ * `context` is optional and opt-in: pass `{ week, market_spread, market_total }`
+ * (the team's own real Vegas line for that week — never an expert forecast)
+ * to also blend in the fit's per-situation regime sub-fits, exactly as
+ * nfl-expert-coordinator.js#coordinateExperts does. Omit it (every call site
+ * before this change) and behavior is byte-identical to before: global-only.
+ */
+export function coordinateFantasy(fit, expertValues, structuralPpg, context = null) {
+  if (!fit?.ready) return { ready: false, reason: fit?.reason ?? 'not fitted', structural_ppg: structuralPpg };
+  const global = coordinateOne(fit, expertValues);
+  let correction = global.correction, totalWeight = 1, activeLabels = [], regimeContributions = [];
+  if (context) {
+    const example = { week: Number(context.week) || 1,
+      market_spread: Number.isFinite(context.market_spread) ? context.market_spread : null,
+      market_total: Number.isFinite(context.market_total) ? context.market_total : null };
+    activeLabels = regimeLabels(example);
+    const active = (fit.regimes ?? []).filter(regime => activeLabels.includes(regime.label));
+    for (const regime of active) {
+      const candidate = coordinateOne(regime.fit, expertValues);
+      const weight = regime.shrinkage / Math.max(1, active.length);
+      correction += candidate.correction * weight; totalWeight += weight;
+      regimeContributions.push({ label: regime.label, weight: r3(weight), rows: regime.rows,
+        correction: r3(candidate.correction) });
+    }
+    correction /= totalWeight;
+  }
   return {
     ready: true, structural_ppg: structuralPpg,
     corrected_ppg: r3(structuralPpg + clamp(correction, -10, 10)),
-    correction: r3(clamp(correction, -10, 10)), contributions,
-    confidence: predictionConfidence(contributions),
+    correction: r3(clamp(correction, -10, 10)), contributions: global.contributions,
+    global_correction: context ? r3(clamp(global.correction, -10, 10)) : undefined,
+    active_regimes: context ? activeLabels : undefined,
+    contextual_adjustments: context ? regimeContributions : undefined,
+    confidence: predictionConfidence(global.contributions),
     note: 'A circumstance-aware candidate correction to the structural projection, not a validated replacement until Phase 3 clears it.'
   };
 }
@@ -436,13 +532,31 @@ export async function fantasyCoordinatorWalkForward({ fromSeason = 2022, through
       const out = coordinateFantasy(fit, e.experts, 0); // structuralPpg=0: correction alone is what's being graded
       return Math.abs(e.target - out.correction);
     });
-    const gate = pairedBootstrapDiff(baselineErrors, modelErrors);
+    // Same global fit, but with real per-week market context (spread/total)
+    // passed in so `fit.regimes` blends in — tests whether context-
+    // conditional gating (mixture-of-experts-flavored: which expert to trust
+    // varies by situation, not a single global weight) beats the plain
+    // global blend, not just whether it beats "no correction".
+    const regimeErrors = testExamples.map(e => {
+      const out = coordinateFantasy(fit, e.experts, 0, { week: e.week, market_spread: e.market_spread, market_total: e.market_total });
+      return Math.abs(e.target - out.correction);
+    });
+    // Cluster by the actual game (both teams): weekly fantasy outcomes for
+    // players in the same real NFL game are correlated (weather, game
+    // script, pace), not independent draws.
+    const groups = testExamples.map(e => `${e.season}|${e.week}|${[e.team, e.opponent].filter(Boolean).sort().join('-')}`);
+    const gate = pairedBootstrapDiff(baselineErrors, modelErrors, { groups });
     const pValue = gate.error ? null : Math.max(1 / (gate.iterations + 1), 1 - gate.p_b_better);
+    const regimeGate = pairedBootstrapDiff(modelErrors, regimeErrors, { groups });
+    const regimePValue = regimeGate.error ? null : Math.max(1 / (regimeGate.iterations + 1), 1 - regimeGate.p_b_better);
     results.push({
       test_season: testSeason, train_rows: trainExamples.length, test_rows: testExamples.length,
-      baseline_mae: mean(baselineErrors), model_mae: mean(modelErrors),
+      baseline_mae: mean(baselineErrors), model_mae: mean(modelErrors), regime_model_mae: mean(regimeErrors),
       significant_improvement: !gate.error && gate.significant && gate.ci90[1] < 0,
-      significance: { p_value: pValue }, gate
+      significance: { p_value: pValue }, gate,
+      // regime vs. the already-shipped global-only blend, not vs. baseline
+      regime_significant_improvement: !regimeGate.error && regimeGate.significant && regimeGate.ci90[1] < 0,
+      regime_significance: { p_value: regimePValue }, regime_gate: regimeGate
     });
   }
   holmDecisions(results.filter(r => !r.skipped));
@@ -478,4 +592,4 @@ export function weeklyProjectionFor(playerId, { season, week, scoring = PPR } = 
   };
 }
 
-export const __test = { shrinkageScales, familiesOf, fitRows, design, EXPERT_IDS };
+export const __test = { shrinkageScales, familiesOf, fitRows, design, regimeLabels, coordinateOne, EXPERT_IDS };

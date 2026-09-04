@@ -302,6 +302,85 @@ function normaliseFit(fit) {
     shrinkage: fit.shrinkage ?? Object.fromEntries(IDS.map(id => [id, { k: 1, reason: 'legacy fit: unshrunk' }])) };
 }
 
+/**
+ * Exact Shapley value for one family column's "equal-weight mean" sub-game.
+ *
+ * The model has exactly ONE learned coefficient per family (its column is
+ * the mean of present members' shrunk, standardised forecasts), so there is
+ * no per-member coefficient to read off. `coordinateWith`'s `contributions`
+ * splits that one coefficient evenly across present members (coefficient/n
+ * each) and scales by each member's own value — a plausible convention, but
+ * not the Lundberg & Lee (NeurIPS 2017) Shapley value, which is the unique
+ * allocation satisfying efficiency, symmetry, dummy and additivity for the
+ * cooperative game v(S) = coefficient * mean(shrunk value of members in S).
+ *
+ * For that specific "mean" game the exact Shapley value has a closed form
+ * (see module docstring in the audit note below), but it is computed here by
+ * brute force over subsets of present members — family sizes in this
+ * coordinator are small (single-digit; the audit that motivated families
+ * found four correlated roles), so 2^(n-1) subsets per member costs nothing.
+ *
+ * v(S) = coefficient * mean(values of S) for nonempty S, v(∅) = 0. Sums to
+ * the column's exact contribution (Shapley's efficiency axiom), same as the
+ * equal split, but differs whenever family members disagree with each
+ * other: Shapley credits a member for how much its value moves the coalition
+ * mean away from what the OTHER present members alone would have said, so a
+ * member that diverges from its family gets more (or less) than 1/n, while
+ * the current ad-hoc split always credits exactly the value-weighted 1/n
+ * regardless of how much that member actually differs from its peers.
+ */
+function familyShapley(values, coefficient) {
+  const ids = values.map(v => v.id), n = ids.length;
+  if (n === 0) return {};
+  if (n === 1) return { [ids[0]]: coefficient * values[0].value };
+  const val = Object.fromEntries(values.map(v => [v.id, v.value]));
+  const vOf = subsetIds => subsetIds.length ? coefficient * mean(subsetIds.map(id => val[id])) : 0;
+  const factorial = k => { let f = 1; for (let i = 2; i <= k; i++) f *= i; return f; };
+  const nFact = factorial(n);
+  const phi = Object.fromEntries(ids.map(id => [id, 0]));
+  for (let i = 0; i < n; i++) {
+    const others = ids.filter((_, index) => index !== i);
+    const m = others.length; // n - 1
+    for (let mask = 0; mask < (1 << m); mask++) {
+      const S = others.filter((_, index) => (mask >> index) & 1);
+      const k = S.length;
+      const weight = (factorial(k) * factorial(n - k - 1)) / nFact;
+      const marginal = vOf([...S, ids[i]]) - vOf(S);
+      phi[ids[i]] += weight * marginal;
+    }
+  }
+  return phi;
+}
+
+/**
+ * Same shape as `coordinateWith`'s `contributions`, but each family member's
+ * `value` is the exact Shapley share of its column's contribution instead of
+ * the equal-coefficient-split heuristic. Singletons are unaffected (a
+ * one-player game's Shapley value is just that player's full contribution,
+ * identical to the equal split).
+ */
+function shapleyContributions(rawFit, experts) {
+  const fit = normaliseFit(rawFit);
+  const game = { experts: new Map(experts.map(expert => [expert.id,
+    expert.observed && Number.isFinite(expert.forecast_residual) ? expert.forecast_residual : null])) };
+  const perColumn = fit.columns.map(column => {
+    const present = column.members.map(id => {
+      const raw = game.experts.get(id), k = fit.shrinkage[id]?.k ?? 0;
+      const shrunk = Number.isFinite(raw) ? k * clamp((raw - fit.centers[id]) / fit.scales[id], -4, 4) : null;
+      return { id, value: shrunk };
+    }).filter(entry => Number.isFinite(entry.value));
+    return { column, present };
+  });
+  const shares = new Map();
+  perColumn.forEach(({ column, present }, index) => {
+    const coefficient = fit.coefficients[index + 1];
+    const phi = familyShapley(present, coefficient);
+    for (const [id, value] of Object.entries(phi)) shares.set(id, value);
+  });
+  return IDS.map(id => ({ id, value: shares.has(id) ? r3(shares.get(id)) : 0 }))
+    .sort((a, b) => Math.abs(b.value ?? 0) - Math.abs(a.value ?? 0));
+}
+
 function coordinateWith(rawFit, experts) {
   const fit = normaliseFit(rawFit);
   const game = { experts: new Map(experts.map(expert => [expert.id,
@@ -336,7 +415,7 @@ function coordinateWith(rawFit, experts) {
   return { forecast_residual: r3(clamp(forecast, -10, 10)),
     uncertainty: r3(Math.sqrt(fit.robustSigma ** 2 + disagreement ** 2)), training_games: fit.games, training_weeks: fit.weeks,
     disagreement: r3(disagreement), active_weight_l1: r3(activeWeight),
-    contributions, missingness_offset: r3(missingOffset),
+    contributions, contributions_shapley: shapleyContributions(fit, experts), missingness_offset: r3(missingOffset),
     confidence: predictionConfidence(contributions) };
 }
 
@@ -366,4 +445,4 @@ export function coordinateExperts(fit, experts, context = {}) {
     note: 'A circumstance-aware candidate correction to the market, not stake permission.' };
 }
 
-export const __test = { pivotRows, fitRows, design, designV4, regimeLabels, coordinateWith, shrinkageScales, familiesOf };
+export const __test = { pivotRows, fitRows, design, designV4, regimeLabels, coordinateWith, shrinkageScales, familiesOf, familyShapley, shapleyContributions };

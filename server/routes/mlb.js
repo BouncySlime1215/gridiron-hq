@@ -5,6 +5,7 @@ import { ensurePicksFor, allPicks, standing as picksStanding, backfill, modelAud
 import { refreshInBackground, schedulerStatus, runIfStale } from '../services/scheduler.js';
 import { captureMlbPregame, mlbPregameCoverage } from '../services/mlb-pregame.js';
 import { usage as oddsUsage } from '../services/odds-api.js';
+import { usage as parlayUsage, reserveStatus as parlayReserveStatus } from '../services/parlay-api.js';
 import { createMlbExperiment, listMlbExperiments, getMlbExperiment, runMlbExperimentStage } from '../services/mlb-experiments.js';
 import { appDate } from '../services/date-util.js';
 import { mlbOperations } from '../services/mlb-research.js';
@@ -154,7 +155,10 @@ r.post('/auto-picks/audit-decisions', requireModelPermission('model:train'), (re
 });
 
 r.get('/pregame/status', (_req, res, next) => {
-  try { res.json({ ...mlbPregameCoverage(), odds_api: oddsUsage() }); } catch (e) { next(e); }
+  try {
+    res.json({ ...mlbPregameCoverage(), odds_api: oddsUsage(),
+      parlay_api: { ...parlayUsage(), reserve: parlayReserveStatus() } });
+  } catch (e) { next(e); }
 });
 
 r.post('/pregame/snapshot', requireModelPermission('model:train'), async (req, res, next) => {

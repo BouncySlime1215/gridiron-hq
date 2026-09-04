@@ -2,6 +2,7 @@
 import { db, rows, run } from '../db/index.js';
 import { syncProbableStarters } from './mlb.js';
 import { hasKey, mlbEvents, mlbEventOdds, MLB_MARKETS } from './odds-api.js';
+import * as parlayApi from './parlay-api.js';
 import { appDate } from './date-util.js';
 import { captureEvidenceManifest, validateEvidenceCutoff } from './model-governance.js';
 
@@ -23,6 +24,12 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_mlb_quotes_game ON mlb_market_quotes(game_pk,market,captured_at);
 `);
+// odds_source records which feed produced a snapshot's quotes (odds_api /
+// parlay_api / none), so the two budgets can be told apart after the fact.
+const snapshotCols = rows("PRAGMA table_info(mlb_pregame_snapshots)").map(c => c.name);
+if (!snapshotCols.includes('odds_source')) db.exec(`ALTER TABLE mlb_pregame_snapshots ADD COLUMN odds_source TEXT`);
+const quoteCols = rows("PRAGMA table_info(mlb_market_quotes)").map(c => c.name);
+if (!quoteCols.includes('source')) db.exec(`ALTER TABLE mlb_market_quotes ADD COLUMN source TEXT`);
 
 async function boxscoreLineup(gamePk) {
   const res = await fetch(`${MLB_BASE}/game/${gamePk}/boxscore`, { signal: AbortSignal.timeout(20000) });
@@ -63,7 +70,16 @@ export async function captureMlbPregame(date) {
   await syncProbableStarters(5);
   const games = rows('SELECT * FROM mlb_games WHERE date=? ORDER BY game_time', date);
   const oddsEnabled = hasKey() && MLB_ODDS_ENABLED;
-  const events = oddsEnabled ? await mlbEvents({ ttlMs: MLB_ODDS_TTL_MS }) : [];
+  // ParlayAPI has its own, separate credit pool, so MLB capture through it
+  // does not need the MLB_ODDS_CAPTURE flag that exists solely to protect
+  // the shared Odds API budget from a repeat of the 2026-09-01 overspend.
+  // It still fails closed on its own reserve (parlay-api.js's get()), so
+  // this cannot repeat that incident against the new pool either.
+  const parlayEnabled = parlayApi.hasKey();
+  const hasAnyOddsKey = hasKey() || parlayEnabled;
+  const captureEnabled = parlayEnabled || oddsEnabled;
+  const events = parlayEnabled ? await parlayApi.mlbEvents({ ttlMs: MLB_ODDS_TTL_MS })
+    : oddsEnabled ? await mlbEvents({ ttlMs: MLB_ODDS_TTL_MS }) : [];
   let latestCapturedAt = new Date().toISOString();
   let quoteCount = 0;
   for (const g of games) {
@@ -72,19 +88,22 @@ export async function captureMlbPregame(date) {
     const lineup = await boxscoreLineup(g.game_pk);
     const event = (events ?? []).find(e => normalize(e.home_team) === normalize(g.home_team)
       && normalize(e.away_team) === normalize(g.away_team));
-    let oddsStatus = !hasKey() ? 'no_odds_key' : !MLB_ODDS_ENABLED ? 'odds_capture_disabled' : 'event_not_matched';
+    const oddsSource = parlayEnabled ? 'parlay_api' : oddsEnabled ? 'odds_api' : null;
+    let oddsStatus = !hasAnyOddsKey ? 'no_odds_key' : !captureEnabled ? 'odds_capture_disabled' : 'event_not_matched';
     if (event) {
-      const payload = await mlbEventOdds(event.id, { markets: MLB_MARKETS, ttlMs: MLB_ODDS_TTL_MS });
+      const payload = parlayEnabled
+        ? await parlayApi.mlbEventOdds(event.id, { ttlMs: MLB_ODDS_TTL_MS })
+        : await mlbEventOdds(event.id, { markets: MLB_MARKETS, ttlMs: MLB_ODDS_TTL_MS });
       oddsStatus = payload?.bookmakers?.length ? 'captured' : 'no_markets_posted';
       latestCapturedAt = new Date().toISOString();
       for (const book of payload?.bookmakers ?? []) for (const market of book.markets ?? []) {
         for (const o of market.outcomes ?? []) {
           run(`INSERT INTO mlb_market_quotes
-            (captured_at,event_id,game_pk,commence_time,home_team,away_team,book,market,selection,side,line,price)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
+            (captured_at,event_id,game_pk,commence_time,home_team,away_team,book,market,selection,side,line,price,source)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
             latestCapturedAt, event.id, g.game_pk, event.commence_time, event.home_team, event.away_team,
             book.key, market.key, o.description ?? (market.key === 'totals_1st_1_innings' ? g.home_team + ' vs ' + g.away_team : o.name),
-            o.name, o.point ?? null, o.price ?? null);
+            o.name, o.point ?? null, o.price ?? null, oddsSource);
           quoteCount++;
         }
       }
@@ -92,14 +111,15 @@ export async function captureMlbPregame(date) {
     latestCapturedAt = new Date().toISOString();
     validateEvidenceCutoff({ probable_starters: starters }, latestCapturedAt, `MLB.${g.game_pk}`);
     run(`INSERT INTO mlb_pregame_snapshots
-      (game_pk,captured_at,slate_date,game_time,probable_starters_json,lineups_json,scratches_json,lineup_status,odds_status)
-      VALUES (?,?,?,?,?,?,?,?,?)`, g.game_pk, latestCapturedAt, date, g.game_time,
-      JSON.stringify(starters), JSON.stringify(lineup.lineups), JSON.stringify(lineup.scratches), lineup.status, oddsStatus);
+      (game_pk,captured_at,slate_date,game_time,probable_starters_json,lineups_json,scratches_json,lineup_status,odds_status,odds_source)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`, g.game_pk, latestCapturedAt, date, g.game_time,
+      JSON.stringify(starters), JSON.stringify(lineup.lineups), JSON.stringify(lineup.scratches), lineup.status, oddsStatus, oddsSource);
   }
   const result = { date, captured_at: latestCapturedAt, games: games.length, quotes: quoteCount,
-    odds_available: oddsEnabled, odds_capture_enabled: MLB_ODDS_ENABLED, mode: 'pregame_forward_only',
-    note: oddsEnabled ? undefined
-      : 'MLB market quotes are disabled (set MLB_ODDS_CAPTURE=1) so the shared Odds API budget is reserved for NFL.' };
+    odds_available: captureEnabled, odds_source: parlayEnabled ? 'parlay_api' : oddsEnabled ? 'odds_api' : null,
+    odds_capture_enabled: MLB_ODDS_ENABLED, parlay_capture_enabled: parlayEnabled, mode: 'pregame_forward_only',
+    note: captureEnabled ? undefined
+      : 'MLB market quotes are disabled: no PARLAY_API_KEY is set, and the shared Odds API budget is reserved for NFL (set MLB_ODDS_CAPTURE=1 to use it for MLB anyway).' };
   const versions = { nrfi: 'mlb-nrfi-v2-cutoff', pitcher_strikeouts: 'mlb-k-v2-cutoff', batter_total_bases: 'mlb-tb-v2-cutoff' };
   for (const market of Object.keys(versions)) {
     captureEvidenceManifest({ sport: 'MLB', market, modelVersion: versions[market], cutoffAt: latestCapturedAt,

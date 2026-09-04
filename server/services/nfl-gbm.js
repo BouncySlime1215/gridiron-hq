@@ -137,6 +137,16 @@ export function buildGbmDataset({ fromSeason = 2018, throughSeason = 2025, inclu
   const feat = rows(`SELECT season, week, team, features FROM nfl_team_week_features
                      WHERE season BETWEEN ? AND ?`, fromSeason, throughSeason);
 
+  // game_lines.temp/wind (nflverse's schedule CSV) goes missing for a real
+  // fraction of outdoor 2022+ games (86 of 193 in 2022 alone) and every game
+  // silently fell back to a fixed 60F/5mph default instead. nfl_game_weather
+  // (nfl-weather.js) already stores the actual kickoff-hour reading from the
+  // Open-Meteo archive for exactly these games; prefer it when the coarse
+  // schedule field is null rather than guessing a calm 60-degree day.
+  const weatherByKey = new Map(rows(`SELECT season, week, home, temp_c, wind_kmh FROM nfl_game_weather
+                     WHERE season BETWEEN ? AND ?`, fromSeason, throughSeason)
+    .map(w => [`${w.season}|${w.week}|${w.home}`, w]));
+
   // Season-to-date means per team, computed once per (season, week).
   const byTeamSeason = new Map();
   for (const f of feat) {
@@ -178,9 +188,12 @@ export function buildGbmDataset({ fromSeason = 2018, throughSeason = 2025, inclu
       row.push(h - a);
     }
     if (!usable) continue;
+    const precise = weatherByKey.get(`${g.season}|${g.week}|${g.home}`);
+    const temp = g.temp ?? (Number.isFinite(precise?.temp_c) ? precise.temp_c * 9 / 5 + 32 : null);
+    const wind = g.wind ?? (Number.isFinite(precise?.wind_kmh) ? precise.wind_kmh / 1.60934 : null);
     // Situational fields, and the market number itself so the model can learn
     // where the market is systematically off rather than only what a team is.
-    row.push(g.spread ?? 0, g.total ?? 44, g.temp ?? 60, g.wind ?? 5,
+    row.push(g.spread ?? 0, g.total ?? 44, temp ?? 60, wind ?? 5,
       g.roof === 'dome' || g.roof === 'closed' ? 1 : 0, g.div_game ?? 0, g.rest_days ?? 7);
 
     const actualMargin = Number.isFinite(g.team_score) && Number.isFinite(g.opp_score)

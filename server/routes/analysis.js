@@ -57,7 +57,8 @@ ${current}
 
 Task: rewrite any analysis field that is stale, wrong, or vague. Requirements:
 - ol_analysis / dl_analysis / lb_analysis / secondary_analysis / st_analysis MUST name specific players from the unit lists above and say how the unit's makeup (talent, age, rookies, depth) affects the team on the field and fantasy production. No generic filler.
-- Purge any player who is not on the roster above.
+- coach_analysis / off_scheme_detail / def_scheme_detail name skill players too (QB/RB/WR/TE), so check them against the SKILL DEPTH CHART with the same rigor: if either currently names a player who is not on the skill depth chart above, that field is stale and MUST be rewritten, even if everything else about it still reads fine.
+- Purge any player who is not on the roster above, in every field, not only the unit fields.
 - Keep the sharp, opinionated editorial voice. 2-4 sentences per field.
 - Omit any field that is already accurate and specific.
 

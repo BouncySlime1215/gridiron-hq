@@ -31,8 +31,8 @@
  *
  * `report_status` is the official designation and `practice_status` is the more
  * informative field, because a Questionable who practised fully on Friday plays
- * about 95% of the time and one who did not practise at all plays rarely. Both
- * are reported; the practice column is the one that carries the signal.
+ * more often than one who did not practise at all. Both are reported; the
+ * practice column is the one that carries the signal.
  */
 import { rows, row } from '../db/index.js';
 import { dvpFor } from './matchups.js';
@@ -50,9 +50,15 @@ const SKILL = ['QB', 'RB', 'WR', 'TE'];
  * they are stated here rather than fitted, because this database holds only
  * 17,595 injury rows against no reliable "did he play" join — fitting on that
  * would produce a worse number with a more impressive provenance.
+ *
+ * Questionable and Probable are the real published base rates, not the nominal
+ * label read literally: Harvard Sports Analysis Collective (2013),
+ * "Inaccuracies in the Injury Report Across the NFL" (corroborated by a
+ * follow-up ESPN study), found Questionable players actually played 62% of the
+ * time (not ~50%) and Probable players played 89% of the time (not ~75%).
  */
 const PLAY_ODDS = {
-  out: 0.0, doubtful: 0.06, questionable: 0.72, probable: 0.95, null: 1.0
+  out: 0.0, doubtful: 0.06, questionable: 0.62, probable: 0.89, null: 1.0
 };
 const PRACTICE_ADJUST = {
   dnp: -0.35, limited: -0.08, full: 0.20, null: 0

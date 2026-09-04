@@ -823,6 +823,18 @@ function PlayerOutlook({ o }: { o: any }) {
             <dd className={`tabular-nums font-semibold ${o.playoff_sos > 1.02 ? 'text-good' : o.playoff_sos < 0.98 ? 'text-crit' : ''}`}>{o.playoff_sos}</dd></div>
           <div><dt className="text-slate-400">Bye</dt><dd className="tabular-nums">Week {o.bye ?? '—'}</dd></div>
           <div><dt className="text-slate-400">Age</dt><dd className="tabular-nums">{o.age ?? '—'}</dd></div>
+          {o.dynasty_age_decay && (
+            <div className="col-span-2">
+              <dt className="text-slate-400">
+                Dynasty value, age-adjusted
+                <span className="text-slate-300"> (4for4 production-curve decay, ×{o.dynasty_age_decay.multiplier})</span>
+              </dt>
+              <dd className="tabular-nums font-semibold">
+                {o.dynasty_value_age_adjusted?.toLocaleString()}
+                <span className="text-slate-400 font-normal"> (raw market {o.dynasty_value_raw?.toLocaleString()})</span>
+              </dd>
+            </div>
+          )}
         </dl>
       </div>
 

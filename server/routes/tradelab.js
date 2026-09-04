@@ -4,6 +4,7 @@ import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { vorBoard, volatility } from './edge.js';
 import { deriveFormat } from '../services/format.js';
 import { pickInventory } from '../services/picks.js';
+import { dynastyAgeAdjustment } from '../services/dynasty-age-curve.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -14,7 +15,7 @@ const WEAK = 0.80, STRONG = 1.15;
 const FLEX_SPLIT = { RB: 0.4, WR: 0.5, TE: 0.1 };
 
 /* ------------------------------------------------------------------ rosters */
-function leagueRosters(lg, formatKey) {
+function leagueRosters(lg, formatKey, { isDynasty = formatKey.startsWith('dyn_') } = {}) {
   const payload = JSON.parse(lg.payload);
   const norm = s => (s ?? '').toLowerCase().replace(/[.'’-]/g, '')
     .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
@@ -29,7 +30,7 @@ function leagueRosters(lg, formatKey) {
                                     JOIN roster_players rp ON rp.espn_id = p.espn_id
                                     WHERE rp.age IS NOT NULL`).map(x => [x.id, x.age]));
   const byKey = new Map(), bySleeper = new Map(), byEspn = new Map();
-  for (const p of rows('SELECT id, name, position, sleeper_id, espn_id FROM players')) {
+  for (const p of rows('SELECT id, name, position, sleeper_id, espn_id, gsis_id FROM players')) {
     byKey.set(`${norm(p.name)}|${p.position}`, p);
     if (p.sleeper_id) bySleeper.set(String(p.sleeper_id), p);
     if (p.espn_id) byEspn.set(String(p.espn_id), p);
@@ -38,12 +39,27 @@ function leagueRosters(lg, formatKey) {
     const v = board.get(p.id);
     const w = vol.get(p.id);
     const m = market.get(p.id);
+    // Additive, inspectable age-curve decay (4for4 2025 "Production Curves")
+    // layered on top of the raw FantasyCalc dynasty price — see
+    // dynasty-age-curve.js. `value` below is untouched market pass-through.
+    const dynastyAge = isDynasty && m?.value != null
+      ? dynastyAgeAdjustment({
+          position: p.position, rawValue: m.value, gsisId: p.gsis_id,
+          rosterSnapshotAge: ageByPlayer.get(p.id) ?? m.age ?? null
+        })
+      : null;
     return {
       id: p.id, name: p.name, position: p.position,
       vor: v?.vor ?? 0, proj: v?.proj ?? 0, adp: v?.adp ?? null,
       value: m?.value ?? 0, trend30: m?.trend30 ?? null, pos_rank: m?.pos_rank ?? null,
       // FantasyCalc carries age for nearly every player; the ESPN roster table is a fallback.
       age: m?.age ?? ageByPlayer.get(p.id) ?? null,
+      dynasty_value_raw: dynastyAge?.raw_value ?? null,
+      dynasty_value_age_adjusted: dynastyAge?.adjusted_value ?? null,
+      dynasty_age_decay: dynastyAge ? {
+        multiplier: dynastyAge.multiplier, age: dynastyAge.age, age_source: dynastyAge.age_source,
+        source: dynastyAge.source ?? null
+      } : null,
       boom: w?.boom_rate ?? null, consistency: w?.consistency ?? null
     };
   };
@@ -87,7 +103,7 @@ export function analyzeLeague(lg) {
   for (const [pos, share] of Object.entries(FLEX_SPLIT)) perTeam[pos] += flex * share;
 
   const { formatKey, isDynasty } = deriveFormat(lg);
-  const teams = leagueRosters(lg, formatKey);
+  const teams = leagueRosters(lg, formatKey, { isDynasty });
   const inventory = pickInventory(lg, formatKey);
 
   // Leaguewide startable cutoff per position, e.g. 12 teams x 2.8 RB starters -> RB34.

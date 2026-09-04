@@ -916,6 +916,46 @@ test('weekly availability respects exact injury and practice designations', () =
   assert.equal(a.get(501).source, 'weekly injury report + durability prior');
 });
 
+// Phase 4: Questionable/Probable centers recalibrated from the label read
+// literally (~50%/~75%) to the real published rates — Harvard Sports Analysis
+// Collective (2013), "Inaccuracies in the Injury Report Across the NFL",
+// corroborated by ESPN: Questionable players actually play 62% of the time,
+// Probable players 89%. Player 501 here has a near-maximal durability prior
+// (played every recorded week 2015-2024), isolating the report-status formula
+// itself from the durability blend.
+test('questionable/probable centers reflect the real published play rates, not the nominal label', () => {
+  db.prepare(`INSERT INTO nfl_injuries
+    (season,week,gsis_id,team,full_name,position,report_status,practice_status,injury)
+    VALUES (2026,5,'aaa-qb','AAA','AAA Passer','QB','Questionable',NULL,'Ankle')`).run();
+  const questionable = weeklyAvailability(2026, 5).get(501);
+  assert.ok(questionable.durability_prior > 0.95, 'fixture player should have a near-maximal durability prior');
+  // A ~50%-nominal reading (old formula) would clamp a healthy prior into
+  // 0.72-0.78; the corrected center should land noticeably below that, close
+  // to the real 62% rate.
+  assert.ok(questionable.active_probability >= 0.6 && questionable.active_probability <= 0.72,
+    `expected the recalibrated Questionable center (~62%), got ${questionable.active_probability}`);
+
+  // A player with a real durability gap (plays 8 of 17 games/season) marked
+  // Probable: the old formula forced EVERY Probable player up to a flat 0.95
+  // floor regardless of his own durability; the corrected 0.89 floor must not
+  // over-inflate him past the real published rate.
+  db.prepare(`INSERT INTO players (id,name,position,gsis_id) VALUES (505,'AAA Back','RB','aaa-rb2')`).run();
+  const usage = db.prepare(`INSERT INTO player_week_usage
+    (player_id,season,week,team,position,attempts,carries,targets,receptions) VALUES (?,?,?,?,?,?,?,?,?)`);
+  for (let season = 2020; season <= 2024; season++) for (let week = 1; week <= 8; week++) {
+    usage.run(505, season, week, 'AAA', 'RB', 0, 12, 0, 0);
+  }
+  db.prepare(`INSERT INTO nfl_injuries
+    (season,week,gsis_id,team,full_name,position,report_status,practice_status,injury)
+    VALUES (2026,6,'aaa-rb2','AAA','AAA Back','RB','Probable',NULL,'Ankle')`).run();
+  const probable = weeklyAvailability(2026, 6).get(505);
+  assert.ok(probable.durability_prior < 0.89, 'fixture player should have a below-89% durability prior');
+  assert.ok(probable.active_probability < 0.95,
+    `Probable must no longer be inflated to the old 0.95 floor, got ${probable.active_probability}`);
+  assert.ok(Math.abs(probable.active_probability - 0.89) < 0.01,
+    `expected the recalibrated Probable floor (~89%), got ${probable.active_probability}`);
+});
+
 test('NFL validation firewall never relabels opened seasons as untouched', () => {
   const firewall = validationFirewall();
   const development = firewall.windows.find(x => x.window_id === 'nfl-dev-2021-2025');

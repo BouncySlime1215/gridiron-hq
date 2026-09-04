@@ -170,6 +170,28 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
      * The information is still worth showing a human ("Questionable, limited
      * in practice" is decision-relevant even when it should not move the
      * number), so it rides along as metadata with no effect on any forecast.
+     *
+     * Phase 4 revisited this on the hypothesis that the ablation above failed
+     * because it assumed a Questionable tag means the nominal ~50% (Probable
+     * ~75%) the label implies, rather than the real published base rates —
+     * Harvard Sports Analysis Collective (2013), "Inaccuracies in the Injury
+     * Report Across the NFL," corroborated by ESPN: 62% and 89%. That
+     * hypothesis does not apply here: INJURY_FACTORS (nfl-player-context.js)
+     * was never a play-probability assumption in the first place — it is a
+     * directly measured ratio of opportunity WHEN PLAYING, conditioned on the
+     * player having recorded usage that week (measureInjuryEffect filters to
+     * opp > 0). validateInjuryAdjustment/measureInjuryEffect never read
+     * PLAY_ODDS or any other play-probability constant, so recalibrating one
+     * cannot move a factor that was never built from it — verified by
+     * inspection, not by re-running, since there is no shared code path to
+     * re-run.
+     *
+     * The real play-probability assumption lives in
+     * `weeklyAvailability`/`availability` (contingency.js) and `PLAY_ODDS`
+     * (football-context.js), which are separate, already-wired-in pathways
+     * (trade-engine, season-sim, model routes) — not part of this engine's own
+     * ppg. Both were recalibrated to the cited rates there; see the comment on
+     * `weeklyAvailability` for the re-run ablation numbers.
      */
     engine.opportunity_context = { ...opportunityContextMultiplier({
       playerName: projection.name, gsisId: projection.gsis_id, season, week

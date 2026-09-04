@@ -30,6 +30,7 @@ import { weeklyAvailability } from './contingency.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { scoringFor } from './scoring.js';
 import { activeFantasyCoordinatorFit, weeklyExpertValues, coordinateFantasy } from './fantasy-coordinator.js';
+import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -119,6 +120,9 @@ export function assetUniverse(lg, formatKey, requested = null) {
 
 function buildAssetUniverse(lg, formatKey, target) {
   const scoring = scoringFor(lg);
+  // formatKey is `dyn_...`/`rd_...` per deriveFormat (format.js) — the age
+  // decay only makes sense for a dynasty/keeper valuation, never redraft.
+  const isDynasty = formatKey.startsWith('dyn_');
   const weekly = buildPlayerWeekEngine({ season: target.season, week: target.week, scoring });
   // Read-only, no computation — the coordinator itself is refit on a schedule
   // (scheduler.js#fantasy_coordinator_refit) and persisted; walk-forward
@@ -145,9 +149,15 @@ function buildAssetUniverse(lg, formatKey, target) {
     .map(t => [t.player_id, t]));
 
   const out = new Map();
-  for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr
+  for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, p.gsis_id, t.abbr AS team_abbr
                         FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id`)) {
     const v = board.get(p.id), w = vol.get(p.id), m = market.get(p.id);
+    const dynastyAge = isDynasty && m?.value != null
+      ? dynastyAgeAdjustment({
+          position: p.position, rawValue: m.value, gsisId: p.gsis_id,
+          rosterSnapshotAge: ageByPlayer.get(p.id) ?? m.age ?? null
+        })
+      : null;
     const weekProjection = weekly.get(p.id);
     const proj = v?.proj ?? 0;
     const sched = p.team_abbr && SCORED.has(p.position)
@@ -186,6 +196,18 @@ function buildAssetUniverse(lg, formatKey, target) {
       trend30: m?.trend30 ?? null,
       pos_rank: m?.pos_rank ?? null,
       age: m?.age ?? ageByPlayer.get(p.id) ?? null,
+      // Additive, inspectable age-curve decay on top of the raw FantasyCalc
+      // dynasty price (4for4 2025 "Production Curves") — null for non-dynasty
+      // formats or players FantasyCalc has no dynasty price for. `value` above
+      // is left untouched (still the raw market pass-through every other
+      // consumer of this universe already relies on); this is a separate,
+      // explicit view onto the same player. See dynasty-age-curve.js.
+      dynasty_value_raw: dynastyAge?.raw_value ?? null,
+      dynasty_value_age_adjusted: dynastyAge?.adjusted_value ?? null,
+      dynasty_age_decay: dynastyAge ? {
+        multiplier: dynastyAge.multiplier, age: dynastyAge.age, age_source: dynastyAge.age_source,
+        source: dynastyAge.source ?? null
+      } : null,
       // Weekly shape from real boxscores — this is what separates two players who
       // project for the same total.
       floor: weekDist?.p10 ?? w?.floor ?? null, ceiling: weekDist?.p90 ?? w?.ceiling ?? null, avg: weekDist?.mean ?? w?.avg ?? null,

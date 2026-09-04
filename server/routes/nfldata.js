@@ -103,17 +103,36 @@ export async function syncRosters() {
       const { abbr, data } = res.value;
       const teamId = ids[abbr];
       if (!teamId) continue;
-      // wipe stale entries for this team, then re-insert (handles cuts/releases)
-      run('DELETE FROM roster_players WHERE team_id = ?', teamId);
+      // Upsert current players first (ON CONFLICT keeps the same row id for
+      // anyone still rostered), THEN delete only whoever's gone — never the
+      // wipe-then-reinsert this used to do. That always minted a fresh id for
+      // every player on every sync, which is fine on its own but breaks the
+      // moment anything else references a roster_players row by id (an
+      // accolade, an AI slot-weakness verdict): the very next sync's DELETE
+      // hit a real FOREIGN KEY constraint and the whole sync threw, which is
+      // exactly what made every subsequent sync fail outright.
+      const seenIds = [];
       for (const grp of data.athletes ?? []) {
         for (const p of grp.items ?? []) {
-          ins.run(teamId, p.id ? Number(p.id) : null, p.displayName ?? p.fullName,
+          const espnId = p.id ? Number(p.id) : null;
+          if (espnId != null) seenIds.push(espnId);
+          ins.run(teamId, espnId, p.displayName ?? p.fullName,
             p.position?.abbreviation ?? null, grp.position ?? null, p.jersey ?? null,
             p.age ?? null, p.experience?.years ?? null, p.displayHeight ?? null,
             p.weight ?? null, p.status?.type ?? null);
           total++;
         }
       }
+      const gonePlaceholders = seenIds.map(() => '?').join(',') || 'NULL';
+      const goneClause = `team_id = ? AND (espn_id IS NULL OR espn_id NOT IN (${gonePlaceholders}))`;
+      // A departed player's cached accolades/slot-weakness verdict is just as
+      // stale as the roster row itself — clear it first so the roster row
+      // beneath it can actually be deleted.
+      run(`DELETE FROM player_accolades WHERE roster_player_id IN
+           (SELECT id FROM roster_players WHERE ${goneClause})`, teamId, ...seenIds);
+      run(`DELETE FROM slot_weakness WHERE roster_player_id IN
+           (SELECT id FROM roster_players WHERE ${goneClause})`, teamId, ...seenIds);
+      run(`DELETE FROM roster_players WHERE ${goneClause}`, teamId, ...seenIds);
       teams++;
     }
   }

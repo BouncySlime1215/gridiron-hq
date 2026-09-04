@@ -135,13 +135,11 @@ export const MANUAL_SOURCES = {
     failureMode: 'throws per team; batched with Promise.allSettled so one team\'s failure does not block the rest',
     maxAgeMinutes: 6 * 60
   },
-  espn_rosters: {
-    label: 'ESPN team rosters (nfldata.js)',
-    cadence: 'daily-ish — cuts and signings',
-    cutoff: 'live snapshot; a team wipe-and-reinsert on every sync so releases disappear correctly',
-    failureMode: 'per-team fetch failures are swallowed by Promise.allSettled; status is "error" if any team came back short',
-    maxAgeMinutes: 24 * 60
-  },
+  // espn_rosters moved to scheduler.js's JOBS (it now runs on a real timer —
+  // see that file's refreshEspnRosters for why: this entry existed here as
+  // "on demand" documentation, but nothing ever actually called it on demand
+  // either, and a roster synced once on install just sat there for weeks).
+  // allSources() would otherwise list it twice.
   espn_schedules: {
     label: 'ESPN team schedules (nfldata.js)',
     cadence: 'weekly; effectively static once the season schedule is out',

@@ -110,6 +110,21 @@ async function refreshPlayerRosters() {
 }
 
 /**
+ * ESPN's own per-team roster feed (roster_players — separate from the
+ * players table refreshPlayerRosters above updates). Registered in
+ * source-registry.js's MANUAL_SOURCES as "daily-ish — cuts and signings",
+ * but nothing ever actually called it on a timer: it only ran from the
+ * "Refresh data" button or the first-run installer, so a roster synced once
+ * on install just sat there — measured live, over five weeks stale (last
+ * fetched 2026-07-29, still 2026-07-29 after a normal day of use). Same
+ * missing-sync class of bug as refreshPlayerRosters above, same fix.
+ */
+async function refreshEspnRosters() {
+  const { syncRosters } = await import('../routes/nfldata.js');
+  return syncRosters();
+}
+
+/**
  * The X's & O's writeups. Self-limiting by design (see refreshStaleAnalyses):
  * only teams with news newer than their last analysis actually spend an AI
  * call, so scheduling this does not mean refreshing 32 teams every cycle —
@@ -531,6 +546,8 @@ export const JOBS = {
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, tier: 'heavy', label: "Tomorrow's MLB picks" },
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live',
     label: 'Player team assignments — the actual fix for stale roster spots' },
+  espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a
   // usable closing reference for settlement and so finals land within the hour.
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },

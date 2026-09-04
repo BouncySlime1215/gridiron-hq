@@ -38,7 +38,7 @@ import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '
 import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/nfl-clv.js';
 import { sharpBoard, sharpDivergence, steamMoves, sharpScorecard } from '../services/nfl-sharp.js';
 import { runIfStale } from '../services/scheduler.js';
-import { stakeFor, safeStakeFor, evaluateSizing } from '../services/staking.js';
+import { stakeFor, safeStakeFor, evaluateSizing, slateRiskCheck } from '../services/staking.js';
 import { createExperiment, getExperiment, listExperiments, runExperimentStage, experimentProtocol } from '../services/nfl-experiments.js';
 import { buildCoverCalibration, latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 import { capturePregameSnapshots, pregameSnapshotCoverage } from '../services/nfl-pregame.js';
@@ -957,6 +957,41 @@ r.get('/stake/safe', (req, res, next) => {
       uncertaintyWidth: req.query.interval_width == null ? null : Number(req.query.interval_width),
       openPortfolioFraction: Number(req.query.open_exposure) || 0
     }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Correlation-aware staking for one bet against the REST OF THE WEEK'S SLATE,
+ * not just a flat running total. Body: { winProb, americanOdds, bankroll,
+ * calibrated, forward_settled, interval_width, open_exposure, openBets }
+ * where openBets is the week's other already-sized candidates, each
+ * optionally carrying { stake_fraction, team, opponent, division_rivalry,
+ * weather_bucket, officiating_crew, model_probability } for correlation
+ * estimation. See staking.js's file header and slateRiskCheck for the method.
+ */
+r.post('/stake/safe/slate', (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const winProb = Number(body.winProb), odds = Number(body.americanOdds);
+    if (!Number.isFinite(winProb) || !Number.isFinite(odds)) {
+      return res.status(400).json({ error: 'winProb and americanOdds are required' });
+    }
+    res.json(safeStakeFor({
+      winProb, americanOdds: odds, bankroll: Number(body.bankroll) || 100,
+      calibrationPassed: body.calibrated === true || body.calibrated === '1',
+      forwardSettled: Number(body.forward_settled) || 0,
+      uncertaintyWidth: body.interval_width == null ? null : Number(body.interval_width),
+      openPortfolioFraction: Number(body.open_exposure) || 0,
+      openBets: Array.isArray(body.openBets) ? body.openBets : null
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Correlation-aware risk read on an already-sized slate, with no sizing side effects. */
+r.post('/stake/slate-risk', (req, res, next) => {
+  try {
+    const bets = Array.isArray(req.body?.bets) ? req.body.bets : [];
+    res.json(slateRiskCheck(bets));
   } catch (e) { next(e); }
 });
 

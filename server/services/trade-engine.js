@@ -515,10 +515,37 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
 /**
  * Search the league for deals worth sending.
  *
+ * Cached the same way assetUniverse() already is — this combinatorial search
+ * (every give/get combo against every other team) measured 5-24 real seconds
+ * depending on package size, on real data, which is not "instant" by any
+ * definition. A hypothetical post-trade roster (teamsOverride/assetsOverride,
+ * used by findTradeSequences) is never cached: it exists to answer "what if,"
+ * not to be looked up again.
+ *
  * @param opts.max_per_side  package size cap (2 keeps it realistic and fast)
  * @param opts.require_mutual only surface deals that also improve their lineup
  */
-export function findTrades(lg, {
+export function findTrades(lg, opts = {}) {
+  if (opts.teamsOverride || opts.assetsOverride) return findTradesUncached(lg, opts);
+  const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null } = opts;
+  const target = tradeWeekContext();
+  const { formatKey } = deriveFormat(lg);
+  const excludeKey = excludeIds ? [...excludeIds].sort((a, b) => a - b).join(',') : '';
+  const key = `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
+    `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:${excludeKey}`;
+  return cached(key, fingerprint([
+    { table: 'players', stamp: 'id' }, { table: 'roster_players', stamp: 'id' },
+    { table: 'dynasty_values', stamp: 'player_id' }, { table: 'player_week_usage', stamp: 'week' },
+    { table: 'nfl_injuries', stamp: 'id' }, { table: 'game_lines', stamp: 'week' },
+    { table: 'news_items', stamp: 'id' }, 'trending_players', 'player_metrics', 'schedule_games',
+    // Not part of assetUniverse's own fingerprint: a manager marked "never
+    // trade" or "hard" changes findTrades' own filtering directly, on top of
+    // whatever assetUniverse already accounts for.
+    'manager_profiles'
+  ], key), () => findTradesUncached(lg, opts));
+}
+
+function findTradesUncached(lg, {
   myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null,
   // Lets findTradeSequences() re-run this exact search against a hypothetical
   // post-trade roster without duplicating any of the logic below.
@@ -621,9 +648,19 @@ export function findTrades(lg, {
     return true;
   });
 
+  // Found live, on a real league (2026-09): requireMutual=true (both sides'
+  // OPTIMAL LINEUP must improve) found 1 partner out of 9 real opponents.
+  // Dropping to "unique" unfiltered used to be the only alternative, which
+  // included implausible and red-flagged packages nobody would ever accept —
+  // not a real second option, just noise. There is a real middle tier
+  // already computed by evaluate() and previously discarded here: `plausible`
+  // (fair by market value, no red flags, a real GM could reasonably say yes)
+  // without also requiring bothImprove. On that same real league, this tier
+  // alone found 5 of 9 partners with a genuinely fair, no-red-flag trade —
+  // still real, just not a lineup win for both sides specifically.
   const result = requireMutual
     ? unique.filter(d => d.mutual && d.plausible && d.red_flags.length === 0)
-    : unique;
+    : unique.filter(d => d.plausible && d.red_flags.length === 0);
 
   // Every deal above is computed independently against your CURRENT roster, so
   // two of them can both plan on trading away the same player — real, but only

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
-import TradeCard, { PlayerPill, num, engineGrade } from '../components/TradeCard';
+import TradeCard, { PlayerPill, num } from '../components/TradeCard';
 import { usePlayerCard } from '../components/PlayerCard';
 
 const TABS = [
@@ -88,7 +88,7 @@ export default function TradeLab() {
 
       {!active && <div className="card p-6 text-sm text-slate-500">Connect a league in League Hub first.</div>}
       {active && tab === 'news' && <NewsEdge leagueId={active} teamId={me} />}
-      {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'title' && <TitleTrades leagueId={active} teamId={me} />}
       {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'targetMany' && <TargetMany leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
@@ -323,20 +323,10 @@ function saveSeen(leagueId: number, teamId: string | null, seen: Set<string>) {
   try { localStorage.setItem(seenKey(leagueId, teamId), JSON.stringify([...seen])); } catch { /* private mode, etc. */ }
 }
 
-/** Coarsen TradeCard's own finer scale (A/A-/B+/B/C+/C/D) to the four buckets
- *  the curated batch groups by — the same engine numbers, just grouped. */
-function gradeBucket(letter: string): 'A' | 'B' | 'C' | 'D' {
-  if (letter.startsWith('A')) return 'A';
-  if (letter.startsWith('B')) return 'B';
-  if (letter.startsWith('C')) return 'C';
-  return 'D';
-}
-const GRADE_ORDER = ['A', 'B', 'C', 'D'] as const;
-const PER_GRADE = 2;
 const reloadSeenKey = (leagueId: number, teamId: string | null) => `gh:trades-batch-seen:${leagueId}:${teamId ?? ''}`;
 
-function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
-  leagueId: number; teamId: string | null; untouchable: number[]; untouchableNames: string[];
+function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }: {
+  leagueId: number; teamId: string | null; rosters: any; untouchable: number[]; untouchableNames: string[];
 }) {
   const [mutual, setMutual] = useState(true);
   const [size, setSize] = useState(2);
@@ -358,10 +348,15 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
   }, [leagueId, teamId]);
 
   const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
-  // The server itself evaluates every combination regardless of this number — it
-  // only controls how much of the already-fully-computed, ranked, deduplicated
+  // Package size measured, not assumed: max=3 vs max=2 found the exact same
+  // set of partner teams with a real deal in a live check (6 of 9 either
+  // way) at 2.5x the search cost (12.7s vs 5.0s) — bigger packages add more
+  // VARIANTS with partners already found, not new partners. Respecting the
+  // selector below is therefore both faster and just as good for coverage.
+  // The server itself evaluates every combination regardless of `limit` — it
+  // only controls how much of the already-computed, ranked, deduplicated
   // result comes back. Raised well past what one batch needs so "Reload" has
-  // real distinct ideas to draw on across many clicks, not just the same top 50.
+  // real distinct ideas to draw on across many clicks.
   const q = `/trades/${leagueId}/find?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}&limit=300${exclude}`;
   const { data, loading } = useApi<any>(teamId ? q : null);
 
@@ -375,33 +370,55 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
   };
   const resetSeen = () => { setSeen(new Set()); saveSeen(leagueId, teamId, new Set()); };
 
-  // The curated batch: up to PER_GRADE real, distinct deals per letter-grade
-  // bucket, preferring ones "Reload" hasn't shown yet. If a bucket has fewer
-  // than PER_GRADE genuine candidates — seen or not — that's stated honestly
-  // rather than padded with a repeat or a weaker deal wearing the wrong grade.
-  const batch = useMemo(() => {
+  // The curated batch is organized by TRADE PARTNER, not just grade: one real
+  // deal per opponent in the league (up to all of them), so "find deals"
+  // actually surfaces a genuine trade with as many different people as real
+  // candidates exist — not five variations of a deal with the same one or
+  // two teams, which is what a pure best-score ranking tends to produce.
+  // Each partner's own best not-yet-shown deal is picked, preferring ones
+  // "Reload" hasn't shown yet for THAT partner specifically; a partner with
+  // no real mutual/plausible deal right now is shown as such, not skipped
+  // silently — the point is to see the whole league's trade landscape.
+  const partners = useMemo(() => {
     const notDismissed = allDeals.filter((d: any) => !seen.has(dealSignature(d)));
-    const byGrade: Record<string, any[]> = { A: [], B: [], C: [], D: [] };
-    for (const d of notDismissed) byGrade[gradeBucket(engineGrade(d).letter)].push(d);
-
-    const groups: Record<string, { picked: any[]; totalAvailable: number; fresh: number }> = {};
-    for (const g of GRADE_ORDER) {
-      const pool = byGrade[g];
+    const byPartner = new Map<string, any[]>();
+    for (const d of notDismissed) {
+      const pid = String(d.partner_id);
+      if (!byPartner.has(pid)) byPartner.set(pid, []);
+      byPartner.get(pid)!.push(d);
+    }
+    const allTeams = (rosters?.teams ?? []).filter((t: any) => String(t.roster_id) !== String(teamId));
+    return allTeams.map((t: any) => {
+      const pool = byPartner.get(String(t.roster_id)) ?? [];
       const fresh = pool.filter(d => !batchSeen.has(dealSignature(d)));
       const stale = pool.filter(d => batchSeen.has(dealSignature(d)));
-      // Prefer fresh (never-shown-in-a-batch) candidates; only fall back to a
-      // previously-shown one in this grade when fresh ones genuinely run out —
-      // never fabricate a slot that doesn't exist.
-      groups[g] = { picked: [...fresh, ...stale].slice(0, PER_GRADE), totalAvailable: pool.length, fresh: fresh.length };
-    }
-    return groups;
-  }, [allDeals, seen, batchSeen]);
+      // Deals arrive from the server already ranked best-first — prefer a
+      // never-shown one, only falling back to a previously-cycled one for
+      // THIS partner when fresh ones genuinely run out.
+      const picked = fresh[0] ?? stale[0] ?? null;
+      return { roster_id: t.roster_id, owner: t.owner, picked, totalAvailable: pool.length, freshCount: fresh.length };
+    }).sort((a: any, b: any) => {
+      // Teams with a real deal first (best score first, since the pool is
+      // already server-ranked), teams with nothing real right now last.
+      if (!!a.picked !== !!b.picked) return a.picked ? -1 : 1;
+      if (a.picked && b.picked) return (b.picked.score ?? 0) - (a.picked.score ?? 0);
+      return 0;
+    });
+  }, [allDeals, seen, batchSeen, rosters, teamId]);
 
-  const totalPicked = GRADE_ORDER.reduce((s, g) => s + batch[g].picked.length, 0);
+  const partnersWithDeals = partners.filter((p: any) => p.picked).length;
 
   const reload = () => {
     const next = new Set(batchSeen);
-    for (const g of GRADE_ORDER) for (const d of batch[g].picked) next.add(dealSignature(d));
+    for (const p of partners) if (p.picked) next.add(dealSignature(p.picked));
+    setBatchSeen(next);
+    try { localStorage.setItem(reloadSeenKey(leagueId, teamId), JSON.stringify([...next])); } catch { /* private mode, etc. */ }
+  };
+  const reloadOne = (rosterId: string) => {
+    const p = partners.find((x: any) => String(x.roster_id) === String(rosterId));
+    if (!p?.picked) return;
+    const next = new Set(batchSeen);
+    next.add(dealSignature(p.picked));
     setBatchSeen(next);
     try { localStorage.setItem(reloadSeenKey(leagueId, teamId), JSON.stringify([...next])); } catch { /* private mode, etc. */ }
   };
@@ -431,15 +448,17 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
 
       {data?.deals?.length === 0 && (
         <div className="card p-6 text-sm text-slate-500">
-          Nothing clears the bar right now. Try unticking “only deals they&apos;d accept”, or widening the package size —
-          bigger packages find fits that 1-for-1s miss.
+          Nothing clears the bar right now, even searching up to 3-for-3 packages across every team in the league.
+          Try unticking “only deals they&apos;d accept” to see deals that only help your side.
         </div>
       )}
 
       {data?.deals?.length > 0 && (
         <div className="card p-4 mb-4">
           <div className="flex items-center gap-3 mb-3 flex-wrap">
-            <h3 className="text-sm font-bold text-slate-700">Curated picks — {totalPicked} of a {PER_GRADE * 4} target, by grade</h3>
+            <h3 className="text-sm font-bold text-slate-700">
+              Trade partners — {partnersWithDeals} of {partners.length} team{partners.length === 1 ? '' : 's'} have a real deal right now
+            </h3>
             <button className="ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
               onClick={reload}>
               Reload — find new trades
@@ -451,30 +470,33 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
             )}
           </div>
           <div className="grid md:grid-cols-2 gap-3">
-            {GRADE_ORDER.map(g => {
-              const { picked, totalAvailable } = batch[g];
-              return (
-                <div key={g}>
-                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1.5">
-                    Grade {g} {totalAvailable > 0 && <span className="font-normal normal-case text-slate-400">· {totalAvailable} real candidate{totalAvailable === 1 ? '' : 's'}</span>}
-                  </div>
-                  {picked.length === 0 && (
-                    <div className="text-xs text-slate-400 mb-2">
-                      No real grade-{g} trade exists in this league right now — not shown rather than faked.
-                    </div>
+            {partners.map((p: any) => (
+              <div key={p.roster_id}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{p.owner}</span>
+                  {p.totalAvailable > 0 && (
+                    <span className="text-[11px] font-normal text-slate-400">
+                      · {p.totalAvailable} real candidate{p.totalAvailable === 1 ? '' : 's'}
+                    </span>
                   )}
-                  {picked.length > 0 && picked.length < PER_GRADE && (
-                    <div className="text-[11px] text-slate-400 mb-1.5">Only {picked.length} genuine grade-{g} candidate{picked.length === 1 ? '' : 's'} available.</div>
+                  {p.picked && p.totalAvailable > 1 && (
+                    <button className="ml-auto text-[11px] text-emerald-700 underline hover:text-emerald-900"
+                      onClick={() => reloadOne(p.roster_id)}>
+                      reload this one
+                    </button>
                   )}
-                  <div className="space-y-2">
-                    {picked.map((d: any) => (
-                      <TradeCard key={dealSignature(d)} deal={d} leagueId={leagueId} untouchableNames={untouchableNames}
-                        onDismiss={() => dismiss(d)} compact />
-                    ))}
-                  </div>
                 </div>
-              );
-            })}
+                {!p.picked && (
+                  <div className="text-xs text-slate-400 mb-2">
+                    No real trade with {p.owner} clears the bar right now — not shown rather than faked.
+                  </div>
+                )}
+                {p.picked && (
+                  <TradeCard key={dealSignature(p.picked)} deal={p.picked} leagueId={leagueId} untouchableNames={untouchableNames}
+                    onDismiss={() => dismiss(p.picked)} compact />
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -486,7 +508,11 @@ function FindDeals({ leagueId, teamId, untouchable, untouchableNames }: {
           <span className="text-slate-600">Hide deals I&apos;ve dismissed</span>
         </label>
         {hiddenCount > 0 && <button className="text-slate-400 underline hover:text-slate-600" onClick={resetSeen}>{hiddenCount} hidden — show again</button>}
-        {data && <span className="text-slate-400 ml-auto">Best → worst · {allDeals.length} distinct ideas from {data.considered} candidates evaluated</span>}
+        {data && (
+          <span className="text-slate-400 ml-auto">
+            Best → worst · {allDeals.length} distinct ideas · {data.considered} candidates evaluated
+          </span>
+        )}
       </div>
 
       {data?.deals?.length > 0 && visible.length === 0 && (

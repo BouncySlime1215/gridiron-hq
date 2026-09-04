@@ -125,6 +125,35 @@ async function refreshEspnRosters() {
 }
 
 /**
+ * Each connected league's OWN roster payload (who owns which player on THAT
+ * fantasy team — a trade, a waiver claim, a drop) — a completely different
+ * thing from refreshEspnRosters above (which real NFL team a player is on).
+ * This only ever ran from a user manually clicking "Sync" on a specific
+ * league, so a real trade made in the actual ESPN/Sleeper league never
+ * reached Trade Lab (loadRosters() in trade-engine.js reads `leagues.payload`
+ * directly, no caching of its own — it was never stale from a code bug, the
+ * payload underneath it just never refreshed itself). Same missing-schedule
+ * class of bug as every other "silently stopped updating" fix this session.
+ */
+async function refreshLeagueRosters() {
+  const { syncEspnLeague, syncSleeperLeague } = await import('../routes/leagues.js');
+  const leagues = rows('SELECT * FROM leagues');
+  const results = [];
+  for (const lg of leagues) {
+    try {
+      const detail = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
+      run(`UPDATE leagues SET connection_status='connected', sync_error=NULL WHERE id=?`, lg.id);
+      results.push({ league_id: lg.id, ok: true, detail });
+    } catch (e) {
+      run(`UPDATE leagues SET connection_status='sync_failed', sync_error=? WHERE id=?`,
+        String(e.message ?? e).slice(0, 500), lg.id);
+      results.push({ league_id: lg.id, ok: false, error: e.message });
+    }
+  }
+  return { leagues: results.length, failed: results.filter(r => !r.ok).length };
+}
+
+/**
  * The X's & O's writeups. Self-limiting by design (see refreshStaleAnalyses):
  * only teams with news newer than their last analysis actually spend an AI
  * call, so scheduling this does not mean refreshing 32 teams every cycle —
@@ -596,6 +625,8 @@ export const JOBS = {
     label: 'Player team assignments — the actual fix for stale roster spots' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
+  league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live',
+    label: "Each connected league's own roster (trades, waivers, drops) — was manual-only" },
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a
   // usable closing reference for settlement and so finals land within the hour.
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },

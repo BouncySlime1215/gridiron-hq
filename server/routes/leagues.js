@@ -128,7 +128,7 @@ async function fetchEspn(lg, season) {
 
 const rosterCount = data => (data.teams ?? []).reduce((s, t) => s + (t.roster?.entries?.length ?? 0), 0);
 
-async function syncEspnLeague(lg) {
+export async function syncEspnLeague(lg) {
   let data = await fetchEspn(lg, lg.season);
   let usedSeason = lg.season, fellBack = false;
   // Pre-draft leagues return empty rosters; fall back to last season so analysis
@@ -150,7 +150,7 @@ async function syncEspnLeague(lg) {
   return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack };
 }
 
-async function syncSleeperLeague(lg) {
+export async function syncSleeperLeague(lg) {
   const j = async p => {
     const resp = await fetch(`${SLEEPER_BASE}${p}`, { headers: { Accept: 'application/json' } });
     if (!resp.ok) throw new Error(`Sleeper API ${resp.status} on ${p}`);

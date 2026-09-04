@@ -26,7 +26,24 @@ export function leagueTypeFromPayload(platform, payload) {
 }
 
 /**
- * @returns {{ formatKey: string, isDynasty: boolean, params: URLSearchParams }}
+ * Best-ball detection from a league's raw synced payload (leagues.payload).
+ *
+ * Sleeper exposes this directly and reliably: `league.settings.best_ball === 1`
+ * is Sleeper's own documented league-settings flag. ESPN has no official public
+ * docs for it; the field community-maintained ESPN API clients (e.g.
+ * cwendt94/espn-api) read for this is `settings.rosterSettings.isBestBallLeague`
+ * — used here the same fail-closed way this codebase already treats other
+ * reverse-engineered ESPN fields (see espn-draft.js's playerId===-1 sentinel
+ * comment): if the field isn't there, this returns false rather than guessing.
+ */
+export function isBestBallFromPayload(platform, payload) {
+  if (!payload) return false;
+  if (platform === 'sleeper') return payload.league?.settings?.best_ball === 1;
+  return Boolean(payload.settings?.rosterSettings?.isBestBallLeague);
+}
+
+/**
+ * @returns {{ formatKey: string, isDynasty: boolean, isBestBall: boolean, params: URLSearchParams }}
  */
 export function deriveFormat(lg) {
   const rp = lg.roster_positions ? JSON.parse(lg.roster_positions) : [];
@@ -44,9 +61,18 @@ export function deriveFormat(lg) {
   // to redraft. Only an explicit redraft signal gets redraft values.
   const isDynasty = lg.league_type === 'dynasty' || lg.league_type === 'keeper';
 
+  // Best-ball has no in-season lineup management to correct a bad roster bet —
+  // this is what makes Zero-RB/Anchor-RB strategies and QB+pass-catcher stacks
+  // outperform there specifically (4for4/RotoWire/DraftSharks best-ball
+  // strategy research), which draft-assist.js's rankTargets() acts on.
+  let payload = null;
+  if (lg.payload) { try { payload = JSON.parse(lg.payload); } catch { payload = null; } }
+  const isBestBall = Boolean(lg.best_ball) || isBestBallFromPayload(lg.platform, payload);
+
   return {
     formatKey: `${isDynasty ? 'dyn' : 'rd'}_sf${numQbs}_t${numTeams}_ppr${ppr}`,
     isDynasty,
+    isBestBall,
     params: new URLSearchParams({
       isDynasty: String(isDynasty),
       numQbs: String(numQbs),

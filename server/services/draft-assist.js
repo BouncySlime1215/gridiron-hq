@@ -15,6 +15,8 @@ import { statsMap } from '../routes/stats.js';
 import { slotForPick, myUpcomingPicks } from './espn-draft.js';
 import { weeklyProjectionFor } from './fantasy-coordinator.js';
 import { tradeWeekContext } from './trade-engine.js';
+import { deriveFormat } from './format.js';
+import { cfbdSignalFor } from './cfbd.js';
 
 /** Positions that can fill a FLEX slot in a standard league. */
 const FLEX_ELIGIBLE = ['RB', 'WR', 'TE'];
@@ -129,6 +131,17 @@ export function buildLineup(picks, slots) {
     slots_total: starters.length,
     projected_total: projectedTotal ? Math.round(projectedTotal) : null
   };
+}
+
+/**
+ * Best-ball detection for the league behind a live draft (mock drafts, which
+ * have no league_row_id, are never best-ball). Format-conditional logic below
+ * is gated on this rather than duplicating deriveFormat()'s own field-reading.
+ */
+function formatForDraft(draft) {
+  if (!draft.league_row_id) return { isBestBall: false };
+  const lg = row('SELECT * FROM leagues WHERE id = ?', draft.league_row_id);
+  return lg ? deriveFormat(lg) : { isBestBall: false };
 }
 
 /** Positional run detection over the last N picks. */
@@ -265,7 +278,8 @@ export function boardState(draftId, teamSlot = null) {
       rounds: draft.rounds, my_slot: draft.my_slot, pick_seconds: draft.pick_seconds,
       status: draft.status, last_synced_at: draft.last_synced_at, draft_at: draft.draft_at,
       espn_league_id: draft.espn_league_id, league_row_id: draft.league_row_id,
-      roster_slots: slots, pick_order: draft.pick_order ? JSON.parse(draft.pick_order) : null
+      roster_slots: slots, pick_order: draft.pick_order ? JSON.parse(draft.pick_order) : null,
+      is_best_ball: formatForDraft(draft).isBestBall
     },
     on_the_clock: {
       pick_number: nextPick <= total ? nextPick : null,
@@ -293,6 +307,18 @@ export function rankTargets(state, limit = 8) {
   const { on_the_clock, my_team, positions } = state;
   const round = on_the_clock.round;
   const roundsLeft = state.draft.rounds - round + 1;
+  const isBestBall = Boolean(state.draft.is_best_ball);
+
+  // Best-ball roster construction: no in-season lineup management means a bad
+  // early bet can't be corrected by benching/streaming later, which is exactly
+  // why Zero-RB/Anchor-RB (fade RB in the first few rounds) and QB+pass-catcher
+  // stacking measurably raise tournament advance rates specifically in this
+  // format (4for4 / RotoWire / DraftSharks best-ball strategy research) even
+  // though neither is a redraft-optimal pattern. Precomputed once per call,
+  // not per player, since it only depends on the roster already drafted.
+  const myPassCatcherTeams = isBestBall
+    ? new Set(my_team.picks.filter(x => ['WR', 'TE'].includes(x.position)).map(x => x.team_abbr))
+    : null;
 
   return state.available.slice(0, 60).map(p => {
     const pos = positions[p.position] ?? {};
@@ -331,6 +357,33 @@ export function rankTargets(state, limit = 8) {
     }
 
     if (p.injury_flag) { score -= 4; reasons.push('carrying an injury flag'); }
+
+    if (isBestBall) {
+      // Zero-RB / Anchor-RB: deprioritize (not exclude) early-round RBs relative
+      // to how this same function ranks them for redraft. Tapers to nothing by
+      // round 5 — this is about fading the RB2/RB3 "safe" template pick, not
+      // punishing a clear first-round workhorse.
+      if (p.position === 'RB' && round <= 4) {
+        const fade = 5 * (5 - round);
+        score -= fade;
+        reasons.push(`best-ball: Zero-RB/Anchor-RB fades an early RB (-${fade})`);
+      }
+      // Stack bonus: a QB scores better when his own pass-catchers are already
+      // on the roster, or still sitting on the board to be paired with him —
+      // stacking measurably raises tournament advance rates in formats with no
+      // in-season lineup management to hedge a bad pairing.
+      if (p.position === 'QB') {
+        const alreadyStacked = myPassCatcherTeams.has(p.team_abbr);
+        const stackAvailable = !alreadyStacked && state.available
+          .some(a => a.team_abbr === p.team_abbr && ['WR', 'TE'].includes(a.position));
+        if (alreadyStacked || stackAvailable) {
+          score += 5;
+          reasons.push(alreadyStacked
+            ? 'best-ball: stack bonus — his pass-catcher is already on your roster'
+            : 'best-ball: stack bonus — his pass-catcher is still on the board');
+        }
+      }
+    }
 
     return { ...p, score: +score.toFixed(2), reasons };
   }).sort((a, b) => b.score - a.score).slice(0, limit);
@@ -397,6 +450,14 @@ export function playerDossier(playerId) {
       : null,
     pro_bowls: acc?.pro_bowls ?? 0,
     all_pro: acc?.first_team_all_pro ?? 0,
+    // Additive rookie-evaluation input alongside the combine/draft-capital data
+    // above (never a replacement) — his final college season's CFBD usage share
+    // and opponent-adjusted PPA (see cfbd.js). Null whenever CFBD_API_KEY was
+    // never configured or he simply wasn't in that season's sync, same
+    // graceful-no-op convention as every other optional-key feed here.
+    college_signal: (experience === 0 && acc?.draft_year)
+      ? cfbdSignalFor(p.name, acc.draft_year - 1)
+      : null,
     projected_points: projected?.fantasy_points ?? null,
     projected_line: line(projected?.raw),
     // The coordinator's validated week-1 number — additive alongside the

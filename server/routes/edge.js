@@ -84,6 +84,43 @@ r.get('/draft-survival', (req, res, next) => {
 
 r.get('/vor', (req, res) => res.json(vorBoard(Number(req.query.teams) || 12)));
 
+// ------------------------------------------------------- 1b. Auction values
+/** Book auction dollar values, scaled to a real budget (see auction-values.js). */
+r.get('/auction-values', (req, res, next) => {
+  try {
+    const leagueId = req.query.league_id ? Number(req.query.league_id) : null;
+    res.json(auctionValues(leagueId, {
+      budget: req.query.budget ? Number(req.query.budget) : undefined,
+      teams: req.query.teams ? Number(req.query.teams) : undefined,
+      rosterSize: req.query.roster_size ? Number(req.query.roster_size) : undefined
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Configure the live-inflation room for an auction draft (budget + roster size). */
+r.post('/auction/:draftId/init', (req, res, next) => {
+  try {
+    res.json(initAuctionDraft(Number(req.params.draftId), {
+      budget: req.body.budget ? Number(req.body.budget) : undefined,
+      rosterSize: req.body.roster_size ? Number(req.body.roster_size) : undefined
+    }));
+  } catch (e) { next(e); }
+});
+
+/** Record a player selling for a price, and recompute live inflation off it. */
+r.post('/auction/:draftId/sale', (req, res, next) => {
+  try {
+    const { player_id, team_slot, price } = req.body;
+    recordSale(Number(req.params.draftId), Number(player_id), Number(team_slot), Number(price));
+    res.json(liveAuctionValues(Number(req.params.draftId)));
+  } catch (e) { next(e); }
+});
+
+/** Live-inflation-adjusted board for an in-progress auction. */
+r.get('/auction/:draftId/live', (req, res, next) => {
+  try { res.json(liveAuctionValues(Number(req.params.draftId))); } catch (e) { next(e); }
+});
+
 // -------------------------------------------------- 2. Volatility / boom-bust
 /** Weekly fantasy points from ESPN game logs, cached so we can compute variance. */
 export async function syncGameLogs(season = SEASON - 1, limit = 250) {

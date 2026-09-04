@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getApiKey, setApiKey, clearApiKey, getWorkspaceId, setWorkspaceId, clearWorkspaceId, usageSummary, PRICING } from '../services/claude.js';
 import { rows, row } from '../db/index.js';
-import { canonicalGsisLabelConflicts, playerIdentityRepairPlan } from '../services/player-repair.js';
+import { canonicalGsisLabelConflicts, playerIdentityRepairPlan, unclaimedTeamPositionDuplicates } from '../services/player-repair.js';
 import { allSources } from '../services/source-registry.js';
 
 const r = Router();
@@ -58,6 +58,7 @@ r.delete('/workspace-id', (req, res) => { clearWorkspaceId(); res.json({ ok: tru
 r.get('/usage', (req, res) => res.json(usageSummary(Number(req.query.days) || 30)));
 r.get('/player-identity/repair-plan', (req, res) => res.json(playerIdentityRepairPlan()));
 r.get('/player-identity/gsis-conflicts', (req, res) => res.json(canonicalGsisLabelConflicts()));
+r.get('/player-identity/team-position-duplicates', (req, res) => res.json(unclaimedTeamPositionDuplicates()));
 
 /**
  * Every ingestion source the app has — scheduled or on-demand — with its

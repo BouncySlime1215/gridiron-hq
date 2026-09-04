@@ -65,6 +65,54 @@ export function playerIdentityRepairPlan() {
 }
 
 /**
+ * Find fantasy-relevant rows that never got an espn_id but sit on the same
+ * team+position as a row ESPN *did* confirm — the shape a real rookie
+ * promotion leaves behind. When a player is replaced at a roster slot, the
+ * old occupant's row keeps its team_id and its (now stale) name; the ESPN
+ * sync creates a brand-new row for the new occupant rather than reusing the
+ * old one, because `findPlayerMatch` requires the *name* to agree and these
+ * two rows never share one. `playerIdentityRepairPlan` above can't catch
+ * this either — it only groups rows by normalized name, and these two have
+ * different names by construction.
+ *
+ * This is exactly how one real WAS rookie's actual draft picks, rankings and
+ * dynasty values ended up permanently attributed to a different, stale
+ * player's name everywhere the app displays them: the old row (unclaimed,
+ * espn_id NULL) picked up a Sleeper id and real league activity under its
+ * old name, while the true current occupant of that roster slot lived in a
+ * second, ESPN-linked row the whole time. Read-only, same as the rest of
+ * this file — a human has to confirm which row is the stale one before
+ * anything gets merged.
+ */
+export function unclaimedTeamPositionDuplicates() {
+  const players = rows(`SELECT id,name,position,team_id,espn_id,sleeper_id,fantasy_relevant
+    FROM players WHERE team_id IS NOT NULL AND position IS NOT NULL`);
+  const byTeamPos = new Map();
+  for (const p of players) {
+    const key = `${p.team_id}|${p.position}`;
+    if (!byTeamPos.has(key)) byTeamPos.set(key, []);
+    byTeamPos.get(key).push(p);
+  }
+  const referenceTables = playerReferenceTables();
+  const review = [];
+  for (const list of byTeamPos.values()) {
+    const claimed = list.filter(p => p.espn_id != null);
+    const shadows = list.filter(p => p.espn_id == null && p.fantasy_relevant
+      && !claimed.some(c => normalizePlayerName(c.name) === normalizePlayerName(p.name)));
+    if (claimed.length !== 1 || !shadows.length) continue;
+    review.push({
+      team_id: claimed[0].team_id, position: claimed[0].position,
+      espn_linked: { ...claimed[0], references: refCounts(claimed[0].id, referenceTables) },
+      shadows: shadows.map(p => ({ ...p, references: refCounts(p.id, referenceTables) })),
+      reason: 'A different name occupies this exact team+position with no espn_id of its own. ' +
+        'Likely the same real roster slot under a stale name — never auto-merge on name alone.'
+    });
+  }
+  return { dry_run: true, review_groups: review.length, review,
+    note: 'No rows were changed. Confirm identity (e.g. against the team roster feed) before merging.' };
+}
+
+/**
  * Find rows where the GSIS-linked name disagrees with the master label. This
  * is deliberately read-only: a row may also own Sleeper, ESPN, roster and
  * draft references, so a single source is not allowed to rename the person.

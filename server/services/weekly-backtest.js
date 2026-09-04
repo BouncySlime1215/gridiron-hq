@@ -88,7 +88,7 @@ export function replaySeasonWeekly(season, opts = {}) {
 function replayImpl(season, {
   startWeek = 5, endWeek = 18, scoring = PPR, distributions = true,
   runs = 200, level, kOverride = null, recency, roleRecency,
-  predictionHead = null
+  predictionHead = null, qbrSignal
 } = {}) {
   const truth = actuals(season, scoring);
 
@@ -107,7 +107,7 @@ function replayImpl(season, {
 
   for (let week = startWeek; week <= endWeek; week++) {
     const proj = buildProjections({
-      through: season, throughWeek: week - 1, scoring, kOverride, recency, roleRecency
+      through: season, throughWeek: week - 1, scoring, kOverride, recency, roleRecency, qbrSignal
     });
     if (!proj.size) continue;
 

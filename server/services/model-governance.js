@@ -62,7 +62,15 @@ const CONTRACTS = [
   ['MLB', 'pitcher_strikeouts', 'strikeout_price', 'timestamped player prop quote', 'quote_at < first pitch and quote_at <= prediction_at', 'on refresh', 15, 'abstain', 'critical'],
   ['MLB', 'batter_total_bases', 'plate_appearance_context', 'confirmed batting order', 'lineup captured before first pitch', 'on refresh', 30, 'abstain', 'critical'],
   ['MLB', 'batter_total_bases', 'pitch_mix_matchup', 'prior pitch/batter observations', 'date strictly before slate date', 'daily', 1440, 'shrink to population prior', 'high'],
-  ['MLB', 'batter_total_bases', 'total_bases_price', 'timestamped player prop quote', 'quote_at < first pitch and quote_at <= prediction_at', 'on refresh', 15, 'abstain', 'critical']
+  ['MLB', 'batter_total_bases', 'total_bases_price', 'timestamped player prop quote', 'quote_at < first pitch and quote_at <= prediction_at', 'on refresh', 15, 'abstain', 'critical'],
+  // Fantasy weekly ensemble (player-week-engine.js / weekly-ensemble.js): no
+  // gate existed here before this contract, unlike spread and props, even
+  // though it is the same weekly-graded decision. Mirrors the player_props
+  // contracts exactly, since it consumes the same joint event state.
+  ['NFL', 'fantasy_weekly', 'joint_event_state', 'shared player-week engine', 'all usage and efficiency rows strictly before target week', 'weekly', 10080, 'abstain player', 'critical'],
+  ['NFL', 'fantasy_weekly', 'canonical_player_identity', 'players crosswalk', 'GSIS and internal id mapping must exist before prediction', 'weekly', 10080, 'abstain player', 'critical'],
+  ['NFL', 'fantasy_weekly', 'pregame_role_eligibility', 'depth chart + prior usage snapshot', 'captured before kickoff; target-week participation is forbidden', 'on refresh', 720, 'abstain market', 'critical'],
+  ['NFL', 'fantasy_weekly', 'qbr_signal', 'ESPN Total QBR (nflverse release)', 'trailing starts strictly before target week', 'weekly', 10080, 'shrink to zero without walk-forward gain', 'high']
 ];
 
 function seedContracts() {
@@ -83,6 +91,8 @@ function seedRegistry() {
     ['NFL', 'total', 'challenger', 'nfl-total-ensemble-v1', 'blocked', 'Too few active total models and no proven residual edge.'],
     ['NFL', 'player_props', 'champion', 'shared-event-structural-v1', 'baseline', 'Shared structural event state; no betting promotion without real priced evidence.'],
     ['NFL', 'player_props', 'challenger', 'player-head-registry-v1', 'research_only', 'Must pass chronological accuracy, calibration, null, coverage and forward CLV gates.'],
+    ['NFL', 'fantasy_weekly', 'champion', 'structural-ensemble-v1', 'baseline', 'Volume x efficiency structural head plus the frozen weekly ensemble; walk-forward MAE/calibration baseline.'],
+    ['NFL', 'fantasy_weekly', 'challenger', 'qbr-augmented-structural-v1', 'research_only', 'Adds trailing ESPN QBR to the QB structural head. Must beat the structural-ensemble-v1 baseline on out-of-sample walk-forward MAE and calibration_error, gated the same way spread specialists are (real correlation, real cross-half gain), before any promotion.'],
     ['MLB', 'nrfi', 'challenger', 'mlb-nrfi-v2-cutoff', 'blocked', 'Overconfident retrospective audit; real priced forward evidence required.'],
     ['MLB', 'pitcher_strikeouts', 'challenger', 'mlb-k-v2-cutoff', 'blocked', 'No cutoff-valid validation sample or priced forward evidence.'],
     ['MLB', 'batter_total_bases', 'challenger', 'mlb-tb-v2-cutoff', 'blocked', 'No cutoff-valid validation sample or priced forward evidence.']

@@ -29,6 +29,7 @@ import {
   randGamma, randNegBinomial, randBinomial, randPoisson, randn, randBeta, random
 } from './stats-util.js';
 import { activeKVector } from './shrinkage-fit.js';
+import { qbrTrailingForPlayer } from './nfl-qbr.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -163,6 +164,32 @@ const shrinkSafe = (observed, prior, n, k) => (k === Infinity ? prior : shrink(o
  * Hence a large floor `a` and a small evidence term.
  */
 export const LEVEL_UNCERTAINTY = { a: 0, b: 1.15, lo: 0.30, hi: 0.70, downMult: 1, conc: 3.5 };
+
+/**
+ * QB structural head: a small, walk-forward-validated nudge from ESPN Total
+ * QBR — a "quality over volume" signal already synced (`nfl_qbr_weekly`) and,
+ * until now, used only by the betting spread model, never fantasy.
+ *
+ * Fit exactly like `nfl-expert-coordinator.js`'s per-role shrinkage: k =
+ * cov(qbr_anomaly, structural_error) / (var(qbr_anomaly) + ridge), capped to
+ * [0,1], and gated to zero unless the correlation is real (t > 2) AND a
+ * cross-half split (fit on one half of training weeks, tested on the other)
+ * still reduces error. See scripts/analyze-qbr-fantasy-signal.mjs.
+ *
+ * Fit on 2021-2023 walk-forward (weeks 5-18, 1367 QB player-weeks with a
+ * qualifying trailing QBR): k=0.073, t=5.14, cross-half gain=+0.069 — passes.
+ * Out of sample:
+ *   2024 (first held-out season): MAE 6.585 -> 6.497 (paired bootstrap
+ *     90% CI [-0.150, -0.022], significant), calibration_error 0.279 -> 0.252.
+ *   2025 (holdout, untouched by the fit): MAE 6.875 -> 6.814 (90% CI
+ *     [-0.131, +0.011], not significant on its own, but same direction),
+ *     calibration_error 0.320 -> 0.256.
+ * Net: a real, small, consistently-signed MAE gain and a genuine calibration
+ * gain in both held-out seasons — modest, not a null result. `center` is the
+ * league mean QBR among qualified starts (qb_plays >= 5), not fit against any
+ * fantasy outcome, so it cannot leak the thing being predicted.
+ */
+export const QBR_SIGNAL = { enabled: true, k: 0.073, center: 53.26, window: 8 };
 
 /* --------------------------------------------------------------- histories */
 
@@ -337,7 +364,7 @@ function positionalPriors(log) {
  */
 export function buildProjections({
   through = SEASON - 1, throughWeek = null, scoring = PPR, kOverride, recency,
-  roleRecency
+  roleRecency, qbrSignal = QBR_SIGNAL
 } = {}) {
   const k = kOverride === undefined ? activeKVector() : kOverride;
   const r = { ...RECENCY, ...recency };
@@ -510,11 +537,21 @@ export function buildProjections({
     };
 
     // Deterministic expectation, used for ranking and as the point estimate.
-    const meanPpg = scoreSim({
+    const structuralPpg = scoreSim({
       passYd: attempts * ypa, passTd: attempts * passTdRate, int: attempts * intRate,
       rushYd: carries * ypc, rushTd: carries * rushTdRate,
       rec: targets * catchRate, recYd: targets * ypt, recTd: targets * recTdRate
     }, scoring);
+
+    // QB only: a small, gated nudge from trailing ESPN QBR (see QBR_SIGNAL).
+    // Falls back to no adjustment when the signal is off or the QB has no
+    // qualifying trailing read (rookies, first-year starters, no espn_id).
+    let qbrAdjustment = 0, qbrRead = null;
+    if (a.pos === 'QB' && qbrSignal?.enabled && qbrSignal.k) {
+      qbrRead = qbrTrailingForPlayer(a.espn_id, through, throughWeek, { window: qbrSignal.window });
+      if (qbrRead) qbrAdjustment = qbrSignal.k * (qbrRead.qbr - qbrSignal.center);
+    }
+    const meanPpg = structuralPpg + qbrAdjustment;
 
     out.set(a.id, {
       player_id: a.id, name: a.name, position: a.pos, team: a.team,
@@ -536,6 +573,9 @@ export function buildProjections({
         pass_td_rate: +passTdRate.toFixed(4)
       },
       params,
+      structural_ppg_pre_qbr: +structuralPpg.toFixed(2),
+      qbr_adjustment: +qbrAdjustment.toFixed(3),
+      qbr_read: qbrRead,
       ppg: +meanPpg.toFixed(2),
       points: +(meanPpg * expectedGames).toFixed(1)
     });

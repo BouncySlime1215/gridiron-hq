@@ -78,6 +78,31 @@ export function teamQbrProfile(season, week, team, { window = 6 } = {}) {
     this_season_weeks: recent.filter(r => r.season === season).length };
 }
 
+/**
+ * Player-level trailing QBR, cutoff-safe against the SAME (through, throughWeek)
+ * boundary `projections.js`'s `buildProjections` uses: strictly prior seasons,
+ * plus the current season only through `throughWeek` inclusive (or the whole
+ * season when `throughWeek` is null, matching `history()`'s season-boundary
+ * mode). Keyed on ESPN id, which is the crosswalk `nfl_qbr_weekly.player_id`
+ * actually uses (confirmed by join: 5285/5294 rows match `players.espn_id`).
+ *
+ * Returns null when there is no qualifying evidence, so a caller can fall back
+ * to "no signal" rather than a fabricated league-average QBR.
+ */
+export function qbrTrailingForPlayer(espnId, through, throughWeek, { window = 8 } = {}) {
+  if (espnId == null) return null;
+  const prior = throughWeek == null
+    ? rows(`SELECT season,week,qbr_total,qb_plays FROM nfl_qbr_weekly
+        WHERE player_id=? AND season<=? ORDER BY season DESC, week DESC`, String(espnId), through)
+    : rows(`SELECT season,week,qbr_total,qb_plays FROM nfl_qbr_weekly
+        WHERE player_id=? AND (season<? OR (season=? AND week<=?)) ORDER BY season DESC, week DESC`,
+        String(espnId), through, through, throughWeek);
+  const starts = prior.filter(r => Number.isFinite(r.qbr_total) && r.qb_plays >= 5).slice(0, window);
+  if (!starts.length) return null;
+  const qbr = starts.reduce((s, r) => s + r.qbr_total, 0) / starts.length;
+  return { qbr, starts: starts.length };
+}
+
 export function qbrStatus() {
   return { version: NFL_QBR_VERSION, by_season: rows(`SELECT season, COUNT(*) rows, COUNT(DISTINCT team) teams, MAX(week) last_week FROM nfl_qbr_weekly GROUP BY season ORDER BY season`),
     source: URL };

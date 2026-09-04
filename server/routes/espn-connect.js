@@ -12,6 +12,7 @@
  */
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
+import { resolveAuthenticatedUser } from '../platform/auth.js';
 
 const r = Router();
 
@@ -346,6 +347,18 @@ r.post('/add', async (req, res, next) => {
 
     const lg = row(`SELECT id FROM leagues WHERE platform='espn' AND league_id=? AND season=?`,
       String(league_id), yr);
+    // Every :id route on /api/leagues (sync included) now requires a real
+    // league_memberships row — leagues.js's own POST / creates one, but this
+    // route (the actual first-run path: the ESPN-connect modal calls this, not
+    // that one) never did, so a freshly-connected league had no member and its
+    // very first sync 403'd. The bookmarklet flow always carries the caller's
+    // session token by the time this fires, so resolve it the same way
+    // requireAuthenticated does rather than trusting anything in the body.
+    const auth = resolveAuthenticatedUser(req);
+    if (lg?.id && auth?.userId) {
+      run(`INSERT INTO league_memberships (league_id,user_id,role) VALUES (?,?,'commissioner')
+           ON CONFLICT(league_id,user_id) DO UPDATE SET role='commissioner'`, lg.id, auth.userId);
+    }
     res.json({ ok: true, id: lg?.id, note: 'Now hit Sync on the My Leagues page to pull rosters.' });
   } catch (e) { next(e); }
 });

@@ -136,3 +136,27 @@ test('a league with no draft history still disconnects cleanly', async () => {
   assert.equal(body.disconnected, true);
   assert.equal(body.retained.drafts, 0);
 });
+
+test('a league with zero members self-heals commissioner membership for whoever calls sync, instead of locking them out forever', async () => {
+  // Reproduces the real regression: a league connected through the
+  // ESPN-connect flow before it granted membership on add (espn-connect.js)
+  // had no league_memberships row at all, so its very first /sync 403'd and
+  // there was no way for the owner of their own local install to recover.
+  run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid)
+       VALUES ('sleeper','7777',2026,'Orphaned League',NULL,NULL)`);
+  const leagueId = row('SELECT last_insert_rowid() AS id').id;
+  const token = 'orphaned-league-token';
+  run('INSERT INTO users (subject, display_name) VALUES (?,?)', 'orphaned-league-user', 'Orphaned Tester');
+  const userId = row('SELECT last_insert_rowid() AS id').id;
+  run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES (?,?,datetime('now','+1 day'))`,
+    userId, hashSessionToken(token));
+  assert.equal(row(`SELECT 1 FROM league_memberships WHERE league_id = ?`, leagueId), undefined,
+    'the league must genuinely have no members yet, matching the real bug');
+
+  // The sync itself will fail (a fake sleeper league_id has nothing real behind
+  // it) — that's fine and expected; what matters is it fails as a sync error,
+  // not a 403 membership rejection, and that membership now exists either way.
+  await fetch(`${base}/${leagueId}/sync`, { method: 'POST', headers: authHeaders(token) });
+  const membership = row(`SELECT role FROM league_memberships WHERE league_id = ? AND user_id = ?`, leagueId, userId);
+  assert.equal(membership?.role, 'commissioner', 'the caller must be granted membership rather than staying locked out');
+});

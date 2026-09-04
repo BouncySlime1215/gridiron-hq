@@ -179,6 +179,18 @@ async function syncSleeperLeague(lg) {
 
 r.post('/:id/sync', async (req, res, next) => {
   try {
+    // Self-heal a league that was connected through the ESPN-connect flow
+    // before it granted membership on add (fixed in espn-connect.js) — a
+    // league with literally zero members can only be the caller's own (a
+    // stranger has no way to know it exists on this single-owner install),
+    // so treat it as the same first-time grant POST / already gives a
+    // league added through that path, rather than locking the owner out of
+    // data that is unambiguously theirs.
+    const hasAnyMember = row('SELECT 1 FROM league_memberships WHERE league_id = ?', req.params.id);
+    if (!hasAnyMember && req.auth?.userId) {
+      run(`INSERT INTO league_memberships (league_id,user_id,role) VALUES (?,?,'commissioner')
+           ON CONFLICT(league_id,user_id) DO UPDATE SET role='commissioner'`, req.params.id, req.auth.userId);
+    }
     assertLeagueMember(req.auth.userId, req.params.id);
     const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
     if (!lg) return res.status(404).json({ error: 'league not found' });

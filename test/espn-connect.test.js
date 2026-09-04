@@ -11,9 +11,12 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.NFL_SEASON = '2026';
 
 const { db, row, run } = await import('../server/db/index.js');
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations();
 // app_settings is created by claude.js's import-time db.exec().
 await import('../server/services/claude.js');
 const { default: espnConnectRouter, extractEspnCookies } = await import('../server/routes/espn-connect.js');
+const { hashSessionToken } = await import('../server/platform/auth.js');
 const express = (await import('express')).default;
 
 const app = express();
@@ -22,6 +25,15 @@ app.use('/api/espn-connect', espnConnectRouter);
 const server = app.listen(0);
 const { port } = server.address();
 const base = `http://127.0.0.1:${port}/api/espn-connect`;
+
+// A real bearer token, same shape resolveAuthenticatedUser expects — the
+// bookmarklet flow always carries the caller's own session token by the time
+// /add fires, so /add's membership grant is exercised the same way.
+run('INSERT INTO users (subject, display_name) VALUES (?,?)', 'espn-connect-test-user', 'Connect Tester');
+const TEST_USER_ID = row('SELECT last_insert_rowid() AS id').id;
+const TEST_TOKEN = 'espn-connect-test-token';
+run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at) VALUES (?,?,datetime('now','+1 day'))`,
+  TEST_USER_ID, hashSessionToken(TEST_TOKEN));
 
 // Tests hit this local server with the real fetch; globalThis.fetch gets stubbed to
 // control the ESPN call, so capture the real one first.
@@ -259,4 +271,38 @@ test('the emitted bookmarklet is syntactically valid JavaScript', async () => {
   assert.doesNotThrow(() => new Function(body.console_snippet), 'console fallback must parse too');
   // And the POST target must have survived minification intact.
   assert.match(source, /fetch\('http:\/\/127\.0\.0\.1:\d+\/api\/espn-connect\/cookies'/);
+});
+
+/* --------------------------------------------------------- membership grant */
+
+test('adding a league through the connect flow grants the caller commissioner membership', async () => {
+  resetState();
+  run(`DELETE FROM league_memberships WHERE user_id = ?`, TEST_USER_ID);
+  const res = await realFetch(`${base}/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', authorization: `Bearer ${TEST_TOKEN}` },
+    body: JSON.stringify({ league_id: '555444', season: 2026, name: 'Freshly Connected League' })
+  });
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.ok(body.id, 'the created league id must come back');
+
+  // This is the exact regression: leagues.js's own POST / has always granted
+  // membership on add, but this route (the one the ESPN-connect modal — the
+  // real first-run path — actually calls) never did, so the very first
+  // /:id/sync a fresh install ever made 403'd on "league membership required".
+  const membership = row(`SELECT role FROM league_memberships WHERE league_id = ? AND user_id = ?`,
+    body.id, TEST_USER_ID);
+  assert.equal(membership?.role, 'commissioner',
+    'the connecting user must be able to sync the league they just connected');
+});
+
+test('adding a league with no session token still succeeds (membership grant is best-effort)', async () => {
+  resetState();
+  const res = await realFetch(`${base}/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ league_id: '555445', season: 2026, name: 'No Session League' })
+  });
+  assert.equal((await res.json()).ok, true, 'a missing/expired token must not block adding the league itself');
 });

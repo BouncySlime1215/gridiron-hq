@@ -13,6 +13,8 @@ import { rows, row } from '../db/index.js';
 import { computeConsensus } from '../routes/aggregates.js';
 import { statsMap } from '../routes/stats.js';
 import { slotForPick, myUpcomingPicks } from './espn-draft.js';
+import { weeklyProjectionFor } from './fantasy-coordinator.js';
+import { tradeWeekContext } from './trade-engine.js';
 
 /** Positions that can fill a FLEX slot in a standard league. */
 const FLEX_ELIGIBLE = ['RB', 'WR', 'TE'];
@@ -397,6 +399,11 @@ export function playerDossier(playerId) {
     all_pro: acc?.first_team_all_pro ?? 0,
     projected_points: projected?.fantasy_points ?? null,
     projected_line: line(projected?.raw),
+    // The coordinator's validated week-1 number — additive alongside the
+    // season-long ESPN projection above, not a replacement: the coordinator
+    // is only proven at weekly grain (see trade-engine.js), not for a
+    // season-long total, so board rank/rankTargets stay on projected_points.
+    week1_projection: (() => { try { return weeklyProjectionFor(playerId, tradeWeekContext()); } catch { return null; } })(),
     last_season: lastYear ? { points: Math.round(lastYear.fantasy_points), games: lastYear.games, line: line(lastYear.raw) } : null,
     prior_season: priorYear ? { points: Math.round(priorYear.fantasy_points), games: priorYear.games } : null,
     injury_flag: injury?.value ?? null,

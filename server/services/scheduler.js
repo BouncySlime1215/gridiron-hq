@@ -299,6 +299,32 @@ async function refreshFantasyCoordinator() {
   return refitFantasyCoordinator();
 }
 
+/**
+ * Pre-warms trade-engine.js#assetUniverse — by far the most expensive pure
+ * function in the fantasy half of the app (a weekly projection engine, VOR
+ * board, volatility table and a 400-run distribution per player). It's a
+ * fingerprint cache, not a TTL, so it's already correct forever between real
+ * data changes — but that also means every roster sync, injury pull or news
+ * ingest quietly invalidates it, and the next person to open Trade Lab pays
+ * a real 5-6 second cold build for work nobody asked them to wait on.
+ * Rebuilding it here, off the request path, for every league someone
+ * actually has a membership in, means that cost is almost never paid live.
+ */
+async function refreshTradeAssetUniverse() {
+  const { assetUniverse } = await import('./trade-engine.js');
+  const { deriveFormat } = await import('./format.js');
+  const leagues = rows(`SELECT DISTINCT l.* FROM leagues l JOIN league_memberships m ON m.league_id = l.id`);
+  const results = [];
+  for (const lg of leagues) {
+    try {
+      const { formatKey } = deriveFormat(lg);
+      assetUniverse(lg, formatKey);
+      results.push({ league_id: lg.id, ok: true });
+    } catch (e) { results.push({ league_id: lg.id, ok: false, error: e.message }); }
+  }
+  return { leagues_warmed: results.filter(r => r.ok).length, failures: results.filter(r => !r.ok) };
+}
+
 /** Refit the TD calibrator on fixed chronological eras; promotion still requires replication. */
 async function refreshNflPropCalibration() {
   const { propReplayRows } = await import('./nfl-props.js');
@@ -585,6 +611,14 @@ export const JOBS = {
     label: 'NFL chronological prop calibration registry' },
   fantasy_coordinator_refit: { run: refreshFantasyCoordinator, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'Fantasy coordinator refit (ensemble/game-script blend, walk-forward validated)' },
+  // 'growth' tier, not 'live' — this is a background warm-up for a cache
+  // that is already correct indefinitely on its own; the point is only to
+  // move a ~5-6s cold build off of someone's real page load. maxAgeMinutes
+  // below the tier's own ~30-minute tick just means it never gets skipped as
+  // "not stale yet" — it runs every tick, well ahead of how often the
+  // fantasy side's own inputs actually change (injuries every 6h, news hourly).
+  trade_asset_universe_warm: { run: refreshTradeAssetUniverse, maxAgeMinutes: 20, tier: 'growth',
+    label: 'Pre-warm the trade engine\'s asset universe for every league in use' },
   /*
    * Prop quote capture. Every hour during a slate, because a prop line that is
    * only observed once cannot yield closing-line value — CLV needs the price

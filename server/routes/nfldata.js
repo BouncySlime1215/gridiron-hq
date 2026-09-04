@@ -91,6 +91,7 @@ export async function syncRosters() {
 
   let total = 0, teams = 0;
   const abbrs = Object.keys(ABBR_TO_ESPN);
+  const failedTeams = [];
   for (let i = 0; i < abbrs.length; i += 8) {
     const batch = abbrs.slice(i, i + 8);
     const results = await Promise.allSettled(batch.map(async abbr => {
@@ -98,11 +99,11 @@ export async function syncRosters() {
       if (!resp.ok) throw new Error(`roster ${abbr} ${resp.status}`);
       return { abbr, data: await resp.json() };
     }));
-    for (const res of results) {
-      if (res.status !== 'fulfilled') continue;
+    results.forEach((res, idx) => {
+      if (res.status !== 'fulfilled') { failedTeams.push(batch[idx]); return; }
       const { abbr, data } = res.value;
       const teamId = ids[abbr];
-      if (!teamId) continue;
+      if (!teamId) return;
       // Upsert current players first (ON CONFLICT keeps the same row id for
       // anyone still rostered), THEN delete only whoever's gone — never the
       // wipe-then-reinsert this used to do. That always minted a fresh id for
@@ -144,11 +145,19 @@ export async function syncRosters() {
         run(`UPDATE nfl_teams SET head_coach = ? WHERE id = ? AND head_coach IS NOT ?`, name, teamId, name);
       }
       teams++;
-    }
+    });
   }
   const snapshot = captureCurrentRosterSnapshot();
-  const result = { teams, players: total, snapshot };
-  recordSync('espn_rosters', teams < abbrs.length ? 'error' : 'ok', result);
+  // A single team's transient fetch failure (network blip, one ESPN endpoint
+  // hiccup) used to get logged identically to every team failing — which drove
+  // confidence() to its error floor even though the other 31 teams' worth of
+  // real data just landed. Distinguish "some teams failed" (partial, still
+  // mostly trustworthy) from "the whole sync failed" (error, trust nothing).
+  const status = failedTeams.length === 0 ? 'ok'
+    : teams === 0 ? 'error'
+    : 'partial';
+  const result = { teams, players: total, snapshot, teamsAttempted: abbrs.length, failedTeams };
+  recordSync('espn_rosters', status, result);
   return result;
 }
 

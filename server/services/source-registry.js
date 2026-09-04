@@ -107,13 +107,12 @@ export const MANUAL_SOURCES = {
     failureMode: 'recorded independently; other advanced feeds continue',
     maxAgeMinutes: 2 * 24 * 60
   },
-  nfl_injuries: {
-    label: 'nflverse injury reports',
-    cadence: 'weekly (practice participation + game status)',
-    cutoff: 'as of the pull; Friday\'s report is stale by Sunday',
-    failureMode: 'recorded independently; stale injury confidence decays until the next successful pull',
-    maxAgeMinutes: 24 * 60
-  },
+  // nfl_injuries moved to scheduler.js's JOBS (a real, healthy, live-tier job
+  // on a 6h cadence — see refreshNflInjuries there). This entry existed here
+  // as a conflicting "weekly" duplicate of the same underlying data, and
+  // allSources() concatenates both lists without dedup, so it listed the
+  // same source twice with contradictory cadence/label. Same class of fix as
+  // the espn_rosters removal above.
   espn_players: {
     label: 'ESPN top-800 player universe (roster + ownership)',
     cadence: 'daily-ish; the roster source of truth for offensive depth charts',
@@ -249,9 +248,24 @@ export function confidence(name, meta = MANUAL_SOURCES[name] ?? SCHEDULED_JOBS[n
   if (l.last_status === 'error') return 0.1;
   const age = minutesSince(name);
   const budget = meta.maxAgeMinutes ?? meta.max_age_minutes;
-  if (age <= budget) return 1;
-  const overBudgetRatio = age / budget;                 // 1 at budget, grows from there
-  return +Math.max(0.2, 1 - (overBudgetRatio - 1) / 2).toFixed(2);
+  const freshness = age <= budget ? 1 : Math.max(0.2, 1 - (age / budget - 1) / 2);
+  if (l.last_status === 'partial') {
+    // Some-but-not-all of a per-team batch failed (see nfldata.js's syncRosters).
+    // That's a genuinely different situation from a total failure and shouldn't
+    // get shoved to the same 0.1 floor: scale by how much of the batch actually
+    // landed, so 31/32 teams still reads as trustworthy and 16/32 reads as
+    // meaningfully degraded. Falls back to a neutral midpoint if a caller logged
+    // 'partial' without the team-count detail this scaling needs.
+    let detail;
+    try { detail = JSON.parse(l.last_detail); } catch { detail = null; }
+    const attempted = detail?.teamsAttempted;
+    const failedCount = detail?.failedTeams?.length;
+    const successFraction = (attempted > 0 && failedCount != null)
+      ? Math.max(0, (attempted - failedCount) / attempted)
+      : 0.5;
+    return +Math.max(0.1, freshness * successFraction).toFixed(2);
+  }
+  return +freshness.toFixed(2);
 }
 
 /** Every registered source, scheduled or manual, with cadence/cutoff/failure mode and live staleness. */

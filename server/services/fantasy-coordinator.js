@@ -437,4 +437,33 @@ export async function fantasyCoordinatorWalkForward({ fromSeason = 2022, through
   return results;
 }
 
+/**
+ * One player's current-week projection, structural + the coordinator's
+ * correction — the same computation trade-engine.js#buildAssetUniverse
+ * already applies for `current_week_ppg`, factored out here so any
+ * league-agnostic consumer (a player detail page, the draft assistant) can
+ * get the same real, validated number without needing a league/format
+ * context, which buildAssetUniverse requires and this doesn't. Returns null
+ * for a player with no weekly projection (no usage history to project
+ * from) rather than a guess.
+ */
+export function weeklyProjectionFor(playerId, { season, week, scoring = PPR } = {}) {
+  const engine = buildPlayerWeekEngine({ season, week, scoring });
+  const projection = playerWeekProjection(engine, playerId);
+  if (!projection?.params || projection.structural_ppg == null) return null;
+  const expertValues = weeklyExpertValues(projection, season, week, scoring);
+  const fit = activeFantasyCoordinatorFit();
+  const coordinated = expertValues ? coordinateFantasy(fit, expertValues, projection.ppg) : null;
+  return {
+    season, week,
+    structural_ppg: projection.structural_ppg,
+    ensemble_ppg: projection.ppg,
+    corrected_ppg: coordinated?.ready ? coordinated.corrected_ppg : projection.ppg,
+    coordinator: coordinated?.ready
+      ? { correction: coordinated.correction, contributions: coordinated.contributions }
+      : null,
+    cutoff: projection.player_week_engine?.cutoff ?? null
+  };
+}
+
 export const __test = { shrinkageScales, familiesOf, fitRows, design, EXPERT_IDS };

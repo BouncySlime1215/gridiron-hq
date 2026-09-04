@@ -4,6 +4,8 @@ import { trendPct } from './aggregates.js';
 import { computeSOS } from './nfldata.js';
 import { statsFor, fetchGameLog } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
+import { weeklyProjectionFor } from '../services/fantasy-coordinator.js';
+import { tradeWeekContext } from '../services/trade-engine.js';
 
 const r = Router();
 
@@ -81,6 +83,15 @@ r.get('/:id', (req, res) => {
     depth,
     depth_multi: depthMulti,
     stats: statsFor(player.id),
+    // The app's own structural + coordinator-corrected weekly number, not the
+    // season-long ESPN projection above — `stats` is left untouched (a
+    // different, still-useful season-total view; the delta/last-season
+    // comparison it drives depends on both being their own thing), this is
+    // additive. League-agnostic on purpose: a player detail page has no
+    // league/format context to hand assetUniverse, and doesn't need one for
+    // this number (VOR/dynasty value are league-specific; a weekly point
+    // projection is not).
+    weekly_projection: (() => { try { return weeklyProjectionFor(player.id, tradeWeekContext()); } catch { return null; } })(),
     verdict: verdict ?? null
   });
 });

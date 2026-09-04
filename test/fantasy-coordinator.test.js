@@ -13,7 +13,8 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { db } = await import('../server/db/index.js');
 const {
-  fitFantasyCoordinator, coordinateFantasy, saveFantasyCoordinatorFit, activeFantasyCoordinatorFit, __test
+  fitFantasyCoordinator, coordinateFantasy, saveFantasyCoordinatorFit, activeFantasyCoordinatorFit,
+  weeklyProjectionFor, __test
 } = await import('../server/services/fantasy-coordinator.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -136,4 +137,10 @@ test('the latest saved fit wins over an earlier one', () => {
   const second = fitFantasyCoordinator(syntheticExamples());
   saveFantasyCoordinatorFit(second, 2024);
   assert.equal(activeFantasyCoordinatorFit().rows, second.rows);
+});
+
+test('weeklyProjectionFor returns null for a player with no real weekly projection, not a guess', () => {
+  // No player_week_usage exists at all in this isolated test DB, so no
+  // player — real or not — has anything to project from.
+  assert.equal(weeklyProjectionFor(999999, { season: 2026, week: 1 }), null);
 });

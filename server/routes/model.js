@@ -34,6 +34,9 @@ import { SqliteModelStore, recordModelAudit, registrySnapshot } from '../modelin
 import { requireModelPermission } from '../modeling/authz.js';
 import { runWalkForward, openFinalHoldout } from '../modeling/walk-forward.js';
 import { weeklyLearningStatus, runWeeklyLearningCycle } from '../services/weekly-learning.js';
+import { syncHistoricalAdp } from '../services/historical-adp.js';
+import { refitFantasyCoordinator } from '../services/fantasy-coordinator.js';
+import { allSources } from '../services/source-registry.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -614,10 +617,33 @@ r.post('/sync', requireModelPermission('model:train'), async (req, res, next) =>
     out.current_lines = await syncCurrentLines(SEASON).catch(e => ({ error: e.message }));
     out.gamescript = fitGameScript();
     out.correlations = fitCorrelations().length;
+    // Fantasy side: the boom/bust preseason-perception prior and the
+    // coordinator that blends it with the ensemble/game-script experts. Both
+    // depend on the play-by-play/nflverse/advanced pulls above, so they run
+    // last, and neither failure should take the betting-side sync down.
+    out.historical_adp = await syncHistoricalAdp().catch(e => ({ error: e.message }));
+    out.fantasy_coordinator = await refitFantasyCoordinator({}).catch(e => ({ error: e.message }));
     out.consistency = nflDataConsistencyAudit();
     clearModelCache(); clearMatchupCache(); clearCorrelationCache(); clearGameScriptCache();
     res.json({ ok: true, ...out });
   } catch (e) { next(e); }
+});
+
+/**
+ * Whether this install still needs its one-time historical backfill — the
+ * question a fresh `git clone` cannot answer for itself, since none of this
+ * data ships in the repo (it lives only in each install's own SQLite file).
+ * Read-only and unauthenticated on purpose, like GET /status above: it is a
+ * status light, not a place that does or reveals anything sensitive.
+ */
+r.get('/setup-status', (req, res) => {
+  const BOOTSTRAP_SOURCES = ['nflverse_weekly_usage', 'nflverse_pbp', 'nfl_ngs', 'nfl_pfr_adv',
+    'nfl_advanced_snaps', 'nfl_depth_charts', 'nfl_injuries', 'historical_adp'];
+  const sources = allSources().filter(s => BOOTSTRAP_SOURCES.includes(s.source));
+  const coordinatorFit = row('SELECT id FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1');
+  const missing = sources.filter(s => s.last_status === 'never run').map(s => ({ source: s.source, label: s.label }));
+  if (!coordinatorFit) missing.push({ source: 'fantasy_coordinator_fit', label: 'Fantasy coordinator walk-forward fit' });
+  res.json({ needs_setup: missing.length > 0, missing, checked: sources.length + 1 });
 });
 
 /* ------------------------------------------------- Vegas game script */

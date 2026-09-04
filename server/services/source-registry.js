@@ -204,6 +204,13 @@ export const MANUAL_SOURCES = {
     cutoff: 'as of the pull',
     failureMode: 'per-format fetch failures are recorded inline in the result and do not stop other formats',
     maxAgeMinutes: 24 * 60
+  },
+  historical_adp: {
+    label: 'DynastyProcess historical preseason consensus rank (fantasy boom/bust prior)',
+    cadence: 'one-time backfill; each season is a frozen preseason snapshot, never revised',
+    cutoff: 'the last scrape before that season\'s Week 1 kickoff',
+    failureMode: 'throws; the boom/bust classifier has zero training examples for the affected seasons and shrinks to zero rather than guessing',
+    maxAgeMinutes: 90 * 24 * 60
   }
 };
 

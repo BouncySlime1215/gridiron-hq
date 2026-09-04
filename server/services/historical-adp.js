@@ -38,6 +38,7 @@ import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { db, rows, run } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
+import { recordSync } from './scheduler.js';
 
 const SOURCE_URL = 'https://github.com/dynastyprocess/data/raw/master/files/db_fpecr.csv.gz';
 export const HISTORICAL_ADP_SOURCE = 'dynastyprocess_fpecr';
@@ -183,15 +184,17 @@ export async function syncHistoricalAdp(seasons = Object.keys(SEASON_WEEK1_KICKO
   const latestByKey = new Map(); // `${season}|${player_key}` -> row, kept if scrape_date is newer
   let scanned = 0, unresolvedPosition = 0;
 
-  await eachPreseasonRow(wanted, r => {
-    scanned++;
-    const key = normalizePlayerName(r.name);
-    if (!key) return;
-    if (!r.position) unresolvedPosition++;
-    const mapKey = `${r.season}|${key}`;
-    const prev = latestByKey.get(mapKey);
-    if (!prev || r.scrape_date > prev.scrape_date) latestByKey.set(mapKey, { ...r, player_key: key });
-  });
+  try {
+    await eachPreseasonRow(wanted, r => {
+      scanned++;
+      const key = normalizePlayerName(r.name);
+      if (!key) return;
+      if (!r.position) unresolvedPosition++;
+      const mapKey = `${r.season}|${key}`;
+      const prev = latestByKey.get(mapKey);
+      if (!prev || r.scrape_date > prev.scrape_date) latestByKey.set(mapKey, { ...r, player_key: key });
+    });
+  } catch (e) { recordSync('historical_adp', 'error', e.message); throw e; }
 
   const fetchedAt = new Date().toISOString();
   db.exec('BEGIN IMMEDIATE');
@@ -205,7 +208,9 @@ export async function syncHistoricalAdp(seasons = Object.keys(SEASON_WEEK1_KICKO
         r.ecr_rank, r.ecr_std_dev, r.scrape_date, fetchedAt);
     }
     db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  } catch (e) { db.exec('ROLLBACK'); recordSync('historical_adp', 'error', e.message); throw e; }
 
-  return { seasons: wanted, scanned, stored: latestByKey.size, unresolved_position: unresolvedPosition };
+  const result = { seasons: wanted, scanned, stored: latestByKey.size, unresolved_position: unresolvedPosition };
+  recordSync('historical_adp', 'ok', result);
+  return result;
 }

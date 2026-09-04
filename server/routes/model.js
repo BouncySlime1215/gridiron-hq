@@ -36,6 +36,8 @@ import { runWalkForward, openFinalHoldout } from '../modeling/walk-forward.js';
 import { weeklyLearningStatus, runWeeklyLearningCycle } from '../services/weekly-learning.js';
 import { syncHistoricalAdp } from '../services/historical-adp.js';
 import { refitFantasyCoordinator } from '../services/fantasy-coordinator.js';
+import { syncCoaches } from '../services/nfl-coaches.js';
+import { syncFfOpportunity } from '../services/ffopportunity.js';
 import { allSources } from '../services/source-registry.js';
 
 const r = Router();
@@ -622,6 +624,8 @@ r.post('/sync', requireModelPermission('model:train'), async (req, res, next) =>
     // depend on the play-by-play/nflverse/advanced pulls above, so they run
     // last, and neither failure should take the betting-side sync down.
     out.historical_adp = await syncHistoricalAdp().catch(e => ({ error: e.message }));
+    out.coaches = await syncCoaches().catch(e => ({ error: e.message }));
+    out.ffopportunity = await syncFfOpportunity(seasons).catch(e => ({ error: e.message }));
     out.fantasy_coordinator = await refitFantasyCoordinator({}).catch(e => ({ error: e.message }));
     out.consistency = nflDataConsistencyAudit();
     clearModelCache(); clearMatchupCache(); clearCorrelationCache(); clearGameScriptCache();
@@ -638,7 +642,8 @@ r.post('/sync', requireModelPermission('model:train'), async (req, res, next) =>
  */
 r.get('/setup-status', (req, res) => {
   const BOOTSTRAP_SOURCES = ['nflverse_weekly_usage', 'nflverse_pbp', 'nfl_ngs', 'nfl_pfr_adv',
-    'nfl_advanced_snaps', 'nfl_depth_charts', 'nfl_injuries', 'historical_adp'];
+    'nfl_advanced_snaps', 'nfl_depth_charts', 'nfl_injuries', 'historical_adp',
+    'nfl_coaches', 'ffopportunity'];
   const sources = allSources().filter(s => BOOTSTRAP_SOURCES.includes(s.source));
   const coordinatorFit = row('SELECT id FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1');
   const missing = sources.filter(s => s.last_status === 'never run').map(s => ({ source: s.source, label: s.label }));

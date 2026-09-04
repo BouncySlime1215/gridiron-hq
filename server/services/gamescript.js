@@ -62,7 +62,15 @@ for (const [col, type] of [
   // A neutral-site game (London, Munich, Melbourne, a relocated Super Bowl) has a
   // nominal home team and no home field. Without this flag every model hands the
   // nominal home side a ~1.9-point advantage it does not have.
-  ['neutral_site', 'INTEGER']
+  ['neutral_site', 'INTEGER'],
+  // The immutable "true close": the last spread/total observed strictly before
+  // this game's kickoff, frozen by syncCurrentLines and never touched again.
+  // `spread`/`total` above stay live (line-shopping and movement detection read
+  // them as "current"), which is exactly what lets ESPN's odds object — which
+  // sometimes keeps quoting a moving in-game number after kickoff — clobber them
+  // mid-game. Consumers that need the real close (forward-ledger settlement,
+  // gamescript's own training path) must read these columns instead.
+  ['closing_spread', 'REAL'], ['closing_total', 'REAL']
 ]) {
   if (!glCols.includes(col)) db.exec(`ALTER TABLE game_lines ADD COLUMN ${col} ${type}`);
 }
@@ -186,6 +194,16 @@ export async function syncCurrentLines(season, weeks = 18) {
       SET team_score=?, opp_score=?, fetched_at=datetime('now'),
           neutral_site=COALESCE(?, neutral_site), roof=COALESCE(?, roof)
       WHERE season=? AND week=? AND team=?`);
+  // Freezes the true close. Only ever runs while `now` is strictly before this
+  // game's kickoff, so the last write it makes for a given game IS the close —
+  // the same "last observation strictly before kickoff" definition nfl-clv.js
+  // uses for props (closingConsensus), just kept as one column instead of a
+  // snapshot table since this job already polls hourly and only needs the last
+  // value, not the whole tape. Once kickoff passes this is never called again
+  // for that row, so the value it last wrote stays frozen for good.
+  const closeStmt = db.prepare(`UPDATE game_lines
+      SET closing_spread=?, closing_total=? WHERE season=? AND week=? AND team=?`);
+  const now = new Date();
 
   // `Number('')` is 0, not NaN — an unplayed game's blank score/odds columns must
   // stay null, or every future game silently looks like a 0-0 final.
@@ -229,6 +247,11 @@ export async function syncCurrentLines(season, weeks = 18) {
         const hs = Number(odds.spread), total = Number(odds.overUnder);
         if (!Number.isFinite(hs) || !Number.isFinite(total)) continue;
 
+        // `ev.date` is this event's kickoff in ISO UTC, straight from ESPN — the
+        // same field nfl-espn-line-watch.js already reads as commence_time.
+        const commenceTime = ev.date ? new Date(ev.date) : null;
+        const preKickoff = !!commenceTime && !Number.isNaN(commenceTime.getTime()) && now < commenceTime;
+
         const homeMl = int(odds.moneyline?.home?.close?.odds ?? odds.moneyline?.home?.odds);
         const awayMl = int(odds.moneyline?.away?.close?.odds ?? odds.moneyline?.away?.odds);
         const homeSpreadOdds = int(odds.pointSpread?.home?.close?.odds ?? odds.homeTeamOdds?.spreadOdds);
@@ -251,6 +274,11 @@ export async function syncCurrentLines(season, weeks = 18) {
           aScore, hScore, awayMl, awaySpreadOdds, overOdds, underOdds,
           openSpreadV == null ? null : -openSpreadV, openTotalV, neutral, roof);
         updated += 2;
+
+        if (preKickoff) {
+          closeStmt.run(hs, total, season, week, ha);
+          closeStmt.run(-hs, total, season, week, aa);
+        }
       }
     } catch { /* a missing week is normal out of season */ }
   }
@@ -309,13 +337,20 @@ function ols(x1, x2, y) {
  * total should raise both.
  */
 function observations(beforeSeason = null, beforeWeek = null) {
-  return rows(`SELECT g.spread, g.total, t.att, t.car FROM game_lines g
+  // Historical rows (nflverse) never populate closing_spread/closing_total —
+  // COALESCE falls back to spread/total there, so nothing changes for
+  // 2021-2025. Current-season rows prefer the frozen close, so the fit is
+  // never trained on a spread ESPN's live odds object clobbered mid-game.
+  return rows(`SELECT COALESCE(g.closing_spread, g.spread) AS spread,
+                      COALESCE(g.closing_total, g.total) AS total,
+                      t.att, t.car FROM game_lines g
                     JOIN (SELECT season, week, team,
                                  SUM(COALESCE(attempts,0)) AS att,
                                  SUM(COALESCE(carries,0))  AS car
                           FROM player_week_usage GROUP BY season, week, team) t
                       ON t.season = g.season AND t.week = g.week AND t.team = g.team
-                    WHERE g.spread IS NOT NULL AND g.total IS NOT NULL AND t.att > 5
+                    WHERE COALESCE(g.closing_spread, g.spread) IS NOT NULL
+                      AND COALESCE(g.closing_total, g.total) IS NOT NULL AND t.att > 5
                       AND (? IS NULL OR g.season < ? OR (g.season = ? AND g.week < ?))`,
                     beforeSeason, beforeSeason, beforeSeason, beforeWeek ?? 1);
 }

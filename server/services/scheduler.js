@@ -148,6 +148,21 @@ async function refreshNflLines() {
 }
 
 /**
+ * Settle forward picks shortly after each game goes final, the same "settle
+ * the last completed slate cheaply" pattern as refreshMlbBoxscores above.
+ * Until now settleForwardPicks() was manual-only (a POST route), which meant
+ * a real CLV-grading window between a game going final and someone thinking
+ * to click the button — during which forward-ledger's read of
+ * game_lines.spread/total (now closing_spread/closing_total) could still be
+ * stale or, before that fix, actively wrong. A cheap SQLite scan on a live
+ * cadence closes that window without anyone remembering to do it.
+ */
+async function refreshForwardSettlement() {
+  const { settleForwardPicks } = await import('./forward-ledger.js');
+  return settleForwardPicks();
+}
+
+/**
  * Confirmed starting pitchers for the next few days. This is what makes the
  * strikeout picks mean anything — without it, the board ranked a team's whole
  * rotation by talent and picked the ace regardless of whether he was actually
@@ -427,6 +442,39 @@ async function refreshNflInjuries() {
   return syncInjuries([season]);
 }
 
+/**
+ * Per-team-season head-coach history (nfl-coaches.js). A real, exported sync
+ * with no automatic path to ever run: the only route touching this data
+ * (GET /research/coaches in nfl-betting.js) reads nfl_team_coaches but never
+ * calls syncCoaches, so a table that boom-bust.js, football-context.js and
+ * nfl-roster-strength.js all read live for coachChanges/coachFor just sat
+ * however stale it was on the last manual run — measured 8 days stale with
+ * zero refresh path. Coaching changes are rare and slow-moving (a handful a
+ * year, mostly around the coaching carousel in January), so this runs daily,
+ * same 'growth' tier as the other low-frequency structural feeds.
+ */
+async function refreshCoaches() {
+  const { syncCoaches } = await import('./nfl-coaches.js');
+  return syncCoaches();
+}
+
+/**
+ * ffopportunity's weekly expected-fantasy-points benchmark (ffopportunity.js).
+ * Consumed live by player-week-engine.js projections and nfl-profitability.js,
+ * but its only caller anywhere was a standalone manual CLI script
+ * (scripts/sync-ffopportunity.mjs) — never wired to the scheduler or any
+ * route. Confirmed: exactly one run ever logged, and the table tops out at
+ * 2025/week 22 with zero 2026-season rows, because nothing was ever going to
+ * add any without this. Tracks the same weekly-usage rhythm as
+ * nflverse_weekly_usage (settles a day or two after each week's games), so it
+ * gets the same 3-day budget.
+ */
+async function refreshFfOpportunity() {
+  const { syncFfOpportunity } = await import('./ffopportunity.js');
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  return syncFfOpportunity([season - 3, season - 2, season - 1, season]);
+}
+
 /** The transaction wire — signings, releases, IR moves, from ESPN's public transactions API. */
 async function refreshNflTransactions() {
   const { syncTransactions } = await import('./nfl-transactions.js');
@@ -551,6 +599,8 @@ export const JOBS = {
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a
   // usable closing reference for settlement and so finals land within the hour.
   nfl_lines: { run: refreshNflLines, maxAgeMinutes: 60, tier: 'live', label: 'NFL betting lines and finals (ESPN, free)' },
+  nfl_forward_settle: { run: refreshForwardSettlement, maxAgeMinutes: 30, tier: 'live',
+    label: 'Settle forward picks (CLV grading) shortly after a game goes final' },
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, tier: 'metered', label: 'Multi-book line snapshots (CLV)' },
   nfl_sgo_snapshot: { run: refreshSportsGameOdds, maxAgeMinutes: 30, tier: 'metered',
     label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
@@ -672,7 +722,11 @@ export const JOBS = {
   nfl_rookie_public: { run: refreshNflRookiePublic, maxAgeMinutes: 7 * 24 * 60, tier: 'heavy',
     label: 'NFL draft and combine rookie evidence (nflverse, key-free)' },
   team_analyses: { run: refreshTeamAnalyses, maxAgeMinutes: 4 * 60, tier: 'heavy',
-    label: "X's & O's writeups — self-limited to teams with news newer than their analysis" }
+    label: "X's & O's writeups — self-limited to teams with news newer than their analysis" },
+  nfl_coaches: { run: refreshCoaches, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'Per-team-season head-coach history (nflverse/nfldata games.csv)' },
+  ffopportunity: { run: refreshFfOpportunity, maxAgeMinutes: 3 * 24 * 60, tier: 'growth',
+    label: 'ffopportunity weekly expected-fantasy-points benchmark' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */
@@ -776,7 +830,7 @@ export function startScheduler({
   // responses and tomorrow-pick generation runs large simulations; doing either
   // on the main thread twenty seconds after boot made every API request hang.
   const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
-    'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines',
+    'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'nfl_forward_settle',
     'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
     'nfl_book_feeds', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free', 'polymarket_line_watch', 'beat_the_close'];
   setTimeout(() => {

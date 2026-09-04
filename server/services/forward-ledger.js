@@ -142,7 +142,7 @@ export function settleForwardPicks() {
   let settled = 0;
   for (const p of open) {
     const g = row(
-      `SELECT spread, total, team_score, opp_score FROM game_lines
+      `SELECT spread, total, closing_spread, closing_total, team_score, opp_score FROM game_lines
        WHERE season = ? AND week = ? AND team = ? AND home = 1`, p.season, p.week, p.home);
     // Both scores, or nothing: a half-ingested final would grade as NaN → 'Lost'.
     if (!g || g.team_score == null || g.opp_score == null) continue;
@@ -150,16 +150,23 @@ export function settleForwardPicks() {
     const actualMargin = g.team_score - g.opp_score;
     const actualTotal = g.team_score + g.opp_score;
     const backedHome = p.side === p.home;
-    const closing = p.market === 'total' ? g.total : (backedHome ? g.spread : -g.spread);
+    // Prefer the frozen true close (last line observed strictly before
+    // kickoff) over the live spread/total, which syncCurrentLines can
+    // overwrite with an in-game number after kickoff. Falls back to the live
+    // columns only for games synced before closing_spread/closing_total
+    // existed.
+    const closeSpread = g.closing_spread ?? g.spread;
+    const closeTotal = g.closing_total ?? g.total;
+    const closing = p.market === 'total' ? closeTotal : (backedHome ? closeSpread : -closeSpread);
 
     let result;
     let clv = null;
     if (p.market === 'total') {
       const over = /over/i.test(p.side);
-      const line = p.line_at_pick ?? g.total;
+      const line = p.line_at_pick ?? closeTotal;
       result = actualTotal === line ? 'Push' : (actualTotal > line) === over ? 'Won' : 'Lost';
-      if (p.line_at_pick != null && g.total != null) {
-        clv = over ? g.total - p.line_at_pick : p.line_at_pick - g.total;
+      if (p.line_at_pick != null && closeTotal != null) {
+        clv = over ? closeTotal - p.line_at_pick : p.line_at_pick - closeTotal;
       }
     } else {
       const line = p.line_at_pick != null ? p.line_at_pick : closing;

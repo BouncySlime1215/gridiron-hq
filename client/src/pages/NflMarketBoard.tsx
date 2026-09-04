@@ -6,6 +6,7 @@ import { EmptyState, Notice, StatusPill } from '../components/betting/BettingUI'
 import { ModelLoadingSignature } from '../components/betting/ModelLoadingSignature';
 import { NflModelOperations } from '../components/betting/ModelOperations';
 import Training from './betting/Training';
+import { NOT_PROVEN_MESSAGE } from './betting/copy';
 
 const Edges = lazy(() => import('./betting/Edges'));
 const LineShop = lazy(() => import('./betting/LineShop'));
@@ -140,20 +141,28 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
     <WorkspaceNav value={section} onChange={setSection} items={[
       { id: 'board', label: 'Board', detail: 'Rank, filter, review, track', count: rows.length || undefined },
       { id: 'execute', label: 'Execute', detail: 'Edges, prices, venues' },
-      { id: 'live', label: 'Live', detail: 'Game state + field replay' },
+      { id: 'live', label: 'Simulator', detail: 'Simulated drive-by-drive replay, not a live game' },
       { id: 'engine', label: 'Engine', detail: 'Architecture, audit, health' }
     ]} />
 
     {message && <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">{message}</div>}
 
     {section === 'board' && <>
-      <Subnav value={decideView} onChange={setDecideView} items={[['games', 'Games'], ['props', 'Player props']]} />
+      <Subnav value={decideView} onChange={setDecideView} items={[
+        ['games', 'Games', 'Spread decision queue for this week’s slate'],
+        ['props', 'Player props', 'Player prop model output, same policy rules']
+      ]} />
       {decideView === 'props' && <Panel fallback="Loading prop model…"><NflProps /></Panel>}
       {decideView === 'games' && <DecisionQueue rows={rows} loading={candidates.loading} error={candidates.error} policy={candidates.data} bets={bets.data?.bets ?? []} tracking={tracking} openExplain={openExplain} explanations={explanations} onExplain={explain} onTrack={trackBet} onRun={runPolicy} running={running} runResult={runResult} />}
     </>}
 
     {section === 'execute' && <>
-      <Subnav value={executeView} onChange={setExecuteView} items={[['edge', 'Ticket builder'], ['shop', 'Line shop'], ['venues', 'Venue routing'], ['watch', 'Pick watch']]} />
+      <Subnav value={executeView} onChange={setExecuteView} items={[
+        ['edge', 'Ticket builder', 'Build and log a multi-leg teaser ticket'],
+        ['shop', 'Line shop', 'Best price per side, priced against real game margins'],
+        ['venues', 'Venue routing', 'Where to place a bet you already decided on, and what each venue costs'],
+        ['watch', 'Pick watch', 'Track open picks against the live market — monitoring only']
+      ]} />
       {executeView === 'edge' && <><NextAction eyebrow="Execution focus" title={teaser?.live ? teaser.headline : 'Verify the payout before building a ticket'} detail={teaser?.detail ?? 'Reading the latest price gate…'} action={() => setExecuteView('shop')} tone="light" /><Panel fallback="Loading ticket evidence…"><Edges /></Panel></>}
       {executeView === 'shop' && <Panel fallback="Loading line shop…"><LineShop /></Panel>}
       {executeView === 'venues' && <Panel fallback="Loading venue routes…"><Venues /></Panel>}
@@ -171,7 +180,15 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
           "Promotion gates" and "Decision bases" are both what the model is
           allowed to claim. Splitting each pair bought nothing but another click
           and another thing to scan. */}
-      <Subnav value={proofView} onChange={setProofView} items={[['overview', 'Architecture'], ['forward', 'Forward ledger'], ['ensemble', 'Ensemble'], ['audit', 'Audit'], ['diagnostics', 'Diagnostics'], ['data', 'Data health'], ['variables', 'Variables']]} />
+      <Subnav value={proofView} onChange={setProofView} items={[
+        ['overview', 'Architecture', 'How the whole system fits together'],
+        ['forward', 'Forward ledger', 'This week’s picks recorded before kickoff, settled with CLV'],
+        ['ensemble', 'Ensemble', 'How component models combine into one line'],
+        ['audit', 'Audit', 'Blind AI review, replay, promotion gates, decision bases'],
+        ['diagnostics', 'Diagnostics', 'Profitability, abstentions, accuracy by slice, methodology'],
+        ['data', 'Data health', 'Feed freshness and operational status'],
+        ['variables', 'Variables', 'The model input catalog']
+      ]} />
       {proofView === 'overview' && <Panel fallback="Loading the unified engine…"><UnifiedEngineRoom /></Panel>}
       {proofView === 'forward' && <Panel fallback="Loading the forward ledger…"><FootballFirst embedded /></Panel>}
       {proofView === 'ensemble' && <Panel fallback="Loading ensemble lines…"><EnsemblePage /></Panel>}
@@ -233,13 +250,13 @@ function DecisionQueue({ rows, loading, error, policy, bets, tracking, openExpla
     </section>
     <aside className="space-y-3">
       <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white"><div className="text-[10px] font-black uppercase tracking-[.14em] text-emerald-300">Policy result</div><div className="mt-2 text-3xl font-black">{eligible.length}</div><div className="text-sm text-slate-300">of {rows.length} spreads eligible</div><div className="mt-4 space-y-2 border-t border-white/10 pt-4 text-xs text-slate-300"><Line label="Minimum gap" value={`${policy?.policy.minEdge ?? 3} pts`} /><Line label="Max disagreement" value={`${policy?.policy.maxDisagreement ?? 4.5} pts`} /><Line label="Weekly cap" value={policy?.policy.maxPicksPerWeek ?? 5} /></div></div>
-      <div className="rounded-2xl border border-slate-200 bg-white p-5"><div className="text-[10px] font-black uppercase tracking-[.14em] text-slate-400">Evidence state</div><div className="mt-2 text-lg font-black text-slate-950">{policy?.evidence_status ?? 'No slate loaded'}</div><p className="mt-1 text-xs leading-5 text-slate-500">{policy?.evidence_note ?? 'Waiting for model candidates.'}</p><div className="mt-3 text-xs font-bold text-slate-600">{policy?.clv.captures ?? 0} captures · {policy?.clv.snapshots ?? 0} snapshots</div></div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5"><div className="text-[10px] font-black uppercase tracking-[.14em] text-slate-400">Evidence state</div><div className="mt-2 text-lg font-black text-slate-950">{policy?.evidence_status ?? 'No slate loaded'}</div><p className="mt-1 text-xs leading-5 text-slate-600">{NOT_PROVEN_MESSAGE}</p><p className="mt-1 text-xs leading-5 text-slate-500">{policy?.evidence_note ?? 'Waiting for model candidates.'}</p><div className="mt-3 text-xs font-bold text-slate-600">{policy?.clv.captures ?? 0} captures · {policy?.clv.snapshots ?? 0} snapshots</div></div>
       {runResult && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><b>{runResult.new_picks.length} picks preserved.</b><div className="mt-1 text-xs">This is a paper ledger action, not staking authorization.</div></div>}
     </aside>
   </div>;
 }
 
 function Panel({ fallback, children }: { fallback: string; children: React.ReactNode }) { return <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">{fallback}</div>}>{children}</Suspense>; }
-function Subnav<T extends string>({ value, onChange, items }: { value: T; onChange: (value: T) => void; items: [T, string][] }) { return <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1">{items.map(([id, label]) => <button key={id} onClick={() => onChange(id)} className={`rounded-lg px-3 py-2 text-xs font-black ${value === id ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>{label}</button>)}</div>; }
+function Subnav<T extends string>({ value, onChange, items }: { value: T; onChange: (value: T) => void; items: [T, string, string?][] }) { return <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1">{items.map(([id, label, subtitle]) => <button key={id} onClick={() => onChange(id)} title={subtitle} className={`rounded-lg px-3 py-2 text-left text-xs font-black leading-tight ${value === id ? 'bg-slate-950 text-white' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>{label}{subtitle && <div className={`mt-0.5 text-[10px] font-semibold normal-case ${value === id ? 'text-slate-300' : 'text-slate-400'}`}>{subtitle}</div>}</button>)}</div>; }
 function Metric({ label, value }: { label: string; value: string }) { return <div><div className="text-[10px] font-black uppercase tracking-wide text-slate-400">{label}</div><div className="mt-1 whitespace-nowrap text-sm font-black text-slate-900">{value}</div></div>; }
 function Line({ label, value }: { label: string; value: React.ReactNode }) { return <div className="flex justify-between gap-3"><span>{label}</span><b className="text-white">{value}</b></div>; }

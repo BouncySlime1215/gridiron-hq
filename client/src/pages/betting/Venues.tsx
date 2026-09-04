@@ -58,12 +58,17 @@ export default function Venues() {
               <div className="grid gap-3 sm:grid-cols-3">
                 <Stat label="Routes found" value={String(slate.routes_found ?? 0)} />
                 <Stat label="Saved vs median book" value={pct(slate.mean_win_rate_saved_vs_median)}
-                  sub="off the win rate you need" tone="good" />
+                  sub="off the break-even rate you need" tone="good" />
                 <Stat label="Saved vs worst book" value={pct(slate.mean_win_rate_saved_vs_worst)}
                   tone="good" />
               </div>
               <div className="card overflow-x-auto p-4">
                 <h3 className="text-sm font-semibold text-slate-900">Best routing gains</h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Win-rate-saved vs. the median and worst book, aggregated across the slate — built for
+                  routing a bet you've already decided on. See also Line Shop's "Best book per side" for
+                  the same question priced against the real NFL margin distribution, side by side.
+                </p>
                 <table className="mt-3 w-full text-sm">
                   <thead className="text-xs uppercase tracking-wide text-slate-400">
                     <tr><th className="py-1 text-left">Side</th><th className="text-left">Book</th>
@@ -113,6 +118,13 @@ export default function Venues() {
               sub={poly ? `${poly.tradeable_markets} markets with depth · no fee` : '—'}
               tone={poly?.cheaper_than_kalshi ? 'good' : undefined} />
           </div>
+          {(!kalshi || !poly) && (
+            <div className="card p-3 border-slate-200 bg-slate-50 text-xs text-slate-600">
+              This is correctly empty, not broken: Kalshi and Polymarket cost cards need a live read from
+              their prediction-market APIs, which returns nothing outside of season or without an API key
+              configured. The sportsbook hold card above reads from stored snapshots and works regardless.
+            </div>
+          )}
 
           {hold?.hold?.books && (
             <div className="card overflow-x-auto p-4">
@@ -136,7 +148,7 @@ export default function Venues() {
               {hold.hold.spread_in_hold != null && (
                 <p className="mt-3 text-sm text-slate-700">
                   Cheapest to dearest spans <strong>{pct(hold.hold.spread_in_hold)}</strong> of hold —
-                  worth <strong>{pct(hold.hold.win_rate_saved)}</strong> off the win rate you need,
+                  worth <strong>{pct(hold.hold.win_rate_saved)}</strong> off the break-even rate you need,
                   free, and requiring you to be right about nothing.
                 </p>
               )}

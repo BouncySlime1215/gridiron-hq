@@ -110,6 +110,12 @@ export default function LineShop() {
         The best available price on every side, across every book quoting it. This is the only edge
         here that needs no prediction — just refusing the worse number.
       </p>
+      <div className="card p-3 mb-4 border-emerald-200 bg-emerald-50/40 text-xs text-emerald-900">
+        Unlike the rest of Execute, the numbers on this page are always live and actionable, with no
+        staking gate. A middle's hit rate and a book's hold are pure arithmetic on prices and lines that
+        already exist — they don't depend on a forecast the way a "pick" does, so there is nothing here
+        for a model gate to hold back.
+      </div>
 
       {msg && <div className="card p-3 mb-4 text-xs text-slate-600">{msg}</div>}
 
@@ -142,7 +148,7 @@ export default function LineShop() {
                 </div>
                 <p className="text-[11px] text-slate-600 mb-3 leading-relaxed">
                   Using <b className="text-emerald-700">{board.hold.best_book}</b> instead of{' '}
-                  <b>{board.hold.worst_book}</b> lowers the win rate you need by{' '}
+                  <b>{board.hold.worst_book}</b> lowers the break-even rate you need by{' '}
                   <b className="text-emerald-700">{spct(board.hold.win_rate_saved)}</b>. No forecast involved —
                   this is the largest cost you control, and the only lever here guaranteed to work.
                 </p>
@@ -177,9 +183,9 @@ export default function LineShop() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
               {[['Shoppable sides', `${board.summary.shoppable_sides}/${board.summary.sides_priced}`,
                  `across ${board.summary.events} games`],
-                ['Avg edge when shoppable', spct(board.summary.mean_edge_when_shoppable),
+                ['Avg price improvement when shoppable', spct(board.summary.mean_edge_when_shoppable),
                  'vs the median book'],
-                ['Best single edge', spct(board.summary.best_edge), 'top of the board'],
+                ['Best single price improvement', spct(board.summary.best_edge), 'top of the board'],
                 ['+EV middles', `${board.summary.positive_ev_middles}/${board.summary.middles_found}`,
                  board.summary.arbitrage_found ? `${board.summary.arbitrage_found} true arb` : 'most lose to vig']
               ].map(([k, v, d]) => (
@@ -241,6 +247,10 @@ export default function LineShop() {
                 <div className="text-sm font-bold text-slate-800">Best book per side</div>
                 <div className="text-[11px] text-slate-500">
                   Ranked by what shopping is worth against the median book — the honest counterfactual.
+                  Each side's edge is priced against the real NFL margin distribution (a half-point through
+                  a key number counts for more than a half-point that isn't). See also Venue Routing's
+                  "Best routing gains" for the same question answered a different way — a slate-wide,
+                  win-rate-saved view built for choosing where to place a bet you've already decided on.
                 </div>
               </div>
               <div className="divide-y divide-slate-100">
@@ -263,7 +273,7 @@ export default function LineShop() {
                         <div className="text-[10px] text-slate-400">{s.books_compared} books</div>
                       </div>
                       <div>
-                        <div className="text-[10px] font-bold uppercase text-slate-400">Edge</div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Price improvement</div>
                         <div className={`text-sm font-black ${s.edge_vs_median > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
                           {spct(s.edge_vs_median)}
                         </div>

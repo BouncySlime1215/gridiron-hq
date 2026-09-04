@@ -1,4 +1,5 @@
 import { useApi } from '../../api';
+import { NOT_PROVEN_MESSAGE } from './copy';
 
 /**
  * Why staking is blocked, condition by condition.
@@ -100,6 +101,7 @@ export default function Gates() {
             {checks.length - failing.length} of {checks.length} conditions pass
           </span>
         </div>
+        {!m.forward_gate_passed && <p className="mt-2 text-sm font-medium text-slate-900">{NOT_PROVEN_MESSAGE}</p>}
         <p className="mt-3 text-sm text-slate-800">
           {m.forward_gate_passed
             ? 'Every calibration condition is satisfied. Staking will size model-derived edges.'

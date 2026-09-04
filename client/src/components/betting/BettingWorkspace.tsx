@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useApi } from '../../api';
+import { NOT_PROVEN_MESSAGE } from '../../pages/betting/copy';
 
 type Stage = 'scan' | 'price' | 'review' | 'track';
 
@@ -89,7 +90,8 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
         warn={status.data.capture_stale} />
       <TruthChip label="Real money"
         value={status.model.sizing_allowed ? 'Model is cleared to bet' : 'Fake money only'}
-        detail={status.model.calibration_plain ?? status.model.calibration_detail}
+        detail={status.model.sizing_allowed ? (status.model.calibration_plain ?? status.model.calibration_detail)
+          : `${NOT_PROVEN_MESSAGE} ${status.model.calibration_plain ?? status.model.calibration_detail}`}
         warn={!status.model.sizing_allowed} />
     </div>}
 

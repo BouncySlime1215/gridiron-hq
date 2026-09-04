@@ -240,7 +240,10 @@ export default function FieldSim({ home: selectedHome, away: selectedAway,
             <h2 className="mt-1 text-xl font-black tracking-tight text-slate-950">Play-by-play game room</h2></div>
           {data?.play_model && <div className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold text-slate-500">{data.play_model.version}</div>}
         </div>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+          This is a fully pre-generated, randomly-seeded simulation for sanity-checking the model — not a live game, not real play data, and not a betting signal.
+        </p>
+        <p className="mt-2 text-sm text-slate-600">
           Pick the matchup, then focus the tape on either offense or keep every possession. Team
           shotgun tendency, down, distance, game script and the called play now determine the formation;
           every snap retains its score, quarter, clock and field position.
@@ -301,6 +304,7 @@ export default function FieldSim({ home: selectedHome, away: selectedAway,
               <div className="flex items-center justify-between"><span className="text-xs font-black uppercase tracking-wide text-slate-500">{team.side}</span><span className="text-3xl font-black tabular-nums text-slate-950">{team.score}</span></div>
               <div className="mt-1 text-lg font-black text-slate-900">{team.team}</div>
               <div className="text-xs text-slate-500">{team.drives} possessions · {team.plays} recorded snaps</div>
+              <div className="mt-1 text-[10px] font-black uppercase tracking-wide text-slate-400">Final score, full simulated game</div>
             </button>)}
           </div>
 
@@ -308,7 +312,15 @@ export default function FieldSim({ home: selectedHome, away: selectedAway,
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
               <div><div className="text-xs font-black uppercase tracking-wide text-emerald-700">{drive.possession === 'home' ? home : away} ball</div>
                 <div className="text-sm font-semibold text-slate-900">{drive.clock_start ? `Q${drive.clock_start.quarter} · ${drive.clock_start.game_clock}` : `Half ${drive.half}`} · {formatFieldPosition(drive.start_yard)}</div></div>
-              <div className="rounded-xl bg-slate-950 px-3 py-2 font-mono text-sm font-black text-white">{away} {drive.score_after?.away ?? 0} · {home} {drive.score_after?.home ?? 0}</div>
+              <div className="text-right"><div className="text-[9px] font-black uppercase tracking-wide text-slate-400">Score at this point in the drive</div><div className="rounded-xl bg-slate-950 px-3 py-2 font-mono text-sm font-black text-white">{away} {drive.score_after?.away ?? 0} · {home} {drive.score_after?.home ?? 0}</div></div>
+            </div>
+            <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-[10px] font-semibold text-slate-500">
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full border-2" style={{ borderColor: '#1e293b', background: '#f8fafc' }} /> Offense</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full border-2" style={{ borderColor: '#7f1d1d', background: '#fca5a5' }} /> Defense</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border-2" style={{ borderColor: '#1e293b', background: '#e2e8f0' }} /> Offensive line</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-0.5 w-4" style={{ background: '#38bdf8' }} /> Line of scrimmage</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: '#fbbf24' }} /> Line to gain</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2 rounded-full" style={{ background: '#a16207' }} /> Ball</span>
             </div>
             <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block" style={{ maxHeight: 620 }}
               role="img" aria-label="Simulated football play">
@@ -388,19 +400,26 @@ export default function FieldSim({ home: selectedHome, away: selectedAway,
                 </span>
               </div>
               {play && (
-                <p className="mt-2 font-mono text-sm text-slate-800">
-                  {play.game_clock && `Q${play.quarter} ${play.game_clock} · `}{play.down} &amp; {play.to_go} · {formatFieldPosition(play.yard_line)}
-                  {' · '}{(play.formation ?? '').toLowerCase() || (play.shotgun ? 'shotgun' : 'under centre')}
-                  {' · '}{play.personnel ?? '11'} personnel
-                  {' · '}{box} in the box
-                  {' · '}{play.play_type.replace(/_/g, ' ')}
-                  {play.direction ? ` ${play.depth} ${play.direction}` : ''}
-                  {' → '}
-                  <span className={play.yards > 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                    {play.yards > 0 ? '+' : ''}{play.yards} yd
-                  </span>
-                  {play.turnover && <span className="text-rose-700"> · {play.turnover}</span>}
-                </p>
+                <>
+                  <p className="mt-2 font-mono text-sm text-slate-800">
+                    {play.game_clock && `Q${play.quarter} ${play.game_clock} · `}{play.down} &amp; {play.to_go} · {formatFieldPosition(play.yard_line)}
+                    {' · '}{play.play_type.replace(/_/g, ' ')}
+                    {play.direction ? ` ${play.depth} ${play.direction}` : ''}
+                    {' → '}
+                    <span className={play.yards > 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                      {play.yards > 0 ? '+' : ''}{play.yards} yd
+                    </span>
+                    {play.turnover && <span className="text-rose-700"> · {play.turnover}</span>}
+                  </p>
+                  <details className="mt-1 text-xs text-slate-500">
+                    <summary className="cursor-pointer select-none font-semibold text-slate-500 hover:text-slate-700">Details (formation, personnel, box count)</summary>
+                    <p className="mt-1 font-mono">
+                      {(play.formation ?? '').toLowerCase() || (play.shotgun ? 'shotgun' : 'under centre')}
+                      {' · '}{play.personnel ?? '11'} personnel
+                      {' · '}{box} in the box
+                    </p>
+                  </details>
+                </>
               )}
               <div className="mt-3 flex flex-wrap gap-1">
                 {tape.map((p, i) => (

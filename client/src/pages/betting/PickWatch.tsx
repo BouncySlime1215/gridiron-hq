@@ -1,24 +1,23 @@
 import { useState } from 'react';
 import { api, useApi } from '../../api';
-import { EmptyState, Notice, StatusPill } from '../../components/betting/BettingUI';
+import { EmptyState, StatusPill } from '../../components/betting/BettingUI';
 
 /**
- * Live pick watch + de-vig comparison.
+ * Live pick watch.
  *
- * The watch board re-shops every currently open spread/total pick against the
- * live multi-book market and flags whether the situation has drifted in our
- * favor or against it since the pick was generated. It is a monitoring board,
- * not an order ticket: `status` reads "watching — no action" for every row
- * until a market's champion model actually clears model-governance.js's
- * production gate, at which point `recommended_stake_units` stops being zero
- * and the row switches to "actionable" on its own — nothing here fabricates
- * that state, it only reads it live.
+ * Re-shops every currently open spread/total pick against the live multi-book
+ * market and flags whether the situation has drifted in our favor or against
+ * it since the pick was generated. It is a monitoring board, not an order
+ * ticket: `status` reads "watching — no action" for every row until a
+ * market's champion model actually clears model-governance.js's production
+ * gate, at which point `recommended_stake_units` stops being zero and the row
+ * switches to "actionable" on its own — nothing here fabricates that state,
+ * it only reads it live.
  *
- * The de-vig section is a separate, unrelated question: given a real two-sided
- * price, is the naive proportional-split fair probability the same as Shin's
- * method's? They agree on a near-even price and diverge as one side gets more
- * lopsided — visible here on whatever the live/recent multi-book snapshots
- * actually hold, not a fixed example.
+ * The de-vig methodology comparison (naive proportional split vs. Shin's
+ * method) used to live here as a second tab. It answers an unrelated
+ * question about how the model prices fair odds, not pick-tracking, so it
+ * now lives under Engine > Diagnostics > Methodology.
  */
 
 interface WatchRow {
@@ -41,18 +40,9 @@ interface RunResult {
   checked_at: string; picks_checked: number; spread_checked: number; total_checked: number;
   more_favorable: number; less_favorable: number; actionable: number; note: string;
 }
-interface DevigPair {
-  event_id: string; matchup: string; market: string; book: string; captured_at: string;
-  side_a: string; price_a: number; side_b: string; price_b: number;
-  naive_prob_a: number; naive_prob_b: number; shin_prob_a: number; shin_prob_b: number;
-  shin_z: number | null; divergence: number;
-}
-interface DevigCompare { market: string; pairs: DevigPair[]; note: string; }
-
 const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`);
 const sgn = (v: number | null | undefined) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}`);
 const pct1 = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
-const pct2 = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(2)}%`);
 const timeAgo = (iso: string | null) => {
   if (!iso) return '—';
   const ms = Date.now() - new Date(iso).getTime();
@@ -74,7 +64,6 @@ const DIRECTION_TONE: Record<string, 'good' | 'bad' | 'neutral'> = {
 };
 
 export default function PickWatch() {
-  const [tab, setTab] = useState<'watch' | 'devig'>('watch');
   const { data: board, loading, error, refetch } = useApi<WatchBoard>('/betting/watch/board');
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
@@ -114,16 +103,7 @@ export default function PickWatch() {
         {runError && <span className="text-rose-600">{runError}</span>}
       </div>
 
-      <div className="flex gap-1 border-b border-slate-200 mb-4">
-        {([['watch', `Watch board (${board?.open ?? 0})`], ['devig', 'De-vig: naive vs Shin\'s']] as const).map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
-              tab === id ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}>{label}</button>
-        ))}
-      </div>
-
-      {tab === 'watch' && (
+      {(
         loading ? <div className="card p-6 text-sm text-slate-500">Reading the watch log…</div>
         : error ? <div className="card p-6 text-sm text-rose-600">{error}</div>
         : !board || !board.picks.length ? (
@@ -200,81 +180,6 @@ export default function PickWatch() {
           </>
         )
       )}
-
-      {tab === 'devig' && <DevigCompareSection />}
-    </div>
-  );
-}
-
-function DevigCompareSection() {
-  const [market, setMarket] = useState<'spreads' | 'totals'>('spreads');
-  const { data, loading, error } = useApi<DevigCompare>(`/betting/devig/compare?market=${market}&limit=30`);
-
-  return (
-    <div>
-      <div className="card p-4 mb-3">
-        <h2 className="text-sm font-bold text-slate-700 mb-0.5">Naive proportional split vs. Shin&apos;s method</h2>
-        <p className="text-[11px] text-slate-500 leading-relaxed">
-          Every no-vig calculation in this app used to split the bookmaker&apos;s margin proportionally between
-          both sides. Shin&apos;s method corrects for the favorite-longshot bias — a skewed line packs more of the
-          vig onto the favorite than a naive split assumes — and is now the default everywhere. The two methods
-          agree exactly on a near-even price and diverge as one side gets more lopsided. Below is that comparison
-          computed on real live multi-book quotes, sorted by how much the two methods actually disagree right now.
-        </p>
-        <div className="mt-3 flex gap-1">
-          {(['spreads', 'totals'] as const).map(m => (
-            <button key={m} onClick={() => setMarket(m)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold ${market === m ? 'bg-slate-950 text-white' : 'border border-slate-200 text-slate-500'}`}>
-              {m === 'spreads' ? 'Spreads' : 'Totals'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {loading ? <div className="card p-6 text-sm text-slate-500">Computing both methods on live quotes…</div>
-        : error ? <div className="card p-6 text-sm text-rose-600">{error}</div>
-        : !data?.pairs.length ? (
-          <EmptyState title="No live two-sided quotes captured yet"
-            description="This needs at least one book quoting both sides of the same market at the same instant. Capture a multi-book snapshot (Line Shopping tab) and check back." />
-        ) : (
-          <>
-            <Notice title="Where the biggest gap is right now" tone={data.pairs[0].divergence > 0.01 ? 'warn' : 'neutral'}>
-              {data.pairs[0].divergence > 0.001
-                ? `${data.pairs[0].matchup} at ${data.pairs[0].book}: the two methods disagree by ${pct2(data.pairs[0].divergence)} on ${data.pairs[0].side_a}'s fair probability. The rest of today's board is closer to even, so the gap is small everywhere right now — it grows with how skewed the price is.`
-                : 'Every live price right now is close to even, so both methods agree closely. The gap opens up on a heavily favored side (e.g. a big moneyline favorite), which is not on the board at the moment.'}
-            </Notice>
-            <div className="card overflow-hidden mt-3">
-              <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50">
-                <div className="text-sm font-bold text-slate-800">Fair probability by method</div>
-                <div className="text-[11px] text-slate-500">{data.note}</div>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {data.pairs.map((p, i) => (
-                  <div key={`${p.event_id}-${p.book}-${i}`} className="grid gap-2 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold text-slate-800 truncate">{p.matchup}</div>
-                      <div className="text-[11px] text-slate-500">{p.book} · {p.side_a} {am(p.price_a)} / {p.side_b} {am(p.price_b)}</div>
-                    </div>
-                    <div className="flex gap-4 sm:text-right tabular-nums">
-                      <div>
-                        <div className="text-[10px] font-bold uppercase text-slate-400">Naive</div>
-                        <div className="text-sm font-semibold text-slate-600">{pct1(p.naive_prob_a)} / {pct1(p.naive_prob_b)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-bold uppercase text-slate-400">Shin&apos;s</div>
-                        <div className="text-sm font-black text-slate-900">{pct1(p.shin_prob_a)} / {pct1(p.shin_prob_b)}</div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-bold uppercase text-slate-400">Gap</div>
-                        <div className={`text-sm font-black ${p.divergence > 0.005 ? 'text-amber-700' : 'text-slate-400'}`}>{pct2(p.divergence)}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApi } from '../../api';
+import { NOT_PROVEN_MESSAGE } from './copy';
 
 /**
  * System diagnostics: what the pipeline is doing, and whether the policy's
@@ -11,7 +12,18 @@ import { useApi } from '../../api';
  * because that is what they are.
  */
 
-type Tab = 'profitability' | 'abstentions' | 'slices' | 'close' | 'props' | 'pipeline';
+type Tab = 'profitability' | 'abstentions' | 'slices' | 'close' | 'props' | 'pipeline' | 'methodology';
+
+interface DevigPair {
+  event_id: string; matchup: string; market: string; book: string; captured_at: string;
+  side_a: string; price_a: number; side_b: string; price_b: number;
+  naive_prob_a: number; naive_prob_b: number; shin_prob_a: number; shin_prob_b: number;
+  shin_z: number | null; divergence: number;
+}
+interface DevigCompare { market: string; pairs: DevigPair[]; note: string; }
+const am = (v: number | null | undefined) => (v == null ? '—' : v > 0 ? `+${v}` : `${v}`);
+const pct1 = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
+const pct2 = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(2)}%`);
 
 export default function Diagnostics() {
   const [tab, setTab] = useState<Tab>('profitability');
@@ -30,7 +42,7 @@ export default function Diagnostics() {
   return (
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-slate-200">
-        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['slices', 'Accuracy by slice'], ['close', 'Beat the close'], ['props', 'Props'], ['pipeline', 'Data pipeline']] as [Tab, string][])
+        {([['profitability', 'Profit diagnostic'], ['abstentions', 'Abstention audit'], ['slices', 'Accuracy by slice'], ['close', 'Beat the close'], ['props', 'Props'], ['pipeline', 'Data pipeline'], ['methodology', 'Methodology']] as [Tab, string][])
           .map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
@@ -49,6 +61,7 @@ export default function Diagnostics() {
               <div className={`card p-5 ${profit.profitability?.state === 'review_eligible'
                 ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40'}`}>
                 <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Honest verdict</div>
+                {profit.profitability?.state !== 'review_eligible' && <p className="mt-1 text-sm font-semibold text-slate-900">{NOT_PROVEN_MESSAGE}</p>}
                 <h2 className="mt-1 text-xl font-black text-slate-950">{profit.verdict}</h2>
                 <p className="mt-2 text-sm text-slate-700">Stake authority: <b>{profit.profitability?.staking_authority}</b></p>
               </div>
@@ -412,6 +425,90 @@ export default function Diagnostics() {
           )}
         </>
       )}
+
+      {tab === 'methodology' && <DevigCompareSection />}
+    </div>
+  );
+}
+
+/**
+ * De-vig methodology comparison, relocated here from Pick Watch. It answers a
+ * model-internals question — naive proportional split vs. Shin's method for
+ * turning a two-sided price into a fair probability — not a pick-tracking one,
+ * so it belongs with the other audits of what the model is allowed to claim.
+ */
+function DevigCompareSection() {
+  const [market, setMarket] = useState<'spreads' | 'totals'>('spreads');
+  const { data, loading, error } = useApi<DevigCompare>(`/betting/devig/compare?market=${market}&limit=30`);
+
+  return (
+    <div>
+      <div className="card p-4 mb-3">
+        <h2 className="text-sm font-bold text-slate-700 mb-0.5">Naive proportional split vs. Shin&apos;s method</h2>
+        <p className="text-[11px] text-slate-500 leading-relaxed">
+          Every no-vig calculation in this app used to split the bookmaker&apos;s margin proportionally between
+          both sides. Shin&apos;s method corrects for the favorite-longshot bias — a skewed line packs more of the
+          vig onto the favorite than a naive split assumes — and is now the default everywhere. The two methods
+          agree exactly on a near-even price and diverge as one side gets more lopsided. Below is that comparison
+          computed on real live multi-book quotes, sorted by how much the two methods actually disagree right now.
+        </p>
+        <div className="mt-3 flex gap-1">
+          {(['spreads', 'totals'] as const).map(m => (
+            <button key={m} onClick={() => setMarket(m)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold ${market === m ? 'bg-slate-950 text-white' : 'border border-slate-200 text-slate-500'}`}>
+              {m === 'spreads' ? 'Spreads' : 'Totals'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? <div className="card p-6 text-sm text-slate-500">Computing both methods on live quotes…</div>
+        : error ? <div className="card p-6 text-sm text-rose-600">{error}</div>
+        : !data?.pairs.length ? (
+          <div className="card p-6 text-sm text-slate-500">
+            <div className="font-semibold text-slate-700">No live two-sided quotes captured yet</div>
+            <p className="mt-1">This needs at least one book quoting both sides of the same market at the same instant. Capture a multi-book snapshot (Line Shop tab) and check back.</p>
+          </div>
+        ) : (
+          <>
+            <div className={`card p-3 text-sm ${data.pairs[0].divergence > 0.01 ? 'border-amber-300 bg-amber-50/40 text-amber-900' : 'border-slate-200 text-slate-700'}`}>
+              <div className="text-xs font-bold uppercase tracking-wide mb-1 opacity-70">Where the biggest gap is right now</div>
+              {data.pairs[0].divergence > 0.001
+                ? `${data.pairs[0].matchup} at ${data.pairs[0].book}: the two methods disagree by ${pct2(data.pairs[0].divergence)} on ${data.pairs[0].side_a}'s fair probability. The rest of today's board is closer to even, so the gap is small everywhere right now — it grows with how skewed the price is.`
+                : 'Every live price right now is close to even, so both methods agree closely. The gap opens up on a heavily favored side (e.g. a big moneyline favorite), which is not on the board at the moment.'}
+            </div>
+            <div className="card overflow-hidden mt-3">
+              <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50">
+                <div className="text-sm font-bold text-slate-800">Fair probability by method</div>
+                <div className="text-[11px] text-slate-500">{data.note}</div>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {data.pairs.map((p, i) => (
+                  <div key={`${p.event_id}-${p.book}-${i}`} className="grid gap-2 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate">{p.matchup}</div>
+                      <div className="text-[11px] text-slate-500">{p.book} · {p.side_a} {am(p.price_a)} / {p.side_b} {am(p.price_b)}</div>
+                    </div>
+                    <div className="flex gap-4 sm:text-right tabular-nums">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Naive</div>
+                        <div className="text-sm font-semibold text-slate-600">{pct1(p.naive_prob_a)} / {pct1(p.naive_prob_b)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Shin&apos;s</div>
+                        <div className="text-sm font-black text-slate-900">{pct1(p.shin_prob_a)} / {pct1(p.shin_prob_b)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Gap</div>
+                        <div className={`text-sm font-black ${p.divergence > 0.005 ? 'text-amber-700' : 'text-slate-400'}`}>{pct2(p.divergence)}</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
     </div>
   );
 }

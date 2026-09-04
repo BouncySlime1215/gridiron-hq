@@ -30,6 +30,25 @@ import {
 } from './stats-util.js';
 
 export const PLAYER_WEEK_ENGINE_VERSION = 'player-week-v2.1.0-game-state-reconciliation';
+
+/**
+ * Real team-level week-to-week dispersion for the negative binomial that
+ * draws a team's TOTAL pass attempts / rush carries in `sampleTeamWeekEvents`.
+ *
+ * This used to be a hardcoded 12 for both — the same fallback constant
+ * projections.js uses when a *player's* own opportunity variance can't be
+ * estimated, copied here without ever being fit for a team total. Measured
+ * via the identical method-of-moments estimator (dispersion = mean^2 /
+ * (var - mean)) pooled across every team-season in `player_week_usage`
+ * (132 team-seasons for attempts, 150 for carries; weeks with sub-floor
+ * attempts/carries dropped as byes or injury-shortened roles, not sampling
+ * noise): real dispersion is ~47 for attempts and ~31 for carries, so k=12
+ * was injecting 2.2x / 1.7x too much week-to-week variance into simulated
+ * team volume — and therefore into every prop percentile and probability
+ * `projectWeek` derives from it. See scripts/fit-team-volume-dispersion.mjs.
+ */
+const TEAM_PASS_ATTEMPT_DISPERSION = 47;
+const TEAM_RUSH_CARRY_DISPERSION = 31;
 const engineCache = new Map();
 const distributionCache = new Map();
 const qbShareCache = new Map();
@@ -513,8 +532,8 @@ export function sampleTeamWeekEvents(engine, team, {
 
   const draw = () => {
     for (let run = 0; run < runs; run++) {
-      const teamAttempts = randNegBinomial(passMean, 12);
-      const teamCarries = randNegBinomial(reconciledCarryMean, 12);
+      const teamAttempts = randNegBinomial(passMean, TEAM_PASS_ATTEMPT_DISPERSION);
+      const teamCarries = randNegBinomial(reconciledCarryMean, TEAM_RUSH_CARRY_DISPERSION);
       const teamTargets = randBinomial(teamAttempts, reconciledTargetRate);
       // Quarterback participation is a game state, not independent noise on
       // every attempt. Select the active passer once; never fabricate a weekly

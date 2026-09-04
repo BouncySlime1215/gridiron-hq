@@ -88,8 +88,8 @@ function gridScore(results, warmupSeasons) {
 }
 
 let _cache = null;
-let _nestedCache = null;
-export function clearNflMarketCache() { _cache = null; _nestedCache = null; }
+let _nestedCache = new Map();
+export function clearNflMarketCache() { _cache = null; _nestedCache = new Map(); }
 
 /**
  * Fits alpha/carryover by grid search, computes home-field advantage and the two
@@ -346,6 +346,7 @@ export function boardFor(season, week, trials = 20000) {
           model_probability: pickOver ? overModelP : 1 - overModelP,
           implied_probability: pickOver ? overMarketP : 1 - overMarketP,
           probability_difference: Math.abs(overEdge),
+          edge_points: +Math.abs(pred.predicted_total - g.total).toFixed(2),
           detail: `Model total: ${pred.predicted_total}`
         });
       }
@@ -378,8 +379,8 @@ export function accuracy() {
  * downstream residual/challenger audit. Keeping one canonical row set prevents
  * a diagnostic from quietly using a weaker or leakier evaluation path.
  */
-export function nestedEvaluationRows() {
-  if (_nestedCache) return _nestedCache;
+export function nestedEvaluationRows({ seasonsBack = 4 } = {}) {
+  if (_nestedCache.has(seasonsBack)) return _nestedCache.get(seasonsBack);
   const games = historicalGames();
   if (games.length < 500) return { error: `only ${games.length} completed games with scores — sync game lines first` };
 
@@ -388,7 +389,7 @@ export function nestedEvaluationRows() {
   // The previous report walked ratings forward but selected alpha/carryover and
   // calibrated residuals on the same games it graded.
   const seasons = [...new Set(games.map(g => g.season))].sort((a, b) => a - b);
-  const evalSeasons = seasons.slice(-4);
+  const evalSeasons = seasons.slice(-seasonsBack);
   const evaluated = [];
   const perSeason = [];
 
@@ -413,20 +414,22 @@ export function nestedEvaluationRows() {
     const marginBias = mean(marginResiduals);
     const totalBias = mean(totalResiduals);
     const marginStd = stdev(marginResiduals.map(v => v - marginBias)) || 14;
+    const totalStd = stdev(totalResiduals.map(v => v - totalBias)) || 10;
     const combined = simulate([...train, ...test], { ...best, hfa, leagueAvg });
     const held = combined.results.filter(r => r.g.season === season)
       .map(r => ({ ...r, predMargin: r.predMargin + marginBias,
-        predTotal: r.predTotal + totalBias, marginStd }));
+        predTotal: r.predTotal + totalBias, marginStd, totalStd }));
     evaluated.push(...held);
     perSeason.push(scoreAccuracy(held, season, best));
   }
 
-  _nestedCache = {
+  const out = {
     rows: evaluated,
     evaluation_seasons: evalSeasons,
     per_season: perSeason
   };
-  return _nestedCache;
+  _nestedCache.set(seasonsBack, out);
+  return out;
 }
 
 function scoreAccuracy(usable, season = null, params = null) {

@@ -26,6 +26,7 @@ import { calibrateAnytimeTd, activeTdCalibration } from './nfl-prop-calibration.
 import { playerSignalTrace } from './model-signal-quality.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
+import { calibratedTotalProbability } from './nfl-total-calibration.js';
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_total_picks (
@@ -46,6 +47,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_nfl_prop_quotes_event
     ON nfl_prop_quote_snapshots(event_id,market,captured_at);
 `);
+
+// Totals used to be staked at a flat 1 unit with no calibration gate at all
+// (unlike spread, blocked from staking until `calibratedCoverProbability`
+// proves an out-of-sample edge). A real walk-forward audit of the totals
+// model (nfl-total-calibration.js, 2010-2025, n=4317) found no lambda that
+// beats the no-vig market and no significant edge-predicts-outcome
+// relationship — the model has nothing over the market to stake. These
+// columns record that gate's verdict on every pick going forward instead of
+// silently staking 1 unit regardless.
+for (const [name, type] of [['calibration_eligible', 'INTEGER'], ['calibrated_probability', 'REAL']]) {
+  const cols = db.prepare('PRAGMA table_info(nfl_total_picks)').all().map(c => c.name);
+  if (!cols.includes(name)) db.exec(`ALTER TABLE nfl_total_picks ADD COLUMN ${name} ${type}`);
+}
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const accuracyCache = new Map();
@@ -159,7 +173,7 @@ export function propReplayRows(seasons, { reconciliationStrength = 0, useCache =
 
         replayRows.push({
           season, week, player_id: actual.player_id, player_name: actual.player_name,
-          team: actual.team, position: projection.position,
+          team: actual.team, opponent: actual.opponent, position: projection.position,
           eligibility,
           baseline: { pass_yds: seasonToDate('pass_yds'), rush_yds: seasonToDate('rush_yds'),
             rec_yds: seasonToDate('rec_yds'), receptions: seasonToDate('receptions') },
@@ -478,7 +492,7 @@ export function baselineGateTest(metricKey, seasons, { reconciliationStrength = 
   const cfg = GATE_CONFIG[metricKey];
   if (!cfg) throw new Error(`no baseline gate defined for ${metricKey}`);
   const replay = propReplayRows(seasons, { reconciliationStrength, useCache });
-  const modelErr = [], baselineErr = [];
+  const modelErr = [], baselineErr = [], groups = [];
   for (const r of replay.rows) {
     if (!cfg.eligible(r.broad.volume)) continue;
     if (!r.eligibility.markets[cfg.market]) continue;
@@ -486,8 +500,12 @@ export function baselineGateTest(metricKey, seasons, { reconciliationStrength = 
     const act = r.actual[metricKey];
     modelErr.push(Math.abs(r.broad[metricKey] - act));
     baselineErr.push(Math.abs(r.baseline[metricKey] - act));
+    // Cluster by the actual game (both teams), not just player — several
+    // player-weeks in this array share one real NFL game (weather, game
+    // script, pace), so their errors are correlated, not independent draws.
+    groups.push(`${r.season}|${r.week}|${[r.team, r.opponent].filter(Boolean).sort().join('-')}`);
   }
-  const test = pairedBootstrapDiff(baselineErr, modelErr, { iterations: 2000, seed: 7 });
+  const test = pairedBootstrapDiff(baselineErr, modelErr, { iterations: 2000, seed: 7, groups });
   const modelMae = modelErr.length ? modelErr.reduce((a, b) => a + b, 0) / modelErr.length : null;
   const baselineMae = baselineErr.length ? baselineErr.reduce((a, b) => a + b, 0) / baselineErr.length : null;
   return {
@@ -741,25 +759,47 @@ export async function topTotals(season, week, n = 5) {
   const { boardFor } = await import('./nfl-market.js');
   const board = boardFor(season, week);
   if (board?.error) return board;
-  return board.filter(b => b.market === 'total').slice(0, n);
+  return board.filter(b => b.market === 'total').slice(0, n).map(b => {
+    // A large raw model-vs-market gap is not evidence by itself — the same
+    // rule spread already lives under. `nfl-total-calibration.js`'s
+    // walk-forward audit (2010-2025, n=4317) found the totals model has no
+    // demonstrated out-of-sample edge over the no-vig market, so a null
+    // calibrated probability here is the correct, honest answer until a
+    // future refit proves otherwise — not a bug to paper over.
+    const calibrated = calibratedTotalProbability({ season, marketProbability: b.implied_probability,
+      edgePoints: b.edge_points });
+    return { ...b, calibrated_probability: calibrated.probability,
+      calibration_eligible: calibrated.probability != null };
+  });
 }
 
-/** Locks in the week's five total picks as straight 1-unit bets. */
+/**
+ * Locks in the week's total picks. A pick is still recorded — and gradeable
+ * — even when the calibration gate has not been cleared, exactly like
+ * spread's auto-picks (PROFITABILITY_PLAN §8): the frozen decision is the
+ * audit trail. It simply carries zero stake until `calibration_eligible` is
+ * true, so it can never again silently ride a flat 1-unit bet on a model
+ * that has not proven it beats the market.
+ */
 export async function ensureTotalPicks(season, week, n = 5) {
   const existing = rows('SELECT * FROM nfl_total_picks WHERE season=? AND week=? ORDER BY rank', season, week);
   if (existing.length) return existing;
   const picks = await topTotals(season, week, n);
   if (picks?.error || !picks?.length) return [];
   const now = new Date().toISOString();
+  const units = Number(process.env.NFL_MODEL_STAKE_UNITS) || 0;
   picks.forEach((b, i) => {
     run(`INSERT INTO nfl_total_picks
         (season, week, rank, home_team, away_team, matchup, side, line, american_price,
-         model_probability, implied_probability, probability_difference, model_total, detail, units_staked, selected_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)
+         model_probability, implied_probability, probability_difference, model_total, detail,
+         calibration_eligible, calibrated_probability, units_staked, selected_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(season, week, rank) DO NOTHING`,
       season, week, i + 1, b.home_team, b.away_team, b.matchup, b.side, b.line, b.american_price,
       b.model_probability, b.implied_probability, b.probability_difference,
-      Number(String(b.detail).replace(/[^\d.]/g, '')) || null, b.detail, now);
+      Number(String(b.detail).replace(/[^\d.]/g, '')) || null, b.detail,
+      b.calibration_eligible ? 1 : 0, b.calibrated_probability,
+      b.calibration_eligible ? units : 0, now);
   });
   return rows('SELECT * FROM nfl_total_picks WHERE season=? AND week=? ORDER BY rank', season, week);
 }

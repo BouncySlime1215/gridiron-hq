@@ -1,8 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  fitFantasyCoordinator, coordinateFantasy, __test
-} from '../server/services/fantasy-coordinator.js';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+
+// This file's source now creates and writes to fantasy_coordinator_fits at
+// import time — isolate before importing db/index.js (via the service), same
+// pattern every other test in this suite uses, or these tests would run
+// against the real project database.
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-fantasy-coordinator-'));
+process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
+
+const { db } = await import('../server/db/index.js');
+const {
+  fitFantasyCoordinator, coordinateFantasy, saveFantasyCoordinatorFit, activeFantasyCoordinatorFit, __test
+} = await import('../server/services/fantasy-coordinator.js');
+
+test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 const { shrinkageScales, familiesOf } = __test;
 
@@ -95,4 +109,31 @@ test('coordinateFantasy on an unfitted coordinator reports not-ready rather than
   const out = coordinateFantasy({ ready: false, reason: 'warmup requires 200 rows' }, { ensemble_shift: 5 }, 10);
   assert.equal(out.ready, false);
   assert.equal(out.structural_ppg, 10);
+});
+
+test('activeFantasyCoordinatorFit reports not-ready before any fit has been persisted', () => {
+  assert.equal(activeFantasyCoordinatorFit().ready, false);
+});
+
+test('a not-ready fit is never persisted; only a real fit is, and it round-trips exactly', () => {
+  const notReady = fitFantasyCoordinator(syntheticExamples().slice(0, 50));
+  const skipResult = saveFantasyCoordinatorFit(notReady, 2024);
+  assert.equal(skipResult.inserted, false, 'a warmup result has nothing usable and must not be stored');
+  assert.equal(activeFantasyCoordinatorFit().ready, false, 'still nothing persisted');
+
+  const real = fitFantasyCoordinator(syntheticExamples());
+  const saveResult = saveFantasyCoordinatorFit(real, 2024);
+  assert.equal(saveResult.inserted, true);
+
+  const active = activeFantasyCoordinatorFit();
+  assert.equal(active.ready, true);
+  assert.deepEqual(active.coefficients, real.coefficients);
+});
+
+test('the latest saved fit wins over an earlier one', () => {
+  const first = fitFantasyCoordinator(syntheticExamples());
+  saveFantasyCoordinatorFit(first, 2023);
+  const second = fitFantasyCoordinator(syntheticExamples());
+  saveFantasyCoordinatorFit(second, 2024);
+  assert.equal(activeFantasyCoordinatorFit().rows, second.rows);
 });

@@ -53,10 +53,17 @@
  * whole point of walk-forward shrinkage is that a signal earns its weight
  * or gets none.
  *
- * This clears Phase 3's gate — a legitimate candidate for Phase 4
- * (wiring into trade-engine.js) — but is NOT yet wired in there.
+ * This clears Phase 3's gate. Phase 4 (below `activeFantasyCoordinatorFit`/
+ * `weeklyExpertValues`): trade-engine.js's current-week projection now
+ * applies the coordinator's correction when a real fit exists, falling back
+ * to the plain structural+ensemble number (today's prior behavior)
+ * otherwise — never a hard dependency, and never fabricated when unfitted.
+ * The fit itself is refit periodically (scheduler.js, not per-request) and
+ * persisted, the same pattern weekly-weight-store.js already uses for the
+ * ensemble champion weights — a 30-40s walk-forward-style refit has no
+ * business blocking a page load.
  */
-import { rows } from '../db/index.js';
+import { db, rows, run } from '../db/index.js';
 import { buildPlayerWeekEngine, playerWeekProjection, playerWeekEventExpectation } from './player-week-engine.js';
 import { gameScriptFor } from './gamescript.js';
 import { scoreLine, PPR } from './scoring.js';
@@ -67,6 +74,17 @@ import { holmDecisions } from './player-head-validation.js';
 
 export const FANTASY_COORDINATOR_VERSION = 'fantasy-coordinator-v1-no-regimes';
 const EXPERT_IDS = ['ensemble_shift', 'game_script_delta', 'boom_bust_signal'];
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS fantasy_coordinator_fits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version TEXT NOT NULL,
+    through_season INTEGER NOT NULL,
+    rows INTEGER NOT NULL,
+    fit_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
 
 const MIN_ROWS = 200;
 const RIDGE = 36;
@@ -279,6 +297,65 @@ export function fitFantasyCoordinator(examples) {
       walk_forward_shrinkage: { ridge: SHRINK_RIDGE, min_games: SHRINK_MIN_GAMES, rule: 'k = cov/var capped 0..1; zero without walk-forward gain' },
       families: { correlation: FAMILY_CORRELATION, min_overlap: FAMILY_MIN_OVERLAP, found: fit.families.map(f => f.members) },
       max_expert_weight: MAX_WEIGHT, max_total_expert_influence: MAX_TOTAL_INFLUENCE } };
+}
+
+/**
+ * Persist a fit (fantasy_coordinator_fits), so trade-engine.js reads a
+ * ready-made fit instead of ever running the 30-40s example-build + ridge
+ * fit inline. Only a `ready: true` fit is worth storing — a warmup result
+ * has nothing usable in it.
+ */
+export function saveFantasyCoordinatorFit(fit, throughSeason) {
+  if (!fit?.ready) return { inserted: false, reason: fit?.reason ?? 'not ready' };
+  run(`INSERT INTO fantasy_coordinator_fits (version, through_season, rows, fit_json)
+       VALUES (?,?,?,?)`, fit.version, throughSeason, fit.rows, JSON.stringify(fit));
+  return { inserted: true };
+}
+
+/** The latest persisted fit, or `{ready: false}` when none exists yet (a
+ *  fresh install before the first background refit has run) — read-only,
+ *  no computation, safe to call from a request path. */
+export function activeFantasyCoordinatorFit() {
+  const latest = rows(`SELECT fit_json FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1`)[0];
+  if (!latest) return { version: FANTASY_COORDINATOR_VERSION, ready: false, reason: 'no fit persisted yet' };
+  return JSON.parse(latest.fit_json);
+}
+
+/**
+ * Refits on real historical data through the last fully-settled season and
+ * persists the result — the one function scheduler.js should call
+ * periodically. Building examples across 3-4 seasons takes real time
+ * (~30-40s, verified live) and belongs in a background job, never inline
+ * in a request.
+ */
+export async function refitFantasyCoordinator({ fromSeason = 2022, throughSeason } = {}) {
+  const through = throughSeason ?? new Date().getFullYear() - 1;
+  const examples = await buildFantasyCoordinatorExamples({ fromSeason, throughSeason: through });
+  const fit = fitFantasyCoordinator(examples);
+  return { ...saveFantasyCoordinatorFit(fit, through), fit };
+}
+
+/**
+ * The two request-time-cheap expert values for ONE player-week — the same
+ * ensemble_shift/game_script_delta computation buildFantasyCoordinatorExamples
+ * uses per row, factored out so trade-engine.js can call it for a single
+ * player without rebuilding a whole season's examples. boom_bust_signal is
+ * deliberately NOT included: it already shrank to zero in the persisted fit
+ * (see this file's Phase 3 result above), so computing it here would only
+ * cost a GBM prediction for a coefficient the fit already learned to ignore.
+ */
+export function weeklyExpertValues(projection, season, week, scoring = PPR) {
+  if (!projection?.params || projection.structural_ppg == null) return null;
+  const gs = projection.team ? gameScriptFor(projection.team, season, week) : null;
+  const noMult = playerWeekEventExpectation(projection, { mult: 1, scoring })?.structural_fantasy_points;
+  const withMult = gs?.line
+    ? playerWeekEventExpectation(projection, { mult: { pass: gs.pass_mult, rush: gs.rush_mult }, scoring })?.structural_fantasy_points
+    : null;
+  return {
+    ensemble_shift: Number.isFinite(projection.ensemble_shift) ? projection.ensemble_shift : null,
+    game_script_delta: Number.isFinite(withMult) && Number.isFinite(noMult) ? withMult - noMult : null,
+    boom_bust_signal: null
+  };
 }
 
 /** Apply a fit to one player-week's expert values, returning the corrected

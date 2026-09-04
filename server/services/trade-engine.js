@@ -29,6 +29,7 @@ import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-eng
 import { weeklyAvailability } from './contingency.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { scoringFor } from './scoring.js';
+import { activeFantasyCoordinatorFit, weeklyExpertValues, coordinateFantasy } from './fantasy-coordinator.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -117,7 +118,14 @@ export function assetUniverse(lg, formatKey, requested = null) {
 }
 
 function buildAssetUniverse(lg, formatKey, target) {
-  const weekly = buildPlayerWeekEngine({ season: target.season, week: target.week, scoring: scoringFor(lg) });
+  const scoring = scoringFor(lg);
+  const weekly = buildPlayerWeekEngine({ season: target.season, week: target.week, scoring });
+  // Read-only, no computation — the coordinator itself is refit on a schedule
+  // (scheduler.js#fantasy_coordinator_refit) and persisted; walk-forward
+  // verified (fantasy-coordinator.js's own doc-comment) to beat the plain
+  // structural+ensemble number it corrects. `ready: false` before the first
+  // background refit falls back to exactly today's prior behavior below.
+  const fantasyFit = activeFantasyCoordinatorFit();
   const active = weeklyAvailability(target.season, target.week, { through: target.season - 1 });
   const board = new Map(vorBoard(lg.team_count || 12).map(p => [p.id, p]));
   const vol = volatility();
@@ -150,7 +158,14 @@ function buildAssetUniverse(lg, formatKey, target) {
     const activeProbability = availability?.active_probability ?? 0.92;
     const weeklyPpg = weekProjection?.ppg ?? (proj / GAMES);
     const thisGame = sched.games?.find(game => game.week === target.week) ?? null;
-    const currentWeekPpg = thisGame ? weeklyPpg * thisGame.mult * activeProbability : 0;
+    // The coordinator only corrects THIS week's number (ensemble_shift and
+    // game-script are both week-specific signals) — weeklyPpg itself, used
+    // below for ROS/season-long figures, is untouched: the coordinator was
+    // only walk-forward validated against weekly outcomes, not season totals.
+    const expertValues = weekProjection ? weeklyExpertValues(weekProjection, target.season, target.week, scoring) : null;
+    const coordinated = expertValues ? coordinateFantasy(fantasyFit, expertValues, weeklyPpg) : null;
+    const currentWeekBasePpg = coordinated?.ready ? coordinated.corrected_ppg : weeklyPpg;
+    const currentWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;
     const rosPpg = weeklyPpg * sched.sos;
     // A trade is a rest-of-season decision, not DFS. The live week matters, but
     // it cannot erase the remaining schedule or turn a bye into a player-value
@@ -183,6 +198,12 @@ function buildAssetUniverse(lg, formatKey, target) {
       sos: sched.sos, playoff_sos: sched.playoff_sos, bye: sched.bye,
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
+      // Transparency for the correction folded into current_week_ppg above —
+      // null when no fit is persisted yet (fantasy_coordinator_refit hasn't
+      // run) or this player has no weekly projection to correct.
+      fantasy_coordinator: coordinated?.ready
+        ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions }
+        : null,
       ros_ppg: +rosPpg.toFixed(2),
       active_probability: +activeProbability.toFixed(3),
       injury_status: availability?.report_status ?? null,

@@ -287,6 +287,18 @@ async function refreshWeeklyLearning() {
   return runWeeklyLearningCycle();
 }
 
+/**
+ * Refit the fantasy coordinator (fantasy-coordinator.js) on real historical
+ * data through the last fully-settled season. A ~30-40s walk-forward-style
+ * example build + ridge fit, verified live — this belongs here, never
+ * inline in a trade-lab page load, which only ever reads the persisted
+ * result via activeFantasyCoordinatorFit().
+ */
+async function refreshFantasyCoordinator() {
+  const { refitFantasyCoordinator } = await import('./fantasy-coordinator.js');
+  return refitFantasyCoordinator();
+}
+
 /** Refit the TD calibrator on fixed chronological eras; promotion still requires replication. */
 async function refreshNflPropCalibration() {
   const { propReplayRows } = await import('./nfl-props.js');
@@ -571,6 +583,8 @@ export const JOBS = {
     label: 'Heavy dashboard reports computed off-thread (worker) and served from SQLite' },
   nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'NFL chronological prop calibration registry' },
+  fantasy_coordinator_refit: { run: refreshFantasyCoordinator, maxAgeMinutes: 24 * 60, tier: 'heavy',
+    label: 'Fantasy coordinator refit (ensemble/game-script blend, walk-forward validated)' },
   /*
    * Prop quote capture. Every hour during a slate, because a prop line that is
    * only observed once cannot yield closing-line value — CLV needs the price

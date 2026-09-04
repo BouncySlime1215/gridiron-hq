@@ -133,6 +133,16 @@ export async function syncRosters() {
       run(`DELETE FROM slot_weakness WHERE roster_player_id IN
            (SELECT id FROM roster_players WHERE ${goneClause})`, teamId, ...seenIds);
       run(`DELETE FROM roster_players WHERE ${goneClause}`, teamId, ...seenIds);
+
+      // Same payload already carries the current head coach — head_coach had
+      // no sync at all before this (seed-only, forever), unlike every other
+      // roster field. ESPN doesn't expose coordinators via any public feed,
+      // so OC/DC still rely on the AI refresh + news below.
+      const coach = data.coach?.[0];
+      if (coach?.lastName) {
+        const name = [coach.firstName, coach.lastName].filter(Boolean).join(' ');
+        run(`UPDATE nfl_teams SET head_coach = ? WHERE id = ? AND head_coach IS NOT ?`, name, teamId, name);
+      }
       teams++;
     }
   }

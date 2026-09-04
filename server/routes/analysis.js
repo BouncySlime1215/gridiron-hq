@@ -7,6 +7,13 @@ const r = Router();
 
 const ANALYSIS_FIELDS = ['off_scheme_detail', 'def_scheme_detail', 'ol_analysis', 'dl_analysis',
   'lb_analysis', 'secondary_analysis', 'st_analysis', 'coach_analysis'];
+// head_coach now has a real sync (nfldata.js#syncRosters, straight from ESPN's
+// roster payload); oc_name/dc_name have no public feed at all — ESPN exposes
+// only the head coach. News is the one signal this app captures for a
+// coordinator hire/fire, so these are corrected by the AI refresh below,
+// gated strictly on that news actually saying so — never a "seems stale"
+// guess the way the free-text analysis fields are allowed to be.
+const STAFF_FIELDS = ['head_coach', 'oc_name', 'dc_name'];
 
 function teamContext(team) {
   const players = rows(`SELECT name, position, slot_code, phase FROM players
@@ -61,11 +68,15 @@ Task: rewrite any analysis field that is stale, wrong, or vague. Requirements:
 - Purge any player who is not on the roster above, in every field, not only the unit fields.
 - Keep the sharp, opinionated editorial voice. 2-4 sentences per field.
 - Omit any field that is already accurate and specific.
+- head_coach / oc_name / dc_name: only change one of these if RECENT NEWS explicitly reports that
+  person being hired or fired — never because the name merely looks unfamiliar or old. If news
+  doesn't say so, leave all three exactly as given, even if you're unsure they're still current.
 
-Respond with ONLY a JSON object. Keys: any of ${ANALYSIS_FIELDS.join(', ')} (only ones you changed), plus "changed" (boolean) and "reason" (one sentence).`
+Respond with ONLY a JSON object. Keys: any of ${[...ANALYSIS_FIELDS, ...STAFF_FIELDS].join(', ')} (only ones you changed), plus "changed" (boolean) and "reason" (one sentence).`
   });
   const result = parseJson(msg);
-  const updates = ANALYSIS_FIELDS.filter(f => typeof result[f] === 'string' && result[f].length > 10);
+  const updates = [...ANALYSIS_FIELDS, ...STAFF_FIELDS]
+    .filter(f => typeof result[f] === 'string' && result[f].length > (STAFF_FIELDS.includes(f) ? 2 : 10));
   if (updates.length > 0) {
     run(`UPDATE nfl_teams SET ${updates.map(f => `${f} = ?`).join(', ')}, analysis_updated_at = datetime('now') WHERE id = ?`,
       ...updates.map(f => result[f]), team.id);

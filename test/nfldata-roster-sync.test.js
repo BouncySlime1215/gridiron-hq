@@ -24,10 +24,10 @@ function espnAthlete(id, name) {
 }
 
 /** Only WAS (ESPN team id 28) resolves; every other team 404s, same as a real partial outage. */
-function stubEspnRoster(athletes) {
+function stubEspnRoster(athletes, coach = null) {
   globalThis.fetch = async url => {
     if (url.includes('/teams/28/roster')) {
-      return { ok: true, json: async () => ({ athletes: [{ position: 'WR', items: athletes }] }) };
+      return { ok: true, json: async () => ({ athletes: [{ position: 'WR', items: athletes }], coach: coach ? [coach] : [] }) };
     }
     return { ok: false, status: 404 };
   };
@@ -62,4 +62,13 @@ test('a roster sync survives a departed player who has accolades or a slot-weakn
   assert.equal(row(`SELECT 1 FROM roster_players WHERE espn_id = 222`), undefined, 'the departed player\'s roster row must actually be removed');
   assert.equal(row(`SELECT 1 FROM player_accolades WHERE roster_player_id = ?`, goneId), undefined,
     'their now-orphaned accolade must be cleaned up too, not left pointing at a deleted row');
+});
+
+test('a roster sync now updates head_coach from ESPN\'s own roster payload, which previously had no sync at all', async () => {
+  run(`UPDATE nfl_teams SET head_coach = 'Some Stale Name' WHERE id = 28`);
+  stubEspnRoster([espnAthlete(111, 'Still Here')], { firstName: 'Dan', lastName: 'Quinn' });
+
+  await syncRosters();
+
+  assert.equal(row(`SELECT head_coach FROM nfl_teams WHERE id = 28`).head_coach, 'Dan Quinn');
 });

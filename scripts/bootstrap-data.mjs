@@ -50,12 +50,28 @@ for (let i = 0; i < 60 && !up; i++) {
 }
 if (!up) { console.error('  Could not start the local server — skipping the data pull.'); stop(); process.exit(1); }
 
+// A couple of these steps (the prediction engine's own sync, trending
+// adds/drops) sit behind real route auth — /api/auth/local-session is the
+// loopback-only, no-prior-login provisioner server/routes/local-auth.js
+// already exists for exactly this: it creates the local owner if needed and
+// hands back a bearer token good for 90 days. Without this, both of those
+// steps 401 silently (this script tolerates per-step failures), which is
+// exactly what was happening before this fix.
+let token = null;
+try {
+  const session = await (await fetch(`${BASE}/api/auth/local-session`, { method: 'POST' })).json();
+  token = session.token ?? null;
+} catch { /* the steps that need it will report their own failure below */ }
+
 /** Each step is allowed to fail; a missing feed should not abort the whole install. */
 async function run(label, pathname, ms = 240000) {
   process.stdout.write(`  ${label}… `);
   const t = Date.now();
   try {
-    const res = await fetch(`${BASE}${pathname}`, { method: 'POST', signal: AbortSignal.timeout(ms) });
+    const res = await fetch(`${BASE}${pathname}`, {
+      method: 'POST', signal: AbortSignal.timeout(ms),
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? res.statusText);
     console.log(c.g(`done`) + c.dim(` (${((Date.now() - t) / 1000).toFixed(0)}s)`));

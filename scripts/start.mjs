@@ -87,6 +87,40 @@ const server = spawn(process.execPath, ['--env-file-if-exists=.env', 'server/ind
 server.on('exit', code => process.exit(code ?? 0));
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => server.kill(sig));
 
+/**
+ * A `git pull` can bring code that expects historical data (nflverse usage,
+ * the ADP backfill, the fantasy coordinator fit) this install has never
+ * synced — none of that ships in the repo, only the code that reads it does.
+ * GET /api/model/setup-status (deliberately unauthenticated, like GET
+ * /api/model/status) reports that gap; this fires the same one-button
+ * POST /api/model/sync the in-browser DataSetupBanner uses, but automatically,
+ * so the common case (nothing missing) is a silent no-op and the fresh-gap
+ * case just fixes itself in the background instead of waiting on someone to
+ * notice the banner. Not awaited before returning — the browser has already
+ * opened by the time this runs, and this can take a few minutes.
+ */
+async function autoSyncIfNeeded() {
+  let status;
+  try { status = await (await fetch(`${URL}/api/model/setup-status`)).json(); }
+  catch { return; }
+  if (!status?.needs_setup) return;
+
+  console.log('\n  Historical model data needs a one-time update — updating in the background (this can take a few minutes)…');
+  try {
+    const session = await (await fetch(`${URL}/api/auth/local-session`, { method: 'POST' })).json();
+    const res = await fetch(`${URL}/api/model/sync`, {
+      method: 'POST',
+      headers: session.token ? { Authorization: `Bearer ${session.token}` } : {}
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? res.statusText);
+    console.log('  ✓ Historical model data updated.');
+  } catch (e) {
+    console.error(`  Historical model data update failed: ${e.message}`);
+    console.error('  It can still be run from the banner in the app itself.');
+  }
+}
+
 /** Poll until the server answers, so the browser never lands on a connection error. */
 const openWhenReady = async () => {
   let ready = false;
@@ -105,5 +139,6 @@ const openWhenReady = async () => {
   }
   openBrowser();
   console.log(`\n  Gridiron HQ is running at ${URL}\n  Press Ctrl+C to stop.\n`);
+  autoSyncIfNeeded();
 };
 await openWhenReady();

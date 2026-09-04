@@ -435,7 +435,7 @@ const slim = p => ({
   age: p.age, bye: p.bye, injury: p.injury, available: p.available !== false,
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
   sos: p.sos, playoff_sos: p.playoff_sos,
-  current_week_ppg: p.current_week_ppg, ros_ppg: p.ros_ppg,
+  current_week_ppg: p.current_week_ppg, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
   active_probability: p.active_probability, injury_status: p.injury_status,
   practice_status: p.practice_status, model_cutoff: p.model_cutoff,
   role_change: p.role_change, matchup: p.matchup

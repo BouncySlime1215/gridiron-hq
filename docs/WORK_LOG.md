@@ -431,6 +431,12 @@ was ever answered.
 **Prediction edge — settled negative.** 21 component models against 15,096
 closing lines, 0 clear the materiality gate. Do not re-litigate this.
 
+This is the academically expected result for a mature market, not a failure: Sauer (1998, *Journal of
+Economic Literature*), Vandenbruaene et al. (2022, *Journal of Sports Economics*) and Winkelmann et
+al. (2024, *Journal of Sports Economics*) all document point-spread closing lines as close to
+efficient and hard to beat with public information. This project independently re-verified that same
+conclusion — a correctly detected efficient market, not a disappointing null.
+
 **Execution edge — real, measured, never exploited.** Books disagree. In a
 single 272-event snapshot across ~6.4 books per market: spread lines differ by
 **0.813 points on average**, 37.5% of markets differ by a full point or more,

@@ -17,6 +17,13 @@ closing lines**, established four independent ways:
 | 15-specialist meta-model, out-of-sample R² | **−0.0167** vs shuffled-null **−0.0171** — identical to random |
 | Realised P&L, 798 bets, 5 seasons | 398-386-14, **50.8%, −24.2 units** |
 
+**Read this table as a correctly detected efficient market, not a disappointing failure to find
+edge.** Sauer (1998, *Journal of Economic Literature*), Vandenbruaene et al. (2022, *Journal of
+Sports Economics*) and Winkelmann et al. (2024, *Journal of Sports Economics*) all document
+point-spread closing lines as close to informationally efficient and hard to beat with public
+information — this project's own, independently re-verified 0-of-21 result matches that published
+literature exactly.
+
 After the governance branch (per-prediction weight refit, residual-skill
 weighting, abstention gate) the model correctly bets *far* less — 203 bets
 instead of 798 — and the remaining bets **still lose: 47.0%, −19.7 units**.

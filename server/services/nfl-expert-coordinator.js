@@ -8,6 +8,7 @@
  */
 import { rows } from '../db/index.js';
 import { NFL_EXPERTS } from './nfl-expert-council.js';
+import { expertConfidenceTier, predictionConfidence } from './confidence-tier.js';
 
 export const EXPERT_COORDINATOR_VERSION = 'robust-contextual-week-balanced-residual-v4-shrink-families';
 // The role list is the council's registry, read lazily: the council imports
@@ -95,8 +96,18 @@ function design(game, centers, scales) {
 function shrinkageScales(games) {
   const out = {};
   for (const id of IDS) {
-    const pairs = games.map(game => [game.experts.get(id), game.target]).filter(([f]) => Number.isFinite(f));
-    if (pairs.length < SHRINK_MIN_GAMES) { out[id] = { k: 0, gain: null, n: pairs.length, reason: `fewer than ${SHRINK_MIN_GAMES} settled forecasts` }; continue; }
+    const paired = games.map(game => ({ f: game.experts.get(id), y: game.target, season: game.season, week: game.week }))
+      .filter(row => Number.isFinite(row.f));
+    const pairs = paired.map(row => [row.f, row.y]);
+    // Games in the same week share correlated context (weather, injuries
+    // breaking one way for a whole slate, a shared officiating crew story),
+    // so counting raw games overstates how much INDEPENDENT evidence backs
+    // this weight — exactly the effective-sample-size inflation Brill,
+    // Yurko & Wyner (2024, arXiv:2406.16171) document for correlated
+    // play-by-play data. Distinct weeks is the honest unit here; it is also
+    // already the clustering unit fitRows uses to weight this same data.
+    const independentWeeks = new Set(paired.map(row => `${row.season}|${row.week}`)).size;
+    if (pairs.length < SHRINK_MIN_GAMES) { out[id] = { k: 0, gain: null, n: pairs.length, independent_weeks: independentWeeks, reason: `fewer than ${SHRINK_MIN_GAMES} settled forecasts` }; continue; }
     const scaleOf = list => {
       const mf = mean(list.map(([f]) => f)), my = mean(list.map(([, y]) => y));
       const cov = mean(list.map(([f, y]) => (f - mf) * (y - my))), vf = mean(list.map(([f]) => (f - mf) ** 2));
@@ -114,8 +125,8 @@ function shrinkageScales(games) {
     const crossGain = mean([gainOf(b, scaleOf(a).k, scaleOf(a).mf), gainOf(a, scaleOf(b).k, scaleOf(b).mf)]);
     const k = all.k;
     out[id] = t > 2 && crossGain > 0 && k > 0
-      ? { k: r3(k), gain: r3(crossGain), t: r3(t), n: pairs.length, reason: null }
-      : { k: 0, gain: r3(crossGain), t: r3(t), n: pairs.length, reason: 'shrunk to zero: no walk-forward gain' };
+      ? { k: r3(k), gain: r3(crossGain), t: r3(t), n: pairs.length, independent_weeks: independentWeeks, reason: null }
+      : { k: 0, gain: r3(crossGain), t: r3(t), n: pairs.length, independent_weeks: independentWeeks, reason: 'shrunk to zero: no walk-forward gain' };
   }
   return out;
 }
@@ -310,6 +321,8 @@ function coordinateWith(rawFit, experts) {
     const k = fit.shrinkage[id]?.k ?? 0;
     const shrunk = Number.isFinite(raw) ? k * clamp((raw - fit.centers[id]) / fit.scales[id], -4, 4) : null;
     return { id, raw, shrink: k, shrink_reason: fit.shrinkage[id]?.reason ?? null,
+      independent_weeks: fit.shrinkage[id]?.independent_weeks ?? 0,
+      confidence: expertConfidenceTier({ k, independentWeeks: fit.shrinkage[id]?.independent_weeks }),
       family: column.members.length > 1 ? column.id : null, family_members: column.members.length > 1 ? column.members : undefined,
       learned_weight: r3(learnedWeight),
       normalized_weight: Number.isFinite(raw) && activeWeight > 0 ? r3(learnedWeight / activeWeight) : 0,
@@ -323,7 +336,8 @@ function coordinateWith(rawFit, experts) {
   return { forecast_residual: r3(clamp(forecast, -10, 10)),
     uncertainty: r3(Math.sqrt(fit.robustSigma ** 2 + disagreement ** 2)), training_games: fit.games, training_weeks: fit.weeks,
     disagreement: r3(disagreement), active_weight_l1: r3(activeWeight),
-    contributions, missingness_offset: r3(missingOffset) };
+    contributions, missingness_offset: r3(missingOffset),
+    confidence: predictionConfidence(contributions) };
 }
 
 export function coordinateExperts(fit, experts, context = {}) {

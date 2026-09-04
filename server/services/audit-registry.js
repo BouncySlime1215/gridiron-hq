@@ -31,6 +31,7 @@ import { rows, row, run } from '../db/index.js';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { alwaysValidPValue } from './backtest-significance.js';
 
 run(`CREATE TABLE IF NOT EXISTS audit_registry (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +53,10 @@ run(`CREATE TABLE IF NOT EXISTS audit_registry (
   p_value        REAL,
   sample_size    INTEGER,
   detail_json    TEXT,
-  void_reason    TEXT
+  void_reason    TEXT,
+  always_valid_p           REAL,
+  always_valid_significant INTEGER,
+  always_valid_n           INTEGER
 )`);
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -61,7 +65,8 @@ const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 // nothing to an existing table, so an install that filed even one audit before
 // this change would keep the old schema and fail every insert.
 for (const col of ['require_significance INTEGER DEFAULT 0',
-  'require_deterministic INTEGER DEFAULT 0', 'significant INTEGER']) {
+  'require_deterministic INTEGER DEFAULT 0', 'significant INTEGER',
+  'always_valid_p REAL', 'always_valid_significant INTEGER', 'always_valid_n INTEGER']) {
   try { run(`ALTER TABLE audit_registry ADD COLUMN ${col}`); } catch { /* already present */ }
 }
 
@@ -140,9 +145,29 @@ export function preregister({ name, hypothesis, metric, direction = 'above', thr
 /**
  * Execute a preregistered audit exactly once.
  *
- * `producer` is an async function returning `{ observed, sample_size, p_value?, detail? }`.
- * It is handed nothing about previous audits, because it must not be able to
- * condition on them.
+ * `producer` is an async function returning
+ * `{ observed, sample_size, p_value?, detail?, sequence? }`. It is handed
+ * nothing about previous audits, because it must not be able to condition
+ * on them.
+ *
+ * `sequence`, when supplied, is the per-unit signed paired observations the
+ * audit's own `p_value` was computed from (e.g. one entry per player: this
+ * model's error minus the comparison's error), in the order those units
+ * became available. When present, it feeds a SECOND, complementary check —
+ * an always-valid p-value (mSPRT, Johari/Pekelis/Walsh 2022, see
+ * backtest-significance.js#alwaysValidPValue) — alongside the existing
+ * Šidák multiple-comparisons correction below.
+ *
+ * The two checks answer different questions and neither replaces the other.
+ * Šidák corrects across every audit ever FILED (a fixed, growing count of
+ * distinct hypotheses). The always-valid check corrects within ONE
+ * hypothesis whose OWN evidence keeps growing — the paired sequence behind
+ * a single audit's p-value is not fixed-N in spirit even though this
+ * registry only runs each audit once, because nothing stops a future
+ * preregistration from re-asking the same question against a longer
+ * sequence next month. When `requireSignificance` is set and a sequence is
+ * supplied, an audit needs BOTH checks to pass before it counts as real
+ * signal.
  */
 export async function runAudit(auditId, producer) {
   const a = row(`SELECT * FROM audit_registry WHERE id = ?`, auditId);
@@ -208,18 +233,40 @@ export async function runAudit(auditId, producer) {
   const correctedAlpha = 1 - Math.pow(1 - 0.05, 1 / Math.max(1, priorTests + 1));
   const p = Number.isFinite(result?.p_value) ? result.p_value : null;
   const significant = p == null ? null : p < correctedAlpha;
+
+  // Second, complementary gate: an always-valid p-value over the per-unit
+  // sequence behind this audit's own p_value, so a hypothesis whose evidence
+  // keeps growing can't be re-asked next month against a longer sequence and
+  // eventually clear a fixed-N threshold by chance. Only computed when the
+  // producer supplies the raw sequence — see runAudit's doc comment above.
+  const sequence = Array.isArray(result?.sequence) ? result.sequence.filter(Number.isFinite) : null;
+  let alwaysValid = null;
+  if (sequence && sequence.length >= 5) {
+    const av = alwaysValidPValue(sequence, { tau: result?.always_valid_tau, sigma: result?.always_valid_sigma });
+    if (!av.error) alwaysValid = av;
+  }
+  const alwaysValidSignificant = alwaysValid ? alwaysValid.p_always_valid < correctedAlpha : null;
+
+  // require_significance now demands BOTH gates. If the producer didn't
+  // supply a sequence, the always-valid gate cannot be evaluated and the
+  // audit does not count as passing a significance requirement on the raw
+  // p_value alone — the stronger bar is the point of asking for it.
   const passed = a.require_significance
-    ? (meetsThreshold && significant === true)
+    ? (meetsThreshold && significant === true && alwaysValidSignificant === true)
     : meetsThreshold;
 
   run(`UPDATE audit_registry SET status='sealed', ran_at=?, observed=?, passed=?, p_value=?,
-       sample_size=?, detail_json=?, void_reason=?, significant=? WHERE id=?`,
+       sample_size=?, detail_json=?, void_reason=?, significant=?,
+       always_valid_p=?, always_valid_significant=?, always_valid_n=? WHERE id=?`,
   new Date().toISOString(), observed, passed ? 1 : 0,
   Number.isFinite(result?.p_value) ? result.p_value : null,
   Number.isFinite(result?.sample_size) ? result.sample_size : null,
   JSON.stringify(result?.detail ?? null),
   dataMoved ? 'data signature changed since preregistration (result kept, flagged)' : null,
   significant == null ? null : (significant ? 1 : 0),
+  alwaysValid ? alwaysValid.p_always_valid : null,
+  alwaysValidSignificant == null ? null : (alwaysValidSignificant ? 1 : 0),
+  alwaysValid ? alwaysValid.n : null,
   auditId);
 
   return {
@@ -229,6 +276,15 @@ export async function runAudit(auditId, producer) {
     meets_threshold: meetsThreshold,
     significance_required: !!a.require_significance,
     significant, corrected_alpha: r4(correctedAlpha),
+    always_valid: alwaysValid ? {
+      p_always_valid: alwaysValid.p_always_valid, n: alwaysValid.n,
+      significant: alwaysValidSignificant, sigma: alwaysValid.sigma, tau: alwaysValid.tau,
+      note: alwaysValid.note
+    } : (a.require_significance ? {
+      p_always_valid: null, significant: null,
+      note: 'no per-unit sequence supplied by the producer: the always-valid gate could not be ' +
+        'evaluated, so this audit cannot pass a significance requirement on the raw p-value alone'
+    } : null),
     reproducible,
     sample_size: result?.sample_size ?? null,
     p_value: r4(result?.p_value),
@@ -278,6 +334,8 @@ export function auditHistory({ alpha = 0.05 } = {}) {
       observed: r4(a.observed),
       passed: a.status === 'sealed' ? !!a.passed : null,
       p_value: r4(a.p_value), sample_size: a.sample_size,
+      always_valid_p: r4(a.always_valid_p),
+      always_valid_significant: a.always_valid_significant == null ? null : !!a.always_valid_significant,
       preregistered_at: a.preregistered_at, ran_at: a.ran_at,
       flag: a.void_reason
     })),

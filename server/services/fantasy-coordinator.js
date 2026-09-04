@@ -71,6 +71,7 @@ import { predictRankGap } from './boom-bust.js';
 import { normalizePlayerName } from './player-identity.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { holmDecisions } from './player-head-validation.js';
+import { expertConfidenceTier, predictionConfidence } from './confidence-tier.js';
 
 export const FANTASY_COORDINATOR_VERSION = 'fantasy-coordinator-v1-no-regimes';
 const EXPERT_IDS = ['ensemble_shift', 'game_script_delta', 'boom_bust_signal'];
@@ -128,8 +129,16 @@ function solve(matrix, vector) {
 function shrinkageScales(examples) {
   const out = {};
   for (const id of EXPERT_IDS) {
-    const pairs = examples.map(e => [e.experts[id], e.target]).filter(([f]) => Number.isFinite(f));
-    if (pairs.length < SHRINK_MIN_GAMES) { out[id] = { k: 0, gain: null, n: pairs.length, reason: `fewer than ${SHRINK_MIN_GAMES} settled examples` }; continue; }
+    const paired = examples.map(e => ({ f: e.experts[id], y: e.target, season: e.season, week: e.week }))
+      .filter(row => Number.isFinite(row.f));
+    const pairs = paired.map(row => [row.f, row.y]);
+    // Player-weeks in the same week share correlated context (one game
+    // script surprise touches every player in it), so raw row count
+    // overstates independent evidence the same way Brill, Yurko & Wyner
+    // (2024, arXiv:2406.16171) show for correlated play-by-play data.
+    // Distinct weeks — already this fit's own clustering unit — is honest.
+    const independentWeeks = new Set(paired.map(row => `${row.season}|${row.week}`)).size;
+    if (pairs.length < SHRINK_MIN_GAMES) { out[id] = { k: 0, gain: null, n: pairs.length, independent_weeks: independentWeeks, reason: `fewer than ${SHRINK_MIN_GAMES} settled examples` }; continue; }
     const scaleOf = list => {
       const mf = mean(list.map(([f]) => f)), my = mean(list.map(([, y]) => y));
       const cov = mean(list.map(([f, y]) => (f - mf) * (y - my))), vf = mean(list.map(([f]) => (f - mf) ** 2));
@@ -143,8 +152,8 @@ function shrinkageScales(examples) {
     const a = pairs.filter((_, i) => i % 2 === 0), b = pairs.filter((_, i) => i % 2 === 1);
     const crossGain = mean([gainOf(b, scaleOf(a).k, scaleOf(a).mf), gainOf(a, scaleOf(b).k, scaleOf(b).mf)]);
     out[id] = t > 2 && crossGain > 0 && all.k > 0
-      ? { k: r3(all.k), gain: r3(crossGain), t: r3(t), n: pairs.length, reason: null }
-      : { k: 0, gain: r3(crossGain), t: r3(t), n: pairs.length, reason: 'shrunk to zero: no walk-forward gain' };
+      ? { k: r3(all.k), gain: r3(crossGain), t: r3(t), n: pairs.length, independent_weeks: independentWeeks, reason: null }
+      : { k: 0, gain: r3(crossGain), t: r3(t), n: pairs.length, independent_weeks: independentWeeks, reason: 'shrunk to zero: no walk-forward gain' };
   }
   return out;
 }
@@ -375,6 +384,8 @@ export function coordinateFantasy(fit, expertValues, structuralPpg) {
     const k = fit.shrinkage[id]?.k ?? 0;
     const shrunk = Number.isFinite(raw) ? k * clamp((raw - fit.centers[id]) / fit.scales[id], -4, 4) : null;
     return { id, raw, shrink: k, shrink_reason: fit.shrinkage[id]?.reason ?? null,
+      independent_weeks: fit.shrinkage[id]?.independent_weeks ?? 0,
+      confidence: expertConfidenceTier({ k, independentWeeks: fit.shrinkage[id]?.independent_weeks }),
       family: column.members.length > 1 ? column.id : null,
       learned_weight: r3(learnedWeight), value: Number.isFinite(shrunk) ? r3(shrunk * learnedWeight) : 0 };
   });
@@ -384,6 +395,7 @@ export function coordinateFantasy(fit, expertValues, structuralPpg) {
     ready: true, structural_ppg: structuralPpg,
     corrected_ppg: r3(structuralPpg + clamp(correction, -10, 10)),
     correction: r3(clamp(correction, -10, 10)), contributions,
+    confidence: predictionConfidence(contributions),
     note: 'A circumstance-aware candidate correction to the structural projection, not a validated replacement until Phase 3 clears it.'
   };
 }
@@ -460,7 +472,7 @@ export function weeklyProjectionFor(playerId, { season, week, scoring = PPR } = 
     ensemble_ppg: projection.ppg,
     corrected_ppg: coordinated?.ready ? coordinated.corrected_ppg : projection.ppg,
     coordinator: coordinated?.ready
-      ? { correction: coordinated.correction, contributions: coordinated.contributions }
+      ? { correction: coordinated.correction, contributions: coordinated.contributions, confidence: coordinated.confidence }
       : null,
     cutoff: projection.player_week_engine?.cutoff ?? null
   };

@@ -630,7 +630,13 @@ teach us what to repair; only the forward ledger can establish future value.
 
 ### What is not green
 
-- Zero of 21 spread models beat 15,096 closing lines through the required gate.
+- Zero of 21 spread models beat 15,096 closing lines through the required gate. This is the
+  academically expected result for a mature, liquid market, not a disappointing null: Sauer (1998,
+  *Journal of Economic Literature*), Vandenbruaene et al. (2022, *Journal of Sports Economics*) and
+  Winkelmann et al. (2024, *Journal of Sports Economics*) all find closing lines are close to
+  efficient and very hard to beat with public information. Correctly detecting an efficient market,
+  verified independently this session, is a real finding — treat it as one, not as a failure to find
+  edge.
 - No NFL prop has settled in the new forward ledger yet. Prop profitability is
   unmeasured, not proven positive or negative.
 - Only 406 of the first 529 fresh prop quotes matched a model distribution

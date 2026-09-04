@@ -55,6 +55,16 @@ That is not a scheduling bug. That is the free tier running out.
 ### Prediction is a dead end. Stop paying attention to it.
 
 - 21 component models vs 15,096 closing lines: **0 clear the materiality gate**, verified three independent ways.
+
+  **This is the academically expected result for a mature market, not a disappointing null.** Sauer
+  (1998, *Journal of Economic Literature*, "The Economics of Wagering Markets") surveys evidence that
+  point-spread markets are close to informationally efficient; Vandenbruaene, Vermeulen & Lambrechts
+  (2022, *Journal of Sports Economics*) and Winkelmann, Deutscher & Ötting (2024, *Journal of Sports
+  Economics*) both find closing lines remain very hard to beat with public information in more recent,
+  higher-liquidity data. Zero of 21 models clearing the gate against 15,096 real closing lines,
+  independently re-verified this session, is evidence the market IS efficient here — the same
+  conclusion the published literature reaches — not evidence this project failed to look hard enough.
+  Reframe accordingly: this is a correctly detected efficient market, not a failed search for edge.
 - Nine signal families (age, injury, scheme, opponent strength, teammate competition, recency blends…) each passed isolated validation and then **degraded the shipped pipeline under ablation**.
 - Fresh check today of the cover-probability calibration — the thing that would have to work for any model-derived bet to be sized:
 

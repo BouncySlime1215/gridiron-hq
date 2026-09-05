@@ -1,9 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useApi } from '../../api';
 import { NOT_PROVEN_MESSAGE } from '../../pages/betting/copy';
-import { PageExplainContext, type PageExplainInfo } from './PageExplainContext';
-import { PageExplainAssistant } from './PageExplainAssistant';
 
 type Stage = 'scan' | 'price' | 'review' | 'track';
 
@@ -47,14 +45,7 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
     ? 'Model staking eligible'
     : teaser?.live ? 'Execution edge available' : 'Proof collection mode';
 
-  // The floating "what am I looking at" assistant lives here, once, so it's
-  // present on every page this shell wraps — Command (/betting), all of
-  // /betting/nfl, all of /betting/mlb. Pages register what they're actually
-  // showing via usePageExplain(); the assistant reads whatever was last set.
-  const [pageInfo, setPageInfo] = useState<PageExplainInfo>({});
-
-  return <PageExplainContext.Provider value={{ info: pageInfo, setInfo: setPageInfo }}>
-  <div className="mx-auto max-w-[1480px] space-y-4">
+  return <div className="mx-auto max-w-[1480px] space-y-4">
     <section className="overflow-hidden rounded-[26px] border border-slate-800 bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,.18)]">
       <div className="flex items-center gap-1 border-b border-white/10 p-2">
         {[
@@ -105,9 +96,7 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
     </div>}
 
     {children}
-  </div>
-  <PageExplainAssistant info={pageInfo} />
-  </PageExplainContext.Provider>;
+  </div>;
 }
 
 function TruthChip({ label, value, detail, warn = false }: { label: string; value: string; detail: string; warn?: boolean }) {

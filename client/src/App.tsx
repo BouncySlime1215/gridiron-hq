@@ -9,6 +9,8 @@ import QuickJump, { destinationLabel } from './components/QuickJump';
 import EspnConnectGate from './components/EspnConnectGate';
 import DataSetupBanner from './components/DataSetupBanner';
 import { Skeleton } from './components/ui/DesignSystem';
+import { PageExplainContext, type PageExplainInfo } from './components/betting/PageExplainContext';
+import { PageExplainAssistant } from './components/betting/PageExplainAssistant';
 
 const Home = lazy(() => import('./pages/Home'));
 const Teams = lazy(() => import('./pages/Teams'));
@@ -77,7 +79,17 @@ export default function App() {
   const inBetting = location.pathname.startsWith('/betting') || location.pathname.startsWith('/props') || location.pathname.startsWith('/nfl-board');
   const pageLabel = destinationLabel(location.pathname);
 
+  // The floating "what am I looking at" assistant's state lives here, at the
+  // true app root — mounted once, above every route, so it's present on
+  // every page in the whole app (fantasy pages, League Hub, Trade Lab, all
+  // of /betting/*) and is never torn down/reset by navigation. Pages opt in
+  // to telling it what's on screen via usePageExplain(); a page that hasn't
+  // yet (most non-betting pages, so far) just leaves this at its default,
+  // and the assistant itself falls back to an honest route-derived guess.
+  const [pageInfo, setPageInfo] = useState<PageExplainInfo>({});
+
   return <LeagueProvider><PlayerCardProvider>
+    <PageExplainContext.Provider value={{ info: pageInfo, setInfo: setPageInfo }}>
     <div className="flex min-h-screen bg-white">
       <aside style={{ width: collapsed ? 64 : 244 }} className={`sticky top-0 flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 py-4 transition-[width] duration-200 ${collapsed ? 'px-2' : 'px-3'}`}>
         <div className={`mb-4 ${collapsed ? 'text-center' : 'px-2'}`}>
@@ -145,5 +157,7 @@ export default function App() {
         </Routes></Suspense></main>
       </div>
     </div>
+    <PageExplainAssistant info={pageInfo} />
+    </PageExplainContext.Provider>
   </PlayerCardProvider></LeagueProvider>;
 }

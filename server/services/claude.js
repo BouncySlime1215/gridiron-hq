@@ -113,7 +113,7 @@ let anthropicClientKey = null;
  * Single entry point for every Claude call in the app: enforces the key,
  * records token usage, and returns the raw message.
  */
-export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt,
+export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt, messages,
   tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = 0 }) {
   const key = getApiKey();
   if (!key) {
@@ -134,7 +134,11 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
   try {
     const msg = await anthropicClient.messages.create({
       model, max_tokens: maxTokens, temperature, system,
-      messages: [{ role: 'user', content: prompt }],
+      // `messages` (a full multi-turn history, used by the page-explain
+      // tool-use loop to append assistant tool_use + user tool_result turns)
+      // takes precedence; every other caller still just passes a single
+      // `prompt` string and gets the original one-turn behavior.
+      messages: messages ?? [{ role: 'user', content: prompt }],
       ...(tools?.length ? { tools } : {}),
       ...(toolChoice ? { tool_choice: toolChoice } : {})
     });

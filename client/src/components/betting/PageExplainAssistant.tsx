@@ -5,12 +5,19 @@ import { NOT_PROVEN_MESSAGE } from '../../pages/betting/copy';
 import type { PageExplainInfo } from './PageExplainContext';
 
 /**
- * The floating "what am I looking at" assistant — mounted once in
- * BettingWorkspace, so it follows the user onto every page under that shell
- * (Command, all of /betting/nfl, all of /betting/mlb). It never places a
- * bet, sizes a stake, or overrides a gate/verdict: it only explains, using
- * this desk's own glossary (server-side, TERMINOLOGY.md) and whatever small
- * `visible_summary` the current page registered via usePageExplain().
+ * The floating "what am I looking at" assistant — mounted once at the
+ * App.tsx root layout, so it follows the user onto every page in the whole
+ * app (fantasy pages, League Hub, Trade Lab, all of /betting/*, everywhere),
+ * and its open/closed state and conversation persist across navigation since
+ * the component itself is never torn down. It never places a bet, sizes a
+ * stake, or overrides a gate/verdict: it only explains, using this desk's
+ * own glossary (server-side, TERMINOLOGY.md), whatever small `visible_summary`
+ * the current page registered via usePageExplain(), and — when a question
+ * needs real backend detail — a capped, read-only tool-use loop server-side
+ * (nfl-page-explain.js + page-explain-tools.js). A page that hasn't
+ * registered anything yet (most non-betting pages, so far) still gets an
+ * honest "this page hasn't told me what's specifically on screen yet"
+ * rather than a fabricated one — see `hasSummary` below.
  *
  * Caching mirrors NflMarketBoard.tsx's existing explain() pattern: keyed by
  * page, "loading" while in flight, cached once answered so tab-switching
@@ -31,11 +38,24 @@ const routeLabel = (route: string) => {
   return parts.map(part => part.replace(/-/g, ' ')).join(' → ');
 };
 
+/**
+ * Most non-betting pages haven't wired usePageExplain() yet — rather than
+ * pretend to know what's rendered, fall back to a reasonable section guess
+ * derived straight from the URL, and let the assistant say plainly that this
+ * particular page hasn't told it what's specifically on screen.
+ */
+const fallbackSection = (route: string) => {
+  const [first] = route.split('/').filter(Boolean);
+  return first ? first.replace(/-/g, ' ') : 'home';
+};
+
 export function PageExplainAssistant({ info }: { info: PageExplainInfo }) {
   const location = useLocation();
   const route = location.pathname;
   const key = pageKey(route, info);
   const hub = useApi<HubStatus>('/betting/status');
+  const hasSummary = !!info.summary && Object.keys(info.summary).length > 0;
+  const section = info.section ?? fallbackSection(route);
 
   const [open, setOpen] = useState(false);
   const [defaultAnswers, setDefaultAnswers] = useState<Record<string, Answer>>({});
@@ -45,8 +65,15 @@ export function PageExplainAssistant({ info }: { info: PageExplainInfo }) {
 
   const ask = async (typedQuestion: string | null) => {
     const body = {
-      route, section: info.section ?? null, subview: info.subview ?? null,
-      visible_summary: info.summary ?? {}, question: typedQuestion
+      route, section, subview: info.subview ?? null,
+      // Honest about whether this page actually registered anything yet —
+      // an unregistered page (most non-betting pages, so far) still gets a
+      // real route/section instead of an invented one, and the assistant is
+      // told plainly so it says "this page hasn't told me what's on screen"
+      // rather than fabricating detail to fill the gap.
+      visible_summary: hasSummary ? info.summary : { page_registered_visible_summary: false },
+      event_context: info.eventContext ?? null,
+      question: typedQuestion
     };
     if (typedQuestion) {
       setFollowUps(current => ({ ...current, [key]: [...(current[key] ?? []), { question: typedQuestion, answer: 'loading' }] }));

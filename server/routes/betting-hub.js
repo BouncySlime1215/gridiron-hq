@@ -818,14 +818,18 @@ r.post('/decisions/record', async (req, res, next) => {
 /* ------------------------------------------------- "what am I looking at" */
 
 /**
- * The floating page assistant mounted once in BettingWorkspace, reachable on
- * every page under that shell (Command, all of /betting/nfl, all of
- * /betting/mlb). Takes a small, page-specific `visible_summary` the caller
+ * The floating page assistant, mounted once at the app root (client/src/
+ * App.tsx) so it's reachable on every page in the whole app, not just the
+ * betting shell. Takes a small, page-specific `visible_summary` the caller
  * already had in hand for rendering — never the raw API payload — plus the
- * current route/section/subview and, optionally, a typed follow-up question.
- * Same explanation-only discipline as /nfl-betting/explain/ai: this can
- * never place a bet, size a stake, or override a gate/verdict, only describe
- * what's already on screen using the desk's own glossary.
+ * current route/section/subview, an optional `event_context` (identifying
+ * info like season/week/home_team for whatever specific game/pick is in
+ * view, so a tool call can target the right record), and optionally a typed
+ * follow-up question. Same explanation-only discipline as /nfl-betting/
+ * explain/ai: this can never place a bet, size a stake, or override a gate/
+ * verdict — nfl-page-explain.js's tool-use loop only ever calls read-only
+ * lookup tools (page-explain-tools.js) to ground an answer in real backend
+ * data, never to act on anything.
  */
 r.post('/explain/page', async (req, res, next) => {
   try {
@@ -838,9 +842,11 @@ r.post('/explain/page', async (req, res, next) => {
     const question = typeof b.question === 'string' && b.question.trim() ? b.question : null;
     const visibleSummary = (b.visible_summary && typeof b.visible_summary === 'object' && !Array.isArray(b.visible_summary))
       ? b.visible_summary : {};
+    const eventContext = (b.event_context && typeof b.event_context === 'object' && !Array.isArray(b.event_context))
+      ? b.event_context : null;
 
-    const translation = await explainPage({ route, section, subview, visibleSummary, question });
-    const audit = recordPageExplanation({ route, section, subview, question, visibleSummary, translation });
+    const { toolCalls, ...translation } = await explainPage({ route, section, subview, visibleSummary, eventContext, question });
+    const audit = recordPageExplanation({ route, section, subview, question, visibleSummary, translation, toolCalls });
     res.json({ ...translation, audit });
   } catch (e) { next(e); }
 });

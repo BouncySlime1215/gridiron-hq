@@ -19,6 +19,35 @@ import { tradeWeekContext } from './trade-engine.js';
 import { deriveFormat } from './format.js';
 import { cfbdSignalFor } from './cfbd.js';
 import { buildProjections } from './projections.js';
+import { offseasonContextFor } from './nfl-offseason-change.js';
+import { canonicalTeamCode } from './team-codes.js';
+
+/**
+ * Who changed teams and how much opportunity opened up where they landed
+ * (nfl-offseason-change.js — validated: MAE 3.202→3.169, CI [-0.064,-0.0008]
+ * on 2025 weeks 2-5). A mover into a crowded room (low vacated share) keeps
+ * a median 74-82% of his prior opportunity; a mover into real vacated share
+ * does not need the discount. Built once per process.
+ */
+let offseasonCache = null;
+function offseasonContext(season) {
+  if (!offseasonCache || offseasonCache.season !== season) {
+    try {
+      const raw = offseasonContextFor(season);
+      // nflverse and this DB disagree on some team codes (LA vs LAR is the
+      // known one) — compare canonical codes so a team that only renamed
+      // itself in the data doesn't read as a real trade.
+      const fixed = new Map();
+      for (const [id, c] of raw) {
+        const reallyMoved = c.changed_team && canonicalTeamCode(c.prior_team) !== canonicalTeamCode(c.current_team);
+        fixed.set(id, reallyMoved === c.changed_team ? c : { ...c, changed_team: reallyMoved });
+      }
+      offseasonCache = { season, data: fixed };
+    } catch { offseasonCache = { season, data: new Map() }; }
+  }
+  return offseasonCache.data;
+}
+const MOVER_RETENTION = { QB: 0.85, RB: 0.78, WR: 0.74, TE: 0.82 };
 
 /**
  * Our own season projection (projections.js — volume × efficiency with
@@ -416,6 +445,8 @@ export function boardState(draftId, teamSlot = null, { poolLimit = 120 } = {}) {
         slot_code: slotCode.get(p.id) ?? null,
         draft_year: pedigree.get(p.name)?.draft_year ?? null,
         draft_round: pedigree.get(p.name)?.draft_round ?? null,
+        moved: offseasonContext(draft.season ?? SEASON).get(p.id)?.changed_team ?? null,
+        moved_vacated_share: offseasonContext(draft.season ?? SEASON).get(p.id)?.new_team_vacated_target_share ?? null,
         // Odds this player is gone before the pick after my next turn (after the pair, when paired).
         gone_by_next: pairHorizon ? +goneBy(p.consensus, horizonFor[p.position] ?? pairHorizon).toFixed(2) : null,
         // When my next two picks are back to back: odds he is gone in the picks between them.
@@ -637,6 +668,13 @@ export function rankTargets(state, limit = 8) {
       // No projection (deep sleepers, K/DEF): fall back to the market's opinion on the same scale.
       : Math.max(0, 40 - p.board_rank) * 0.5 * needWeight;
     if (vorp != null && vorp > 0) reasons.push(`+${Math.round(vorp)} pts over a replacement ${p.position}`);
+    // Changed teams into a room with little vacated opportunity: his
+    // projection likely assumes last year's role, which he may not inherit.
+    if (p.moved && (p.moved_vacated_share ?? 1) < 0.3 && vorp != null && vorp > 0) {
+      const cut = 1 - (MOVER_RETENTION[p.position] ?? 0.8);
+      score -= vorp * needWeight * cut;
+      reasons.push(`changed teams into a crowded target share — projection may overstate his role`);
+    }
     if (vorp != null && vorp > 0 && Math.abs(realized - 1) >= 0.12) {
       reasons.push(realized < 1
         ? `history: ${p.position}s drafted here delivered ~${Math.round(realized * 100)}% of their slot (2021-25)`
@@ -892,6 +930,7 @@ export function playerDossier(playerId) {
       : null,
     camp_news: news.map(n => ({ date: n.date, headline: n.headline, note: (n.fantasy_impact ?? n.body ?? '').slice(0, 260) })),
     analysts: analystNotes()[p.name] ?? null,
+    team_change: (() => { const c = offseasonContext(SEASON).get(playerId); return c?.changed_team ? { from: c.prior_team, to: c.current_team, vacated_target_share: c.new_team_vacated_target_share } : null; })(),
     age: dyn?.age ?? null,
     luck_last_season: luck?.games ? { actual: Math.round(luck.actual), expected: Math.round(luck.expected), diff: Math.round(luck.actual - luck.expected), games: luck.games } : null,
     weekly_last_season: weeklyLine,

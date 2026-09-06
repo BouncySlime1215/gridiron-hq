@@ -847,6 +847,7 @@ r.get('/:id/advice', async (req, res, next) => {
         dsr.rookie ? '  ROOKIE (no NFL snaps)'
           : `  ${dsr.experience_years ?? '?'} yrs in the league${dsr.age ? `, age ${Math.round(dsr.age)}` : ''}${dsr.draft_capital ? `, drafted ${dsr.draft_capital}` : ''}${dsr.pro_bowls ? `, ${dsr.pro_bowls}x Pro Bowl` : ''}${dsr.all_pro ? `, ${dsr.all_pro}x first-team All-Pro` : ''}`,
         dsr.offense ? `  Offense: priced at ${dsr.offense.implied_points} pts/game by the books (${dsr.offense.rank}${['st', 'nd', 'rd'][dsr.offense.rank - 1] ?? 'th'} of 32)` : null,
+        dsr.team_change ? `  Changed teams: ${dsr.team_change.from} → ${dsr.team_change.to}${dsr.team_change.vacated_target_share != null ? ` (new team has ${Math.round(dsr.team_change.vacated_target_share * 100)}% of last year's targets vacated)` : ''} — movers keep a median 74-82% of prior opportunity, less in a crowded room` : null,
         dsr.roster_snapshot?.depth ? `  ESPN depth chart: ${dsr.roster_snapshot.depth}${dsr.roster_snapshot.status && dsr.roster_snapshot.status !== 'active' ? `, status ${dsr.roster_snapshot.status}` : ''}` : null,
         dsr.weekly_last_season ? `  2025 weekly: ${dsr.weekly_last_season.ppg} ppg over ${dsr.weekly_last_season.games} games, ${dsr.weekly_last_season.starts_15plus} games of 15+, floor ${dsr.weekly_last_season.floor}, ceiling ${dsr.weekly_last_season.ceiling}` : null,
         dsr.luck_last_season && Math.abs(dsr.luck_last_season.diff) >= 20

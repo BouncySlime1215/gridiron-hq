@@ -4,7 +4,9 @@ import { computeConsensus } from './aggregates.js';
 import { statsMap } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ensureLiveDraft, syncLiveDraft } from '../services/espn-draft.js';
-import { boardState, rankTargets, dossiersFor } from '../services/draft-assist.js';
+import { boardState, rankTargets, dossiersFor, analystNotes } from '../services/draft-assist.js';
+import { lookahead } from '../services/draft-lookahead.js';
+import { espnPlayerNotes } from '../services/espn-player-notes.js';
 import { ORDER_TYPES, DEFAULT_ROSTER_POSITIONS, assignRosterSlots, slotForPick as engineSlotForPick } from '../draft/engine.js';
 import {
   makePick, undoLastPick, redoLastUndo, correctLastPick, setPaused,
@@ -779,6 +781,32 @@ r.get('/:id/assist', (req, res, next) => {
  * moves, and re-billing a fresh call for an unchanged board would be both slow and
  * wasteful. `?refresh=1` forces a new one.
  */
+/**
+ * Monte Carlo lookahead: plays the rest of the draft out ~200 times for each
+ * of the top candidates and reports the finished-roster value of taking each
+ * one now. Deterministic per board, so it is memoised per (draft, pick) and
+ * recomputed only when the board moves.
+ */
+const lookaheadCache = new Map();
+r.get('/:id/lookahead', (req, res, next) => {
+  try {
+    const { draft: accessedDraft } = draftAccess(req, req.params.id);
+    // A pool deep enough to play every remaining pick out (16 rounds × 8 teams).
+    const state = boardState(req.params.id, ownedSlot(req, accessedDraft), { poolLimit: 400 });
+    const pickNo = state.on_the_clock.pick_number ?? 0;
+    const key = `${req.params.id}:${pickNo}:${state.draft.my_slot}`;
+    if (!req.query.refresh && lookaheadCache.has(key)) return res.json({ ...lookaheadCache.get(key), cached: true });
+    const targets = rankTargets(state, 8);
+    const started = Date.now();
+    const out = lookahead({ ...state, targets }, { sims: Number(req.query.sims) || 200, candidates: 6 });
+    if (!out) return res.json({ pick_number: pickNo, candidates: [], note: 'no pick to simulate' });
+    out.compute_ms = Date.now() - started;
+    if (lookaheadCache.size > 64) lookaheadCache.clear();
+    lookaheadCache.set(key, out);
+    res.json(out);
+  } catch (e) { next(e); }
+});
+
 r.get('/:id/advice', async (req, res, next) => {
   try {
     const { draft: accessedDraft } = draftAccess(req, req.params.id);
@@ -804,26 +832,50 @@ r.get('/:id/advice', async (req, res, next) => {
     // Full scouting dossiers for the realistic shortlist — camp reporting, health,
     // experience and real production, so the read is grounded in this season's data
     // rather than in a player's reputation.
-    const shortlist = dossiersFor(targets.slice(0, 6).map(t => t.player_id));
+    // Five, not six: output tokens are the whole latency of this call (~2s per
+    // player on Haiku), and the sixth name was never the pick.
+    const shortlist = dossiersFor(targets.slice(0, 5).map(t => t.player_id));
     const rankOf = new Map(targets.map(t => [t.player_id, t]));
+    // ESPN's own (Rotowire) note per shortlisted player — the freshest practice/
+    // injury line available, fetched in parallel and cached an hour.
+    const notes = await espnPlayerNotes(shortlist.map(dsr => rankOf.get(dsr.player_id)?.espn_id));
     const boardLine = shortlist.map(dsr => {
       const t = rankOf.get(dsr.player_id) ?? {};
       const bits = [
-        `${dsr.name} — ${dsr.position}, ${dsr.team ?? 'FA'}, board #${t.board_rank}, bye ${dsr.bye_week ?? '?'}`,
+        `${dsr.name} — ${dsr.position}, ${dsr.team ?? 'FA'}, market #${t.market_rank ?? t.board_rank}, bye ${dsr.bye_week ?? '?'}`
+          + (t.vorp != null ? `, ${t.vorp > 0 ? '+' : ''}${Math.round(t.vorp)} pts over a replacement-level ${dsr.position} in this league` : ''),
         dsr.rookie ? '  ROOKIE (no NFL snaps)'
-          : `  ${dsr.experience_years ?? '?'} yrs in the league${dsr.draft_capital ? `, drafted ${dsr.draft_capital}` : ''}${dsr.pro_bowls ? `, ${dsr.pro_bowls}x Pro Bowl` : ''}${dsr.all_pro ? `, ${dsr.all_pro}x first-team All-Pro` : ''}`,
+          : `  ${dsr.experience_years ?? '?'} yrs in the league${dsr.age ? `, age ${Math.round(dsr.age)}` : ''}${dsr.draft_capital ? `, drafted ${dsr.draft_capital}` : ''}${dsr.pro_bowls ? `, ${dsr.pro_bowls}x Pro Bowl` : ''}${dsr.all_pro ? `, ${dsr.all_pro}x first-team All-Pro` : ''}`,
+        dsr.offense ? `  Offense: priced at ${dsr.offense.implied_points} pts/game by the books (${dsr.offense.rank}${['st', 'nd', 'rd'][dsr.offense.rank - 1] ?? 'th'} of 32)` : null,
+        dsr.roster_snapshot?.depth ? `  ESPN depth chart: ${dsr.roster_snapshot.depth}${dsr.roster_snapshot.status && dsr.roster_snapshot.status !== 'active' ? `, status ${dsr.roster_snapshot.status}` : ''}` : null,
+        dsr.weekly_last_season ? `  2025 weekly: ${dsr.weekly_last_season.ppg} ppg over ${dsr.weekly_last_season.games} games, ${dsr.weekly_last_season.starts_15plus} games of 15+, floor ${dsr.weekly_last_season.floor}, ceiling ${dsr.weekly_last_season.ceiling}` : null,
+        dsr.luck_last_season && Math.abs(dsr.luck_last_season.diff) >= 20
+          ? `  2025 luck: ${dsr.luck_last_season.diff > 0 ? '+' : ''}${dsr.luck_last_season.diff} pts vs expected from his opportunities (${dsr.luck_last_season.actual} actual / ${dsr.luck_last_season.expected} expected) — ${dsr.luck_last_season.diff > 0 ? 'TD/efficiency luck that tends to regress' : 'underperformed his usage; positive regression candidate'}`
+          : null,
         dsr.projected_points != null
-          ? `  2026 projection: ${Math.round(dsr.projected_points)} pts${dsr.projected_line ? ` (${dsr.projected_line})` : ''}`
-          : '  2026 projection: none',
+          ? `  2026 ESPN projection: ${Math.round(dsr.projected_points)} pts${dsr.projected_line ? ` (${dsr.projected_line})` : ''}`
+          : '  2026 ESPN projection: none',
+        t.model_points != null
+          ? `  Our season model (validated, prices missed games): ${t.model_points} pts — ${t.model_rel == null ? 'in line with the board' : Math.abs(t.model_rel) < 0.08 ? 'agrees with ESPN' : `${Math.round(Math.abs(t.model_rel) * 100)}% ${t.model_rel > 0 ? 'MORE' : 'LESS'} bullish than ESPN relative to the rest of the board`}; blended value used for ranking: ${Math.round(t.projected_points)} pts`
+          : null,
+        // Our own validated weekly model as a second opinion next to ESPN's season number.
+        dsr.week1_projection?.corrected_ppg != null || dsr.week1_projection?.structural_ppg != null
+          ? `  Our model, week 1: ${(dsr.week1_projection.corrected_ppg ?? dsr.week1_projection.structural_ppg).toFixed(1)} ppg${dsr.projected_points != null ? ` (ESPN's season line implies ${(dsr.projected_points / 17).toFixed(1)})` : ''}`
+          : null,
         dsr.last_season
           ? `  2025 actual: ${dsr.last_season.points} pts${dsr.last_season.games ? ` in ${dsr.last_season.games} games` : ''}${dsr.last_season.line ? ` (${dsr.last_season.line})` : ''}`
           : '  2025 actual: no meaningful production',
         dsr.prior_season ? `  2024 actual: ${dsr.prior_season.points} pts` : null,
+        (() => { const n = notes[t.espn_id]; return n ? `  ESPN note (${n.published ?? 'recent'}): ${n.headline}${n.story ? ` ${n.story}` : ''}` : null; })(),
+        t.espn_injury_status && t.espn_injury_status !== 'ACTIVE' ? `  ESPN injury status: ${t.espn_injury_status}` : null,
         dsr.injury_flag ? '  FLAGGED as an injury risk by the market' : null,
         dsr.injury_report ? `  Injury report: ${dsr.injury_report}` : null,
         dsr.camp_news.length
           ? dsr.camp_news.map(n => `  Camp (${n.date}): ${n.headline} — ${n.note}`).join('\n')
           : '  Camp: nothing reported on him this summer',
+        dsr.analysts?.takes?.length
+          ? `  Analysts${dsr.analysts.consensus ? ` (${dsr.analysts.consensus})` : ''}:\n` + dsr.analysts.takes.slice(0, 4).map(a => `    - ${a.date} ${a.source}: ${a.note}`).join('\n')
+          : null,
         t.gone_by_next != null ? `  ${Math.round(t.gone_by_next * 100)}% chance he is gone before my next pick` : null
       ].filter(Boolean).join('\n');
       return bits;
@@ -838,12 +890,16 @@ r.get('/:id/advice', async (req, res, next) => {
 
     const msg = await callClaude({
       feature: 'draft-advice',
-      maxTokens: 3000,
+      maxTokens: 2000,
       prompt: `You are advising me live, on the clock, in a ${draft.team_count}-team PPR fantasy football draft. Be decisive and brief — I have ${draft.pick_seconds ?? 90} seconds.
+League size matters: with ${draft.team_count} teams the waiver wire is deep, replacement-level players are good, and only elite production separates rosters — weight ceiling over floor, and never reach for a QB, TE, K or DEF while a difference-making RB/WR is on the board.
 
 SITUATION
 Pick ${on_the_clock.pick_number} overall (round ${on_the_clock.round}), I draft from slot ${draft.my_slot}.
 My next picks after this one: ${on_the_clock.my_upcoming_picks.slice(1).join(', ') || 'none'}.
+${(state.picks_before_my_turn ?? []).length
+    ? `Picking before my turn: ${state.picks_before_my_turn.map(x => `#${x.pick} ${x.team} (still needs ${x.needs.join(', ') || 'only bench'})`).join('; ')}.`
+    : 'I am on the clock now.'}
 Starting lineup this league requires: ${Object.entries(draft.roster_slots).map(([k, v]) => `${v} ${k}`).join(', ')}.
 
 MY ROSTER SO FAR
@@ -857,15 +913,16 @@ ${runs.length ? `Active runs: ${runs.map(x => `${x.taken} ${x.position}s in the 
 BEST AVAILABLE — scouting dossiers, in my model's order
 ${boardLine}
 
-Work only from the players and the data above; do not bring in anyone already off the board, and do not assert anything the dossier does not support. Where the data is silent on a player, say so rather than filling the gap.
+${(analystNotes()._strategy ?? []).length ? `WHAT THE ANALYSTS SAY ABOUT THIS FORMAT\n${analystNotes()._strategy.slice(0, 5).map(a => `- ${a.date} ${a.source}: ${a.note}`).join('\n')}\n` : ''}
+Work only from the players and the data above; do not bring in anyone already off the board, and do not assert anything the dossier does not support. Where the data is silent on a player, say so rather than filling the gap. Treat analyst takes as opinions to weigh against the numbers, and name the source when you lean on one.
 
 Respond with ONLY JSON:
 {"pick":"the one player I should take right now",
  "why":"two sentences max — cite my roster hole or the scarcity, concretely",
  "players":[
    {"name":"...",
-    "pros":"2-3 sentences: what makes him worth the pick — last season's production, the projected role, pedigree, situation",
-    "cons":"2-3 sentences: the real risk — injury, camp reporting, age or inexperience, competition for touches, a bad projection relative to cost",
+    "pros":"2 sentences: what makes him worth the pick — last season's production, the projected role, pedigree, situation",
+    "cons":"2 sentences: the real risk — injury, camp reporting, age or inexperience, competition for touches, a bad projection relative to cost",
     "camp":"one line on how camp has gone for him, or 'nothing reported' if the dossier is silent",
     "status":"healthy | injury risk | rookie | bounce-back | ageing — whichever single label fits best",
     "verdict":"take | fine here | let him go"}

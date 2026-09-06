@@ -53,7 +53,11 @@ export function PageExplainAssistant({ info }: { info: PageExplainInfo }) {
   const location = useLocation();
   const route = location.pathname;
   const key = pageKey(route, info);
-  const hub = useApi<HubStatus>('/betting/status');
+  // The hub status only feeds the "not proven" caveat on betting pages, and it
+  // is the single slowest endpoint in the app — fetching it from every fantasy
+  // page (the live draft board included) stalled those pages behind it.
+  const inBetting = route.startsWith('/betting') || route.startsWith('/props') || route.startsWith('/nfl-board');
+  const hub = useApi<HubStatus>(inBetting ? '/betting/status' : null);
   const hasSummary = !!info.summary && Object.keys(info.summary).length > 0;
   const section = info.section ?? fallbackSection(route);
 

@@ -1,0 +1,1818 @@
+{
+  "_strategy": [
+    {
+      "source": "DraftSharks — Shane Hallam",
+      "date": "2026-09-02",
+      "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+      "note": "8-team PPR blueprint: take an elite WR (Nacua/Chase) in Round 1 over RBs, secure a top RB in Rounds 2-3, and grab a premium TE by Rounds 6-7 because the drop-off after Tyler Warren is 'major' in shallow leagues; double up on one team's pass-catchers freely after Round 10."
+    },
+    {
+      "source": "Fantasy Life — Dwain McFarland",
+      "date": "2026-08-27",
+      "url": "https://www.fantasylife.com/articles/fantasy/the-perfect-fantasy-football-draft-strategy-for-2026-positional",
+      "note": "Avoid QBs in Rounds 1-3 (Josh Allen is the only Round 2 consideration); Lamar Jackson and Drake Maye are the Round 4 targets, then Burrow/Daniels/Hurts in Round 5, and dual-threat QBs keep falling into Rounds 7-9."
+    },
+    {
+      "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+      "date": "2026-08-25",
+      "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+      "note": "From picks 1-2 go Hero RB (Gibbs or Bijan) then two WRs or a WR plus Bowers/McBride in Rounds 2-3; from picks 3-6 build WR-WR or WR-TE with Chase/Nacua/St. Brown/JSN; wait on QB (Herbert or Caleb Williams in Round 7) and take late fliers on MarShawn Lloyd, Jonah Coleman, Keaton Mitchell."
+    },
+    {
+      "source": "ESPN — Eric Karabell (Do Not Draft list)",
+      "date": "2026-09-04",
+      "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+      "note": "Position depth at QB makes Josh Allen in Round 2 a prohibitive opportunity cost; 2025's rookie-WR class (Tate, Lemon, Concepcion, Cooper Jr., Boston) will be overdrafted — historically only 2 of 8 top rookie WRs finished top-50 — so veterans Wan'Dale Robinson, Jordan Addison and Quentin Johnston are better value."
+    },
+    {
+      "source": "Yahoo Sports — Charles Curtis",
+      "date": "2026-09-03",
+      "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+      "note": "Top-tier QBs (Allen, Lamar, Maye) are overpriced when elite RBs and WRs are still on the board because 'the quarterback position is mega-deep this year.'"
+    },
+    {
+      "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+      "date": "2026-09-04",
+      "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+      "note": "Across 28 drafts Eisenberg's most-rostered players were MarShawn Lloyd (Round 10+ after the Jacobs exempt-list news), D'Andre Swift (value up after Monangai's knee injury), Jadarian Price (Round 5), Luther Burden III (Round 5 after the groin scare) and DJ Moore (Round 4)."
+    }
+  ],
+  "Jahmyr Gibbs": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "From picks 1-2, target Jahmyr Gibbs or Bijan Robinson and run Hero RB — two receivers in Rounds 2-3, or a receiver plus Bowers/McBride."
+      }
+    ],
+    "consensus": "1.01/1.02 with Bijan — both acceptable at the top"
+  },
+  "Bijan Robinson": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Gibbs or Bijan Robinson are the picks at 1-2; then pursue two WRs or a WR and Bowers/McBride."
+      }
+    ],
+    "consensus": "1.01/1.02 with Gibbs — both acceptable at the top"
+  },
+  "Puka Nacua": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Psoas soreness: returned to practice Sunday and has maintained full participation — ready for Week 1."
+      },
+      {
+        "source": "DraftSharks — Shane Hallam",
+        "date": "2026-09-02",
+        "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+        "note": "Round 1 in 8-team PPR should be an elite WR like Nacua or Chase over a RB."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Drafted four times across Eisenberg's 28 leagues."
+      }
+    ],
+    "consensus": "healthy, consensus Round-1 WR"
+  },
+  "Ja'Marr Chase": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Knee: day-to-day; minor concern, should be available Week 1 barring setbacks."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "Left knee hyperextension — 'proceed as normal' unless setbacks emerge."
+      },
+      {
+        "source": "DraftSharks — Shane Hallam",
+        "date": "2026-09-02",
+        "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+        "note": "Round 1 in 8-team PPR should be Nacua or Chase over a RB."
+      }
+    ],
+    "consensus": "minor knee scare, drafting as normal"
+  },
+  "Jaxon Smith-Njigba": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "From picks 3-6, build a WR-WR or WR-TE foundation with Chase, Nacua, St. Brown or Smith-Njigba before addressing RB."
+      }
+    ],
+    "consensus": null
+  },
+  "Christian McCaffrey": {
+    "takes": [
+      {
+        "source": "FantasyPros — Mike Fanelli",
+        "date": "2026-08-29",
+        "url": "https://www.fantasypros.com/2026/08/8-fantasy-football-busts-to-avoid-2026/",
+        "note": "'Turned 30 this offseason and is a ticking time bomb because of his age and injury history' — 413 career-high touches in 2025 plus offseason muscle tightness."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Consumed 900+ snaps and 400 touches in 2025; RBs historically cannot sustain such workloads consecutively and the 49ers will be more cautious."
+      },
+      {
+        "source": "ESPN — Daniel Dopp",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Bust: coming off a 450-touch season — the same pattern preceded Saquon Barkley's decline the following year."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Eisenberg avoided him at his 7.7 ADP, only taking him at pick 11 and at 6 in a keeper league."
+      }
+    ],
+    "consensus": "widely called a bust at ADP (age 30, 400+ touch workload)"
+  },
+  "Amon-Ra St. Brown": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "One of the WR-WR/WR-TE foundation picks (with Chase, Nacua, JSN) from draft slots 3-6."
+      }
+    ],
+    "consensus": null
+  },
+  "Jonathan Taylor": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "From picks 7-9, lock in James Cook or Jonathan Taylor first, then balance with another elite RB or premium WR."
+      }
+    ],
+    "consensus": null
+  },
+  "De'Von Achane": {
+    "takes": [
+      {
+        "source": "FantasyPros — Mike Fanelli",
+        "date": "2026-08-29",
+        "url": "https://www.fantasypros.com/2026/08/8-fantasy-football-busts-to-avoid-2026/",
+        "note": "Bust: averaged 20.2 PPR PPG but was the 'most dependent of the five on his role in the passing game'; production declined significantly when Tua was sidelined."
+      },
+      {
+        "source": "ESPN — Liz Loza",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back bust for 2026."
+      },
+      {
+        "source": "DraftSharks — Shane Hallam",
+        "date": "2026-09-02",
+        "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+        "note": "Rounds 2-3 target for a top RB alongside Saquon Barkley in 8-team PPR."
+      }
+    ],
+    "consensus": "split — bust calls tied to QB change/passing role, still a top-10 RB pick"
+  },
+  "James Cook III": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "From picks 7-9, lock in James Cook or Jonathan Taylor first."
+      }
+    ],
+    "consensus": null
+  },
+  "Justin Jefferson": {
+    "takes": [
+      {
+        "source": "FantasyPros — Mike Fanelli",
+        "date": "2026-08-29",
+        "url": "https://www.fantasypros.com/2026/08/8-fantasy-football-busts-to-avoid-2026/",
+        "note": "Bust: despite 141 targets he finished WR21 at 11.9 PPR PPG, and 'the Vikings added Jauan Jennings in free agency, adding some target competition.'"
+      },
+      {
+        "source": "CBS Sports / SportsLine projection model",
+        "date": "2026-09-06",
+        "url": "https://www.cbssports.com/fantasy/football/news/fantasy-football-rankings-2026-top-sleepers-busts-breakouts-by-model-that-predicted-daniel-jones-huge-year/",
+        "note": "Model ranks Alec Pierce (ADP ~82) above higher-drafted receivers including Jefferson."
+      }
+    ],
+    "consensus": "some bust chatter after a WR21 finish"
+  },
+  "Derrick Henry": {
+    "takes": [
+      {
+        "source": "ESPN — Matt Bowen",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back bust for 2026."
+      },
+      {
+        "source": "ESPN — Tristan H. Cockcroft",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back bust for 2026."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "Adam Randall to IR elevates Rasheen Ali as the early-down backup to Henry."
+      }
+    ],
+    "consensus": "two ESPN analysts list him as a bust (age 32)"
+  },
+  "A.J. Brown": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Appeared in decline last season despite excuses; faces a tough schedule with shutdown corners — avoid as a top-10 WR."
+      }
+    ],
+    "consensus": "fade at top-10 WR price"
+  },
+  "Rashee Rice": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Matt Harmon",
+        "date": "2026-08-27",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-fades-here-are-the-wide-receivers-our-analysts-are-avoiding-for-the-2026-season-163632923.html",
+        "note": "Fade at 34.7 ADP: 'Rice's 4.69 air yards per target ranks 112th among 112 WRs with 600+ routes since 2023,' and Kenneth Walker III may eat his short-target volume."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "'Played in only 12 games past two seasons' due to injury/suspension; jail time during knee recovery suggests broader reliability concerns."
+      },
+      {
+        "source": "ESPN — Matt Bowen",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a wide receiver bust for 2026."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Eisenberg lists Rice among Round 2 WR targets to pair with an elite RB."
+      }
+    ],
+    "consensus": "widely faded at Round 2-3 ADP (availability + low aDOT)"
+  },
+  "Saquon Barkley": {
+    "takes": [
+      {
+        "source": "DraftSharks — Shane Hallam",
+        "date": "2026-09-02",
+        "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+        "note": "Rounds 2-3: secure a top RB such as Saquon Barkley or De'Von Achane while adding a second quality WR."
+      }
+    ],
+    "consensus": null
+  },
+  "Chris Olave": {
+    "takes": [
+      {
+        "source": "ESPN — Field Yates",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a wide receiver bust for 2026."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Round 2 WR target (with Collins, Nabers, Rice) to pair with an elite RB."
+      },
+      {
+        "source": "NBC Sports / Rotoworld",
+        "date": "2026-08-30",
+        "url": "https://www.nbcsports.com/fantasy/football/player-news/2026-08-30/jordyn-tyson-lands-on-ir-out-at-least-four-games",
+        "note": "Rookie WR Jordyn Tyson placed on IR with a hamstring, out at least four games — Olave's target competition thins early."
+      }
+    ],
+    "consensus": "split — one ESPN bust call, Eisenberg Round-2 target; Tyson IR helps early"
+  },
+  "Nico Collins": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Round 2 WR target (with Olave, Nabers, Rice) to pair with an elite RB."
+      }
+    ],
+    "consensus": null
+  },
+  "Ashton Jeanty": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Ankle sprain; GM says he is in a 'good spot' and could play Week 1."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Working off to the side Tuesday, coach 'optimistic' for Week 1; ADP dropped to the late second round — consider pairing with Mike Washington Jr."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "Kept off IR, sprain deemed minor; expected to miss 0-2 games with upside intact despite efficiency risks."
+      },
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft: concerns beyond the injury — overall offensive quality and competition from Mike Washington Jr."
+      },
+      {
+        "source": "ESPN — Field Yates",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Breakout: improved offensive infrastructure; his '1.26 yards before contact' ranked last and should flourish in the upgraded system."
+      },
+      {
+        "source": "FantasyPros — staff",
+        "date": "2026-08-25",
+        "url": "https://www.fantasypros.com/2026/08/fantasy-football-injury-ashton-jeanty-questionable-for-week-1/",
+        "note": "Lower ankle sprain, should be 'rolling at full strength by the second or third week'; Mike Washington Jr. is 'one of the best handcuffs in fantasy.'"
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "'If Jeanty falls in drafts, buy the dip.'"
+      }
+    ],
+    "consensus": "injury cloud — Q for Week 1, but most say buy the ADP dip; handcuff Washington Jr."
+  },
+  "Kenneth Walker III": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "First-round fantasy pick with a clearer path as a three-down back after Emari Demercado's release; Chiefs view him as three-down."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Despite Super Bowl MVP honors, never finished better than 15th in fantasy RB scoring; unlikely to receive significant receiving volume."
+      },
+      {
+        "source": "CBS Sports / SportsLine projection model",
+        "date": "2026-09-06",
+        "url": "https://www.cbssports.com/fantasy/football/news/fantasy-football-rankings-2026-top-sleepers-busts-breakouts-by-model-that-predicted-daniel-jones-huge-year/",
+        "note": "Bust at ADP 16: joins an Andy Reid system where 'no Kansas City back has cleared 1,000 yards' since 2017."
+      },
+      {
+        "source": "ESPN — Eric Karabell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back bust for 2026."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "Foot soreness was shoe-related — 'draft him as you normally would.'"
+      }
+    ],
+    "consensus": "split — role is clear (three-down) but ESPN/CBS model call him a bust at mid-R1/R2"
+  },
+  "Omarion Hampton": {
+    "takes": [
+      {
+        "source": "ESPN — Stephania Bell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Breakout: strong dual-threat rookie showing before the ankle injury; in McDaniel's offense with a healthy line could deliver 'RB1 promise.'"
+      },
+      {
+        "source": "ESPN — Bowen, Dopp, Moody",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Three more ESPN analysts also name Hampton their RB breakout for 2026."
+      }
+    ],
+    "consensus": "popular breakout pick (4 of 10 ESPN analysts)"
+  },
+  "Malik Nabers": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Torn ACL recovery: mixed signals from the player — 'monitor right up until next Sunday's game.'"
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Non-committal on Week 1 availability; ADP risen to top-30 reflecting ceiling potential."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "'Only four games played last season'; ACL/meniscus tears plus a spring scar-tissue procedure make September status uncertain — overvalued at top-10 WR ADP."
+      },
+      {
+        "source": "ESPN — Bell, Cockcroft, Karabell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Three ESPN analysts name Nabers a wide receiver bust; Karabell cites the Week 4 knee tear and follow-up spring procedure."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "'Draft him at cost.'"
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Round 2 WR target to pair with an elite RB."
+      }
+    ],
+    "consensus": "injury cloud — Week 1 uncertain; three ESPN analysts call him a bust at ADP"
+  },
+  "Jeremiyah Love": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Ankle: '50/50 chance' for Week 1 — managers should prepare alternative options."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "About '50/50' to play the opener vs the Chargers; target Tyler Allgeier later as coverage."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "James Conner to IR (foot) — Love becomes the lead back with Allgeier the backup option."
+      },
+      {
+        "source": "ESPN — Mike Clay",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Breakout: third overall pick; 'each of the past nine running backs drafted in the top 12 went on to finish top 12 in fantasy points' (17.3 FPPG avg)."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "Fade due to a weak offensive line, not the injury."
+      },
+      {
+        "source": "CBS Sports / SportsLine projection model",
+        "date": "2026-09-06",
+        "url": "https://www.cbssports.com/fantasy/football/news/fantasy-football-rankings-2026-top-sleepers-busts-breakouts-by-model-that-predicted-daniel-jones-huge-year/",
+        "note": "Model prefers Love (and Swift) to Kenneth Walker III."
+      }
+    ],
+    "consensus": "injury cloud — 50/50 for Week 1; Conner IR clears the depth chart"
+  },
+  "Trey McBride": {
+    "takes": [
+      {
+        "source": "ESPN — Bowen, Dopp, Fulghum",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Three ESPN analysts name McBride a tight end bust for 2026."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Eisenberg drafted him in Round 3 and says he 'should be awesome.'"
+      }
+    ],
+    "consensus": "split — ESPN bust calls vs Eisenberg Round-3 buy"
+  },
+  "Kyren Williams": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Blake Corum's 5.1 yards per carry threatens Williams' role; expect statistical decline despite double-digit TDs in each of the past three seasons."
+      }
+    ],
+    "consensus": "fade — Corum split risk"
+  },
+  "Breece Hall": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Groin (Aug 18): expected 2-3 weeks out, jeopardizing Week 1; expected to draw the questionable tag."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "On track for Week 1 despite the groin strain; standard drafting, consider Braelon Allen as backup."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "'Take any discounted ADP that you can.'"
+      },
+      {
+        "source": "DraftSharks — Shane Hallam",
+        "date": "2026-09-02",
+        "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+        "note": "Rounds 4-5 productive-back target in 8-team PPR."
+      }
+    ],
+    "consensus": "injury cloud — likely Q for Week 1, buy the discount"
+  },
+  "Josh Allen": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft at price: top-tier QBs are overpriced when elite RBs/WRs remain — 'the quarterback position is mega-deep this year.'"
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "'First QB off the fantasy draft board' in Round 2, but position depth makes that opportunity cost prohibitive despite elite consistency."
+      },
+      {
+        "source": "Fantasy Life — Dwain McFarland",
+        "date": "2026-08-27",
+        "url": "https://www.fantasylife.com/articles/fantasy/the-perfect-fantasy-football-draft-strategy-for-2026-positional",
+        "note": "The only QB worth a Round 2 consideration."
+      }
+    ],
+    "consensus": "elite but Round-2 cost widely questioned"
+  },
+  "Javonte Williams": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "Jaydon Blue waived on cutdown day; Malik Davis won the backup job behind Javonte Williams."
+      }
+    ],
+    "consensus": null
+  },
+  "Brock Bowers": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Eisenberg drafted Bowers in Round 2 and says he 'should be awesome.'"
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Pairing a hero RB with a WR plus Bowers or McBride in Rounds 2-3 is the plan from picks 1-2."
+      }
+    ],
+    "consensus": "consensus TE1/TE2, Round-2 pick"
+  },
+  "Emeka Egbuka": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Toe: team will evaluate practices next week before a final Week 1 decision."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Sidelined Tuesday resting for Week 1; 'becoming concerning' — Godwin and Jalen McMillan benefit if he misses time."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "'Keep Egbuka in the low-end WR2 ranks' unless setbacks occur."
+      },
+      {
+        "source": "ESPN — Matt Bowen",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Breakout: with Evans gone the elite route runner becomes the top target; four 20+ point games as a rookie with Mayfield's aggressive mentality."
+      }
+    ],
+    "consensus": "injury cloud — toe, Week 1 uncertain; otherwise a popular breakout"
+  },
+  "Tee Higgins": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Heel — listed on the injury report; no season-threatening status indicated, monitor practice participation."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Drafted three times across Eisenberg's 28 leagues."
+      }
+    ],
+    "consensus": null
+  },
+  "Travis Etienne Jr.": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Volume concerns with Alvin Kamara (68 receptions two seasons ago); not productive at the goal line; touchdown regression expected."
+      },
+      {
+        "source": "ESPN — Bowen, Dopp",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Two ESPN analysts name Etienne a running back sleeper for 2026."
+      },
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Alvin Kamara (knee) will not play Week 1, opening workload for other Saints backs."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "Kamara's knee injury expected to sideline him about one month, back before Week 4."
+      }
+    ],
+    "consensus": "split — Kamara out ~1 month boosts early value; Karabell fades"
+  },
+  "Ladd McConkey": {
+    "takes": [
+      {
+        "source": "ESPN — Liz Loza",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a wide receiver breakout for 2026."
+      }
+    ],
+    "consensus": "breakout/bounce-back pick"
+  },
+  "Cam Skattebo": {
+    "takes": [
+      {
+        "source": "FantasyPros — Derek Brown",
+        "date": "2026-09-06",
+        "url": "https://www.fantasypros.com/nfl/notes/419045/cam-skattebo-2026-outlook.php",
+        "note": "'An RB2 on worrisome ground' after the ankle/fibula fracture; pre-injury he averaged 19.5 touches and 96.3 yards per game as the RB8, and the Giants' Najee Harris signing further complicates things."
+      },
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft: recovery from the serious injury plus reported friction between player and head coach."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Seven TDs in eight games before the Week 8 dislocated ankle; question whether the boom sustains with the injury history."
+      },
+      {
+        "source": "ESPN — Mike Clay",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back sleeper for 2026."
+      }
+    ],
+    "consensus": "widely called a risk/bust at RB18 ADP (ankle fracture recovery, Najee Harris added)"
+  },
+  "Davante Adams": {
+    "takes": [
+      {
+        "source": "ESPN — Fulghum, Loza",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Two ESPN analysts name Adams a wide receiver bust for 2026."
+      }
+    ],
+    "consensus": "bust chatter (TD regression, age)"
+  },
+  "Jaylen Waddle": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Moody",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a wide receiver bust for 2026."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Rounds 4-5 pivot to Waddle or other premium WRs if the RB options fade."
+      }
+    ],
+    "consensus": null
+  },
+  "Jameson Williams": {
+    "takes": [
+      {
+        "source": "FantasyPros — Mike Fanelli",
+        "date": "2026-08-29",
+        "url": "https://www.fantasypros.com/2026/08/8-fantasy-football-busts-to-avoid-2026/",
+        "note": "Bust: finished WR12 but his 12.9 PPR PPG ranked 19th; 'scored 6.6 or fewer fantasy points in 41.2% of the games, including zero twice.'"
+      }
+    ],
+    "consensus": "boom/bust fade at ADP"
+  },
+  "D'Andre Swift": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Drafted five times — value increased after Kyle Monangai's knee injury."
+      },
+      {
+        "source": "DraftSharks — Shane Hallam",
+        "date": "2026-09-02",
+        "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+        "note": "Rounds 8-9 depth target with an expanded role."
+      },
+      {
+        "source": "CBS Sports / SportsLine projection model",
+        "date": "2026-09-06",
+        "url": "https://www.cbssports.com/fantasy/football/news/fantasy-football-rankings-2026-top-sleepers-busts-breakouts-by-model-that-predicted-daniel-jones-huge-year/",
+        "note": "Model prefers Swift (and Love) over Kenneth Walker III."
+      }
+    ],
+    "consensus": "value up — Monangai (knee) week-to-week"
+  },
+  "Bucky Irving": {
+    "takes": [
+      {
+        "source": "FantasyPros — Mike Fanelli",
+        "date": "2026-08-29",
+        "url": "https://www.fantasypros.com/2026/08/8-fantasy-football-busts-to-avoid-2026/",
+        "note": "Bust: regressed from RB13, 'missed seven contests,' 'had offseason shoulder surgery,' and the Bucs added Kenny Gainwell as co-starter."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Second-year regression: one rushing TD in 10 games at 3.4 YPC; Gainwell's acquisition threatens volume."
+      },
+      {
+        "source": "ESPN — Eric Moody",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back bust for 2026."
+      }
+    ],
+    "consensus": "widely called a bust at ADP (Gainwell committee, shoulder surgery)"
+  },
+  "DJ Moore": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Eisenberg was 'aggressive in drafting Moore in Round 4' (4 times)."
+      }
+    ],
+    "consensus": "mid-round value"
+  },
+  "Quinshon Judkins": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Rounds 4-5 secondary RB target after pivoting to premium WRs."
+      }
+    ],
+    "consensus": null
+  },
+  "Drake Maye": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Faced no top-10 defenses in 2025; schedule difficulty rises sharply — unlikely to repeat 350 fantasy points."
+      },
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft at price with Allen/Lamar — QB is 'mega-deep this year.'"
+      },
+      {
+        "source": "ESPN — Tristan H. Cockcroft",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a quarterback bust for 2026."
+      },
+      {
+        "source": "Fantasy Life — Dwain McFarland",
+        "date": "2026-08-27",
+        "url": "https://www.fantasylife.com/articles/fantasy/the-perfect-fantasy-football-draft-strategy-for-2026-positional",
+        "note": "Round 4 QB target alongside Lamar Jackson."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Eisenberg took Maye in Round 5 of a 14-team league."
+      }
+    ],
+    "consensus": "split — bust at early ADP, fine in Round 4-5"
+  },
+  "Luther Burden III": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Groin: recovered and returned with no practice limitations this week — good to go."
+      },
+      {
+        "source": "ESPN — Tyler Fulghum",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Breakout: Ben Johnson, Caleb Williams and 150 vacated targets; elite 2.92 YPRR comparable to Chase, Jefferson, Brown."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "'Groin injury allowed me to draft him in Round 5 in several leagues... incredible value.'"
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "Grade 1 groin strain — target him if still below early-August ADP."
+      }
+    ],
+    "consensus": "popular breakout pick; groin healed"
+  },
+  "Bhayshul Tuten": {
+    "takes": [
+      {
+        "source": "ESPN — Tristan H. Cockcroft",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Breakout: after Etienne's departure, elite speed and a 31% missed-tackles-forced rate position him for a 'high-end fantasy RB2' season."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "LeQuint Allen Jr. made the 53 — eliminates pass-down role speculation for the other Jags backs."
+      }
+    ],
+    "consensus": "breakout pick, but a committee with Rodriguez/Allen"
+  },
+  "Colston Loveland": {
+    "takes": [
+      {
+        "source": "Establish The Run — Jack Miller",
+        "date": "2026-08-25",
+        "url": "https://establishtherun.com/miller-draft-targets-and-fades-2/",
+        "note": "Target: 10+ targets in each of the Bears' final four games with a 0.25 targets-per-route rate; with DJ Moore gone the passing game concentrates on Loveland, Burden and Odunze — can compete with the top TE tier."
+      }
+    ],
+    "consensus": "rising TE3 target"
+  },
+  "Joe Burrow": {
+    "takes": [
+      {
+        "source": "Fantasy Life — Dwain McFarland",
+        "date": "2026-08-27",
+        "url": "https://www.fantasylife.com/articles/fantasy/the-perfect-fantasy-football-draft-strategy-for-2026-positional",
+        "note": "Round 5 QB target with Daniels and Hurts after the Round 4 window (Lamar, Maye)."
+      }
+    ],
+    "consensus": null
+  },
+  "Mike Evans": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft: age-related decline; played only eight games last season with continued health concerns."
+      },
+      {
+        "source": "ESPN — Mike Clay",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Bust: at 33, 'career low 12.1 PPG' last year and few 33+ receivers produce top-25 outcomes."
+      },
+      {
+        "source": "ESPN — Eric Karabell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a wide receiver sleeper for 2026."
+      },
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Adductor: returned to practice early September, expected to play Week 1 in Australia."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "'For the risk-averse gamers, consider Evans a low-end WR3.'"
+      }
+    ],
+    "consensus": "widely faded (age 33, injuries); expected to play Week 1"
+  },
+  "Lamar Jackson": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft at price with Allen/Maye — QB is 'mega-deep this year.'"
+      },
+      {
+        "source": "Fantasy Life — Dwain McFarland",
+        "date": "2026-08-27",
+        "url": "https://www.fantasylife.com/articles/fantasy/the-perfect-fantasy-football-draft-strategy-for-2026-positional",
+        "note": "Round 4 QB target alongside Drake Maye."
+      }
+    ],
+    "consensus": null
+  },
+  "Christian Watson": {
+    "takes": [
+      {
+        "source": "CBS Sports — Dave Richard",
+        "date": "2026-08-31",
+        "url": "https://www.cbssports.com/fantasy/football/news/josh-jacobs-out-indefinitely-fantasy-football-rankings-marshawn-lloyd/",
+        "note": "Worth a 'Round 6 range' pick as Jordan Love's top target in a more pass-heavy offense after the Jacobs news."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-30",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-impact-of-nfl-placing-packers-rb-josh-jacobs-on-commissioner-exempt-list-202836289.html",
+        "note": "Packers pass catchers should see 'more plays and more pass attempts' with Jacobs out."
+      },
+      {
+        "source": "DraftSharks — Shane Hallam",
+        "date": "2026-09-02",
+        "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+        "note": "Rounds 8-9 depth target coming off injury."
+      }
+    ],
+    "consensus": "value up after Jacobs exempt-list news"
+  },
+  "Courtland Sutton": {
+    "takes": [
+      {
+        "source": "FantasyPros — Mike Fanelli",
+        "date": "2026-08-29",
+        "url": "https://www.fantasypros.com/2026/08/8-fantasy-football-busts-to-avoid-2026/",
+        "note": "Bust: Denver's acquisition of Jaylen Waddle crushes his value; 'Sutton has seen a decline in targets and receiving touchdowns in back-to-back years.'"
+      }
+    ],
+    "consensus": "fade — Waddle is the clear WR1"
+  },
+  "Rhamondre Stevenson": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Stevenson's continued involvement is why Henderson is a do-not-draft."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Stevenson remains heavily involved and was preferred during the playoff run."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Drafted twice across Eisenberg's leagues."
+      }
+    ],
+    "consensus": "committee — value as Henderson insurance"
+  },
+  "Parker Washington": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Rounds 7-8 WR depth target with Quentin Johnston."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Jaguars WRs at similar ADP lack a clear target hierarchy — avoid."
+      }
+    ],
+    "consensus": null
+  },
+  "TreVeyon Henderson": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Ankle: has not practiced since Aug 24 — 'unlikely' for the Wednesday opener."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Absent since Aug 24; must return to practice soon to play Week 1."
+      },
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft: Stevenson's continued involvement is too much uncertainty."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Volume concerns with Stevenson heavily involved and preferred during the playoff run."
+      },
+      {
+        "source": "ESPN — Field Yates",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back bust for 2026."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "'If you view Henderson as an upside play, an injury discount only helps you.'"
+      }
+    ],
+    "consensus": "injury cloud — doubtful for Week 1; widely faded at ADP"
+  },
+  "DK Metcalf": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Joel Smyth",
+        "date": "2026-08-27",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-fades-here-are-the-wide-receivers-our-analysts-are-avoiding-for-the-2026-season-163632923.html",
+        "note": "Fade at 86.2 ADP: 'Metcalf's last top-20 fantasy season occurred in 2020 on high-volume touchdowns'; Pittman Jr. and Rodgers' aging arm cap upside."
+      }
+    ],
+    "consensus": "fade"
+  },
+  "Marvin Harrison Jr.": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "'We must stop blaming organization or quarterbacks' for ordinary numbers — avoid as a definite WR2 despite the No. 4 pick pedigree."
+      }
+    ],
+    "consensus": "fade at WR2 price"
+  },
+  "Tyler Warren": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Groin: practiced Tuesday, injury was minor — Week 1 not in question."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Back at practice Tuesday; TE4 on Yahoo boards around pick 47."
+      },
+      {
+        "source": "DraftSharks — Shane Hallam",
+        "date": "2026-09-02",
+        "url": "https://www.draftsharks.com/article/fantasy-football-draft-strategy-guide/8-team",
+        "note": "Rounds 6-7: grab a premium TE — Warren shows a 'major drop-off' advantage over other TEs in shallow leagues."
+      }
+    ],
+    "consensus": "healthy; TE4, premium-TE target in 8-team"
+  },
+  "Tony Pollard": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Unlikely to reach a fifth straight 1,000-yard season; neither efficient nor an effective pass catcher."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Drafted twice across Eisenberg's leagues."
+      }
+    ],
+    "consensus": "Karabell do-not-draft"
+  },
+  "Alec Pierce": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Ankle: full practice participation Thursday — ready for Week 1."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Full participant Thursday, good for Week 1; expect volatile low-floor/high-ceiling WR2/3."
+      },
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft: ankle recovery was problematic and targets may shift to Tyler Warren and Josh Downs."
+      },
+      {
+        "source": "Yahoo Sports — Ray Garvin",
+        "date": "2026-08-27",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-fades-here-are-the-wide-receivers-our-analysts-are-avoiding-for-the-2026-season-163632923.html",
+        "note": "Fade at 93.2 ADP: spent the entire offseason recovering from ankle surgery; Daniel Jones returning from injury adds uncertainty."
+      },
+      {
+        "source": "CBS Sports / SportsLine projection model",
+        "date": "2026-09-06",
+        "url": "https://www.cbssports.com/fantasy/football/news/fantasy-football-rankings-2026-top-sleepers-busts-breakouts-by-model-that-predicted-daniel-jones-huge-year/",
+        "note": "Sleeper at ADP ~82: 21.3 YPR and a top-25 WR finish last year; model ranks him above Nabers and Jefferson."
+      }
+    ],
+    "consensus": "split — healthy now, but two fades vs one model sleeper call"
+  },
+  "Jadarian Price": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Eisenberg targets Price in Round 5 as a secondary back (drafted 5 times)."
+      },
+      {
+        "source": "ESPN — Eric Karabell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Breakout: 6.0 YPC in college; better situation than Love with the Super Bowl champs and less backfield competition."
+      },
+      {
+        "source": "ESPN — Tyler Fulghum",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back bust for 2026."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "Zach Charbonnet placed on PUP (Feb ACL) — out at least four games, projected return Halloween-Thanksgiving."
+      }
+    ],
+    "consensus": "popular rookie RB target — Charbonnet PUP clears the early-season path"
+  },
+  "Harold Fannin Jr.": {
+    "takes": [
+      {
+        "source": "FantasyPros — Mike Fanelli",
+        "date": "2026-08-29",
+        "url": "https://www.fantasypros.com/2026/08/8-fantasy-football-busts-to-avoid-2026/",
+        "note": "Bust: 'massive target competition' from newly drafted pass catchers; averaged 9.3 PPR PPG in the 11 games with seven or fewer targets."
+      },
+      {
+        "source": "ESPN — Tristan H. Cockcroft",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Bust: 2025 numbers won't repeat — defenses will adjust, the QB situation is messy, and practice time has been suspiciously limited."
+      },
+      {
+        "source": "ESPN — Loza, Yates",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Two more ESPN analysts name Fannin a tight end bust."
+      }
+    ],
+    "consensus": "widely called a bust at ADP"
+  },
+  "Brian Thomas Jr.": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Jaguars WRs at similar ADP lack clarity on the target hierarchy — avoid the group."
+      }
+    ],
+    "consensus": null
+  },
+  "Jayden Daniels": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Played only 7 games with multiple injuries; injury risk undermines the rushing-QB ceiling."
+      },
+      {
+        "source": "Fantasy Life — Dwain McFarland",
+        "date": "2026-08-27",
+        "url": "https://www.fantasylife.com/articles/fantasy/the-perfect-fantasy-football-draft-strategy-for-2026-positional",
+        "note": "Round 5 QB target with Burrow and Hurts."
+      }
+    ],
+    "consensus": null
+  },
+  "Matthew Stafford": {
+    "takes": [
+      {
+        "source": "ESPN — Tyler Fulghum",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Bust: at 38 'it is extraordinarily likely that most, if not all' 2025 stats regress; QB9 ADP overstates value."
+      },
+      {
+        "source": "ESPN — Loza, Moody, Yates",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Three more ESPN analysts name Stafford a quarterback bust."
+      }
+    ],
+    "consensus": "widely called a bust at QB9 ADP (4 of 10 ESPN analysts)"
+  },
+  "Michael Wilson": {
+    "takes": [
+      {
+        "source": "PFF — Nathan Jahnke",
+        "date": "2026-08-31",
+        "url": "https://www.pff.com/news/fantasy-football-sleepers-for-2026-drafts",
+        "note": "Listed among PFF's 10 sleepers after emerging as a fantasy contributor last season."
+      }
+    ],
+    "consensus": null
+  },
+  "Kyle Pitts Sr.": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "'21% of season points came in one Week 15 game'; averaged barely 10 points elsewhere with 2 TDs, and the QB situation is unstable."
+      },
+      {
+        "source": "ESPN — Eric Karabell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a tight end bust for 2026."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Only pursue premium TEs like Kittle or Pitts in Rounds 6-7."
+      }
+    ],
+    "consensus": "fade"
+  },
+  "Josh Jacobs": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-30",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-impact-of-nfl-placing-packers-rb-josh-jacobs-on-commissioner-exempt-list-202836289.html",
+        "note": "Placed on the commissioner's exempt list; 'Jacobs is my 72nd overall player and RB28 in half PPR right now' — suspension expected to be six-plus games."
+      },
+      {
+        "source": "CBS Sports — Dave Richard",
+        "date": "2026-08-31",
+        "url": "https://www.cbssports.com/fantasy/football/news/josh-jacobs-out-indefinitely-fantasy-football-rankings-marshawn-lloyd/",
+        "note": "'Fantasy managers shouldn't draft Jacobs with any reasonable expectations to play anytime soon' — minimum six-game suspension or the whole season; MarShawn Lloyd is the top-60-80 target."
+      },
+      {
+        "source": "Footballguys — Bob Harris",
+        "date": "2026-08-30",
+        "url": "https://www.footballguys.com/article/2026-jacobs-placed-on-commissioner-exempt-list-how-should-we-proceed",
+        "note": "Ranks him RB77: 'Don't take Jacobs before Jordyn Tyson or Travis Hunter, and maybe even Zach Charbonnet.'"
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "MarShawn Lloyd becomes a must-draft top-100 pick with the clearer path to the RB1 role."
+      }
+    ],
+    "consensus": "suspension — commissioner's exempt list, out indefinitely (6+ games likely); draft Lloyd instead"
+  },
+  "Michael Pittman Jr.": {
+    "takes": [
+      {
+        "source": "ESPN — Mike Clay",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a wide receiver sleeper for 2026."
+      }
+    ],
+    "consensus": null
+  },
+  "Jalen Hurts": {
+    "takes": [
+      {
+        "source": "Fantasy Life — Dwain McFarland",
+        "date": "2026-08-27",
+        "url": "https://www.fantasylife.com/articles/fantasy/the-perfect-fantasy-football-draft-strategy-for-2026-positional",
+        "note": "Round 5 QB target with Burrow and Daniels."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Eisenberg 'got Hurts in Round 7 of a 10-team league.'"
+      }
+    ],
+    "consensus": null
+  },
+  "Chris Godwin Jr.": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Godwin and Jalen McMillan benefit if Egbuka (toe) misses time."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Drafted twice across Eisenberg's leagues."
+      }
+    ],
+    "consensus": null
+  },
+  "Carnell Tate": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft: Year 1 uncertainty with Cam Ward and competition from Wan'Dale Robinson limits upside."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-27",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-fades-here-are-the-wide-receivers-our-analysts-are-avoiding-for-the-2026-season-163632923.html",
+        "note": "Fade at 80.2 ADP: 'Tate mostly plays outside and runs vertical routes; his skill set isn't fantasy friendly'; Titans ranked 30th in scoring and passing yards."
+      },
+      {
+        "source": "ESPN — Field Yates",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Sleeper: 'most pro-ready prospect in the 2026 NFL draft' gives the Titans a needed go-to target."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Rookie WRs (Tate included) will be overdrafted — only 2 of 8 top rookie WRs historically finish top-50."
+      }
+    ],
+    "consensus": "mostly faded at ADP (3 fades vs 1 sleeper call)"
+  },
+  "Chuba Hubbard": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Hamstring: on track for Week 1 but entering a committee with Jonathon Brooks — expect an RB3/flex role."
+      },
+      {
+        "source": "ESPN — Mike Clay",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back bust for 2026."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Brooks' return creates backfield uncertainty; insufficient clarity on volume."
+      }
+    ],
+    "consensus": "fade — Brooks committee"
+  },
+  "Brock Purdy": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a quarterback sleeper for 2026."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Drafted twice at a bargain price."
+      }
+    ],
+    "consensus": null
+  },
+  "Wan'Dale Robinson": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Scott Pianowski",
+        "date": "2026-09-02",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-roundtable-6-sleeper-wrs-our-yahoo-analysts-are-prioritizing-in-2026-drafts-143236132.html",
+        "note": "Sleeper at WR50/130 overall: 92 catches, 1,014 yards as WR16 in half-PPR last year — 'can give back a chunk of last year's stats and still be worth the draft capital.'"
+      },
+      {
+        "source": "ESPN — Bowen, Loza",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Two ESPN analysts name Robinson a wide receiver sleeper."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Prefers veterans Robinson, Addison and Johnston over the overdrafted rookie WRs."
+      }
+    ],
+    "consensus": "popular sleeper"
+  },
+  "Caleb Williams": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Wait on QB and target Herbert or Caleb Williams in Round 7."
+      }
+    ],
+    "consensus": null
+  },
+  "Jakobi Meyers": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Jaguars WRs at similar ADP lack clarity on the target hierarchy — avoid the group."
+      }
+    ],
+    "consensus": null
+  },
+  "George Kittle": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Achilles: activated from PUP Aug 23; traveling to Australia signals he will play Week 1."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "'Great sign' for availability; remains a TE9 target with strong season potential."
+      },
+      {
+        "source": "Yahoo Sports — Charles Curtis",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/articles/not-draft-2026-8-fantasy-154233853.html",
+        "note": "Do not draft: at 32 and recovering from an Achilles tear, the risks outweigh the team need."
+      },
+      {
+        "source": "ESPN — Eric Karabell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a tight end sleeper for 2026."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "'Kittle should round out the top 8 of TEs.'"
+      }
+    ],
+    "consensus": "playing Week 1; split on whether the Achilles risk is priced in"
+  },
+  "Jayden Reed": {
+    "takes": [
+      {
+        "source": "CBS Sports — Dave Richard",
+        "date": "2026-08-31",
+        "url": "https://www.cbssports.com/fantasy/football/news/josh-jacobs-out-indefinitely-fantasy-football-rankings-marshawn-lloyd/",
+        "note": "'Round 9 range' as a secondary beneficiary of increased Packers passing volume."
+      },
+      {
+        "source": "Yahoo Sports — Ray Garvin",
+        "date": "2026-09-02",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-roundtable-6-sleeper-wrs-our-yahoo-analysts-are-prioritizing-in-2026-drafts-143236132.html",
+        "note": "(Context) Packers pass catchers gain opportunity after roster departures."
+      }
+    ],
+    "consensus": null
+  },
+  "Jonathon Brooks": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Knee soreness: head coach expressed confidence about Week 1 despite recent soreness."
+      },
+      {
+        "source": "ESPN — Tyler Fulghum",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Sleeper: two ACL tears raise concerns, but an ADP of 125.4 offers appeal; cleared and praised for his recovery."
+      },
+      {
+        "source": "ESPN — Liz Loza",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Sleeper: 'a bust-to-boom comeback story' — Carolina confident in his three-down ability."
+      }
+    ],
+    "consensus": "popular late sleeper (two ESPN picks)"
+  },
+  "Kenny Gainwell": {
+    "takes": [
+      {
+        "source": "ESPN — Eric Moody",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Sleeper: from Week 8 on averaged 13.3 touches and 17.8 FPPG; fills the Rachaad White void."
+      },
+      {
+        "source": "ESPN — Eric Karabell",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a running back sleeper for 2026."
+      },
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-08-31",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-takeaways-from-nfls-53-man-roster-cutdown-injury-updates-and-other-trending-news-162506434.html",
+        "note": "Sean Tucker took a paycut to stay as RB3 behind Irving and Gainwell."
+      }
+    ],
+    "consensus": "popular sleeper — co-starter with Irving"
+  },
+  "Josh Downs": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Matt Harmon",
+        "date": "2026-09-02",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-roundtable-6-sleeper-wrs-our-yahoo-analysts-are-prioritizing-in-2026-drafts-143236132.html",
+        "note": "Sleeper: 'ranks 22nd in targets per route run (23.9%) since he entered the league'; the Pittman trade creates expanded opportunity."
+      }
+    ],
+    "consensus": "sleeper"
+  },
+  "Quentin Johnston": {
+    "takes": [
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Rounds 7-8 WR depth target."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Prefers veterans Robinson, Addison and Johnston over the overdrafted rookie WRs."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "Drafted twice across Eisenberg's leagues."
+      }
+    ],
+    "consensus": "mid/late-round value"
+  },
+  "Jordan Addison": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Hayden Winks",
+        "date": "2026-09-02",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-roundtable-6-sleeper-wrs-our-yahoo-analysts-are-prioritizing-in-2026-drafts-143236132.html",
+        "note": "'He's been fantasy relevant multiple seasons, yet Addison counts as a sleeper this year due to his lowly ADP.'"
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (most-drafted players)",
+        "date": "2026-09-04",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenberg-most-drafted-must-draft-targets-breakouts-fantasy-football-2026/",
+        "note": "One of Eisenberg's three favorite sleepers — easy mid-round value (drafted 3 times)."
+      },
+      {
+        "source": "ESPN — Eric Karabell (Do Not Draft list)",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/id/49529494/2026-fantasy-football-busts-overvalued-do-not-draft-karabell",
+        "note": "Prefers Addison and other veterans over the overdrafted rookie WRs."
+      }
+    ],
+    "consensus": "popular sleeper"
+  },
+  "Khalil Shakir": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Listed with an undisclosed injury; limited information — monitor."
+      }
+    ],
+    "consensus": null
+  },
+  "Tucker Kraft": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "Knee (ACL): full practice participation — Week 1 ready pending setbacks."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Immense upside but risk; monitor early snap-count management."
+      },
+      {
+        "source": "CBS Sports — Dave Richard",
+        "date": "2026-08-31",
+        "url": "https://www.cbssports.com/fantasy/football/news/josh-jacobs-out-indefinitely-fantasy-football-rankings-marshawn-lloyd/",
+        "note": "'Round 6 range' as a beneficiary of a more pass-heavy Packers offense."
+      },
+      {
+        "source": "ESPN — Mike Clay",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Named as a tight end bust for 2026."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "Falls to the back end of the second TE tier due to rep limits and Jonnu Smith competition."
+      }
+    ],
+    "consensus": "ACL comeback — ready but snap-managed; one ESPN bust call"
+  },
+  "Ricky Pearsall": {
+    "takes": [
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "Ruled out for the entire 2026 season after PCL surgery — do not draft."
+      }
+    ],
+    "consensus": "OUT for season (PCL) — do not draft"
+  },
+  "Justin Herbert": {
+    "takes": [
+      {
+        "source": "ESPN — Cockcroft, Fulghum, Loza, Yates",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Four of ten ESPN analysts name Herbert their quarterback sleeper."
+      },
+      {
+        "source": "CBS Sports — Jamey Eisenberg (draft plan)",
+        "date": "2026-08-25",
+        "url": "https://www.cbssports.com/fantasy/football/news/jamey-eisenbergs-2026-fantasy-draft-plan/",
+        "note": "Wait on QB and target Herbert or Caleb Williams in Round 7."
+      }
+    ],
+    "consensus": "popular QB sleeper (4 of 10 ESPN analysts)"
+  },
+  "Patrick Mahomes": {
+    "takes": [
+      {
+        "source": "FantasyPros — Ryan Kirksey",
+        "date": "2026-09-05",
+        "url": "https://www.fantasypros.com/2026/09/20-fantasy-football-injuries-to-monitor-2026/",
+        "note": "ACL: ready, 100% — 'can be drafted with confidence,' though expect a run-heavy offense."
+      },
+      {
+        "source": "Yahoo Sports — Ben Zweiman (camp injury tracker)",
+        "date": "2026-09-03",
+        "url": "https://sports.yahoo.com/fantasy/article/nfl-training-camp-injury-report-tracking-the-latest-news-updates-for-2026-fantasy-football-163938278.html",
+        "note": "On track for Week 1 barring setbacks; have a backup QB plan."
+      },
+      {
+        "source": "ESPN — Clay, Dopp",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Two ESPN analysts name Mahomes a quarterback bust."
+      },
+      {
+        "source": "Yahoo Sports — Chris Allen",
+        "date": "2026-08-28",
+        "url": "https://sports.yahoo.com/fantasy/article/2026-fantasy-football-how-to-handle-these-key-injured-players-going-into-your-draft-150327581.html",
+        "note": "'Draft at cost (QB14); expect a slow start.'"
+      }
+    ],
+    "consensus": "healthy from ACL, but bust chatter at QB1-tier price"
+  },
+  "Matthew Golden": {
+    "takes": [
+      {
+        "source": "ESPN — Bell, Cockcroft",
+        "date": "2026-09-04",
+        "url": "https://www.espn.com/fantasy/football/story/_/page/FFSleepBustBreak26-49030808/fantasy-football-2026-rankings-nfl-sleepers-breakouts-busts",
+        "note": "Two ESPN analysts name Golden a wide receiver sleeper."
+      },
+      {
+        "source": "Yahoo Sports — Ray Garvin",
+        "date": "2026-09-02",
+        "url": "https://sports.yahoo.com/fantasy/article/fantasy-football-roundtable-6-sleeper-wrs-our-yahoo-analysts-are-prioritizing-in-2026-drafts-143236132.html",
+        "note": "Year-2 opportunity after departures; projected 113 targets and a top-36 finish with elite upside."
+      },
+      {
+        "source": "CBS Sports — Dave Richard",
+        "date": "2026-08-31",
+        "url": "https://www.cbssports.com/fantasy/football/news/josh-jacobs-out-indefinitely-fantasy-football-rankings-marshawn-lloyd/",
+        "note": "'Round 9 range' beneficiary of increased Packers passing volume."
+      }
+    ],
+    "consensus": "popular sleeper"
+  },
+  "Xavier Worthy": {
+    "takes": [
+      {
+        "source": "PFF — Nathan Jahnke",
+        "date": "2026-08-31",
+        "url": "https://www.pff.com/news/fantasy-football-sleepers-for-2026-drafts",
+        "note": "Sleeper at 11.11 ADP: 'A healthy shoulder and increased opportunity could position Worthy to lead Kansas City in receiving this season.'"
+      }
+    ],
+    "consensus": "late sleeper"
+  }
+}

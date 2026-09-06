@@ -3,6 +3,7 @@ import { db, rows, row, run } from '../db/index.js';
 import { syncPlayersFromESPN, syncGeneralNews, syncTeamNewsFeed } from './espn.js';
 import { deriveFormat } from '../services/format.js';
 import { recordSync } from '../services/scheduler.js';
+import '../services/espn-market.js'; // creates espn_player_market, joined by computeConsensus()
 import { normalizePlayerName } from '../services/player-identity.js';
 
 const r = Router();
@@ -218,28 +219,42 @@ export function computeConsensus() {
   const players = rows(`
     SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color,
            ffc.value AS ffc_adp, sl.value AS sleeper_rank, inj.value AS injury_flag,
-           fcv.value AS fc_value, fct.value AS fc_trend30
+           fcv.value AS fc_value, fct.value AS fc_trend30,
+           em.adp AS espn_adp, em.ppr_rank AS espn_ppr_rank, em.injury_status AS espn_injury_status
     FROM players p
     LEFT JOIN nfl_teams t ON t.id = p.team_id
+    LEFT JOIN espn_player_market em ON em.espn_id = p.espn_id
     LEFT JOIN player_metrics ffc ON ffc.player_id = p.id AND ffc.source = 'ffc_adp'
     LEFT JOIN player_metrics sl ON sl.player_id = p.id AND sl.source = 'sleeper_rank'
     LEFT JOIN player_metrics inj ON inj.player_id = p.id AND inj.source = 'injury_flag'
     LEFT JOIN player_metrics fcv ON fcv.player_id = p.id AND fcv.source = 'fc_value'
     LEFT JOIN player_metrics fct ON fct.player_id = p.id AND fct.source = 'fc_trend30'
-    WHERE ffc.value IS NOT NULL OR sl.value IS NOT NULL`);
+    WHERE (ffc.value IS NOT NULL OR sl.value IS NOT NULL OR em.adp IS NOT NULL)
+      -- Sleeper's search_rank is popularity, not draft value: it puts retired
+      -- names (Gurley, Brady, Brees) in the top 120 with no team and no ADP.
+      -- A free agent has to have a real ADP to be a draftable asset here.
+      AND (p.team_id IS NOT NULL OR ffc.value IS NOT NULL OR em.adp IS NOT NULL)`);
 
-  // convert each source's raw value to an ordinal rank, then average available ranks
+  // convert each source's raw value to an ordinal rank, then average available ranks.
+  // ESPN's own ADP (espn_player_market, per league) is what the people in an
+  // ESPN draft room actually see next to every name, so it carries double
+  // weight when present — it is the best predictor there is of what THIS
+  // room will do.
   const bySource = { ffc_adp: [...players].filter(p => p.ffc_adp != null).sort((a, b) => a.ffc_adp - b.ffc_adp),
-                     sleeper: [...players].filter(p => p.sleeper_rank != null).sort((a, b) => a.sleeper_rank - b.sleeper_rank) };
+                     sleeper: [...players].filter(p => p.sleeper_rank != null).sort((a, b) => a.sleeper_rank - b.sleeper_rank),
+                     espn: [...players].filter(p => p.espn_adp != null).sort((a, b) => a.espn_adp - b.espn_adp) };
   const ffcRank = new Map(bySource.ffc_adp.map((p, i) => [p.id, i + 1]));
   const slRank = new Map(bySource.sleeper.map((p, i) => [p.id, i + 1]));
+  const espnRank = new Map(bySource.espn.map((p, i) => [p.id, i + 1]));
 
   return players.map(p => {
-    const ranks = [ffcRank.get(p.id), slRank.get(p.id)].filter(x => x != null);
-    return { ...p, ffc_rank: ffcRank.get(p.id) ?? null, sleeper_ordinal: slRank.get(p.id) ?? null,
+    const weighted = [[ffcRank.get(p.id), 1], [slRank.get(p.id), 1], [espnRank.get(p.id), 2]].filter(([x]) => x != null);
+    const ranks = weighted.map(([x]) => x);
+    const wsum = weighted.reduce((s, [, w]) => s + w, 0);
+    return { ...p, ffc_rank: ffcRank.get(p.id) ?? null, sleeper_ordinal: slRank.get(p.id) ?? null, espn_rank: espnRank.get(p.id) ?? null,
              // fc_trend30 is a raw point change; convert to % of the value 30 days ago
              fc_trend_pct: trendPct(p.fc_value, p.fc_trend30),
-             consensus: ranks.length ? ranks.reduce((a, b) => a + b, 0) / ranks.length : null };
+             consensus: ranks.length ? weighted.reduce((s, [x, w]) => s + x * w, 0) / wsum : null };
   }).filter(p => p.consensus != null).sort((a, b) => a.consensus - b.consensus);
 }
 

@@ -151,20 +151,16 @@ function Room({ id }: { id: string }) {
   // this, a slow request and the next timer tick can race through the same sync/resolve
   // path and duplicate or drop a pick.
   const syncing = useRef(false);
+  // ESPN exposes no pick deadline, so the clock is ours: it restarts whenever
+  // the number of picks on ESPN goes up, minus nothing — the poll is 4s, so
+  // the display can lag reality by up to that. Labelled "~" for that reason.
+  const picksSeen = useRef<number | null>(null);
+  const [clockStart, setClockStart] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [espnLive, setEspnLive] = useState<boolean | null>(null);
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
-  const tick = useCallback(async () => {
-    if (syncing.current) return;
-    syncing.current = true;
-    try {
-      const s = await api(`/drafts/${id}/sync`, { method: 'POST' });
-      if (s.new_picks?.length) setSyncNote(`+${s.new_picks.length} pick${s.new_picks.length > 1 ? 's' : ''} from ESPN`);
-      setDesynced(!!s.desynced);
-      setErr(null);
-    } catch (e: any) {
-      setErr(e.message);   // a sync failure must never blank the board
-    } finally {
-      syncing.current = false;
-    }
+  const loadAssist = useCallback(async () => {
     try {
       const s = await api(`/drafts/${id}/assist`);
       // A target on our shortlist just went to someone else — worth a nudge, since it
@@ -182,13 +178,38 @@ function Room({ id }: { id: string }) {
     } catch (e: any) { setErr(e.message); }
   }, [id]);
 
+  const tick = useCallback(async () => {
+    if (syncing.current) return;
+    syncing.current = true;
+    try {
+      const s = await api(`/drafts/${id}/sync`, { method: 'POST' });
+      if (s.new_picks?.length) setSyncNote(`+${s.new_picks.length} pick${s.new_picks.length > 1 ? 's' : ''} from ESPN`);
+      if (typeof s.espn_in_progress === 'boolean') setEspnLive(s.espn_in_progress);
+      if (typeof s.picks_on_espn === 'number') {
+        if (picksSeen.current !== null && s.picks_on_espn !== picksSeen.current) setClockStart(Date.now());
+        else if (picksSeen.current === null && s.espn_in_progress) setClockStart(Date.now());
+        picksSeen.current = s.picks_on_espn;
+      }
+      setDesynced(!!s.desynced);
+      setErr(null);
+    } catch (e: any) {
+      setErr(e.message);   // a sync failure must never blank the board
+    } finally {
+      syncing.current = false;
+    }
+    await loadAssist();
+  }, [id, loadAssist]);
+
   useEffect(() => {
     if (!snipes.length) return;
     const t = setTimeout(() => setSnipes(cur => cur.slice(0, -1)), 6000);
     return () => clearTimeout(t);
   }, [snipes]);
 
-  useEffect(() => { tick(); }, [tick]);
+  // Paint the board from what the server already knows before the first ESPN
+  // round trip — on a phone over a tunnel that's the difference between the
+  // page appearing in ~200ms and staring at "Connecting…" for seconds.
+  useEffect(() => { loadAssist(); tick(); }, [loadAssist, tick]);
   useEffect(() => {
     if (!live) return;
     const iv = setInterval(tick, 4000);
@@ -205,10 +226,29 @@ function Room({ id }: { id: string }) {
     if (!state || clock?.complete) return;
     const pickNo = clock?.pick_number;
     if (pickNo == null || adviceFor.current === pickNo) return;
-    if (until == null || until > 2) return;
+    // Three picks out: on a 60-second clock that is ~3 minutes, and a full
+    // dossier answer takes ~10-15s. The answer is re-asked as the board
+    // changes, so the on-screen advice is always for the current board.
+    if (until == null || until > 3) return;
     adviceFor.current = pickNo;
     setAdviceBusy(true);
     api(`/drafts/${id}/advice`).then(setAdvice).catch(() => {}).finally(() => setAdviceBusy(false));
+  }, [state, clock?.pick_number, until, id, clock?.complete]);
+
+  // Lookahead simulation for the same window as the advice: the rest of the
+  // draft played out for each candidate. Fast (well under a second) but not
+  // free, so it follows the board rather than the 4s poll.
+  const [sim, setSim] = useState<any>(null);
+  const [simBusy, setSimBusy] = useState(false);
+  const simFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (!state || clock?.complete) return;
+    const pickNo = clock?.pick_number;
+    if (pickNo == null || simFor.current === pickNo) return;
+    if (until == null || until > 3) return;
+    simFor.current = pickNo;
+    setSimBusy(true);
+    api(`/drafts/${id}/lookahead`).then(setSim).catch(() => {}).finally(() => setSimBusy(false));
   }, [state, clock?.pick_number, until, id, clock?.complete]);
 
   const refreshAdvice = async () => {
@@ -254,7 +294,13 @@ function Room({ id }: { id: string }) {
       <div className="flex items-center gap-3 flex-wrap mb-3">
         <Link to="/live-draft" className="text-xs text-slate-500 hover:text-slate-700">← hub</Link>
         <h1 className="text-lg font-bold">{d.name}</h1>
-        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">LIVE · ESPN</span>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${espnLive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+          {espnLive ? 'LIVE · ESPN' : d.draft_at ? `ESPN draft ${new Date(d.draft_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'ESPN · not started'}
+        </span>
+        {espnLive && clockStart && d.pick_seconds && (() => {
+          const left = Math.max(0, d.pick_seconds - Math.floor((now - clockStart) / 1000));
+          return <span className={`font-mono text-sm font-bold tabular-nums ${left <= 15 ? 'text-rose-600' : 'text-slate-700'}`} title="Started when the last pick landed; can lag ESPN by up to one 4s poll">~{left}s</span>;
+        })()}
         <button onClick={() => setLive(v => !v)}
           className={`text-[11px] px-2 py-1 rounded-full border ${live ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
           {live ? '● syncing every 4s' : '‖ paused'}
@@ -292,6 +338,7 @@ function Room({ id }: { id: string }) {
             <span className="text-sm text-slate-500">pick {clock.pick_number} · round {clock.round}</span>
             <span className="ml-auto text-sm">
               <b className="text-sky-700">{until}</b> pick{until === 1 ? '' : 's'} until you're up
+              {until > 0 && d.pick_seconds && <span className="text-slate-500"> (~{Math.max(1, Math.round(until * d.pick_seconds / 60))} min)</span>}
               {clock.my_upcoming_picks?.length > 1 &&
                 <span className="text-slate-500"> · yours: {clock.my_upcoming_picks.slice(0, 3).join(', ')}</span>}
             </span>
@@ -299,8 +346,11 @@ function Room({ id }: { id: string }) {
         )}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
-        <div className="space-y-4">
+      {/* minmax(0,1fr) below xl: an implicit auto column sizes to the widest
+          child's min-content, which on a phone made the whole board 2x the
+          viewport and pushed the roster off-screen. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[1.5fr_1fr]">
+        <div className="min-w-0 space-y-4">
           {/* ------------------------------------------------ AI advice card */}
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -322,6 +372,13 @@ function Room({ id }: { id: string }) {
                       {pickPlayer && <Pos pos={pickPlayer.position} />}
                       <span className="text-xl font-extrabold">{advice.pick}</span>
                       {pickPlayer?.team_abbr && <span className="text-xs text-slate-500">{pickPlayer.team_abbr}</span>}
+                      {/* Sniped between the advice and the clock: say so, loudly, rather than
+                          leave a name on screen that can no longer be drafted. */}
+                      {!pickPlayer && (
+                        <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">
+                          off the board — {adviceBusy ? 'updating…' : 'see the list below or re-ask'}
+                        </span>
+                      )}
                       {pickPlayer?.projected_points != null && (
                         <span className="text-xs font-bold text-slate-600">{Math.round(pickPlayer.projected_points)} pts</span>
                       )}
@@ -375,6 +432,38 @@ function Room({ id }: { id: string }) {
             )}
           </div>
 
+          {/* ------------------------------------------- lookahead simulation */}
+          {(sim?.candidates?.length || simBusy) && (
+            <div className="card p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className="font-bold text-sm">If you take him now…</h2>
+                <span className="text-[11px] text-slate-400">{simBusy ? 'simulating the rest of the draft…' : `rest of the draft played out ${sim?.sims ?? 200}× per pick`}</span>
+              </div>
+              {sim?.candidates?.length > 0 && (
+                <div className="space-y-1">
+                  {sim.candidates.map((c: any, i: number) => (
+                    <div key={c.player_id} className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${i === 0 ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                      <Pos pos={c.position} />
+                      <span className="font-semibold text-sm truncate">{c.name}</span>
+                      <span className="text-[11px] text-slate-500">{c.team_abbr}</span>
+                      <span className="ml-auto text-right shrink-0">
+                        {c.expected != null ? <>
+                          <span className="block text-sm font-bold">{Math.round(c.expected)}<span className="text-[10px] font-normal text-slate-400"> pts lineup</span></span>
+                          <span className={`block text-[10px] font-semibold ${c.delta === 0 ? 'text-emerald-700' : 'text-slate-400'}`}>{c.delta === 0 ? 'best finish' : `${c.delta} vs best`}</span>
+                        </> : <span className="text-[10px] text-rose-600">gone before your pick in {c.sniped_pct}% of runs</span>}
+                      </span>
+                    </div>
+                  ))}
+                  {sim.candidates[0]?.likely_next?.length > 0 && (
+                    <div className="text-[11px] text-slate-500 pt-1">
+                      After that, usually still there at your next turn: {sim.candidates[0].likely_next.map((n: any) => `${n.name} (${n.pct}%)`).join(', ')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* -------------------------------------------------- best available */}
           <div className="card p-4">
             <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -405,6 +494,11 @@ function Room({ id }: { id: string }) {
                   <div className="text-right shrink-0">
                     {t.projected_points != null && (
                       <div className="text-sm font-bold">{Math.round(t.projected_points)}<span className="text-[10px] font-normal text-slate-400"> pts</span></div>
+                    )}
+                    {t.vorp != null && (
+                      <div className={`text-[10px] font-semibold ${t.vorp > 0 ? 'text-emerald-700' : 'text-slate-400'}`} title="Projected points over a replacement-level starter at his position in this league">
+                        {t.vorp > 0 ? '+' : ''}{Math.round(t.vorp)} vs repl.
+                      </div>
                     )}
                     {t.gone_by_next != null && (
                       <div className={`text-[10px] font-semibold ${t.gone_by_next > 0.7 ? 'text-rose-600' : 'text-slate-400'}`}>

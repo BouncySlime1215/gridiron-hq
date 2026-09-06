@@ -2,13 +2,25 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 let localSessionPromise: Promise<string | null> | null = null;
 
+/**
+ * A browser that is not on the Mac (the phone, through the tunnel) cannot be
+ * auto-provisioned; the server says so with 403 + {pairing:true}. Send it to
+ * the pairing screen once, remembering where it was going.
+ */
+function goPair() {
+  if (typeof window === 'undefined' || window.location.pathname === '/pair') return;
+  const next = window.location.pathname + window.location.search;
+  window.location.assign(`/pair?next=${encodeURIComponent(next)}`);
+}
+
 async function provisionLocalSession() {
   if (typeof window === 'undefined') return null;
   if (!localSessionPromise) {
     localSessionPromise = fetch('/api/auth/local-session', { method: 'POST' })
       .then(async res => {
+        const body = await res.json().catch(() => ({}));
+        if (res.status === 403 && body.pairing) { goPair(); return null; }
         if (!res.ok) return null;
-        const body = await res.json();
         const token = typeof body.token === 'string' ? body.token : null;
         if (token) setAuthToken(token);
         return token;

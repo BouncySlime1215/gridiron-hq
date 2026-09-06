@@ -1,0 +1,1926 @@
+{
+ "generated_at": "2026-09-06T20:35:57.901Z",
+ "seasons": [
+  2021,
+  2022,
+  2023,
+  2024,
+  2025
+ ],
+ "method": {
+  "preseason_rank": "nfl_historical_adp (dynastyprocess_fpecr = FantasyPros expert consensus rank, July-Sept scrape), not true ADP. Overall tier = integer order of ecr_rank within season including K/DST; positional tier = order within position.",
+  "actuals": "PPR season points recomputed from nfl_player_week_features (nflverse play-by-play derived, keyed by true gsis_id), weeks 1-18, using server/services/scoring.js PPR weights (0.04/4/-2 pass, 0.1/6 rush, 1/0.1/6 rec). Fumbles lost are not in that table and are omitted (validated: r=0.9987 vs ESPN 2025 actuals, mean diff +0.15 pts; r=0.9999 vs nflverse ffopportunity actual_fantasy_points 2022-2025, MAD 0.85).",
+  "why_not_player_week_usage": "player_week_usage is keyed by players.id whose gsis_id crosswalk is corrupted for some rows (e.g. players.id 424 \"Noah Gray\" holds Travis Kelce's gsis 00-0030506; Isiah Pacheco row points at a 2026 rookie), so Kelce/Kamara/Andrews/Murray/Ridley/Pacheco had zero rows under their own ids. Not used.",
+  "join": "ECR player_key (normalizePlayerName) matched to gsis via full names in nfl_depth, nfl_injuries, nfl_ffopportunity_weekly, nfl_roster_snapshots; position match; ties broken by nflverse abbreviated name then team. 7 explicit aliases (Marquise/Hollywood Brown, Robby/Robbie Anderson, Ken/Kenneth Walker, Gabriel/Gabe Davis, Kenneth/Kenny Gainwell, Chigoziem/Chig Okonkwo, Joshua/Josh Palmer). Result: 2182 matched, 289 known players with no stat line (scored 0 pts / 0 games; 8 of them inside the top 150, all genuine DNPs), 0 ambiguous, 81 unmatched (all outside the top 150, excluded).",
+  "games": "games = weeks with a stat line in nfl_player_week_features (weeks 1-18).",
+  "hit": "finish positional rank <= drafted positional rank; hit6 = finish <= drafted + 6.",
+  "bust": "finish positional rank >= drafted + 12 (two 6-slot tiers) OR games <= 8.",
+  "vorp": "points minus the Nth-best actual finisher at the position that season, N = QB11 / RB27 / WR27 / TE8 (8-team demand). VORP+ = max(0, VORP). Expected VORP+ of a slot = points of the player who actually finished at the drafted positional rank, minus replacement, floored at 0. realized_fraction = sum(VORP+) / sum(expected VORP+) over the cell.",
+  "multiplier": "realized_fraction(cell) / pooled realized_fraction (0.946), so the expected-VORP-weighted mean of raw multipliers is 1.0. Null where the slot is at/below replacement (expected VORP+ < 8 per pick): a ratio is meaningless there, use realized_vorp_plus_per_pick instead. Raw ratios outside [0.5, 1.5] are capped and noted.",
+  "caveats": [
+   "One preseason snapshot (ECR) per season, not the league's own ADP.",
+   "n per positional tier = 30 (6 per season x 5); per-season cells are n=6 and are noise.",
+   "Hit rate for deep tiers is inflated by construction (many players above them bust), read VORP+ for those tiers.",
+   "No fumbles in actuals (~1-4 pts/season for RB/QB)."
+  ]
+ },
+ "replacement_points_by_season": {
+  "2021": {
+   "QB": 300.88,
+   "RB": 163.4,
+   "WR": 202.5,
+   "TE": 164.3
+  },
+  "2022": {
+   "QB": 287.06,
+   "RB": 167.6,
+   "WR": 189.3,
+   "TE": 147.3
+  },
+  "2023": {
+   "QB": 278.06,
+   "RB": 183.1,
+   "WR": 214.5,
+   "TE": 181.1
+  },
+  "2024": {
+   "QB": 286.9,
+   "RB": 181.2,
+   "WR": 201.2,
+   "TE": 173.4
+  },
+  "2025": {
+   "QB": 282.38,
+   "RB": 166.92,
+   "WR": 183.3,
+   "TE": 183.9
+  }
+ },
+ "pooled_realized_fraction": 0.946,
+ "realization": {
+  "QB": {
+   "1-12": {
+    "multiplier": null,
+    "raw_multiplier": null,
+    "n": 0,
+    "note": "no players"
+   },
+   "13-24": {
+    "multiplier": 0.53,
+    "raw_multiplier": 0.53,
+    "n": 4,
+    "realized_fraction": 0.499,
+    "expected_vorp_plus_per_pick": 113.9,
+    "realized_vorp_plus_per_pick": 56.8,
+    "hit_rate": 0.25,
+    "bust_rate": 0,
+    "note": "n<25 - low confidence"
+   },
+   "25-36": {
+    "multiplier": 0.79,
+    "raw_multiplier": 0.79,
+    "n": 9,
+    "realized_fraction": 0.745,
+    "expected_vorp_plus_per_pick": 84.9,
+    "realized_vorp_plus_per_pick": 63.3,
+    "hit_rate": 0.333,
+    "bust_rate": 0.222,
+    "note": "n<25 - low confidence"
+   },
+   "37-60": {
+    "multiplier": 0.5,
+    "raw_multiplier": 0.4,
+    "n": 14,
+    "realized_fraction": 0.377,
+    "expected_vorp_plus_per_pick": 58.6,
+    "realized_vorp_plus_per_pick": 22.1,
+    "hit_rate": 0.214,
+    "bust_rate": 0.286,
+    "note": "n<25 - low confidence; raw ratio 0.4 capped to [0.5,1.5] because the tier's expected VORP+ per pick (58.6) is small, so the ratio is unstable"
+   },
+   "61-100": {
+    "multiplier": 1.5,
+    "raw_multiplier": 2.03,
+    "n": 39,
+    "realized_fraction": 1.919,
+    "expected_vorp_plus_per_pick": 10.3,
+    "realized_vorp_plus_per_pick": 19.8,
+    "hit_rate": 0.385,
+    "bust_rate": 0.205,
+    "note": "raw ratio 2.03 capped to [0.5,1.5] because the tier's expected VORP+ per pick (10.3) is small, so the ratio is unstable"
+   },
+   "101-150": {
+    "multiplier": null,
+    "raw_multiplier": null,
+    "n": 39,
+    "realized_fraction": null,
+    "expected_vorp_plus_per_pick": 0,
+    "realized_vorp_plus_per_pick": 10.2,
+    "hit_rate": 0.538,
+    "bust_rate": 0.154,
+    "note": "slot value below replacement (expected VORP+ 0/pick) - multiplier undefined; use vorp_plus_per_pick"
+   }
+  },
+  "RB": {
+   "1-12": {
+    "multiplier": 0.65,
+    "raw_multiplier": 0.65,
+    "n": 27,
+    "realized_fraction": 0.619,
+    "expected_vorp_plus_per_pick": 146.2,
+    "realized_vorp_plus_per_pick": 90.5,
+    "hit_rate": 0.222,
+    "bust_rate": 0.333
+   },
+   "13-24": {
+    "multiplier": 1.03,
+    "raw_multiplier": 1.03,
+    "n": 21,
+    "realized_fraction": 0.973,
+    "expected_vorp_plus_per_pick": 90.9,
+    "realized_vorp_plus_per_pick": 88.4,
+    "hit_rate": 0.476,
+    "bust_rate": 0.19,
+    "note": "n<25 - low confidence"
+   },
+   "25-36": {
+    "multiplier": 0.91,
+    "raw_multiplier": 0.91,
+    "n": 21,
+    "realized_fraction": 0.865,
+    "expected_vorp_plus_per_pick": 64.2,
+    "realized_vorp_plus_per_pick": 55.5,
+    "hit_rate": 0.476,
+    "bust_rate": 0.381,
+    "note": "n<25 - low confidence"
+   },
+   "37-60": {
+    "multiplier": 0.87,
+    "raw_multiplier": 0.87,
+    "n": 37,
+    "realized_fraction": 0.827,
+    "expected_vorp_plus_per_pick": 38.9,
+    "realized_vorp_plus_per_pick": 32.2,
+    "hit_rate": 0.243,
+    "bust_rate": 0.405
+   },
+   "61-100": {
+    "multiplier": null,
+    "raw_multiplier": null,
+    "n": 63,
+    "realized_fraction": 3.004,
+    "expected_vorp_plus_per_pick": 6.5,
+    "realized_vorp_plus_per_pick": 19.5,
+    "hit_rate": 0.492,
+    "bust_rate": 0.333,
+    "note": "slot value below replacement (expected VORP+ 6.5/pick) - multiplier undefined; use vorp_plus_per_pick"
+   },
+   "101-150": {
+    "multiplier": null,
+    "raw_multiplier": null,
+    "n": 80,
+    "realized_fraction": null,
+    "expected_vorp_plus_per_pick": 0,
+    "realized_vorp_plus_per_pick": 9.4,
+    "hit_rate": 0.438,
+    "bust_rate": 0.375,
+    "note": "slot value below replacement (expected VORP+ 0/pick) - multiplier undefined; use vorp_plus_per_pick"
+   }
+  },
+  "WR": {
+   "1-12": {
+    "multiplier": 0.68,
+    "raw_multiplier": 0.68,
+    "n": 31,
+    "realized_fraction": 0.646,
+    "expected_vorp_plus_per_pick": 119.2,
+    "realized_vorp_plus_per_pick": 77,
+    "hit_rate": 0.323,
+    "bust_rate": 0.323
+   },
+   "13-24": {
+    "multiplier": 0.75,
+    "raw_multiplier": 0.75,
+    "n": 30,
+    "realized_fraction": 0.714,
+    "expected_vorp_plus_per_pick": 60.1,
+    "realized_vorp_plus_per_pick": 42.9,
+    "hit_rate": 0.267,
+    "bust_rate": 0.467
+   },
+   "25-36": {
+    "multiplier": 0.52,
+    "raw_multiplier": 0.52,
+    "n": 24,
+    "realized_fraction": 0.492,
+    "expected_vorp_plus_per_pick": 35.6,
+    "realized_vorp_plus_per_pick": 17.5,
+    "hit_rate": 0.167,
+    "bust_rate": 0.458,
+    "note": "n<25 - low confidence"
+   },
+   "37-60": {
+    "multiplier": 1.5,
+    "raw_multiplier": 2.1,
+    "n": 60,
+    "realized_fraction": 1.986,
+    "expected_vorp_plus_per_pick": 12,
+    "realized_vorp_plus_per_pick": 23.9,
+    "hit_rate": 0.417,
+    "bust_rate": 0.417,
+    "note": "raw ratio 2.1 capped to [0.5,1.5] because the tier's expected VORP+ per pick (12) is small, so the ratio is unstable"
+   },
+   "61-100": {
+    "multiplier": null,
+    "raw_multiplier": null,
+    "n": 73,
+    "realized_fraction": 52.738,
+    "expected_vorp_plus_per_pick": 0.2,
+    "realized_vorp_plus_per_pick": 11.6,
+    "hit_rate": 0.493,
+    "bust_rate": 0.356,
+    "note": "slot value below replacement (expected VORP+ 0.2/pick) - multiplier undefined; use vorp_plus_per_pick"
+   },
+   "101-150": {
+    "multiplier": null,
+    "raw_multiplier": null,
+    "n": 88,
+    "realized_fraction": null,
+    "expected_vorp_plus_per_pick": 0,
+    "realized_vorp_plus_per_pick": 5.1,
+    "hit_rate": 0.42,
+    "bust_rate": 0.489,
+    "note": "slot value below replacement (expected VORP+ 0/pick) - multiplier undefined; use vorp_plus_per_pick"
+   }
+  },
+  "TE": {
+   "1-12": {
+    "multiplier": 0.99,
+    "raw_multiplier": 0.99,
+    "n": 2,
+    "realized_fraction": 0.938,
+    "expected_vorp_plus_per_pick": 111.6,
+    "realized_vorp_plus_per_pick": 104.7,
+    "hit_rate": 0.5,
+    "bust_rate": 0,
+    "note": "n<25 - low confidence"
+   },
+   "13-24": {
+    "multiplier": 0.63,
+    "raw_multiplier": 0.63,
+    "n": 5,
+    "realized_fraction": 0.599,
+    "expected_vorp_plus_per_pick": 91.5,
+    "realized_vorp_plus_per_pick": 54.7,
+    "hit_rate": 0.2,
+    "bust_rate": 0.2,
+    "note": "n<25 - low confidence"
+   },
+   "25-36": {
+    "multiplier": 0.5,
+    "raw_multiplier": 0.2,
+    "n": 6,
+    "realized_fraction": 0.192,
+    "expected_vorp_plus_per_pick": 53,
+    "realized_vorp_plus_per_pick": 10.1,
+    "hit_rate": 0,
+    "bust_rate": 0.333,
+    "note": "n<25 - low confidence; raw ratio 0.2 capped to [0.5,1.5] because the tier's expected VORP+ per pick (53) is small, so the ratio is unstable"
+   },
+   "37-60": {
+    "multiplier": 1.05,
+    "raw_multiplier": 1.05,
+    "n": 9,
+    "realized_fraction": 0.995,
+    "expected_vorp_plus_per_pick": 36.4,
+    "realized_vorp_plus_per_pick": 36.2,
+    "hit_rate": 0.444,
+    "bust_rate": 0.222,
+    "note": "n<25 - low confidence"
+   },
+   "61-100": {
+    "multiplier": null,
+    "raw_multiplier": null,
+    "n": 25,
+    "realized_fraction": 1.815,
+    "expected_vorp_plus_per_pick": 4.6,
+    "realized_vorp_plus_per_pick": 8.4,
+    "hit_rate": 0.2,
+    "bust_rate": 0.4,
+    "note": "slot value below replacement (expected VORP+ 4.6/pick) - multiplier undefined; use vorp_plus_per_pick"
+   },
+   "101-150": {
+    "multiplier": null,
+    "raw_multiplier": null,
+    "n": 39,
+    "realized_fraction": null,
+    "expected_vorp_plus_per_pick": 0,
+    "realized_vorp_plus_per_pick": 3.4,
+    "hit_rate": 0.462,
+    "bust_rate": 0.256,
+    "note": "slot value below replacement (expected VORP+ 0/pick) - multiplier undefined; use vorp_plus_per_pick"
+   }
+  }
+ },
+ "rules": [
+  {
+   "id": "rb_over_wr_13_36",
+   "rule": "In the 13-36 overall ECR range, take the RB over the WR. Applies to picks 2.1-4.8 in an 8-team draft.",
+   "evidence": "RBs drafted 13-36 overall realized 88.4/55.5 VORP+ per pick (13-24/25-36) vs WRs 42.9/17.5. Pooled 13-36: RB 72 vs WR 31.6 VORP+ (diff 40.4, SE 11.9, t=3.39). RB won 4 of 5 seasons in each sub-tier; 2022 is the exception in 13-24. Same sign on raw unclipped VORP (t=2.39) and on hit rate (50% vs 20%, t=2.63); points-vs-own-slot is directionally the same but not significant (t=0.9) because WR slots score more in absolute terms.",
+   "n": {
+    "RB": 42,
+    "WR": 54
+   },
+   "strength": "strong",
+   "direction": "RB > WR",
+   "replacement": "QB11/RB27/WR27/TE8"
+  },
+  {
+   "id": "rookie_wr_premium",
+   "rule": "A rookie WR drafted inside the top 150 is a better bet than a veteran WR at the same ECR slot; lean rookie WR when tied.",
+   "evidence": "Rookie WRs (n=28) beat their ECR slot by 16.9 pts on average vs -25.5 for veteran WRs (n=278); diff 42.5, SE 12.4, t=3.41. Hit rate 64% vs 37%, bust 29% vs 44%. Hit rate was >=50% in every season 2021-2025. No equivalent edge for rookie RBs (vs slot +3.2, t=0.2).",
+   "n": {
+    "rookie_WR": 28,
+    "veteran_WR": 278
+   },
+   "strength": "strong",
+   "direction": "rookie WR > veteran WR"
+  },
+  {
+   "id": "te_cliff_after_te8",
+   "rule": "In an 8-team league, do not draft a TE ranked TE9 or later expecting starter value, and never roster two TEs early. Pay for TE1-3 or wait for the TE4-8 band.",
+   "evidence": "Replacement is TE8 by actual points. TEs drafted TE9-TE24 realized 3.3 VORP+ per pick (n=80); TE4-8 realized 17.1 (n=25) and TE1-3 43.6 (n=15). TE4-8 vs TE9-16: diff 13.9, SE 6.9, t=2.02.",
+   "n": {
+    "TE1_3": 15,
+    "TE4_8": 25,
+    "TE9_16": 40
+   },
+   "strength": "moderate",
+   "direction": "TE value collapses after TE8"
+  },
+  {
+   "id": "elite_qb_worth_it_8team",
+   "rule": "An elite QB (ECR QB1-QB3) is worth an early-round pick in an 8-team league; QB4-QB10 is not, and the QB11+ band is free.",
+   "evidence": "QB1-3 realized 56.4 VORP+ per pick (n=15) vs 23.2 for QB4-10 (n=35); diff 33.2, SE 14.6, t=2.27. QB1-3 (drafted 13-36 overall) matched RBs in the same overall range (56.4 vs 72 VORP+, t=-0.95) and beat WRs there. Only 28% of QB13-24 picks finished above QB11.",
+   "n": {
+    "QB1_3": 15,
+    "QB4_10": 35
+   },
+   "strength": "moderate (n=15 elite QBs, 5 seasons)",
+   "direction": "QB1-3 > QB4-10 ~ 0"
+  }
+ ],
+ "not_supported": [
+  {
+   "claim": "RB decline after 27",
+   "finding": "RBs drafted top-36 at position aged >=27 (n=48) vs <27 (n=132): points vs slot -37.4 vs -28, t=-0.68; hit 42% vs 39%, bust 31% vs 33%. No measurable age penalty once ECR is conditioned on."
+  },
+  {
+   "claim": "WR decline after 30",
+   "finding": "WRs drafted top-36 at position aged >=30 (n=23) vs <30 (n=157): points vs slot -48 vs -27.8, t=-1.3; hit 30% vs 37%, bust 48% vs 41%, VORP+ 15.4 vs 36.9. Direction consistent with decline but n=23 and t=-1.3: not significant."
+  },
+  {
+   "claim": "RB7-18 bust rate trending",
+   "finding": "Bust rate by season 33/17/50/17/33% (n=12 each). No trend."
+  },
+  {
+   "claim": "Late-round WR (61-100 overall) hit rate rising",
+   "finding": "Hit rate 28/73/50/55/46%; VORP+ per pick 15.2/21.5/7.0/8.4/3.8 (n=18/15/16/11/13). Hit rate is flat-to-noisy; realized value has fallen since 2022 while RB 61-100 held at 14-26 VORP+/pick."
+  }
+ ],
+ "positional_tiers_pooled": {
+  "QB": {
+   "1-6": {
+    "n": 30,
+    "hit": 0.267,
+    "hit6": 0.5,
+    "bust": 0.233,
+    "bust_games": 0.067,
+    "mean_pts": 294.8,
+    "median_pts": 294.8,
+    "mean_games": 14.4,
+    "rel_top": -66.3,
+    "mean_vorp": 7.8,
+    "mean_vorp_pos": 40.2,
+    "mean_exp_vorp": 71,
+    "realized_frac": 0.567,
+    "sum_exp": 2129,
+    "sum_real": 1207,
+    "vs_slot": -63.2
+   },
+   "7-12": {
+    "n": 30,
+    "hit": 0.367,
+    "hit6": 0.6,
+    "bust": 0.233,
+    "bust_games": 0.167,
+    "mean_pts": 247.5,
+    "median_pts": 275.5,
+    "mean_games": 13.6,
+    "rel_top": -52.9,
+    "mean_vorp": -39.6,
+    "mean_vorp_pos": 19.7,
+    "mean_exp_vorp": 10.4,
+    "realized_frac": 1.885,
+    "sum_exp": 313.2,
+    "sum_real": 590.5,
+    "vs_slot": -48.4
+   },
+   "13-18": {
+    "n": 30,
+    "hit": 0.567,
+    "hit6": 0.733,
+    "bust": 0.1,
+    "bust_games": 0.1,
+    "mean_pts": 242.4,
+    "median_pts": 252,
+    "mean_games": 14.4,
+    "rel_top": -11.5,
+    "mean_vorp": -44.7,
+    "mean_vorp_pos": 10.7,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 319.8,
+    "vs_slot": 0.2
+   },
+   "19-24": {
+    "n": 30,
+    "hit": 0.433,
+    "hit6": 0.7,
+    "bust": 0.2,
+    "bust_games": 0.167,
+    "mean_pts": 190.9,
+    "median_pts": 170.8,
+    "mean_games": 12.9,
+    "rel_top": 47.5,
+    "mean_vorp": -96.1,
+    "mean_vorp_pos": 7.7,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 230.1,
+    "vs_slot": -6.2
+   },
+   "25-36": {
+    "n": 58,
+    "hit": 0.534,
+    "hit6": 0.724,
+    "bust": 0.328,
+    "bust_games": 0.31,
+    "mean_pts": 147.2,
+    "median_pts": 149.7,
+    "mean_games": 10.4,
+    "rel_top": -49.9,
+    "mean_vorp": -139.9,
+    "mean_vorp_pos": 1.6,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 94.9,
+    "vs_slot": 20.1
+   }
+  },
+  "RB": {
+   "1-6": {
+    "n": 30,
+    "hit": 0.3,
+    "hit6": 0.567,
+    "bust": 0.267,
+    "bust_games": 0.133,
+    "mean_pts": 262.5,
+    "median_pts": 246.7,
+    "mean_games": 14.4,
+    "rel_top": 1.8,
+    "mean_vorp": 90.1,
+    "mean_vorp_pos": 101.5,
+    "mean_exp_vorp": 149.7,
+    "realized_frac": 0.678,
+    "sum_exp": 4491.3,
+    "sum_real": 3045.3,
+    "vs_slot": -59.6
+   },
+   "7-12": {
+    "n": 30,
+    "hit": 0.5,
+    "hit6": 0.7,
+    "bust": 0.267,
+    "bust_games": 0.033,
+    "mean_pts": 239.1,
+    "median_pts": 242.6,
+    "mean_games": 15.2,
+    "rel_top": 12.1,
+    "mean_vorp": 66.6,
+    "mean_vorp_pos": 74.9,
+    "mean_exp_vorp": 77,
+    "realized_frac": 0.972,
+    "sum_exp": 2311.4,
+    "sum_real": 2246.9,
+    "vs_slot": -10.4
+   },
+   "13-18": {
+    "n": 30,
+    "hit": 0.333,
+    "hit6": 0.567,
+    "bust": 0.333,
+    "bust_games": 0.1,
+    "mean_pts": 184.9,
+    "median_pts": 198.1,
+    "mean_games": 13.3,
+    "rel_top": 5.2,
+    "mean_vorp": 12.5,
+    "mean_vorp_pos": 39.7,
+    "mean_exp_vorp": 49.4,
+    "realized_frac": 0.804,
+    "sum_exp": 1482.1,
+    "sum_real": 1191.8,
+    "vs_slot": -36.9
+   },
+   "19-24": {
+    "n": 30,
+    "hit": 0.4,
+    "hit6": 0.5,
+    "bust": 0.4,
+    "bust_games": 0.267,
+    "mean_pts": 155.2,
+    "median_pts": 167.3,
+    "mean_games": 12.6,
+    "rel_top": 12.6,
+    "mean_vorp": -17.2,
+    "mean_vorp_pos": 23.9,
+    "mean_exp_vorp": 23.8,
+    "realized_frac": 1.003,
+    "sum_exp": 713.9,
+    "sum_real": 716,
+    "vs_slot": -41
+   },
+   "25-36": {
+    "n": 60,
+    "hit": 0.433,
+    "hit6": 0.583,
+    "bust": 0.35,
+    "bust_games": 0.15,
+    "mean_pts": 139.7,
+    "median_pts": 148,
+    "mean_games": 13,
+    "rel_top": 11.7,
+    "mean_vorp": -32.7,
+    "mean_vorp_pos": 14.7,
+    "mean_exp_vorp": 0.9,
+    "realized_frac": 16.41,
+    "sum_exp": 53.7,
+    "sum_real": 880.6,
+    "vs_slot": -17.4
+   }
+  },
+  "WR": {
+   "1-6": {
+    "n": 30,
+    "hit": 0.4,
+    "hit6": 0.567,
+    "bust": 0.333,
+    "bust_games": 0.067,
+    "mean_pts": 272,
+    "median_pts": 292,
+    "mean_games": 14.6,
+    "rel_top": -26.8,
+    "mean_vorp": 73.9,
+    "mean_vorp_pos": 86.4,
+    "mean_exp_vorp": 129.9,
+    "realized_frac": 0.665,
+    "sum_exp": 3898.4,
+    "sum_real": 2591.6,
+    "vs_slot": -56.1
+   },
+   "7-12": {
+    "n": 30,
+    "hit": 0.2,
+    "hit6": 0.433,
+    "bust": 0.4,
+    "bust_games": 0.033,
+    "mean_pts": 225.5,
+    "median_pts": 222.9,
+    "mean_games": 15,
+    "rel_top": -54.2,
+    "mean_vorp": 27.3,
+    "mean_vorp_pos": 39.6,
+    "mean_exp_vorp": 55.7,
+    "realized_frac": 0.71,
+    "sum_exp": 1671.7,
+    "sum_real": 1186.7,
+    "vs_slot": -28.4
+   },
+   "13-18": {
+    "n": 30,
+    "hit": 0.267,
+    "hit6": 0.5,
+    "bust": 0.467,
+    "bust_games": 0.133,
+    "mean_pts": 194.7,
+    "median_pts": 206.1,
+    "mean_games": 13.5,
+    "rel_top": 28.5,
+    "mean_vorp": -3.4,
+    "mean_vorp_pos": 23.9,
+    "mean_exp_vorp": 32.8,
+    "realized_frac": 0.731,
+    "sum_exp": 982.5,
+    "sum_real": 718.4,
+    "vs_slot": -36.2
+   },
+   "19-24": {
+    "n": 30,
+    "hit": 0.367,
+    "hit6": 0.5,
+    "bust": 0.367,
+    "bust_games": 0.033,
+    "mean_pts": 191.4,
+    "median_pts": 199.6,
+    "mean_games": 14.5,
+    "rel_top": -16.2,
+    "mean_vorp": -6.7,
+    "mean_vorp_pos": 18.4,
+    "mean_exp_vorp": 16.2,
+    "realized_frac": 1.134,
+    "sum_exp": 486,
+    "sum_real": 551,
+    "vs_slot": -22.9
+   },
+   "25-36": {
+    "n": 60,
+    "hit": 0.467,
+    "hit6": 0.5,
+    "bust": 0.467,
+    "bust_games": 0.167,
+    "mean_pts": 169.6,
+    "median_pts": 175.7,
+    "mean_games": 13.7,
+    "rel_top": 7.4,
+    "mean_vorp": -28.5,
+    "mean_vorp_pos": 18.3,
+    "mean_exp_vorp": 0.9,
+    "realized_frac": 21.231,
+    "sum_exp": 51.8,
+    "sum_real": 1100.2,
+    "vs_slot": -19.4
+   }
+  },
+  "TE": {
+   "1-6": {
+    "n": 30,
+    "hit": 0.233,
+    "hit6": 0.567,
+    "bust": 0.3,
+    "bust_games": 0.033,
+    "mean_pts": 177.2,
+    "median_pts": 175.6,
+    "mean_games": 13.9,
+    "rel_top": -53.1,
+    "mean_vorp": 7.2,
+    "mean_vorp_pos": 30,
+    "mean_exp_vorp": 47.7,
+    "realized_frac": 0.628,
+    "sum_exp": 1431.5,
+    "sum_real": 899.3,
+    "vs_slot": -40.5
+   },
+   "7-12": {
+    "n": 30,
+    "hit": 0.367,
+    "hit6": 0.567,
+    "bust": 0.3,
+    "bust_games": 0.1,
+    "mean_pts": 143,
+    "median_pts": 140.3,
+    "mean_games": 13.9,
+    "rel_top": 8.3,
+    "mean_vorp": -27,
+    "mean_vorp_pos": 10.1,
+    "mean_exp_vorp": 0.4,
+    "realized_frac": 28.491,
+    "sum_exp": 10.6,
+    "sum_real": 302,
+    "vs_slot": -19.8
+   },
+   "13-18": {
+    "n": 30,
+    "hit": 0.433,
+    "hit6": 0.533,
+    "bust": 0.267,
+    "bust_games": 0.167,
+    "mean_pts": 116.9,
+    "median_pts": 118.3,
+    "mean_games": 13.7,
+    "rel_top": -12.3,
+    "mean_vorp": -53.1,
+    "mean_vorp_pos": 1.3,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 39.6,
+    "vs_slot": -17.4
+   },
+   "19-24": {
+    "n": 30,
+    "hit": 0.5,
+    "hit6": 0.8,
+    "bust": 0.2,
+    "bust_games": 0.067,
+    "mean_pts": 114.5,
+    "median_pts": 119,
+    "mean_games": 14,
+    "rel_top": -36,
+    "mean_vorp": -55.5,
+    "mean_vorp_pos": 3.4,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 102.9,
+    "vs_slot": 0.1
+   },
+   "25-36": {
+    "n": 59,
+    "hit": 0.39,
+    "hit6": 0.508,
+    "bust": 0.407,
+    "bust_games": 0.119,
+    "mean_pts": 85,
+    "median_pts": 73.2,
+    "mean_games": 12.6,
+    "rel_top": 0.3,
+    "mean_vorp": -85.1,
+    "mean_vorp_pos": 1.7,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 98.3,
+    "vs_slot": -0.9
+   }
+  }
+ },
+ "overall_tiers_by_position_pooled": {
+  "QB": {
+   "1-12": {
+    "n": 0
+   },
+   "13-24": {
+    "n": 4,
+    "hit": 0.25,
+    "hit6": 0.75,
+    "bust": 0,
+    "bust_games": 0,
+    "mean_pts": 340.4,
+    "median_pts": 348.8,
+    "mean_games": 15.8,
+    "rel_top": -12,
+    "mean_vorp": 56.8,
+    "mean_vorp_pos": 56.8,
+    "mean_exp_vorp": 113.9,
+    "realized_frac": 0.499,
+    "sum_exp": 455.4,
+    "sum_real": 227.2,
+    "vs_slot": -57.1
+   },
+   "25-36": {
+    "n": 9,
+    "hit": 0.333,
+    "hit6": 0.667,
+    "bust": 0.222,
+    "bust_games": 0.111,
+    "mean_pts": 322.8,
+    "median_pts": 367.3,
+    "mean_games": 15.1,
+    "rel_top": 18.5,
+    "mean_vorp": 37.8,
+    "mean_vorp_pos": 63.3,
+    "mean_exp_vorp": 84.9,
+    "realized_frac": 0.745,
+    "sum_exp": 764.5,
+    "sum_real": 569.4,
+    "vs_slot": -47.1
+   },
+   "37-60": {
+    "n": 14,
+    "hit": 0.214,
+    "hit6": 0.286,
+    "bust": 0.286,
+    "bust_games": 0.071,
+    "mean_pts": 263.5,
+    "median_pts": 240.9,
+    "mean_games": 13.9,
+    "rel_top": -27.9,
+    "mean_vorp": -23.6,
+    "mean_vorp_pos": 22.1,
+    "mean_exp_vorp": 58.6,
+    "realized_frac": 0.377,
+    "sum_exp": 820.6,
+    "sum_real": 309.2,
+    "vs_slot": -82.2
+   },
+   "61-100": {
+    "n": 39,
+    "hit": 0.385,
+    "hit6": 0.615,
+    "bust": 0.205,
+    "bust_games": 0.128,
+    "mean_pts": 251.2,
+    "median_pts": 275.3,
+    "mean_games": 13.7,
+    "rel_top": -43.3,
+    "mean_vorp": -36.7,
+    "mean_vorp_pos": 19.8,
+    "mean_exp_vorp": 10.3,
+    "realized_frac": 1.919,
+    "sum_exp": 401.6,
+    "sum_real": 770.6,
+    "vs_slot": -40.5
+   },
+   "101-150": {
+    "n": 39,
+    "hit": 0.538,
+    "hit6": 0.744,
+    "bust": 0.154,
+    "bust_games": 0.128,
+    "mean_pts": 225.4,
+    "median_pts": 230.2,
+    "mean_games": 13.9,
+    "rel_top": -51.2,
+    "mean_vorp": -61.4,
+    "mean_vorp_pos": 10.2,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 398.5,
+    "vs_slot": -0.2
+   }
+  },
+  "RB": {
+   "1-12": {
+    "n": 27,
+    "hit": 0.222,
+    "hit6": 0.519,
+    "bust": 0.333,
+    "bust_games": 0.111,
+    "mean_pts": 253.8,
+    "median_pts": 239.5,
+    "mean_games": 14.3,
+    "rel_top": 15.6,
+    "mean_vorp": 83.3,
+    "mean_vorp_pos": 90.5,
+    "mean_exp_vorp": 146.2,
+    "realized_frac": 0.619,
+    "sum_exp": 3947.7,
+    "sum_real": 2443.1,
+    "vs_slot": -63
+   },
+   "13-24": {
+    "n": 21,
+    "hit": 0.476,
+    "hit6": 0.714,
+    "bust": 0.19,
+    "bust_games": 0.095,
+    "mean_pts": 244.1,
+    "median_pts": 247.1,
+    "mean_games": 14.9,
+    "rel_top": -70.5,
+    "mean_vorp": 72.6,
+    "mean_vorp_pos": 88.4,
+    "mean_exp_vorp": 90.9,
+    "realized_frac": 0.973,
+    "sum_exp": 1907.9,
+    "sum_real": 1857.1,
+    "vs_slot": -18.3
+   },
+   "25-36": {
+    "n": 21,
+    "hit": 0.476,
+    "hit6": 0.619,
+    "bust": 0.381,
+    "bust_games": 0.143,
+    "mean_pts": 202.4,
+    "median_pts": 208.9,
+    "mean_games": 13.2,
+    "rel_top": 48.9,
+    "mean_vorp": 29.4,
+    "mean_vorp_pos": 55.5,
+    "mean_exp_vorp": 64.2,
+    "realized_frac": 0.865,
+    "sum_exp": 1348.5,
+    "sum_real": 1166.2,
+    "vs_slot": -34.8
+   },
+   "37-60": {
+    "n": 37,
+    "hit": 0.243,
+    "hit6": 0.459,
+    "bust": 0.405,
+    "bust_games": 0.189,
+    "mean_pts": 168.1,
+    "median_pts": 167.6,
+    "mean_games": 12.9,
+    "rel_top": -70.2,
+    "mean_vorp": -2.7,
+    "mean_vorp_pos": 32.2,
+    "mean_exp_vorp": 38.9,
+    "realized_frac": 0.827,
+    "sum_exp": 1440.1,
+    "sum_real": 1190.8,
+    "vs_slot": -41.6
+   },
+   "61-100": {
+    "n": 63,
+    "hit": 0.492,
+    "hit6": 0.587,
+    "bust": 0.333,
+    "bust_games": 0.127,
+    "mean_pts": 150.6,
+    "median_pts": 163.8,
+    "mean_games": 13.3,
+    "rel_top": -41.6,
+    "mean_vorp": -22.9,
+    "mean_vorp_pos": 19.5,
+    "mean_exp_vorp": 6.5,
+    "realized_frac": 3.004,
+    "sum_exp": 408.2,
+    "sum_real": 1226.3,
+    "vs_slot": -20.9
+   },
+   "101-150": {
+    "n": 80,
+    "hit": 0.438,
+    "hit6": 0.563,
+    "bust": 0.375,
+    "bust_games": 0.138,
+    "mean_pts": 117.4,
+    "median_pts": 113.7,
+    "mean_games": 13.1,
+    "rel_top": -52.4,
+    "mean_vorp": -55.7,
+    "mean_vorp_pos": 9.4,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 749,
+    "vs_slot": 0.8
+   }
+  },
+  "WR": {
+   "1-12": {
+    "n": 31,
+    "hit": 0.323,
+    "hit6": 0.548,
+    "bust": 0.323,
+    "bust_games": 0.032,
+    "mean_pts": 266.2,
+    "median_pts": 263.4,
+    "mean_games": 14.7,
+    "rel_top": -17.5,
+    "mean_vorp": 67.7,
+    "mean_vorp_pos": 77,
+    "mean_exp_vorp": 119.2,
+    "realized_frac": 0.646,
+    "sum_exp": 3695.8,
+    "sum_real": 2387.6,
+    "vs_slot": -51.5
+   },
+   "13-24": {
+    "n": 30,
+    "hit": 0.267,
+    "hit6": 0.467,
+    "bust": 0.467,
+    "bust_games": 0.133,
+    "mean_pts": 220.1,
+    "median_pts": 222.9,
+    "mean_games": 14.1,
+    "rel_top": 0,
+    "mean_vorp": 21.4,
+    "mean_vorp_pos": 42.9,
+    "mean_exp_vorp": 60.1,
+    "realized_frac": 0.714,
+    "sum_exp": 1801.9,
+    "sum_real": 1287.4,
+    "vs_slot": -38.7
+   },
+   "25-36": {
+    "n": 24,
+    "hit": 0.167,
+    "hit6": 0.417,
+    "bust": 0.458,
+    "bust_games": 0.083,
+    "mean_pts": 188.9,
+    "median_pts": 210.1,
+    "mean_games": 13.9,
+    "rel_top": 15.1,
+    "mean_vorp": -8.8,
+    "mean_vorp_pos": 17.5,
+    "mean_exp_vorp": 35.6,
+    "realized_frac": 0.492,
+    "sum_exp": 853.6,
+    "sum_real": 419.8,
+    "vs_slot": -44.4
+   },
+   "37-60": {
+    "n": 60,
+    "hit": 0.417,
+    "hit6": 0.5,
+    "bust": 0.417,
+    "bust_games": 0.117,
+    "mean_pts": 188.3,
+    "median_pts": 198.9,
+    "mean_games": 13.9,
+    "rel_top": -34.8,
+    "mean_vorp": -9.6,
+    "mean_vorp_pos": 23.9,
+    "mean_exp_vorp": 12,
+    "realized_frac": 1.986,
+    "sum_exp": 722.9,
+    "sum_real": 1435.6,
+    "vs_slot": -20.3
+   },
+   "61-100": {
+    "n": 73,
+    "hit": 0.493,
+    "hit6": 0.562,
+    "bust": 0.356,
+    "bust_games": 0.11,
+    "mean_pts": 160.3,
+    "median_pts": 165.4,
+    "mean_games": 14,
+    "rel_top": -9,
+    "mean_vorp": -38.5,
+    "mean_vorp_pos": 11.6,
+    "mean_exp_vorp": 0.2,
+    "realized_frac": 52.738,
+    "sum_exp": 16.1,
+    "sum_real": 850.1,
+    "vs_slot": -10.9
+   },
+   "101-150": {
+    "n": 88,
+    "hit": 0.42,
+    "hit6": 0.489,
+    "bust": 0.489,
+    "bust_games": 0.091,
+    "mean_pts": 122.4,
+    "median_pts": 109.5,
+    "mean_games": 13.3,
+    "rel_top": 24.2,
+    "mean_vorp": -75.9,
+    "mean_vorp_pos": 5.1,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 451.5,
+    "vs_slot": -8.9
+   }
+  },
+  "TE": {
+   "1-12": {
+    "n": 2,
+    "hit": 0.5,
+    "hit6": 1,
+    "bust": 0,
+    "bust_games": 0,
+    "mean_pts": 268.9,
+    "median_pts": 268.9,
+    "mean_games": 16,
+    "rel_top": 0,
+    "mean_vorp": 104.7,
+    "mean_vorp_pos": 104.7,
+    "mean_exp_vorp": 111.6,
+    "realized_frac": 0.938,
+    "sum_exp": 223.2,
+    "sum_real": 209.3,
+    "vs_slot": -7
+   },
+   "13-24": {
+    "n": 5,
+    "hit": 0.2,
+    "hit6": 0.6,
+    "bust": 0.2,
+    "bust_games": 0,
+    "mean_pts": 215.4,
+    "median_pts": 188.5,
+    "mean_games": 14.2,
+    "rel_top": 2.1,
+    "mean_vorp": 46.6,
+    "mean_vorp_pos": 54.7,
+    "mean_exp_vorp": 91.5,
+    "realized_frac": 0.599,
+    "sum_exp": 457.3,
+    "sum_real": 273.7,
+    "vs_slot": -44.8
+   },
+   "25-36": {
+    "n": 6,
+    "hit": 0,
+    "hit6": 0.5,
+    "bust": 0.333,
+    "bust_games": 0,
+    "mean_pts": 157.4,
+    "median_pts": 168.1,
+    "mean_games": 12.8,
+    "rel_top": 3.8,
+    "mean_vorp": -13.2,
+    "mean_vorp_pos": 10.1,
+    "mean_exp_vorp": 53,
+    "realized_frac": 0.192,
+    "sum_exp": 317.9,
+    "sum_real": 60.9,
+    "vs_slot": -66.1
+   },
+   "37-60": {
+    "n": 9,
+    "hit": 0.444,
+    "hit6": 0.667,
+    "bust": 0.222,
+    "bust_games": 0.111,
+    "mean_pts": 185.7,
+    "median_pts": 188.8,
+    "mean_games": 14.3,
+    "rel_top": -10.4,
+    "mean_vorp": 19.4,
+    "mean_vorp_pos": 36.2,
+    "mean_exp_vorp": 36.4,
+    "realized_frac": 0.995,
+    "sum_exp": 327.5,
+    "sum_real": 326,
+    "vs_slot": -17
+   },
+   "61-100": {
+    "n": 25,
+    "hit": 0.2,
+    "hit6": 0.44,
+    "bust": 0.4,
+    "bust_games": 0.08,
+    "mean_pts": 134.7,
+    "median_pts": 131.2,
+    "mean_games": 13.5,
+    "rel_top": -5.8,
+    "mean_vorp": -37.1,
+    "mean_vorp_pos": 8.4,
+    "mean_exp_vorp": 4.6,
+    "realized_frac": 1.815,
+    "sum_exp": 116.2,
+    "sum_real": 210.9,
+    "vs_slot": -40.8
+   },
+   "101-150": {
+    "n": 39,
+    "hit": 0.462,
+    "hit6": 0.59,
+    "bust": 0.256,
+    "bust_games": 0.128,
+    "mean_pts": 129.6,
+    "median_pts": 126.1,
+    "mean_games": 14.2,
+    "rel_top": -54.5,
+    "mean_vorp": -39.2,
+    "mean_vorp_pos": 3.4,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 133.2,
+    "vs_slot": -12.5
+   }
+  }
+ },
+ "trends": {
+  "rb_7_18_bust": {
+   "2021": {
+    "n": 12,
+    "bust": 0.333,
+    "bust_games": 0.167,
+    "hit": 0.417
+   },
+   "2022": {
+    "n": 12,
+    "bust": 0.167,
+    "bust_games": 0.083,
+    "hit": 0.333
+   },
+   "2023": {
+    "n": 12,
+    "bust": 0.5,
+    "bust_games": 0,
+    "hit": 0.333
+   },
+   "2024": {
+    "n": 12,
+    "bust": 0.167,
+    "bust_games": 0.083,
+    "hit": 0.583
+   },
+   "2025": {
+    "n": 12,
+    "bust": 0.333,
+    "bust_games": 0,
+    "hit": 0.417
+   }
+  },
+  "wr_ov_61_100_hit": {
+   "2021": {
+    "n": 18,
+    "hit": 0.278,
+    "hit6": 0.278,
+    "mean_vorp_pos": 15.2
+   },
+   "2022": {
+    "n": 15,
+    "hit": 0.733,
+    "hit6": 0.8,
+    "mean_vorp_pos": 21.5
+   },
+   "2023": {
+    "n": 16,
+    "hit": 0.5,
+    "hit6": 0.563,
+    "mean_vorp_pos": 7
+   },
+   "2024": {
+    "n": 11,
+    "hit": 0.545,
+    "hit6": 0.545,
+    "mean_vorp_pos": 8.4
+   },
+   "2025": {
+    "n": 13,
+    "hit": 0.462,
+    "hit6": 0.692,
+    "mean_vorp_pos": 3.8
+   }
+  },
+  "rb_vs_wr_ov_by_season": {
+   "2021": {
+    "13-24": {
+     "RB": 120.6,
+     "WR": 45,
+     "nRB": 5,
+     "nWR": 5
+    },
+    "25-36": {
+     "RB": 11.8,
+     "WR": 14.2,
+     "nRB": 4,
+     "nWR": 6
+    },
+    "37-60": {
+     "RB": 12.7,
+     "WR": 50.8,
+     "nRB": 9,
+     "nWR": 9
+    },
+    "61-100": {
+     "RB": 14.4,
+     "WR": 15.2,
+     "nRB": 10,
+     "nWR": 18
+    }
+   },
+   "2022": {
+    "13-24": {
+     "RB": 62,
+     "WR": 95.6,
+     "nRB": 5,
+     "nWR": 6
+    },
+    "25-36": {
+     "RB": 52,
+     "WR": 30.5,
+     "nRB": 4,
+     "nWR": 6
+    },
+    "37-60": {
+     "RB": 22.1,
+     "WR": 21,
+     "nRB": 8,
+     "nWR": 11
+    },
+    "61-100": {
+     "RB": 19.7,
+     "WR": 21.5,
+     "nRB": 12,
+     "nWR": 15
+    }
+   },
+   "2023": {
+    "13-24": {
+     "RB": 34.5,
+     "WR": 25,
+     "nRB": 5,
+     "nWR": 6
+    },
+    "25-36": {
+     "RB": 31.5,
+     "WR": 9.2,
+     "nRB": 5,
+     "nWR": 4
+    },
+    "37-60": {
+     "RB": 43.4,
+     "WR": 11.5,
+     "nRB": 5,
+     "nWR": 13
+    },
+    "61-100": {
+     "RB": 18.7,
+     "WR": 7,
+     "nRB": 15,
+     "nWR": 16
+    }
+   },
+   "2024": {
+    "13-24": {
+     "RB": 85.1,
+     "WR": 15.4,
+     "nRB": 2,
+     "nWR": 8
+    },
+    "25-36": {
+     "RB": 93.2,
+     "WR": 12.2,
+     "nRB": 4,
+     "nWR": 4
+    },
+    "37-60": {
+     "RB": 61.9,
+     "WR": 15.9,
+     "nRB": 6,
+     "nWR": 13
+    },
+    "61-100": {
+     "RB": 18.3,
+     "WR": 8.4,
+     "nRB": 14,
+     "nWR": 11
+    }
+   },
+   "2025": {
+    "13-24": {
+     "RB": 150.4,
+     "WR": 43.1,
+     "nRB": 4,
+     "nWR": 5
+    },
+    "25-36": {
+     "RB": 95.2,
+     "WR": 16.5,
+     "nRB": 4,
+     "nWR": 4
+    },
+    "37-60": {
+     "RB": 34.6,
+     "WR": 27.9,
+     "nRB": 9,
+     "nWR": 14
+    },
+    "61-100": {
+     "RB": 25.8,
+     "WR": 3.8,
+     "nRB": 12,
+     "nWR": 13
+    }
+   }
+  }
+ },
+ "rookies": {
+  "QB": {
+   "rookie": {
+    "n": 4,
+    "hit": 0.25,
+    "hit6": 0.5,
+    "bust": 0.25,
+    "bust_games": 0.25,
+    "mean_pts": 221.7,
+    "median_pts": 232.5,
+    "mean_games": 13.8,
+    "rel_top": -22.9,
+    "mean_vorp": -66.5,
+    "mean_vorp_pos": 16,
+    "mean_exp_vorp": 0,
+    "realized_frac": null,
+    "sum_exp": 0,
+    "sum_real": 64,
+    "vs_slot": -40.5
+   },
+   "veteran": {
+    "n": 101,
+    "hit": 0.416,
+    "hit6": 0.634,
+    "bust": 0.188,
+    "bust_games": 0.109,
+    "mean_pts": 254,
+    "median_pts": 273.4,
+    "mean_games": 14,
+    "rel_top": -108.3,
+    "mean_vorp": -32.9,
+    "mean_vorp_pos": 21.9,
+    "mean_exp_vorp": 24.2,
+    "realized_frac": 0.905,
+    "sum_exp": 2442.2,
+    "sum_real": 2211,
+    "vs_slot": -32
+   }
+  },
+  "RB": {
+   "rookie": {
+    "n": 26,
+    "hit": 0.5,
+    "hit6": 0.615,
+    "bust": 0.385,
+    "bust_games": 0.192,
+    "mean_pts": 138.6,
+    "median_pts": 149.3,
+    "mean_games": 12.7,
+    "rel_top": -62.2,
+    "mean_vorp": -32.6,
+    "mean_vorp_pos": 20.1,
+    "mean_exp_vorp": 18,
+    "realized_frac": 1.118,
+    "sum_exp": 467.2,
+    "sum_real": 522.3,
+    "vs_slot": -19.6
+   },
+   "veteran": {
+    "n": 223,
+    "hit": 0.395,
+    "hit6": 0.561,
+    "bust": 0.345,
+    "bust_games": 0.13,
+    "mean_pts": 169.1,
+    "median_pts": 170.3,
+    "mean_games": 13.5,
+    "rel_top": -88,
+    "mean_vorp": -3.4,
+    "mean_vorp_pos": 36.4,
+    "mean_exp_vorp": 38.5,
+    "realized_frac": 0.945,
+    "sum_exp": 8585.1,
+    "sum_real": 8110.2,
+    "vs_slot": -22.8
+   }
+  },
+  "WR": {
+   "rookie": {
+    "n": 28,
+    "hit": 0.643,
+    "hit6": 0.643,
+    "bust": 0.286,
+    "bust_games": 0.036,
+    "mean_pts": 169.6,
+    "median_pts": 184.1,
+    "mean_games": 15.3,
+    "rel_top": -46.8,
+    "mean_vorp": -26.8,
+    "mean_vorp_pos": 15.1,
+    "mean_exp_vorp": 2.2,
+    "realized_frac": 6.829,
+    "sum_exp": 62,
+    "sum_real": 423.4,
+    "vs_slot": 16.9
+   },
+   "veteran": {
+    "n": 278,
+    "hit": 0.367,
+    "hit6": 0.493,
+    "bust": 0.435,
+    "bust_games": 0.104,
+    "mean_pts": 174.1,
+    "median_pts": 174.9,
+    "mean_games": 13.7,
+    "rel_top": -122.6,
+    "mean_vorp": -24.4,
+    "mean_vorp_pos": 23.1,
+    "mean_exp_vorp": 25.3,
+    "realized_frac": 0.912,
+    "sum_exp": 7028.4,
+    "sum_real": 6408.7,
+    "vs_slot": -25.5
+   }
+  },
+  "TE": {
+   "rookie": {
+    "n": 5,
+    "hit": 1,
+    "hit6": 1,
+    "bust": 0,
+    "bust_games": 0,
+    "mean_pts": 189,
+    "median_pts": 176.6,
+    "mean_games": 16.6,
+    "rel_top": -4.7,
+    "mean_vorp": 11.7,
+    "mean_vorp_pos": 21.2,
+    "mean_exp_vorp": 2.5,
+    "realized_frac": 8.634,
+    "sum_exp": 12.3,
+    "sum_real": 106.2,
+    "vs_slot": 38.4
+   },
+   "veteran": {
+    "n": 81,
+    "hit": 0.296,
+    "hit6": 0.531,
+    "bust": 0.309,
+    "bust_games": 0.099,
+    "mean_pts": 144.6,
+    "median_pts": 137.3,
+    "mean_games": 13.8,
+    "rel_top": -90.2,
+    "mean_vorp": -24.4,
+    "mean_vorp_pos": 13.7,
+    "mean_exp_vorp": 17.7,
+    "realized_frac": 0.775,
+    "sum_exp": 1429.8,
+    "sum_real": 1107.8,
+    "vs_slot": -30.7
+   }
+  }
+ },
+ "age": {
+  "RB": {
+   "<=23": {
+    "n": 44,
+    "hit": 0.386,
+    "hit6": 0.545,
+    "bust": 0.432,
+    "bust_games": 0.182,
+    "mean_pts": 183.4,
+    "median_pts": 184.4,
+    "mean_games": 12.6,
+    "rel_top": -105.8,
+    "mean_vorp": 12.5,
+    "mean_vorp_pos": 49.1,
+    "mean_exp_vorp": 61.2,
+    "realized_frac": 0.803,
+    "sum_exp": 2691.4,
+    "sum_real": 2161,
+    "vs_slot": -45.6
+   },
+   "24-26": {
+    "n": 88,
+    "hit": 0.398,
+    "hit6": 0.591,
+    "bust": 0.284,
+    "bust_games": 0.114,
+    "mean_pts": 186.1,
+    "median_pts": 197.1,
+    "mean_games": 14.2,
+    "rel_top": -58.9,
+    "mean_vorp": 13.5,
+    "mean_vorp_pos": 40.1,
+    "mean_exp_vorp": 39.6,
+    "realized_frac": 1.012,
+    "sum_exp": 3487.5,
+    "sum_real": 3531.1,
+    "vs_slot": -19.2
+   },
+   "27-28": {
+    "n": 33,
+    "hit": 0.394,
+    "hit6": 0.606,
+    "bust": 0.273,
+    "bust_games": 0.121,
+    "mean_pts": 197.7,
+    "median_pts": 201.5,
+    "mean_games": 14,
+    "rel_top": -80.5,
+    "mean_vorp": 24,
+    "mean_vorp_pos": 47.9,
+    "mean_exp_vorp": 64.9,
+    "realized_frac": 0.738,
+    "sum_exp": 2140.3,
+    "sum_real": 1580.3,
+    "vs_slot": -36.8
+   },
+   "29+": {
+    "n": 15,
+    "hit": 0.467,
+    "hit6": 0.6,
+    "bust": 0.4,
+    "bust_games": 0.2,
+    "mean_pts": 177.9,
+    "median_pts": 150.7,
+    "mean_games": 11.9,
+    "rel_top": -149.9,
+    "mean_vorp": 4.4,
+    "mean_vorp_pos": 53.9,
+    "mean_exp_vorp": 48.9,
+    "realized_frac": 1.102,
+    "sum_exp": 733.2,
+    "sum_real": 808.1,
+    "vs_slot": -38.7
+   },
+   "<27": {
+    "n": 132,
+    "hit": 0.394,
+    "hit6": 0.576,
+    "bust": 0.333,
+    "bust_games": 0.136,
+    "mean_pts": 185.2,
+    "median_pts": 194.3,
+    "mean_games": 13.7,
+    "rel_top": -74.1,
+    "mean_vorp": 13.2,
+    "mean_vorp_pos": 43.1,
+    "mean_exp_vorp": 46.8,
+    "realized_frac": 0.921,
+    "sum_exp": 6178.9,
+    "sum_real": 5692.1,
+    "vs_slot": -28
+   },
+   ">=27": {
+    "n": 48,
+    "hit": 0.417,
+    "hit6": 0.604,
+    "bust": 0.313,
+    "bust_games": 0.146,
+    "mean_pts": 191.5,
+    "median_pts": 201.3,
+    "mean_games": 13.4,
+    "rel_top": -55.1,
+    "mean_vorp": 17.9,
+    "mean_vorp_pos": 49.8,
+    "mean_exp_vorp": 59.9,
+    "realized_frac": 0.831,
+    "sum_exp": 2873.5,
+    "sum_real": 2388.4,
+    "vs_slot": -37.4
+   }
+  },
+  "WR": {
+   "<=24": {
+    "n": 64,
+    "hit": 0.375,
+    "hit6": 0.469,
+    "bust": 0.422,
+    "bust_games": 0.094,
+    "mean_pts": 208.5,
+    "median_pts": 211.4,
+    "mean_games": 14.3,
+    "rel_top": -51.9,
+    "mean_vorp": 10.3,
+    "mean_vorp_pos": 40.3,
+    "mean_exp_vorp": 40.6,
+    "realized_frac": 0.993,
+    "sum_exp": 2598.2,
+    "sum_real": 2579.5,
+    "vs_slot": -27.2
+   },
+   "25-27": {
+    "n": 59,
+    "hit": 0.373,
+    "hit6": 0.508,
+    "bust": 0.39,
+    "bust_games": 0.085,
+    "mean_pts": 205.8,
+    "median_pts": 202.5,
+    "mean_games": 14.6,
+    "rel_top": -67.4,
+    "mean_vorp": 8.4,
+    "mean_vorp_pos": 29.9,
+    "mean_exp_vorp": 38.3,
+    "realized_frac": 0.782,
+    "sum_exp": 2257.9,
+    "sum_real": 1764.8,
+    "vs_slot": -26.1
+   },
+   "28-29": {
+    "n": 34,
+    "hit": 0.353,
+    "hit6": 0.559,
+    "bust": 0.412,
+    "bust_games": 0.088,
+    "mean_pts": 209.5,
+    "median_pts": 210.6,
+    "mean_games": 14,
+    "rel_top": -61.1,
+    "mean_vorp": 10.9,
+    "mean_vorp_pos": 42.6,
+    "mean_exp_vorp": 45.9,
+    "realized_frac": 0.929,
+    "sum_exp": 1559.8,
+    "sum_real": 1448.4,
+    "vs_slot": -32
+   },
+   "30+": {
+    "n": 23,
+    "hit": 0.304,
+    "hit6": 0.478,
+    "bust": 0.478,
+    "bust_games": 0.174,
+    "mean_pts": 177.3,
+    "median_pts": 184.4,
+    "mean_games": 12.9,
+    "rel_top": 33.2,
+    "mean_vorp": -21.8,
+    "mean_vorp_pos": 15.4,
+    "mean_exp_vorp": 29.3,
+    "realized_frac": 0.527,
+    "sum_exp": 674.5,
+    "sum_real": 355.3,
+    "vs_slot": -48
+   },
+   "<30": {
+    "n": 157,
+    "hit": 0.369,
+    "hit6": 0.503,
+    "bust": 0.408,
+    "bust_games": 0.089,
+    "mean_pts": 207.7,
+    "median_pts": 208.8,
+    "mean_games": 14.3,
+    "rel_top": -94.2,
+    "mean_vorp": 9.7,
+    "mean_vorp_pos": 36.9,
+    "mean_exp_vorp": 40.9,
+    "realized_frac": 0.903,
+    "sum_exp": 6415.9,
+    "sum_real": 5792.6,
+    "vs_slot": -27.8
+   },
+   ">=30": {
+    "n": 23,
+    "hit": 0.304,
+    "hit6": 0.478,
+    "bust": 0.478,
+    "bust_games": 0.174,
+    "mean_pts": 177.3,
+    "median_pts": 184.4,
+    "mean_games": 12.9,
+    "rel_top": 33.2,
+    "mean_vorp": -21.8,
+    "mean_vorp_pos": 15.4,
+    "mean_exp_vorp": 29.3,
+    "realized_frac": 0.527,
+    "sum_exp": 674.5,
+    "sum_real": 355.3,
+    "vs_slot": -48
+   }
+  }
+ },
+ "two_sample_tests": {
+  "RB_vs_WR_ov_13-24": {
+   "nA": 21,
+   "nB": 30,
+   "meanA": 88.4,
+   "meanB": 42.9,
+   "diff": 45.5,
+   "se": 18.2,
+   "t": 2.5
+  },
+  "RB_vs_WR_ov_25-36": {
+   "nA": 21,
+   "nB": 24,
+   "meanA": 55.5,
+   "meanB": 17.5,
+   "diff": 38,
+   "se": 13.8,
+   "t": 2.76
+  },
+  "RB_vs_WR_ov_37-60": {
+   "nA": 37,
+   "nB": 60,
+   "meanA": 32.2,
+   "meanB": 23.9,
+   "diff": 8.3,
+   "se": 9.3,
+   "t": 0.89
+  },
+  "RB_vs_WR_ov_61-100": {
+   "nA": 63,
+   "nB": 73,
+   "meanA": 19.5,
+   "meanB": 11.6,
+   "diff": 7.8,
+   "se": 4.6,
+   "t": 1.71
+  },
+  "RB_vs_WR_ov_101-150": {
+   "nA": 80,
+   "nB": 88,
+   "meanA": 9.4,
+   "meanB": 5.1,
+   "diff": 4.2,
+   "se": 3,
+   "t": 1.43
+  },
+  "RB_vs_WR_ov_19_36": {
+   "nA": 30,
+   "nB": 38,
+   "meanA": 58.1,
+   "meanB": 24.6,
+   "diff": 33.4,
+   "se": 12.4,
+   "t": 2.71
+  },
+  "RB_vs_WR_ov_37_100": {
+   "nA": 100,
+   "nB": 133,
+   "meanA": 24.2,
+   "meanB": 17.2,
+   "diff": 7,
+   "se": 4.6,
+   "t": 1.51
+  },
+  "QB_1_3_vs_4_10": {
+   "nA": 15,
+   "nB": 35,
+   "meanA": 56.4,
+   "meanB": 23.2,
+   "diff": 33.2,
+   "se": 14.6,
+   "t": 2.27
+  },
+  "TE_1_3_vs_4_8": {
+   "nA": 15,
+   "nB": 25,
+   "meanA": 43.6,
+   "meanB": 17.1,
+   "diff": 26.5,
+   "se": 15.1,
+   "t": 1.75
+  },
+  "TE_4_8_vs_9_16": {
+   "nA": 25,
+   "nB": 40,
+   "meanA": 17.1,
+   "meanB": 3.2,
+   "diff": 13.9,
+   "se": 6.9,
+   "t": 2.02
+  },
+  "QB_4_10_vs_11_18": {
+   "nA": 35,
+   "nB": 40,
+   "meanA": 23.2,
+   "meanB": 11.5,
+   "diff": 11.8,
+   "se": 7.2,
+   "t": 1.64
+  },
+  "RB_old_vs_young_top36": {
+   "nA": 48,
+   "nB": 132,
+   "meanA": -37.4,
+   "meanB": -28,
+   "diff": -9.4,
+   "se": 13.8,
+   "t": -0.68
+  },
+  "WR_old_vs_young_top36": {
+   "nA": 23,
+   "nB": 157,
+   "meanA": -48,
+   "meanB": -27.8,
+   "diff": -20.1,
+   "se": 15.5,
+   "t": -1.3
+  },
+  "rookieRB_vs_vetRB_top150": {
+   "nA": 26,
+   "nB": 223,
+   "meanA": -19.6,
+   "meanB": -22.8,
+   "diff": 3.2,
+   "se": 15.9,
+   "t": 0.2
+  },
+  "rookieWR_vs_vetWR_top150": {
+   "nA": 28,
+   "nB": 278,
+   "meanA": 16.9,
+   "meanB": -25.5,
+   "diff": 42.5,
+   "se": 12.4,
+   "t": 3.41
+  }
+ },
+ "season_counts": {
+  "2021": {
+   "scored": 471,
+   "top150": 148,
+   "dnp0": 30
+  },
+  "2022": {
+   "scored": 502,
+   "top150": 149,
+   "dnp0": 58
+  },
+  "2023": {
+   "scored": 496,
+   "top150": 150,
+   "dnp0": 60
+  },
+  "2024": {
+   "scored": 545,
+   "top150": 150,
+   "dnp0": 86
+  },
+  "2025": {
+   "scored": 457,
+   "top150": 149,
+   "dnp0": 55
+  }
+ }
+}

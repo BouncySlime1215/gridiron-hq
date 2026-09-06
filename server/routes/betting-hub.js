@@ -232,8 +232,19 @@ function plainCalibration(cal) {
  * what is actually working, what is blocked, and on what. Every field is a
  * live measurement, not a status someone typed in.
  */
-r.get('/status', (_req, res, next) => {
+// Every field below is a live measurement, but the ten reports behind them are
+// synchronous and together take ~2s of event-loop time — long enough to stall
+// every other request in flight (a phone's first draft-board load sat behind
+// this). The picture doesn't change second to second, so one computation
+// serves the next minute of readers; ?fresh=1 forces a recompute.
+const STATUS_TTL_MS = 60 * 1000;
+let statusCache = { at: 0, body: null };
+
+r.get('/status', (req, res, next) => {
   try {
+    if (!req.query.fresh && statusCache.body && Date.now() - statusCache.at < STATUS_TTL_MS) {
+      return res.json(statusCache.body);
+    }
     const odds = oddsUsage();
     const board = executionBoardSummary();
     const movement = espnWatchStatus();
@@ -247,7 +258,7 @@ r.get('/status', (_req, res, next) => {
     const teaserExecution = teaserExecutionBoard();
 
     const credits = odds.requests_remaining;
-    return res.json({
+    const body = {
       // Ordered the way the plan orders them: structural edges first, because
       // those are the ones that do not require beating the market.
       edges: [
@@ -303,7 +314,9 @@ r.get('/status', (_req, res, next) => {
           latest: poly.recent_moves?.[0]?.captured_at ?? null },
         capture_stale: board.stale, latest_multibook_capture: board.latest_capture
       }
-    });
+    };
+    statusCache = { at: Date.now(), body };
+    return res.json(body);
   } catch (e) { next(e); }
 });
 

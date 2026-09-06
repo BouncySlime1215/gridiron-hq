@@ -108,7 +108,11 @@ app.use((err, req, res, next) => {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(path.join(DIST, 'index.html'))) {
-  app.use(express.static(DIST));
+  // Vite names every bundle by content hash, so /assets/* can be cached for good;
+  // only index.html (which points at the current hashes) must be revalidated.
+  // Over a tunnel to a phone this turns three ~300ms round trips into zero.
+  app.use('/assets', express.static(path.join(DIST, 'assets'), { immutable: true, maxAge: '1y' }));
+  app.use(express.static(DIST, { index: false, maxAge: 0 }));
   // SPA fallback — client-side routes like /trade-lab must not 404 on refresh.
   app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
 }

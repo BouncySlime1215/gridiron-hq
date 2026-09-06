@@ -16,7 +16,10 @@ import { spawn, spawnSync } from 'node:child_process';
 const PORT = process.env.API_PORT || 5177;
 const LOCAL = `http://localhost:${PORT}`;
 
-if (spawnSync('cloudflared', ['--version'], { stdio: 'ignore' }).error) {
+// launchd (the launcher spawns this) runs with a minimal PATH that doesn't
+// include Homebrew, so the bare command name resolves in a terminal but not here.
+const CLOUDFLARED = process.env.CLOUDFLARED_BIN || (spawnSync('cloudflared', ['--version'], { stdio: 'ignore' }).error ? '/opt/homebrew/bin/cloudflared' : 'cloudflared');
+if (spawnSync(CLOUDFLARED, ['--version'], { stdio: 'ignore' }).error) {
   console.error('cloudflared is not installed. Run: brew install cloudflared');
   process.exit(1);
 }
@@ -36,7 +39,7 @@ if (!ready) {
   process.exit(1);
 }
 
-const child = spawn('cloudflared', ['tunnel', '--url', LOCAL, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'] });
+const child = spawn(CLOUDFLARED, ['tunnel', '--url', LOCAL, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'] });
 let announced = false;
 
 async function register(url) {

@@ -99,6 +99,11 @@ r.post('/tunnel-url', requireDirectLoopback, (req, res) => {
   res.json({ tunnel_url: tunnelUrl });
 });
 
+// Unauthenticated but loopback-only: just the current address, which is
+// meaningless without also holding a pairing code. Lets the launcher
+// (scripts/launcher.mjs) report readiness without needing a session of its own.
+r.get('/tunnel-url', requireDirectLoopback, (_req, res) => res.json({ tunnel_url: tunnelUrl }));
+
 r.get('/pairing-info', requireDirectLoopback, requireAuthenticated, (req, res) => {
   const active = row(`SELECT COUNT(*) AS n FROM auth_pairing_codes
     WHERE user_id=? AND used_at IS NULL AND expires_at > datetime('now')`, req.auth.userId).n;

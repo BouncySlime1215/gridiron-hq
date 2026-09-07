@@ -668,12 +668,15 @@ export function rankTargets(state, limit = 8) {
       // No projection (deep sleepers, K/DEF): fall back to the market's opinion on the same scale.
       : Math.max(0, 40 - p.board_rank) * 0.5 * needWeight;
     if (vorp != null && vorp > 0) reasons.push(`+${Math.round(vorp)} pts over a replacement ${p.position}`);
-    // Changed teams into a room with little vacated opportunity: his
-    // projection likely assumes last year's role, which he may not inherit.
-    if (p.moved && (p.moved_vacated_share ?? 1) < 0.3 && vorp != null && vorp > 0) {
-      const cut = 1 - (MOVER_RETENTION[p.position] ?? 0.8);
-      score -= vorp * needWeight * cut;
-      reasons.push(`changed teams into a crowded target share — projection may overstate his role`);
+    // Team change is information, not a score term. The offseason model
+    // (docs/OFFSEASON_MODEL.md, walk-forward 2023-25) found movers keep ×0.82
+    // of prior opportunity — but the "into a crowded room" interaction this
+    // block used to price does NOT exist (team change × vacated share 1.059,
+    // CI straddling 1, replicated in rookies), and the mover effect is not
+    // additive over a projection that already knows the season-T depth chart,
+    // which ESPN's does. So: surface it, don't double-count it.
+    if (p.moved && vorp != null && vorp > 0) {
+      reasons.push(`changed teams this offseason (movers keep ~${Math.round((MOVER_RETENTION[p.position] ?? 0.8) * 100)}% of prior opportunity on average)`);
     }
     if (vorp != null && vorp > 0 && Math.abs(realized - 1) >= 0.12) {
       reasons.push(realized < 1

@@ -183,6 +183,16 @@
       var Orig = window.WebSocket;
       var Patched = function WebSocket(url, protocols) {
         var ws = arguments.length > 1 ? new Orig(url, protocols) : new Orig(url);
+        // Temporary diagnostic (2026-09-07, remove once mock-draft socket
+        // behavior is confirmed): every socket this page opens, matched or
+        // not, goes through the SAME capture pipeline as a real frame (just
+        // tagged 'diag') so it lands in draft_capture_events and is checkable
+        // server-side directly — no console, no screenshot, nothing to relay.
+        try {
+          log('page opened a WebSocket to', String(url), isCapturedUrl(String(url)) ? '(matches, watching it)' : '(does not match ' + HOST_MATCH + ')');
+          enqueueFrame('in', String(url), 'GHQ_DIAG socket_opened matched=' + isCapturedUrl(String(url)));
+          buildBatches();
+        } catch (e) { /* ignore */ }
         try { if (isCapturedUrl(String(url))) { state.baselineDirty = true; ws.addEventListener('message', teeEvent); } } catch (e) { /* ignore */ }
         return ws;
       };

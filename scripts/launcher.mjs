@@ -79,7 +79,14 @@ function startApp() {
 }
 
 function startTunnel() {
-  if (processRunning('cloudflared tunnel')) return 'already running';
+  // Must be specific to THIS tunnel (the app's, port APP_PORT) — a bare
+  // 'cloudflared tunnel' substring also matches the launcher's own permanent
+  // tunnel (a different port, started once by launchd and always up), so
+  // that generic check always found *something* and silently skipped ever
+  // starting the app's tunnel unless someone ran `npm run tunnel` by hand.
+  // Found 2026-09-07 chasing why /api/auth/tunnel-url stayed null despite
+  // /start reporting success.
+  if (processRunning(`cloudflared tunnel --url http://localhost:${APP_PORT}`)) return 'already running';
   const out = fs.openSync(path.join(LOG_DIR, 'tunnel.log'), 'a');
   const child = spawn(NODE_BIN, ['scripts/tunnel.mjs'],
     { cwd: ROOT, detached: true, stdio: ['ignore', out, out] });

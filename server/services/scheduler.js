@@ -17,7 +17,47 @@
  * cheap: the MLB schedule is one request for a whole season, and refreshes are
  * skipped entirely when the data is already fresh.
  */
-import { db, rows, run } from '../db/index.js';
+import { db, rows, run, row } from '../db/index.js';
+
+/**
+ * True while any linked league's draft is likely happening on ESPN itself,
+ * whether or not our own mirror page is open.
+ *
+ * Investigated 2026-09-06/07: Nick's ESPN browser session kept getting
+ * kicked during a real draft. The first theory was our own 4s live-draft
+ * poll — but the audit trail showed our mirror's last sync was 90 minutes
+ * BEFORE that draft started (he wasn't on our page at all; he drafted
+ * straight on ESPN.com). The actual overlap: `league_rosters`, the hourly
+ * job that sweeps all 7 connected leagues, fired at 23:49:54 UTC — squarely
+ * inside the draft window (23:00-00:21 UTC, 192 picks). espnCookies() is one
+ * global lookup, so that sweep hit ESPN with the SAME espn_s2/SWID his
+ * browser was actively using to draft, from a server, mid-draft. That is a
+ * real "concurrent use of one session" signature independent of whether our
+ * mirror was open — so the gate has to key off the draft's SCHEDULED window
+ * (draft_at), not our own poll activity, or it misses exactly this case.
+ */
+const DRAFT_WINDOW_BEFORE_MIN = 15;   // commissioners start late more often than early
+const DRAFT_WINDOW_AFTER_HOURS = 4;   // generous — a slow 16-round snake can run long
+function liveDraftActive() {
+  // draft_at is stored ISO8601 ("...T23:00:00.000Z"); datetime('now', ...) is
+  // space-separated with no 'Z'. Comparing those two formats as raw strings
+  // is a lexicographic trap — 'T' (0x54) sorts after a space (0x20), so an
+  // unnormalized comparison silently gets the wrong answer on same-day
+  // boundaries (verified with a throwaway in-memory table before trusting
+  // this). datetime(draft_at) normalizes both sides to the same format.
+  //
+  // Guarded: `drafts` is one of the ad-hoc tables created at import time by
+  // routes/drafts.js rather than a migration (see db/index.js's comment on
+  // migrate()), so a narrow test harness that never imports that route has
+  // no `drafts` table at all — this must never take down an unrelated job
+  // over that, so "can't tell" reads as "no live draft", not an error.
+  try {
+    return !!row(`SELECT 1 FROM drafts WHERE league_row_id IS NOT NULL
+                  AND status = 'active' AND draft_at IS NOT NULL
+                  AND datetime(draft_at) <= datetime('now', '+${DRAFT_WINDOW_BEFORE_MIN} minutes')
+                  AND datetime(draft_at) >= datetime('now', '-${DRAFT_WINDOW_AFTER_HOURS} hours')`);
+  } catch { return false; }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS sync_log (
@@ -105,6 +145,7 @@ async function refreshMlbBoxscores() {
  * now like every other data source in this file.
  */
 async function refreshPlayerRosters() {
+  if (liveDraftActive()) return { skipped: 'live draft in progress — see liveDraftActive()' };
   const { syncPlayersFromESPN } = await import('../routes/espn.js');
   return syncPlayersFromESPN();
 }
@@ -136,10 +177,14 @@ async function refreshEspnRosters() {
  * class of bug as every other "silently stopped updating" fix this session.
  */
 async function refreshLeagueRosters() {
+  const skipEspn = liveDraftActive();
   const { syncEspnLeague, syncSleeperLeague } = await import('../routes/leagues.js');
   const leagues = rows('SELECT * FROM leagues');
   const results = [];
   for (const lg of leagues) {
+    // Only ESPN shares Nick's browser session cookie — Sleeper has no such
+    // conflict, so only ESPN leagues pause while a draft is being polled.
+    if (skipEspn && lg.platform !== 'sleeper') { results.push({ league_id: lg.id, ok: true, skipped: true }); continue; }
     try {
       const detail = lg.platform === 'sleeper' ? await syncSleeperLeague(lg) : await syncEspnLeague(lg);
       run(`UPDATE leagues SET connection_status='connected', sync_error=NULL WHERE id=?`, lg.id);

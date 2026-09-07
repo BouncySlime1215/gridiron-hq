@@ -178,6 +178,14 @@ function Room({ id }: { id: string }) {
     } catch (e: any) { setErr(e.message); }
   }, [id]);
 
+  // Consecutive sync failures back the poll off (4s -> 8s -> 16s, capped at
+  // 20s) instead of retrying every 4s regardless. Investigated 2026-09-06:
+  // if ESPN is already unhappy with this session (the thing under
+  // investigation after a draft-night logout), continuing to hammer it
+  // every 4s can only make that worse; backing off gives it room to recover
+  // and self-heals the moment a sync succeeds again.
+  const failStreak = useRef(0);
+
   const tick = useCallback(async () => {
     if (syncing.current) return;
     syncing.current = true;
@@ -192,8 +200,10 @@ function Room({ id }: { id: string }) {
       }
       setDesynced(!!s.desynced);
       setErr(null);
+      failStreak.current = 0;
     } catch (e: any) {
       setErr(e.message);   // a sync failure must never blank the board
+      failStreak.current += 1;
     } finally {
       syncing.current = false;
     }
@@ -212,8 +222,16 @@ function Room({ id }: { id: string }) {
   useEffect(() => { loadAssist(); tick(); }, [loadAssist, tick]);
   useEffect(() => {
     if (!live) return;
-    const iv = setInterval(tick, 4000);
-    return () => clearInterval(iv);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const loop = async () => {
+      await tick();
+      if (cancelled) return;
+      const delay = Math.min(20000, 4000 * 2 ** failStreak.current);
+      timer = setTimeout(loop, delay);
+    };
+    timer = setTimeout(loop, 4000);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [live, tick]);
 
   const clock = state?.on_the_clock;

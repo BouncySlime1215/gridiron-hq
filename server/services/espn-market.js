@@ -11,6 +11,7 @@
  * stats[1120261] week-1 projection, lastNewsDate.
  */
 import { db, row, rows, run } from '../db/index.js';
+import { BROWSER_HEADERS } from './espn-draft.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
@@ -35,7 +36,7 @@ export async function syncEspnMarket(leagueRowId, { limit = 400 } = {}) {
       filterStatsForTopScoringPeriodIds: { value: 2, additionalValue: [`00${season}`, `10${season}`, `11${season}1`] }
     }
   };
-  const headers = { Accept: 'application/json', 'x-fantasy-filter': JSON.stringify(filter) };
+  const headers = { ...BROWSER_HEADERS, 'x-fantasy-filter': JSON.stringify(filter) };
   if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
   const url = `${BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}?view=kona_player_info`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(30000) });

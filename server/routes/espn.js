@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
-import { espnCookies } from '../services/espn-draft.js';
+import { espnCookies, BROWSER_HEADERS } from '../services/espn-draft.js';
 import { findPlayerMatch } from '../services/player-identity.js';
 import { recordSync } from '../services/scheduler.js';
 import { extractEntities } from '../news/normalize.js';
@@ -44,7 +44,7 @@ export async function syncPlayersFromESPN() {
     const season = SEASON();
     const url = `${BASE}/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
     const filter = { players: { limit: 800, sortPercOwned: { sortAsc: false, sortPriority: 1 } } };
-    const headers = { Accept: 'application/json', 'X-Fantasy-Filter': JSON.stringify(filter) };
+    const headers = { ...BROWSER_HEADERS, 'X-Fantasy-Filter': JSON.stringify(filter) };
     // This is a public default-league endpoint, not tied to any one private league,
     // but sending cookies from whichever ESPN league is connected (if any) can only
     // help it see a fuller/more current player pool — same helper the live-draft

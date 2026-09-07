@@ -23,3 +23,5 @@ server/data/launcher-key.txt
 server/data/launcher-tunnel-url.txt
 server/data/launcher-logs/
 server/data.sqlite.bak.*
+server/data.sqlite.pre-reset-*.bak-shm
+server/data.sqlite.pre-reset-*.bak-wal

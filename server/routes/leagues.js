@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db, rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
+import { BROWSER_HEADERS } from '../services/espn-draft.js';
 import { assertLeagueMember, assertCommissioner } from '../platform/auth.js';
 
 const r = Router();
@@ -119,7 +120,7 @@ const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K',
 async function fetchEspn(lg, season) {
   const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}`
     + `?scoringPeriodId=1&view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
-  const headers = { Accept: 'application/json' };
+  const headers = { ...BROWSER_HEADERS };
   if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
   const resp = await fetch(url, { headers });
   if (!resp.ok) throw new Error(`ESPN API ${resp.status}`);

@@ -56,10 +56,25 @@ export function espnCookies() {
   return { s2, swid };
 }
 
+// A bare Node fetch sending only Accept + Cookie is the single most
+// bot-like signal this request could carry, independent of anything about
+// session reuse — a real browser sends a dozen more headers. Investigated
+// 2026-09-06 after Nick's ESPN session kept getting kicked during a draft;
+// this doesn't touch the cookie-sharing/concurrency question (see
+// scheduler.js's DRAFT_ACTIVE gate for that) but is a free, safe improvement
+// regardless of whether it was the actual cause.
+export const BROWSER_HEADERS = {
+  Accept: 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  Referer: 'https://fantasy.espn.com/',
+  Origin: 'https://fantasy.espn.com'
+};
+
 async function espnGet(leagueId, season, views) {
   const { s2, swid } = espnCookies();
   const url = `${BASE}/seasons/${season}/segments/0/leagues/${leagueId}?${views.map(v => `view=${v}`).join('&')}`;
-  const headers = { Accept: 'application/json' };
+  const headers = { ...BROWSER_HEADERS };
   if (s2 && swid) headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
   if (!resp.ok) throw new Error(`ESPN API ${resp.status} on league ${leagueId}`);

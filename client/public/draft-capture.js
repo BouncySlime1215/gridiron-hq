@@ -214,6 +214,13 @@
         log('retrying in', backoffMs(), 'ms after', status || message);
         return false;
       };
+      // Dry run (?dry=1 on the script src): capture and log everything, post
+      // nothing — for verifying the tap in an ESPN mock draft without a
+      // single frame reaching a real draft board.
+      if (config.dry) {
+        log('DRY batch', batch.frames.length, 'frames', batch.frames.map(function (f) { return f.dir + ':' + String(f.data).slice(0, 40); }));
+        return Promise.resolve(done(true, 200));
+      }
       var p;
       try {
         p = fetchImpl(endpoint(), {
@@ -472,8 +479,9 @@
       root.__GHQ_CAPTURE_INSTANCE__.renderPill();
     } else {
       if (root.__GHQ_CAPTURE_INSTANCE__) { try { root.__GHQ_CAPTURE_INSTANCE__.stop(); } catch (e) { /* ignore */ } }
-      var instance = createCapture({ win: root, config: { draftId: q.draft, key: q.key, origin: origin } });
-      instance.config = { draftId: q.draft, key: q.key, origin: origin };
+      var cfg = { draftId: q.draft, key: q.key, origin: origin, dry: q.dry === '1' || q.dry === 'true' };
+      var instance = createCapture({ win: root, config: cfg });
+      instance.config = cfg;
       root.__GHQ_CAPTURE_INSTANCE__ = instance;
       instance.start();
     }

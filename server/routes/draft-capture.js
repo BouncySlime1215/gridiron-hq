@@ -20,10 +20,12 @@ const LOCAL_ORIGIN = `http://localhost:${Number(process.env.API_PORT) || 5177}`;
  * Build the javascript: URL. A tiny loader only — the real logic is fetched from
  * our origin with a cache-buster, so the bookmark never goes stale.
  */
-export function buildBookmarklet({ origin, draftId, ingestKey }) {
+export function buildBookmarklet({ origin, draftId, ingestKey, dry = false }) {
   const base = String(origin).replace(/\/+$/, '');
   const loaderUrl = `${base}/draft-capture.js`;
-  const query = `?draft=${encodeURIComponent(String(draftId))}&key=${encodeURIComponent(ingestKey)}&origin=${encodeURIComponent(base)}&t=`;
+  // dry=1: the script captures and logs frames but posts nothing — for a
+  // rehearsal in an ESPN mock draft that must not touch a real draft board.
+  const query = `?draft=${encodeURIComponent(String(draftId))}&key=${encodeURIComponent(ingestKey)}&origin=${encodeURIComponent(base)}${dry ? '&dry=1' : ''}&t=`;
   const href = `javascript:(function(){var s=document.createElement('script');s.src=${JSON.stringify(loaderUrl + query)}+Date.now();document.head.appendChild(s);})();`;
   return { href, loader_url: loaderUrl };
 }
@@ -67,8 +69,9 @@ r.get('/:id/capture-bookmarklet', requireAuthenticated, async (req, res, next) =
       warnings.push(`no tunnel is registered; falling back to ${LOCAL_ORIGIN}. The https ESPN page will block an http script (mixed content) — run \`npm run tunnel\` first.`);
     }
     const { href, loader_url } = buildBookmarklet({ origin, draftId, ingestKey: resolved.key });
+    const { href: href_dry } = buildBookmarklet({ origin, draftId, ingestKey: resolved.key, dry: true });
     res.json({
-      href, loader_url, origin, draft_id: draftId,
+      href, href_dry, loader_url, origin, draft_id: draftId,
       tunnel_up: !!tunnel, key_source: resolved.source, href_bytes: Buffer.byteLength(href), warnings
     });
   } catch (error) { next(error); }

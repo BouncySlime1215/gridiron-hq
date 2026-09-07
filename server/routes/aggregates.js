@@ -215,6 +215,12 @@ export function trendPct(value, trend) {
 }
 
 // Aggregate view: each source rank + blended consensus
+//
+// The ESPN-vs-others weighting here is hand-set, not fitted — tried fitting real
+// inverse-variance weights 2026-09-07 and declined it (0/3 held-out seasons; ESPN
+// and Sleeper have no historical archive to fit against, and FFC vs FPECR RMSE is
+// nearly identical per position anyway, so there's nothing to redistribute). See
+// docs/CONSENSUS_WEIGHTS.md before re-attempting this.
 export function computeConsensus() {
   const players = rows(`
     SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr, t.primary_color,

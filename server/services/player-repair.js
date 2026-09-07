@@ -113,6 +113,66 @@ export function unclaimedTeamPositionDuplicates() {
 }
 
 /**
+ * Audit the players.gsis_id <-> nflverse crosswalk written by
+ * server/services/nflverse.js#syncCrosswalk. Read-only: lists three distinct
+ * failure shapes rather than fixing anything, so a human (or the repair pass
+ * this feeds) can see the actual damage before touching a row.
+ *
+ *  - name_mismatches: a row's gsis_id points at nflverse weekly/depth/injury/
+ *    opportunity data for a *different* named person — the shape you get when
+ *    a stale gsis_id -> player_id binding wins over the espn_id match.
+ *  - shared_gsis: the same gsis_id assigned to more than one players row —
+ *    always a bug, since a real NFL identity is one row.
+ *  - missing_gsis: an offense-skill player with a stable espn_id but no
+ *    gsis_id at all, so player_week_usage can never carry their rows.
+ */
+export function gsisCrosswalkAudit() {
+  const players = rows(`SELECT id, name, position, espn_id, gsis_id FROM players WHERE gsis_id IS NOT NULL`);
+
+  const nameSources = [
+    { table: 'nfl_player_week_features', nameCol: 'player_name', idCol: 'player_id' },
+    { table: 'nfl_depth', nameCol: 'player_name', idCol: 'gsis_id' },
+    { table: 'nfl_injuries', nameCol: 'full_name', idCol: 'gsis_id' },
+    { table: 'nfl_ffopportunity_weekly', nameCol: 'player_name', idCol: 'player_gsis_id' }
+  ];
+
+  const name_mismatches = [];
+  for (const p of players) {
+    for (const src of nameSources) {
+      const evidence = rows(`SELECT "${src.nameCol}" AS name, COUNT(*) AS n FROM "${src.table}"
+        WHERE "${src.idCol}" = ? AND "${src.nameCol}" IS NOT NULL AND "${src.nameCol}" != ''
+        GROUP BY "${src.nameCol}" ORDER BY n DESC`, p.gsis_id);
+      if (!evidence.length) continue;
+      const total = evidence.reduce((s, e) => s + e.n, 0);
+      const top = evidence[0];
+      // nflverse sources abbreviate first names ("T.Kelce") while players.name is
+      // full ("Travis Kelce"); compare on last-name + first-initial, not exact string.
+      const shortForm = n => normalizePlayerName(n).split(' ').filter(Boolean)
+        .map((w, i, arr) => i === arr.length - 1 ? w : w[0]).join('');
+      if (shortForm(top.name) === shortForm(p.name)) continue;
+      name_mismatches.push({
+        player_id: p.id, player_name: p.name, position: p.position, gsis_id: p.gsis_id,
+        source: src.table, nflverse_name: top.name, evidence_rows: top.n, evidence_total: total
+      });
+    }
+  }
+
+  const shared_gsis = rows(`SELECT gsis_id, COUNT(*) AS n, GROUP_CONCAT(id) AS player_ids, GROUP_CONCAT(name, ' | ') AS names
+    FROM players WHERE gsis_id IS NOT NULL GROUP BY gsis_id HAVING COUNT(*) > 1`);
+
+  const missing_gsis = rows(`SELECT id, name, position, espn_id FROM players
+    WHERE espn_id IS NOT NULL AND gsis_id IS NULL AND position IN ('QB','RB','WR','TE')`);
+
+  return {
+    generated_at: new Date().toISOString(), dry_run: true,
+    players_with_gsis: players.length,
+    name_mismatches, name_mismatch_count: name_mismatches.length,
+    shared_gsis, shared_gsis_count: shared_gsis.length,
+    missing_gsis, missing_gsis_count: missing_gsis.length
+  };
+}
+
+/**
  * Find rows where the GSIS-linked name disagrees with the master label. This
  * is deliberately read-only: a row may also own Sleeper, ESPN, roster and
  * draft references, so a single source is not allowed to rename the person.

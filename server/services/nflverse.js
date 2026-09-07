@@ -187,6 +187,7 @@ export async function syncCrosswalk() {
   };
 
   const up = db.prepare('UPDATE players SET gsis_id = ? WHERE id = ?');
+  const clearGsis = db.prepare('UPDATE players SET gsis_id = NULL WHERE id = ?');
   const addHistorical = db.prepare(`INSERT INTO players
     (name,position,team_id,depth_rank,phase,fantasy_relevant,espn_id,gsis_id)
     VALUES (?,?,NULL,99,'historical',0,?,?)`);
@@ -209,7 +210,14 @@ export async function syncCrosswalk() {
         iNgs < 0 ? null : (rec[iNgs] || null),
         iBirth < 0 ? null : (rec[iBirth] || null),
         numAt(rec, iRookieSeason), numAt(rec, iDraftYear), numAt(rec, iDraftRound), numAt(rec, iDraftPick));
-      let id = byGsis.get(gsis) ?? byEspn.get(String(rec[iEspn]));
+      // espn_id always wins: it's what our own sync keys on, and it's the only
+      // signal here that can outrank a *wrong* gsis binding already sitting on
+      // some other row (a name-fallback mismatch from a prior run, a shared
+      // name+position collision, etc). Falling back to the existing gsis
+      // binding only when espn_id doesn't resolve keeps historical rows (which
+      // have no espn_id) stable across reruns without letting a stale gsis
+      // binding shadow the real espn-matched owner forever.
+      let id = byEspn.get(String(rec[iEspn])) ?? byGsis.get(gsis);
       if (!id) {
         const found = findPlayerMatch(noEspnCandidates,
           { espn_id: null, name: rec[iName], position: rec[iPos], team_id: null });
@@ -236,7 +244,14 @@ export async function syncCrosswalk() {
         createdHistorical++;
       }
       if (!id) continue;
+      // A gsis_id must belong to exactly one row. If some other row already
+      // holds this gsis (a stale binding the espn_id match above just
+      // overrode), release it — otherwise the same gsis ends up on two rows
+      // and every downstream join keyed on gsis_id becomes ambiguous.
+      const staleOwner = byGsis.get(gsis);
+      if (staleOwner != null && staleOwner !== id) clearGsis.run(staleOwner);
       up.run(gsis, id);
+      byGsis.set(gsis, id);
       matched++;
     }
     db.exec('COMMIT');

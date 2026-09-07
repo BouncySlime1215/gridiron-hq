@@ -144,7 +144,11 @@ function fitOne(data, spec) {
   return fitLogistic(data, spec.family, spec.tuning);
 }
 
-function fitHead(data, spec) {
+// Exported (additively — no behaviour here changes) so a challenger evaluation
+// can fit the SHIPPED baseline with the shipped code rather than a lookalike
+// reimplementation. A challenger graded against a hand-copied baseline is
+// grading its author's copy, not the model users get.
+export function fitHead(data, spec) {
   if (spec.family === 'ensemble') {
     const members = spec.members.map(id => {
       const member = TD_CALIBRATION_HEADS.find(x => x.id === id);

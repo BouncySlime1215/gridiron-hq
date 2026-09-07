@@ -197,32 +197,48 @@
 
   function relTime(ts) { if (!ts) return 'never'; var s = Math.max(0, Math.round((Date.now() - ts) / 1000)); return s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago'; }
 
+  // A plain <div> appended straight into the ESPN page shares its CSS
+  // cascade both ways: a page rule with a broad selector (e.g. "div") can
+  // reach in and restyle the pill, and — if this pill ever grew page-level
+  // <style> rules — this pill's own CSS could reach out and affect ESPN's UI.
+  // A shadow root is a real boundary in both directions; `all: initial` on
+  // the host resets any inherited property before the shadow styles apply.
+  // (docs/RESEARCH_UI_PATTERNS.md, "Chrome extension overlay".)
+  function pillShadow() {
+    var host = document.getElementById('ghq-capture-pill-host');
+    if (host && host.shadowRoot) return host.shadowRoot;
+    host = document.createElement('div');
+    host.id = 'ghq-capture-pill-host';
+    host.setAttribute('style', 'all:initial;position:fixed;right:12px;bottom:12px;z-index:2147483647;');
+    document.body.appendChild(host);
+    var root = host.attachShadow({ mode: 'open' });
+    root.innerHTML =
+      '<style>' +
+      '.pill{font:12px/1.4 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111;background:#e6f4ea;' +
+      'border:1px solid #9bd0a8;border-radius:999px;padding:6px 10px 6px 12px;box-shadow:0 2px 8px rgba(0,0,0,.18);' +
+      'display:flex;align-items:center;gap:8px;max-width:70vw;pointer-events:auto;}' +
+      '.pill.waiting{background:#eef1f5;border-color:#c7ccd4}' +
+      '.pill.warn{background:#fff4d6;border-color:#e6c56d}' +
+      '.pill.fatal{background:#fde8e8;border-color:#e59a9a}' +
+      '.close{border:0;background:transparent;font-size:14px;cursor:pointer;color:#555;padding:0 2px;line-height:1}' +
+      '</style>' +
+      '<div class="pill" id="pill"><span id="text"></span><button type="button" class="close" id="close" title="Hide (capture keeps running)">×</button></div>';
+    root.getElementById('close').onclick = function () { state.dismissed = true; try { host.parentNode.removeChild(host); } catch (e) { /* ignore */ } };
+    return root;
+  }
+
   function renderPill() {
     if (!document.body || state.dismissed) return;
     try {
-      var el = document.getElementById('ghq-capture-pill');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = 'ghq-capture-pill';
-        el.setAttribute('style', 'position:fixed;right:12px;bottom:12px;z-index:2147483647;font:12px/1.4 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;' +
-          'color:#111;background:#e6f4ea;border:1px solid #9bd0a8;border-radius:999px;padding:6px 10px 6px 12px;box-shadow:0 2px 8px rgba(0,0,0,.18);' +
-          'display:flex;align-items:center;gap:8px;max-width:70vw;pointer-events:auto;');
-        var text = document.createElement('span'); text.id = 'ghq-capture-pill-text';
-        var close = document.createElement('button');
-        close.type = 'button'; close.textContent = '×'; close.title = 'Hide (capture keeps running)';
-        close.setAttribute('style', 'border:0;background:transparent;font-size:14px;cursor:pointer;color:#555;padding:0 2px;line-height:1;');
-        close.onclick = function () { state.dismissed = true; try { el.parentNode.removeChild(el); } catch (e) { /* ignore */ } };
-        el.appendChild(text); el.appendChild(close);
-        document.body.appendChild(el);
-      }
+      var root = pillShadow();
+      var el = root.getElementById('pill');
       var waiting = state.lastError && state.lastError.message === 'no live draft found in Gridiron HQ right now';
-      el.style.background = state.fatal ? '#fde8e8' : waiting ? '#eef1f5' : state.lastError ? '#fff4d6' : '#e6f4ea';
-      el.style.borderColor = state.fatal ? '#e59a9a' : waiting ? '#c7ccd4' : state.lastError ? '#e6c56d' : '#9bd0a8';
+      el.className = 'pill' + (state.fatal ? ' fatal' : waiting ? ' waiting' : state.lastError ? ' warn' : '');
       var status = state.fatal ? 'stopped · ' + (state.lastError.message || 'rejected')
         : waiting ? 'waiting for a live draft in Gridiron HQ'
         : state.lastError ? 'retrying (' + (state.lastError.status || 'net') + ')'
         : 'listening' + (state.draftName ? ' · ' + state.draftName : '');
-      var t = document.getElementById('ghq-capture-pill-text');
+      var t = root.getElementById('text');
       if (t) t.textContent = 'Gridiron HQ · ' + status + ' · ' + state.framesSeen + ' frames · last ' + relTime(state.lastOkAt);
     } catch (e) { /* ignore */ }
   }

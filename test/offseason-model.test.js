@@ -99,8 +99,19 @@ const INJURY_FACTOR = 0.85;
 // on disjoint intervals and NO injured player was ever a mover. The effect
 // measurement then read the contrast group's movers as an injury bonus. A
 // fixture that correlates its own conditions tests nothing.
+/**
+ * The league's seed. Every injected condition — who moves, who is demoted, who
+ * gets hurt, and where a mover goes — is a pure function of
+ * (FIXTURE_SEED, team, slot, season) and of nothing else: no Math.random, no
+ * clock, no dependence on iteration order or on the temporary file's path. Two
+ * runs of this file therefore build a byte-identical league and `measureEffects`
+ * returns the same numbers to the last digit, which is what lets the assertions
+ * below pin a value instead of a direction. Change the seed and every number in
+ * this file has to be re-derived; that is the point of naming it.
+ */
+const FIXTURE_SEED = 0x5eed1215;
 function hash(a, b, c) {
-  let x = (a * 0x9e3779b1 + b * 0x85ebca6b + c * 0xc2b2ae35) >>> 0;
+  let x = (a * 0x9e3779b1 + b * 0x85ebca6b + c * 0xc2b2ae35 + FIXTURE_SEED) >>> 0;
   x ^= x >>> 16; x = Math.imul(x, 0x7feb352d) >>> 0;
   x ^= x >>> 15; x = Math.imul(x, 0x846ca68b) >>> 0;
   x ^= x >>> 16;
@@ -410,15 +421,19 @@ test('measureEffects recovers the size of every effect the fixture injected', ()
     `team change should recover a discount near ${MOVER_FACTOR}, got ${e.team_change.multiplier}`);
   assert.ok(e.team_change.ci_multiplier.hi < 1, 'and its CI must exclude no effect');
 
-  // Demotion is asserted on direction and significance only, not size. Its
-  // group is defined by a depth-rank delta, and that delta also moves when a
+  // Demotion is NOT asserted at its injected size, and the gap is the point.
+  // The group is defined by a depth-rank delta, and that delta also moves when a
   // player's PRIOR usage rank drifts for unrelated reasons — a coarse
-  // three-deep proxy contaminated by rank churn attenuates any real effect
-  // toward 1. That attenuation is a property of the depth chart as evidence,
-  // not a defect in the estimator, and pinning a number here would only lock in
-  // the fixture's particular churn rate.
-  assert.ok(e.depth_demotion.multiplier < 0.95,
-    `depth demotion should come back a clear discount, got ${e.depth_demotion.multiplier}`);
+  // three-deep proxy contaminated by rank churn attenuates a 0.60 injection to
+  // about 0.81 here. That attenuation is a property of the depth chart as
+  // evidence, not a defect in the estimator (it is why the docs call the real
+  // 0.712 a floor). Because the league is seeded (`FIXTURE_SEED`) the recovered
+  // value is exact and reproducible, so it is pinned to a band rather than to a
+  // direction: an earlier `< 0.7` assertion read as an intermittent failure when
+  // it was in fact a stable 0.85 against an expectation that had never been
+  // derived from this fixture.
+  assert.ok(e.depth_demotion.multiplier > 0.75 && e.depth_demotion.multiplier < 0.87,
+    `seeded fixture must recover the attenuated demotion at ~0.81, got ${e.depth_demotion.multiplier}`);
   assert.ok(e.depth_demotion.ci_multiplier.hi < 1);
 
   // Promotion was never injected, so it must come back indistinguishable from
@@ -426,6 +441,16 @@ test('measureEffects recovers the size of every effect the fixture injected', ()
   assert.ok(e.depth_promotion.crosses_zero,
     `promotion was not injected but measured ${e.depth_promotion.multiplier}`);
   assert.ok(e.hc_change.crosses_zero, 'no coaching effect was injected');
+});
+
+test('measureEffects is deterministic: the same seeded league gives the same numbers', () => {
+  const a = M.measureEffects([2022, 2023, 2024, 2025]).effects;
+  const b = M.measureEffects([2022, 2023, 2024, 2025]).effects;
+  for (const key of Object.keys(a)) {
+    assert.deepEqual(b[key], a[key], `${key} moved between two runs of the same fixture`);
+  }
+  assert.equal(a.depth_demotion.n_group, 183, 'the seeded league must build the same demotion group');
+  assert.equal(a.depth_demotion.n_contrast, 535);
 });
 
 test('measureEffects prices the injury return the fixture injected, in the right direction', () => {
@@ -542,6 +567,45 @@ test('walkForward never lets a model see the season it is graded on', () => {
 test('the shipped fit is the one the docs justify', () => {
   assert.equal(M.SHIPPED_FIT, 'ridge_shipped_features');
   assert.deepEqual(M.MULTIPLIER_BOUNDS, { lo: 0.4, hi: 1.6 });
+  // v2 was measured and declined; the shipped set must still be v1's.
+  assert.ok(!M.SHIPPED_FEATURES.some(f => f.startsWith('v2_')),
+    'no 66-column feature earned a place in the published multiplier');
+});
+
+// ---------------------------------------------------------------------------
+// v2: the 66-column join
+// ---------------------------------------------------------------------------
+
+test('the v2 design extends v1 by two columns per candidate, value and missing flag', () => {
+  assert.equal(M.V2_FEATURE_NAMES.length, M.FEATURE_NAMES.length + 2 * M.V2_COLUMNS.length);
+  for (const c of M.V2_COLUMNS) {
+    assert.ok(M.V2_BLOCKS.includes(c.block), `${c.col} has an unknown block ${c.block}`);
+    assert.ok(['continuous', 'binary'].includes(c.kind));
+  }
+  const kept = M.keepV2(new Array(M.V2_FEATURE_NAMES.length).fill(5), M.v2BlockFeatures(['charting']));
+  const charting = new Set(M.v2BlockFeatures(['charting']));
+  for (const [i, name] of M.V2_FEATURE_NAMES.entries()) {
+    assert.equal(kept[i], charting.has(name) ? 5 : 0, name);
+  }
+});
+
+test('a missing off_player_season_features table degrades to flags, not to zeros pretending to be data', () => {
+  // This fixture has no off_* tables at all, which is the honest test of the
+  // fallback: every v2 value must read as absent, and every missing flag as 1.
+  const rowsIn = M.attachV2Features(M.panelFor([2024]));
+  assert.ok(rowsIn.length > 50);
+  assert.ok(rowsIn.every(r => r.v2 === null), 'no feature row should be invented');
+  const v = M.featureVectorV2(rowsIn[0]);
+  assert.equal(v.length, M.V2_FEATURE_NAMES.length);
+  for (const c of M.V2_COLUMNS) {
+    assert.equal(v[M.V2_FEATURE_NAMES.indexOf(`v2_${c.col}`)], 0);
+    assert.equal(v[M.V2_FEATURE_NAMES.indexOf(`v2_${c.col}_missing`)], 1, c.col);
+  }
+  const measured = M.measureV2Effects([2023, 2024, 2025]);
+  assert.equal(measured.coverage.join_rate, 0);
+  for (const e of Object.values(measured.effects)) {
+    assert.equal(e.verdict, 'DECLINED (n)', `${e.column} claimed an effect with no data behind it`);
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -1156,6 +1156,518 @@ export function walkForward({
   return { field, test_seasons: testSeasons, per_season: perSeason, pooled: overall };
 }
 
+// ---------------------------------------------------------------------------
+// v2: the 66-column offseason feature set
+//
+// `offseason-data.js` assembles one 66-column row per player-season into
+// `off_player_season_features` (2021-2026). This section is the second pass: it
+// joins that row onto the SAME panel v1 was fitted and graded on, tests every
+// new variable as its own effect line, and then puts them in the ridge and a
+// GBM together against the shipped v1 model. Nothing here changes what
+// `offseasonAdjustment` publishes unless the walk-forward says it should — see
+// docs/OFFSEASON_MODEL.md §9.
+//
+// LOOK-AHEAD. Every column used below is either a fact about season T-1 or a
+// season-T fact settled before Week 1. Three exclusions are deliberate:
+//   * `sleeper_depth_chart_order` / `sleeper_injury_status` exist for the
+//     current season only — Sleeper publishes a live snapshot with no history,
+//     so stamping today's chart onto 2023 would be a leak with no historical
+//     counterpart to fit on.
+//   * the contract columns are empty after 2022 (the nflverse OTC feed has no
+//     signing later than 2022), so they cannot be tested on 2023-25 at all.
+//   * `implied_team_points`, `implied_points_delta_vs_prior` and
+//     `division_sos_proxy` are season MEANS of per-game closing lines, and the
+//     lines for weeks 2+ are set during season T. They are tested, and they are
+//     flagged: only the Week-1 line (v1's `implied_points_delta`) is strictly
+//     preseason. Both are reported so the difference is visible rather than
+//     assumed.
+// ---------------------------------------------------------------------------
+
+const v2Cache = new Map();
+
+/**
+ * `off_player_season_features` for one season, keyed by gsis.
+ *
+ * Read with a direct SELECT rather than by importing `offseason-data.js`: that
+ * module runs its `CREATE TABLE IF NOT EXISTS` block at import time, and this
+ * file is on a runtime read path (and on a synthetic test fixture that has no
+ * `off_*` tables at all). A missing table is an empty map, not a throw.
+ */
+function v2Season(season) {
+  if (v2Cache.has(season)) return v2Cache.get(season);
+  let map = new Map();
+  try {
+    map = new Map(rows('SELECT * FROM off_player_season_features WHERE season = ?', season)
+      .map(r => [r.gsis_id, r]));
+  } catch { map = new Map(); }
+  v2Cache.set(season, map);
+  return map;
+}
+
+/** Attach the 66-column row to each panel row as `.v2` (null when absent). */
+export function attachV2Features(panelRows) {
+  for (const r of panelRows) {
+    if (r.v2 === undefined) r.v2 = v2Season(r.season).get(r.player_id) ?? null;
+  }
+  return panelRows;
+}
+
+/** Coverage of the join and of each candidate column, on a given row set. */
+export function v2Coverage(panelRows) {
+  attachV2Features(panelRows);
+  const joined = panelRows.filter(r => r.v2);
+  const cols = {};
+  for (const c of V2_COLUMNS) {
+    const n = panelRows.filter(r => Number.isFinite(v2Value(r, c.col))).length;
+    cols[c.col] = r4(n / (panelRows.length || 1));
+  }
+  return { n: panelRows.length, joined: joined.length,
+    join_rate: r4(joined.length / (panelRows.length || 1)), columns: cols };
+}
+
+function v2Value(row, col) {
+  const v = row.v2?.[col];
+  return Number.isFinite(v) ? v : null;
+}
+
+/**
+ * The candidate variables, one line each.
+ *
+ * `block` groups them for the joint model and the ablation. `kind` decides the
+ * effect line: a binary column is group-vs-contrast, a continuous one is top
+ * tercile vs bottom tercile of the rows that have it (thresholds reported), so
+ * "a high prior aDOT" is a statement about a third of the panel rather than
+ * about an arbitrary cut.
+ */
+export const V2_COLUMNS = Object.freeze([
+  // Prior-season charting (PFR advanced + NGS). Thin by construction: NGS
+  // publishes qualified players only.
+  { col: 'prior_adot', block: 'charting', kind: 'continuous', label: 'prior aDOT' },
+  { col: 'prior_drop_pct', block: 'charting', kind: 'continuous', label: 'prior drop %' },
+  { col: 'prior_broken_tackles', block: 'charting', kind: 'continuous', label: 'prior broken tackles' },
+  { col: 'prior_ngs_separation', block: 'charting', kind: 'continuous', label: 'prior NGS separation' },
+  { col: 'prior_ngs_cushion', block: 'charting', kind: 'continuous', label: 'prior NGS cushion' },
+  { col: 'prior_ngs_air_yards_share', block: 'charting', kind: 'continuous', label: 'prior NGS air-yards share' },
+  { col: 'prior_yac_oe', block: 'charting', kind: 'continuous', label: 'prior YAC over expected' },
+  { col: 'prior_ryoe_per_att', block: 'charting', kind: 'continuous', label: 'prior RYOE per attempt' },
+  // Prior-season role and efficiency.
+  { col: 'prior_snap_share', block: 'role', kind: 'continuous', label: 'prior snap share' },
+  { col: 'prior_wopr', block: 'role', kind: 'continuous', label: 'prior WOPR' },
+  { col: 'prior_air_yard_share', block: 'role', kind: 'continuous', label: 'prior air-yard share' },
+  { col: 'prior_epa_per_play', block: 'role', kind: 'continuous', label: 'prior EPA per play' },
+  { col: 'prior_xfp_per_game', block: 'role', kind: 'continuous', label: 'prior expected FP/game' },
+  { col: 'prior_xfp_diff', block: 'role', kind: 'continuous', label: 'prior actual − expected FP/game' },
+  // Competition added at his position over the offseason.
+  { col: 'capital_added_at_position', block: 'competition', kind: 'continuous', label: 'R1-3 picks added at his position' },
+  { col: 'top_pick_added_at_position', block: 'competition', kind: 'continuous', label: 'best pick added at his position' },
+  { col: 'veterans_added_at_position', block: 'competition', kind: 'continuous', label: 'veterans added at his position' },
+  { col: 'new_team_vacated_target_share', block: 'competition', kind: 'continuous', label: 'new team vacated target share' },
+  { col: 'new_team_vacated_carry_share', block: 'competition', kind: 'continuous', label: 'new team vacated carry share' },
+  { col: 'own_team_vacated_share', block: 'competition', kind: 'continuous', label: 'own team vacated share' },
+  // Depth chart at T from the August+ snapshot, and its delta vs the end of T-1.
+  { col: 'depth_slot_t', block: 'depth', kind: 'continuous', label: 'depth slot at T (Aug+ snapshot)' },
+  { col: 'depth_slot_delta', block: 'depth', kind: 'continuous', label: 'depth slot delta vs end of T-1' },
+  // Quarterback and coaching, quantified rather than flagged.
+  { col: 'qb_qbr_delta', block: 'qb_coach', kind: 'continuous', label: 'new QB1 QBR − old QB1 QBR' },
+  { col: 'hc_tenure_years', block: 'qb_coach', kind: 'continuous', label: 'head-coach tenure' },
+  // Team context. The three implied-line columns are season means — see the
+  // look-ahead note above.
+  { col: 'implied_team_points', block: 'team', kind: 'continuous', label: 'team implied points at T', caveat: 'season mean of per-game closing lines' },
+  { col: 'implied_points_delta_vs_prior', block: 'team', kind: 'continuous', label: 'implied points delta vs T-1', caveat: 'season mean of per-game closing lines' },
+  { col: 'division_sos_proxy', block: 'team', kind: 'continuous', label: 'opponent implied points (SOS)', caveat: 'season mean of per-game closing lines' },
+  { col: 'team_pass_rate_prior', block: 'team', kind: 'continuous', label: 'team dropback rate at T-1' },
+  { col: 'team_plays_prior', block: 'team', kind: 'continuous', label: 'team plays per game at T-1' },
+  { col: 'team_points_per_game_prior', block: 'team', kind: 'continuous', label: 'team points per game at T-1' },
+  { col: 'dome_home', block: 'team', kind: 'binary', label: 'home games in a dome' },
+  { col: 'bye_week', block: 'team', kind: 'continuous', label: 'bye week' },
+  // Injury history at T-1, in more detail than v1's games-missed count.
+  { col: 'injury_games_missed_prior', block: 'injury', kind: 'continuous', label: 'weeks listed Out at T-1' },
+  { col: 'injury_reports_prior', block: 'injury', kind: 'continuous', label: 'weeks on the injury report at T-1' },
+  { col: 'ir_stints_prior', block: 'injury', kind: 'continuous', label: 'IR-length stints at T-1' },
+  { col: 'late_season_injury_flag', block: 'injury', kind: 'binary', label: 'Out in the last four weeks of T-1' },
+  // Biography.
+  { col: 'age_at_season', block: 'bio', kind: 'continuous', label: 'age at T' },
+  { col: 'years_exp', block: 'bio', kind: 'continuous', label: 'years of experience' },
+  { col: 'draft_round', block: 'bio', kind: 'continuous', label: 'draft round' }
+]);
+
+/** Columns that exist in the table and are deliberately NOT tested or fitted. */
+export const V2_EXCLUDED = Object.freeze({
+  sleeper_depth_chart_order: 'current season only — no history to fit on; using it historically would be a leak',
+  sleeper_injury_status: 'current season only — same reason',
+  apy: 'the OTC feed has no signing after 2022; empty on every evaluation season',
+  apy_cap_pct: 'empty after 2022',
+  apy_rank_on_team_at_position: 'empty after 2022',
+  contract_year: 'empty after 2022',
+  new_contract: 'empty after 2022',
+  contract_years_remaining: 'empty after 2022',
+  rookie: 'the panel requires a prior season, so every row is 0',
+  home_surface: 'a text field, and turf/grass is not an offseason change',
+  qb_change: 'already in v1 as qb1_change, and declined there',
+  hc_change: 'already in v1 as hc_change, and declined there',
+  team_change: 'already in v1 as changed_team, and shipped there'
+});
+
+const V2_BLOCK_LIST = ['charting', 'role', 'competition', 'depth', 'qb_coach', 'team', 'injury', 'bio'];
+export const V2_BLOCKS = Object.freeze(V2_BLOCK_LIST.slice());
+
+/**
+ * Tercile cuts, with the tie case handled explicitly.
+ *
+ * A discrete column like `capital_added_at_position` is zero for most of the
+ * panel, so both tercile points land on 0 and a naive `>= hi` / `<= lo` split
+ * puts the same rows in BOTH arms — which silently reports the difference
+ * between a group and itself as a null. The high arm is therefore always
+ * strictly above the low cut, which for such a column degrades to the only
+ * split the data supports: any vs none.
+ */
+function terciles(values) {
+  const s = [...values].sort((a, b) => a - b);
+  const lo = s[Math.floor(s.length / 3)], hi = s[Math.floor((2 * s.length) / 3)];
+  return { lo, hi: Math.max(hi, lo), tied: hi <= lo };
+}
+
+/**
+ * One effect line per new variable, on the same rows, the same mean-reversion
+ * residual and the same bootstrap v1 used. A continuous variable is cut at its
+ * terciles; a binary one is 1 vs 0. `verdict` is REAL when the difference CI
+ * excludes zero and both arms clear n=20, otherwise DECLINED.
+ */
+export function measureV2Effects(seasons = [2021, 2022, 2023, 2024, 2025], { field = 'y_share' } = {}) {
+  const rowsIn = attachV2Features(panelFor(seasons)).filter(r => Number.isFinite(r[field]));
+  const mr = fitMeanReversion(rowsIn, field);
+  const resid = new Map(rowsIn.map(r => [r, r[field] - meanReversionPredict(mr, r)]));
+  const diffCi = (gv, cv, seed = 99) => {
+    let s = seed >>> 0;
+    const rand = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const d = new Array(2000);
+    for (let it = 0; it < 2000; it++) {
+      let a = 0, b = 0;
+      for (let i = 0; i < gv.length; i++) a += gv[Math.floor(rand() * gv.length)];
+      for (let i = 0; i < cv.length; i++) b += cv[Math.floor(rand() * cv.length)];
+      d[it] = a / gv.length - b / cv.length;
+    }
+    d.sort((x, y) => x - y);
+    return { lo: r4(d[50]), hi: r4(d[1949]) };
+  };
+
+  const results = {};
+  for (const spec of V2_COLUMNS) {
+    const have = rowsIn.filter(r => Number.isFinite(v2Value(r, spec.col)));
+    let g, c, cut = null;
+    if (spec.kind === 'binary') {
+      g = have.filter(r => v2Value(r, spec.col) === 1);
+      c = have.filter(r => v2Value(r, spec.col) === 0);
+    } else {
+      const t = terciles(have.map(r => v2Value(r, spec.col)));
+      cut = { low_at_or_below: r4(t.lo), high_at_or_above: r4(t.hi), tercile_tie: t.tied };
+      g = have.filter(r => v2Value(r, spec.col) >= t.hi && v2Value(r, spec.col) > t.lo);
+      c = have.filter(r => v2Value(r, spec.col) <= t.lo);
+    }
+    const base = { column: spec.col, block: spec.block, label: spec.label, field,
+      kind: spec.kind, cut, caveat: spec.caveat ?? null,
+      coverage: r4(have.length / (rowsIn.length || 1)),
+      n_group: g.length, n_contrast: c.length,
+      per_season_n: seasons.map(s => have.filter(r => r.season === s).length) };
+    if (g.length < 20 || c.length < 20) {
+      results[spec.col] = { ...base, insufficient: true, verdict: 'DECLINED (n)' };
+      continue;
+    }
+    const gv = g.map(r => resid.get(r)), cv = c.map(r => resid.get(r));
+    const d = mean(gv) - mean(cv);
+    const ci = diffCi(gv, cv);
+    results[spec.col] = { ...base,
+      effect_log: r4(d), multiplier: r4(Math.exp(d)),
+      ci_multiplier: { lo: r4(Math.exp(ci.lo)), hi: r4(Math.exp(ci.hi)) },
+      crosses_zero: ci.lo <= 0 && ci.hi >= 0,
+      verdict: ci.lo <= 0 && ci.hi >= 0 ? 'DECLINED' : 'REAL' };
+  }
+  return { seasons, field, n: rowsIn.length, coverage: v2Coverage(rowsIn), effects: results };
+}
+
+/**
+ * The v2 design: every v1 column, then two columns per candidate variable — the
+ * value (0 when absent) and an explicit missing flag, so "no NGS row" is a state
+ * the model can price rather than an average receiver.
+ */
+export const V2_FEATURE_NAMES = Object.freeze([
+  ...FEATURE_NAMES,
+  ...V2_COLUMNS.flatMap(c => [`v2_${c.col}`, `v2_${c.col}_missing`])
+]);
+
+export function featureVectorV2(r) {
+  const base = featureVector(r);
+  const extra = [];
+  for (const c of V2_COLUMNS) {
+    const v = v2Value(r, c.col);
+    extra.push(v ?? 0, v == null ? 1 : 0);
+  }
+  return [...base, ...extra];
+}
+
+/** Names of the v2 columns belonging to a set of blocks (plus their flags). */
+export function v2BlockFeatures(blocks) {
+  const set = new Set(blocks);
+  return V2_COLUMNS.filter(c => set.has(c.block)).flatMap(c => [`v2_${c.col}`, `v2_${c.col}_missing`]);
+}
+
+/** Project a v2 vector onto a named subset, zeroing the rest. */
+export function keepV2(vector, names) {
+  const out = new Array(V2_FEATURE_NAMES.length).fill(0);
+  for (const n of names) { const j = V2_FEATURE_NAMES.indexOf(n); if (j >= 0) out[j] = vector[j]; }
+  return out;
+}
+
+const v2Vec = names => r => keepV2(featureVectorV2(r), names);
+
+/**
+ * The v2 walk-forward: the SAME held-out seasons, the SAME rows, the same
+ * team-season-clustered paired bootstrap as v1, with v1's shipped model as the
+ * incumbent every candidate has to beat.
+ *
+ * `candidates` maps a name to the feature-name list it is allowed to see.
+ * Every candidate is a ridge fitted with leave-one-season-out lambda inside the
+ * training window, plus one GBM on the full v2 set.
+ */
+export function walkForwardV2({
+  testSeasons = [2023, 2024, 2025], firstFitSeason = FIRST_DEPTH_SEASON,
+  field = 'y_share', lambdas = LAMBDA_GRID, gbm = true, candidates = null
+} = {}) {
+  const allV2 = V2_COLUMNS.flatMap(c => [`v2_${c.col}`, `v2_${c.col}_missing`]);
+  const cand = candidates ?? {
+    v1_shipped: SHIPPED_FEATURES.slice(),
+    v2_all: [...SHIPPED_FEATURES, ...allV2],
+    ...Object.fromEntries(V2_BLOCK_LIST.map(b =>
+      [`v1_plus_${b}`, [...SHIPPED_FEATURES, ...v2BlockFeatures([b])]]))
+  };
+
+  const perSeason = [];
+  const pooled = {};
+  for (const season of testSeasons) {
+    const fitSeasons = [];
+    for (let s = firstFitSeason; s < season; s++) fitSeasons.push(s);
+    const train = attachV2Features(panelFor(fitSeasons)).filter(r => Number.isFinite(r[field]));
+    const test = attachV2Features(buildPanel(season)).filter(r => r.usable && Number.isFinite(r[field]));
+    if (train.length < 200 || test.length < 50) {
+      perSeason.push({ season, error: `train ${train.length} / test ${test.length} too thin` });
+      continue;
+    }
+    const truth = test.map(r => r[field]);
+    const preds = { no_change: test.map(() => 0) };
+    const lambdas_used = {};
+    for (const [name, names] of Object.entries(cand)) {
+      const vec = v2Vec(names);
+      const l = chooseLambda(train, field, lambdas, vec);
+      lambdas_used[name] = l;
+      const m = fitRidge(train.map(vec), train.map(r => r[field]), l);
+      preds[name] = test.map(r => predictRidge(m, vec(r)));
+    }
+    if (gbm) {
+      try {
+        const g = fitGbm(train.map(featureVectorV2), train.map(r => r[field]),
+          { trees: 200, learningRate: 0.05, maxDepth: 3, minLeaf: 40, seed: 5 });
+        preds.v2_gbm = test.map(r => predictGbm(g, featureVectorV2(r)));
+      } catch { /* the challenger is optional */ }
+    }
+
+    const groups = test.map(r => `${r.season}|${r.team}`);
+    const err = p => p.map((v, i) => Math.abs(v - truth[i]));
+    const incumbent = err(preds.v1_shipped);
+    const scored = {};
+    for (const [name, p] of Object.entries(preds)) {
+      const e = err(p);
+      scored[name] = {
+        mae: r4(mean(e)), spearman: r4(spearman(p, truth)),
+        vs_v1: name === 'v1_shipped' ? null
+          : pairedBootstrapDiff(incumbent, e, { iterations: 2000, seed: 41, groups })
+      };
+      (pooled[name] ??= { errs: [], preds: [], truth: [], groups: [] });
+      pooled[name].errs.push(...e); pooled[name].preds.push(...p);
+      pooled[name].truth.push(...truth); pooled[name].groups.push(...groups);
+    }
+    perSeason.push({ season, n_train: train.length, n_test: test.length,
+      lambdas: lambdas_used, models: scored });
+  }
+
+  const overall = {};
+  for (const [name, p] of Object.entries(pooled)) {
+    overall[name] = {
+      n: p.errs.length, mae: r4(mean(p.errs)), spearman: r4(spearman(p.preds, p.truth)),
+      vs_v1: name === 'v1_shipped' ? null
+        : pairedBootstrapDiff(pooled.v1_shipped.errs, p.errs,
+          { iterations: 4000, seed: 43, groups: p.groups })
+    };
+  }
+  return { field, test_seasons: testSeasons, per_season: perSeason, pooled: overall };
+}
+
+/**
+ * The v1 nested ablation, re-run with the v2 blocks appended.
+ *
+ * The question v1 left open is the only one that matters for shipping: is
+ * anything in the 66-column set additive OVER a model that already has the
+ * two-year usage trend, the age terms and the season-T depth-chart level? Each
+ * row adds one block to the row above and is graded on the same held-out rows.
+ */
+export function ablationV2({ testSeasons = [2023, 2024, 2025], field = 'y_share',
+  lambdas = LAMBDA_GRID } = {}) {
+  const BASE = ['prior_log_share', 'is_rb', 'is_wr', 'is_te', 'is_qb'];
+  const TREND_AGE = ['two_year_trend', 'two_year_missing', 'age_from_peak', 'age_from_peak_sq'];
+  const DEPTH_LEVEL = ['depth_rank1', 'depth_missing'];
+  const CHANGE = ['changed_team', 'vacated_share', 'changed_x_vacated',
+    'depth_demotion_steps', 'depth_promotion_steps', 'games_missed'];
+  const ladder = [];
+  let acc = [...BASE];
+  ladder.push({ name: 'prior share + position', features: [...acc] });
+  acc = [...acc, ...TREND_AGE];
+  ladder.push({ name: '+ two-year trend, age', features: [...acc] });
+  acc = [...acc, ...DEPTH_LEVEL];
+  ladder.push({ name: '+ season-T depth level', features: [...acc] });
+  acc = [...acc, ...CHANGE];
+  ladder.push({ name: '+ v1 change block', features: [...acc] });
+  for (const b of V2_BLOCK_LIST) {
+    acc = [...acc, ...v2BlockFeatures([b])];
+    ladder.push({ name: `+ v2 ${b}`, features: [...acc] });
+  }
+
+  const errs = ladder.map(() => []);
+  const predsAll = ladder.map(() => []);
+  const truthAll = [], groupsAll = [];
+  for (const season of testSeasons) {
+    const fitSeasons = [];
+    for (let s = FIRST_DEPTH_SEASON; s < season; s++) fitSeasons.push(s);
+    const train = attachV2Features(panelFor(fitSeasons)).filter(r => Number.isFinite(r[field]));
+    const test = attachV2Features(buildPanel(season)).filter(r => r.usable && Number.isFinite(r[field]));
+    if (train.length < 200 || test.length < 50) continue;
+    const truth = test.map(r => r[field]);
+    truthAll.push(...truth);
+    groupsAll.push(...test.map(r => `${r.season}|${r.team}`));
+    ladder.forEach((step, i) => {
+      const vec = v2Vec(step.features);
+      const m = fitRidge(train.map(vec), train.map(r => r[field]),
+        chooseLambda(train, field, lambdas, vec));
+      const p = test.map(r => predictRidge(m, vec(r)));
+      predsAll[i].push(...p);
+      errs[i].push(...p.map((v, k) => Math.abs(v - truth[k])));
+    });
+  }
+  return {
+    field, test_seasons: testSeasons, n: truthAll.length,
+    steps: ladder.map((step, i) => ({
+      name: step.name, mae: r4(mean(errs[i])),
+      spearman: r4(spearman(predsAll[i], truthAll)),
+      vs_previous: i === 0 ? null
+        : pairedBootstrapDiff(errs[i - 1], errs[i], { iterations: 4000, seed: 47, groups: groupsAll })
+    }))
+  };
+}
+
+/**
+ * The partial change effect inside an arbitrary design.
+ *
+ * `partialChangeEffect` is hard-wired to the v1 `FEATURE_NAMES` layout. This is
+ * the same arithmetic against any feature-name list, so a candidate fitted on
+ * the v2 design can publish a multiplier the same way and be graded against v1's
+ * on identical terms.
+ */
+export function partialChangeIn(model, row, names, vec) {
+  const x = vec(row);
+  let total = 0;
+  const components = {};
+  for (const name of CHANGE_FEATURES) {
+    const j = names.indexOf(name);
+    if (j < 0) continue;
+    const term = model.weights[j] * x[j] / model.sd[j];
+    total += term;
+    const comp = COMPONENT_OF[name];
+    components[comp] = (components[comp] ?? 0) + term;
+  }
+  return { total, components };
+}
+
+/**
+ * Grade THE PUBLISHED QUANTITY, not the fit.
+ *
+ * `offseasonAdjustment` does not publish a prediction; it publishes a
+ * multiplier, which the caller applies to a prior of his own. So the decision
+ * "does v2 replace v1" cannot be settled by whose full regression fits better —
+ * a candidate can win that on better CONTROLS while leaving the multiplier
+ * untouched, which is v1 §4's finding wearing a new hat. Here each candidate is
+ * scored as `mean-reversion prior + its own change partial`, on the same rows,
+ * with the same clustered paired bootstrap.
+ */
+export function multiplierWalkForward({
+  testSeasons = [2023, 2024, 2025], field = 'y_share', lambdas = LAMBDA_GRID,
+  candidates = null
+} = {}) {
+  const allV2 = V2_COLUMNS.flatMap(c => [`v2_${c.col}`, `v2_${c.col}_missing`]);
+  const cand = candidates ?? {
+    v1_multiplier: SHIPPED_FEATURES.slice(),
+    v2_charting_multiplier: [...SHIPPED_FEATURES, ...v2BlockFeatures(['charting'])],
+    v2_all_multiplier: [...SHIPPED_FEATURES, ...allV2]
+  };
+  const perSeason = [];
+  const pooled = {};
+  for (const season of testSeasons) {
+    const fitSeasons = [];
+    for (let s = FIRST_DEPTH_SEASON; s < season; s++) fitSeasons.push(s);
+    const train = attachV2Features(panelFor(fitSeasons)).filter(r => Number.isFinite(r[field]));
+    const test = attachV2Features(buildPanel(season)).filter(r => r.usable && Number.isFinite(r[field]));
+    if (train.length < 200 || test.length < 50) continue;
+    const mr = fitMeanReversion(train, field);
+    const truth = test.map(r => r[field]);
+    const preds = { mean_reversion_only: test.map(r => meanReversionPredict(mr, r)) };
+    for (const [name, names] of Object.entries(cand)) {
+      const vec = v2Vec(names);
+      const m = fitRidge(train.map(vec), train.map(r => r[field]),
+        chooseLambda(train, field, lambdas, vec));
+      const part = r => partialChangeIn(m, r, V2_FEATURE_NAMES, vec).total;
+      preds[name] = test.map(r => meanReversionPredict(mr, r) + clampLog(part(r)));
+      // The published multiplier is defined against a player with NO change, but
+      // the mean-reversion prior a caller holds is fitted on every player,
+      // average change included. Adding one to the other therefore charges the
+      // league's average change twice. The centred variant subtracts the
+      // training-set mean partial, which is the same model with that
+      // double-count removed — reported because the difference is a fact about
+      // consumption, and because v1 and v2 must be compared with it either
+      // present in both or absent from both.
+      const bar = mean(train.map(part));
+      preds[`${name}_centred`] = test.map(r =>
+        meanReversionPredict(mr, r) + clampLog(part(r) - bar));
+    }
+    const groups = test.map(r => `${r.season}|${r.team}`);
+    const err = p => p.map((v, i) => Math.abs(v - truth[i]));
+    // Compare like with like: a centred candidate is graded against the centred
+    // incumbent, a raw one against the raw incumbent. Comparing across the two
+    // measures the centring, not the feature set.
+    const incumbentOf = name => (name.endsWith('_centred') ? 'v1_multiplier_centred' : 'v1_multiplier');
+    const scored = {};
+    for (const [name, p] of Object.entries(preds)) {
+      const e = err(p);
+      scored[name] = { mae: r4(mean(e)), spearman: r4(spearman(p, truth)),
+        vs_v1: name === incumbentOf(name) ? null
+          : pairedBootstrapDiff(err(preds[incumbentOf(name)]), e,
+            { iterations: 2000, seed: 53, groups }) };
+      (pooled[name] ??= { errs: [], preds: [], truth: [], groups: [] });
+      pooled[name].errs.push(...e); pooled[name].preds.push(...p);
+      pooled[name].truth.push(...truth); pooled[name].groups.push(...groups);
+    }
+    perSeason.push({ season, n_test: test.length, models: scored });
+  }
+  const overall = {};
+  for (const [name, p] of Object.entries(pooled)) {
+    const inc = name.endsWith('_centred') ? 'v1_multiplier_centred' : 'v1_multiplier';
+    overall[name] = { n: p.errs.length, mae: r4(mean(p.errs)),
+      spearman: r4(spearman(p.preds, p.truth)),
+      vs_v1: name === inc ? null
+        : pairedBootstrapDiff(pooled[inc].errs, p.errs,
+          { iterations: 4000, seed: 59, groups: p.groups }) };
+  }
+  return { field, test_seasons: testSeasons, per_season: perSeason, pooled: overall };
+}
+
+/** The published multiplier is clamped; grade it clamped, or grade a fiction. */
+const clampLog = t => Math.log(clamp(Math.exp(t), MULTIPLIER_BOUNDS.lo, MULTIPLIER_BOUNDS.hi));
 
 // ---------------------------------------------------------------------------
 // The shipped adjustment
@@ -1415,5 +1927,6 @@ export function offseasonAdjustment(playerId,
 /** Drop every cache. Tests and the data-sync path use it; nothing else should. */
 export function clearOffseasonModelCache() {
   seasonCache.clear(); rosterCache.clear(); panelCache.clear(); adjustmentCache.clear();
+  v2Cache.clear();
   bioCache.map = null; _gsisById = null; _latest = null;
 }

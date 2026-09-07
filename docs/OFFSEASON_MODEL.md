@@ -20,7 +20,13 @@ exercise, and both coaching and QB change. The shipped multiplier beats the no-c
 baseline, the mean-reversion baseline and the existing flat "movers keep 78%" rule on
 held-out 2023–2025, on both opportunity share and PPG. **It is also fully subsumed by
 knowing the season-T depth chart and the two-year usage trend, so it must not be stacked on
-a model that already has those** — see [What this does not add](#what-this-does-not-add).
+a model that already has those** — see [What this does not add](#4-what-this-does-not-add).
+
+**Second pass, 2026-09-06.** The same harness was re-run over the 66-column
+`off_player_season_features` set (§9): 39 new variables as individual effect lines, then
+jointly in the ridge and in a GBM, then graded on the published multiplier itself. Nothing
+was adopted — v2 beats v1 in 0 of 3 held-out seasons on either outcome — and the whole
+declined list is recorded with its numbers in §9.2 and §9.6. **SHIPPED v1.**
 
 ---
 
@@ -347,4 +353,254 @@ M.walkForward({ field: 'y_share' });                            // §3
 M.measureRookieEntry([2021,2022,2023,2024,2025], { evaluateOn: [2023,2024,2025] }); // §5
 M.attrition([2021, 2022, 2023, 2024, 2025]);                    // §1
 M.offseasonAdjustments(2026);                                   // §6
+M.measureV2Effects([2021,2022,2023,2024,2025]);                 // §9, add {field:'y_ppg'}
+M.walkForwardV2({ field: 'y_share' });                          // §9.3
+M.multiplierWalkForward({ field: 'y_share' });                  // §9.4 — the decision
+M.ablationV2({ field: 'y_share' });                             // §9.5
 ```
+
+---
+
+# 9. v2 (66 features)
+
+A second pass over the same panel with `off_player_season_features` joined on —
+the 66-column player-season table `docs/OFFSEASON_DATA.md` describes, covering
+2021-2026. Same held-out seasons (2023/2024/2025), same rows, same
+mean-reversion residual, same team-season-clustered paired bootstrap, v1 as the
+incumbent.
+
+**Result: nothing in the 66 columns earns a place in the published multiplier.**
+The join is clean and several new variables are genuinely predictive, but every
+one of them is a *level* — a fact about the player or his team, not a change in
+his situation — and the two blocks that do improve the regression (prior-season
+charting, biography) improve the forecast without improving the thing this
+module publishes. Graded on the multiplier itself, like for like, v2 beats v1 in
+**0 of 3 seasons on share and 0 of 3 on PPG**.
+
+## 9.1 Setup and look-ahead
+
+`attachV2Features` joins the feature row onto each panel row by gsis id. On the
+1,680 fitting rows the join rate is **100%** — every player-season the panel
+carries has a 66-column row. Three groups of columns are excluded before any
+test, and the reasons are not interchangeable:
+
+| excluded | why |
+|---|---|
+| `sleeper_depth_chart_order`, `sleeper_injury_status` | Sleeper publishes a live snapshot with no history. Stamping today's chart onto 2023 is a leak with nothing to fit on. |
+| `apy`, `apy_cap_pct`, `apy_rank_on_team_at_position`, `contract_year`, `new_contract`, `contract_years_remaining` | **The contract feed is empty after 2022** (`OFFSEASON_DATA` gap 1: no OTC signing later than 2022, 2% coverage by 2026). They cannot be tested on any evaluation season, so no number is offered for them — not a null, not a small effect. |
+| `team_change`, `qb_change`, `hc_change`, `rookie`, `home_surface` | Already tested in v1 (§2), or constant on this panel. |
+
+`depth_slot_t` is the August-or-later snapshot and is legitimately preseason.
+`implied_team_points`, `implied_points_delta_vs_prior` and `division_sos_proxy`
+are **season means of per-game closing lines**, and the lines for weeks 2+ are
+set during season `T`. They are tested and flagged; only the Week-1 line — v1's
+`implied_points_delta`, which failed — is strictly preseason. Any effect those
+three show should be read as an upper bound that a preseason-only version would
+not reach. Nothing derived from a season-`T` weekly row is used anywhere.
+
+## 9.2 The effect table
+
+Pooled 2021-2025, n = 1,680 (1,676 for PPG), residual after the same
+position-specific mean-reversion fit. A binary column is 1 vs 0; a continuous
+one is top tercile vs bottom tercile of the rows that have it, except where the
+terciles collapse on a discrete column (mostly zeros), in which case the only
+split the data supports — any vs none — is used and labelled. "Verdict" is REAL
+when the 95% difference CI excludes 1 on either outcome.
+
+| Variable | block | cut | coverage | n (grp/ctr) | Share mult | 95% CI | PPG mult | 95% CI | per-season n (21-25) | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `prior_adot` | charting | ≥9 vs ≤3.8 | 89% | 510 / 500 | 1.024 | 0.969–1.077 | 1.009 | 0.945–1.082 | 308, 305, 290, 300, 296 | DECLINED |
+| `prior_drop_pct` | charting | ≥0.058 vs ≤0.024 | 89% | 505 / 504 | 1.009 | 0.955–1.064 | 1.075 | 1.001–1.153 | 308, 305, 290, 300, 296 | **REAL (PPG only, CI touches 1)** |
+| `prior_broken_tackles` | charting | ≥4 vs ≤1 | 100% | 571 / 757 | **1.107** | 1.054–1.161 | **1.091** | 1.027–1.161 | 330, 341, 326, 338, 337 | **REAL** |
+| `prior_ngs_separation` | charting | ≥3.26 vs ≤2.80 | 35% | 195 / 195 | 0.967 | 0.889–1.045 | 0.974 | 0.884–1.070 | 121, 114, 118, 108, 122 | DECLINED |
+| `prior_ngs_cushion` | charting | ≥6.41 vs ≤5.83 | 35% | 195 / 195 | 0.940 | 0.871–1.010 | 0.985 | 0.904–1.075 | 121, 114, 118, 108, 122 | DECLINED |
+| `prior_ngs_air_yards_share` | charting | ≥24.2 vs ≤14.6 | 35% | 195 / 195 | **1.220** | 1.134–1.308 | **1.204** | 1.102–1.313 | 121, 114, 118, 108, 122 | **REAL** |
+| `prior_yac_oe` | charting | ≥0.90 vs ≤0.19 | 35% | 195 / 195 | **1.174** | 1.089–1.266 | **1.121** | 1.018–1.226 | 121, 114, 118, 108, 122 | **REAL** |
+| `prior_ryoe_per_att` | charting | ≥0.29 vs ≤−0.10 | 14% | 77 / 77 | **1.212** | 1.057–1.390 | 1.061 | 0.898–1.263 | 48, 48, 43, 47, 44 | **REAL (share only, thinnest column in the set)** |
+| `prior_snap_share` | role | ≥0.71 vs ≤0.43 | 74% | 415 / 415 | 1.047 | 0.982–1.110 | 1.026 | 0.947–1.117 | 0, 309, 304, 316, 314 | DECLINED |
+| `prior_wopr` | role | ≥0.264 vs ≤0.098 | 78% | 438 / 438 | 1.012 | 0.952–1.070 | 1.031 | 0.947–1.113 | 0, 337, 320, 329, 326 | DECLINED |
+| `prior_air_yard_share` | role | ≥0.119 vs ≤0.007 | 78% | 438 / 438 | 0.994 | 0.940–1.051 | 1.001 | 0.928–1.085 | 0, 337, 320, 329, 326 | DECLINED |
+| `prior_epa_per_play` | role | ≥0.207 vs ≤−0.016 | 78% | 438 / 438 | **1.091** | 1.025–1.153 | **0.866** | 0.794–0.942 | 0, 337, 320, 329, 326 | **REAL, and it changes sign** |
+| `prior_xfp_per_game` | role | ≥10.9 vs ≤5.3 | 60% | 334 / 335 | 1.027 | 0.965–1.095 | 0.998 | 0.909–1.095 | 0, 0, 327, 338, 337 | DECLINED |
+| `prior_xfp_diff` | role | ≥0.46 vs ≤−0.48 | 60% | 334 / 335 | **1.113** | 1.046–1.188 | **0.810** | 0.737–0.889 | 0, 0, 327, 338, 337 | **REAL, and it changes sign** |
+| `capital_added_at_position` | competition | any vs none | 100% | 330 / 1350 | 0.989 | 0.937–1.040 | 0.981 | 0.910–1.058 | 335, 343, 327, 338, 337 | DECLINED |
+| `top_pick_added_at_position` | competition | ≥162 vs ≤74 | 44% | 249 / 253 | 1.010 | 0.935–1.090 | 1.039 | 0.934–1.156 | 162, 151, 141, 140, 138 | DECLINED |
+| `veterans_added_at_position` | competition | ≥3 vs ≤2 | 100% | 872 / 808 | 0.975 | 0.934–1.017 | 0.986 | 0.929–1.047 | 335, 343, 327, 338, 337 | DECLINED |
+| `new_team_vacated_target_share` | competition | ≥0.378 vs ≤0.236 | 80% | 460 / 456 | 0.989 | 0.931–1.047 | 0.978 | 0.901–1.056 | 0, 343, 327, 338, 337 | DECLINED |
+| `new_team_vacated_carry_share` | competition | ≥0.399 vs ≤0.143 | 80% | 450 / 453 | 0.959 | 0.902–1.019 | 0.995 | 0.915–1.079 | 0, 343, 327, 338, 337 | DECLINED |
+| `own_team_vacated_share` | competition | ≥0.383 vs ≤0.233 | 78% | 440 / 443 | **0.924** | 0.871–0.983 | 0.966 | 0.894–1.046 | 0, 337, 320, 329, 326 | **REAL (share only), and the sign is backwards** |
+| `depth_slot_t` | depth | ≥2 vs ≤1 | 93% | 636 / 920 | **0.848** | 0.812–0.887 | **0.843** | 0.789–0.896 | 301, 312, 299, 311, 333 | **REAL — and it is a level, see §4** |
+| `depth_slot_delta` | depth | any vs none | 66% | 221 / 885 | **0.814** | 0.759–0.873 | **0.792** | 0.712–0.879 | 0, 253, 272, 286, 295 | **REAL — v1's demotion effect on a second source** |
+| `qb_qbr_delta` | qb_coach | QB upgrade vs not | 56% | 127 / 806 | 1.047 | 0.965–1.132 | **1.140** | 1.022–1.278 | 0, 275, 217, 213, 228 | **REAL (PPG only, n=127)** |
+| `hc_tenure_years` | qb_coach | ≥4 vs ≤2 | 100% | 582 / 691 | 0.993 | 0.945–1.040 | 0.989 | 0.925–1.054 | 335, 343, 327, 338, 337 | DECLINED |
+| `implied_team_points` | team | ≥23.7 vs ≤21.0 | 100% | 566 / 564 | 0.976 | 0.929–1.026 | 1.040 | 0.974–1.106 | 335, 343, 327, 338, 337 | DECLINED |
+| `implied_points_delta_vs_prior` | team | ≥0.87 vs ≤−1.56 | 100% | 560 / 564 | **0.901** | 0.854–0.948 | 1.028 | 0.957–1.102 | 335, 343, 327, 338, 337 | **REAL (share only), sign backwards, and see the closing-line caveat** |
+| `division_sos_proxy` | team | ≥22.6 vs ≤21.9 | 100% | 566 / 572 | **1.100** | 1.044–1.161 | 1.036 | 0.970–1.112 | 335, 343, 327, 338, 337 | **REAL (share only), closing-line caveat** |
+| `team_pass_rate_prior` | team | ≥0.593 vs ≤0.559 | 100% | 563 / 564 | 0.992 | 0.943–1.044 | 0.986 | 0.922–1.055 | 335, 343, 327, 338, 337 | DECLINED |
+| `team_plays_prior` | team | ≥64.4 vs ≤61.9 | 100% | 570 / 581 | 1.053 | 1.001–1.106 | 1.012 | 0.945–1.086 | 335, 343, 327, 338, 337 | **REAL (share only, CI touches 1)** |
+| `team_points_per_game_prior` | team | ≥24.7 vs ≤20.5 | 100% | 567 / 567 | 1.048 | 0.992–1.105 | 1.008 | 0.941–1.081 | 335, 343, 327, 338, 337 | DECLINED |
+| `dome_home` | team | 1 vs 0 | 100% | 558 / 1122 | 1.042 | 0.996–1.091 | 1.053 | 0.991–1.117 | 335, 343, 327, 338, 337 | DECLINED |
+| `bye_week` | team | ≥11 vs ≤8 | 100% | 661 / 600 | 0.995 | 0.949–1.046 | 1.038 | 0.975–1.111 | 335, 343, 327, 338, 337 | DECLINED |
+| `injury_games_missed_prior` | injury | ≥1 vs 0 | 65% | 407 / 685 | 0.987 | 0.940–1.041 | 1.019 | 0.956–1.086 | 0, 275, 268, 272, 277 | DECLINED |
+| `injury_reports_prior` | injury | ≥5 vs ≤2 | 65% | 446 / 367 | 0.992 | 0.934–1.048 | 1.007 | 0.930–1.088 | 0, 275, 268, 272, 277 | DECLINED |
+| `ir_stints_prior` | injury | any vs none | 65% | 53 / 1039 | 0.937 | 0.831–1.050 | 0.994 | 0.857–1.157 | 0, 275, 268, 272, 277 | DECLINED |
+| `late_season_injury_flag` | injury | 1 vs 0 | 65% | 260 / 832 | 1.001 | 0.942–1.062 | 1.024 | 0.940–1.113 | 0, 275, 268, 272, 277 | DECLINED |
+| `age_at_season` | bio | ≥28.0 vs ≤25.4 | 100% | 560 / 562 | **0.837** | 0.796–0.881 | **0.806** | 0.754–0.867 | 335, 343, 327, 338, 337 | **REAL — already a control (§2), not publishable** |
+| `years_exp` | bio | ≥5 vs ≤3 | 100% | 724 / 741 | **0.888** | 0.849–0.929 | **0.888** | 0.834–0.944 | 335, 343, 327, 338, 337 | **REAL — age again, in other units** |
+| `draft_round` | bio | ≥4 vs ≤2 | 81% | 490 / 622 | **0.929** | 0.882–0.979 | 0.915 | 0.853–0.980 | 257, 272, 269, 276, 283 | **REAL — a level, and constant across a career** |
+
+Three things in that table are worth more than their row.
+
+**`prior_epa_per_play` and `prior_xfp_diff` change sign between the outcomes.**
+A player who beat his expected fantasy points last year gains opportunity share
+(1.113) and loses points per game (0.810). That is regression to the mean in
+efficiency arriving alongside a promotion in role, and it is the clearest
+evidence in this document that share and PPG are two different questions rather
+than one question measured twice.
+
+**`own_team_vacated_share` and `implied_points_delta_vs_prior` are both
+backwards.** A player whose own team lost a lot of opportunity does *worse*
+(0.924), and a player whose team's implied points went up does *worse* (0.901).
+These are not mechanisms; they are selection. Teams shed opportunity because
+they were bad and are rebuilding, and implied totals rise for teams that just
+changed something. This is the same null §2 found for the vacated-room
+interaction, arriving from two more directions.
+
+**`depth_slot_delta` (0.814) replicates v1's demotion effect (0.712) on an
+independent source** — the `off_depth_chart` opening chart against the last
+regular-season chart of `T-1`, rather than `nfl_depth` against a usage rank.
+Two sources, two constructions, same sign and overlapping magnitude. It is the
+only v2 line that measures an offseason *change* and survives.
+
+## 9.3 Joint, in the ridge and in a GBM
+
+`walkForwardV2`, same three held-out seasons, same rows, ridge with
+leave-one-season-out lambda inside each training window, v1's shipped model as
+the incumbent. n = 1,002 (share) / 999 (PPG). Negative = better than v1.
+
+| candidate | share MAE | ρ | vs v1 (share) | seasons SIG | PPG MAE | vs v1 (PPG) | seasons SIG |
+|---|---|---|---|---|---|---|---|
+| v1 shipped (incumbent) | 0.3303 | 0.336 | — | — | 0.4387 | — | — |
+| + charting block | **0.3240** | 0.370 | **−0.0063 SIG** [−0.0099,−0.0026] | **2 / 3** | 0.4353 | −0.0034 SIG | 1 / 3 |
+| + role block | 0.3325 | 0.323 | +0.0022 ns | 0 / 3 | 0.4347 | −0.0041 ns | **2 / 3** |
+| + competition block | 0.3333 | 0.322 | +0.0030 **SIG worse** | 0 / 3 | 0.4404 | +0.0017 ns | 0 / 3 |
+| + depth block | 0.3370 | 0.317 | +0.0067 **SIG worse** | 0 / 3 | 0.4425 | +0.0038 SIG worse | 0 / 3 |
+| + QB/coach block | 0.3315 | 0.324 | +0.0012 ns | 0 / 3 | 0.4394 | +0.0007 ns | 0 / 3 |
+| + team block | 0.3320 | 0.330 | +0.0017 ns | 0 / 3 | 0.4375 | −0.0013 ns | 0 / 3 |
+| + injury block | 0.3320 | 0.334 | +0.0017 ns | 0 / 3 | 0.4403 | +0.0016 SIG worse | 0 / 3 |
+| + bio block | 0.3249 | 0.374 | −0.0054 SIG | 1 / 3 | 0.4339 | −0.0049 SIG | 1 / 3 |
+| **v2 all blocks** | 0.3276 | 0.359 | −0.0026 **ns** | 1 / 3 | **0.4310** | −0.0077 SIG | **2 / 3** |
+| **v2 GBM** (200 trees, depth 3, lr 0.05) | **0.3165** | **0.419** | −0.0137 SIG | 1 / 3 | 0.4291 | −0.0096 SIG | 1 / 3 |
+
+Two blocks help as a *fit* — charting and bio — and adding all 78 v2 columns at
+once helps less than adding charting alone, which is what a ridge does when most
+of what it is handed is noise. The GBM has the best pooled numbers of anything
+ever fitted here and still clears the per-season bar in only one season of
+three; its 2023 and 2024 margins are the same size as its 2025 one and neither
+survives the clustered bootstrap.
+
+## 9.4 The comparison that decides it
+
+None of §9.3 is what ships. `offseasonAdjustment` publishes a **multiplier**,
+which a caller applies to a prior of his own — so a candidate that wins on
+better *controls* wins nothing at all. `multiplierWalkForward` grades exactly
+the published quantity: the mean-reversion prior plus that model's own change
+partial, clamped to `[0.4, 1.6]` the way the shipped number is.
+
+One correction is applied to every candidate equally. The published multiplier is
+defined against a player with **no** change, while the mean-reversion prior a
+caller holds is fitted on **every** player, average change included — so adding
+one to the other charges the league's average offseason twice. The centred
+variant subtracts the training-set mean partial. It is worth 0.0115 log units of
+share MAE to v1 on its own (0.3451 → 0.3336), which is larger than any feature
+difference in this document, and it is a fact about consumption, not about
+features. Candidates are compared centred against centred.
+
+| candidate (centred) | share MAE | vs v1 | 2023 | 2024 | 2025 | PPG MAE | vs v1 | seasons SIG |
+|---|---|---|---|---|---|---|---|---|
+| mean reversion only, no multiplier | 0.3416 | +0.0080 | — | — | — | 0.4475 | +0.0043 | — |
+| **v1 multiplier (incumbent)** | **0.3336** | — | 0.3410 | 0.3409 | 0.3189 | **0.4432** | — | — |
+| v2 charting multiplier | 0.3356 | +0.0020 **SIG worse** | +0.0037 SIG worse | +0.0012 ns | +0.0013 ns | 0.4428 | −0.0004 ns | 0 / 3 |
+| v2 all-blocks multiplier | 0.3350 | +0.0015 ns | +0.0039 SIG worse | +0.0023 ns | −0.0017 ns | 0.4427 | −0.0004 ns | 0 / 3 |
+
+**v2 beats v1 on the published multiplier in 0 of 3 seasons on share and 0 of 3
+on PPG**, and is significantly worse in 2023 in both variants. The ship rule
+required ≥2 of 3. It is not met, and it is not close.
+
+Read against §9.3 the reason is plain: the charting and bio blocks improve the
+*forecast* by describing the player better, and describing the player better
+does not change what his offseason did to him. That is v1 §4's finding on a
+feature set four times the size.
+
+## 9.5 The nested ablation, re-run with the new blocks
+
+Same walk-forward, same rows, each row adds one block to the row above
+(share, n = 1,002).
+
+| feature set | share MAE | ρ | vs previous row |
+|---|---|---|---|
+| prior log share + position | 0.3395 | 0.249 | — |
+| + two-year usage trend, age terms | 0.3278 | 0.358 | −0.0117 **SIG** [−0.0155,−0.0079] |
+| + season-`T` depth level | 0.3198 | 0.410 | −0.0081 **SIG** [−0.0131,−0.0033] |
+| + the v1 change block | 0.3185 | 0.418 | −0.0013 **ns** [−0.0054,0.0030] |
+| + v2 charting | **0.3132** | **0.436** | **−0.0053 SIG** [−0.0079,−0.0027] |
+| + v2 role | 0.3184 | 0.419 | +0.0052 SIG worse |
+| + v2 competition | 0.3205 | 0.412 | +0.0021 SIG worse |
+| + v2 depth | 0.3239 | 0.394 | +0.0034 SIG worse |
+| + v2 QB/coach | 0.3246 | 0.392 | +0.0007 ns |
+| + v2 team | 0.3220 | 0.406 | −0.0026 ns |
+| + v2 injury | 0.3205 | 0.414 | −0.0015 ns |
+| + v2 bio | 0.3206 | 0.412 | 0.0000 ns |
+
+**Exactly one thing in the 66 columns is additive over trend + age + the
+season-`T` depth chart: the prior-season charting block** (broken tackles, aDOT,
+drop rate, NGS separation/cushion/air-yards share, YAC over expected, RYOE),
+worth a held-out 0.0053 log units. Everything after it makes the model worse or
+does nothing, and `bio` adds precisely zero once charting is in — because age
+was already in row 2.
+
+That result belongs to whoever owns the preseason projection, not to this
+module. It is a prior-season description of the player, on the same footing as
+age in §2: real, well measured, and someone else's to apply. Publishing it here
+would double-count it in any consumer that reads both.
+
+## 9.6 Declined, with the number
+
+Every variable in §9.2 with a DECLINED verdict is declined on both outcomes with
+its CI straddling 1, and is not offered as a small effect. The ones most likely
+to be proposed again, with the number that closed them:
+
+- **Draft capital added at his position** — 0.989 share (0.937–1.040), 0.981 PPG.
+  A team spending a first-, second- or third-rounder on his position group does
+  not measurably cost the incumbent opportunity. n = 330 vs 1,350.
+- **Veterans added at his position** — 0.975 (0.934–1.017). Same null, free-agency
+  flavoured.
+- **Vacated room on the team he joined** — 0.989 (targets) / 0.959 (carries).
+  The third independent failure of the vacated-room story in this document.
+- **Every injury-history column** — games missed 0.987, reports 0.992, IR stints
+  0.937 (n=53), late-season flag 1.001. v1's `games_missed_prior >= 4` effect
+  (0.921) does not extend to a finer injury history; the richer columns measure
+  the same thing worse.
+- **QB change quantified by QBR** — 0.981 share, but 1.140 PPG (1.022–1.278) on
+  n = 127 upgrades. PPG-only, share-null, one thin arm, and the share nulls in
+  §2 stand. Not priced.
+- **Team pace, dropback rate, points, dome, bye week** — 0.99 to 1.05, every CI
+  across 1. The team's shape does not redistribute a player's share of it.
+- **Contract columns** — untestable, not null. The feed stops in 2022.
+
+## 9.7 Verdict
+
+**SHIPPED v1.** The published model is unchanged: ridge on prior log share +
+position + team change (×0.823) + depth demotion (×0.712) + prior-year 4+ games
+missed (×0.921), held out at 0.3303 share MAE / 0.4387 PPG MAE on 2023-2025, and
+0.3336 / 0.4432 when graded as the multiplier a caller actually applies. v2 —
+the same model with all 78 columns of the 66-feature set, or with the one block
+that helps the regression — scores 0.3350 / 0.4427 on that same grading, beating
+v1 in **0 of 3 held-out seasons on share and 0 of 3 on PPG**, and losing
+significantly in 2023. The ≥2-of-3 bar was not met by any candidate.
+
+What the pass did buy: `depth_slot_delta` (0.814, CI 0.759–0.873) replicates the
+shipped demotion effect on an independent source, and the prior-season charting
+block is additive over everything (−0.0053 SIG) but belongs to the preseason
+projection rather than to a multiplier. Both are recorded above; neither changes
+a number this module publishes.

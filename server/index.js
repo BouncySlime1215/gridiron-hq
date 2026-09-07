@@ -42,6 +42,7 @@ const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
 const { default: localAuthRouter } = await import('./routes/local-auth.js');
 const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
+const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 
@@ -97,6 +98,7 @@ app.use('/api/mlb', mlbRouter);
 app.use('/api/nfl-market', nflMarketRouter);
 app.use('/api/nfl-betting', nflBettingRouter);
 app.use('/api/betting', bettingHubRouter);
+app.use('/api/execution-slate', executionSlateRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real

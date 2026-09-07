@@ -985,6 +985,22 @@ export function startScheduler({
 } = {}) {
   if (timer) return { already_running: true };
 
+  // SCHEDULER_DISABLED: a hand-operated brake, not a feature. Added 2026-09-07
+  // hours before the Matta-Kodsi draft, after the betting-side live tier's
+  // 90-second polling of a 6GB+ synchronous SQLite database (node:sqlite has
+  // no worker thread; a slow query blocks the whole HTTP server, not just the
+  // caller) was found to be the actual cause of the app going periodically
+  // unresponsive for several seconds at a time. None of the fantasy pages
+  // depend on live NFL/MLB odds staying fresh, so the safe move for a night
+  // that has to work is to stop paying that cost rather than chase which of
+  // a dozen 3-to-5-minute jobs is the one currently holding the lock. Unset
+  // (or remove from .env) to resume normal syncing once nothing depends on
+  // the app being maximally responsive.
+  if (process.env.SCHEDULER_DISABLED === '1') {
+    console.log('Scheduler disabled via SCHEDULER_DISABLED=1 — no background jobs will run.');
+    return { disabled: true };
+  }
+
   // Keep launch interactive. MLB player-log ingestion processes thousands of
   // responses and tomorrow-pick generation runs large simulations; doing either
   // on the main thread twenty seconds after boot made every API request hang.

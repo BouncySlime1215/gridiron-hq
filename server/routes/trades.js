@@ -10,8 +10,11 @@ import { row, rows } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
   findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
-  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff
+  assetUniverse, loadRosters, lineupSlots, bestLineup, resolvePlayer, lineupDiff, playerEvidence
 } from '../services/trade-engine.js';
+// The same season-by-season prompt lines and "argue from the numbers" rules the
+// draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
+import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
@@ -650,12 +653,28 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
     const d = req.body?.deal;
     if (!d?.me || !d?.them) return res.status(400).json({ error: 'deal required' });
 
-    const fmtPlayer = p => `${p.name} (${p.position}${p.team_abbr ? ` ${p.team_abbr}` : ''}) — ` +
-      `proj ${p.proj ?? '?'} pts, ${p.adj_ppg ?? '?'} adj ppg, market value ${p.value ?? '?'}` +
-      `${p.age != null ? `, age ${p.age}` : ''}${p.bye ? `, bye week ${p.bye}` : ''}` +
-      `${p.injury ? ', INJURY FLAG' : ''}${p.floor != null ? `, floor/ceiling ${p.floor}/${p.ceiling}` : ''}` +
-      `${p.consistency != null ? `, consistency ${p.consistency}` : ''}` +
-      `${p.playoff_sos != null ? `, weeks 15-17 matchup mult ${p.playoff_sos}` : ''}`;
+    // Evidence is recomputed server-side from the player id (the deal body is
+    // client-supplied); what the client sent is only the fallback.
+    const withEvidence = p => ({ ...p, ...(p?.id != null ? playerEvidence(p.id) : {}) });
+    const fmtPlayer = raw => {
+      const p = withEvidence(raw);
+      const head = `${p.name} (${p.position}${p.team_abbr ? ` ${p.team_abbr}` : ''}) — ` +
+        `proj ${p.proj ?? '?'} pts, ${p.adj_ppg ?? '?'} adj ppg, market value ${p.value ?? '?'}` +
+        `${p.age != null ? `, age ${p.age}` : ''}${p.bye ? `, bye week ${p.bye}` : ''}` +
+        `${p.injury ? ', INJURY FLAG' : ''}${p.floor != null ? `, floor/ceiling ${p.floor}/${p.ceiling}` : ''}` +
+        `${p.consistency != null ? `, consistency ${p.consistency}` : ''}` +
+        `${p.playoff_sos != null ? `, weeks 15-17 matchup mult ${p.playoff_sos}` : ''}`;
+      // Season-by-season record, streaks, our preseason band and drivers, the
+      // offseason read — the evidence the second opinion has to argue from.
+      const lines = evidenceLines(p);
+      return [head, ...lines.map(l => `  ${l}`)].join('\n    ');
+    };
+
+    const fmtRisk = risk => risk?.out && risk?.in
+      ? `  Floor read: ${risk.read ? `${risk.read}; ` : ''}sends ${risk.out.top24_seasons}/${risk.out.seasons} top-24 seasons` +
+        `${risk.out.swing_pct != null ? `, ±${risk.out.swing_pct}% swing` : ''}; receives ${risk.in.top24_seasons}/${risk.in.seasons} top-24 seasons` +
+        `${risk.in.swing_pct != null ? `, ±${risk.in.swing_pct}% swing` : ''}`
+      : '';
 
     const fmtSide = (label, s) => `${label} (${s.owner}):
   Sends: ${s.gives.length ? s.gives.map(fmtPlayer).join('\n    ') : 'nothing'}
@@ -664,6 +683,7 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
   Weeks 15-17 lineup: ${s.playoff_ppg_delta > 0 ? '+' : ''}${s.playoff_ppg_delta ?? '?'} ppg
   Market value: ${s.value_delta > 0 ? '+' : ''}${s.value_delta}
   Weekly floor/ceiling shift: ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
+${fmtRisk(s.risk)}
   ${s.new_holes?.length ? `Leaves an unfilled starting slot at: ${s.new_holes.join(', ')}` : 'Fills every starting slot'}`;
 
     const msg = await callClaude({
@@ -691,13 +711,19 @@ Look specifically for things the lineup/value math cannot see on its own:
 - Whether this trade actually matches the "their team's situation" framing above, or contradicts it
   (e.g. a supposed rebuilder taking on an older proven vet instead of youth).
 - Anything about the engine's own verdict that doesn't hold up once you look at who's actually moving.
+- Whether one side is giving up a multi-season floor for a single-season spike: compare the
+  season-by-season records above (seasons top-24, games played, year-to-year swing), not reputations.
+${d.verdict_evidence ? `Engine's evidence line (my side): ${d.verdict_evidence}` : ''}
+
+${STAT_ROOTED_INSTRUCTIONS}
 
 Work ONLY from the data given above — never invent a stat, injury, or fact not listed. If you have
 nothing real to flag in a category, say so plainly rather than manufacturing a concern.
 
 Respond with ONLY JSON:
 {"verdict":"one of: sound / worth a second look / risky / lopsided",
- "headline":"one sentence — your overall take, independent of the engine's verdict",
+ "headline":"one sentence — your overall take, independent of the engine's verdict, and its FIRST clause is a concrete multi-season number from a record above (e.g. '1,000+ rec yds in 4 straight seasons for a 1-year spike')",
+ "evidence":"one line: the 2-3 numbers from the records above that decide this deal, comma-separated, no adjectives",
  "concerns":["0-4 short, specific, concrete concerns grounded in the data above — omit entirely if none"],
  "agrees_with_engine": true or false,
  "why": "2-3 sentences on why you agree or disagree with the engine's plausibility call"}`
@@ -721,6 +747,12 @@ r.post('/:leagueId/explain', async (req, res, next) => {
     const fmtSide = s => `${s.owner}: sends ${s.gives.map(p => p.name).join(' + ') || 'nothing'}; ` +
       `lineup ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}), ` +
       `market value ${s.value_delta > 0 ? '+' : ''}${s.value_delta}`;
+    // One stat-rooted line per player changing hands, so the pitch can say
+    // "1,000+ rec yds in 3 straight seasons" instead of "a solid WR2".
+    const records = [...(d.me.gives ?? []), ...(d.me.gets ?? [])]
+      .map(p => ({ name: p.name, headline: evidenceHeadline({ ...p, ...(p?.id != null ? playerEvidence(p.id) : {}) }) }))
+      .filter(x => x.headline)
+      .map(x => `- ${x.name}: ${x.headline}`);
 
     // Untouchables never enter the search that produced this deal, but the pitch is
     // free-text — without telling the model who is off-limits, a "sweeten it with one
@@ -739,11 +771,13 @@ ${fmtSide(d.them)}
 Fairness on market price: ${d.fairness}. Both sides improve: ${d.mutual ? 'yes' : 'no'}.
 ${d.me.playoff_ppg_delta != null ? `My weeks 15-17 lineup changes by ${d.me.playoff_ppg_delta} ppg.` : ''}
 ${untouchables.length ? `Untouchable — never suggest offering these, not even as a sweetener: ${untouchables.join(', ')}.` : ''}
+${records.length ? `Records (real, multi-season — cite these numbers in the pitch, never an adjective in their place):\n${records.join('\n')}` : ''}
 
 Write the negotiation. Frame it around what THEY get, never mention that you ran an analysis, no fake urgency, no flattery. If the deal is lopsided in my favour, the pitch still has to sound reasonable to them.
-
+${records.length ? `\n${STAT_ROOTED_INSTRUCTIONS}\n` : ''}
 Respond with ONLY JSON:
-{"pitch":"3-4 sentence message I can paste to them",
+{"pitch":"3-4 sentence message I can paste to them${records.length ? ' — cite at least one real multi-season number from the records above' : ''}",
+ "evidence":"one line: the numbers from the records above the pitch rests on, comma-separated, no adjectives${records.length ? '' : ' (empty string if no records were given)'}",
  "their_counter":"the counter they are most likely to send, and how I should respond, 2 sentences",
  "walk_away":"one sentence — the point at which I decline",
  "risk":"one sentence — the single way this deal goes badly for me"}`

@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { api, headshotUrl } from '../api';
 import { usePlayerCard } from './PlayerCard';
 import { Headshot } from './PlayerRow';
+import PlayerEvidence from './trade/PlayerEvidence';
+import RiskStrip from './trade/RiskStrip';
+import { hasEvidence } from './trade/types';
 
 /**
  * One scored deal. Both sides are always shown side by side — a trade you can't
@@ -126,6 +129,20 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
           {s.roster_spots > 0 ? `Uses ${s.roster_spots} more roster spot${s.roster_spots > 1 ? 's' : ''}` : `Frees ${-s.roster_spots} roster spot${s.roster_spots < -1 ? 's' : ''}`}
         </p>
       )}
+      {/* Floor / Ceiling / Consistency of what leaves vs what arrives — from the
+          multi-season record and this season's band; null when there is no record. */}
+      <RiskStrip risk={s.risk} />
+    </div>
+  );
+}
+
+/** The stat-rooted line under each player pill — rendered only for players that carry a record. */
+function EvidenceRows({ players, tone }: { players: any[]; tone: 'give' | 'get' }) {
+  const withRecord = players.filter(hasEvidence);
+  if (!withRecord.length) return null;
+  return (
+    <div className="ml-0 sm:ml-16 mt-1 space-y-1 min-w-0">
+      {withRecord.map((p: any) => <PlayerEvidence key={p.id} p={p} tone={tone} />)}
     </div>
   );
 }
@@ -243,11 +260,21 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           <span className="text-[10px] font-semibold uppercase tracking-wide text-crit w-14 shrink-0 pt-1.5">You give</span>
           <div className="flex gap-1.5 flex-wrap">{give.map((p: any) => <PlayerPill key={p.id} p={p} tone="give" />)}</div>
         </div>
+        <EvidenceRows players={give} tone="give" />
         <div className="flex items-start gap-2 flex-wrap">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-good w-14 shrink-0 pt-1.5">You get</span>
           <div className="flex gap-1.5 flex-wrap">{get.map((p: any) => <PlayerPill key={p.id} p={p} tone="get" />)}</div>
         </div>
+        <EvidenceRows players={get} tone="get" />
       </div>
+
+      {deal.verdict_evidence && (
+        <p className="mb-3 text-[11px] tabular-nums text-[var(--muted)]"
+          title="Numbers only — seasons finishing top-24 at the position, year-to-year swing, fewest games in a season, and this season's p20–p80 band">
+          <span className="font-semibold uppercase tracking-wide text-[10px]">Evidence </span>{deal.verdict_evidence}
+        </p>
+      )}
+      {compact && deal.me?.risk && <div className="mb-3"><RiskStrip risk={deal.me.risk} compact /></div>}
 
       {!compact && (
         <div className="grid sm:grid-cols-2 gap-3">
@@ -285,6 +312,11 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
             </span>
           </div>
           <p className="text-sm text-[var(--ink)] font-medium">{sense.headline}</p>
+          {sense.evidence && (
+            <p className="text-[11px] tabular-nums text-[var(--muted)] mt-1">
+              <span className="font-semibold uppercase tracking-wide text-[10px]">Evidence </span>{sense.evidence}
+            </p>
+          )}
           {sense.concerns?.length > 0 && (
             <ul className="mt-2 space-y-1">
               {sense.concerns.map((c: string, i: number) => (
@@ -338,6 +370,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
             </div>
             <p className="text-[var(--ink)]/85 italic">{copy.pitch}</p>
           </div>
+          {copy.evidence && <p><span className="font-semibold uppercase text-[var(--muted)]">Evidence </span><span className="text-[var(--ink)]/80 tabular-nums">{copy.evidence}</span></p>}
           {copy.their_counter && <p><span className="font-semibold uppercase text-[var(--muted)]">Likely counter </span><span className="text-[var(--ink)]/80">{copy.their_counter}</span></p>}
           {copy.walk_away && <p><span className="font-semibold uppercase text-crit">Walk away </span><span className="text-[var(--ink)]/80">{copy.walk_away}</span></p>}
           {copy.risk && <p><span className="font-semibold uppercase text-amber-600">Risk </span><span className="text-[var(--ink)]/80">{copy.risk}</span></p>}

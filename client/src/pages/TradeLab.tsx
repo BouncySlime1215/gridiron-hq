@@ -3,6 +3,10 @@ import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import TradeCard, { PlayerPill, num } from '../components/TradeCard';
 import { usePlayerCard } from '../components/PlayerCard';
+import EvidenceTable from '../components/draft/EvidenceTable';
+import StreakChips from '../components/draft/StreakChips';
+import { statHeadline } from '../components/draft/types';
+import { hasEvidence } from '../components/trade/types';
 
 const TABS = [
   { id: 'news', label: 'News edge', hint: 'Act on news your league has not seen yet' },
@@ -837,6 +841,43 @@ function PlayerOutlook({ o }: { o: any }) {
           )}
         </dl>
       </div>
+
+      {/* The record: "select this guy because he has X yards consistently every
+          season" — season-by-season rows, streaks, this season's band, the
+          offseason read as a flag. Absent entirely when the league has no history. */}
+      {hasEvidence(o) && (
+        <div className="card overflow-hidden">
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <h3 className="text-sm font-bold text-slate-700">The record</h3>
+            {statHeadline(o.career, o.preseason) && (
+              <p className="text-[11px] text-slate-600 mt-0.5">{statHeadline(o.career, o.preseason)}</p>
+            )}
+          </div>
+          <div className="p-3 space-y-2 text-xs">
+            <StreakChips career={o.career} />
+            <div className="overflow-x-auto">
+              <EvidenceTable career={o.career} preseason={o.preseason} position={o.position} />
+            </div>
+            {o.preseason?.p20 != null && o.preseason?.p80 != null && (
+              <p className="tabular-nums text-slate-600" title="Our preseason model's p20–p80 season band">
+                This season: <b className="text-slate-800">{Math.round(o.preseason.p20)}–{Math.round(o.preseason.p80)}</b> pts
+                {o.preseason.points != null && <span className="text-slate-400"> · median {Math.round(o.preseason.points)}</span>}
+                {o.preseason.drivers?.length > 0 && <span className="text-slate-500"> · {o.preseason.drivers.slice(0, 2).join('; ')}</span>}
+              </p>
+            )}
+            {o.offseason && (
+              <p className={`rounded border px-2 py-1 text-[11px] ${
+                o.offseason.direction === 'upside' ? 'border-good bg-good-tint text-good'
+                  : o.offseason.direction === 'risk' ? 'border-amber-300 bg-amber-50 text-amber-800'
+                    : 'border-slate-200 bg-slate-50 text-slate-600'}`}
+                title="Offseason-changes model — shown as context only, never multiplied into the value (which already prices the depth chart)">
+                <b>{o.offseason.direction === 'upside' ? 'Upside' : o.offseason.direction === 'risk' ? 'Risk' : 'Offseason'}</b> ×{o.offseason.opportunity_multiplier.toFixed(2)}
+                {o.offseason.drivers?.length > 0 && <span> · {o.offseason.drivers.slice(0, 2).join('; ')}</span>}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {o.splits?.upcoming?.length > 0 && (
         <div className="card overflow-hidden">

@@ -5,6 +5,11 @@ import { vorBoard, volatility } from './edge.js';
 import { deriveFormat } from '../services/format.js';
 import { pickInventory } from '../services/picks.js';
 import { dynastyAgeAdjustment } from '../services/dynasty-age-curve.js';
+// Same evidence the trade engine attaches to every card (career record,
+// preseason band, offseason read) and the same "argue from the numbers"
+// rules the draft advisor runs on — the pitch cites seasons, not adjectives.
+import { playerEvidence } from '../services/trade-engine.js';
+import { evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -278,6 +283,18 @@ r.post('/:leagueId/pitch', async (req, res, next) => {
 
     const taxi = JSON.parse(lg.payload).league?.settings?.taxi_slots ?? 0;
 
+    // One stat-rooted line per listed player (the same five per position the
+    // prompt shows), so the ladder can say "1,000+ rec yds in 3 straight
+    // seasons" instead of "a solid WR2". Empty on a league with no history.
+    const records = [me, them].flatMap(t => SKILL.flatMap(pos => {
+      const p = t.positions[pos];
+      return [...p.starters, ...p.depth].slice(0, 5);
+    })).map(x => {
+      let headline = null;
+      try { headline = evidenceHeadline({ ...x, ...playerEvidence(x.id) }); } catch { headline = null; }
+      return headline ? `- ${x.name}: ${headline}` : null;
+    }).filter(Boolean);
+
     const msg = await callClaude({
       feature: 'trade-pitch',
       maxTokens: 1500,
@@ -297,11 +314,15 @@ Their needs: ${them.needs.map(n => `${n.position} (gap ${n.gap})`).join(', ') ||
 Their surplus: ${them.surplus.map(s => s.position).join(', ') || 'none'}
 Their draft picks: ${fmtPicks(them)}
 
+${records.length ? `RECORDS (real, multi-season — cite these numbers in every "why" and in the pitch, never an adjective in their place):\n${records.join('\n')}\n` : ''}
 Build a negotiation ladder that exploits the fit between our windows and positional needs. Only use players and picks actually listed above. Keep the deal roughly balanced on price or slightly in my favour, and make each rung something they would plausibly accept given their window. Draft picks are legitimate trade pieces — a rebuilder will usually prefer picks and youth, a contender proven production.
 
+${STAT_ROOTED_INSTRUCTIONS}
+
 Respond with ONLY JSON:
-{"anchor":{"i_give":["Player or pick"],"i_get":["Player or pick"],"why":"one sentence"},
- "fair":{"i_give":["Player or pick"],"i_get":["Player or pick"],"why":"one sentence"},
+{"anchor":{"i_give":["Player or pick"],"i_get":["Player or pick"],"why":"one sentence, leading with a concrete number from the records above"},
+ "fair":{"i_give":["Player or pick"],"i_get":["Player or pick"],"why":"one sentence, leading with a concrete number from the records above"},
+ "evidence":"one line: the 2-3 numbers from the records above that make this ladder work, comma-separated, no adjectives",
  "walk_away":"the line past which I should decline, one sentence",
  "pitch":"a short message I can paste to them — friendly, frames the deal around THEIR need, no fake urgency, 3-4 sentences",
  "read":"2-3 sentences on their likely counter and how to respond"}`

@@ -16,6 +16,9 @@
  *   findTrades  — enumerate and rank realistic deals across the league
  *   offerFor    — "I want this player, what do I give up"
  *   selfScout   — my roster's strengths, holes and fix list
+ *   evidence    — career record, preseason band and offseason read on every
+ *                 player object, plus a floor/ceiling risk read per side —
+ *                 explanation only, never an input to any number above
  */
 import { rows } from '../db/index.js';
 import { vorBoard, volatility } from '../routes/edge.js';
@@ -31,6 +34,11 @@ import { cached, fingerprint } from './compute-cache.js';
 import { scoringFor } from './scoring.js';
 import { activeFantasyCoordinatorFit, weeklyExpertValues, coordinateFantasy } from './fantasy-coordinator.js';
 import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
+// Evidence layers (see the "evidence" section below). Read-only sources: the
+// engine never re-prices on them, it explains with them.
+import { careerLine } from './player-career.js';
+import { preseasonProjection } from './preseason-model.js';
+import { offseasonAdjustment } from './offseason-model.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -119,6 +127,10 @@ export function assetUniverse(lg, formatKey, requested = null) {
 }
 
 function buildAssetUniverse(lg, formatKey, target) {
+  // The universe is only rebuilt when the tables it reads changed (see the
+  // fingerprint above) — the same "new data landed" signal the per-player
+  // evidence cache should refresh on, so it is dropped here rather than on a TTL.
+  evidenceCache.clear();
   const scoring = scoringFor(lg);
   // formatKey is `dyn_...`/`rd_...` per deriveFormat (format.js) — the age
   // decay only makes sense for a dynasty/keeper valuation, never redraft.
@@ -387,6 +399,211 @@ export function lineupSpread(lineup) {
   };
 }
 
+/* --------------------------------------------------------------- evidence */
+
+/**
+ * Stat-rooted evidence per player: the multi-season record (player-career.js),
+ * our validated preseason projection with its band (preseason-model.js) and the
+ * offseason-changes read (offseason-model.js).
+ *
+ * This is explanation, not pricing. Nothing here touches `value`, `adj_ppg` or
+ * any lineup number — the point is that a card can say "1,000+ rec yds in 5
+ * straight seasons, top-12 every year" instead of "reliable". In particular the
+ * offseason multiplier is NEVER applied: the weekly engine already knows the
+ * depth chart, so multiplying it on would double-count (see offseason-model.js);
+ * it is surfaced as a risk/upside flag with its drivers.
+ *
+ * Every layer is optional. A source that returns null or throws simply leaves
+ * its field absent, so the engine behaves exactly as before on a database that
+ * has no play-by-play history or no fitted model.
+ *
+ * `slim()` — the one place every outgoing player object is built (gives, gets,
+ * i_give/i_get, targets, scout starters) — spreads this in, memoised per player
+ * because `evaluate()` runs thousands of times inside findTrades().
+ */
+const evidenceDefaults = { careerLine, preseasonProjection, offseasonAdjustment };
+let evidenceSources = { ...evidenceDefaults };
+const evidenceCache = new Map();
+
+/** Test hook: swap any evidence source (pass `null` to simulate a missing layer). */
+export function _setEvidenceSources(overrides = {}) {
+  evidenceSources = { ...evidenceDefaults, ...overrides };
+  evidenceCache.clear();
+}
+
+const r1 = v => (v == null || !Number.isFinite(v) ? null : +Number(v).toFixed(1));
+const CAREER_SEASONS_SHOWN = 3;
+
+function compactCareer(c) {
+  if (!c || !Array.isArray(c.seasons)) return null;
+  return {
+    headline: c.headline ?? null,
+    window: c.window ?? null,
+    // Newest first; three seasons is what fits on a card, the consistency read
+    // below still covers the full window the source computed it over.
+    seasons: c.seasons.slice(0, CAREER_SEASONS_SHOWN).map(s => ({
+      season: s.season, games: s.games, ppr_points: r1(s.ppr_points), ppg: s.ppg, pos_rank: s.pos_rank,
+      rush_att: s.rush_att, carries: s.rush_att, rush_yds: s.rush_yds, rush_td: s.rush_td,
+      targets: s.targets, rec: s.rec, rec_yds: s.rec_yds, rec_td: s.rec_td,
+      pass_att: s.pass_att, pass_yds: s.pass_yds, pass_td: s.pass_td, int: s.int
+    })),
+    seasons_on_record: c.seasons.length,
+    consistency: c.consistency ?? null,
+    streaks: (c.streaks ?? []).filter(s => (s.streak ?? 0) >= 2).slice(0, 4)
+      .map(s => ({ stat: s.stat, threshold: s.threshold, seasons: s.seasons, streak: s.streak, values: s.values })),
+    trend: c.trend ?? null
+  };
+}
+
+function compactPreseason(p) {
+  if (!p || p.points == null) return null;
+  return {
+    points: r1(p.points), ppg: p.ppg ?? null, expected_games: r1(p.expected_games),
+    p20: r1(p.p20), p80: r1(p.p80),
+    drivers: (p.drivers ?? []).slice(0, 2)
+  };
+}
+
+function compactOffseason(o) {
+  if (!o) return null;
+  const mult = o.opportunity_multiplier ?? 1;
+  const drivers = o.drivers ?? [];
+  // A neutral read (x1.00, no drivers) is the model saying nothing — attaching
+  // it would only be noise on every card.
+  if (!drivers.length && Math.abs(mult - 1) < 0.005) return null;
+  return {
+    opportunity_multiplier: +mult.toFixed(2),
+    ppg_multiplier: o.ppg_multiplier != null ? +o.ppg_multiplier.toFixed(2) : null,
+    confidence: o.confidence ?? null,
+    drivers: drivers.slice(0, 3),
+    direction: mult > 1.005 ? 'upside' : mult < 0.995 ? 'risk' : 'neutral',
+    applied_to_value: false
+  };
+}
+
+/**
+ * The compact evidence object for one player: `{ career?, preseason?, offseason? }`
+ * with a key only when that layer had something to say.
+ */
+export function playerEvidence(playerId, season = SEASON) {
+  if (playerId == null) return {};
+  const key = `${playerId}:${season}`;
+  const hit = evidenceCache.get(key);
+  if (hit) return hit;
+  const out = {};
+  let career = null, preseason = null, offseason = null;
+  try { career = compactCareer(evidenceSources.careerLine?.(playerId, { season })); } catch { career = null; }
+  try { preseason = compactPreseason(evidenceSources.preseasonProjection?.(playerId, season)); } catch { preseason = null; }
+  try { offseason = compactOffseason(evidenceSources.offseasonAdjustment?.(playerId, season)); } catch { offseason = null; }
+  if (career) out.career = career;
+  if (preseason) out.preseason = preseason;
+  if (offseason) out.offseason = offseason;
+  if (evidenceCache.size > 5000) evidenceCache.clear();
+  evidenceCache.set(key, out);
+  return out;
+}
+
+/* ---------------------------------------------------------- floor / risk */
+
+/**
+ * One player's volatility read, from the evidence already on him. Profiles:
+ *   proven floor — 3+ top-24 seasons and a year-to-year swing of 25% or less
+ *   steady       — 2+ top-24 seasons, swing under 35%
+ *   spike        — exactly one season on record that landed top-24
+ *   volatile     — swing over 35%, or a single sub-top-24 season
+ *   unproven     — no NFL season on record (rookie, or unlinked)
+ * `band_pct` is this season's p20-p80 width as a share of the median.
+ */
+export function playerRiskProfile(p) {
+  const c = p.career?.consistency;
+  const seasons = c?.seasons_counted ?? p.career?.seasons_on_record ?? p.career?.seasons?.length ?? 0;
+  const top24 = c?.seasons_top24 ?? 0, top12 = c?.seasons_top12 ?? 0;
+  const cv = c?.cv_points ?? null;
+  const pre = p.preseason;
+  const bandPct = pre?.points && pre.p20 != null && pre.p80 != null
+    ? Math.round(((pre.p80 - pre.p20) / pre.points) * 100) : null;
+  let profile;
+  if (!seasons) profile = 'unproven';
+  else if (seasons === 1) profile = top24 >= 1 ? 'spike' : 'volatile';
+  else if (top24 >= 3 && (cv == null || cv <= 0.25)) profile = 'proven floor';
+  else if (top24 >= 2 && (cv == null || cv <= 0.35)) profile = 'steady';
+  else profile = 'volatile';
+  return {
+    id: p.id, name: p.name, value: p.value ?? 0,
+    seasons, top24, top12,
+    min_games: c?.min_games ?? null,
+    swing_pct: cv != null ? Math.round(cv * 100) : null,
+    band_pct: bandPct,
+    points: pre?.points ?? null, p20: pre?.p20 ?? null, p80: pre?.p80 ?? null,
+    profile
+  };
+}
+
+const describeProfile = r => {
+  if (!r) return null;
+  if (r.profile === 'unproven') return 'a player with no NFL record';
+  if (r.profile === 'spike') return 'a 1-season spike';
+  if (r.top12 === r.seasons && r.seasons >= 2) return `a ${r.seasons}-year top-12 floor`;
+  if (r.profile === 'proven floor') return `a ${r.top24}-of-${r.seasons} top-24 floor`;
+  if (r.profile === 'steady') return `a ${r.top24}-of-${r.seasons} top-24 record`;
+  return `a ±${r.swing_pct ?? '?'}% swing over ${r.seasons} seasons`;
+};
+
+/** The floor/ceiling/consistency read for one package of players. */
+export function packageRisk(players) {
+  const profiles = (players ?? []).map(playerRiskProfile);
+  const withRecord = profiles.filter(x => x.seasons > 0);
+  const withSwing = withRecord.filter(x => x.swing_pct != null);
+  const withBand = profiles.filter(x => x.p20 != null && x.p80 != null);
+  const avg = (list, key) => list.length ? Math.round(list.reduce((s, x) => s + x[key], 0) / list.length) : null;
+  const sum = (list, key) => list.length ? +list.reduce((s, x) => s + x[key], 0).toFixed(1) : null;
+  const headline = profiles.slice().sort((a, b) => b.value - a.value)[0] ?? null;
+  return {
+    players: profiles,
+    seasons: withRecord.reduce((s, x) => s + x.seasons, 0),
+    top24_seasons: withRecord.reduce((s, x) => s + x.top24, 0),
+    top12_seasons: withRecord.reduce((s, x) => s + x.top12, 0),
+    min_games: withRecord.some(x => x.min_games != null) ? Math.min(...withRecord.filter(x => x.min_games != null).map(x => x.min_games)) : null,
+    swing_pct: avg(withSwing, 'swing_pct'),
+    band_pct: avg(withBand, 'band_pct'),
+    points: sum(withBand, 'points'), p20: sum(withBand, 'p20'), p80: sum(withBand, 'p80'),
+    headline_profile: headline?.profile ?? null,
+    headline_read: describeProfile(headline)
+  };
+}
+
+/** Numbers only — the evidence line under a verdict. */
+function packageNumbers(r) {
+  if (!r) return null;
+  const bits = [];
+  if (r.seasons) bits.push(`${r.top24_seasons}/${r.seasons} top-24 seasons`);
+  else bits.push('0 seasons on record');
+  if (r.swing_pct != null) bits.push(`±${r.swing_pct}% swing`);
+  if (r.min_games != null) bits.push(`${r.min_games} g min`);
+  if (r.p20 != null) bits.push(`${SEASON} band ${Math.round(r.p20)}-${Math.round(r.p80)}`);
+  return bits.join(', ');
+}
+
+/**
+ * Both packages' risk reads for one side plus a one-line read — "you are
+ * trading a 5-year top-12 floor for a 1-season spike".
+ */
+function sideRisk(gives, gets) {
+  const out = packageRisk(gives), inn = packageRisk(gets);
+  const read = out.headline_read && inn.headline_read
+    ? `trading ${out.headline_read} for ${inn.headline_read}`
+    : null;
+  return { out, in: inn, read };
+}
+
+function verdictEvidence(risk) {
+  if (!risk) return null;
+  const give = risk.out.players.length ? `give: ${packageNumbers(risk.out)}` : null;
+  const get = risk.in.players.length ? `get: ${packageNumbers(risk.in)}` : null;
+  const line = [give, get].filter(Boolean).join(' · ');
+  return line || null;
+}
+
 /* ------------------------------------------------------------- evaluation */
 
 const verdictFor = (ppgDelta, valueDelta) => {
@@ -415,10 +632,15 @@ export function evaluate(a, b, slots, ctx = {}) {
     const valueOut = gives.reduce((s, p) => s + Math.max(0, p.value), 0);
     const valueIn = gets.reduce((s, p) => s + Math.max(0, p.value), 0);
     const spreadBefore = lineupSpread(before), spreadAfter = lineupSpread(post);
+    const givesOut = gives.map(slim), getsIn = gets.map(slim);
 
     return {
       roster_id: team.roster_id, owner: team.owner,
-      gives: gives.map(slim), gets: gets.map(slim),
+      gives: givesOut, gets: getsIn,
+      // Floor/ceiling/consistency of what leaves vs what arrives, from each
+      // player's multi-season record and this season's band — explanation
+      // alongside the verdict, never an input to it.
+      risk: sideRisk(givesOut, getsIn),
       lineup_before: before.points, lineup_after: post.points,
       ppg_delta: +(post.points - before.points).toFixed(2),
       season_delta: +((post.points - before.points) * GAMES).toFixed(1),
@@ -479,7 +701,10 @@ export function evaluate(a, b, slots, ctx = {}) {
     red_flags: redFlags,
     their_window: ctx.theirWindow ?? null,
     their_value_pct: +theirValuePct.toFixed(1),
-    fairness: fairnessLabel(A.value_delta, A.value_out + A.value_in)
+    fairness: fairnessLabel(A.value_delta, A.value_out + A.value_in),
+    // My side's numbers-only evidence line: "give: 5/5 top-24 seasons, ±9%
+    // swing, 17 g min · get: 1/1 top-24 seasons, 2026 band 150-290".
+    verdict_evidence: verdictEvidence(A.risk)
   };
 }
 
@@ -493,7 +718,10 @@ const slim = p => ({
   current_week_ppg: p.current_week_ppg, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
   active_probability: p.active_probability, injury_status: p.injury_status,
   practice_status: p.practice_status, model_cutoff: p.model_cutoff,
-  role_change: p.role_change, matchup: p.matchup
+  role_change: p.role_change, matchup: p.matchup,
+  // career / preseason / offseason — each present only when its layer has
+  // something to say (see playerEvidence()).
+  ...playerEvidence(p.id)
 });
 
 /**
@@ -1194,7 +1422,7 @@ export function playerOutlook(lg, playerId) {
   const news = rows(`SELECT date, headline, fantasy_impact, importance FROM news_items
                      WHERE headline LIKE ? OR body LIKE ? ORDER BY date DESC LIMIT 5`,
     `%${a.name}%`, `%${a.name}%`);
-  return { ...a, owner: owner?.owner ?? 'free agent', owner_id: owner?.roster_id ?? null, splits, news };
+  return { ...a, ...playerEvidence(a.id), owner: owner?.owner ?? 'free agent', owner_id: owner?.roster_id ?? null, splits, news };
 }
 
 /* ---------------------------------------------- submitted vs. recommended lineup */

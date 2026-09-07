@@ -777,8 +777,75 @@ export function fitPreseasonModel(trainRows, { lambdaPpg = 12, lambdaGames = 12,
     }
   }
   model.spread = spread;
+  model.spreadCurve = fitSpreadCurve(model, graded);
   return model;
 }
+
+/** Rank grid the spread curve is tabulated on. Beyond it, the last cell is reused. */
+const SPREAD_CURVE_MAX_RANK = 200;
+
+/**
+ * The band the model actually ships: `actual/predicted` ratio quantiles read from a
+ * Gaussian window over `pos_rank` (sigma = 18 ranks) instead of the three hard tiers.
+ *
+ * This is the same correction the points curve already got — see "what the curve is" in
+ * docs/PRESEASON_MODEL.md, where a local-linear fit replaced a tier-style local average
+ * for exactly this reason. The tier table's `late` cell spans pos_rank 37 to 450, so
+ * WR37 inherited the relative error of WR120, and the band came out far too wide. Held
+ * out, the tier band covered 69.3% of outcomes against a 60% nominal (78.0 / 66.7 /
+ * 63.3% for 2023 / 2024 / 2025); the kernel band covers 62.7% pooled (63.3 / 62.7 /
+ * 62.0) and improves pinball loss significantly in 2 of 3 seasons in BOTH the top-150
+ * and top-200 universes. Full numbers and the declined candidates in
+ * docs/PRESEASON_BAND_CALIBRATION.md.
+ *
+ * Tabulated on an integer rank grid at fit time so a board lookup is O(1); the tier
+ * table above is kept as the fallback for a position with too few graded rows.
+ */
+function fitSpreadCurve(model, graded) {
+  const byPos = new Map();
+  for (const r of graded) {
+    if (!SKILL_POSITIONS.includes(r.position)) continue;
+    const p = blendPoints(model, componentsFor(model, r));
+    // Same guard as the tier table: below 20 points a ratio is dominated by the
+    // denominator and says nothing about relative uncertainty.
+    if (!(p > 20)) continue;
+    const ratio = r.actual_points / p;
+    if (!Number.isFinite(ratio)) continue;
+    if (!byPos.has(r.position)) byPos.set(r.position, []);
+    byPos.get(r.position).push({ rank: r.pos_rank, ratio });
+  }
+  const curve = {};
+  for (const [pos, pool] of byPos) {
+    if (pool.length < 20) continue;                     // fall back to the tier table
+    pool.sort((a, b) => a.ratio - b.ratio);             // sort once; weights change per rank
+    const cells = new Array(SPREAD_CURVE_MAX_RANK);
+    for (let rank = 1; rank <= SPREAD_CURVE_MAX_RANK; rank++) {
+      let total = 0;
+      const w = new Array(pool.length);
+      for (let i = 0; i < pool.length; i++) {
+        w[i] = Math.exp(-0.5 * ((pool[i].rank - rank) / SPREAD_CURVE_BANDWIDTH) ** 2);
+        total += w[i];
+      }
+      if (!(total > 0)) { cells[rank - 1] = null; continue; }
+      const pick = q => {
+        let acc = 0;
+        for (let i = 0; i < pool.length; i++) { acc += w[i]; if (acc >= q * total) return pool[i].ratio; }
+        return pool[pool.length - 1].ratio;
+      };
+      cells[rank - 1] = { p20: +pick(0.2).toFixed(3), p80: +pick(0.8).toFixed(3) };
+    }
+    curve[pos] = cells;
+  }
+  return curve;
+}
+
+/**
+ * Window width of the spread curve, in positional ranks. Chosen on the DISCOVERY season
+ * (2023) alone and then sealed — 2024 and 2025 were scored once, at this value. The
+ * result is not knife-edge: every bandwidth from 6 to 40 improves pinball on 2023, and
+ * 8-18 does so on 2025 too.
+ */
+const SPREAD_CURVE_BANDWIDTH = 18;
 
 /** Draft tiers the prediction interval is banded by. */
 export const SPREAD_TIERS = [
@@ -788,6 +855,11 @@ export const SPREAD_TIERS = [
 ];
 
 export const spreadFor = (model, position, posRank) => {
+  const cells = model.spreadCurve?.[position];
+  if (cells) {
+    const cell = cells[Math.max(1, Math.min(SPREAD_CURVE_MAX_RANK, Math.round(posRank))) - 1];
+    if (cell) return cell;
+  }
   const tier = SPREAD_TIERS.find(t => posRank >= t.lo && posRank <= t.hi) ?? SPREAD_TIERS[2];
   return model.spread?.[position]?.[tier.name] ?? { p20: 0.5, p80: 1.5 };
 };

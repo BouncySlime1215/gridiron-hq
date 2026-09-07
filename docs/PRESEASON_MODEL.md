@@ -194,10 +194,15 @@ exactly that.
   on. The deep ranks pin down the tail of the curve; the extra rows measurably steadied
   the earliest target season's fit.
 - **`expected_games`**: the slot curve's average games, clamped to [4, 17].
-- **`p20` / `p80`**: quantiles of `actual / predicted` from the training seasons, banded
-  by position **and** draft tier (slots 1-12 / 13-36 / 37+). Pooling the tiers produced
-  a band so wide it was useless — the QB1 slot inherited the relative error of QB40,
-  whose outcomes range from zero to a starting job.
+- **`p20` / `p80`**: quantiles of `actual / predicted` from the training seasons, read
+  from a Gaussian window over `pos_rank` (sigma = 18 slots). Pooling a position's ranks
+  produced a band so wide it was useless — the QB1 slot inherited the relative error of
+  QB40, whose outcomes range from zero to a starting job. The first fix was three hard
+  draft tiers (1-12 / 13-36 / 37+); those were still far too coarse, and the tier band
+  covered **69.3%** of held-out outcomes against a 60% nominal. The rank-local band
+  covers 62.7% and improves pinball loss significantly on 2 of 3 held-out seasons in
+  both universes. The tier table is still fitted as the fallback for a thin position.
+  See `docs/PRESEASON_BAND_CALIBRATION.md`.
 - **`components`**: `market` (the curve, and the only thing blended in),
   `structural` (`projections.js`, weight 0), `model` (the ridge's "repeat-his-role"
   number, weight 0). `SHIPPED_BLEND = { market: 1, structural: 0, model: 0 }`.
@@ -243,6 +248,7 @@ they do not move the shipped number, which is the curve.
 | Age cliffs, coaching change | Not used, per `docs/DRAFT_AUDIT_2021_2025.md`, which found neither supported once ECR is conditioned on. `age` is present as a plain linear feature only. |
 | Recency-weighted curve (season decay) | Declined. Moved pooled Spearman by 0.0003 and made MAE worse; did not touch the WR drift it was built for. |
 | Per-position/tier recalibration of the curve | Not possible out-of-sample. Zero by construction in training (see calibration section). |
+| Global rescale / shrinkage / pooling of the p20-p80 band | Declined, all four. The tier band's held-out coverage was 69.3% against a 60% nominal, but the defect is resolution, not scale: an out-of-fold width search inside the training seasons selected "leave it alone" on all three targets, and every re-pooling candidate made coverage worse. What shipped instead was a rank-local (Gaussian, sigma = 18) band. See `docs/PRESEASON_BAND_CALIBRATION.md`. |
 | Offseason charting block as a point estimate (v2) | Declined. Best variant 0.5904 / 57.71 pooled — 0.29 MAE better than the curve, significant on 0/3 seasons. Kept in the feature set and used for `drivers` only. See "v2" above. |
 | Live-board nudge at w = 0.4 (v2) | Reduced to 0.2, not endorsed. No weight is significant on any season; 0.2 is the only one winning 2/3 in both universes, and 0.4's pooled MAE is worse than not nudging. See "v2" above. |
 

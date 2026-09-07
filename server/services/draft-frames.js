@@ -141,7 +141,14 @@ function readRun(buf, offset, stride, maxPick) {
 export function decodeInitLedger(base64, { teamCount = 0, rounds = 0 } = {}) {
   let buf;
   try {
-    buf = Buffer.from(String(base64 ?? '').replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    // Explicitly strip anything outside the base64 alphabet before decoding,
+    // rather than relying on Buffer.from's undocumented leniency toward stray
+    // characters. Confirmed against real captures (docs/RESEARCH_ADOPTABLE_CODE.md,
+    // howell/draft-builder saw a literal '#' in a live INIT payload): silently
+    // skipping one bad byte shifts every subsequent 45-byte record's alignment,
+    // which reads as garbage records rather than a clean decode failure.
+    const cleaned = String(base64 ?? '').replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, '');
+    buf = Buffer.from(cleaned, 'base64');
   } catch {
     return { picks: [], stride: null, offset: null, leagueId: null, error: 'INIT payload is not base64' };
   }

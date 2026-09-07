@@ -30,6 +30,10 @@ import { regressionCandidates, regressionForLeague, touchdownRates } from '../se
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
 import { weekPostmortem } from '../services/week-postmortem.js';
+import { tradeImpact } from '../services/season-sim.js';
+import {
+  proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
+} from '../services/trade-verify.js';
 
 const r = Router();
 
@@ -645,6 +649,15 @@ r.get('/splits/:playerId', (req, res, next) => {
  * deal (every field the engine computed, not just a summary) and instructed to
  * work only from that data, so this can disagree with the engine's own verdict
  * when the numbers miss something real, but can't invent a fact that isn't there.
+ *
+ * SIMULATION-CHECKED SINCE 2026-09-07. The verdict is no longer the last word.
+ * `season-sim.js#tradeImpact()` plays the rest of the season out hundreds of
+ * times with the deal and without it — the same simulated football on both sides
+ * of the diff — and reports what it does to BOTH teams' championship odds. If
+ * those numbers clearly contradict the verdict Claude proposed, Claude gets the
+ * numbers and exactly ONE re-think; never a loop. The response carries a
+ * `verification` block saying whether the first read held or was corrected.
+ * See docs/TRADE_LAB_VERIFY_LOOP.md.
  */
 r.post('/:leagueId/sense-check', async (req, res, next) => {
   try {
@@ -686,10 +699,7 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
 ${fmtRisk(s.risk)}
   ${s.new_holes?.length ? `Leaves an unfilled starting slot at: ${s.new_holes.join(', ')}` : 'Fills every starting slot'}`;
 
-    const msg = await callClaude({
-      feature: 'trade-sense-check',
-      maxTokens: 1100,
-      prompt: `You are an experienced fantasy football manager giving a second opinion on a trade someone is
+    const proposePrompt = `You are an experienced fantasy football manager giving a second opinion on a trade someone is
 considering. A deterministic engine already scored it on lineup points and market value — your job is
 to sanity-check that math against things a person would actually notice, not to re-derive the numbers.
 
@@ -726,11 +736,112 @@ Respond with ONLY JSON:
  "evidence":"one line: the 2-3 numbers from the records above that decide this deal, comma-separated, no adjectives",
  "concerns":["0-4 short, specific, concrete concerns grounded in the data above — omit entirely if none"],
  "agrees_with_engine": true or false,
- "why": "2-3 sentences on why you agree or disagree with the engine's plausibility call"}`
+ "why": "2-3 sentences on why you agree or disagree with the engine's plausibility call"}`;
+
+    /* ------------------------------------------- propose → verify → retry once
+     * The trade is fully specified by the request body, so the season simulation
+     * has no dependency on Claude's answer and is started while the propose call
+     * is still in flight. What is new here is only that the verdict now has to
+     * survive a simulated season; the proposal itself is the call this route has
+     * always made, with the same prompt. */
+    const { args: simArgs, reason: notSimulatable } = simulationArgsFor(lg, d);
+    const runs = Math.min(2000, Math.max(200, Number(req.body?.sim_runs) || SENSE_CHECK_SIM_RUNS));
+
+    const payload = await proposeVerifyRetryTrade({
+      propose: async () => parseJson(await callClaude({
+        feature: 'trade-sense-check', maxTokens: 1100, prompt: proposePrompt
+      })),
+
+      /**
+       * `tradeImpact()` runs the league twice under common random numbers — the
+       * same simulated seasons with the deal and without it — so the delta is
+       * the trade and not the gap between two noisy runs. It returns BOTH sides
+       * from that one paired run, which is why checking both teams costs nothing
+       * extra.
+       *
+       * A fixed seed keeps a given deal's answer reproducible: re-opening the
+       * same card must not quietly produce a different verdict.
+       *
+       * Returns null rather than throwing when the deal cannot be resolved
+       * against the real rosters — the second opinion is an optional layer and
+       * must never fail the request; the payload comes back `unverified`.
+       */
+      simulate: () => {
+        if (!simArgs) return null;
+        try {
+          const started = Date.now();
+          const impact = tradeImpact(lg, { ...simArgs, runs, seed: 1 });
+          return impact?.error ? impact : { ...impact, compute_ms: Date.now() - started };
+        } catch (e) {
+          console.warn(`[trade-sense-check] season simulation unavailable: ${e.message}`);
+          return null;
+        }
+      },
+
+      verify: (verdict, impact) => ({
+        ...judgeTradeVerdict(impact ?? (notSimulatable ? { error: notSimulatable } : null), verdict),
+        sim_compute_ms: impact?.compute_ms ?? null
+      }),
+
+      // The one bounded re-think: the full original context as the first turn,
+      // the model's own verdict as the second, the simulation's numbers as the
+      // third — so it is reconsidering its own reasoning rather than answering a
+      // fresh, thinner question.
+      retry: async (judgement) => parseJson(await callClaude({
+        feature: 'trade-sense-check-retry', maxTokens: 700,
+        messages: [
+          { role: 'user', content: proposePrompt },
+          { role: 'assistant', content: JSON.stringify({ verdict: judgement.proposed_verdict }) },
+          { role: 'user', content: tradeChallengeText(judgement) }
+        ]
+      }))
     });
-    res.json(parseJson(msg));
+
+    res.json(payload);
   } catch (e) { next(e); }
 });
+
+/**
+ * Turn the client-supplied deal into `tradeImpact()` arguments.
+ *
+ * Returns `{ args }` when the deal is simulatable and `{ reason }` when it is
+ * not — the reason is surfaced verbatim in the `unverified` note, because "no
+ * check happened" is only useful if it says which check and why.
+ *
+ * The deal body comes from the browser, so every id in it is re-resolved against
+ * the rosters as the server has them — the same discipline the evidence lines
+ * above already follow. Both roster ids must be real teams in this league, every
+ * player I am sending must actually be on my roster, and every player I am
+ * receiving must actually be on theirs. A deal that fails any of those is not
+ * simulated at all rather than simulated wrongly: `tradeImpact` would happily
+ * accept an id nobody owns and silently report the impact of a trade that gives
+ * away nothing, which is a confident wrong answer dressed as a check.
+ */
+function simulationArgsFor(lg, d) {
+  try {
+    const { formatKey } = deriveFormat(lg);
+    const teams = loadRosters(lg, assetUniverse(lg, formatKey));
+    const myTeamId = String(d.me?.roster_id ?? lg.my_team_id ?? '');
+    const theirTeamId = String(d.partner_id ?? d.them?.roster_id ?? '');
+    const me = teams.find(t => t.roster_id === myTeamId);
+    const them = teams.find(t => t.roster_id === theirTeamId);
+    if (!me || !them) return { reason: 'the two teams in this deal could not be matched to live rosters' };
+
+    const ids = list => (list ?? []).map(p => Number(p?.id)).filter(Number.isFinite);
+    const iGive = ids(d.i_give ?? d.me?.gives);
+    const iGet = ids(d.i_get ?? d.me?.gets);
+    if (!iGive.length && !iGet.length) return { reason: 'the deal names no players on either side' };
+
+    const owns = (team, id) => team.players.some(p => p.id === id);
+    if (!iGive.every(id => owns(me, id)) || !iGet.every(id => owns(them, id))) {
+      return { reason: 'a player in this deal is not on the roster the deal says he is on — '
+        + 'the league may have changed since the deal was built' };
+    }
+    return { args: { myTeamId, theirTeamId, iGive, iGet } };
+  } catch (e) {
+    return { reason: `the rosters could not be loaded: ${e.message}` };
+  }
+}
 
 /* --------------------------------------------------------- AI negotiation copy */
 /**

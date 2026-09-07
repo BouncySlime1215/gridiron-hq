@@ -110,7 +110,7 @@ function parseCsvLine(line) {
  * gigabyte, and only a tiny slice of it (redraft-overall, preseason weeks) is
  * ever used.
  */
-async function eachPreseasonRow(wantedSeasons, onRow) {
+export async function eachPreseasonRow(wantedSeasons, onRow) {
   const res = await fetch(SOURCE_URL, { signal: AbortSignal.timeout(240000) });
   if (!res.ok) throw new Error(`${SOURCE_URL} -> HTTP ${res.status}`);
   const src = Readable.fromWeb(res.body).pipe(createGunzip());

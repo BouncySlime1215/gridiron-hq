@@ -8,6 +8,7 @@ import { ingestCapture, mintIngestKey, verifyIngestKey, ingestStatus, MAX_FRAMES
 import { espnCors } from '../platform/cors.js';
 import { boardState, rankTargets, dossiersFor, analystNotes, enrichWithEvidence, evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
 import { lookahead } from '../services/draft-lookahead.js';
+import { proposeVerifyRetry, judgeProposal, challengeText } from '../services/draft-advice-verify.js';
 import { espnPlayerNotes } from '../services/espn-player-notes.js';
 import { normalise } from '../services/player-ids.js';
 import { ORDER_TYPES, DEFAULT_ROSTER_POSITIONS, assignRosterSlots, slotForPick as engineSlotForPick } from '../draft/engine.js';
@@ -869,13 +870,6 @@ r.get('/:id/assist', async (req, res, next) => {
 });
 
 /**
- * Claude's read on the same board.
- *
- * Cached per pick number: during a live draft this gets called every time the board
- * moves, and re-billing a fresh call for an unchanged board would be both slow and
- * wasteful. `?refresh=1` forces a new one.
- */
-/**
  * Monte Carlo lookahead: plays the rest of the draft out ~200 times for each
  * of the top candidates and reports the finished-roster value of taking each
  * one now. Deterministic per board, so it is memoised per (draft, pick) and
@@ -901,6 +895,25 @@ r.get('/:id/lookahead', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * Claude's read on the same board — proposed, then simulation-checked.
+ *
+ * Not a single unchecked LLM call any more. Claude reasons over the dossiers and
+ * proposes a pick; `draft-lookahead.js`'s Monte Carlo then plays the rest of the
+ * draft out for that pick and its shortlisted alternatives and asks whether the
+ * proposal actually finishes with a competitive roster. If the simulation
+ * clearly disagrees, Claude gets the numbers and exactly ONE re-think — never a
+ * loop, because a loop is an unbounded latency on a 90-second clock. The answer
+ * carries a `verification` block saying whether the first instinct held or was
+ * corrected. See docs/DRAFT_ADVICE_VERIFY_LOOP.md.
+ *
+ * This is the SECONDARY layer. `rankTargets()`'s deterministic board renders
+ * immediately and never waits on any of this.
+ *
+ * Cached per pick number: during a live draft this gets called every time the board
+ * moves, and re-billing a fresh call for an unchanged board would be both slow and
+ * wasteful. `?refresh=1` forces a new one.
+ */
 r.get('/:id/advice', async (req, res, next) => {
   try {
     const { draft: accessedDraft } = draftAccess(req, req.params.id);
@@ -996,10 +1009,7 @@ r.get('/:id/advice', async (req, res, next) => {
         + (p.cost_of_waiting != null ? `, waiting costs ~${Math.round(p.cost_of_waiting)} pts` : '');
     }).join('\n');
 
-    const msg = await callClaude({
-      feature: 'draft-advice',
-      maxTokens: 2000,
-      prompt: `You are advising me live, on the clock, in a ${draft.team_count}-team PPR fantasy football draft. Be decisive and brief — I have ${draft.pick_seconds ?? 90} seconds.
+    const proposePrompt = `You are advising me live, on the clock, in a ${draft.team_count}-team PPR fantasy football draft. Be decisive and brief — I have ${draft.pick_seconds ?? 90} seconds.
 League size matters: with ${draft.team_count} teams the waiver wire is deep, replacement-level players are good, and only elite production separates rosters — weight ceiling over floor, and never reach for a QB, TE, K or DEF while a difference-making RB/WR is on the board.
 
 SITUATION
@@ -1043,9 +1053,73 @@ Respond with ONLY JSON:
  "position_priority":"which positions to attack over my next 2-3 picks, and why, in one sentence",
  "next_turn_outlook":"one sentence on what should still be there at my next pick"}
 
-Give a "players" entry for every player in the dossier list above, in the same order.`
+Give a "players" entry for every player in the dossier list above, in the same order.`;
+
+    // ---------------------------------------------------------- propose → verify → retry
+    // The proposal is the same single call this route has always made. What is
+    // new is that it is no longer the last word: the Monte Carlo lookahead gets
+    // to argue with it once, in JS, before it reaches the clock.
+    const sameName = (a, b) => a != null && b != null && normalise(a) === normalise(b);
+    const { advice: out, verification } = await proposeVerifyRetry({
+      matchesName: sameName,
+
+      propose: async () => ({
+        advice: parseJson(await callClaude({ feature: 'draft-advice', maxTokens: 2000, prompt: proposePrompt }))
+      }),
+
+      // Simulation, not a second opinion: `lookahead()` plays the remaining
+      // rounds out for the whole shortlist under common random numbers, so the
+      // proposal and its alternatives are compared inside the same simulated
+      // seasons and the same simulated draft orders. Scoped to the five names
+      // Claude was actually shown — the question is "was this the best of the
+      // options in front of it", not "is there something better elsewhere",
+      // which is `rankTargets()`'s job and already on screen.
+      //
+      // Runs while the propose call is in flight (it depends on the shortlist,
+      // not on Claude's answer), so it adds nothing to the wall clock.
+      simulate: () => {
+        try {
+          // A deeper pool than the advice board carries: the sim plays every
+          // remaining pick of every team, same as the /lookahead route.
+          const simState = boardState(req.params.id, ownedSlot(req, accessedDraft), { poolLimit: 400 });
+          const simTargets = shortlist
+            .map(dsr => rankOf.get(dsr.player_id))
+            .filter(Boolean)
+            .map(t => ({ player_id: t.player_id, name: t.name, position: t.position, team_abbr: t.team_abbr }));
+          if (!simTargets.length) return null;
+          const started = Date.now();
+          const sim = lookahead({ ...simState, targets: simTargets },
+            { sims: Number(req.query.sims) || 200, candidates: simTargets.length });
+          return sim && { ...sim, compute_ms: Date.now() - started };
+        } catch (e) {
+          console.warn(`[draft-advice] lookahead verification unavailable: ${e.message}`);
+          return null;
+        }
+      },
+
+      // A live draft never fails on its optional layer: a proposal the
+      // simulation could not evaluate comes back marked unverified and is still
+      // returned, rather than costing Nick the pick.
+      verify: (proposedName, sim) => ({
+        ...judgeProposal(sim, proposedName, { matches: sameName }),
+        sim_compute_ms: sim?.compute_ms ?? null
+      }),
+
+      // The one bounded re-think. Full original context as the first turn, the
+      // model's own answer as the second, the simulation's numbers as the
+      // third — so it is reconsidering its own reasoning rather than answering
+      // a fresh, thinner question. Small maxTokens on purpose: this call
+      // re-decides the pick only, and `players[]` is carried over.
+      retry: async (verdict) => parseJson(await callClaude({
+        feature: 'draft-advice-retry', maxTokens: 500,
+        messages: [
+          { role: 'user', content: proposePrompt },
+          { role: 'assistant', content: JSON.stringify({ pick: verdict.proposed?.name }) },
+          { role: 'user', content: `${challengeText(verdict)}\n\n${allowLine}` }
+        ]
+      }))
     });
-    const out = parseJson(msg);
+
     // Closed-world check: every name the model actually said, against every name
     // it was allowed to say. This is what makes the allow-list above load-bearing
     // rather than decorative — a prompt instruction alone is routinely ignored
@@ -1056,7 +1130,7 @@ Give a "players" entry for every player in the dossier list above, in the same o
     const saidNames = [out.pick, ...(out.players ?? []).map(p => p.name)].filter(Boolean);
     const offBoard = saidNames.filter(n => !allowedSet.has(normalise(n)));
     const payload = {
-      ...out, pick_number: pickNo, generated_at: new Date().toISOString(),
+      ...out, pick_number: pickNo, generated_at: new Date().toISOString(), verification,
       ...(offBoard.length ? { name_check_failed: offBoard } : {})
     };
     if (offBoard.length) {

@@ -9,6 +9,7 @@ import { espnCors } from '../platform/cors.js';
 import { boardState, rankTargets, dossiersFor, analystNotes, enrichWithEvidence, evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
 import { lookahead } from '../services/draft-lookahead.js';
 import { espnPlayerNotes } from '../services/espn-player-notes.js';
+import { normalise } from '../services/player-ids.js';
 import { ORDER_TYPES, DEFAULT_ROSTER_POSITIONS, assignRosterSlots, slotForPick as engineSlotForPick } from '../draft/engine.js';
 import {
   makePick, undoLastPick, redoLastUndo, correctLastPick, setPaused,
@@ -978,6 +979,16 @@ r.get('/:id/advice', async (req, res, next) => {
       return bits;
     }).join('\n\n');
 
+    // The closed world the advisor is allowed to answer from — every name it can
+    // legally say, spelled exactly as this app spells it. Soft phrasing ("work
+    // only from the data above") was proven insufficient by other projects in the
+    // same space (docs/RESEARCH_OPEN_SOURCE_FANTASY.md §6): an LLM under a
+    // 90-second-pick prompt will still occasionally invent or misspell a name.
+    // An explicit list plus a server-side check catches that before it reaches
+    // the clock, instead of asking Nick to notice a hallucinated player live.
+    const allowedNames = shortlist.map(dsr => dsr.name);
+    const allowLine = `ALLOWED PLAYERS — you may name ONLY these players, spelled exactly as below, and no others, in "pick" and in every "players[].name":\n${allowedNames.map(n => `- ${n}`).join('\n')}`;
+
     const posLine = ['QB', 'RB', 'WR', 'TE'].map(pos => {
       const p = positions[pos] ?? {};
       return `${pos}: rostered ${p.rostered ?? 0}, starters still needed ${p.starters_needed ?? 0}, `
@@ -1010,6 +1021,8 @@ ${runs.length ? `Active runs: ${runs.map(x => `${x.taken} ${x.position}s in the 
 BEST AVAILABLE — scouting dossiers, in my model's order
 ${boardLine}
 
+${allowLine}
+
 ${(analystNotes()._strategy ?? []).length ? `WHAT THE ANALYSTS SAY ABOUT THIS FORMAT\n${analystNotes()._strategy.slice(0, 5).map(a => `- ${a.date} ${a.source}: ${a.note}`).join('\n')}\n` : ''}
 ${STAT_ROOTED_INSTRUCTIONS}
 
@@ -1033,7 +1046,22 @@ Respond with ONLY JSON:
 Give a "players" entry for every player in the dossier list above, in the same order.`
     });
     const out = parseJson(msg);
-    const payload = { ...out, pick_number: pickNo, generated_at: new Date().toISOString() };
+    // Closed-world check: every name the model actually said, against every name
+    // it was allowed to say. This is what makes the allow-list above load-bearing
+    // rather than decorative — a prompt instruction alone is routinely ignored
+    // under a 90-second-pick prompt (docs/RESEARCH_OPEN_SOURCE_FANTASY.md §6).
+    // Never blocks the response (a live draft cannot afford to fail closed); it
+    // surfaces the violation on the payload so it is visible instead of silent.
+    const allowedSet = new Set(allowedNames.map(normalise));
+    const saidNames = [out.pick, ...(out.players ?? []).map(p => p.name)].filter(Boolean);
+    const offBoard = saidNames.filter(n => !allowedSet.has(normalise(n)));
+    const payload = {
+      ...out, pick_number: pickNo, generated_at: new Date().toISOString(),
+      ...(offBoard.length ? { name_check_failed: offBoard } : {})
+    };
+    if (offBoard.length) {
+      console.warn(`[draft-advice] off-list name(s) from the model: ${offBoard.join(', ')} (draft ${req.params.id}, pick ${pickNo})`);
+    }
     run(`INSERT INTO draft_advice (draft_id, pick_number, payload) VALUES (?,?,?)
          ON CONFLICT(draft_id, pick_number) DO UPDATE SET payload = excluded.payload,
            created_at = datetime('now')`,

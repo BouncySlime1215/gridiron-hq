@@ -124,4 +124,23 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
   app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
 }
 
-app.listen(PORT, '127.0.0.1', () => console.log(`Gridiron HQ listening on http://localhost:${PORT}`));
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`Gridiron HQ listening on http://localhost:${PORT}`);
+  // Warm the evidence layers (career lines, preseason curve, offseason
+  // adjustments, in-house projections) off the request path: cold they cost
+  // ~4.5s on the first board read, which on draft night would land on the
+  // first poll after a restart. Failures are logged, never fatal.
+  setImmediate(async () => {
+    const started = Date.now();
+    try {
+      const { enrichWithEvidence, boardState } = await import('./services/draft-assist.js');
+      const { rows } = await import('./db/index.js');
+      const live = rows(`SELECT id FROM drafts WHERE league_row_id IS NOT NULL AND status = 'active' ORDER BY id DESC LIMIT 1`)[0];
+      if (live) {
+        const state = boardState(live.id);
+        await enrichWithEvidence(state.available.slice(0, 12));
+      }
+      console.log(`Evidence layers warm in ${Date.now() - started}ms`);
+    } catch (e) { console.warn(`Evidence warm-up skipped: ${e.message}`); }
+  });
+});

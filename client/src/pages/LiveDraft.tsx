@@ -622,23 +622,57 @@ function Room({ id }: { id: string }) {
             <div className="card p-4">
               <div className="flex items-center gap-2 mb-2">
                 <h2 className="font-bold text-sm">If you take him now…</h2>
-                <span className="text-[11px] text-slate-400">{simBusy ? 'simulating the rest of the draft…' : `rest of the draft played out ${sim?.sims ?? 200}× per pick`}</span>
+                {/* The caption has to say WHICH randomness the numbers below
+                    contain. Until 2026-09-07 the only random thing was the
+                    draft order, so "played out 200×" read as a claim about
+                    outcomes that the simulation was not making. */}
+                <span className="text-[11px] text-slate-400">{simBusy ? 'simulating the rest of the draft…'
+                  : sim?.outcome_draws
+                    ? `rest of the draft played out ${sim?.sims ?? 200}× per pick, each season drawn from the p20/p80 band`
+                    : `rest of the draft played out ${sim?.sims ?? 200}× per pick`}</span>
               </div>
               {sim?.candidates?.length > 0 && (
                 <div className="space-y-1">
-                  {sim.candidates.map((c: any, i: number) => (
-                    <div key={c.player_id} className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${i === 0 ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                  {sim.candidates.map((c: any, i: number) => {
+                    /* Once the season is drawn, the top few candidates are
+                       routinely separated by less than the simulation's own
+                       standard error — the old version's crisp ordering came
+                       from pretending every player scored his projection. A
+                       gap inside 2 SE is a tie and has to read as one, or the
+                       added realism just produces a more confident coin flip. */
+                    const tie = sim?.outcome_draws && c.delta != null && c.delta_se != null
+                      && Math.abs(c.delta) < 2 * c.delta_se;
+                    const leader = c.delta === 0 || tie;
+                    return (
+                    <div key={c.player_id} className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${leader ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
                       <Pos pos={c.position} />
                       <span className="font-semibold text-sm truncate">{c.name}</span>
                       <span className="text-[11px] text-slate-500">{c.team_abbr}</span>
                       <span className="ml-auto text-right shrink-0">
                         {c.expected != null ? <>
-                          <span className="block text-sm font-bold">{Math.round(c.expected)}<span className="text-[10px] font-normal text-slate-400"> pts lineup</span></span>
-                          <span className={`block text-[10px] font-semibold ${c.delta === 0 ? 'text-emerald-700' : 'text-slate-400'}`}>{c.delta === 0 ? 'best finish' : `${c.delta} vs best`}</span>
+                          {/* expected_paired, not expected: candidates are
+                              sniped at very different rates, so their raw means
+                              are taken over differently-selected sets of worlds
+                              and can rank against the like-for-like comparison
+                              this list is ordered by. */}
+                          <span className="block text-sm font-bold">{Math.round(c.expected_paired ?? c.expected)}<span className="text-[10px] font-normal text-slate-400"> pts lineup</span></span>
+                          <span className={`block text-[10px] font-semibold ${leader ? 'text-emerald-700' : 'text-slate-400'}`}
+                            title={c.delta_se != null ? `± ${c.delta_se} simulation error on this gap` : undefined}>
+                            {c.delta === 0 ? 'best finish' : tie ? 'too close to call' : `${c.delta} vs best`}</span>
+                          {/* Only shown when the spread is a real one: the
+                              candidates are separated by a few points and this
+                              range is hundreds wide, which is the honest shape
+                              of the decision and should not be hidden. */}
+                          {sim?.outcome_draws && c.p10 != null && (
+                            <span className="block text-[10px] text-slate-400 tabular-nums" title="10th–90th percentile of the finished roster across the simulated seasons">
+                              {Math.round(c.p10)}–{Math.round(c.p90)}
+                            </span>
+                          )}
                         </> : <span className="text-[10px] text-rose-600">gone before your pick in {c.sniped_pct}% of runs</span>}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                   {sim.candidates[0]?.likely_next?.length > 0 && (
                     <div className="text-[11px] text-slate-500 pt-1">
                       After that, usually still there at your next turn: {sim.candidates[0].likely_next.map((n: any) => `${n.name} (${n.pct}%)`).join(', ')}

@@ -200,9 +200,11 @@ const CAPABILITIES = [
     note: 'The strongest evidence in the fantasy domain, and it does not depend on beating the ' +
       'market on point projection — it prices where the market\'s own rank order is mispriced ' +
       'against how a snake draft actually plays out, a different and better-fitting question. The ' +
-      'Monte Carlo lookahead (200 sims x 6 candidates) currently draws only over draft order, not ' +
-      'over player outcomes — its reported spread describes who else got drafted, not how anyone ' +
-      'performed. Known gap, not yet fixed.',
+      'Monte Carlo lookahead (200 sims x 6 candidates) draws BOTH draft order and each player\'s ' +
+      'season outcome, the latter through correlation.js\'s Gaussian copula with marginals from ' +
+      'the preseason p20/p80 band (2026-09-07; before that it drew only draft order and its ' +
+      'reported spread described who else got drafted, not how anyone performed). Roster spread ' +
+      'now matches the realized 13.7% measured on 2023-2025. docs/DRAFT_LOOKAHEAD_VARIANCE.md.',
     refuses: 'Cannot be read as "this player will outscore that one" — it answers a roster-' +
       'construction question, not a point-projection one.'
   },
@@ -292,6 +294,22 @@ const CAPABILITIES = [
     baseAuthority: 'advisory',
     refuses: 'Sizing is blocked in nfl-execution-edge until proven closing-line value exists. This ' +
       'is enforced in code, not by convention.'
+  },
+  {
+    id: 'betting.slate_allocation',
+    question: 'Of the proven edges live right now, which should I take together and at what size?',
+    module: 'execution-slate-reasoning',
+    domain: 'betting',
+    evidence: { kind: 'structural',
+      note: 'Adds no edge of its own. It allocates across opportunities whose edge was measured ' +
+        'elsewhere (line shopping, Wong teasers), reasons over a Monte Carlo of the proposed ' +
+        'slate\'s bankroll path, and may only lower a stake the staking gate already permitted. ' +
+        'The allocation judgement itself has never been measured against outcomes.' },
+    baseAuthority: 'advisory',
+    refuses: 'Cannot size on its own authority — every ceiling comes from nfl-execution-edge\'s ' +
+      'stakeFor gate and this layer can only clamp downward. It forecasts no game: the drive ' +
+      'simulator is 46.91% directional and is deliberately absent from this path. It recommends ' +
+      'only; a human approves and places every bet.'
   },
 
   /* ------------------------------------------------------------- crossover */

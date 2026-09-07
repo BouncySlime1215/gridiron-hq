@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Gridiron HQ Draft Capture",
+  "version": "1.0.0",
+  "description": "Feeds your live ESPN draft into Gridiron HQ automatically. Reads your own draft-room session in this browser — never a second login, never asks ESPN for anything.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://fantasy.espn.com/*",
+    "http://localhost:5177/*",
+    "http://127.0.0.1:5177/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://fantasy.espn.com/football/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "Gridiron HQ" }
+}

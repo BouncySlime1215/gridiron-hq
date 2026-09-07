@@ -299,6 +299,27 @@ r.get('/:id/ingest-status', (req, res, next) => {
   } catch (e) { handleDraftError(e, res, next); }
 });
 
+/**
+ * Best guess at "the draft happening right now" — what the Chrome extension
+ * uses to auto-configure itself with zero input from the user. Only a live
+ * (league-linked, active) draft within a day of its scheduled time counts;
+ * anything else returns null rather than guessing, so the extension stays
+ * quiet outside a real draft window instead of attaching to the wrong one.
+ */
+r.get('/active', (req, res) => {
+  // Scoped to the caller's OWN leagues from the start — picking the globally
+  // closest draft and only then checking membership meant one caller's live
+  // draft could hide a different caller's, if the former happened to be a
+  // few minutes closer in time (caught by test/draft-active.test.js).
+  const draft = row(`SELECT d.* FROM drafts d JOIN league_memberships lm ON lm.league_id = d.league_row_id
+                     WHERE lm.user_id = ? AND d.status = 'active' AND d.draft_at IS NOT NULL
+                     AND ABS(strftime('%s', datetime('now')) - strftime('%s', datetime(d.draft_at))) < 86400
+                     ORDER BY ABS(strftime('%s', datetime('now')) - strftime('%s', datetime(d.draft_at))) ASC LIMIT 1`,
+    req.auth.userId);
+  if (!draft) return res.json({ draft: null });
+  res.json({ draft: { id: draft.id, name: draft.name, league_row_id: draft.league_row_id, draft_at: draft.draft_at, my_slot: draft.my_slot, status: draft.status } });
+});
+
 r.get('/', (req, res) => {
   res.json(rows(`SELECT d.*, rs.name AS ranking_set_name,
                  (SELECT COUNT(*) FROM draft_picks dp WHERE dp.draft_id = d.id) AS picks_made

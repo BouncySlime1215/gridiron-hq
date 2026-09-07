@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font: 13px -apple-system, sans-serif; width: 260px; margin: 0; padding: 14px; color: #1e293b; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; flex-shrink: 0; }
+  .dot.ok { background: #16a34a; }
+  .dot.bad { background: #dc2626; }
+  .muted { color: #64748b; font-size: 12px; }
+  button { margin-top: 10px; width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; cursor: pointer; }
+</style>
+</head>
+<body>
+  <h1>Gridiron HQ</h1>
+  <div class="row"><span class="dot" id="dot"></span><span id="status">Checking…</span></div>
+  <div class="muted" id="detail"></div>
+  <button id="refresh">Check again</button>
+  <script src="popup.js"></script>
+</body>
+</html>

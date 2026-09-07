@@ -80,7 +80,19 @@ const CONTRACTS = [
   // GBM champion and both FAILED the stated bar — see docs/BETTING_PLAYER_ENGINES.md.
   // The contract exists to record what was measured, not to enable a promotion.
   ['NFL', 'spread', 'team_strength_aggregate', 'nfl-team-strength.js teamStrength(season) — preseason-model projections, offseason-model churn, off_team_season QB1 context', 'roster/depth snapshot and preseason board captured before Week 1 kickoff; no season-T usage row may be read', 'weekly', 10080, 'shrink to league prior', 'high'],
-  ['NFL', 'total', 'team_strength_aggregate', 'nfl-team-strength.js teamStrength(season) — preseason-model projections, offseason-model churn, off_team_season QB1 context', 'roster/depth snapshot and preseason board captured before Week 1 kickoff; no season-T usage row may be read', 'weekly', 10080, 'shrink to league prior', 'high']
+  ['NFL', 'total', 'team_strength_aggregate', 'nfl-team-strength.js teamStrength(season) — preseason-model projections, offseason-model churn, off_team_season QB1 context', 'roster/depth snapshot and preseason board captured before Week 1 kickoff; no season-T usage row may be read', 'weekly', 10080, 'shrink to league prior', 'high'],
+  // WEEKLY-grain player context for the TD prop heads — the second attempt at
+  // the hypothesis whose season-level form was declined 0/3 and 0/3
+  // (player-head-registry-v1-engine-context, docs/PROPS_PLAYER_ENGINES.md).
+  // That attempt's own diagnosis was a grain problem: a season constant cannot
+  // explain week-to-week variation in a per-game price. These three are the
+  // same idea at weekly grain and are registered separately so the redo is
+  // recorded as its own attempt rather than overwriting the first one. Both
+  // failed; see docs/PROPS_PLAYER_ENGINES_WEEKLY.md. The contracts exist to
+  // record what was measured, not to enable a promotion.
+  ['NFL', 'player_props', 'weekly_role_trend', 'nfl-props-player-features-weekly.js — trailing-3-game red-zone / goal-line / opportunity-share rate minus season-to-date, from nfl-pbp.js weekly rows', 'weeks strictly before the target week within the season; the target week row is never read', 'weekly', 10080, 'flag wk_trend_missing and shrink to zero, never impute a league average', 'critical'],
+  ['NFL', 'player_props', 'early_season_role_change', 'offseason-model.js buildPanel(season) churn columns interacted with a fixed week-decay weight (weeks 2-5)', 'churn panel captured before Week 1 kickoff; the interaction weight is a function of week index only', 'weekly', 10080, 'flag wk_newrole_missing and shrink to zero', 'high'],
+  ['NFL', 'player_props', 'opponent_red_zone_defense', 'nfl-props-player-features-weekly.js — red-zone TDs allowed per red-zone opportunity faced, prior seasons plus prior weeks, shrunk to league', 'seasons < T plus weeks strictly before the target week', 'weekly', 10080, 'neutral opponent; quarantined into its own ablation arm because nfl-opponent.js documents opponent adjustment double-counting the betting line', 'high']
 ];
 
 function seedContracts() {

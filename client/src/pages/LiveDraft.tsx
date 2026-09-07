@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, headshotUrl, useApi } from '../api';
+import EvidenceTable from '../components/draft/EvidenceTable';
+import SparkBar from '../components/draft/SparkBar';
+import StreakChips from '../components/draft/StreakChips';
+import SourcePill from '../components/draft/SourcePill';
+import DraftBoardRail from '../components/draft/DraftBoardRail';
+import { pprSeries, statHeadline } from '../components/draft/types';
 
 /* --------------------------------------------------------------- primitives */
 
@@ -142,7 +148,7 @@ function Room({ id }: { id: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [live, setLive] = useState(true);
   const [filter, setFilter] = useState('ALL');
-  const [rosterTab, setRosterTab] = useState<'lineup' | 'order'>('lineup');
+  const [rosterTab, setRosterTab] = useState<'lineup' | 'order' | 'board'>('lineup');
   const adviceFor = useRef<number | null>(null);
   const targetIds = useRef<Map<number, string>>(new Map());
   const [snipes, setSnipes] = useState<{ key: number; name: string; team: string }[]>([]);
@@ -288,9 +294,24 @@ function Room({ id }: { id: string }) {
       ?? state.targets.find((t: any) => t.name === advice.pick) ?? null;
   }, [advice, state]);
 
+  // Career/preseason evidence for a name Claude mentioned: the advice payload carries it
+  // when the server has it; the board's target row is the fallback (same shape by name).
+  const evidenceFor = (name: string) => {
+    const fromAdvice = (advice?.players ?? []).find((p: any) => p.name === name);
+    const fromTarget = (state?.targets ?? []).find((t: any) => t.name === name);
+    const fromBoard = (state?.available ?? []).find((a: any) => a.name === name);
+    return {
+      career: fromAdvice?.career ?? fromTarget?.career ?? fromBoard?.career ?? null,
+      preseason: fromAdvice?.preseason ?? fromTarget?.preseason ?? fromBoard?.preseason ?? null
+    };
+  };
+
   if (!state) return <p className="text-slate-500">Connecting to your ESPN draft…</p>;
 
   const d = state.draft;
+  const pickEvidence = advice?.pick ? evidenceFor(advice.pick) : { career: null, preseason: null };
+  const pickHeadline = statHeadline(pickEvidence.career, pickEvidence.preseason);
+  const otherOptions = (advice?.players ?? []).filter((pl: any) => pl.name !== advice?.pick);
   const lineup = state.my_team.lineup;
   const needs = Object.entries(state.my_team.needs.starters ?? {}).filter(([, n]) => (n as number) > 0);
   const slotTeam = (slot: number) => teamNameForSlot(d, slot);
@@ -323,6 +344,7 @@ function Room({ id }: { id: string }) {
           className={`text-[11px] px-2 py-1 rounded-full border ${live ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
           {live ? '● syncing every 4s' : '‖ paused'}
         </button>
+        <SourcePill draftId={id} sync={state.sync} />
         {syncNote && <span className="text-[11px] text-slate-500">{syncNote}</span>}
         {desynced && (
           <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-300 px-2 py-0.5 rounded-full"
@@ -398,49 +420,45 @@ function Room({ id }: { id: string }) {
                         </span>
                       )}
                       {pickPlayer?.projected_points != null && (
-                        <span className="text-xs font-bold text-slate-600">{Math.round(pickPlayer.projected_points)} pts</span>
+                        <span className="text-xs font-bold text-slate-600 tabular-nums">{Math.round(pickPlayer.projected_points)} pts</span>
                       )}
                     </div>
+                    {/* The stat-rooted reason first — "1,200+ rec yds three years running" —
+                        then Claude's prose. Without career data the prose leads as before. */}
+                    {pickHeadline && (
+                      <p className="text-sm font-bold text-slate-900 mt-1 tabular-nums">{pickHeadline}</p>
+                    )}
                     <p className="text-sm text-slate-700 mt-1">{advice.why}</p>
+                    {(() => {
+                      const pl = (advice.players ?? []).find((p: any) => p.name === advice.pick);
+                      return pl?.status ? (
+                        <span className={`inline-block mt-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${STATUS_TINT[pl.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                          {pl.status}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 
-                {/* Per-player scouting read: projection, last season, health, camp. */}
-                <div className="space-y-1.5">
-                  {(advice.players ?? []).map((pl: any) => {
-                    const bp = state.available.find((a: any) => a.name === pl.name);
-                    return (
-                      <details key={pl.name} open={pl.name === advice.pick}
-                        className={`rounded-lg border p-2.5 ${VERDICT_TINT[pl.verdict] ?? 'bg-white border-slate-200'}`}>
-                        <summary className="flex items-center gap-2 cursor-pointer list-none">
-                          <Face p={bp ?? { name: pl.name }} size={32} />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-semibold text-sm truncate">{pl.name}</span>
-                              {bp?.team_abbr && <span className="text-[11px] text-slate-500">{bp.team_abbr}</span>}
-                            </div>
-                            {pl.status && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${STATUS_TINT[pl.status] ?? 'bg-slate-100 text-slate-600'}`}>
-                                {pl.status}
-                              </span>
-                            )}
-                          </div>
-                          <span className="ml-auto text-right shrink-0">
-                            {bp?.projected_points != null && (
-                              <span className="block text-xs font-bold">{Math.round(bp.projected_points)} pts</span>
-                            )}
-                            <span className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">{pl.verdict}</span>
-                          </span>
-                        </summary>
-                        <div className="mt-2 space-y-1.5 text-xs">
-                          <p><span className="font-semibold text-emerald-700">Pros. </span><span className="text-slate-700">{pl.pros}</span></p>
-                          <p><span className="font-semibold text-rose-700">Cons. </span><span className="text-slate-700">{pl.cons}</span></p>
-                          {pl.camp && <p><span className="font-semibold text-slate-500">Camp. </span><span className="text-slate-600">{pl.camp}</span></p>}
-                        </div>
-                      </details>
-                    );
-                  })}
-                </div>
+                {/* The evidence: one row per season, the position's stats that matter,
+                    streak chips, and this year's p20–p80. Absent career → nothing here. */}
+                {(pickEvidence.career || pickEvidence.preseason) && (
+                  <div className="rounded-lg border border-slate-200 bg-white p-2.5">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">The evidence</div>
+                    <EvidenceTable career={pickEvidence.career} preseason={pickEvidence.preseason} position={pickPlayer?.position} />
+                  </div>
+                )}
+
+                {(() => {
+                  const pl = (advice.players ?? []).find((p: any) => p.name === advice.pick);
+                  return pl ? (
+                    <div className="grid gap-1 text-xs">
+                      <p><span className="font-semibold text-good">Pros. </span><span className="text-slate-700">{pl.pros}</span></p>
+                      <p><span className="font-semibold text-crit">Cons. </span><span className="text-slate-700">{pl.cons}</span></p>
+                      {pl.camp && <p><span className="font-semibold text-slate-500">Camp. </span><span className="text-slate-600">{pl.camp}</span></p>}
+                    </div>
+                  ) : null;
+                })()}
 
                 <div className="grid gap-1 text-xs text-slate-600 pt-1 border-t border-slate-100">
                   <div><span className="font-semibold">Next few picks: </span>{advice.position_priority}</div>
@@ -449,6 +467,58 @@ function Room({ id }: { id: string }) {
               </div>
             )}
           </div>
+
+          {/* ------------------------------------------------ the other options */}
+          {otherOptions.length > 0 && (
+            <div className="card p-4">
+              <h2 className="font-bold text-sm mb-3">The other options</h2>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {otherOptions.map((pl: any) => {
+                  const bp = state.available.find((a: any) => a.name === pl.name);
+                  const ev = evidenceFor(pl.name);
+                  const headline = statHeadline(ev.career, ev.preseason);
+                  const series = pprSeries(ev.career, 3);
+                  const seasons = (ev.career?.seasons ?? []).slice(0, 3).map((s: any) => s.season).reverse();
+                  return (
+                    <div key={pl.name} className={`rounded-lg border p-2.5 min-w-0 ${VERDICT_TINT[pl.verdict] ?? 'bg-white border-slate-200'}`}>
+                      <div className="flex items-center gap-2">
+                        <Face p={bp ?? { name: pl.name }} size={32} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {bp?.position && <Pos pos={bp.position} />}
+                            <span className="font-semibold text-sm truncate">{pl.name}</span>
+                            {bp?.team_abbr && <span className="text-[11px] text-slate-500">{bp.team_abbr}</span>}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${pl.verdict === 'take' ? 'bg-good-tint text-good border-good' : pl.verdict === 'let him go' ? 'bg-crit-tint text-crit border-crit' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                              {pl.verdict}
+                            </span>
+                            {pl.status && (
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${STATUS_TINT[pl.status] ?? 'bg-slate-100 text-slate-600'}`}>{pl.status}</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {bp?.projected_points != null && <div className="text-xs font-bold tabular-nums">{Math.round(bp.projected_points)} pts</div>}
+                          {series.length > 0 && <SparkBar values={series} labels={seasons} className="justify-end mt-1" />}
+                        </div>
+                      </div>
+                      {headline && <p className="text-xs font-semibold text-slate-800 mt-1.5 tabular-nums">{headline}</p>}
+                      <div className="mt-1"><StreakChips career={ev.career} compact /></div>
+                      <details className="mt-1.5">
+                        <summary className="text-[11px] text-sky-700 cursor-pointer list-none hover:underline">pros &amp; cons</summary>
+                        <div className="mt-1 space-y-1 text-xs">
+                          <p><span className="font-semibold text-good">Pros. </span><span className="text-slate-700">{pl.pros}</span></p>
+                          <p><span className="font-semibold text-crit">Cons. </span><span className="text-slate-700">{pl.cons}</span></p>
+                          {pl.camp && <p><span className="font-semibold text-slate-500">Camp. </span><span className="text-slate-600">{pl.camp}</span></p>}
+                        </div>
+                      </details>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ------------------------------------------- lookahead simulation */}
           {(sim?.candidates?.length || simBusy) && (
@@ -507,9 +577,14 @@ function Room({ id }: { id: string }) {
                       <Link to={`/players/${t.player_id}`} className="font-semibold text-sm truncate hover:underline">{t.name}</Link>
                       <span className="text-[11px] text-slate-500">{t.team_abbr}</span>
                     </div>
-                    <div className="text-[11px] text-slate-600 truncate">{t.reasons.join(' · ') || 'best value on the board'}</div>
+                    {(() => {
+                      const headline = statHeadline(t.career, t.preseason);
+                      return headline
+                        ? <div className="text-[11px] font-semibold text-slate-800 truncate tabular-nums" title={(t.reasons ?? []).join(' · ')}>{headline}</div>
+                        : <div className="text-[11px] text-slate-600 truncate">{(t.reasons ?? []).join(' · ') || 'best value on the board'}</div>;
+                    })()}
                   </div>
-                  <div className="text-right shrink-0">
+                  <div className="text-right shrink-0 tabular-nums">
                     {t.projected_points != null && (
                       <div className="text-sm font-bold">{Math.round(t.projected_points)}<span className="text-[10px] font-normal text-slate-400"> pts</span></div>
                     )}
@@ -541,10 +616,10 @@ function Room({ id }: { id: string }) {
                 {lineup.projected_total ? ` · ${lineup.projected_total} proj pts` : ''}
               </span>
               <div className="ml-auto flex gap-1">
-                {(['lineup', 'order'] as const).map(t => (
+                {(['lineup', 'order', 'board'] as const).map(t => (
                   <button key={t} onClick={() => setRosterTab(t)}
                     className={`text-[10px] px-2 py-0.5 rounded-full border ${rosterTab === t ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-600'}`}>
-                    {t === 'lineup' ? 'Lineup' : 'Draft order'}
+                    {t === 'lineup' ? 'Lineup' : t === 'order' ? 'Draft order' : 'Draft board'}
                   </button>
                 ))}
               </div>
@@ -623,6 +698,9 @@ function Room({ id }: { id: string }) {
                   </div>
                 </div>
               </div>
+            ) : rosterTab === 'board' ? (
+              <DraftBoardRail teamNeeds={state.team_needs} teamCounts={state.team_counts}
+                picksBefore={state.picks_before_my_turn} mySlot={d.my_slot} rosterSlots={d.roster_slots} />
             ) : (
               <div className="space-y-1">
                 {state.my_team.picks.map((p: any) => (

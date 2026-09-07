@@ -151,6 +151,10 @@ export function reconcileDraftBoard(draftId, made, idMap, slotOf, snapshotId) {
         corrected.push(p.overallPickNumber);
         const updated = { ...existingAtNumber, ...next };
         local.set(p.overallPickNumber, updated);
+        // The displaced player no longer owns this row — without dropping the stale
+        // mapping, a later pick naming that player would "renumber" the row we just
+        // rewrote (moving the NEW player away) instead of inserting fresh.
+        if (byPlayer.get(existingAtNumber.player_id)?.pick_number === p.overallPickNumber) byPlayer.delete(existingAtNumber.player_id);
         byPlayer.set(playerId, updated);
       }
       // else identical to what we already have — no-op, which is what makes an

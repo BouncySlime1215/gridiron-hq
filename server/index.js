@@ -41,6 +41,7 @@ const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
 const { default: localAuthRouter } = await import('./routes/local-auth.js');
+const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 
@@ -70,7 +71,13 @@ app.use('/api/auth', localAuthRouter);
 app.use('/api/teams', teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', rankingsRouter);
+// Mounted before draftsRouter so /:id/capture-bookmarklet is matched here first;
+// everything else falls through to the draft room routes.
+app.use('/api/drafts', draftCaptureRouter);
 app.use('/api/drafts', draftsRouter);
+// The bookmarklet loader fetches this from the ESPN tab; served from source so
+// it also works in dev, where client/dist does not exist.
+app.get('/draft-capture.js', serveCaptureScript);
 app.use('/api/espn', espnRouter);
 app.use('/api/news', ...legacyAuthenticated, newsRouter);
 app.use('/api/aggregates', aggregatesRouter);

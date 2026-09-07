@@ -3,8 +3,10 @@ import { rows, row, run } from '../db/index.js';
 import { computeConsensus } from './aggregates.js';
 import { statsMap } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
-import { ensureLiveDraft, syncLiveDraft } from '../services/espn-draft.js';
-import { boardState, rankTargets, dossiersFor, analystNotes } from '../services/draft-assist.js';
+import { ensureLiveDraft, syncLiveDraft, withDraftLock } from '../services/espn-draft.js';
+import { ingestCapture, mintIngestKey, verifyIngestKey, ingestStatus, MAX_FRAMES_PER_BATCH } from '../services/draft-ingest.js';
+import { espnCors } from '../platform/cors.js';
+import { boardState, rankTargets, dossiersFor, analystNotes, enrichWithEvidence, evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
 import { lookahead } from '../services/draft-lookahead.js';
 import { espnPlayerNotes } from '../services/espn-player-notes.js';
 import { ORDER_TYPES, DEFAULT_ROSTER_POSITIONS, assignRosterSlots, slotForPick as engineSlotForPick } from '../draft/engine.js';
@@ -229,7 +231,73 @@ function cpuPick(draft, slot, pool, allPicks) {
   return mk(choice, explainPick(choice, { round, rounds: draft.rounds, myPos, candidates, runPos, tierTop }));
 }
 
+// --- In-page draft capture ------------------------------------------------
+// The one route a browser tab on espn.com calls directly (see platform/cors.js).
+// It is deliberately mounted before requireAuthenticated: the tab holds no
+// session, it presents the per-draft ingest key minted by the commissioner.
+
+// Failed key checks per source, in memory — a legitimate tab posts a batch every
+// second or two, so only failures count. 10 per 15 minutes is nothing for a scanner.
+const ingestFailures = new Map();
+const INGEST_FAIL_WINDOW_MS = 15 * 60 * 1000;
+const INGEST_FAIL_MAX = 10;
+export function _resetIngestLimiter() { ingestFailures.clear(); }
+
+function ingestSource(req) {
+  return req.get('cf-connecting-ip') || (req.get('x-forwarded-for') ?? '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+}
+
+function recentIngestFailures(source, record = false) {
+  const now = Date.now();
+  const hits = (ingestFailures.get(source) ?? []).filter(t => now - t < INGEST_FAIL_WINDOW_MS);
+  if (record) hits.push(now);
+  ingestFailures.set(source, hits);
+  return hits.length;
+}
+
+r.options('/:id/capture', espnCors);
+r.post('/:id/capture', espnCors, async (req, res, next) => {
+  try {
+    const source = ingestSource(req);
+    if (recentIngestFailures(source) >= INGEST_FAIL_MAX) {
+      return res.status(429).json({ error: 'too many failed attempts — wait 15 minutes' });
+    }
+    const draft = row('SELECT * FROM drafts WHERE id = ?', req.params.id);
+    if (!draft || !verifyIngestKey(draft, req.body?.ingest_key)) {
+      recentIngestFailures(source, true);
+      return res.status(401).json({ error: 'ingest key is wrong or expired — mint a new one in the draft room' });
+    }
+    const body = req.body ?? {};
+    if (typeof body.capture_id !== 'string' || !body.capture_id.trim()) {
+      return res.status(400).json({ error: 'capture_id required' });
+    }
+    if (!Array.isArray(body.frames ?? [])) return res.status(400).json({ error: 'frames must be an array' });
+    if ((body.frames ?? []).length > MAX_FRAMES_PER_BATCH) {
+      return res.status(400).json({ error: `at most ${MAX_FRAMES_PER_BATCH} frames per batch` });
+    }
+    const out = await withDraftLock(draft.id, () => ingestCapture(draft.id, body));
+    res.json(out);
+  } catch (e) { handleDraftError(e, res, next); }
+});
+
 r.use(requireAuthenticated);
+
+/** Commissioner mints the key the ESPN-tab bookmarklet presents on /:id/capture. */
+r.post('/:id/ingest-key', (req, res, next) => {
+  try {
+    const { draft } = draftAccess(req, req.params.id, true);
+    const out = mintIngestKey(draft.id);
+    recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.ingest_key', entityType: 'draft', entityId: draft.id, details: { expires_at: out.expires_at } });
+    res.json(out);
+  } catch (e) { handleDraftError(e, res, next); }
+});
+
+r.get('/:id/ingest-status', (req, res, next) => {
+  try {
+    const { draft } = draftAccess(req, req.params.id);
+    res.json(ingestStatus(draft.id));
+  } catch (e) { handleDraftError(e, res, next); }
+});
 
 r.get('/', (req, res) => {
   res.json(rows(`SELECT d.*, rs.name AS ranking_set_name,
@@ -766,11 +834,15 @@ r.post('/:id/sync', async (req, res, next) => {
  * lineup, positional scarcity before the next turn, runs, tier cliffs, and a ranked
  * shortlist. Deterministic and instant — no API key involved.
  */
-r.get('/:id/assist', (req, res, next) => {
+r.get('/:id/assist', async (req, res, next) => {
   try {
     const { draft } = draftAccess(req, req.params.id);
     const state = boardState(req.params.id, ownedSlot(req, draft));
-    res.json({ ...state, targets: rankTargets(state, Number(req.query.limit) || 8) });
+    // Career record, preseason projection and offseason adjustment ride along
+    // on each target (each layer is optional — see enrichWithEvidence).
+    const targets = (await enrichWithEvidence(rankTargets(state, Number(req.query.limit) || 8), state.draft.season ?? undefined))
+      .map(t => ({ ...t, headline: evidenceHeadline(t) }));
+    res.json({ ...state, targets });
   } catch (e) { next(e); }
 });
 
@@ -821,7 +893,7 @@ r.get('/:id/advice', async (req, res, next) => {
       return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
     }
 
-    const targets = rankTargets(state, 12);
+    const targets = await enrichWithEvidence(rankTargets(state, 12), state.draft.season ?? undefined);
     const { my_team, positions, on_the_clock, runs, draft } = state;
 
     const rosterLine = my_team.picks.length
@@ -846,6 +918,9 @@ r.get('/:id/advice', async (req, res, next) => {
           + (t.vorp != null ? `, ${t.vorp > 0 ? '+' : ''}${Math.round(t.vorp)} pts over a replacement-level ${dsr.position} in this league` : ''),
         dsr.rookie ? '  ROOKIE (no NFL snaps)'
           : `  ${dsr.experience_years ?? '?'} yrs in the league${dsr.age ? `, age ${Math.round(dsr.age)}` : ''}${dsr.draft_capital ? `, drafted ${dsr.draft_capital}` : ''}${dsr.pro_bowls ? `, ${dsr.pro_bowls}x Pro Bowl` : ''}${dsr.all_pro ? `, ${dsr.all_pro}x first-team All-Pro` : ''}`,
+        // The multi-season record, streaks, our preseason model's drivers and
+        // the offseason read — the evidence the advisor is told to argue from.
+        ...evidenceLines({ ...t, position: dsr.position }),
         dsr.offense ? `  Offense: priced at ${dsr.offense.implied_points} pts/game by the books (${dsr.offense.rank}${['st', 'nd', 'rd'][dsr.offense.rank - 1] ?? 'th'} of 32)` : null,
         dsr.team_change ? `  Changed teams: ${dsr.team_change.from} → ${dsr.team_change.to}${dsr.team_change.vacated_target_share != null ? ` (new team has ${Math.round(dsr.team_change.vacated_target_share * 100)}% of last year's targets vacated)` : ''} — movers keep a median 74-82% of prior opportunity, less in a crowded room` : null,
         dsr.roster_snapshot?.depth ? `  ESPN depth chart: ${dsr.roster_snapshot.depth}${dsr.roster_snapshot.status && dsr.roster_snapshot.status !== 'active' ? `, status ${dsr.roster_snapshot.status}` : ''}` : null,
@@ -915,11 +990,14 @@ BEST AVAILABLE — scouting dossiers, in my model's order
 ${boardLine}
 
 ${(analystNotes()._strategy ?? []).length ? `WHAT THE ANALYSTS SAY ABOUT THIS FORMAT\n${analystNotes()._strategy.slice(0, 5).map(a => `- ${a.date} ${a.source}: ${a.note}`).join('\n')}\n` : ''}
+${STAT_ROOTED_INSTRUCTIONS}
+
 Work only from the players and the data above; do not bring in anyone already off the board, and do not assert anything the dossier does not support. Where the data is silent on a player, say so rather than filling the gap. Treat analyst takes as opinions to weigh against the numbers, and name the source when you lean on one.
 
 Respond with ONLY JSON:
 {"pick":"the one player I should take right now",
- "why":"two sentences max — cite my roster hole or the scarcity, concretely",
+ "why":"two sentences max, and the FIRST clause is a concrete multi-season number from his record (e.g. '1,000+ rec yds in 5 straight seasons, top-12 every year'); then the roster hole or scarcity",
+ "evidence":"one line: the 2-3 numbers from the dossier that decide this pick, comma-separated, no adjectives",
  "players":[
    {"name":"...",
     "pros":"2 sentences: what makes him worth the pick — last season's production, the projected role, pedigree, situation",

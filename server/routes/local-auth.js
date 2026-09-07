@@ -92,6 +92,8 @@ r.post('/local-session', (req, res) => {
 
 /** Where the app is currently reachable from outside, as reported by scripts/tunnel.mjs. */
 let tunnelUrl = null;
+/** In-process read for other routers (draft-capture bookmarklet) — no self-HTTP round trip. */
+export function getTunnelUrl() { return tunnelUrl; }
 
 r.post('/tunnel-url', requireDirectLoopback, (req, res) => {
   const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';

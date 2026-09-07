@@ -38,6 +38,19 @@ if (!draftCols.includes('draft_at')) db.exec(`ALTER TABLE drafts ADD COLUMN draf
 // NULL/0 means "we could not prove which ESPN team is the connected user's" — the
 // client must ask them to confirm before treating any slot as "my turn" (Phase 3A).
 if (!draftCols.includes('my_slot_confirmed')) db.exec(`ALTER TABLE drafts ADD COLUMN my_slot_confirmed INTEGER DEFAULT 1`);
+// In-page capture (draft-ingest.js): a per-draft key the bookmarklet presents, and
+// the last time it delivered frames — while that is fresh, polling ESPN is paused.
+if (!draftCols.includes('ingest_key_hash')) db.exec(`ALTER TABLE drafts ADD COLUMN ingest_key_hash TEXT`);
+if (!draftCols.includes('ingest_key_expires_at')) db.exec(`ALTER TABLE drafts ADD COLUMN ingest_key_expires_at TEXT`);
+if (!draftCols.includes('ingest_last_seen_at')) db.exec(`ALTER TABLE drafts ADD COLUMN ingest_last_seen_at TEXT`);
+if (!draftCols.includes('ingest_capture_id')) db.exec(`ALTER TABLE drafts ADD COLUMN ingest_capture_id TEXT`);
+
+/** How long after the last captured frame the ESPN poller stays paused. */
+export const INGEST_FRESH_MS = 30_000;
+export function ingestIsFresh(draft, now = Date.now()) {
+  const at = draft?.ingest_last_seen_at ? Date.parse(draft.ingest_last_seen_at) : NaN;
+  return Number.isFinite(at) && now - at < INGEST_FRESH_MS;
+}
 
 const pickCols = db.prepare(`PRAGMA table_info(draft_picks)`).all().map(c => c.name);
 if (!pickCols.includes('espn_team_id')) db.exec(`ALTER TABLE draft_picks ADD COLUMN espn_team_id INTEGER`);
@@ -152,11 +165,13 @@ async function espnPlayerPool(season) {
  * fallback used to sit here; that's exactly what put unresolved kickers, defenses,
  * and deep-league fliers on the board under a made-up position (Phase 3C).
  */
-export async function resolveEspnPlayers(espnIds, season) {
+export async function resolveEspnPlayers(espnIds, season, { network = true } = {}) {
   const known = new Map(rows(
     `SELECT id, espn_id FROM players WHERE espn_id IS NOT NULL`).map(p => [p.espn_id, p.id]));
   const missing = espnIds.filter(id => !known.has(id));
-  if (!missing.length) return known;
+  // network:false — the in-page capture path: only players.espn_id, never a pool
+  // lookup. An unknown id is left for the reconciler to quarantine.
+  if (!missing.length || !network) return known;
 
   let pool;
   try { pool = await espnPlayerPool(season); } catch { pool = new Map(); }
@@ -264,6 +279,16 @@ async function syncLiveDraftImpl(draftId) {
     throw Object.assign(new Error('not an ESPN-linked live draft'), { status: 400 });
   }
 
+  // The in-page capture is delivering frames: it is the source of truth and the
+  // frozen REST view has nothing to add, so don't touch ESPN at all.
+  if (ingestIsFresh(draft)) {
+    const count = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
+    return {
+      ok: true, source: 'espn-page', paused: true,
+      ...boardSummary(draft, { madeCount: count, inProgress: draft.status !== 'complete', complete: draft.status === 'complete' })
+    };
+  }
+
   const data = await fetchDraftDetail(draft.espn_league_id, draft.season);
   const detail = data.draftDetail ?? {};
   const ds = data.settings?.draftSettings ?? {};
@@ -301,26 +326,39 @@ async function syncLiveDraftImpl(draftId) {
   run(`UPDATE drafts SET last_synced_at = datetime('now'),
        status = ? WHERE id = ?`, detail.drafted ? 'complete' : 'active', draftId);
 
-  const total = draft.team_count * draft.rounds;
-  const count = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draftId).n;
-  // Next pick / on-the-clock must reflect ESPN's authoritative count, not our local
-  // mirrored count — a quarantined pick otherwise makes every downstream "whose turn
-  // is it" computation wrong for the rest of the draft (Phase 3B fix).
-  const nextPick = made.length + 1;
-  const desynced = count < made.length || quarantined.length > 0;
-
   return {
     ok: true,
-    espn_in_progress: !!detail.inProgress,
-    espn_complete: !!detail.drafted,
-    picks_on_espn: made.length,
+    ...boardSummary(draft, {
+      madeCount: made.length, added, corrected, removed, quarantined: failures,
+      inProgress: !!detail.inProgress, complete: !!detail.drafted
+    })
+  };
+}
+
+/**
+ * The board summary every sync-shaped response carries, whether the picks came from
+ * an ESPN poll or from captured draft-room frames.
+ *
+ * `madeCount` is the authoritative number of picks on the source board — next pick /
+ * on-the-clock must come from that, not our local mirrored count: a quarantined pick
+ * otherwise makes every downstream "whose turn is it" computation wrong for the rest
+ * of the draft (Phase 3B fix).
+ */
+export function boardSummary(draft, { madeCount, added = [], corrected = [], removed = [], quarantined = [], inProgress = true, complete = false }) {
+  const total = draft.team_count * draft.rounds;
+  const count = row('SELECT COUNT(*) AS n FROM draft_picks WHERE draft_id = ?', draft.id).n;
+  const nextPick = madeCount + 1;
+  return {
+    espn_in_progress: inProgress,
+    espn_complete: complete,
+    picks_on_espn: madeCount,
     picks_mirrored: count,
     new_picks: added,
     corrected_picks: corrected,
     removed_picks: removed,
-    unresolved_count: openQuarantine(draftId).length,
-    failures,
-    desynced,
+    unresolved_count: openQuarantine(draft.id).length,
+    failures: quarantined, // kept under the old field name for API back-compat
+    desynced: count < madeCount || quarantined.length > 0,
     next_pick: nextPick <= total ? nextPick : null,
     on_the_clock_slot: nextPick <= total ? slotForPick(nextPick, draft.team_count) : null,
     my_slot: draft.my_slot,
@@ -328,16 +366,32 @@ async function syncLiveDraftImpl(draftId) {
   };
 }
 
-// One sync in flight per draft at a time. The client polls on a plain 4s interval with
-// no overlap guard, and ESPN's API is often slower during a live draft than off it — an
-// overlapping second sync racing the first through resolveEspnPlayers() is exactly how
-// the same new player ends up inserted twice under different local ids, or a pick
-// silently lost to the UNIQUE(draft_id, pick_number) race between two inserts.
+/**
+ * Serialise every writer to one draft's board — ESPN polls and captured-frame
+ * batches alike. Two writers interleaving through resolveEspnPlayers() and the
+ * reconciler is exactly how the same new player ends up inserted twice under
+ * different local ids, or a pick silently lost to the UNIQUE(draft_id, pick_number)
+ * race between two inserts. Callers queue; a failure in one does not poison the next.
+ */
+const draftLocks = new Map();
+export function withDraftLock(draftId, fn) {
+  const key = Number(draftId);
+  const prev = draftLocks.get(key) ?? Promise.resolve();
+  const p = prev.catch(() => {}).then(fn);
+  draftLocks.set(key, p);
+  p.finally(() => { if (draftLocks.get(key) === p) draftLocks.delete(key); }).catch(() => {});
+  return p;
+}
+
+// One ESPN poll in flight per draft at a time. The client polls on a plain 4s interval
+// with no overlap guard, and ESPN's API is often slower during a live draft than off
+// it — overlapping callers share the in-flight result rather than each polling.
 const inFlight = new Map();
 export function syncLiveDraft(draftId) {
-  if (inFlight.has(draftId)) return inFlight.get(draftId);
-  const p = syncLiveDraftImpl(draftId).finally(() => inFlight.delete(draftId));
-  inFlight.set(draftId, p);
+  const key = Number(draftId);
+  if (inFlight.has(key)) return inFlight.get(key);
+  const p = withDraftLock(key, () => syncLiveDraftImpl(draftId)).finally(() => inFlight.delete(key));
+  inFlight.set(key, p);
   return p;
 }
 

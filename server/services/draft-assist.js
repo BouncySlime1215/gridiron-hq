@@ -985,5 +985,93 @@ export function realizationFor(position, marketRank, season = SEASON) {
   return Math.max(0.6, Math.min(1.3, 1 + (m - 1) * shrink));
 }
 
+/**
+ * Evidence layers being built alongside this file (2026-09-07): multi-season
+ * career lines + streaks, the walk-forward-validated preseason projection
+ * with its drivers, and the offseason-changes adjustment. Each is loaded
+ * lazily and defensively — a missing or failing module degrades to "no
+ * evidence", never to a broken board — so the draft room can ship before
+ * every model lands and light up as each one does.
+ */
+const evidenceModules = {};
+async function evidence(name) {
+  if (name in evidenceModules) return evidenceModules[name];
+  try { evidenceModules[name] = await import(`./${name}.js`); }
+  catch { evidenceModules[name] = null; }
+  return evidenceModules[name];
+}
+
+/** Attach career / preseason / offseason evidence to ranked targets (or any player rows). */
+export async function enrichWithEvidence(players, season = SEASON) {
+  const [career, preseason, offseason] = await Promise.all([evidence('player-career'), evidence('preseason-model'), evidence('offseason-model')]);
+  return players.map(p => {
+    const out = { ...p };
+    try { if (career?.careerLine) out.career = career.careerLine(p.player_id, { season }); } catch { out.career = null; }
+    try { if (preseason?.preseasonProjection) out.preseason = preseason.preseasonProjection(p.player_id, season); } catch { out.preseason = null; }
+    try { if (offseason?.offseasonAdjustment) out.offseason = offseason.offseasonAdjustment(p.player_id, season); } catch { out.offseason = null; }
+    return out;
+  });
+}
+
+/**
+ * The one-line, number-first case for a player, for the advisor and the UI:
+ * "1,000+ rec yds in 3 straight seasons · top-12 WR 3 of 4 years". Built from
+ * whichever evidence layers are present.
+ */
+export function evidenceHeadline(p) {
+  const bits = [];
+  if (p.career?.headline) bits.push(p.career.headline);
+  else if (p.career?.streaks?.length) {
+    const s = p.career.streaks[0];
+    bits.push(`${s.threshold.toLocaleString()}+ ${s.stat.replace('_', ' ')} × ${s.seasons} straight`);
+  }
+  if (p.preseason?.drivers?.length) bits.push(p.preseason.drivers[0]);
+  if (p.offseason?.drivers?.length && Math.abs((p.offseason.opportunity_multiplier ?? 1) - 1) >= 0.08) bits.push(p.offseason.drivers[0]);
+  return bits.join(' · ') || null;
+}
+
+/**
+ * Prompt lines for one player's evidence layers — the season-by-season
+ * record the advisor is required to argue from. Numbers, not adjectives.
+ */
+export function evidenceLines(p) {
+  const out = [];
+  const c = p.career;
+  if (c?.seasons?.length) {
+    const fmt = s => {
+      const pos = p.position;
+      const core = pos === 'QB'
+        ? `${s.pass_yds ?? '-'} pass yds / ${s.pass_td ?? '-'} TD / ${s.int ?? '-'} INT, rush ${s.rush_yds ?? '-'}/${s.rush_td ?? '-'}`
+        : pos === 'RB'
+          ? `${s.rush_att ?? '-'} car / ${s.rush_yds ?? '-'} yds / ${s.rush_td ?? '-'} TD, ${s.targets ?? '-'} tgt / ${s.rec ?? '-'} rec / ${s.rec_yds ?? '-'} yds`
+          : `${s.targets ?? '-'} tgt / ${s.rec ?? '-'} rec / ${s.rec_yds ?? '-'} yds / ${s.rec_td ?? '-'} TD`;
+      return `    ${s.season}: ${s.games} g, ${Math.round(s.ppr_points)} pts (${s.ppg} ppg), ${pos}${s.pos_rank ?? '?'} — ${core}`;
+    };
+    out.push(`  Season-by-season (real, ${c.window?.from ?? ''}-${c.window?.to ?? ''}):\n${c.seasons.slice(0, 5).map(fmt).join('\n')}`);
+    if (c.headline) out.push(`  Record: ${c.headline}`);
+    const streaks = (c.streaks ?? []).filter(s => s.streak >= 2).slice(0, 4)
+      .map(s => `${s.threshold.toLocaleString()}+ ${s.stat.replace('_', ' ')} in ${s.streak} straight`);
+    if (streaks.length) out.push(`  Streaks: ${streaks.join('; ')}`);
+    if (c.consistency?.seasons_counted >= 2) {
+      out.push(`  Consistency: top-12 finish ${c.consistency.seasons_top12}/${c.consistency.seasons_counted} seasons, top-24 ${c.consistency.seasons_top24}/${c.consistency.seasons_counted}, games ${c.consistency.min_games}-${c.consistency.max_games}, year-to-year swing ±${Math.round((c.consistency.cv_points ?? 0) * 100)}%`);
+    }
+    if (c.trend?.role_yoy) out.push(`  Role trend: ${c.trend.role_yoy}${c.trend.ppg_yoy_pct != null ? `, ppg ${c.trend.ppg_yoy_pct > 0 ? '+' : ''}${c.trend.ppg_yoy_pct}% YoY` : ''}`);
+  } else if (c && c.seasons?.length === 0) {
+    out.push('  Season-by-season: no NFL seasons on record (rookie or unlinked)');
+  }
+  const pre = p.preseason;
+  if (pre?.points != null) {
+    out.push(`  Our preseason model: ${Math.round(pre.points)} pts (range ${Math.round(pre.p20 ?? pre.points)}-${Math.round(pre.p80 ?? pre.points)}, ${pre.expected_games ?? '?'} expected games)${pre.drivers?.length ? ` — drivers: ${pre.drivers.slice(0, 4).join('; ')}` : ''}`);
+  }
+  const off = p.offseason;
+  if (off && (off.drivers?.length || Math.abs((off.opportunity_multiplier ?? 1) - 1) >= 0.05)) {
+    out.push(`  Offseason changes: opportunity ×${(off.opportunity_multiplier ?? 1).toFixed(2)} (${off.confidence ?? 'n/a'} confidence)${off.drivers?.length ? ` — ${off.drivers.slice(0, 4).join('; ')}` : ''}`);
+  }
+  return out;
+}
+
+export const STAT_ROOTED_INSTRUCTIONS = `HOW TO ARGUE
+Every recommendation must be rooted in the season-by-season record above, in this order of evidence: (1) multi-season production streaks and positional finishes, (2) role and opportunity (targets/carries, and any offseason change to them), (3) this year's projection and its drivers, (4) health and camp reporting, (5) analyst opinion last. Lead the "why" with a concrete number — "1,000+ receiving yards in 5 straight seasons and a top-12 finish every year", "185 targets last year, up 6%", "missed 13 games in 2024 then played 17 in 2025" — never with an adjective. If a player has no NFL record (rookie), say so and argue only from draft capital, the room he lands in, and camp. If two players are close, say which number decides it. Do not cite a stat that is not in the dossier.`;
+
 /** Dossiers for a shortlist, in board order. */
 export const dossiersFor = (playerIds) => playerIds.map(playerDossier).filter(Boolean);

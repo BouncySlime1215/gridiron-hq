@@ -186,6 +186,45 @@ const CAPABILITIES = [
     evidence: { kind: 'structural', note: 'Re-solves the lineup without the players on bye.' },
     baseAuthority: 'advisory'
   },
+  {
+    id: 'fantasy.draft_board',
+    question: 'Who should I draft right now?',
+    module: 'draft-assist + draft-lookahead',
+    domain: 'fantasy',
+    evidence: { kind: 'validation',
+      note: 'Value over an EXPECTED replacement level (survival model, not a static cutoff), fit ' +
+        'and graded against 2,182 matched ECR player-seasons 2021-2025. RB over WR at overall ' +
+        '13-36 (t=3.4), a rookie-WR premium (t=3.4), and "gone by my next pick" beating a naive ' +
+        'baseline on out-of-fold log-loss (0.166/0.159 vs 0.182/0.177). docs/DRAFT_AUDIT_2021_2025.md.' },
+    baseAuthority: 'advisory',
+    note: 'The strongest evidence in the fantasy domain, and it does not depend on beating the ' +
+      'market on point projection — it prices where the market\'s own rank order is mispriced ' +
+      'against how a snake draft actually plays out, a different and better-fitting question. The ' +
+      'Monte Carlo lookahead (200 sims x 6 candidates) currently draws only over draft order, not ' +
+      'over player outcomes — its reported spread describes who else got drafted, not how anyone ' +
+      'performed. Known gap, not yet fixed.',
+    refuses: 'Cannot be read as "this player will outscore that one" — it answers a roster-' +
+      'construction question, not a point-projection one.'
+  },
+  {
+    id: 'fantasy.preseason_projection',
+    question: 'How many points will this player score this season, before Week 1?',
+    module: 'preseason-model',
+    domain: 'fantasy',
+    evidence: { kind: 'validation',
+      note: 'Ridge, GBM (the same nfl-gbm.js used by the betting engine) and three stacked blends ' +
+        'were walk-forward fit for 2023/2024/2025 and none beat a calibrated market-rank curve by a ' +
+        'significant margin on any season (pooled Spearman 0.591 / MAE 58.0 for the curve vs 0.571 / ' +
+        '59.4 for the GBM). The p20-p80 band shipped with 69% out-of-sample coverage against a 60% ' +
+        'nominal target, fixed 2026-09-07 with a rank-local recalibration (pinball loss improved ' +
+        'significantly, pooled, clustered by season). docs/PRESEASON_MODEL.md, docs/PRESEASON_BAND_CALIBRATION.md.' },
+    baseAuthority: 'advisory',
+    note: 'What ships is the market curve itself, not a learned model of it — the point estimate IS ' +
+      'the calibrated ADP-to-points translation. Learned heads survive only as the ordering behind ' +
+      'the driver text shown on a player\'s row, never as the number.',
+    refuses: 'The point estimate does not and is not claimed to beat the market. Do not read a ' +
+      'disagreement between this and ESPN\'s own line as a discovered edge.'
+  },
 
   /* ---------------------------------------------------------------- betting */
   {
@@ -266,6 +305,74 @@ const CAPABILITIES = [
     baseAuthority: 'advisory',
     note: 'Applied to a start/sit call at full weight because that decision IS one week, and to a ' +
       'trade valuation at a quarter weight because a single line says little about fifteen weeks.'
+  },
+  {
+    id: 'crossover.fantasy_to_betting_spread_total',
+    question: 'Do the fantasy player engines improve the spread or total line?',
+    module: 'nfl-team-strength (challenger, feature contract team_strength_aggregate)',
+    domain: 'crossover',
+    evidence: { kind: 'sealed_audit_negative',
+      note: 'Team-level aggregates (projected offensive points, vacated opportunity, returning ' +
+        'production, QB1 change/QBR delta) walk-forward tested against the market-consensus ' +
+        'champion, 2,211 games 2023-2025. Spread: 0 of 3 seasons significant, pooled +0.02 MAE ' +
+        '(worse). Total: 1 of 3 significant and the sign reverses the next season, pooled interval ' +
+        'straddles zero. In 5 of 6 season-market cells the champion itself loses to a zero-residual ' +
+        'baseline, so this reproduces the standing zero-edge-vs-closing-lines finding rather than ' +
+        'fixing it. docs/BETTING_PLAYER_ENGINES.md.' },
+    baseAuthority: 'retired',
+    note: 'Kept in the registry, not deleted, specifically so this is not proposed and rebuilt next ' +
+      'season without the numbers being read first. Both feature contracts recorded blocked via ' +
+      'model-governance.js; the champion model was never touched.'
+  },
+  {
+    id: 'crossover.fantasy_to_betting_props',
+    question: 'Do the fantasy player engines improve TD prop calibration?',
+    module: 'nfl-prop-player-heads (challenger, player-head-registry-v1-engine-context)',
+    domain: 'crossover',
+    evidence: { kind: 'sealed_audit_negative',
+      note: 'Career TD rate/consistency, preseason role band and offseason churn stacked on the ' +
+        'shipped isotonic head. Anytime TD: 0 of 3 seasons significant, pooled Brier -0.0003 ' +
+        '(interval straddles zero). 2+ TD: 0 of 3, one cell significantly WORSE. Ablation: 3 of 24 ' +
+        'cells significant, all in a single season, none repeating -- noise. Forward CLV also ' +
+        'failed by construction (0 settled prop bets this season). docs/PROPS_PLAYER_ENGINES.md.' },
+    baseAuthority: 'retired',
+    note: 'The engines supply only season-level context, constant across a player\'s 17 weeks, and ' +
+      'cannot separate two games the shipped head already scores identically. A weekly-grain churn ' +
+      'signal is a live, untried, better-specified follow-up -- this entry retires the season-level ' +
+      'attempt specifically, not the underlying idea.'
+  },
+  {
+    id: 'fantasy.adp_source_disagreement',
+    question: 'Does disagreement between ESPN/Sleeper/FFC ranks predict anything, the way book ' +
+      'disagreement predicts a line-shopping edge?',
+    module: '(research script, not a service -- see docs/ADP_DISAGREEMENT.md)',
+    domain: 'fantasy',
+    evidence: { kind: 'sealed_audit_negative',
+      note: 'The literal cross-source question is unanswerable from retained data (ranks and ' +
+        'realized outcomes never overlap in storage -- flagged as a cheap future fix). Tested the ' +
+        'closest proxy instead, expert-ranker dispersion already in the model since v1: adding a ' +
+        'disagreement term to the market curve is 0 of 3 seasons significant, every CI straddles ' +
+        'zero. Direction (who is "wrong" and which way) has no consistent sign across seasons.' },
+    baseAuthority: 'retired',
+    note: 'One non-null side finding -- high-disagreement players show ~1.2-1.4x the outcome ' +
+      'variance of low-disagreement players at the same rank, 2 of 3 seasons -- answers a band-' +
+      'width question, not a ranking one, and was deliberately not shipped on that basis.'
+  },
+  {
+    id: 'fantasy.draft_board_abstention',
+    question: 'Can the draft board flag its own coin-flip recommendations in advance?',
+    module: 'draft-abstention-audit (standalone instrument, imported by nothing)',
+    domain: 'fantasy',
+    evidence: { kind: 'sealed_audit_negative',
+      note: 'A gate on pre-outcome coverage facts (no prior usage, rookie, missing projection, wide ' +
+        'band, thin expert agreement) was graded, kept-vs-declined, against realized value on the ' +
+        '2021-2025 panel. 0 of 3 seasons significant at any gate strength; the separation\'s sign ' +
+        'flips between seasons; the strictest gate picked the worst players most clearly in one ' +
+        'season (significant, wrong direction). docs/DRAFT_BOARD_ABSTENTION.md.' },
+    baseAuthority: 'retired',
+    note: 'Directly mirrors a betting-side result: its own confidence gate backfired the same way ' +
+      '(top-3-confidence picks at 45.1%, below the all-games rate). Kept as a record so the idea ' +
+      'is not re-proposed as though it were untried.'
   }
 ];
 

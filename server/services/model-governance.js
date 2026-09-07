@@ -70,7 +70,17 @@ const CONTRACTS = [
   ['NFL', 'fantasy_weekly', 'joint_event_state', 'shared player-week engine', 'all usage and efficiency rows strictly before target week', 'weekly', 10080, 'abstain player', 'critical'],
   ['NFL', 'fantasy_weekly', 'canonical_player_identity', 'players crosswalk', 'GSIS and internal id mapping must exist before prediction', 'weekly', 10080, 'abstain player', 'critical'],
   ['NFL', 'fantasy_weekly', 'pregame_role_eligibility', 'depth chart + prior usage snapshot', 'captured before kickoff; target-week participation is forbidden', 'on refresh', 720, 'abstain market', 'critical'],
-  ['NFL', 'fantasy_weekly', 'qbr_signal', 'ESPN Total QBR (nflverse release)', 'trailing starts strictly before target week', 'weekly', 10080, 'shrink to zero without walk-forward gain', 'high']
+  ['NFL', 'fantasy_weekly', 'qbr_signal', 'ESPN Total QBR (nflverse release)', 'trailing starts strictly before target week', 'weekly', 10080, 'shrink to zero without walk-forward gain', 'high'],
+  // Team-level aggregates of the player-level offseason/preseason engines,
+  // registered in the shape OFFSEASON_MODEL.md §6 prescribes so that the idea is
+  // tried INSIDE the gate rather than around it. Player multipliers are never
+  // exposed; only the six differenced team columns in nfl-team-strength.js are,
+  // and the market-derived ones (implied_team_points, implied_points_delta) are
+  // deliberately excluded as circular. Both markets were evaluated against the
+  // GBM champion and both FAILED the stated bar — see docs/BETTING_PLAYER_ENGINES.md.
+  // The contract exists to record what was measured, not to enable a promotion.
+  ['NFL', 'spread', 'team_strength_aggregate', 'nfl-team-strength.js teamStrength(season) — preseason-model projections, offseason-model churn, off_team_season QB1 context', 'roster/depth snapshot and preseason board captured before Week 1 kickoff; no season-T usage row may be read', 'weekly', 10080, 'shrink to league prior', 'high'],
+  ['NFL', 'total', 'team_strength_aggregate', 'nfl-team-strength.js teamStrength(season) — preseason-model projections, offseason-model churn, off_team_season QB1 context', 'roster/depth snapshot and preseason board captured before Week 1 kickoff; no season-T usage row may be read', 'weekly', 10080, 'shrink to league prior', 'high']
 ];
 
 function seedContracts() {

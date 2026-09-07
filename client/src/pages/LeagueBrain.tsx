@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { RecordLine } from '../components/lineup/EvidenceStrip';
+import { usePageExplain } from '../components/betting/PageExplainContext';
 
 /**
  * One page that answers "what do I actually do to win this league".
@@ -33,6 +34,17 @@ export default function LeagueBrain() {
   const [tab, setTab] = useState<'plan' | 'managers'>('plan');
   const plan = useApi<any>(leagueId ? `/trades/${leagueId}/brain/plan?limit=10` : null);
   const managers = useApi<any>(leagueId ? `/trades/${leagueId}/brain/managers` : null);
+
+  // Otherwise the floating assistant never learns what this page shows and
+  // falls back to a generic non-answer on every visit. Must run before any
+  // early return so hook order never changes between renders.
+  usePageExplain('league-brain', tab, {
+    tab, rank: plan.data?.rank ?? null, of: plan.data?.of ?? null,
+    biggest_need: plan.data?.biggest_need ?? null,
+    moves_considered: (plan.data?.all_moves ?? []).length,
+    sell_high: (plan.data?.sell_high ?? []).length,
+    managers_profiled: (managers.data ?? []).length
+  });
 
   if (!leagueId) return <Empty>Connect a league first.</Empty>;
   if (plan.error) return <Empty>{plan.error}</Empty>;

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
 import EvidenceStrip, { RecordLine } from '../components/lineup/EvidenceStrip';
+import { usePageExplain } from '../components/betting/PageExplainContext';
 
 /**
  * The week's lineup, with the closeness of each call made visible.
@@ -27,6 +28,18 @@ export default function Lineup() {
   const [objective, setObjective] = useState<'mean' | 'ceiling' | 'floor'>('mean');
   const { data: d, loading, error } = useApi<any>(
     leagueId ? `/trades/${leagueId}/lineup?objective=${objective}` : null);
+
+  // The floating assistant otherwise never learns what's on this page and
+  // falls back to a generic "this page hasn't told me what's on screen"
+  // non-answer on every visit — this is the fix for that, not a cosmetic add.
+  // Must run before any early return so hook order never changes between renders.
+  usePageExplain('lineup', objective, {
+    week: d?.week ?? null, objective,
+    projected_points: d?.projected_points ?? null,
+    coin_flips: d?.coin_flips ?? null,
+    slots: (d?.lineup ?? []).length,
+    warnings: (d?.warnings ?? []).length
+  });
 
   if (!leagueId) return <Shell><Empty>Connect a league first.</Empty></Shell>;
   if (error) return <Shell><Empty>{error}</Empty></Shell>;

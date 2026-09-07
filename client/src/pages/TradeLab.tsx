@@ -7,6 +7,7 @@ import EvidenceTable from '../components/draft/EvidenceTable';
 import StreakChips from '../components/draft/StreakChips';
 import { statHeadline } from '../components/draft/types';
 import { hasEvidence } from '../components/trade/types';
+import { usePageExplain } from '../components/betting/PageExplainContext';
 
 const TABS = [
   { id: 'news', label: 'News edge', hint: 'Act on news your league has not seen yet' },
@@ -54,6 +55,12 @@ export default function TradeLab() {
   // Resolved once here and handed to every TradeCard, so the AI writing a pitch
   // knows never to suggest one of these as a sweetener — see server/routes/trades.js.
   const untouchableNames = myPlayers.filter((p: any) => untouchable.includes(p.id)).map((p: any) => p.name);
+
+  // Otherwise the floating assistant never learns what this page shows and
+  // falls back to a generic non-answer on every visit.
+  usePageExplain('trade lab', tab, {
+    tab, team_selected: !!me, roster_size: myPlayers.length, untouchable_count: untouchable.length
+  });
 
   return (
     <div>

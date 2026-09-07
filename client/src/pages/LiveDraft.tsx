@@ -7,6 +7,7 @@ import StreakChips from '../components/draft/StreakChips';
 import SourcePill from '../components/draft/SourcePill';
 import DraftBoardRail from '../components/draft/DraftBoardRail';
 import { pprSeries, statHeadline } from '../components/draft/types';
+import { usePageExplain } from '../components/betting/PageExplainContext';
 
 /* --------------------------------------------------------------- primitives */
 
@@ -305,6 +306,17 @@ function Room({ id }: { id: string }) {
       preseason: fromAdvice?.preseason ?? fromTarget?.preseason ?? fromBoard?.preseason ?? null
     };
   };
+
+  // The floating assistant otherwise never learns what's on this page and
+  // falls back to a generic "hasn't told me what's on screen" non-answer on
+  // every visit — must run before the early return below so hook order
+  // never changes between renders.
+  usePageExplain('live draft', clock?.complete ? 'complete' : myTurn ? 'my turn' : 'watching', {
+    pick_number: clock?.pick_number ?? null, round: clock?.round ?? null,
+    my_turn: myTurn, picks_until_my_turn: clock?.picks_until_my_turn ?? null,
+    my_picks_made: state?.my_team?.picks?.length ?? null,
+    claudes_pick: advice?.pick ?? null
+  });
 
   if (!state) return <p className="text-slate-500">Connecting to your ESPN draft…</p>;
 

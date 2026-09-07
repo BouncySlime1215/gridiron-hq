@@ -327,19 +327,25 @@ const CAPABILITIES = [
   {
     id: 'crossover.fantasy_to_betting_props',
     question: 'Do the fantasy player engines improve TD prop calibration?',
-    module: 'nfl-prop-player-heads (challenger, player-head-registry-v1-engine-context)',
+    module: 'nfl-prop-player-heads + nfl-prop-player-weekly-heads (two challengers, both retired)',
     domain: 'crossover',
     evidence: { kind: 'sealed_audit_negative',
-      note: 'Career TD rate/consistency, preseason role band and offseason churn stacked on the ' +
-        'shipped isotonic head. Anytime TD: 0 of 3 seasons significant, pooled Brier -0.0003 ' +
-        '(interval straddles zero). 2+ TD: 0 of 3, one cell significantly WORSE. Ablation: 3 of 24 ' +
-        'cells significant, all in a single season, none repeating -- noise. Forward CLV also ' +
-        'failed by construction (0 settled prop bets this season). docs/PROPS_PLAYER_ENGINES.md.' },
+      note: 'Tried twice, at two grains, both declined. SEASON-GRAIN (career TD rate, preseason ' +
+        'role band, offseason churn -- constant across a player\'s 17 weeks): 0 of 3 seasons ' +
+        'significant on anytime and 2+ TD. WEEKLY-GRAIN retry (within-season red-zone opportunity ' +
+        'trend, opponent-share trend, goal-line trend, opponent red-zone defense as a guarded ' +
+        'separate arm): also 0 of 3 both markets, and 3 of the significant ablation cells were ' +
+        'significantly WORSE for the challenger. docs/PROPS_PLAYER_ENGINES.md, ' +
+        'docs/PROPS_PLAYER_ENGINES_WEEKLY.md.' },
     baseAuthority: 'retired',
-    note: 'The engines supply only season-level context, constant across a player\'s 17 weeks, and ' +
-      'cannot separate two games the shipped head already scores identically. A weekly-grain churn ' +
-      'signal is a live, untried, better-specified follow-up -- this entry retires the season-level ' +
-      'attempt specifically, not the underlying idea.'
+    note: 'The season-grain retirement guessed the cause was grain -- a constant can\'t separate ' +
+      'two games. The weekly retry checked that guess directly: the trend features are genuinely ' +
+      'NEW information (correlation with the shipped model\'s own logit ~0.04-0.06, versus ~0.29-' +
+      '0.32 for their own levels, so they are not just a restatement of what the model already ' +
+      'knows) and it still bought nothing. So grain was never the binding constraint -- within-' +
+      'season DIRECTION of red-zone role carries no incremental TD signal beyond its LEVEL, at ' +
+      'either grain. That is the more informative null, and it closes this line rather than ' +
+      'leaving a "try weekly next" open item.'
   },
   {
     id: 'fantasy.adp_source_disagreement',

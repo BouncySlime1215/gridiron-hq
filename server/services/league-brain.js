@@ -77,6 +77,8 @@ import { positionLiquidity, shoppingGuidance } from './position-liquidity.js';
 import { byePatches, fragility } from './roster-risk.js';
 import { regressionForLeague } from './td-regression.js';
 import { trendExploits } from './trend-exploits.js';
+import { tradeWeekContext } from './trade-engine.js';
+import { evidenceCache, compactEvidence, DEFAULT_PROVIDERS } from './lineup-brain.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -421,12 +423,19 @@ export function brainState(leagueId, myTeamId = null) {
  * Ranked by expected value — acceptance probability times what the deal is worth
  * — rather than by what the deal is worth. See the header; this is the point.
  */
-export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
+export function brainPlan(leagueId, { myTeamId = null, limit = 8, providers = DEFAULT_PROVIDERS } = {}) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
   if (!lg?.payload) return { error: 'league not synced yet' };
 
   const state = brainState(leagueId, myTeamId);
   if (state.error) return state;
+
+  // The record behind every name this plan lists: career headline, last
+  // season's weekly floor and ceiling, the preseason band and the offseason
+  // read. Compact form — a plan lists dozens of players — and looked up once
+  // per player. It explains a move and flags a risk; it never re-prices one.
+  const record = evidenceCache(tradeWeekContext().season, providers);
+  const withRecord = p => ({ ...p, evidence: compactEvidence(record(p.id)) });
 
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
@@ -499,8 +508,8 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
       const near = (reason, detail) => {
         rejected.push({
           partner: p.owner, tier: p.tier,
-          you_send: d.mine.map(x => ({ name: x.name, position: x.position })),
-          you_get: d.theirs.map(x => ({ name: x.name, position: x.position })),
+          you_send: d.mine.map(x => withRecord({ id: x.id, name: x.name, position: x.position })),
+          you_get: d.theirs.map(x => withRecord({ id: x.id, name: x.name, position: x.position })),
           my_ppg_gain: r2(myGain), their_ppg_gain: r2(theirGain),
           their_value_edge_pct: r2(theirEdgePct),
           blocked_by: reason, detail
@@ -553,8 +562,8 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
       moves.push({
         partner: p.owner, partner_roster_id: p.roster_id,
         tier: p.tier, tier_label: p.tier_label,
-        you_send: d.mine.map(x => ({ name: x.name, position: x.position, value: x.value })),
-        you_get: d.theirs.map(x => ({ name: x.name, position: x.position, value: x.value })),
+        you_send: d.mine.map(x => withRecord({ id: x.id, name: x.name, position: x.position, value: x.value })),
+        you_get: d.theirs.map(x => withRecord({ id: x.id, name: x.name, position: x.position, value: x.value })),
         my_ppg_gain: r2(myGain), their_ppg_gain: r2(theirGain),
         their_value_edge_pct: r2(theirEdgePct),
         accept_probability: pAccept,
@@ -562,7 +571,7 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
         rival_tax: rivalTax,
         expected_value: expected,
         grade: expected >= 0.7 && pAccept >= 0.45 ? 'SMASH' : expected >= 0.35 ? 'STRONG' : 'VIABLE',
-        pitch: pitchFor(p, d, myGain, theirGain, theirEdgePct)
+        pitch: pitchFor(p, d, myGain, theirGain, theirEdgePct, d.theirs.map(x => record(x.id)))
       });
     }
   }
@@ -635,8 +644,8 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
   const waiverMoves = (waiver.upgrades ?? []).map(u => ({
     kind: 'waiver',
     partner: 'Waiver wire',
-    you_get: [{ name: u.player.name, position: u.player.position, value: u.player.value }],
-    you_send: u.drop_candidate ? [{ name: u.drop_candidate.name, position: u.drop_candidate.position }] : [],
+    you_get: [withRecord({ id: u.player.id, name: u.player.name, position: u.player.position, value: u.player.value })],
+    you_send: u.drop_candidate ? [withRecord({ id: u.drop_candidate.id, name: u.drop_candidate.name, position: u.drop_candidate.position })] : [],
     my_ppg_gain: u.ppg_gain,
     accept_probability: u.accept_probability,
     expected_value: u.expected_value,
@@ -745,16 +754,16 @@ export function brainPlan(leagueId, { myTeamId = null, limit = 8 } = {}) {
       .slice(0, 6),
     considered: rejected.length + moves.length,
     waivers: waiver.upgrades ?? [],
-    drop_candidates: waiver.drop_candidates ?? [],
-    sell_high: selling.candidates ?? [],
+    drop_candidates: (waiver.drop_candidates ?? []).map(withRecord),
+    sell_high: (selling.candidates ?? []).map(withRecord),
     playoff_weight: waiver.playoff_weight ?? null,
-    best_move_note: topIsWaiver
+    best_move_note: (topIsWaiver
       ? `The best move on the board is not a trade. ${allMoves[0].you_get[0].name} is sitting on ` +
         `waivers and is worth ${allMoves[0].my_ppg_gain} points a week to your lineup — nobody has ` +
         'to agree to that, which is why it outranks every deal below it.'
       : allMoves.length
         ? 'The best available move is a trade, so it depends on someone else saying yes.'
-        : 'Nothing on the board improves the lineup right now.',
+        : 'Nothing on the board improves the lineup right now.') + recordNote(allMoves[0]),
     ranking_note: byRawGain && byExpected && byRawGain !== byExpected
       ? `Ranked by expected value, not raw gain. The biggest deal on the board is ` +
         `${byRawGain.you_get.map(x => x.name).join(' + ')} from ${byRawGain.partner} at ` +
@@ -838,8 +847,28 @@ function enumerateDeals(me, them, slots, scoutOf, max = 2) {
   return [...out.values()].slice(0, 160);
 }
 
+/**
+ * The record behind the player a move brings in, as a trailing sentence: the
+ * career headline and last season's weekly floor/ceiling when there is one.
+ * Empty string when the evidence layers had nothing — the note reads as before.
+ */
+export function recordNote(move) {
+  const p = move?.you_get?.[0];
+  const ev = p?.evidence;
+  if (!ev) return '';
+  const bits = [];
+  if (ev.headline) bits.push(ev.headline);
+  if (ev.weekly?.floor != null) {
+    bits.push(`last year ${ev.weekly.games_15plus} of ${ev.weekly.games} weeks at 15+, ` +
+      `floor ${ev.weekly.floor} / ceiling ${ev.weekly.ceiling}`);
+  }
+  if (ev.preseason?.p20 != null) bits.push(`preseason band ${Math.round(ev.preseason.p20)}–${Math.round(ev.preseason.p80)} pts`);
+  if (ev.offseason?.risk) bits.push(`offseason read is a risk (${ev.offseason.drivers?.[0] ?? 'opportunity down'})`);
+  return bits.length ? ` The record on ${p.name}: ${bits.join('; ')}.` : '';
+}
+
 /** The message you would actually send, in the register a manager reads. */
-function pitchFor(partner, deal, myGain, theirGain, theirEdgePct) {
+function pitchFor(partner, deal, myGain, theirGain, theirEdgePct, incomingRecords = []) {
   const get = deal.theirs.map(p => p.name).join(' + ');
   const send = deal.mine.map(p => p.name).join(' + ');
   const framing = theirEdgePct > 8
@@ -847,11 +876,17 @@ function pitchFor(partner, deal, myGain, theirGain, theirEdgePct) {
     : theirEdgePct < -8
       ? 'You come out ahead on value — expect a counter rather than an acceptance.'
       : 'Close to even on value, which is the range that gets signed.';
+  // The reasoning is for you, not for them: it carries the stat-rooted case for
+  // the player you are acquiring, so the "why" leads with a number rather than
+  // a valuation.
+  const grounded = deal.theirs.map((p, i) => incomingRecords[i]?.headline ? `${p.name}: ${incomingRecords[i].headline}` : null)
+    .filter(Boolean);
   return {
     to: partner.owner,
     text: `${send} for ${get}. ${theirGain > 0
       ? `It helps you at ${deal.mine[0]?.position} where you are thin, and I need the ${deal.theirs[0]?.position}.`
       : `I need the ${deal.theirs[0]?.position} and can spare ${deal.mine[0]?.position} depth.`}`,
-    reasoning: `+${r2(myGain)} ppg for you, ${theirGain >= 0 ? '+' : ''}${r2(theirGain)} for them. ${framing}`
+    reasoning: `+${r2(myGain)} ppg for you, ${theirGain >= 0 ? '+' : ''}${r2(theirGain)} for them. ${framing}` +
+      (grounded.length ? ` The record — ${grounded.join('; ')}.` : '')
   };
 }

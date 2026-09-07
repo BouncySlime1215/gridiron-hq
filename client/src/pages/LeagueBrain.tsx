@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
+import { RecordLine } from '../components/lineup/EvidenceStrip';
 
 /**
  * One page that answers "what do I actually do to win this league".
@@ -210,6 +211,7 @@ export default function LeagueBrain() {
                       <span className="font-semibold text-emerald-700">{n.you_get.map((p: any) => p.name).join(' + ')}</span>
                       <span className="ml-2 text-xs text-slate-400">{n.partner}</span>
                       <div className="mt-0.5 text-xs leading-5 text-slate-500">{n.detail}</div>
+                      <Records players={n.you_get} />
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
                       <span className="text-sm font-black tabular-nums text-slate-400">+{n.my_ppg_gain}</span>
@@ -238,6 +240,7 @@ export default function LeagueBrain() {
                       </span>
                     </div>
                     <p className="mt-1 text-sm leading-6 text-slate-700">{s.why}</p>
+                    <RecordLine ev={s.evidence} className="mt-1" />
                   </div>
                 ))}
               </div>
@@ -251,10 +254,13 @@ export default function LeagueBrain() {
               </summary>
               <div className="mt-3 space-y-2">
                 {d.drop_candidates.map((p: any, i: number) => (
-                  <div key={i} className="flex items-baseline gap-2 text-sm">
-                    <span className="font-semibold text-slate-800">{p.name}</span>
-                    <span className="text-xs text-slate-400">{p.position}</span>
-                    <span className="ml-auto text-xs text-slate-500">{p.why}</span>
+                  <div key={i} className="min-w-0 text-sm">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="font-semibold text-slate-800">{p.name}</span>
+                      <span className="text-xs text-slate-400">{p.position}</span>
+                      <span className="ml-auto text-xs text-slate-500">{p.why}</span>
+                    </div>
+                    <RecordLine ev={p.evidence} />
                   </div>
                 ))}
               </div>
@@ -404,6 +410,7 @@ function TopMove({ m, note }: { m: any; note?: string }) {
           </span>
         </div>
         {note && <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">{note}</p>}
+        <Records players={m.you_get} dark />
         {m.pitch?.text && !isWaiver && (
           <div className="mt-3 rounded-xl bg-white/[.07] p-3">
             <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">Send this to {m.partner}</div>
@@ -487,6 +494,15 @@ function Move({ m, rank }: { m: any; rank: number }) {
       </button>
       {open && (
         <div className="space-y-3 border-t border-slate-100 bg-slate-50 px-4 py-4">
+          {/* The record behind every name crossing the table — what the value
+              number is standing on, before the pitch. */}
+          {(m.you_get?.some((p: any) => p.evidence) || m.you_send?.some((p: any) => p.evidence)) && (
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">The record</div>
+              <Records players={m.you_get} label={isWaiver ? undefined : 'you get'} />
+              <Records players={m.you_send} label={isWaiver ? 'you drop' : 'you send'} />
+            </div>
+          )}
           {m.pitch && (
             <div className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">
@@ -558,6 +574,26 @@ function Move({ m, rank }: { m: any; rank: number }) {
         </div>
       )}
     </article>
+  );
+}
+
+/**
+ * One record line per named player. On the dark hero the line is re-toned so it
+ * reads; everywhere else it takes the light default. Nothing to show → nothing.
+ */
+function Records({ players, label, dark = false }: { players?: any[]; label?: string; dark?: boolean }) {
+  const withEv = (players ?? []).filter(p => p?.evidence);
+  if (!withEv.length) return null;
+  return (
+    <div className={`mt-1.5 space-y-1 ${dark ? '[&_*]:!text-slate-300 [&_b]:!text-slate-100' : ''}`}>
+      {withEv.map((p, i) => (
+        <div key={i} className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[11px]">
+          {label && <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</span>}
+          <span className={`font-semibold ${dark ? 'text-slate-100' : 'text-slate-700'}`}>{p.name}</span>
+          <RecordLine ev={p.evidence} className="min-w-0 flex-1" />
+        </div>
+      ))}
+    </div>
   );
 }
 

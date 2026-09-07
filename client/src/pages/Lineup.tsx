@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
+import EvidenceStrip, { RecordLine } from '../components/lineup/EvidenceStrip';
 
 /**
  * The week's lineup, with the closeness of each call made visible.
@@ -115,10 +116,13 @@ export default function Lineup() {
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">On the bench</h2>
           <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
             {d.bench.map((p: any, i: number) => (
-              <div key={i} className="flex items-baseline gap-2 text-sm">
-                <span className="font-semibold text-slate-800">{p.name}</span>
-                <span className="text-xs text-slate-400">{p.position} · {p.team_abbr}</span>
-                <span className="ml-auto font-mono text-xs tabular-nums text-slate-600">{p.week_points}</span>
+              <div key={i} className="min-w-0 text-sm">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-semibold text-slate-800">{p.name}</span>
+                  <span className="text-xs text-slate-400">{p.position} · {p.team_abbr}</span>
+                  <span className="ml-auto font-mono text-xs tabular-nums text-slate-600">{p.week_points}</span>
+                </div>
+                <RecordLine ev={p.evidence} />
               </div>
             ))}
           </div>
@@ -165,6 +169,17 @@ function Slot({ c, index }: { c: any; index: number }) {
       </div>
 
       <p className="mt-2 text-sm leading-6 text-slate-600">{c.why}</p>
+
+      {/* The record behind both names. The projection decides the call; this
+          is what it cannot say — startable weeks, floor, the preseason band,
+          and whether the summer moved him. Side by side when there is a
+          runner-up, so the two floors read against each other. */}
+      {(c.player?.evidence || c.over?.evidence) && (
+        <div className={`grid gap-2 ${c.over?.evidence ? 'sm:grid-cols-2' : ''}`}>
+          <EvidenceStrip ev={c.player.evidence} position={c.player.position} name={c.over ? c.player.name : undefined} />
+          {c.over?.evidence && <EvidenceStrip ev={c.over.evidence} position={c.over.position} name={`${c.over.name} (benched)`} />}
+        </div>
+      )}
 
       {/* The football case. This is the part that was missing — the page used to
           say "0.31 points ahead" and stop, which is true and decides nothing. */}

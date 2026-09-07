@@ -26,3 +26,32 @@ export function InlineBar({ value, max, className = '' }: { value: number; max: 
     </div>
   );
 }
+
+/**
+ * The p20–p80 preseason band as a bar rather than two numbers: the same track as
+ * `InlineBar` (identical height, radius and slate-100 rail, so a row that carries
+ * both reads as one family), with the band drawn between the quantiles and a tick
+ * at the median.
+ *
+ * `max` is the shared scale for the list the bar sits in — pass the largest p80 on
+ * screen so two players' bands are directly comparable by width and position. A
+ * band that is only 4 points wide would otherwise vanish, so it is floored at 3%.
+ */
+export function RangeBar({ low, high, mid, max, className = '', title }: {
+  low: number; high: number; mid?: number | null; max: number; className?: string; title?: string;
+}) {
+  if (!(max > 0) || !Number.isFinite(low) || !Number.isFinite(high)) return null;
+  const clamp = (v: number) => Math.max(0, Math.min(100, (v / max) * 100));
+  const left = clamp(Math.min(low, high));
+  const width = Math.max(3, clamp(Math.max(low, high)) - left);
+  const tick = mid != null && Number.isFinite(mid) ? clamp(mid) : null;
+  return (
+    <div className={`relative h-1.5 w-full rounded-full bg-slate-100 ${className}`}
+      title={title ?? `${Math.round(low)}–${Math.round(high)} pts (p20–p80)`} aria-hidden>
+      <div className="absolute inset-y-0 rounded-full bg-sky-200" style={{ left: `${left}%`, width: `${width}%` }} />
+      {tick != null && (
+        <div className="absolute inset-y-0 w-0.5 -ml-px rounded-full bg-sky-700" style={{ left: `${tick}%` }} />
+      )}
+    </div>
+  );
+}

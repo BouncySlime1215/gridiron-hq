@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, headshotUrl, useApi } from '../api';
 import EvidenceTable from '../components/draft/EvidenceTable';
-import SparkBar from '../components/draft/SparkBar';
+import SparkBar, { RangeBar } from '../components/draft/SparkBar';
 import StreakChips from '../components/draft/StreakChips';
 import SourcePill from '../components/draft/SourcePill';
 import DraftBoardRail from '../components/draft/DraftBoardRail';
@@ -276,6 +276,53 @@ function Room({ id }: { id: string }) {
     api(`/drafts/${id}/lookahead`).then(setSim).catch(() => {}).finally(() => setSimBusy(false));
   }, [state, clock?.pick_number, until, id, clock?.complete]);
 
+  /* ------------------------------------------------ "this just changed" flashes
+   *
+   * The board repaints itself silently every 4s, so a pick landing while you are
+   * looking at ESPN is a diff you have to spot by memory. These two effects mark
+   * what moved since the last poll and hand it the `.just-updated` class (a
+   * colour flash that decays — see index.css); the class is dropped again after
+   * the animation so a later re-render can't replay it.
+   *
+   * Neither fires on first paint: the whole board is new then, and flashing all
+   * of it would train the eye to ignore the flash.
+   */
+  const [flashPick, setFlashPick] = useState<number | null>(null);
+  const lastPickSeen = useRef<number | null>(null);
+  const topPick = state?.recent_picks?.[0]?.pick_number ?? null;
+  useEffect(() => {
+    if (topPick == null) return;
+    if (lastPickSeen.current === null) { lastPickSeen.current = topPick; return; }
+    if (topPick === lastPickSeen.current) return;
+    lastPickSeen.current = topPick;
+    setFlashPick(topPick);
+    const t = setTimeout(() => setFlashPick(null), 1700);
+    return () => clearTimeout(t);
+  }, [topPick]);
+
+  // A target's numbers move when the board around him moves — his gone-by-next
+  // especially, which is the one that decides whether you can wait a round.
+  const [flashTargets, setFlashTargets] = useState<Set<number>>(() => new Set());
+  const targetSig = useRef<Map<number, string>>(new Map());
+  useEffect(() => {
+    const list: any[] = state?.targets ?? [];
+    if (!list.length) return;
+    const next = new Map<number, string>();
+    const changed: number[] = [];
+    for (const t of list) {
+      const sig = `${Math.round(t.projected_points ?? 0)}|${Math.round(t.vorp ?? 0)}|${Math.round((t.gone_by_next ?? 0) * 100)}`;
+      next.set(t.player_id, sig);
+      const prev = targetSig.current.get(t.player_id);
+      if (prev !== undefined && prev !== sig) changed.push(t.player_id);
+    }
+    const firstPaint = targetSig.current.size === 0;
+    targetSig.current = next;
+    if (firstPaint || !changed.length) return;
+    setFlashTargets(new Set(changed));
+    const t = setTimeout(() => setFlashTargets(new Set()), 1700);
+    return () => clearTimeout(t);
+  }, [state?.targets]);
+
   const refreshAdvice = async () => {
     setAdviceBusy(true);
     try { setAdvice(await api(`/drafts/${id}/advice?refresh=1`)); }
@@ -324,6 +371,24 @@ function Room({ id }: { id: string }) {
   const pickEvidence = advice?.pick ? evidenceFor(advice.pick) : { career: null, preseason: null };
   const pickHeadline = statHeadline(pickEvidence.career, pickEvidence.preseason);
   const otherOptions = (advice?.players ?? []).filter((pl: any) => pl.name !== advice?.pick);
+  // One scale for every p20–p80 bar on this screen. Normalising each bar to its
+  // own band would make a 90–110 floor play and a 140–290 lottery ticket draw the
+  // identical picture; sharing the scale is the whole point of drawing them.
+  const bandMax = (() => {
+    const highs = [...(state.targets ?? []), ...(advice?.players ?? []), ...(state.available ?? []).slice(0, 40)]
+      .map((p: any) => p?.preseason?.p80)
+      .filter((v: any): v is number => typeof v === 'number' && v > 0);
+    return highs.length ? Math.max(...highs) * 1.05 : 0;
+  })();
+  // Takes either a board row (which carries `.preseason`) or a bare preseason
+  // object — both shapes reach the cards below depending on where the player was
+  // resolved from. Null unless both quantiles are present: half a band is worse
+  // than none, since the bar would silently read as a floor it didn't measure.
+  const bandFor = (x: any) => {
+    const pre = x?.preseason ?? x;
+    return pre?.p20 != null && pre?.p80 != null ? pre : null;
+  };
+
   const lineup = state.my_team.lineup;
   const needs = Object.entries(state.my_team.needs.starters ?? {}).filter(([, n]) => (n as number) > 0);
   const slotTeam = (slot: number) => teamNameForSlot(d, slot);
@@ -483,8 +548,17 @@ function Room({ id }: { id: string }) {
           {/* ------------------------------------------------ the other options */}
           {otherOptions.length > 0 && (
             <div className="card p-4">
-              <h2 className="font-bold text-sm mb-3">The other options</h2>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <h2 className="font-bold text-sm mb-3">
+                The other options
+                <span className="sm:hidden ml-2 text-[10px] font-normal text-slate-400">swipe →</span>
+              </h2>
+              {/* Below sm these become a swipeable rail instead of a tall stack:
+                  on a phone the vertical stack pushes "Take one of these" a full
+                  screen down mid-pick. 85% basis leaves the next card peeking,
+                  which is the affordance that says "there is more" — no arrows,
+                  no JS. At sm and up it reverts to the original two-up grid. */}
+              <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory -mx-1 px-1 pb-1
+                              sm:grid sm:grid-cols-2 sm:overflow-visible sm:mx-0 sm:px-0 sm:pb-0">
                 {otherOptions.map((pl: any) => {
                   const bp = state.available.find((a: any) => a.name === pl.name);
                   const ev = evidenceFor(pl.name);
@@ -492,7 +566,7 @@ function Room({ id }: { id: string }) {
                   const series = pprSeries(ev.career, 3);
                   const seasons = (ev.career?.seasons ?? []).slice(0, 3).map((s: any) => s.season).reverse();
                   return (
-                    <div key={pl.name} className={`rounded-lg border p-2.5 min-w-0 ${VERDICT_TINT[pl.verdict] ?? 'bg-white border-slate-200'}`}>
+                    <div key={pl.name} className={`rounded-lg border p-2.5 min-w-0 basis-[85%] shrink-0 snap-start sm:basis-auto sm:shrink ${VERDICT_TINT[pl.verdict] ?? 'bg-white border-slate-200'}`}>
                       <div className="flex items-center gap-2">
                         <Face p={bp ?? { name: pl.name }} size={32} />
                         <div className="min-w-0 flex-1">
@@ -516,6 +590,17 @@ function Room({ id }: { id: string }) {
                         </div>
                       </div>
                       {headline && <p className="text-xs font-semibold text-slate-800 mt-1.5 tabular-nums">{headline}</p>}
+                      {(() => {
+                        const band = bandFor(ev.preseason) ?? bandFor(bp);
+                        return band && bandMax > 0 ? (
+                          <div className="mt-1.5">
+                            <RangeBar low={band.p20} high={band.p80} mid={band.points} max={bandMax} />
+                            <div className="text-[10px] text-slate-500 tabular-nums mt-0.5">
+                              {Math.round(band.p20)}–{Math.round(band.p80)} pts p20–p80
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
                       <div className="mt-1"><StreakChips career={ev.career} compact /></div>
                       <details className="mt-1.5">
                         <summary className="text-[11px] text-sky-700 cursor-pointer list-none hover:underline">pros &amp; cons</summary>
@@ -566,7 +651,12 @@ function Room({ id }: { id: string }) {
 
           {/* -------------------------------------------------- best available */}
           <div className="card p-4">
-            <div className="flex items-center gap-2 mb-3 flex-wrap">
+            {/* Sticky inside the card: this list is the longest thing on the page
+                and its position filters scroll out of reach exactly when you are
+                scanning down it. -m/p offsets keep the pinned strip flush with
+                the card edge instead of showing a sliver of list beside it. */}
+            <div className="sticky top-0 z-20 bg-white -mx-4 -mt-4 px-4 pt-4 pb-2 mb-1 rounded-t-xl
+                            flex items-center gap-2 flex-wrap">
               <h2 className="font-bold text-sm">Take one of these</h2>
               <div className="ml-auto flex gap-1">
                 {['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'].map(p => (
@@ -580,7 +670,7 @@ function Room({ id }: { id: string }) {
             <div className="space-y-1.5">
               {targets.map((t: any, i: number) => (
                 <div key={t.player_id}
-                  className={`flex items-center gap-3 p-2 rounded-lg border ${POS_TINT[t.position] ?? 'bg-white border-slate-200'}`}>
+                  className={`flex items-center gap-3 p-2 rounded-lg border ${POS_TINT[t.position] ?? 'bg-white border-slate-200'} ${flashTargets.has(t.player_id) ? 'just-updated' : ''}`}>
                   <span className="text-xs font-bold text-slate-400 w-4 text-center">{i + 1}</span>
                   <Face p={t} size={44} />
                   <div className="min-w-0 flex-1">
@@ -596,10 +686,21 @@ function Room({ id }: { id: string }) {
                         : <div className="text-[11px] text-slate-600 truncate">{(t.reasons ?? []).join(' · ') || 'best value on the board'}</div>;
                     })()}
                   </div>
-                  <div className="text-right shrink-0 tabular-nums">
+                  <div className="w-24 sm:w-28 text-right shrink-0 tabular-nums">
                     {t.projected_points != null && (
                       <div className="text-sm font-bold">{Math.round(t.projected_points)}<span className="text-[10px] font-normal text-slate-400"> pts</span></div>
                     )}
+                    {/* The band sits directly under the point projection it
+                        qualifies: same column, shared scale across the list, so a
+                        narrow floor next to a wide one is visible without reading
+                        four numbers off two rows. */}
+                    {(() => {
+                      const band = bandFor(t);
+                      return band && bandMax > 0 ? (
+                        <RangeBar low={band.p20} high={band.p80} mid={band.points} max={bandMax} className="my-1"
+                          title={`${t.name}: ${Math.round(band.p20)}–${Math.round(band.p80)} pts (p20–p80)${band.points != null ? `, median ${Math.round(band.points)}` : ''}`} />
+                      ) : null;
+                    })()}
                     {t.vorp != null && (
                       <div className={`text-[10px] font-semibold ${t.vorp > 0 ? 'text-emerald-700' : 'text-slate-400'}`} title="Projected points over a replacement-level starter at his position in this league">
                         {t.vorp > 0 ? '+' : ''}{Math.round(t.vorp)} vs repl.
@@ -777,7 +878,8 @@ function Room({ id }: { id: string }) {
             <h2 className="font-bold text-sm mb-2">Off the board</h2>
             <div className="space-y-1">
               {state.recent_picks.map((p: any) => (
-                <div key={p.pick_number} className="flex items-center gap-2">
+                <div key={p.pick_number}
+                  className={`flex items-center gap-2 rounded px-1 -mx-1 ${p.pick_number === flashPick ? 'just-updated' : ''}`}>
                   <span className="text-[10px] font-bold text-slate-400 w-8">
                     {Math.ceil(p.pick_number / d.team_count)}.{String(((p.pick_number - 1) % d.team_count) + 1).padStart(2, '0')}
                   </span>

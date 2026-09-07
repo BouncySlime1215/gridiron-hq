@@ -1,5 +1,5 @@
 import type { Career, CareerSeason, Preseason } from './types';
-import { InlineBar } from './SparkBar';
+import { InlineBar, RangeBar } from './SparkBar';
 import StreakChips from './StreakChips';
 
 type Col = { key: string; label: string; get: (s: CareerSeason) => number | null | undefined };
@@ -42,17 +42,27 @@ export default function EvidenceTable({ career, preseason, position }:
 
   return (
     <div className="space-y-2">
+      {/* max-h + overflow-y is what makes `sticky top-0` on the header mean
+          anything: the header pins against this box, not the page. It only
+          engages when a player has more seasons than fit; four or fewer rows
+          never reach the cap, so nothing scrolls that didn't before.
+          `snap-x` is Tailwind's proximity strictness, not mandatory — a wide
+          stat table should scrub freely, not yank from column to column. */}
       {seasons.length > 0 && (
-        <div className="overflow-x-auto -mx-1">
+        <div className="overflow-x-auto overflow-y-auto max-h-56 -mx-1 snap-x">
           <table className="w-full text-xs tabular-nums min-w-[20rem]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wide text-slate-400">
-                <th className="text-left font-semibold px-1 py-1">Season</th>
-                <th className="text-right font-semibold px-1 py-1">G</th>
-                <th className="text-right font-semibold px-1 py-1">PPR</th>
-                <th className="text-left font-semibold px-1 py-1 w-[22%]"></th>
-                <th className="text-right font-semibold px-1 py-1">Rank</th>
-                {cols.map(c => <th key={c.key} className="text-right font-semibold px-1 py-1">{c.label}</th>)}
+                {/* The season label is the row's identity — it has to survive a
+                    horizontal scrub on a phone, so it sticks left while Car/Rush/
+                    RTD slide under it. Opaque, not bg-inherit: a transparent
+                    sticky cell lets the scrolled columns show through it. */}
+                <th className="text-left font-semibold px-1 py-1 sticky left-0 top-0 z-30 bg-white">Season</th>
+                <th className="text-right font-semibold px-1 py-1 sticky top-0 z-20 bg-white">G</th>
+                <th className="text-right font-semibold px-1 py-1 sticky top-0 z-20 bg-white">PPR</th>
+                <th className="text-left font-semibold px-1 py-1 w-[22%] sticky top-0 z-20 bg-white"></th>
+                <th className="text-right font-semibold px-1 py-1 sticky top-0 z-20 bg-white">Rank</th>
+                {cols.map(c => <th key={c.key} className="text-right font-semibold px-1 py-1 sticky top-0 z-20 bg-white">{c.label}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -60,8 +70,8 @@ export default function EvidenceTable({ career, preseason, position }:
                 const rank = s.pos_rank;
                 const rankTone = rank == null ? 'text-slate-400' : rank <= 12 ? 'text-good font-bold' : rank <= 24 ? 'text-slate-700 font-semibold' : 'text-slate-500';
                 return (
-                  <tr key={s.season} className={`border-t border-slate-100 ${i === 0 ? 'bg-slate-50/60' : ''}`}>
-                    <td className="px-1 py-1 font-semibold text-slate-700">{s.season}</td>
+                  <tr key={s.season} className={`border-t border-slate-100 hover:bg-slate-50 ${i === 0 ? 'bg-slate-50/60' : ''}`}>
+                    <td className={`px-1 py-1 font-semibold text-slate-700 sticky left-0 z-10 ${i === 0 ? 'bg-[#f9fafb]' : 'bg-white'}`}>{s.season}</td>
                     <td className="px-1 py-1 text-right text-slate-600">{num(s.games)}</td>
                     <td className="px-1 py-1 text-right font-bold text-slate-800">
                       {num(s.ppr_points)}
@@ -80,12 +90,23 @@ export default function EvidenceTable({ career, preseason, position }:
 
       <StreakChips career={career} />
 
+      {/* The band as a bar, with the numbers kept as its label. Two numbers alone
+          ("212–268 pts") need reading; the bar shows how wide the outcome is and
+          where the median sits inside it at a glance, which is the thing that
+          actually separates a safe floor from a boom/bust at pick time. The
+          scale runs to p80 + 15% so the band never fills the whole track and a
+          right-hand tail stays visible. */}
       {hasRange && (
-        <div className="flex items-center gap-2 text-xs text-slate-600 tabular-nums">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">This season</span>
-          <span><b className="text-slate-800">{Math.round(preseason!.p20!)}</b>–<b className="text-slate-800">{Math.round(preseason!.p80!)}</b> pts (p20–p80)</span>
-          {preseason?.points != null && <span className="text-slate-400">· median {Math.round(preseason.points)}</span>}
-          {preseason?.expected_games != null && <span className="text-slate-400">· ~{Math.round(preseason.expected_games)} games</span>}
+        <div className="space-y-1">
+          <RangeBar low={preseason!.p20!} high={preseason!.p80!} mid={preseason?.points ?? null}
+            max={preseason!.p80! * 1.15}
+            title={`p20–p80: ${Math.round(preseason!.p20!)}–${Math.round(preseason!.p80!)} pts`} />
+          <div className="flex items-center gap-2 text-xs text-slate-600 tabular-nums">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">This season</span>
+            <span><b className="text-slate-800">{Math.round(preseason!.p20!)}</b>–<b className="text-slate-800">{Math.round(preseason!.p80!)}</b> pts (p20–p80)</span>
+            {preseason?.points != null && <span className="text-slate-400">· median {Math.round(preseason.points)}</span>}
+            {preseason?.expected_games != null && <span className="text-slate-400">· ~{Math.round(preseason.expected_games)} games</span>}
+          </div>
         </div>
       )}
       {(preseason?.drivers?.length ?? 0) > 1 && (

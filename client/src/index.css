@@ -237,3 +237,23 @@ a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important;
 @media (prefers-reduced-motion: reduce) {
   .tr-rise { animation: none; }
 }
+
+/* "This just changed" — a background flash that decays, for a row whose value
+   moved between polls (a new pick landing on the live draft board, a target's
+   projection or gone-by-next shifting). Deliberately colour-only: a scale or
+   box-shadow pulse reads as a game notification, while a tinted row settling
+   back to its own background is what GitHub and Linear use for a row that just
+   updated, and it stays readable if it fires while the eye is elsewhere.
+
+   Background only, so it cannot fight the row's own border/tint classes; the
+   flash colour is the shared good/crit tint token, not a raw hex. */
+@keyframes evidence-flash {
+  from { background-color: var(--good-tint); }
+  to   { background-color: transparent; }
+}
+.just-updated {
+  animation: evidence-flash 1.6s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .just-updated { animation: none; }
+}

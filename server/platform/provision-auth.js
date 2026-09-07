@@ -42,8 +42,13 @@ if (!subject || !Number.isInteger(leagueId) || !['member', 'commissioner'].inclu
     if (!draft) throw new Error('draft not found');
     if (draft.league_row_id != null && Number(draft.league_row_id) !== leagueId) throw new Error('draft belongs to another league');
     if (draft.league_row_id == null) run('UPDATE drafts SET league_row_id = ? WHERE id = ?', leagueId, draftId);
+    // draft_team_ownership has two unique constraints (draft_id,team_slot)
+    // AND (draft_id,user_id) — handle both, or re-provisioning a user into a
+    // different slot than one they already own in this draft throws instead
+    // of just moving them.
     run(`INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)
-         ON CONFLICT(draft_id,team_slot) DO UPDATE SET user_id=excluded.user_id`, draftId, teamSlot, userId);
+         ON CONFLICT(draft_id,team_slot) DO UPDATE SET user_id=excluded.user_id
+         ON CONFLICT(draft_id,user_id) DO UPDATE SET team_slot=excluded.team_slot`, draftId, teamSlot, userId);
     run('DELETE FROM legacy_draft_quarantine WHERE draft_id = ?', draftId);
   }
 

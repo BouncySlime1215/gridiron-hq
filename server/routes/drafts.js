@@ -381,7 +381,16 @@ r.post('/', (req, res) => {
   run(`INSERT INTO drafts (name, type, team_count, rounds, my_slot, ranking_set_id, pick_seconds, order_type, roster_positions, league_row_id)
        VALUES (?,?,?,?,?,?,?,?,?,?)`, name, type, team_count, rounds, my_slot, ranking_set_id, pick_seconds, order_type, rosterJson, Number(league_row_id));
   const created = row('SELECT * FROM drafts WHERE id = last_insert_rowid()');
-  run('INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)', created.id, my_slot, req.auth.userId);
+  // draft_team_ownership carries two separate uniqueness rules — one slot per
+  // (draft, slot) AND one slot per (draft, user) — and a plain INSERT here
+  // only ever collided with the first. If this user already owns a
+  // different slot in this draft (e.g. a re-create after a bad first
+  // attempt), that's the second constraint, and it needs its own handler
+  // too or the insert throws instead of just moving them to the new slot.
+  run(`INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)
+       ON CONFLICT(draft_id, team_slot) DO UPDATE SET user_id=excluded.user_id
+       ON CONFLICT(draft_id, user_id) DO UPDATE SET team_slot=excluded.team_slot`,
+    created.id, my_slot, req.auth.userId);
   recordAudit({ actor: req.auth.userId, role: 'commissioner', action: 'draft.create', entityType: 'draft', entityId: created.id, details: { name, type, team_count, rounds, order_type } });
   res.json(withParsedDraft(created));
 });
@@ -807,8 +816,14 @@ r.post('/live/link', async (req, res, next) => {
     const out = await ensureLiveDraft(leagueRowId);
     const linkedDraft = row('SELECT my_slot FROM drafts WHERE id = ?', out.draft_id);
     if (linkedDraft?.my_slot) {
+      // Same fix as draft creation: this user may already own a DIFFERENT
+      // slot in this draft from an earlier link attempt, which is a second,
+      // separate unique constraint (draft_id, user_id) that DO NOTHING on
+      // (draft_id, team_slot) alone does not cover.
       run(`INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)
-           ON CONFLICT(draft_id, team_slot) DO NOTHING`, out.draft_id, linkedDraft.my_slot, req.auth.userId);
+           ON CONFLICT(draft_id, team_slot) DO NOTHING
+           ON CONFLICT(draft_id, user_id) DO UPDATE SET team_slot=excluded.team_slot`,
+        out.draft_id, linkedDraft.my_slot, req.auth.userId);
     }
     // Pull whatever has already happened, so a mid-draft connect catches up instantly.
     const sync = await syncLiveDraft(out.draft_id).catch(e => ({ error: e.message }));
@@ -834,8 +849,13 @@ r.post('/:id/confirm-slot', (req, res, next) => {
       return res.status(400).json({ error: `team_slot must be between 1 and ${draft.team_count}` });
     }
     run('UPDATE drafts SET my_slot=?, my_slot_confirmed=1 WHERE id=?', slot, draft.id);
+    // Same fix as elsewhere in this file: confirming a NEW slot for a user
+    // who already owns a different one in this draft hits the separate
+    // (draft_id, user_id) constraint, not (draft_id, team_slot).
     run(`INSERT INTO draft_team_ownership (draft_id, team_slot, user_id) VALUES (?,?,?)
-         ON CONFLICT(draft_id, team_slot) DO UPDATE SET user_id=excluded.user_id`, draft.id, slot, req.auth.userId);
+         ON CONFLICT(draft_id, team_slot) DO UPDATE SET user_id=excluded.user_id
+         ON CONFLICT(draft_id, user_id) DO UPDATE SET team_slot=excluded.team_slot`,
+      draft.id, slot, req.auth.userId);
     recordAudit({ actor: req.auth.userId, role: 'member', action: 'draft.confirm_slot', entityType: 'draft', entityId: draft.id, details: { team_slot: slot } });
     res.json({ ok: true, my_slot: slot });
   } catch (e) { next(e); }

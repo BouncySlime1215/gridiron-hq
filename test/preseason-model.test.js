@@ -16,7 +16,7 @@ const {
   buildFeatureRow, FEATURE_NAMES, fitMarketCurve, marketCurvePoints, marketCurveGames,
   fitPreseasonModel, componentsFor, blendPoints, driversFor, spreadFor, SHIPPED_BLEND,
   ridgeFit, ridgePredict, spearman, buildSeasonRows, preseasonProjections,
-  preseasonProjection, resetPreseasonCache, seasonTotals
+  preseasonProjection, resetPreseasonCache, seasonTotals, RECOMMENDED_MODEL_BLEND_WEIGHT
 } = await import('../server/services/preseason-model.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -176,6 +176,105 @@ test('the td-luck term is capped so one freak season cannot dominate a linear fi
     ffopp: new Map([['g', { xp: 10, ap: 500, w: 10 }]]), bio: new Map(), projections: new Map()
   });
   assert.equal(row.features.td_luck_pg_1, 6);
+});
+
+/* ------------------------------------------------------------ charting block */
+
+const CHART_COLS = ['prior_ngs_air_yards_share', 'prior_yac_oe', 'prior_broken_tackles',
+  'prior_adot', 'prior_drop_pct', 'prior_ryoe_per_att', 'depth_slot_t', 'prior_xfp_diff'];
+
+const emptyCtx = extra => ({
+  season: 2026, priorTotals: [new Map(), new Map(), new Map()],
+  ffopp: new Map(), bio: new Map(), projections: new Map(), ...extra
+});
+
+test('every charting column is in the feature contract with a has_* indicator beside it', () => {
+  for (const c of CHART_COLS) {
+    assert.ok(FEATURE_NAMES.includes(c), `${c} missing from FEATURE_NAMES`);
+    assert.ok(FEATURE_NAMES.includes(`has_${c}`), `has_${c} missing from FEATURE_NAMES`);
+  }
+});
+
+test('a charted player gets his own numbers; an uncharted one gets the median, flagged', () => {
+  const median = Object.fromEntries(CHART_COLS.map(c => [c, 7]));
+  const chart = new Map([['charted', Object.fromEntries(CHART_COLS.map(c => [c, 31]))]]);
+  const ctx = emptyCtx({ chart, chartMedian: median });
+
+  const hit = buildFeatureRow({ gsis: 'charted', name: 'A', position: 'WR', market_rank: 5, pos_rank: 3 }, ctx);
+  for (const c of CHART_COLS) {
+    assert.equal(hit.features[c], 31, `${c} should be the player's own value`);
+    assert.equal(hit.features[`has_${c}`], 1, `has_${c} should be set`);
+  }
+
+  const miss = buildFeatureRow({ gsis: 'absent', name: 'B', position: 'QB', market_rank: 6, pos_rank: 4 }, ctx);
+  for (const c of CHART_COLS) {
+    assert.equal(miss.features[c], 7, `${c} should fall back to the median`);
+    assert.equal(miss.features[`has_${c}`], 0,
+      `has_${c} must say the value was imputed — absence here is structural, not random`);
+  }
+  assert.equal(miss.vector.length, FEATURE_NAMES.length);
+  assert.ok(miss.vector.every(Number.isFinite));
+});
+
+test('a database with no charting table still builds a complete, finite feature vector', () => {
+  // The fixture never creates off_player_season_features. The block is a driver input,
+  // not a dependency, so a board must still be produced.
+  const row = buildSeasonRows(2025, { limit: 20 })[0];
+  assert.equal(row.vector.length, FEATURE_NAMES.length);
+  assert.ok(row.vector.every(Number.isFinite));
+  for (const c of CHART_COLS) assert.equal(row.features[`has_${c}`], 0);
+});
+
+/** A ridge whose entire signal is one feature, so that feature's driver sorts first. */
+function oneFeatureModel(name, beta = 1) {
+  const zero = new Array(FEATURE_NAMES.length).fill(0);
+  const b = [...zero];
+  b[FEATURE_NAMES.indexOf(name)] = beta;
+  return {
+    curves: {}, blend: { ...SHIPPED_BLEND }, spread: {},
+    ppgModel: { beta: b, mu: [...zero], sd: zero.map(() => 1), intercept: 10 },
+    gamesModel: { beta: [...zero], mu: [...zero], sd: zero.map(() => 1), intercept: 15 }
+  };
+}
+const PREDICTION = { points: 200, expected_games: 15, components: { market: 200, structural: 200, model: 200 } };
+
+test('an imputed charting value is never stated as a fact about the player', () => {
+  // Median air-yards share of 40% is well past the driver threshold — but this player
+  // has no charting row, so the number is not his and must not be printed.
+  const ctx = emptyCtx({ chart: new Map(), chartMedian: { prior_ngs_air_yards_share: 40 } });
+  const row = buildFeatureRow({ gsis: 'g', name: 'X', position: 'WR', market_rank: 5, pos_rank: 3 }, ctx);
+  assert.equal(row.features.prior_ngs_air_yards_share, 40);
+  assert.equal(row.features.has_prior_ngs_air_yards_share, 0);
+
+  const drivers = driversFor(oneFeatureModel('prior_ngs_air_yards_share'), row, PREDICTION);
+  assert.ok(!drivers.some(d => d.includes('air yards')),
+    `imputed value leaked into drivers: ${JSON.stringify(drivers)}`);
+
+  // The same player WITH a charting row does get the line, so the guard above is really
+  // the has_* check and not a driver that simply never fires.
+  const charted = buildFeatureRow({ gsis: 'g', name: 'X', position: 'WR', market_rank: 5, pos_rank: 3 },
+    emptyCtx({ chart: new Map([['g', { prior_ngs_air_yards_share: 40 }]]), chartMedian: {} }));
+  const got = driversFor(oneFeatureModel('prior_ngs_air_yards_share'), charted, PREDICTION);
+  assert.ok(got.some(d => d.includes("40% of his team's air yards")), JSON.stringify(got));
+});
+
+test('average depth of target is only reported for pass catchers', () => {
+  // Every running back has a near-zero aDOT by definition of the position, so the line
+  // would be noise that crowds out a real driver.
+  const ctx = pos => emptyCtx({ chart: new Map([['g', { prior_adot: 1 }]]), chartMedian: {} });
+  const forPos = pos => driversFor(oneFeatureModel('prior_adot'),
+    buildFeatureRow({ gsis: 'g', name: 'X', position: pos, market_rank: 5, pos_rank: 3 }, ctx(pos)),
+    PREDICTION);
+  assert.ok(forPos('WR').some(d => d.includes('average depth of target')));
+  assert.ok(!forPos('RB').some(d => d.includes('average depth of target')));
+});
+
+test('the recommended live-board nudge weight is a documented constant below the old 0.4', () => {
+  // Settled on held-out 2023/24/25 — see docs/PRESEASON_MODEL.md "v2". draft-assist.js
+  // consumes this; the value must stay a plain number in [0, 1].
+  assert.equal(typeof RECOMMENDED_MODEL_BLEND_WEIGHT, 'number');
+  assert.ok(RECOMMENDED_MODEL_BLEND_WEIGHT >= 0 && RECOMMENDED_MODEL_BLEND_WEIGHT <= 1);
+  assert.equal(RECOMMENDED_MODEL_BLEND_WEIGHT, 0.2);
 });
 
 /* ------------------------------------------------------------- market curve */

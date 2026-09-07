@@ -21,6 +21,7 @@ import { cfbdSignalFor } from './cfbd.js';
 import { buildProjections } from './projections.js';
 import { offseasonContextFor } from './nfl-offseason-change.js';
 import { canonicalTeamCode } from './team-codes.js';
+import { RECOMMENDED_MODEL_BLEND_WEIGHT } from './preseason-model.js';
 
 /**
  * Who changed teams and how much opportunity opened up where they landed
@@ -63,12 +64,19 @@ const MOVER_RETENTION = { QB: 0.85, RB: 0.78, WR: 0.74, TE: 0.82 };
  * expert consensus (n=118), Spearman with actual season points: consensus
  * alone 0.399, our model alone 0.417, rank-blend 0.437 at w=0.3, 0.440 at 0.5,
  * 0.446 at 0.7 (scratchpad/blend-backtest.mjs). One season of evidence, so
- * 0.4 — inside the range that helped, short of the peak. 2024 could not be
- * scored: no 2024 actuals in player_season_stats.
+ * 0.4 was shipped first — inside the range that helped, short of the peak.
+ *
+ * Re-run 2026-09-07 with 3 held-out seasons (2023-2025) instead of 1, market
+ * curve standing in for ESPN's points: 0.2 is the only weight beating w=0 on
+ * MAE in 2 of 3 seasons at both top-150 and top-200, keeping most of the TE
+ * gain while halving 0.4's damage to QB/RB. No weight is significant on any
+ * season (0/3 paired bootstrap) — see preseason-model.js's
+ * RECOMMENDED_MODEL_BLEND_WEIGHT and docs/PRESEASON_MODEL.md "v2" for the
+ * full table. Imported rather than redefined so the two files can't drift.
  *
  * Built once per process (~0.7s) on the first board read.
  */
-const MODEL_BLEND_WEIGHT = 0.4;
+const MODEL_BLEND_WEIGHT = RECOMMENDED_MODEL_BLEND_WEIGHT;
 let modelProjections = null;
 function modelPointsMap() {
   if (!modelProjections) {

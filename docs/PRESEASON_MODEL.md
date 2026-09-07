@@ -1,9 +1,9 @@
 # Preseason season-long projection model
 
 `server/services/preseason-model.js`. Walk-forward evaluation scripts in
-`scratchpad/preseason/` (`backtest.mjs`, `experiments.mjs`, `curve2.mjs`, `final.mjs`);
-raw numbers in `scratchpad/preseason/final.json`. The service reads
-`server/data.sqlite` and **writes nothing**.
+`scratchpad/preseason/` (`backtest.mjs`, `experiments.mjs`, `curve2.mjs`, `final.mjs`,
+and for v2 `v2.mjs` and `blend.mjs`); raw numbers in `final.json`, `v2.json` and
+`blend.json`. The service reads `server/data.sqlite` and **writes nothing**.
 
 ## Bottom line
 
@@ -14,6 +14,10 @@ Ridge, a GBM, and three stacked blends were fitted walk-forward for target seaso
 sets). None of them beat the market-implied points curve by a significant margin on any
 season — 0 of 3 on the paired bootstrap, in either direction. Under this repo's
 governance that is a decline, not a ship.
+
+**v2 re-ran the same question with the offseason charting block added and got the same
+answer** (0/3, best variant 0.29 MAE better than the curve), and settled the live draft
+board's blend weight at 0.2. Both tables are in "v2" below.
 
 What did earn its place and is shipped:
 
@@ -214,6 +218,17 @@ fantasy points per game from nflverse ffopportunity, capped at ±6), `has_histor
 `proj_ppg` / `proj_games` / `proj_points` (coverage 82.5-84.0% of the test set; rookies
 and returning absentees have none and fall back to the slot curve).
 
+Plus the v2 charting block, each paired with a `has_<col>` indicator:
+`prior_ngs_air_yards_share`, `prior_yac_oe`, `prior_broken_tackles`, `prior_adot`,
+`prior_drop_pct`, `prior_ryoe_per_att`, `depth_slot_t`, `prior_xfp_diff` — read from
+`off_player_season_features` for season T, whose `prior_*` columns already hold T−1
+charting and whose `depth_slot_t` is T's August-or-later chart, so both are strictly
+preseason. Missing values are imputed to the median over the players who have the
+column; the indicator says which is which. The table is read absent-tolerantly: a
+database that has never run an offseason sync produces `has_* = 0` everywhere and a
+complete board. These features feed the ridge (whose contributions order `drivers`);
+they do not move the shipped number, which is the curve.
+
 ## Declined, and why
 
 | Candidate | Verdict |
@@ -228,6 +243,146 @@ and returning absentees have none and fall back to the slot curve).
 | Age cliffs, coaching change | Not used, per `docs/DRAFT_AUDIT_2021_2025.md`, which found neither supported once ECR is conditioned on. `age` is present as a plain linear feature only. |
 | Recency-weighted curve (season decay) | Declined. Moved pooled Spearman by 0.0003 and made MAE worse; did not touch the WR drift it was built for. |
 | Per-position/tier recalibration of the curve | Not possible out-of-sample. Zero by construction in training (see calibration section). |
+| Offseason charting block as a point estimate (v2) | Declined. Best variant 0.5904 / 57.71 pooled — 0.29 MAE better than the curve, significant on 0/3 seasons. Kept in the feature set and used for `drivers` only. See "v2" above. |
+| Live-board nudge at w = 0.4 (v2) | Reduced to 0.2, not endorsed. No weight is significant on any season; 0.2 is the only one winning 2/3 in both universes, and 0.4's pooled MAE is worse than not nudging. See "v2" above. |
+
+## v2 — the charting block, and the live board's blend weight
+
+Two questions, both settled on the same walk-forward harness as above (T = 2023/24/25,
+trained strictly on seasons < T, identical player sets, 4,000-resample paired bootstrap,
+90% CI). Scripts: `scratchpad/preseason/v2.mjs` and `blend.mjs`; raw numbers in
+`v2.json` and `blend.json`.
+
+### v2.1 — does the offseason charting block beat the curve?
+
+`docs/OFFSEASON_MODEL.md` §9 found one feature block that was additive over usage,
+age and depth chart in the share/PPG model. It was added here as eight features —
+`prior_ngs_air_yards_share`, `prior_yac_oe`, `prior_broken_tackles`, `prior_adot`,
+`prior_drop_pct`, `prior_ryoe_per_att`, `depth_slot_t`, `prior_xfp_diff`, read from
+`off_player_season_features` — each with a `has_<col>` indicator beside it.
+
+**The indicator is not optional.** Coverage on the top-200 test set is 42.5-45.7% for
+the NGS receiving columns (they exist only for pass catchers with enough routes) and
+19.5-21.5% for `prior_ryoe_per_att` (backs with enough carries). Imputing the median
+without flagging it would tell the fit that every quarterback carries an average
+receiver's air-yards share.
+
+`dMAE` = MAE(model) − MAE(ECR curve); **negative is better**.
+
+| Season | n | Model | Spearman | MAE | dMAE vs curve | CI90 | sig |
+|---|---|---|---|---|---|---|---|
+| 2023 | 200 | **market curve** | **0.5774** | **57.30** | — | — | — |
+| 2023 | 200 | ridge + charting+ | 0.5332 | 60.75 | +3.48 | [−0.21, 7.08] | no |
+| 2023 | 200 | GBM + charting+ | 0.5545 | 58.19 | +0.90 | [−2.18, 4.03] | no |
+| 2023 | 200 | stack (ridge) + charting+ | 0.5649 | 57.84 | +0.55 | [−1.73, 2.80] | no |
+| 2023 | 200 | stack (GBM) + charting | 0.5706 | 56.59 | −0.70 | [−2.54, 1.07] | no |
+| 2024 | 200 | **market curve** | **0.5841** | **58.49** | — | — | — |
+| 2024 | 200 | ridge + charting+ | 0.5877 | 60.85 | +2.33 | [−0.62, 5.36] | no |
+| 2024 | 200 | GBM + charting+ | 0.5721 | 60.23 | +1.73 | [−0.31, 3.81] | no |
+| 2024 | 200 | stack (ridge) + charting+ | 0.5943 | 58.36 | −0.14 | [−1.28, 1.02] | no |
+| 2024 | 200 | stack (GBM) + charting | 0.5808 | 58.66 | +0.16 | [−0.54, 0.85] | no |
+| 2025 | 199 | **market curve** | 0.6120 | 58.20 | — | — | — |
+| 2025 | 199 | ridge + charting+ | 0.6014 | 60.82 | +2.65 | [−0.72, 5.95] | no |
+| 2025 | 199 | GBM + charting+ | 0.5924 | 58.59 | +0.41 | [−1.76, 2.53] | no |
+| 2025 | 199 | stack (ridge) + charting+ | 0.6183 | 57.81 | −0.38 | [−1.60, 0.77] | no |
+| 2025 | 199 | stack (GBM) + charting | 0.6198 | 57.87 | −0.33 | [−0.77, 0.12] | no |
+
+Pooled: curve 0.5912 / 58.00. Best charting variant — stack(GBM) with the six charting
+columns — 0.5904 / **57.71**, a 0.29-point MAE improvement worth 0.5% of the error, and
+**significant on 0 of 3 seasons**. Adding `depth_slot_t` and `prior_xfp_diff`
+("charting+") raised the OOF model weight (ridge 0.35-0.50 vs 0.05-0.50 without) and
+lifted stack(ridge) to the best pooled Spearman on the page (0.5925) — still 0/3.
+
+**Verdict: declined, exactly as `docs/OFFSEASON_MODEL.md` §9 predicted.** Charting is a
+share- and PPG-*direction* signal, not a season-points point-estimate improver; the
+market has already priced it. `SHIPPED_BLEND` stays `{market: 1, structural: 0,
+model: 0}`.
+
+**But the features are kept and wired in.** They are the only inputs that say *why* a
+player should out- or under-produce his slot, which is what a drafter reads. They enter
+`buildFeatureRow` (median-imputed, `has_*`-flagged) and appear in `drivers` when the
+ridge leans on them **and** the player's own charting row supplied the number — an
+imputed median is never printed as a fact about a player. `prior_xfp_diff` shares the
+`luck` driver key with `td_luck_pg_1` because they are the same quantity, and
+`prior_adot` is reported for WR/TE only (every back's aDOT is near zero by definition of
+the position).
+
+### v2.2 — the live board's 0.4 blend weight
+
+`draft-assist.js` computes `projected_points = ESPN_points x (1 + w x rel)`, where
+`rel = clip(model / (ESPN x scale) − 1, ±0.35)` and `scale` is the mean model/ESPN ratio
+over the top 150. It shipped with `w = 0.4`, never measured.
+
+No historical ESPN season projections are stored, so **ESPN's points are proxied by the
+calibrated ECR curve** — the same baseline everything else on this page is graded
+against — and `model` is `projections.js` `buildProjections({through: T−1})`, which is
+what the board actually feeds in. Fitted `scale` came out at 1.003 / 1.031 / 1.027;
+model coverage 83-89%. Baseline for the bootstrap is `w = 0`.
+
+| Universe | Season | w | Spearman | MAE | dMAE vs w=0 | CI90 | sig |
+|---|---|---|---|---|---|---|---|
+| top-150 | 2023 | 0 | 0.5675 | 57.42 | — | — | — |
+| top-150 | 2023 | **0.2** | 0.5766 | **56.74** | −0.65 | [−1.58, 0.29] | no |
+| top-150 | 2023 | 0.4 | 0.5703 | 56.49 | −0.89 | [−2.70, 0.92] | no |
+| top-150 | 2023 | 0.6 | 0.5556 | 57.03 | −0.34 | [−2.92, 2.27] | no |
+| top-150 | 2024 | 0 | 0.5515 | **60.95** | — | — | — |
+| top-150 | 2024 | 0.2 | 0.5456 | 61.36 | +0.41 | [−0.48, 1.30] | no |
+| top-150 | 2024 | 0.4 | 0.5365 | 62.12 | +1.17 | [−0.58, 2.94] | no |
+| top-150 | 2024 | 0.6 | 0.5140 | 63.23 | +2.28 | [−0.30, 4.90] | no |
+| top-150 | 2025 | 0 | 0.5625 | 62.52 | — | — | — |
+| top-150 | 2025 | **0.2** | 0.5578 | **62.45** | −0.07 | [−0.93, 0.80] | no |
+| top-150 | 2025 | 0.4 | 0.5418 | 62.57 | +0.04 | [−1.69, 1.80] | no |
+| top-150 | 2025 | 0.6 | 0.5192 | 63.01 | +0.47 | [−2.05, 2.99] | no |
+| top-200 | 2023 | 0 | 0.5774 | 57.30 | — | — | — |
+| top-200 | 2023 | **0.2** | 0.5754 | **57.03** | −0.28 | [−1.03, 0.50] | no |
+| top-200 | 2023 | 0.4 | 0.5679 | 57.14 | −0.16 | [−1.65, 1.36] | no |
+| top-200 | 2023 | 0.6 | 0.5566 | 57.86 | +0.55 | [−1.61, 2.75] | no |
+| top-200 | 2024 | 0 | 0.5841 | **58.49** | — | — | — |
+| top-200 | 2024 | 0.2 | 0.5819 | 58.72 | +0.22 | [−0.51, 0.92] | no |
+| top-200 | 2024 | 0.4 | 0.5753 | 59.24 | +0.74 | [−0.67, 2.14] | no |
+| top-200 | 2024 | 0.6 | 0.5581 | 60.11 | +1.62 | [−0.48, 3.69] | no |
+| top-200 | 2025 | 0 | 0.6120 | 58.20 | — | — | — |
+| top-200 | 2025 | **0.2** | 0.6207 | 57.87 | −0.33 | [−1.01, 0.37] | no |
+| top-200 | 2025 | 0.4 | 0.6196 | **57.74** | −0.46 | [−1.82, 0.92] | no |
+| top-200 | 2025 | 0.6 | 0.6134 | 57.93 | −0.28 | [−2.27, 1.77] | no |
+
+Pooled MAE — top-150: 60.30 / **60.18** / 60.39 / 61.09 for w = 0 / 0.2 / 0.4 / 0.6.
+top-200: 58.00 / **57.87** / 58.04 / 58.63. Pooled Spearman is flat to slightly negative
+in every case except w=0.2 at top-200 (0.5927 vs 0.5912).
+
+**Nothing is significant on any season, at any weight, in either universe — 0/3
+throughout.** On the "wins on ≥2 of 3 seasons" rule, w = 0.2 is the only weight that
+clears it in **both** universes (2/3 MAE wins at top-150 and at top-200); w = 0.4 clears
+it only at top-200 (1/3 at top-150) and its pooled MAE is *worse* than doing nothing.
+w = 0.6 loses everywhere.
+
+Per position (top-150, mean dMAE vs w=0 across the three seasons; negative is better):
+
+| w | QB | RB | WR | TE |
+|---|---|---|---|---|
+| 0.2 | +0.33 (1/3) | +0.20 (1/3) | **−0.20** (2/3) | **−1.03** (3/3) |
+| 0.4 | +0.90 (0/3) | +0.53 (1/3) | +0.07 (2/3) | **−1.97** (3/3) |
+| 0.6 | +2.03 (0/3) | +1.17 (1/3) | +0.93 (1/3), sig **worse** 1/3 | −2.03 (2/3) |
+
+The nudge is a **tight-end** effect. It monotonically helps TE and monotonically hurts
+QB, and it is roughly neutral for RB and WR. At w=0.6 it becomes significantly worse for
+WR on one season, which is the only significant per-position result anywhere in the
+sweep.
+
+**On WR 13-36 specifically** (the tier `docs/DRAFT_AUDIT_2021_2025.md` found the market
+overvalues): mean MAE 56.6 / 55.8 / 57.0 / 59.1 for w = 0 / 0.2 / 0.4 / 0.6, and mean
+bias (actual − projected) **−32.1 at every weight, moving by at most 0.1 points**. The
+blend does not touch the WR overvaluation at all — it is not a directional correction,
+it is a small symmetric jitter around the market number. w=0.2 shaves 0.8 MAE off the
+tier; w=0.4, the shipped value, makes it *worse* than not nudging.
+
+**Answer: `RECOMMENDED_MODEL_BLEND_WEIGHT = 0.2`**, exported from
+`preseason-model.js`. This is a reduction of an unvalidated knob toward zero, not a
+claim that the nudge works: 0 and 0.2 are statistically indistinguishable on this
+evidence, and if the choice were being made from scratch 0 would be equally defensible.
+0.2 is preferred over 0 only because it keeps most of the TE gain, and over the current
+0.4 because it halves the QB and RB damage and is the only weight winning 2/3 in both
+universes.
 
 ## Known limits
 
@@ -267,6 +422,15 @@ import { preseasonProjection, preseasonProjections } from './services/preseason-
 preseasonProjections(2026);           // Map<gsis_id, projection>, cached per process
 preseasonProjection(playerId, 2026);  // one projection; accepts gsis_id, players.id or espn_id
 ```
+
+```js
+import { RECOMMENDED_MODEL_BLEND_WEIGHT } from './services/preseason-model.js';
+// 0.2 — the `w` in draft-assist.js's projected = ESPN x (1 + w x rel). See "v2" above.
+```
+
+The projection shape is unchanged by v2 — `{points, ppg, expected_games, p20, p80,
+components, drivers}` as below. The charting block changed only which sentences can
+appear in `drivers`.
 
 ```jsonc
 {

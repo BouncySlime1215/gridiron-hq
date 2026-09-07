@@ -36,10 +36,35 @@
  * signal and as the ordering behind the explanation strings. The full held-out table,
  * the declines and the limits are in `docs/PRESEASON_MODEL.md`; the evaluation scripts
  * are in `scratchpad/preseason/`. This module WRITES NOTHING to the database.
+ *
+ * v2 added the offseason charting block (see `CHART_COLUMNS`) to the feature set and
+ * re-ran the same walk-forward. It did not change the verdict — the best charting
+ * variant improved pooled MAE by 0.29 points and was significant on 0 of 3 seasons — so
+ * the curve still ships and the charting facts are used only as `drivers`.
  */
 import { rows } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
 import { buildProjections } from './projections.js';
+
+/**
+ * The receiving/rushing charting block from `docs/OFFSEASON_MODEL.md` §9 — the one
+ * block that was additive over usage trend, age and depth chart in the offseason
+ * share/PPG model (prior air-yard share 1.22, YAC over expected 1.17, broken tackles
+ * 1.11; −0.0053 SIG on opportunity share). It was re-tested here as a preseason
+ * projection feature set and DECLINED as a point estimate (docs/PRESEASON_MODEL.md,
+ * "v2"): 0 of 3 seasons significantly better than the market curve. It is carried
+ * anyway because it is what orders `drivers` — these are the facts that say WHY a
+ * player should out- or under-produce his draft slot, which is what the reader wants
+ * even when the model may not act on them.
+ *
+ * `depth_slot_t` is season T's August-or-later chart and `prior_xfp_diff` is season
+ * T−1's actual-minus-expected fantasy points per game; both are strictly preseason.
+ */
+const CHART_COLUMNS = [
+  'prior_ngs_air_yards_share', 'prior_yac_oe', 'prior_broken_tackles',
+  'prior_adot', 'prior_drop_pct', 'prior_ryoe_per_att',
+  'depth_slot_t', 'prior_xfp_diff'
+];
 
 export const SKILL_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
 const SKILL = new Set(SKILL_POSITIONS);
@@ -392,6 +417,41 @@ function joinEcr(season, ecr) {
   return out;
 }
 
+/**
+ * The charting columns of `off_player_season_features` for season `season`, keyed by
+ * gsis. Read-only, and absent-table tolerant: the block is a driver input, not a
+ * dependency, and a database that has never run an offseason sync must still produce a
+ * board.
+ */
+const chartRows = season => memo(`chart:${season}`, () => {
+  try {
+    return new Map(rows(
+      `SELECT gsis_id, ${CHART_COLUMNS.join(', ')} FROM off_player_season_features
+       WHERE season = ?`, season).map(r => [r.gsis_id, r]));
+  } catch { return new Map(); }
+});
+
+/**
+ * Median of each charting column over the players who actually have it, used to impute
+ * the ones who do not.
+ *
+ * Taken over the season's own charting table rather than over the training seasons.
+ * That differs from `scratchpad/preseason/v2.mjs`, which pooled the medians across the
+ * training rows; the difference is a fraction of a standard deviation on every column
+ * and it cannot affect the shipped number, because the shipped blend puts zero weight
+ * on the head these features feed. It is chosen here so that a single season's board
+ * can be built without loading its training seasons.
+ */
+const chartMedians = season => memo(`chartmed:${season}`, () => {
+  const all = [...chartRows(season).values()];
+  const out = {};
+  for (const c of CHART_COLUMNS) {
+    const v = all.map(r => r[c]).filter(Number.isFinite).sort((a, b) => a - b);
+    out[c] = v.length ? v[Math.floor(v.length / 2)] : 0;
+  }
+  return out;
+});
+
 /** projections.js season output for the season after `through`, keyed by gsis. */
 const inHouseProjections = through => memo(`proj:${through}`, () => {
   const out = new Map();
@@ -418,7 +478,13 @@ export const FEATURE_NAMES = [
   'td_luck_pg_1', 'has_history',
   'rookie', 'draft_capital', 'age',
   'is_QB', 'is_RB', 'is_WR', 'is_TE',
-  'proj_ppg', 'proj_games', 'proj_points'
+  'proj_ppg', 'proj_games', 'proj_points',
+  // v2 charting block. Each column comes with a has_* indicator, because its absence is
+  // structural rather than random — NGS receiving columns exist only for pass catchers
+  // with enough routes (43-46% of the board), rush-yards-over-expected only for backs
+  // with enough carries (21%). Imputing the median without saying so would tell the fit
+  // that a quarterback has an average receiver's air-yards share.
+  ...CHART_COLUMNS.flatMap(c => [c, `has_${c}`])
 ];
 
 const DRIVER_LABEL = {
@@ -431,7 +497,11 @@ const DRIVER_LABEL = {
   air_yards_pg_1: 'air yards per game', td_luck_pg_1: 'points over expected',
   has_history: 'NFL history', rookie: 'rookie', draft_capital: 'draft capital', age: 'age',
   proj_ppg: 'in-house per-game projection', proj_games: 'in-house expected games',
-  proj_points: 'in-house season projection'
+  proj_points: 'in-house season projection',
+  prior_ngs_air_yards_share: 'air-yards share', prior_yac_oe: 'YAC over expected',
+  prior_broken_tackles: 'broken tackles', prior_adot: 'average depth of target',
+  prior_drop_pct: 'drop rate', prior_ryoe_per_att: 'rush yards over expected',
+  depth_slot_t: 'depth-chart slot', prior_xfp_diff: 'points over expected fantasy points'
 };
 
 /**
@@ -441,7 +511,7 @@ const DRIVER_LABEL = {
  * caller can see exactly what the model was shown.
  */
 export function buildFeatureRow(entry, ctx) {
-  const { season, priorTotals, ffopp, bio, projections } = ctx;
+  const { season, priorTotals, ffopp, bio, projections, chart, chartMedian } = ctx;
   const g = entry.gsis;
   const s1 = g ? priorTotals[0]?.get(g) ?? null : null;
   const s2 = g ? priorTotals[1]?.get(g) ?? null : null;
@@ -495,11 +565,25 @@ export function buildFeatureRow(entry, ctx) {
     proj_games: proj?.expected_games ?? 0,
     proj_points: proj?.points ?? 0
   };
+
+  // v2 charting block. The player's own value where the feed has one, the board median
+  // where it does not, and a has_* indicator either way so the fit can tell the two
+  // apart. Absence is structural — a quarterback has no air-yards share and a receiver
+  // has no rush yards over expected — so imputing silently would teach the model that
+  // every QB sits at the median receiver's charting profile.
+  const ch = g ? chart?.get(g) ?? null : null;
+  for (const c of CHART_COLUMNS) {
+    const v = ch?.[c];
+    const ok = Number.isFinite(v);
+    f[c] = ok ? v : num(chartMedian?.[c]);
+    f[`has_${c}`] = ok ? 1 : 0;
+  }
+
   return {
     ...entry,
     features: f,
     vector: FEATURE_NAMES.map(n => num(f[n])),
-    raw: { s1, s2, s3, bio: b, proj, age, ff },
+    raw: { s1, s2, s3, bio: b, proj, age, ff, chart: ch },
     has_projection: !!proj
   };
 }
@@ -515,7 +599,12 @@ export function buildSeasonRows(season, { limit = 200 } = {}) {
       priorTotals: [1, 2, 3].map(k => seasonTotals(season - k).players),
       ffopp: expectedPoints(season - 1),
       bio: bioIndex(),
-      projections: inHouseProjections(season - 1)
+      projections: inHouseProjections(season - 1),
+      // Season T's own `off_player_season_features` row: its `prior_*` columns already
+      // hold T−1 charting and `depth_slot_t` is T's August-or-later chart, so both are
+      // strictly preseason for target season T.
+      chart: chartRows(season),
+      chartMedian: chartMedians(season)
     };
     const actual = seasonTotals(season).players;
     const board = marketBoard(season).filter(e => e.market_rank <= limit);
@@ -619,6 +708,20 @@ export function marketCurveGames(curves, position, posRank) {
  * disagreement is not justified.
  */
 export const SHIPPED_BLEND = { market: 1, structural: 0, model: 0 };
+
+/**
+ * The live board's model-nudge weight — `draft-assist.js` computes
+ * `projected_points = ESPN_points x (1 + w x rel)`, with `rel` the projections.js number
+ * relative to the board, clipped to +/-35% after dividing out the top-150 mean ratio.
+ *
+ * 0.2, not the 0.4 that was there: with the market curve standing in for ESPN's points,
+ * 0.2 is the only weight that beat w=0 on MAE in 2 of 3 held-out seasons at BOTH top-150
+ * and top-200, and it keeps most of the TE gain (-1.03 MAE) while halving the damage
+ * 0.4 does to QB (+0.90) and RB (+0.53). No weight was significant on any season
+ * (0/3 paired bootstrap), so this is a small, safe reduction of an unvalidated knob
+ * rather than a claim that the nudge works — see docs/PRESEASON_MODEL.md, "v2".
+ */
+export const RECOMMENDED_MODEL_BLEND_WEIGHT = 0.2;
 
 /**
  * Fit the curve and the two learned heads on `trainRows`.
@@ -732,6 +835,11 @@ export function driversFor(model, row, prediction) {
   const out = [];
   const season = row.season;
   const s1 = row.raw.s1, s2 = row.raw.s2;
+  const f = row.features;
+  // The player's OWN charting row, or an empty object. Every read of it below is gated
+  // on the matching `has_*` feature, which is 1 only when this row supplied the value —
+  // so a median-imputed field can never be printed as a fact about this player.
+  const ch = row.raw.chart ?? {};
   const contrib = ridgeContributions(model.ppgModel, row.vector);
   const order = FEATURE_NAMES
     .map((n, i) => ({ name: n, v: contrib[i], value: row.vector[i] }))
@@ -804,6 +912,73 @@ export function driversFor(model, row, prediction) {
       case 'attempt_share_1':
         if (s1 && s1.attempts > 200) {
           push('att', `${Math.round(s1.attempts / Math.max(1, s1.games))} pass attempts per game in ${season - 1}`);
+        }
+        break;
+
+      // ---- v2 charting facts. Every one is gated on its has_* indicator, so an
+      // imputed median is never stated as if it were the player's own number, and every
+      // one is gated on a threshold, so the line only appears when the fact is actually
+      // extreme enough to explain something. These do NOT move the projection — the
+      // shipped blend is the market curve — they say why the learned head leans.
+      case 'prior_ngs_air_yards_share': {
+        const v = ch.prior_ngs_air_yards_share;
+        if (!f.has_prior_ngs_air_yards_share) break;
+        if (v >= 25) push('ayshare', `${v.toFixed(0)}% of his team's air yards in ${season - 1}`);
+        else if (v <= 12) push('ayshare', `only ${v.toFixed(0)}% of his team's air yards in ${season - 1}`
+          + ' — a complementary role, not a focal one');
+        break;
+      }
+      case 'prior_xfp_diff': {
+        const v = ch.prior_xfp_diff;
+        // Same fact as td_luck_pg_1 (actual minus expected fantasy points per game),
+        // measured uncapped by the offseason feed. Shares the 'luck' key so the two can
+        // never both be printed.
+        if (!f.has_prior_xfp_diff || Math.abs(v) < 1) break;
+        push('luck', v > 0
+          ? `scored ${v.toFixed(1)} pts/game above expected in ${season - 1} — touchdown rate regresses`
+          : `${Math.abs(v).toFixed(1)} pts/game BELOW expected in ${season - 1} — positive regression candidate`);
+        break;
+      }
+      case 'prior_yac_oe': {
+        const v = ch.prior_yac_oe;
+        if (!f.has_prior_yac_oe) break;
+        if (v >= 1) push('yac', `${v.toFixed(1)} yards after the catch above expected in ${season - 1}`);
+        else if (v <= -0.5) push('yac', `${v.toFixed(1)} yards after the catch below expected in ${season - 1}`);
+        break;
+      }
+      case 'prior_broken_tackles':
+        if (f.has_prior_broken_tackles && ch.prior_broken_tackles >= 8) {
+          push('brk', `${ch.prior_broken_tackles.toFixed(0)} broken tackles in ${season - 1}`);
+        }
+        break;
+      case 'prior_ryoe_per_att': {
+        const v = ch.prior_ryoe_per_att;
+        if (!f.has_prior_ryoe_per_att) break;
+        if (v >= 0.4) push('ryoe', `+${v.toFixed(2)} rush yards over expected per carry in ${season - 1}`);
+        else if (v <= -0.3) push('ryoe', `${v.toFixed(2)} rush yards over expected per carry in `
+          + `${season - 1} — the blocking was doing the work`);
+        break;
+      }
+      case 'prior_adot': {
+        const v = ch.prior_adot;
+        // Receivers and tight ends only. The column is populated for backs too, but a
+        // back's average depth of target is near zero by definition of the position, so
+        // saying so is not a fact about the player — it crowded out real drivers.
+        if (!f.has_prior_adot || (row.position !== 'WR' && row.position !== 'TE')) break;
+        if (v >= 12) push('adot', `${v.toFixed(1)}-yard average depth of target in ${season - 1} — a downfield role`);
+        else if (v <= 4) push('adot', `${v.toFixed(1)}-yard average depth of target in ${season - 1}`
+          + ' — volume-dependent, little big-play equity');
+        break;
+      }
+      case 'prior_drop_pct':
+        if (f.has_prior_drop_pct && ch.prior_drop_pct >= 0.09) {
+          push('drop', `${(ch.prior_drop_pct * 100).toFixed(0)}% drop rate in ${season - 1}`);
+        }
+        break;
+      case 'depth_slot_t':
+        if (f.has_depth_slot_t && ch.depth_slot_t >= 2) {
+          push('depth', `listed ${ch.depth_slot_t}${ch.depth_slot_t === 2 ? 'nd' : ch.depth_slot_t === 3 ? 'rd' : 'th'}`
+            + ` on the ${season} depth chart, not first`);
         }
         break;
       default: break;

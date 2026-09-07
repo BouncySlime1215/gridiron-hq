@@ -125,7 +125,15 @@ export function predictGbm(model, x) {
  * averaged over the season to date, plus the situational fields the market is
  * known to price. Everything is strictly prior to the game being predicted.
  */
-export function buildGbmDataset({ fromSeason = 2018, throughSeason = 2025, includeUnsettled = false } = {}) {
+/**
+ * `extraFeatures` is the CHALLENGER hook: `{ names: string[], row: game => number[] }`.
+ * It is injected rather than imported so the champion keeps no reference to any
+ * challenger module — with it unset (the default, and what every existing caller
+ * passes) the returned matrix is exactly what it was before the hook existed.
+ * See `nfl-team-strength.js` and `docs/BETTING_PLAYER_ENGINES.md`.
+ */
+export function buildGbmDataset({ fromSeason = 2018, throughSeason = 2025, includeUnsettled = false,
+  extraFeatures = null } = {}) {
   const games = rows(`
     SELECT season, week, team AS home, opponent AS away, spread, total,
            team_score, opp_score, temp, wind, roof, div_game, rest_days
@@ -195,6 +203,13 @@ export function buildGbmDataset({ fromSeason = 2018, throughSeason = 2025, inclu
     // where the market is systematically off rather than only what a team is.
     row.push(g.spread ?? 0, g.total ?? 44, temp ?? 60, wind ?? 5,
       g.roof === 'dome' || g.roof === 'closed' ? 1 : 0, g.div_game ?? 0, g.rest_days ?? 7);
+    if (extraFeatures) {
+      const extra = extraFeatures.row(g);
+      // A challenger that cannot price a game must not silently shorten the row
+      // and misalign every column after it.
+      if (!Array.isArray(extra) || extra.length !== extraFeatures.names.length) continue;
+      for (const v of extra) row.push(Number.isFinite(v) ? v : 0);
+    }
 
     const actualMargin = Number.isFinite(g.team_score) && Number.isFinite(g.opp_score)
       ? g.team_score - g.opp_score : null;
@@ -205,9 +220,11 @@ export function buildGbmDataset({ fromSeason = 2018, throughSeason = 2025, inclu
     // THE TARGET: what the market missed, not what happened.
     y.push(actualMargin == null ? null : actualMargin - marketMargin);
     meta.push({ season: g.season, week: g.week, home: g.home, away: g.away,
-      spread: g.spread, actualMargin, actualTotal, marketMargin });
+      spread: g.spread, total: g.total ?? null, actualMargin, actualTotal, marketMargin });
   }
-  return { X, y, meta, featureNames: [...KEYS, 'spread', 'total', 'temp', 'wind', 'dome', 'div', 'rest'] };
+  return { X, y, meta,
+    featureNames: [...KEYS, 'spread', 'total', 'temp', 'wind', 'dome', 'div', 'rest',
+      ...(extraFeatures?.names ?? [])] };
 }
 
 /**

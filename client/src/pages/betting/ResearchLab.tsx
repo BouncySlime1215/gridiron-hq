@@ -1,5 +1,16 @@
 import { useApi } from '../../api';
 
+// research/model_discipline.py's per-fold verdicts, reduced to a summary plus
+// the failures by server/services/nfl-research-lab.js. Optional everywhere: a
+// report frozen before this check existed (schema -v1) simply has no block, and
+// that is a different thing from a run whose folds all failed.
+type ModelDiscipline = {
+  version: string | null; checks: number; passed: boolean | null;
+  by_status: Record<string, number>; statement: string | null;
+  compression_policy: string | null; ratio_constants: Record<string, number> | null;
+  failures: { label: string; target_type: string; rows: number; effective_n: number;
+    parameters: number; observed_ratio: number | null; required_ratio: number; reason: string }[];
+};
 type Score = { games: number; paper_bets: number; mae: number; no_move_mae: number; mean_clv: number | null; roi: number | null; roi_interval: number[] | null };
 type Fold = Score & { season: number; selected: string; tpot_trials: number; candidates: (Score & { name: string; inner_mae: number })[] };
 interface Lab {
@@ -9,7 +20,7 @@ interface Lab {
   warehouse: { archive: { rows: number; games: number } | null; forward: { decisions: number; settled: number | null } | null; expert_forward: { predictions: number; games: number } | null };
   report_error: string | null;
   packages: { id: string; title: string; state: string; risk: string; purpose: string }[];
-  experiment: { run_id: string; status: string; progress?: string; rows: number; features: string[]; limitations: string[]; errors: string[]; markets: { market: string; folds: Fold[]; pooled: Score }[]; dataset_hash: string; code_hash: string } | null;
+  experiment: { run_id: string; status: string; progress?: string; rows: number; features: string[]; limitations: string[]; errors: string[]; markets: { market: string; folds: Fold[]; pooled: Score }[]; dataset_hash: string; code_hash: string; model_discipline?: ModelDiscipline | null } | null;
   book_lag_lab: {
     run_id: string; dataset_hash: string; events: number; books: number; native_step_seconds: number | null;
     hawkes_attempted: boolean; hawkes_verdict: string | null;
@@ -17,6 +28,7 @@ interface Lab {
     delay_survival: Record<string, { readable: boolean; delay_survival?: Record<string, { survival_probability: number | null; extrapolated: boolean }> }>;
     opportunity_routing: { counts: Record<string, number> } | null;
     verdict: string; limitations: string[]; split_policy_limitation: string | null;
+    model_discipline?: ModelDiscipline | null;
   } | null;
   book_lag_lab_error: string | null;
   tree_experiment: TreeLab | null; tree_report_error: string | null;

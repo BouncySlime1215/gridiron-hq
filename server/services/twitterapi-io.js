@@ -12,13 +12,7 @@
  * concurrent requests can't blow through the cap before the running total
  * updates.
  */
-import { db, rows, run } from '../db/index.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS twitterapi_io_usage (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, called_at TEXT NOT NULL,
-  endpoint TEXT NOT NULL, items INTEGER NOT NULL, cost_usd REAL NOT NULL,
-  purpose TEXT, query TEXT
-)`);
+import { rows, run } from '../db/index.js';
 
 const BASE = 'https://api.twitterapi.io';
 const COST_PER_1000 = { tweets: 0.15, profiles: 0.18 };

@@ -1,5 +1,5 @@
 /** Pregame-only MLB snapshots: starters, announced lineups, scratches and real quotes. */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { syncProbableStarters } from './mlb.js';
 import { hasKey, mlbEvents, mlbEventOdds, MLB_MARKETS } from './odds-api.js';
 import * as parlayApi from './parlay-api.js';
@@ -7,29 +7,6 @@ import { appDate } from './date-util.js';
 import { captureEvidenceManifest, validateEvidenceCutoff } from './model-governance.js';
 
 const MLB_BASE = 'https://statsapi.mlb.com/api/v1';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS mlb_pregame_snapshots (
-    game_pk INTEGER NOT NULL, captured_at TEXT NOT NULL, slate_date TEXT NOT NULL,
-    game_time TEXT, probable_starters_json TEXT NOT NULL,
-    lineups_json TEXT NOT NULL, scratches_json TEXT NOT NULL,
-    lineup_status TEXT NOT NULL, odds_status TEXT NOT NULL,
-    PRIMARY KEY (game_pk, captured_at)
-  );
-  CREATE TABLE IF NOT EXISTS mlb_market_quotes (
-    captured_at TEXT NOT NULL, event_id TEXT NOT NULL, game_pk INTEGER,
-    commence_time TEXT, home_team TEXT, away_team TEXT, book TEXT NOT NULL,
-    market TEXT NOT NULL, selection TEXT, side TEXT, line REAL, price INTEGER,
-    PRIMARY KEY (captured_at,event_id,book,market,selection,side,line)
-  );
-  CREATE INDEX IF NOT EXISTS idx_mlb_quotes_game ON mlb_market_quotes(game_pk,market,captured_at);
-`);
-// odds_source records which feed produced a snapshot's quotes (odds_api /
-// parlay_api / none), so the two budgets can be told apart after the fact.
-const snapshotCols = rows("PRAGMA table_info(mlb_pregame_snapshots)").map(c => c.name);
-if (!snapshotCols.includes('odds_source')) db.exec(`ALTER TABLE mlb_pregame_snapshots ADD COLUMN odds_source TEXT`);
-const quoteCols = rows("PRAGMA table_info(mlb_market_quotes)").map(c => c.name);
-if (!quoteCols.includes('source')) db.exec(`ALTER TABLE mlb_market_quotes ADD COLUMN source TEXT`);
 
 async function boxscoreLineup(gamePk) {
   const res = await fetch(`${MLB_BASE}/game/${gamePk}/boxscore`, { signal: AbortSignal.timeout(20000) });

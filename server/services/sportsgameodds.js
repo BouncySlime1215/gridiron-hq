@@ -26,18 +26,10 @@
  * first real key is added to confirm the shape still holds.
  */
 import { teamResolver as sharedTeamResolver, normalizeToken as normalizeTeam } from './team-codes.js';
-import { db, run, rows } from '../db/index.js';
+import { run, rows } from '../db/index.js';
 
 const BASE = 'https://api.sportsgameodds.com/v2';
 const RATE_LIMIT_MS = 6500; // 10 req/min ceiling on the free tier; stay comfortably under it.
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sgo_usage (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    objects_used_this_month INTEGER NOT NULL DEFAULT 0,
-    month TEXT NOT NULL, last_call_at TEXT
-  );
-`);
 
 export const hasKey = () => Boolean(process.env.SPORTSGAMEODDS_API_KEY);
 

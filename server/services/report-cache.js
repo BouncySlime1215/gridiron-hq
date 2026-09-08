@@ -21,17 +21,8 @@
  * "no model rebuild, data sync, or full-table hash on a read request."
  */
 import { Worker } from 'node:worker_threads';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { fingerprint } from './compute-cache.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_cached_reports (
-  report TEXT PRIMARY KEY,
-  fingerprint TEXT NOT NULL,
-  computed_at TEXT NOT NULL,
-  duration_ms INTEGER NOT NULL,
-  payload_json TEXT,
-  error TEXT
-)`);
 
 /**
  * Every background report: what it depends on (for the fingerprint) and how

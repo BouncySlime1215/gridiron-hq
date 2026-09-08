@@ -1,17 +1,6 @@
 import { db, rows } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS player_identity_repairs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL,
-  stable_id_type TEXT NOT NULL, stable_id TEXT NOT NULL, old_name TEXT NOT NULL,
-  new_name TEXT NOT NULL, evidence_rows INTEGER NOT NULL, evidence_share REAL NOT NULL,
-  repaired_at TEXT NOT NULL
-);
-CREATE TRIGGER IF NOT EXISTS player_identity_repairs_no_update BEFORE UPDATE ON player_identity_repairs
-  BEGIN SELECT RAISE(ABORT, 'player identity repair audit is immutable'); END;
-CREATE TRIGGER IF NOT EXISTS player_identity_repairs_no_delete BEFORE DELETE ON player_identity_repairs
-  BEGIN SELECT RAISE(ABORT, 'player identity repair audit is immutable'); END;`);
-
 function playerReferenceTables() {
   return db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).all()
     .map(x => x.name)

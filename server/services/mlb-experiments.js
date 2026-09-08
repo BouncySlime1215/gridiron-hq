@@ -1,19 +1,12 @@
 /** Locked, market-specific MLB validation registry. */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { modelAudit } from './mlb-auto-picks.js';
 
 const MARKETS = new Set(['nrfi', 'batter_total_bases', 'pitcher_strikeouts']);
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const parse = x => x ? JSON.parse(x) : null;
-
-db.exec(`CREATE TABLE IF NOT EXISTS mlb_model_experiments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, market TEXT NOT NULL, name TEXT NOT NULL,
-  hypothesis TEXT NOT NULL, created_at TEXT NOT NULL, spec_hash TEXT NOT NULL UNIQUE,
-  spec_json TEXT NOT NULL, discovery_json TEXT, validation_json TEXT, holdout_json TEXT,
-  validation_passed INTEGER, verdict TEXT
-)`);
 
 function provenance() {
   let commit = 'unavailable';

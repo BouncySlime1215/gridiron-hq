@@ -17,45 +17,6 @@ import { spearman } from './backtest.js';
 import { nflKickoffDate } from './date-util.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS weekly_prediction_snapshots (
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    player_id INTEGER NOT NULL,
-    position TEXT NOT NULL,
-    as_of TEXT NOT NULL,
-    cutoff TEXT NOT NULL,
-    engine_version TEXT NOT NULL,
-    gridiron_engine_version TEXT,
-    structural REAL NOT NULL,
-    season_to_date REAL,
-    last3 REAL,
-    last1 REAL,
-    median REAL,
-    prediction REAL NOT NULL,
-    lower_80 REAL,
-    upper_80 REAL,
-    weights_json TEXT,
-    weight_fit TEXT,
-    actual REAL,
-    settled_at TEXT,
-    PRIMARY KEY (season, week, player_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_weekly_snapshots_settlement
-    ON weekly_prediction_snapshots(actual, season, week);
-`);
-
-const snapshotColumns = new Set(db.prepare('PRAGMA table_info(weekly_prediction_snapshots)').all().map(x => x.name));
-if (!snapshotColumns.has('candidate_version')) {
-  db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN candidate_version TEXT');
-}
-if (!snapshotColumns.has('candidate_heads_json')) {
-  db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN candidate_heads_json TEXT');
-}
-if (!snapshotColumns.has('gridiron_engine_version')) {
-  db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN gridiron_engine_version TEXT');
-}
-
 const predict = (weights, observation) => WEEKLY_ENSEMBLE_HEADS.reduce(
   (sum, head, index) => sum + weights[index] * observation[head], 0);
 const mae = (data, fn) => data.reduce((sum, x) => sum + Math.abs(fn(x) - x.actual), 0) / data.length;

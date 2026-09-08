@@ -1,38 +1,6 @@
 /** Shared evidence, feature-contract and champion/challenger governance. */
 import { createHash } from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS model_feature_contracts (
-    sport TEXT NOT NULL, market TEXT NOT NULL, feature_key TEXT NOT NULL,
-    source TEXT NOT NULL, availability_rule TEXT NOT NULL, cadence TEXT NOT NULL,
-    max_staleness_minutes INTEGER, missing_behavior TEXT NOT NULL,
-    allowed_modes_json TEXT NOT NULL, leakage_risk TEXT NOT NULL,
-    contract_version TEXT NOT NULL, registered_at TEXT NOT NULL,
-    PRIMARY KEY (sport,market,feature_key,contract_version)
-  );
-  CREATE TABLE IF NOT EXISTS model_evidence_manifests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, sport TEXT NOT NULL, market TEXT NOT NULL,
-    model_version TEXT NOT NULL, cutoff_at TEXT NOT NULL, captured_at TEXT NOT NULL,
-    manifest_hash TEXT NOT NULL UNIQUE, manifest_json TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS model_registry (
-    sport TEXT NOT NULL, market TEXT NOT NULL, role TEXT NOT NULL,
-    model_version TEXT NOT NULL, state TEXT NOT NULL, reason TEXT NOT NULL,
-    metrics_json TEXT, registered_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-    PRIMARY KEY (sport,market,role)
-  );
-  CREATE TABLE IF NOT EXISTS model_gate_audits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, sport TEXT NOT NULL, market TEXT NOT NULL,
-    model_version TEXT NOT NULL, created_at TEXT NOT NULL, audit_hash TEXT NOT NULL UNIQUE,
-    verdict TEXT NOT NULL, gates_json TEXT NOT NULL, evidence_json TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS model_registry_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, sport TEXT NOT NULL, market TEXT NOT NULL,
-    action TEXT NOT NULL, changed_at TEXT NOT NULL, before_json TEXT, after_json TEXT NOT NULL,
-    gate_audit_id INTEGER, reason TEXT NOT NULL
-  );
-`);
+import { rows, run } from '../db/index.js';
 
 const VERSION = 'evidence-contract-v1';
 const MODES = JSON.stringify(['training', 'replay', 'forward_shadow', 'production']);

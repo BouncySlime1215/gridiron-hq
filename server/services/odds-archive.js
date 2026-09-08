@@ -33,21 +33,6 @@ export const ARCHIVE_PAIDS = Object.freeze({
   84: 'bovada', 3: 'bookmaker', 82: 'bodog', 15: 'mybookieag', 28: 'everygame'
 });
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_odds_archive (
-  eid INTEGER NOT NULL,
-  season INTEGER, week INTEGER,
-  home TEXT NOT NULL, away TEXT NOT NULL,
-  commence_time TEXT NOT NULL,
-  book TEXT NOT NULL, market TEXT NOT NULL, side TEXT NOT NULL,
-  phase TEXT NOT NULL,
-  line REAL, price INTEGER NOT NULL,
-  book_updated_at TEXT,
-  source TEXT NOT NULL DEFAULT 'oddstrader',
-  fetched_at TEXT NOT NULL,
-  PRIMARY KEY (eid, book, market, side, phase)
-)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_nfl_odds_archive_game ON nfl_odds_archive(season, week, home)`);
-
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const iso = ms => (Number.isFinite(Number(ms)) ? new Date(Number(ms)).toISOString() : null);
 

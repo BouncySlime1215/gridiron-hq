@@ -15,38 +15,11 @@
  * and the record below is therefore a test of the projections, not of any
  * claimed edge over a sportsbook.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { boardFor } from './mlb-projections.js';
 import { mean } from './stats-util.js';
 import { latestMlbQuotes, latestMlbSnapshot } from './mlb-pregame.js';
 import { appDate } from './date-util.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS mlb_first_party_picks (
-    pick_date TEXT NOT NULL, rank INTEGER NOT NULL,
-    market TEXT NOT NULL, selection TEXT, player_id INTEGER,
-    matchup TEXT, game_pk INTEGER,
-    side TEXT, line REAL, model_probability REAL, projection REAL,
-    selected_at TEXT NOT NULL,
-    PRIMARY KEY (pick_date, rank)
-  );
-  CREATE TABLE IF NOT EXISTS mlb_pick_decisions (
-    pick_date TEXT NOT NULL, market TEXT NOT NULL, selection TEXT NOT NULL,
-    game_pk INTEGER, side TEXT, line REAL, model_probability REAL,
-    eligible INTEGER NOT NULL, abstention_reason TEXT, recorded_at TEXT NOT NULL,
-    model_version TEXT NOT NULL, evidence_json TEXT NOT NULL,
-    PRIMARY KEY (pick_date,market,selection,side,line,model_version)
-  );
-`);
-
-for (const [name, type] of [
-  ['american_price', 'INTEGER'], ['implied_probability', 'REAL'], ['probability_difference', 'REAL'],
-  ['book', 'TEXT'], ['quote_at', 'TEXT'], ['quote_event_id', 'TEXT'], ['model_version', 'TEXT'],
-  ['pregame_snapshot_at', 'TEXT'], ['lineup_status', 'TEXT'], ['tracking_mode', 'TEXT']
-]) {
-  const cols = db.prepare('PRAGMA table_info(mlb_first_party_picks)').all().map(c => c.name);
-  if (!cols.includes(name)) db.exec(`ALTER TABLE mlb_first_party_picks ADD COLUMN ${name} ${type}`);
-}
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 /** Distance from a coin flip — the only conviction measure available without prices. */

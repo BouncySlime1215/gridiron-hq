@@ -36,37 +36,6 @@ const POLY_GAMMA = 'https://gamma-api.polymarket.com';
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 
-run(`CREATE TABLE IF NOT EXISTS prediction_market_quotes (
-  captured_at TEXT NOT NULL,
-  venue       TEXT NOT NULL,
-  ticker      TEXT NOT NULL,
-  title       TEXT,
-  team        TEXT,
-  event_key   TEXT,
-  yes_price   REAL,
-  no_price    REAL,
-  open_interest REAL,
-  volume      REAL,
-  close_time  TEXT,
-  PRIMARY KEY (captured_at, venue, ticker)
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_pm_ticker ON prediction_market_quotes(ticker, captured_at)`);
-
-run(`CREATE TABLE IF NOT EXISTS prediction_market_flow (
-  trade_id    TEXT PRIMARY KEY,
-  venue       TEXT NOT NULL,
-  ticker      TEXT NOT NULL,
-  traded_at   TEXT NOT NULL,
-  size        REAL,
-  yes_price   REAL,
-  no_price    REAL,
-  taker_side  TEXT,
-  is_block    INTEGER,
-  notional    REAL,
-  fetched_at  TEXT
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_pmflow_ticker ON prediction_market_flow(ticker, traded_at)`);
-
 /**
  * Kalshi NFL game tickers look like `KXNFLGAME-26SEP21NYGLAR-NYG`:
  * series, then a date and the two team codes, then the team this contract is

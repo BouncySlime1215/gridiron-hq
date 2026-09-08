@@ -33,32 +33,6 @@ import { db, rows } from '../db/index.js';
 const GAMES = 17;
 const SEASON_WEIGHT = (s, through) => ({ 0: 1, 1: 0.55, 2: 0.28 })[through - s] ?? 0.12;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS shrinkage_fits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    fitted_at TEXT NOT NULL,
-    through_season INTEGER NOT NULL,
-    test_season INTEGER,
-    crps_fitted REAL,
-    crps_hardcoded REAL,
-    mae_fitted REAL,
-    mae_hardcoded REAL,
-    active INTEGER NOT NULL DEFAULT 0,
-    note TEXT
-  );
-  CREATE TABLE IF NOT EXISTS shrinkage_k (
-    fit_id INTEGER NOT NULL REFERENCES shrinkage_fits(id),
-    metric TEXT NOT NULL,
-    position TEXT NOT NULL,
-    k REAL NOT NULL,
-    sigma2_within REAL,
-    sigma2_between REAL,
-    n_groups INTEGER,
-    n_obs INTEGER,
-    PRIMARY KEY (fit_id, metric, position)
-  );
-`);
-
 /* ------------------------------------------------------- variance components */
 
 /**

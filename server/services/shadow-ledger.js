@@ -1,28 +1,6 @@
 /** Immutable paper-trading ledger. It is intentionally incapable of execution. */
-import { db, row, rows, run } from '../db/index.js';
+import { row, rows, run } from '../db/index.js';
 import { autoPickDecisionBoard } from './nfl-auto-picks.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS shadow_decisions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, sport TEXT NOT NULL, event_key TEXT NOT NULL,
-  market TEXT NOT NULL, selection TEXT, model_version TEXT NOT NULL,
-  probability REAL, market_probability REAL, uncertainty REAL,
-  regime TEXT, decision TEXT NOT NULL, reason TEXT NOT NULL,
-  captured_at TEXT NOT NULL, settled_at TEXT, outcome_json TEXT,
-  UNIQUE(sport,event_key,market,model_version,captured_at)
-)`);
-
-// The first version stored just enough to render a counter. That made the rows
-// impossible to grade: neither the frozen line nor the scheduled teams were
-// retained. Additive columns preserve every existing row while making every
-// new observation a complete, independently labelable training example.
-const columns = new Set(db.prepare('PRAGMA table_info(shadow_decisions)').all().map(x => x.name));
-for (const [name, type] of [
-  ['season', 'INTEGER'], ['week', 'INTEGER'], ['home_team', 'TEXT'], ['away_team', 'TEXT'],
-  ['line', 'REAL'], ['american_price', 'INTEGER'], ['quote_at', 'TEXT'],
-  ['feature_snapshot_json', 'TEXT'], ['result', 'TEXT'], ['clv_points', 'REAL']
-]) {
-  if (!columns.has(name)) db.exec(`ALTER TABLE shadow_decisions ADD COLUMN ${name} ${type}`);
-}
 
 const parseEventKey = value => {
   const [season, week, home, away] = String(value ?? '').split(':');

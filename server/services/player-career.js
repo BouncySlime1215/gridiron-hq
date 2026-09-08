@@ -24,16 +24,6 @@ import { PPR } from './scoring.js';
 
 export const SEASON = Number(process.env.NFL_SEASON) || 2026;
 
-// Mirrors the DDL in nfl-pbp.js so this module works on a fresh (test) database
-// without importing the play-by-play loader and its side effects.
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_player_week_features (
-    season INTEGER NOT NULL, week INTEGER NOT NULL, player_id TEXT NOT NULL,
-    player_name TEXT, team TEXT, opponent TEXT, position TEXT, features TEXT NOT NULL,
-    PRIMARY KEY (season, week, player_id)
-  );
-`);
-
 const DEFAULT_WINDOW = 5;
 const REG_SEASON_MAX_WEEK = 18;
 const SKILL = new Set(['QB', 'RB', 'WR', 'TE']);

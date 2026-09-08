@@ -33,36 +33,6 @@ import { join } from 'node:path';
 const run_ = promisify(execFile);
 const FEED = id => `https://www.youtube.com/feeds/videos.xml?channel_id=${id}`;
 
-run(`CREATE TABLE IF NOT EXISTS yt_channels (
-  team         TEXT PRIMARY KEY,
-  handle       TEXT NOT NULL,
-  channel_id   TEXT,
-  title        TEXT,
-  subscribers  TEXT,
-  verdict      TEXT,
-  checked_at   TEXT
-)`);
-run(`CREATE TABLE IF NOT EXISTS press_conferences (
-  video_id     TEXT PRIMARY KEY,
-  team         TEXT,
-  title        TEXT,
-  published_at TEXT,
-  is_presser   INTEGER,
-  transcript   TEXT,
-  chars        INTEGER,
-  fetched_at   TEXT
-)`);
-run(`CREATE TABLE IF NOT EXISTS press_availability (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  video_id     TEXT NOT NULL,
-  team         TEXT,
-  published_at TEXT,
-  player       TEXT,
-  keyword      TEXT,
-  quote        TEXT
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_pa_team ON press_availability(team, published_at)`);
-
 /** Official team channels, by handle. Validated before use, never trusted. */
 export const TEAM_CHANNEL_HANDLES = Object.freeze({
   // Every one of these was resolved against the live channel page and checked

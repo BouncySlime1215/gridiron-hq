@@ -38,31 +38,6 @@ import { rows, row, run } from '../db/index.js';
 import { teamTrends, playerTrends, TRACKED } from './weekly-trends.js';
 
 
-run(`CREATE TABLE IF NOT EXISTS trend_findings (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  subject_type  TEXT NOT NULL,        -- 'team' | 'player'
-  subject       TEXT NOT NULL,        -- team abbr or player id
-  subject_name  TEXT,
-  metric        TEXT NOT NULL,
-  season        INTEGER NOT NULL,
-  through_week  INTEGER NOT NULL,
-  lookback      INTEGER NOT NULL,
-  direction     TEXT,
-  baseline      REAL,
-  recent        REAL,
-  effect_size   REAL,
-  p_value       REAL,
-  favourable    INTEGER,
-  first_seen_week INTEGER,
-  last_seen_week  INTEGER,
-  status        TEXT,                 -- 'active' | 'faded'
-  detected_at   TEXT NOT NULL
-)`);
-run(`CREATE UNIQUE INDEX IF NOT EXISTS trend_findings_unique
-     ON trend_findings (subject_type, subject, metric, season, lookback)`);
-run(`CREATE INDEX IF NOT EXISTS trend_findings_week
-     ON trend_findings (season, through_week, status)`);
-
 /**
  * Sweep the league and record what changed since the last sweep.
  *

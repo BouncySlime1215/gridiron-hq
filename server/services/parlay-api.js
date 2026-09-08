@@ -25,23 +25,11 @@
  * returns null, and callers fall back to whatever other source they already
  * have — same contract as odds-api.js.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 
 const BASE = 'https://parlay-api.com/v1';
 const SPORT = 'americanfootball_nfl';
 const MLB_SPORT = 'baseball_mlb';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS parlay_cache (
-    cache_key TEXT PRIMARY KEY,
-    payload TEXT NOT NULL,
-    fetched_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS parlay_usage (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    requests_used INTEGER, requests_remaining INTEGER, requests_last INTEGER, last_call_at TEXT
-  );
-`);
 
 export const hasKey = () => Boolean(process.env.PARLAY_API_KEY);
 

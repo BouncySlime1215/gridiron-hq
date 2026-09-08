@@ -3,20 +3,13 @@
  * inputs yet. Its job is to tell us whether a future candidate is worth a
  * preregistered experiment, not to retrofit a profitable-looking filter.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { nestedEvaluationRows } from './nfl-market.js';
 import { latestTrainingAudit } from './nfl-replay.js';
 import { allPickResults } from './nfl-auto-picks.js';
 import { evidenceDaemonStatus } from './evidence-daemon.js';
 import { shadowLedgerSummary } from './shadow-ledger.js';
 import { nflMarketMovement, mlbMarketMovement } from './market-movement.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS research_hypotheses (
-    id TEXT PRIMARY KEY, sport TEXT NOT NULL, title TEXT NOT NULL, hypothesis TEXT NOT NULL,
-    source TEXT NOT NULL, status TEXT NOT NULL, holdout_rule TEXT NOT NULL, created_at TEXT NOT NULL
-  );
-`);
 
 const r3 = n => n == null || !Number.isFinite(n) ? null : +n.toFixed(3);
 const mean = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;

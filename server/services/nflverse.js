@@ -17,76 +17,11 @@ import { recordSync } from './scheduler.js';
 
 const RELEASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS player_week_usage (
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    team TEXT,
-    opponent TEXT,
-    position TEXT,
-    -- opportunity
-    attempts REAL, carries REAL, targets REAL, receptions REAL,
-    target_share REAL, air_yards_share REAL, wopr REAL,
-    receiving_air_yards REAL, passing_air_yards REAL,
-    -- production
-    passing_yards REAL, rushing_yards REAL, receiving_yards REAL,
-    passing_tds REAL, rushing_tds REAL, receiving_tds REAL,
-    interceptions REAL, fumbles_lost REAL,
-    -- efficiency
-    passing_epa REAL, rushing_epa REAL, receiving_epa REAL,
-    cpoe REAL, racr REAL, pacr REAL,
-    first_downs REAL,
-    PRIMARY KEY (player_id, season, week)
-  );
-  CREATE INDEX IF NOT EXISTS idx_pwu_season_week ON player_week_usage(season, week);
-  CREATE INDEX IF NOT EXISTS idx_pwu_player ON player_week_usage(player_id, season);
-
-  CREATE TABLE IF NOT EXISTS player_week_snaps (
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    offense_snaps REAL, offense_pct REAL,
-    PRIMARY KEY (player_id, season, week)
-  );
-
-  -- gsis_id -> position, sourced straight from nflverse's players.csv. This is
-  -- comprehensive (every player who has ever appeared in a play), unlike our
-  -- own players table which only carries the current ~800-player roster
-  -- universe. nfl_player_week_features keys on gsis_id, so this is what makes
-  -- backfilling its position column (and future ingests) possible.
-  CREATE TABLE IF NOT EXISTS nflverse_player_positions (
-    gsis_id TEXT PRIMARY KEY,
-    position TEXT,
-    position_group TEXT,
-    ngs_position TEXT
-  );
-`);
-
-// Added alongside position: players.csv's own birth_date/rookie_season/draft
-// capital, added via ALTER-if-absent (same pattern nfl-prop-clv.js uses) since
-// the table above already shipped without them. Real values a boom/bust
-// feature set needs (an actual age and rookie flag, not a proxy inferred from
-// how far back this app's own usage history happens to reach) rather than a
-// second table and a second join.
-{
-  const cols = db.prepare(`PRAGMA table_info(nflverse_player_positions)`).all().map(c => c.name);
-  const addCol = (name, type) => { if (!cols.includes(name)) db.exec(`ALTER TABLE nflverse_player_positions ADD COLUMN ${name} ${type}`); };
-  addCol('birth_date', 'TEXT');
-  addCol('rookie_season', 'INTEGER');
-  addCol('draft_year', 'INTEGER');
-  addCol('draft_round', 'INTEGER');
-  addCol('draft_pick', 'INTEGER');
-}
-
 /** One player's real birth date / draft capital, by nflverse gsis_id. */
 export function nflversePlayerBio(gsisId) {
   return row(`SELECT birth_date, rookie_season, draft_year, draft_round, draft_pick
               FROM nflverse_player_positions WHERE gsis_id = ?`, gsisId);
 }
-
-const playerCols = db.prepare(`PRAGMA table_info(players)`).all().map(c => c.name);
-if (!playerCols.includes('gsis_id')) db.exec(`ALTER TABLE players ADD COLUMN gsis_id TEXT`);
 
 /* --------------------------------------------------------------- CSV parsing */
 

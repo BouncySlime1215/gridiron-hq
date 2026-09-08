@@ -1,35 +1,7 @@
 /** Versioned champion weights for the weekly ensemble. */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { WEEKLY_ENSEMBLE_WEIGHTS } from './weekly-ensemble.js';
 import { activeLearningEpoch } from './nfl-engine-registry.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS weekly_ensemble_fits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    data_hash TEXT NOT NULL UNIQUE,
-    through_season INTEGER NOT NULL,
-    through_week INTEGER NOT NULL,
-    weights_json TEXT NOT NULL,
-    sample_size INTEGER NOT NULL,
-    validation_size INTEGER NOT NULL,
-    candidate_mae REAL,
-    champion_mae REAL,
-    candidate_spearman REAL,
-    champion_spearman REAL,
-    coverage_80 REAL,
-    promoted INTEGER NOT NULL DEFAULT 0,
-    rejection_reason TEXT,
-    epoch_id INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_weekly_fits_cutoff
-    ON weekly_ensemble_fits(promoted, through_season, through_week);
-`);
-
-const fitColumns = new Set(db.prepare('PRAGMA table_info(weekly_ensemble_fits)').all().map(item => item.name));
-if (!fitColumns.has('epoch_id')) {
-  db.exec('ALTER TABLE weekly_ensemble_fits ADD COLUMN epoch_id INTEGER NOT NULL DEFAULT 1');
-}
 
 export const weeklyFitDataHash = hash => `e${activeLearningEpoch()?.id ?? 1}:${hash}`;
 

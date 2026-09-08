@@ -20,26 +20,9 @@
  *
  * Titles put the away team first: "49ers vs. Rams" is SF at LAR.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { lineMoveValue } from './nfl-execution-edge.js';
 import { teamResolver } from './book-feeds.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS polymarket_line_moves (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    observed_at TEXT NOT NULL, captured_at TEXT NOT NULL,
-    season INTEGER, week INTEGER, event_title TEXT NOT NULL,
-    home_team TEXT, away_team TEXT, commence_time TEXT,
-    home_spread REAL, total REAL,
-    prev_home_spread REAL, prev_total REAL,
-    spread_delta REAL, total_delta REAL, spread_move_value REAL,
-    spread_ladder INTEGER, total_ladder INTEGER,
-    first_sighting INTEGER NOT NULL DEFAULT 0,
-    UNIQUE(event_title, captured_at)
-  );
-  CREATE INDEX IF NOT EXISTS idx_pm_moves_time ON polymarket_line_moves(observed_at);
-  CREATE INDEX IF NOT EXISTS idx_pm_moves_game ON polymarket_line_moves(season, week, home_team);
-`);
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const SPREAD_STEP = 0.5;   // log a move once the implied spread has shifted this much

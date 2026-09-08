@@ -59,16 +59,6 @@ function liveDraftActive() {
   } catch { return false; }
 }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sync_log (
-    job TEXT PRIMARY KEY,
-    last_run_at TEXT,
-    last_status TEXT,
-    last_detail TEXT,
-    runs INTEGER DEFAULT 0
-  );
-`);
-
 const nowIso = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 

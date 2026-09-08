@@ -44,60 +44,6 @@ export const NFELO_SOURCES = Object.freeze({
   team_stadiums: 'https://raw.githubusercontent.com/greerreNFL/Stadiums/main/data/team_stadiums.csv'
 });
 
-/* ------------------------------------------------------------------ schema */
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_nfelo_qb (
-  season INTEGER NOT NULL, week INTEGER, date TEXT NOT NULL,
-  team1 TEXT NOT NULL, team2 TEXT NOT NULL, neutral INTEGER, game_id TEXT,
-  elo1_pre REAL, elo2_pre REAL, qbelo1_pre REAL, qbelo2_pre REAL,
-  qb1 TEXT, qb2 TEXT, qb1_value_pre REAL, qb2_value_pre REAL, qb1_adj REAL, qb2_adj REAL,
-  fetched_at TEXT NOT NULL,
-  PRIMARY KEY (season, date, team1, team2)
-)`);
-db.exec('CREATE INDEX IF NOT EXISTS idx_nfl_nfelo_qb_week ON nfl_nfelo_qb (season, week, team1, team2)');
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_nfelo_games (
-  game_id TEXT PRIMARY KEY,
-  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
-  starting_nfelo_home REAL, starting_nfelo_away REAL, hfa_mod REAL,
-  home_538_qb_adj REAL, away_538_qb_adj REAL, nfelo_dif_base REAL,
-  nfelo_home_line_open REAL, nfelo_home_line_close REAL,
-  home_line_open REAL, home_line_close REAL, total_line_open REAL, total_line_close REAL,
-  home_line_pre_regression REAL, market_regression_factor REAL, market_implied_elo_dif REAL,
-  fetched_at TEXT NOT NULL
-)`);
-db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_nfl_nfelo_games_match ON nfl_nfelo_games (season, week, home, away)');
-// The historic_projected_spreads merge columns, added idempotently for a table created before them.
-{
-  const cols = rows('PRAGMA table_info(nfl_nfelo_games)').map(c => c.name);
-  for (const col of ['home_line_pre_regression', 'market_regression_factor', 'market_implied_elo_dif']) {
-    if (!cols.includes(col)) db.exec(`ALTER TABLE nfl_nfelo_games ADD COLUMN ${col} REAL`);
-  }
-}
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_nfelo_lines (
-  game_id TEXT PRIMARY KEY,
-  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
-  home_spread_open REAL, home_spread_last REAL,
-  home_spread_tickets_pct REAL, home_spread_money_pct REAL, home_spread_pcts_source TEXT, home_spread_pct_timestamp TEXT,
-  home_ml_open REAL, away_ml_open REAL, home_ml_last REAL, away_ml_last REAL,
-  total_line_open REAL, total_line_last REAL,
-  total_over_tickets_pct REAL, total_over_money_pct REAL,
-  fetched_at TEXT NOT NULL
-)`);
-db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_nfl_nfelo_lines_match ON nfl_nfelo_lines (season, week, home, away)');
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_stadiums (
-  stadium_id TEXT PRIMARY KEY, name TEXT, lat REAL, lon REAL, altitude REAL,
-  roof_type TEXT, surface_type TEXT, tz TEXT, city TEXT, state TEXT,
-  first_game_date TEXT, last_game_date TEXT, fetched_at TEXT NOT NULL
-)`);
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_team_stadiums (
-  team TEXT NOT NULL, stadium_id TEXT NOT NULL, is_current INTEGER NOT NULL DEFAULT 0,
-  first_game_date TEXT, last_game_date TEXT, fetched_at TEXT NOT NULL,
-  PRIMARY KEY (team, stadium_id)
-)`);
-
 /* ------------------------------------------------------------- CSV parsing */
 
 /** Minimal RFC-4180 parser: quoted fields (stadium addresses and architects carry commas), doubled quotes, CRLF. */

@@ -32,16 +32,11 @@
  */
 import { db, rows, run } from '../db/index.js';
 import { teamResolver } from './team-codes.js';
-import './nfl-props.js'; // owns nfl_prop_quote_snapshots, columns extended below
+import './nfl-props.js'; // owns nfl_prop_quote_snapshots (schema: migrations/000_legacy_schema.js)
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 const ENABLED = process.env.FREE_PROP_FEEDS !== '0';
 export const enabled = () => ENABLED;
-
-const propCols = new Set(db.prepare('PRAGMA table_info(nfl_prop_quote_snapshots)').all().map(c => c.name));
-for (const [column, type] of [['provider', 'TEXT'], ['book_updated_at', 'TEXT'], ['is_opener', 'INTEGER']]) {
-  if (!propCols.has(column)) db.exec(`ALTER TABLE nfl_prop_quote_snapshots ADD COLUMN ${column} ${type}`);
-}
 
 async function getJson(url, { headers = {} } = {}) {
   const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json', ...headers },

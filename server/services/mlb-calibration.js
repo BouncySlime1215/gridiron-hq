@@ -1,12 +1,5 @@
 /** Chronological, price-aware calibration for each MLB market. */
-import { db, rows, run } from '../db/index.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS mlb_probability_calibrations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, market TEXT NOT NULL, model_version TEXT NOT NULL,
-  trained_through TEXT NOT NULL, created_at TEXT NOT NULL, sample_size INTEGER NOT NULL,
-  intercept REAL, model_slope REAL, market_slope REAL, metrics_json TEXT NOT NULL,
-  UNIQUE(market,model_version,trained_through)
-)`);
+import { rows, run } from '../db/index.js';
 
 const MARKETS = new Set(['nrfi', 'pitcher_strikeouts', 'batter_total_bases']);
 const VERSION = 'mlb-price-logit-v1';

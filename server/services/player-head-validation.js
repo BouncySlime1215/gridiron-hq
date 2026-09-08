@@ -1,18 +1,11 @@
 /** Chronological, multiplicity-aware validation for the player-head registry. */
 import { createHash } from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { replaySeasonWeekly } from './weekly-backtest.js';
 import { spearman } from './backtest.js';
 import { PLAYER_HEADS, PLAYER_HEAD_REGISTRY_VERSION } from './player-head-registry.js';
 import { random, withRandomSeed } from './stats-util.js';
 import { WEEKLY_ROLE_RECENCY } from './weekly-ensemble.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS player_head_audits (
-  spec_hash TEXT PRIMARY KEY, created_at TEXT NOT NULL, registry_version TEXT NOT NULL,
-  development_season INTEGER NOT NULL, discovery_season INTEGER NOT NULL,
-  validation_season INTEGER, validation_opened INTEGER NOT NULL DEFAULT 0,
-  result_json TEXT NOT NULL
-)`);
 
 const mean = values => values.length ? values.reduce((sum, x) => sum + x, 0) / values.length : null;
 const prediction = (row, id) => Number(row.candidate_heads?.[id]);

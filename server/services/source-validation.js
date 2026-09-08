@@ -20,20 +20,6 @@ import { rows, row, run } from '../db/index.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 
-run(`CREATE TABLE IF NOT EXISTS news_source_validation (
-  handle       TEXT PRIMARY KEY,
-  role         TEXT,
-  team         TEXT,
-  checked_at   TEXT NOT NULL,
-  exists_now   INTEGER,
-  verified     INTEGER,
-  followers    INTEGER,
-  display_name TEXT,
-  bio          TEXT,
-  verdict      TEXT,
-  reason       TEXT
-)`);
-
 /**
  * Follower floors, by what the account is for.
  *

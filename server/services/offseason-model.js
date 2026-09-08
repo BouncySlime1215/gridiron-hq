@@ -1188,10 +1188,10 @@ const v2Cache = new Map();
 /**
  * `off_player_season_features` for one season, keyed by gsis.
  *
- * Read with a direct SELECT rather than by importing `offseason-data.js`: that
- * module runs its `CREATE TABLE IF NOT EXISTS` block at import time, and this
- * file is on a runtime read path (and on a synthetic test fixture that has no
- * `off_*` tables at all). A missing table is an empty map, not a throw.
+ * Read with a direct SELECT rather than by importing `offseason-data.js`: this
+ * file is on a runtime read path and must not pull in that module's loaders,
+ * and it also runs against synthetic test fixtures that have no `off_*` tables
+ * at all. A missing table is an empty map, not a throw.
  */
 function v2Season(season) {
   if (v2Cache.has(season)) return v2Cache.get(season);

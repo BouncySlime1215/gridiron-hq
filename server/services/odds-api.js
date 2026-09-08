@@ -12,23 +12,11 @@
  * null, and callers fall back to model-only output rather than erroring — which
  * is what makes the props board work before a key exists and light up after.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 
 const BASE = 'https://api.the-odds-api.com/v4';
 const SPORT = 'americanfootball_nfl';
 const MLB_SPORT = 'baseball_mlb';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS odds_cache (
-    cache_key TEXT PRIMARY KEY,
-    payload TEXT NOT NULL,
-    fetched_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS odds_usage (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    requests_used INTEGER, requests_remaining INTEGER, last_call_at TEXT
-  );
-`);
 
 export const hasKey = () => Boolean(process.env.ODDS_API_KEY);
 

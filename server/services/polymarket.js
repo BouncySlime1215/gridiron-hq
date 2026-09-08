@@ -36,34 +36,6 @@ const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
-run(`CREATE TABLE IF NOT EXISTS polymarket_markets (
-  condition_id TEXT PRIMARY KEY,
-  question     TEXT,
-  event_title  TEXT,
-  kind         TEXT,
-  player       TEXT,
-  stat         TEXT,
-  threshold    REAL,
-  end_date     TEXT,
-  clob_token_yes TEXT,
-  clob_token_no  TEXT,
-  first_seen   TEXT
-)`);
-run(`CREATE TABLE IF NOT EXISTS polymarket_quotes (
-  captured_at  TEXT NOT NULL,
-  condition_id TEXT NOT NULL,
-  mid_yes      REAL,
-  best_bid     REAL,
-  best_ask     REAL,
-  bid_size     REAL,
-  ask_size     REAL,
-  spread       REAL,
-  volume       REAL,
-  liquidity    REAL,
-  PRIMARY KEY (captured_at, condition_id)
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_pmq_cond ON polymarket_quotes(condition_id, captured_at)`);
-
 /**
  * Pull out the player, statistic and threshold from a market question.
  *
@@ -333,14 +305,6 @@ export function polymarketStatus() {
   };
 }
 
-
-run(`CREATE TABLE IF NOT EXISTS polymarket_price_history (
-  condition_id TEXT NOT NULL,
-  ts           INTEGER NOT NULL,
-  price        REAL NOT NULL,
-  PRIMARY KEY (condition_id, ts)
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_pmh_ts ON polymarket_price_history(ts)`);
 
 /**
  * Hourly price history, which is the part no sportsbook will ever give us.

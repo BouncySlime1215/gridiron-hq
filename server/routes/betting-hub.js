@@ -212,7 +212,7 @@ function plainCalibration(cal) {
       `${Math.round(50 + 20 * slope)}%. Betting on numbers that overstate themselves is how a bankroll goes to zero, so it stays on fake money.`;
   } else if (slope != null && slope > 1.3) {
     plain = 'The model is too cautious — the true answer is further from a coin flip than it is willing to say. ' +
-      'That loses opportunity rather than money, but it is still not calibrated, so it stays on fake money.';
+      'That does not establish profitable prices or safe stakes. The model stays on paper until all evidence gates pass.';
   } else {
     plain = 'The model has not cleared its accuracy check, so it stays on fake money.';
   }
@@ -262,14 +262,14 @@ r.get('/status', (req, res, next) => {
       // Ordered the way the plan orders them: structural edges first, because
       // those are the ones that do not require beating the market.
       edges: [
-        { id: 'execution', label: 'Shop for the best price', live: board.shoppable_sides > 0,
+        { id: 'execution', label: 'Shop for the best price', live: !board.stale && board.shoppable_sides > 0,
           headline: board.shoppable_sides > 0
             ? `${board.shoppable_sides} bets where one book pays more · best is ${(board.best_edge * 100).toFixed(1)}% better`
-            : 'No saved prices to compare',
+            : 'No current prices to compare',
           detail: board.stale
             ? 'The saved prices are old. Comparing books only works if every price was read at the same moment, so this needs a fresh pull.'
-            : 'Books disagree on the same game. This finds the one paying most — it needs no opinion about who wins.',
-          blocked_by: board.stale ? 'credits' : null },
+            : 'This compares available prices. A better price can reduce a loss; it does not by itself establish a profitable bet.',
+          blocked_by: board.stale ? 'fresh_quotes_required' : null },
         { id: 'teasers', label: 'Teasers', live: teaserExecution.eligible_candidates > 0,
           headline: teaserExecution.eligible_candidates > 0
             ? `${teaserExecution.eligible_candidates} ticket${teaserExecution.eligible_candidates === 1 ? '' : 's'} you can actually place`
@@ -282,8 +282,8 @@ r.get('/status', (req, res, next) => {
           blocked_by: teaserExecution.eligible_candidates > 0 ? null : teaserExecution.status },
         { id: 'correlation', label: 'Parlay pricing', live: false,
           headline: 'Priced, never tested live',
-          detail: 'Legs in one parlay rise and fall together, and books price them as if they do not. The math is fitted, ' +
-            'but it has never been checked against a real closing price, so it is not trusted yet.',
+          detail: 'Sportsbooks already adjust same-game parlays for correlation. Our joint distribution must beat their actual quoted payout, ' +
+            'with settlement rules and costs included; that advantage has not been demonstrated.',
           blocked_by: 'forward CLV' },
         { id: 'props', label: 'Player props', live: false,
           headline: `${props.captured_quotes ?? 0} prices saved · ${props.settled ?? 0} finished`,

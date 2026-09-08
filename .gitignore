@@ -25,3 +25,7 @@ server/data/launcher-logs/
 server/data.sqlite.bak.*
 server/data.sqlite.pre-reset-*.bak-shm
 server/data.sqlite.pre-reset-*.bak-wal
+
+# Offline ML artifacts and Python caches
+server/data/market-lab/
+research/__pycache__/

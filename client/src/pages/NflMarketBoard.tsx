@@ -9,6 +9,7 @@ import Training from './betting/Training';
 import { NOT_PROVEN_MESSAGE } from './betting/copy';
 import { usePageExplain } from '../components/betting/PageExplainContext';
 
+const ResearchLab = lazy(() => import('./betting/ResearchLab'));
 const Edges = lazy(() => import('./betting/Edges'));
 const LineShop = lazy(() => import('./betting/LineShop'));
 const PickWatch = lazy(() => import('./betting/PickWatch'));
@@ -28,10 +29,10 @@ const EnsemblePage = lazy(() => import('./betting/Ensemble'));
 const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 
 type Section = 'board' | 'execute' | 'live' | 'engine';
-type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'watch' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info' | 'forward';
+type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'watch' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info' | 'forward' | 'research';
 type DecideView = 'games' | 'props';
 type ExecuteView = 'edge' | 'shop' | 'venues' | 'watch';
-type ProofView = 'overview' | 'forward' | 'audit' | 'diagnostics' | 'data' | 'ensemble' | 'variables';
+type ProofView = 'research' | 'overview' | 'forward' | 'audit' | 'diagnostics' | 'data' | 'ensemble' | 'variables';
 
 interface AllGameRow {
   matchup: string; market: string; selection: string; side: string | null; home_team: string; away_team: string;
@@ -58,11 +59,12 @@ interface TrackedBet { id: number; matchup: string; selection: string; side: str
 const normalizeSection = (tool: InitialTool): Section => {
   if (['edges', 'lines', 'venues', 'watch', 'execute'].includes(tool)) return 'execute';
   if (['simulator', 'replay'].includes(tool)) return 'live';
-  if (['training', 'operations', 'ensemble', 'variables', 'model', 'audit', 'ai', 'info', 'proof', 'forward'].includes(tool)) return 'engine';
+  if (['training', 'operations', 'ensemble', 'variables', 'model', 'audit', 'ai', 'info', 'proof', 'forward', 'research'].includes(tool)) return 'engine';
   return 'board';
 };
 
 const initialProofView = (tool: InitialTool): ProofView => {
+  if (tool === 'research') return 'research';
   if (tool === 'operations') return 'data';
   if (tool === 'training' || tool === 'ai' || tool === 'audit') return 'audit';
   if (tool === 'ensemble') return 'ensemble';
@@ -201,6 +203,7 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
           allowed to claim. Splitting each pair bought nothing but another click
           and another thing to scan. */}
       <Subnav value={proofView} onChange={setProofView} items={[
+        ['research', 'Research lab', 'Independent assessment, experiments and agent master plan'],
         ['overview', 'Architecture', 'How the whole system fits together'],
         ['forward', 'Forward ledger', 'This week’s picks recorded before kickoff, settled with CLV'],
         ['ensemble', 'Ensemble', 'How component models combine into one line'],
@@ -209,6 +212,7 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
         ['data', 'Data health', 'Feed freshness and operational status'],
         ['variables', 'Variables', 'The model input catalog']
       ]} />
+      {proofView === 'research' && <Panel fallback="Loading research evidence…"><ResearchLab /></Panel>}
       {proofView === 'overview' && <Panel fallback="Loading the unified engine…"><UnifiedEngineRoom /></Panel>}
       {proofView === 'forward' && <Panel fallback="Loading the forward ledger…"><FootballFirst embedded /></Panel>}
       {proofView === 'ensemble' && <Panel fallback="Loading ensemble lines…"><EnsemblePage /></Panel>}

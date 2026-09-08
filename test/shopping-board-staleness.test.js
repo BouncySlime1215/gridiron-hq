@@ -15,11 +15,13 @@ const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 await import('../server/services/line-shopping.js');
+await import('../server/services/gamescript.js');
 const board = await import('../server/services/nfl-shopping-board.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 const captured = '2026-09-02T18:00:00Z';
+test.beforeEach(t => t.mock.timers.enable({ apis: ['Date'], now: new Date(captured) }));
 const snap = (book, side, line, price, bookUpdatedAt) => run(`INSERT INTO nfl_line_snapshots
   (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, captured, 'nfl:2026-09-13:DEN@KC', '2026-09-13T17:00:01Z',
@@ -59,4 +61,12 @@ test('an event whose only fresh quote is a single book is skipped, not reported 
   const sets = board.simultaneousQuotes('spreads');
   const ev = sets.find(s => s.event_id === 'nfl:2026-09-13:BUF@MIA');
   assert.equal(ev, undefined, 'one fresh book plus one stale one is not a shopping decision');
+});
+
+test('cached quotes expire without another ingestion and remain unavailable after kickoff', t => {
+  board.clearShoppingBoardCache();
+  assert.ok(board.simultaneousQuotes('spreads').length);
+  t.mock.timers.tick(16 * 60 * 1000);
+  assert.equal(board.simultaneousQuotes('spreads').length, 0);
+  assert.equal(board.executionBoardSummary().stale, true);
 });

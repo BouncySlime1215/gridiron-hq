@@ -30,7 +30,16 @@ import { requireModelPermission } from '../modeling/authz.js';
 import { recordModelAudit } from '../modeling/sqlite-store.js';
 import { db } from '../db/index.js';
 
+import { researchLabStatus, researchMasterPlan } from '../services/nfl-research-lab.js';
+
 const r = Router();
+
+r.get('/research-lab', async (_req, res, next) => {
+  try { res.json(await researchLabStatus()); } catch (error) { next(error); }
+});
+r.get('/research-lab/plan', async (_req, res, next) => {
+  try { res.type('text/markdown').send(await researchMasterPlan()); } catch (error) { next(error); }
+});
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 
 r.get('/board', (req, res, next) => {

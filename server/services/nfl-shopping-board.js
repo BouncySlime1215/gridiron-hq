@@ -26,6 +26,7 @@
 import { rows } from '../db/index.js';
 import { bestExecution, impliedProb } from './nfl-execution-edge.js';
 import { isFreshQuote } from './book-feeds.js';
+import { quoteClockValid, SHOPPING_MAX_AGE_MS } from './nfl-quote-clock.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const dec = american => (american >= 0 ? 1 + american / 100 : 1 + 100 / -american);
@@ -76,7 +77,9 @@ let _quoteCache = new Map();
 export function clearShoppingBoardCache() { _quoteCache = new Map(); }
 
 export function simultaneousQuotes(market = 'spreads') {
-  if (_quoteCache.has(market)) return _quoteCache.get(market);
+  // Cache the stored sets, not their permission to be shown as current.
+  // Time must be checked on every read, including when ingestion has stopped.
+  if (_quoteCache.has(market)) return _quoteCache.get(market).filter(q => quoteClockValid(q));
 
   // One query, grouped in memory. This used to run a SELECT per event, which on
   // a hundred-event board meant a hundred round trips — and because both the
@@ -110,7 +113,7 @@ export function simultaneousQuotes(market = 'spreads') {
     out.push({ ...ev, books: books.size });
   }
   _quoteCache.set(market, out);
-  return out;
+  return out.filter(q => quoteClockValid(q));
 }
 
 /* ------------------------------------------------------- best-price board */
@@ -355,10 +358,10 @@ export function executionBoardSummary() {
     middles_found: middles.length,
     positive_ev_middles: middles.filter(m => (m.ev_per_unit ?? 0) > 0).length,
     arbitrage_found: middles.filter(m => m.arbitrage).length,
-    latest_capture: captures[captures.length - 1] ?? null,
-    stale: captures.length
-      ? (Date.now() - new Date(captures[captures.length - 1]).getTime()) / 36e5 > 24 : true,
+    latest_capture: captures[captures.length - 1] ?? rows('SELECT MAX(captured_at) at FROM nfl_line_snapshots')[0]?.at ?? null,
+    stale: captures.length === 0,
+    max_capture_age_minutes: SHOPPING_MAX_AGE_MS / 60000,
     note: 'Every comparison is between quotes captured at the same instant. Nothing here ' +
-      'forecasts a game — the edge is the price difference between books at one moment.'
+      'proves positive expected profit. The price advantage is relative to other books; confirm the offered price before acting.'
   };
 }

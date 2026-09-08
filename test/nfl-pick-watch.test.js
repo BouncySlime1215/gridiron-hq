@@ -39,6 +39,7 @@ run(`INSERT OR IGNORE INTO nfl_teams (id,abbr,name,conference,division) VALUES
   (901,'SEA','Seattle Seahawks','NFC','West'),(902,'NE','New England Patriots','AFC','East')`);
 
 const SEASON = 2026, WEEK = 2;
+test.beforeEach(t => t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-10T10:05:00Z') }));
 
 function openGame() {
   run(`INSERT OR REPLACE INTO game_lines (season,week,team,opponent,home,team_score,opp_score)
@@ -108,7 +109,7 @@ test('a worse current price reads as less favorable', () => {
   lockedSpreadPick({ rank: 2, side: '-3', line: -3, price: -105 }); // generated at a GOOD price
   // A later capture (simultaneousQuotes always reads the MOST RECENT capture
   // per event, so this supersedes the -105/-102 pair from the previous test).
-  const at = '2026-09-10T11:00:00Z';
+  const at = '2026-09-10T10:02:00Z';
   snapshotQuote({ book: 'pinnacle', side: 'Seattle Seahawks', line: -3, price: -130, capturedAt: at });
   snapshotQuote({ book: 'circa', side: 'Seattle Seahawks', line: -3, price: -125, capturedAt: at });
   watch.reshopOpenPicks();

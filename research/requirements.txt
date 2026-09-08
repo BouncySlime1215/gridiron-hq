@@ -1,0 +1,4 @@
+# Isolated research environment; Python 3.11–3.13. No app-runtime dependency.
+tpot==1.1.0
+scikit-learn==1.7.2
+setuptools<81  # TPOT dependency stopit still imports pkg_resources

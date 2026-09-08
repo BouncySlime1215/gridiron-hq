@@ -39,6 +39,7 @@ const BettingHome = lazy(() => import('./pages/betting/BettingHome'));
 const MlbBoard = lazy(() => import('./pages/betting/MlbBoard'));
 const MlbHub = lazy(() => import('./pages/betting/MlbHub'));
 const MlbAutoPicks = lazy(() => import('./pages/betting/MlbAutoPicks'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 type NavItem = { to: string; label: string; icon: string; end?: boolean; live?: boolean };
 const NAV_GROUPS: { label: string; question: string; items: NavItem[] }[] = [
@@ -173,9 +174,9 @@ export default function App() {
           <Route path="/live-draft" element={<Navigate to="/draft?view=live" replace />} /><Route path="/live-draft/:id" element={<LiveDraft />} />
           <Route path="/drafts" element={<Navigate to="/draft" replace />} /><Route path="/drafts/:id" element={<DraftRoom />} />
           <Route path="/rankings" element={<Navigate to="/players" replace />} /><Route path="/projections" element={<Navigate to="/players" replace />} />
-          <Route path="/edge" element={<Navigate to="/lab" replace />} /><Route path="/model" element={<Navigate to="/lab" replace />} />
+          <Route path="/edge" element={<Navigate to="/lab" replace />} />
           <Route path="/nfl-board" element={<Navigate to="/betting/nfl/picks" replace />} /><Route path="/props" element={<PropsBoard />} /><Route path="/props/auto-picks" element={<PropsAutoPicks />} /><Route path="/props/picks" element={<PropsPicks />} /><Route path="/props/model" element={<PropsModel />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFound />} />
         </Routes></Suspense></main>
       </div>
     </div>

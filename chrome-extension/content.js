@@ -201,6 +201,61 @@
       for (var k in Orig) { if (!(k in Patched)) { try { Patched[k] = Orig[k]; } catch (e2) { /* ignore */ } } }
       window.WebSocket = Patched;
     } catch (e) { log('constructor patch failed', e && e.message); }
+
+    // Temporary transport diagnostic (2026-09-07): with the WebSocket patch
+    // above provably never firing during a live draft, the live feed must be
+    // arriving some other way. Log every OTHER real-time transport the page
+    // could be using -- an SSE stream, a Worker holding the socket where a
+    // content script can't see it, or plain fetch/XHR polling -- so the next
+    // reload answers "what does ESPN actually use" definitively instead of
+    // guessing again. Same GHQ_DIAG pipeline; diagnostic only, captures nothing.
+    function diag(kind, url) {
+      try {
+        var u = String(url || '');
+        log('transport:', kind, u);
+        enqueueFrame('in', u, 'GHQ_DIAG ' + kind + ' url=' + u.slice(0, 300));
+        buildBatches();
+      } catch (e) { /* ignore */ }
+    }
+    try {
+      if (window.EventSource) {
+        var OrigES = window.EventSource;
+        var PatchedES = function EventSource(url, init) {
+          diag('eventsource_opened', url);
+          return arguments.length > 1 ? new OrigES(url, init) : new OrigES(url);
+        };
+        PatchedES.prototype = OrigES.prototype;
+        window.EventSource = PatchedES;
+      }
+    } catch (e) { log('EventSource patch failed', e && e.message); }
+    try {
+      if (window.Worker) {
+        var OrigWorker = window.Worker;
+        var PatchedWorker = function Worker(url, opts) {
+          diag('worker_started', url);
+          return arguments.length > 1 ? new OrigWorker(url, opts) : new OrigWorker(url);
+        };
+        PatchedWorker.prototype = OrigWorker.prototype;
+        window.Worker = PatchedWorker;
+      }
+    } catch (e) { log('Worker patch failed', e && e.message); }
+    try {
+      var origFetch = window.fetch;
+      window.fetch = function (input, init) {
+        try {
+          var u = typeof input === 'string' ? input : (input && input.url) || '';
+          if (/draft|fantasydraft|pick/i.test(u)) diag('fetch', u);
+        } catch (e) { /* ignore */ }
+        return origFetch.apply(this, arguments);
+      };
+    } catch (e) { log('fetch patch failed', e && e.message); }
+    try {
+      var origOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function (method, url) {
+        try { if (/draft|fantasydraft|pick/i.test(String(url))) diag('xhr', url); } catch (e) { /* ignore */ }
+        return origOpen.apply(this, arguments);
+      };
+    } catch (e) { log('XHR patch failed', e && e.message); }
   }
 
   // ------------------------------------------------------------------- pill

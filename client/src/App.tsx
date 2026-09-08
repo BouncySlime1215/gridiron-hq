@@ -31,15 +31,9 @@ const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Pair = lazy(() => import('./pages/Pair'));
 const FantasyLab = lazy(() => import('./pages/FantasyLab'));
-const PropsBoard = lazy(() => import('./pages/props/PropsBoard'));
-const PropsPicks = lazy(() => import('./pages/props/PropsPicks'));
-const PropsModel = lazy(() => import('./pages/props/PropsModel'));
-const PropsAutoPicks = lazy(() => import('./pages/props/PropsAutoPicks'));
 const NflMarketBoard = lazy(() => import('./pages/NflMarketBoard'));
 const BettingHome = lazy(() => import('./pages/betting/BettingHome'));
-const MlbBoard = lazy(() => import('./pages/betting/MlbBoard'));
 const MlbHub = lazy(() => import('./pages/betting/MlbHub'));
-const MlbAutoPicks = lazy(() => import('./pages/betting/MlbAutoPicks'));
 const NflAutoPicks = lazy(() => import('./pages/betting/NflAutoPicks'));
 const DataHealth = lazy(() => import('./pages/DataHealth'));
 const NotFound = lazy(() => import('./pages/NotFound'));
@@ -159,7 +153,21 @@ export default function App() {
           <Route path="/drafts" element={<Navigate to="/draft" replace />} /><Route path="/drafts/:id" element={<DraftRoom />} />
           <Route path="/rankings" element={<Navigate to="/players" replace />} /><Route path="/projections" element={<Navigate to="/players" replace />} />
           <Route path="/edge" element={<Navigate to="/lab" replace />} />
-          <Route path="/nfl-board" element={<Navigate to="/betting/nfl/picks" replace />} /><Route path="/props" element={<PropsBoard />} /><Route path="/props/auto-picks" element={<PropsAutoPicks />} /><Route path="/props/picks" element={<PropsPicks />} /><Route path="/props/model" element={<PropsModel />} />
+          <Route path="/nfl-board" element={<Navigate to="/betting/nfl/picks" replace />} />
+          {/* The `/props/*` pages were MLB pages standing outside the MLB hub,
+              linked from nowhere and reachable only by typing the URL — yet all
+              four of their endpoints still return live data (the proxied board
+              answers with 31 rows and 120 projections). Two of them,
+              PropsPicks and PropsModel, were already the hub's own ledger and
+              proof-room views rendered a second time without the workspace
+              chrome, so they are pure duplicates and simply redirect. The other
+              two are the proxied half of the first-party/proxied overlap and
+              are now a source toggle inside the hub's slate and forward views,
+              rather than deleted or left orphaned. */}
+          <Route path="/props" element={<MlbHub initialTab="slate" initialSource="proxied" />} />
+          <Route path="/props/auto-picks" element={<MlbHub initialTab="forward" initialSource="proxied" />} />
+          <Route path="/props/picks" element={<Navigate to="/betting/mlb/picks" replace />} />
+          <Route path="/props/model" element={<Navigate to="/betting/mlb/model" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes></Suspense></main>
       </div>

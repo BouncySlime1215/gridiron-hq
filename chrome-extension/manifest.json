@@ -3,7 +3,7 @@
   "name": "Gridiron HQ Draft Capture",
   "version": "1.0.0",
   "description": "Feeds your live ESPN draft into Gridiron HQ automatically. Reads your own draft-room session in this browser — never a second login, never asks ESPN for anything.",
-  "permissions": ["storage", "alarms"],
+  "permissions": ["storage", "alarms", "scripting"],
   "host_permissions": [
     "https://fantasy.espn.com/*",
     "https://fantasydraft.espn.com/*",

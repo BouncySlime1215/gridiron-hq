@@ -102,6 +102,40 @@ async function postCapture(draftId, key, base, body) {
   return { ok: res.ok, status: res.status, body: json };
 }
 
+/**
+ * Injected into the ESPN page's MAIN world by the Resync button. Self-contained
+ * (executeScript serializes it -- no closures). Closes the live draft socket so
+ * ESPN's client reconnects and re-sends INIT. Prefers the reference inject.js
+ * stashes; on a page loaded before that existed, arms a one-shot on the next
+ * frame ESPN reads (CLOCK ticks arrive every few seconds) and closes that.
+ */
+function resyncInPage() {
+  try {
+    var ws = window.__GHQ_LAST_SOCKET__;
+    if (ws && ws.readyState === 1) { ws.close(4000, 'ghq-resync'); return 'closed'; }
+    if (window.__GHQ_RESYNC_ARMED__) return 'armed';
+    var desc = Object.getOwnPropertyDescriptor(MessageEvent.prototype, 'data');
+    if (!desc || !desc.get || !desc.configurable) return 'no-getter';
+    var orig = desc.get;
+    window.__GHQ_RESYNC_ARMED__ = true;
+    Object.defineProperty(MessageEvent.prototype, 'data', {
+      configurable: true, enumerable: desc.enumerable,
+      get: function () {
+        var v = orig.call(this);
+        try {
+          var t = this.target;
+          if (window.__GHQ_RESYNC_ARMED__ && t && typeof t.url === 'string' && t.url.indexOf('fantasydraft.espn.com') !== -1 && t.readyState === 1) {
+            window.__GHQ_RESYNC_ARMED__ = false;
+            setTimeout(function () { try { t.close(4000, 'ghq-resync'); } catch (e) { /* ignore */ } }, 0);
+          }
+        } catch (e) { /* never break ESPN */ }
+        return v;
+      }
+    });
+    return 'armed';
+  } catch (e) { return 'error:' + (e && e.message); }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     try {
@@ -121,6 +155,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           if (result.status === 401) { cache.ingestKey = null; await saveCache(); }
           sendResponse({ ok: result.ok, status: result.status, error: result.body && result.body.error, draft: cfg.draft });
         } catch (e) { sendResponse({ ok: false, status: 0, error: e.message }); }
+        return;
+      }
+      if (msg.type === 'ghq-resync') {
+        // Make ESPN's draft client reconnect its socket. A reconnect re-sends the
+        // full INIT ledger -- every pick made so far, with real pick numbers --
+        // which is the only way to backfill picks that happened before the tap was
+        // live, without refreshing the draft room (a refresh can cost the seat).
+        // Runs in the page's MAIN world because that's where the socket lives.
+        const tabs = await chrome.tabs.query({ url: ['https://fantasy.espn.com/football/draft*', 'https://fantasydraft.espn.com/*'] });
+        if (!tabs.length) { sendResponse({ ok: false, error: 'no ESPN draft tab is open' }); return; }
+        let closed = 0, armed = 0;
+        for (const t of tabs) {
+          try {
+            const results = await chrome.scripting.executeScript({ target: { tabId: t.id, allFrames: true }, world: 'MAIN', func: resyncInPage });
+            for (const r of results || []) { if (r.result === 'closed') closed++; else if (r.result === 'armed') armed++; }
+          } catch (e) { /* a frame we cannot reach; keep going */ }
+        }
+        const ok = closed > 0 || armed > 0;
+        sendResponse({ ok, closed, armed, error: ok ? null : 'no live draft socket found in the ESPN tab' });
         return;
       }
       sendResponse({ ok: false, error: 'unknown message: ' + msg.type });

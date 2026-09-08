@@ -87,7 +87,14 @@
       // Diagnostic that proves the tap is in the right world: every socket the
       // page opens is reported, matched or not, and shows up server-side.
       relay('in', String(url), 'GHQ_DIAG socket_opened matched=' + isCapturedUrl(String(url)));
-      try { if (isCapturedUrl(String(url))) ws.addEventListener('message', teeEvent); } catch (e) { /* ignore */ }
+      try {
+        if (isCapturedUrl(String(url))) {
+          ws.addEventListener('message', teeEvent);
+          // Kept for the popup's Resync: closing the live socket makes ESPN's
+          // client reconnect, and a reconnect re-sends the full INIT ledger.
+          window.__GHQ_LAST_SOCKET__ = ws;
+        }
+      } catch (e) { /* ignore */ }
       return ws;
     };
     Patched.prototype = Orig.prototype;

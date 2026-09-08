@@ -32,6 +32,8 @@ server/data/tree-lab/
 server/data/role-scenario-lab/
 server/data/book-lag-lab/
 server/data/evidence-datasets/
+server/data/news-event-impact/
+server/data/expert-selector-lab/
 research/__pycache__/
 research/.venv/
 research/catboost_info/

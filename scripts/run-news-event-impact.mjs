@@ -15,11 +15,20 @@
  *   node scripts/run-news-event-impact.mjs impact  [--market spreads]
  *   node scripts/run-news-event-impact.mjs controls
  */
-import { extractNewsEventsFromItems, extractPressConferenceRoleSignals, newsEventCoverage,
-  verifyNewsEventProvenance } from '../server/services/nfl-news-events.js';
-import { buildImpactDataset, evaluateModels, irrelevantTeamControl, duplicateArticleControl,
-  timeShiftedFutureControl, freezeImpactRun } from '../server/services/nfl-news-event-impact.js';
+import { runMigrations } from '../server/db/migrate.js';
 import { rows } from '../server/db/index.js';
+
+// Migrations MUST run before these modules are imported, not after. Both
+// prepare statements against their own tables at module scope (see
+// nfl-news-events.js's `insertEvent`), so a static import on a database that
+// has not yet applied migration 019 throws "no such table: nfl_news_events"
+// before a single API call is made. Dynamic import, after the await, is what
+// keeps that ordering honest.
+await runMigrations();
+const { extractNewsEventsFromItems, extractPressConferenceRoleSignals, newsEventCoverage,
+  verifyNewsEventProvenance } = await import('../server/services/nfl-news-events.js');
+const { buildImpactDataset, evaluateModels, irrelevantTeamControl, duplicateArticleControl,
+  timeShiftedFutureControl, freezeImpactRun } = await import('../server/services/nfl-news-event-impact.js');
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'impact';

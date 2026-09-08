@@ -525,9 +525,16 @@ package. In priority order:
    manifest schema (Package I's territory), logged alongside the existing
    leakage scan — genuinely new capability, not present in either project
    today in this project's form.
-5. **A canonical OOF-isolation statement** (Part 3.5) added to the master
-   plan once, referenced by future package declarations instead of
-   re-derived each time.
+5. ~~**A canonical OOF-isolation statement**~~ — **done.** Added to the master
+   plan's "Acceptance and release" section as **`OOF-1`**, an eight-clause
+   rule that package declarations now cite rather than paraphrase, with the
+   Agent operating contract pointing at it. It came out stronger than the
+   per-package restatements it replaces: it makes the week the group unit for
+   every interval, purges on label settlement rather than kickoff, states
+   explicitly that **risk rules are not exempt** from out-of-fold discipline,
+   that selection is fitting, and that a stacker inherits its inputs'
+   guarantee and cannot exceed it. Package F's experience motivated the last
+   two clauses directly.
 6. **Parked, not rejected**: player-tracking GNN stream (blocked on an
    actual accessible data source — revisit only if one is identified),
    public-action-coefficient bias correction (blocked on a public-bet-

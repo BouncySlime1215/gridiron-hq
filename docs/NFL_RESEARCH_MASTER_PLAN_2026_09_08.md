@@ -69,6 +69,8 @@ One integration owner assigns bounded packages below. Separate worktrees for age
 
 Every experiment must specify: economic hypothesis, exact market/side/line/book, decision horizon, data publication times, target/label time, baseline, model search budget, split policy, all attempted trials, selection rule, costs, failure criteria and artifacts. Record the declaration before seeing its evaluation. Previously opened 2022–2025 data stays research forever; reserve new forward blocks prospectively.
 
+The split policy is declared by **citing `OOF-1`** (see "Acceptance and release"), not by restating it. Cite the rule, then declare only what your package adds on top of it — the block boundaries, the embargo margin, the group unit if it is finer than a week. If you find yourself writing out the isolation rule in your own words, you are about to weaken it.
+
 Every agent returns: what changed; what it depends on; what genuinely ran; results including negatives; tests; source/license provenance; rollback; and a short explanation for Nick. Do not call a stub, permission gate, future-data dependency or merely registered run “complete.” Do not add another top-level navigation section for each experiment.
 
 ### A — Evidence and exact contracts (first dependency)
@@ -216,6 +218,21 @@ A public schedule CSV was downloaded and pinned by commit and SHA-256 during thi
 ## Acceptance and release
 
 An idea moves through: specified → data-qualified → implemented → historical diagnostic → frozen forward → evaluated → eligible for review. There is no shortcut from a good backtest to production authority.
+
+### OOF-1 — the out-of-fold isolation rule
+
+Every package's split policy previously restated some version of this rule in its own words. That is how a subtly weaker version gets adopted by accident. **This is the canonical statement. A package declaration cites `OOF-1`; it does not paraphrase it.** A declaration may strengthen the rule and must say how. A package that genuinely needs something weaker must name the specific clause it is relaxing and defend it in the declaration, before evaluation — never in the write-up afterwards.
+
+1. **Splits are chronological, never shuffled.** Test blocks are strictly later than training blocks. Random k-fold over a pooled set of games is not an acceptable estimate of skill on this data at any sample size.
+2. **The group unit is the week, not the game.** Games in a week share weather regimes, injury news cycles, rest patterns and a common market state. Any resampling, bootstrap or confidence interval clusters on the week. A row-level bootstrap overstates significance and is not a valid interval here.
+3. **Purge on label settlement time, not on kickoff.** A training row is admissible only if its label had already settled before the earliest *decision* time in the test block, with an explicit embargo margin. A game that finished on Monday night is not training data for a decision made on Sunday morning, even though its season is "earlier."
+4. **A feature carries the value that was observable at that row's decision time.** Not the value published at that time, and not the currently stored value: what this system would actually have held, including retrieval and availability delay. Revisions are kept as revisions; the latest value never silently backfills an earlier row.
+5. **Everything fitted downstream of a model is also out-of-fold.** Calibrators, shrinkage, devig parameters, meta-learners and stackers, decision thresholds, staking coefficients and risk rules are fitted only on out-of-fold predictions from strictly earlier blocks. **Risk management is not exempt.** A corridor width or a downsize coefficient tuned on the same data it is evaluated on is exactly as overfit as a model tuned that way, and is more dangerous because it wears the costume of caution.
+6. **Selection is fitting.** Choosing among trials, model families, hyperparameters, regularization strengths, feature sets or gate configurations consumes the same statistical budget as fitting a coefficient. The number of trials attempted is declared, all of them are preserved, and the selection rule is written down before the results are seen.
+7. **Stacking inherits the guarantee of its inputs, and cannot exceed it.** A stacker over per-row held-out predictions must itself be fit chronologically across the blocks those predictions came from. Fitting a meta-learner on all seasons at once and reporting its in-sample fit reintroduces precisely the leak the base models avoided. Where the inputs carry a stronger guarantee than shuffled out-of-fold — as `research/tree_lab.py`'s `emit_oof` does, fitting each candidate only on strictly earlier seasons under a settled-label cutoff — that stronger guarantee is stated, not rounded down to "OOF."
+8. **A backfilled or simulated cutoff is labelled as such on every result derived from it.** "Retrospective backfill: cutoff-simulated" is not a footnote to be dropped in a summary. Only rows frozen at a real decision time count as forward evidence.
+
+The rule exists because the failure it prevents is invisible in the metric. A leak does not announce itself; it shows up as a good number.
 
 Use chronological, clustered estimates of predictive skill, calibration, execution-adjusted returns and price movement. Preserve all attempted strategies; correct family comparisons and distinguish exploratory from confirmatory work. Repeatedly checking a fixed-sample confidence interval until it turns positive is not a valid stopping rule. Predeclare the forward endpoint or adopt a valid sequential method. A bootstrap of selected winners does not undo selection bias.
 

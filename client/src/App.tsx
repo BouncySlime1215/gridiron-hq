@@ -5,7 +5,8 @@ import { LeagueProvider } from './state/league';
 import LeagueSwitcher from './components/LeagueSwitcher';
 import DevHub from './components/DevHub';
 import RefreshAll from './components/RefreshAll';
-import QuickJump, { destinationLabel } from './components/QuickJump';
+import QuickJump from './components/QuickJump';
+import { NAV_GROUPS, destinationLabel } from './navigation';
 import EspnConnectGate from './components/EspnConnectGate';
 import DataSetupBanner from './components/DataSetupBanner';
 import { Skeleton } from './components/ui/DesignSystem';
@@ -43,35 +44,9 @@ const NflAutoPicks = lazy(() => import('./pages/betting/NflAutoPicks'));
 const DataHealth = lazy(() => import('./pages/DataHealth'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
-type NavItem = { to: string; label: string; icon: string; end?: boolean; live?: boolean };
-const NAV_GROUPS: { label: string; question: string; items: NavItem[] }[] = [
-  { label: 'Fantasy', question: 'Manage my team', items: [
-    { to: '/', label: 'Command Center', icon: 'H', end: true },
-    { to: '/league', label: 'League Hub', icon: 'L' },
-    { to: '/draft', label: 'Draft', icon: 'D', live: true },
-    { to: '/players', label: 'Players', icon: 'P' },
-    { to: '/trade-lab', label: 'Trade Lab', icon: 'T' },
-    { to: '/lineup', label: 'Start/Sit', icon: 'S' },
-    { to: '/brain', label: 'League Brain', icon: 'B' },
-    { to: '/trends', label: 'Trends', icon: 'W' }
-  ]},
-  { label: 'Intelligence', question: 'Understand football', items: [
-    { to: '/news', label: 'News', icon: 'N' },
-    { to: '/teams', label: "X's & O's", icon: 'X' },
-    { to: '/matchups', label: 'Matchups', icon: 'M' }
-  ]},
-  { label: 'Betting', question: 'Track the market', items: [
-    { to: '/betting', label: 'Betting Desk', icon: 'B', end: true },
-    { to: '/betting/nfl', label: 'NFL', icon: 'N' },
-    { to: '/betting/mlb/auto', label: 'MLB', icon: 'M' }
-  ]},
-  { label: 'Lab', question: 'Verify the model', items: [
-    { to: '/model', label: 'The Model', icon: 'M' },
-    { to: '/lab', label: 'Accuracy & Experiments', icon: 'A' },
-    { to: '/data-health', label: 'Data Health', icon: 'H' },
-    { to: '/settings', label: 'Settings', icon: 'S' }
-  ]}
-];
+// NAV_GROUPS moved to src/navigation.ts so the command palette can render the
+// same destinations the sidebar does. They were two hand-maintained lists of
+// the same thing and had already drifted by five pages.
 
 function RouteSkeleton() {
   return <div className="mx-auto max-w-[1440px] space-y-4" aria-label="Loading page"><Skeleton className="h-9 w-72" /><Skeleton className="h-4 w-[min(560px,90%)]" /><div className="grid gap-4 md:grid-cols-3"><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /></div><Skeleton className="h-80" /></div>;

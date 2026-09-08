@@ -7,13 +7,15 @@ import { latestRoleScenarioExperiment } from './role-scenario-lab.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const parse = value => { try { return JSON.parse(value); } catch { return null; } };
-// Each lab's report gained one additive, optional `model_discipline` block
-// (research/model_discipline.py) and bumped its own schema to -v2 so a consumer
-// can tell "this run had no discipline checks" from "this run predates them".
-// Both versions are accepted on purpose: the frozen reports already on disk are
-// evidence from real runs, and invalidating them to display a new block would
-// trade real evidence for a cosmetic gain.
-const schemaIn = (report, ...accepted) => accepted.includes(report?.schema);
+// A report's schema is versioned, and readers here accept EVERY version they
+// understand rather than only the newest. When research/model_discipline.py's
+// ratio check and research/drift.py's distributional-drift scan were added,
+// each of the four labs went to -v2. The -v1 reports already on disk are
+// frozen evidence from real runs; they simply have neither block. Pinning
+// these readers to -v2 would have silently dropped that evidence from the
+// page, which is worse than not having the new checks at all -- a research
+// workspace that hides a result it cannot fully parse is lying by omission.
+const readSchema = (report, accepted) => (report && accepted.includes(report.schema)) ? report : null;
 const disciplineOf = report => {
   const d = report?.model_discipline;
   if (!d) return null;
@@ -27,6 +29,37 @@ const disciplineOf = report => {
       effective_n: f.effective_n, parameters: f.parameters, observed_ratio: f.observed_ratio,
       required_ratio: f.required_ratio, reason: f.reason })) };
 };
+// The drift block is projected identically wherever it appears, so a reader
+// change only has to happen once. `null` for a v1 report is the honest answer:
+// the run predates the check, which is different from the check finding
+// nothing. The UI distinguishes the two.
+const projectDrift = scans => Array.isArray(scans) ? scans.map(s => ({
+  label: s.label ?? null, market: s.market ?? null, score_season: s.score_season ?? null,
+  version: s.version ?? null, skipped: !!s.skipped, reason: s.reason ?? null,
+  n_train: s.n_train ?? null, n_score: s.n_score ?? null, bins_used: s.bins_used ?? null,
+  calibration_weak: !!s.calibration_weak,
+  psi_noise_p95: s.psi_noise_reference?.p95_under_no_drift ?? null,
+  league_reference: s.league_reference ?? null,
+  // Carried verbatim: the reason this project does not use PSI's textbook
+  // 0.1/0.25 cut is evidence a reader is entitled to see, not a hidden
+  // implementation choice.
+  conventional_thresholds_rejected: s.conventional_psi_thresholds_rejected ?? null,
+  flagged: s.flagged ?? [], elevated: s.elevated ?? [], market_regime_shifts: s.market_regime_shifts ?? [],
+  joint: s.joint ?? null, summary: s.summary ?? null,
+  // Only the movers are sent to the browser; the full per-feature table stays
+  // in the report on disk. A frozen run has ~86 features x 6 folds and the
+  // page needs the ones that actually moved, not all of them.
+  top_features: (s.features ?? [])
+    .filter(f => f.psi != null && f.verdict !== 'stable')
+    .sort((a, b) => (b.psi ?? 0) - (a.psi ?? 0)).slice(0, 12)
+    .map(f => ({ feature: f.feature, role: f.role, psi: f.psi,
+      psi_binning_spread: f.psi_binning_spread ?? null,
+      wasserstein_normalized: f.wasserstein_normalized ?? null,
+      mean_shift_in_train_sd: f.mean_shift_in_train_sd ?? null,
+      available_rate_train: f.available_rate_train ?? null,
+      available_rate_score: f.available_rate_score ?? null,
+      verdict: f.verdict, verdict_reason: f.verdict_reason ?? null }))
+})) : null;
 const exists = table => rows("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).length > 0;
 const optional = (table, sql) => exists(table) ? rows(sql) : [];
 
@@ -50,8 +83,9 @@ export async function researchLabStatus() {
     error: parse(r.final_json)?.error ?? null } : null;
   let experiment = null, reportError = null;
   try {
-    experiment = parse(await fs.readFile(path.join(root, 'server/data/market-lab/latest.json'), 'utf8'));
-    if (!schemaIn(experiment, 'market-lab-v1', 'market-lab-v2')) { experiment = null; reportError = 'Unrecognized or invalid research report'; }
+    experiment = readSchema(parse(await fs.readFile(path.join(root, 'server/data/market-lab/latest.json'), 'utf8')),
+      ['market-lab-v1', 'market-lab-v2']);
+    if (!experiment) reportError = 'Unrecognized or invalid research report';
   } catch (error) { if (error.code !== 'ENOENT') reportError = 'Research report could not be read'; }
   // The Package C extension (research/tree_lab.py) writes a SEPARATE report
   // under its own schema (tree-lab-v1) rather than reshaping market-lab-v1:
@@ -61,13 +95,15 @@ export async function researchLabStatus() {
   // the other.
   let treeExperiment = null, treeReportError = null;
   try {
-    treeExperiment = parse(await fs.readFile(path.join(root, 'server/data/tree-lab/latest.json'), 'utf8'));
-    if (!schemaIn(treeExperiment, 'tree-lab-v1', 'tree-lab-v2')) { treeExperiment = null; treeReportError = 'Unrecognized or invalid extended research report'; }
+    treeExperiment = readSchema(parse(await fs.readFile(path.join(root, 'server/data/tree-lab/latest.json'), 'utf8')),
+      ['tree-lab-v1', 'tree-lab-v2']);
+    if (!treeExperiment) treeReportError = 'Unrecognized or invalid extended research report';
   } catch (error) { if (error.code !== 'ENOENT') treeReportError = 'Extended research report could not be read'; }
   let bookLagLab = null, bookLagLabError = null;
   try {
-    bookLagLab = parse(await fs.readFile(path.join(root, 'server/data/book-lag-lab/latest.json'), 'utf8'));
-    if (!schemaIn(bookLagLab, 'book-lag-lab-v1', 'book-lag-lab-v2')) { bookLagLab = null; bookLagLabError = 'Unrecognized or invalid book-lag report'; }
+    bookLagLab = readSchema(parse(await fs.readFile(path.join(root, 'server/data/book-lag-lab/latest.json'), 'utf8')),
+      ['book-lag-lab-v1', 'book-lag-lab-v2']);
+    if (!bookLagLab) bookLagLabError = 'Unrecognized or invalid book-lag report';
   } catch (error) { if (error.code !== 'ENOENT') bookLagLabError = 'Book-lag report could not be read'; }
   // Package F (research/expert_selector_lab.py). Its own schema again, for the
   // same reason tree-lab-v1 is not market-lab-v1: a per-substrate,
@@ -75,8 +111,9 @@ export async function researchLabStatus() {
   // either existing reader.
   let expertSelectorLab = null, expertSelectorLabError = null;
   try {
-    expertSelectorLab = parse(await fs.readFile(path.join(root, 'server/data/expert-selector-lab/latest.json'), 'utf8'));
-    if (!schemaIn(expertSelectorLab, 'expert-selector-lab-v1', 'expert-selector-lab-v2')) { expertSelectorLab = null; expertSelectorLabError = 'Unrecognized or invalid expert-selector report'; }
+    expertSelectorLab = readSchema(parse(await fs.readFile(path.join(root, 'server/data/expert-selector-lab/latest.json'), 'utf8')),
+      ['expert-selector-lab-v1', 'expert-selector-lab-v2']);
+    if (!expertSelectorLab) expertSelectorLabError = 'Unrecognized or invalid expert-selector report';
   } catch (error) { if (error.code !== 'ENOENT') expertSelectorLabError = 'Expert-selector report could not be read'; }
   // Package E (scripts/run-news-event-impact.mjs). Surfaced for the same reason
   // the negative selector result is: this workspace is supposed to show failed
@@ -112,12 +149,18 @@ export async function researchLabStatus() {
         declaration: manifest.declaration, results: manifest.results, verdict: manifest.verdict,
         limitations: manifest.limitations, authority: manifest.authority };
     })(),
-    // The two pass-through reports keep their shape; only the discipline block is
-    // reduced, because its per-fold list runs to dozens of verdicts and the page
-    // renders the summary plus the failures.
-    experiment: experiment && { ...experiment, model_discipline: disciplineOf(experiment) },
+    // The two pass-through reports keep their shape; the discipline block is
+    // reduced (its per-fold list runs to dozens of verdicts, so the page gets
+    // the summary plus the failures) and the full per-feature drift table
+    // (~86 features x every fold) stays on disk in favor of a movers-only
+    // projection. `null` for a v1 report on either means the run predates
+    // that check, which the UI renders differently from the check having run
+    // and found nothing.
+    experiment: experiment && { ...experiment, model_discipline: disciplineOf(experiment),
+      drift_scans: projectDrift(experiment.drift_scans) },
     report_error: reportError,
-    tree_experiment: treeExperiment && { ...treeExperiment, model_discipline: disciplineOf(treeExperiment) },
+    tree_experiment: treeExperiment && { ...treeExperiment, model_discipline: disciplineOf(treeExperiment),
+      drift_scans: projectDrift(treeExperiment.drift_scans) },
     tree_report_error: treeReportError,
     book_lag_lab: (() => {
       if (!bookLagLab) return null;
@@ -131,6 +174,13 @@ export async function researchLabStatus() {
         next_move: bookLagLab.next_move, time_to_follow: bookLagLab.time_to_follow,
         delay_survival: bookLagLab.delay_survival, opportunity_routing: bookLagLab.opportunity_routing,
         model_discipline: disciplineOf(bookLagLab),
+        // A declined scan, not a missing one: this lab's tape spans one NFL
+        // week with no training/scoring season pair to compare, so the scan is
+        // a small self-explaining decline object (see book_lag_lab.py's `run`)
+        // rather than the {features, flagged, ...} shape scan_lab_fold
+        // produces. `null` on a v1 report means the run predates the decision
+        // to record that decline at all.
+        drift_scan: bookLagLab.drift_scan ?? null,
         verdict: bookLagLab.verdict, limitations: bookLagLab.limitations,
         split_policy_limitation: bookLagLab.protocol?.split_policy?.declared_limitation ?? null
       };
@@ -159,6 +209,11 @@ export async function researchLabStatus() {
           families: r.families, family_note: r.family_note,
           top_correlations: (r.top_correlations ?? []).slice(0, 8),
           verdict: r.verdict, model_discipline: disciplineOf(r),
+          // `null` on a v1 report means the run predates the drift check;
+          // absent below covers a v2 substrate whose own folds were all too
+          // small to scan (e.g. a single training season) rather than never
+          // having been asked.
+          drift_scans: r.drift_scans !== undefined ? projectDrift(r.drift_scans) : null,
           folds: (r.trials ?? []).flatMap(t => (t.folds ?? []).map(f => ({
             trial: t.label, test_season: f.test_season, test_rows: f.test_rows,
             train_rows: f.train_rows, alpha: f.alpha,

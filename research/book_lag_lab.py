@@ -128,8 +128,11 @@ from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
 from model_discipline import check_fold, record, summarize
+from drift import DRIFT_VERSION
 
-# v2 adds one additive, optional `model_discipline` block. The reader in
+# v2 adds two additive blocks: `model_discipline` and `drift_scan`. This lab
+# records a DECLINE for drift rather than a drift number, and the reason is
+# the finding: see the drift_scan block in run(). The reader in
 # server/services/nfl-research-lab.js accepts v1 and v2 alike, so an
 # already-frozen v1 report keeps rendering instead of being invalidated.
 VERSION = 'book-lag-lab-v2'
@@ -999,6 +1002,24 @@ def run(args):
         'lead_lag_matrix': matrix, 'next_move': target1, 'time_to_follow': target2,
         'delay_survival': target3, 'opportunity_routing': routing,
         'model_discipline': {**summarize(discipline), 'folds': discipline},
+        # The distributional-drift scan (research/drift.py) is DECLINED here
+        # rather than run, and the decline is itself the honest answer. That
+        # scan compares the population a model was fitted on against the one it
+        # is scoring, and calibrates "abnormal" against how much a feature
+        # normally moves across an NFL SEASON BOUNDARY. This lab's tape spans
+        # one week and its cross-validation is GroupKFold on the game, not a
+        # chronological season split -- there is no training season and no
+        # scoring season to compare, and no season boundary to calibrate
+        # against. Running the scan anyway would produce a number with no
+        # reference distribution behind it, which is worse than no number.
+        # It becomes applicable the moment this tape spans two seasons.
+        'drift_scan': {
+            'version': DRIFT_VERSION, 'skipped': True, 'applicable': False,
+            'reason': ('This lab\'s tape spans a single NFL week with a GroupKFold-on-game split, so it '
+                       'has no training-season/scoring-season pair to compare and no season boundary to '
+                       'calibrate against. A drift statistic computed here would have no reference '
+                       'distribution behind it. Applicable once the quote tape spans two seasons.'),
+            'becomes_applicable_when': 'the quote tape covers more than one season'},
         'verdict': overall_verdict, 'per_cell_baseline_failures': verdicts,
         'limitations': [
             'The tape spans one NFL week (48 events, one capture window). Every number here is a pilot, not '

@@ -1,5 +1,27 @@
 import { useApi } from '../../api';
 
+type DriftFeature = {
+  feature: string; role: string; psi: number | null;
+  psi_binning_spread: number | null; wasserstein_normalized: number | null;
+  mean_shift_in_train_sd: number | null;
+  available_rate_train: number | null; available_rate_score: number | null;
+  verdict: string; verdict_reason: string | null;
+};
+type DriftScan = {
+  label: string | null; market: string | null; score_season: number | null;
+  version: string | null; skipped: boolean; reason: string | null;
+  n_train: number | null; n_score: number | null; bins_used: number | null;
+  calibration_weak: boolean; psi_noise_p95: number | null;
+  league_reference: Record<string, { source: string; weak: boolean; observations: number; p95: number | null; note?: string }> | null;
+  conventional_thresholds_rejected: { values: number[]; reason: string } | null;
+  flagged: string[]; elevated: string[]; market_regime_shifts: string[];
+  joint: { skipped: boolean; auc?: number; permutation_null_p95?: number; verdict?: string; note?: string; reason?: string } | null;
+  summary: string | null;
+  top_features: DriftFeature[];
+};
+// book_lag_lab's tape is one NFL week with no season pair to compare, so its
+// drift block is a small self-explaining decline rather than a DriftScan.
+type DriftDecline = { version: string; skipped: true; applicable: false; reason: string; becomes_applicable_when: string };
 type Score = { games: number; paper_bets: number; mae: number; no_move_mae: number; mean_clv: number | null; roi: number | null; roi_interval: number[] | null };
 type Fold = Score & { season: number; selected: string; tpot_trials: number; candidates: (Score & { name: string; inner_mae: number })[] };
 interface Lab {
@@ -9,13 +31,14 @@ interface Lab {
   warehouse: { archive: { rows: number; games: number } | null; forward: { decisions: number; settled: number | null } | null; expert_forward: { predictions: number; games: number } | null };
   report_error: string | null;
   packages: { id: string; title: string; state: string; risk: string; purpose: string }[];
-  experiment: { run_id: string; status: string; progress?: string; rows: number; features: string[]; limitations: string[]; errors: string[]; markets: { market: string; folds: Fold[]; pooled: Score }[]; dataset_hash: string; code_hash: string } | null;
+  experiment: { run_id: string; status: string; progress?: string; rows: number; features: string[]; limitations: string[]; errors: string[]; markets: { market: string; folds: Fold[]; pooled: Score }[]; dataset_hash: string; code_hash: string; drift_scans: DriftScan[] | null } | null;
   book_lag_lab: {
     run_id: string; dataset_hash: string; events: number; books: number; native_step_seconds: number | null;
     hawkes_attempted: boolean; hawkes_verdict: string | null;
     lead_lag_by_book: Record<string, { confirmed_leads: number; confirmed_follows: number; leader_share: number | null; readable: boolean }>;
     delay_survival: Record<string, { readable: boolean; delay_survival?: Record<string, { survival_probability: number | null; extrapolated: boolean }> }>;
     opportunity_routing: { counts: Record<string, number> } | null;
+    drift_scan: DriftDecline | null;
     verdict: string; limitations: string[]; split_policy_limitation: string | null;
   } | null;
   book_lag_lab_error: string | null;
@@ -46,6 +69,7 @@ type SelectorSubstrate = {
   verdict: { any_trial_passed: boolean; statement: string; trials_meeting_declared_rule: string[];
     trials_meeting_rule_on_secondary_mse_metric: string[];
     significantly_worse_than_market: { trial: string; test_season: number; mean_gain_vs_market: number }[] };
+  drift_scans: DriftScan[] | null;
   folds: SelectorFold[];
   expert_contribution: { expert: string; mean_weight: number | null; never_selected: boolean | null;
     mae_increase_when_removed_by_fold: number[] | null; note: string | null }[];
@@ -70,6 +94,7 @@ interface TreeLab {
   run_id: string; status: string; rows: number; features: string[]; dataset_hash: string; code_hash: string;
   wall_clock_seconds?: number; errors: string[]; limitations: string[];
   markets: TreeMarketBlock[]; leakage_scans: LeakageScan[]; ranker: RankerResult[]; market_anchored_logit: LogitResult[];
+  drift_scans: DriftScan[] | null;
 }
 const label = (s: string) => s.replaceAll('_', ' ');
 const number = (n: number | null | undefined, digits = 2) => n == null ? 'Unavailable' : n.toFixed(digits);
@@ -109,6 +134,7 @@ export default function ResearchLab() {
           <details className="mt-4 text-sm"><summary className="cursor-pointer font-semibold text-slate-600">Open technical results</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[360px] text-left text-xs"><thead><tr className="border-b text-slate-400"><th className="p-2">Year / candidate</th><th className="p-2">Line error</th><th className="p-2">Paper bets</th><th className="p-2">Paper return</th></tr></thead><tbody>{m.folds.flatMap(f => f.candidates.map(c => <tr key={`${f.season}-${c.name}`} className="border-b border-slate-100"><td className="p-2">{f.season} / {label(c.name)}</td><td className="p-2">{number(c.mae)}</td><td className="p-2">{c.paper_bets}</td><td className="p-2">{c.roi == null ? 'No bets' : `${(c.roi * 100).toFixed(1)}%`}</td></tr>))}</tbody></table></div><p className="mt-2 text-xs leading-5 text-slate-500">Candidate selection used earlier-fold error, not these returns. Archived quotes do not prove fills. Previously studied seasons are development data.</p></details>
         </div>)}</div>
         {run.errors.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-900">{run.errors.length} search or data issues — not successful runs</summary><ul className="mt-2 space-y-1 text-xs text-amber-900">{run.errors.map((e,i) => <li className="break-words" key={i}>{e}</li>)}</ul></details>}
+        <details className="mt-4 text-sm"><summary className="cursor-pointer font-semibold text-slate-600">Distributional drift scan (train vs. scoring population)</summary><DriftPanel scans={run.drift_scans} /></details>
         <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Limits and reproducibility</summary><ul className="mt-3 list-disc space-y-2 pl-5">{run.limitations.map(l => <li key={l}>{l}</li>)}</ul><div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {run.run_id}<br />Dataset: {run.dataset_hash}<br />Code: {run.code_hash}</div></details>
       </>}
     </section>
@@ -135,6 +161,7 @@ export default function ResearchLab() {
         <details className="mt-4 text-sm"><summary className="cursor-pointer font-semibold text-slate-600">Leakage scan (run against the real dataset)</summary>
           <ul className="mt-2 space-y-1 text-xs text-slate-600">{tree.leakage_scans.map((s, i) => <li key={i}>{s.market} / {s.season} / {s.target}: {s.skipped ? 'skipped (not enough folds)' : s.flagged.length ? <span className="font-bold text-red-700">flagged {s.flagged.join(', ')}</span> : 'no feature flagged as a suspected leak'}</li>)}</ul>
         </details>
+        <details className="mt-3 text-sm"><summary className="cursor-pointer font-semibold text-slate-600">Distributional drift scan (train vs. scoring population)</summary><DriftPanel scans={tree.drift_scans} /></details>
         {tree.errors.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-900">{tree.errors.length} search or data issues — not successful runs</summary><ul className="mt-2 space-y-1 text-xs text-amber-900">{tree.errors.map((e, i) => <li className="break-words" key={i}>{e}</li>)}</ul></details>}
         <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Limits and reproducibility</summary><ul className="mt-3 list-disc space-y-2 pl-5">{tree.limitations.map(l => <li key={l}>{l}</li>)}</ul><div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {tree.run_id}<br />Dataset: {tree.dataset_hash}<br />Code: {tree.code_hash}</div></details>
       </>}
@@ -147,6 +174,7 @@ export default function ResearchLab() {
       {!data.book_lag_lab ? <p className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-500">No saved run yet. `python research/book_lag_lab.py` writes a report here.</p> : <>
         <p className="mt-3 text-xs text-slate-500">{data.book_lag_lab.events} events · {data.book_lag_lab.books} books · native poll gap ≈ {data.book_lag_lab.native_step_seconds ? Math.round(data.book_lag_lab.native_step_seconds / 60) : '?'} min</p>
         <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{data.book_lag_lab.verdict}</p>
+        <DriftDeclinePanel decline={data.book_lag_lab.drift_scan} />
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Book relationship explorer</div>
@@ -241,6 +269,7 @@ export default function ResearchLab() {
               </table></div>
               <p className="mt-2 text-xs leading-5 text-slate-500">"Never selected" is a real finding about this evidence, not a reason to delete an expert: a weak standalone forecast may still carry conditional information that a later, larger sample can surface.</p>
             </details>
+            <details className="mt-2 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Distributional drift · expert predictions and coverage</summary><DriftPanel scans={r.drift_scans} /></details>
           </div>)}
         </div>
         <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Declaration, baselines and known limitations</summary>
@@ -262,4 +291,38 @@ export default function ResearchLab() {
 }
 function Card({ title, value, detail }: { title: string; value: string; detail: string }) {
   return <div className="rounded-xl border border-slate-200 bg-white p-5"><div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{title}</div><div className="mt-2 text-xl font-black text-slate-900">{value}</div><p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p></div>;
+}
+// Has the population a model was fitted on stopped resembling the one it now
+// scores? research/drift.py answers that per fold; this renders its report.
+// `null` means the run predates the check -- shown differently from the check
+// having run and found nothing, because those are different facts.
+function DriftPanel({ scans }: { scans: DriftScan[] | null }) {
+  if (!scans) return <p className="mt-3 text-xs text-slate-500">This report predates the distributional-drift check.</p>;
+  if (scans.length === 0) return <p className="mt-3 text-xs text-slate-500">No fold had enough rows on both sides of a train/score comparison to scan.</p>;
+  return <div className="mt-3 space-y-3">{scans.map((s, i) => <div key={i} className="rounded-lg border border-slate-200 p-3">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <span className="font-mono text-xs text-slate-600">{s.label ?? [s.market, s.score_season].filter(Boolean).join('/')}</span>
+      {s.calibration_weak && <span title="Fewer than two seasons in the training window, so there is no NFL season boundary to calibrate against; this fold falls back to the analytic sampling-noise floor." className="cursor-help rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">calibration weak</span>}
+    </div>
+    {s.skipped ? <p className="mt-2 text-xs text-slate-500">Skipped — {s.reason}</p> : <>
+      <p className="mt-2 text-xs leading-5 text-slate-600">{s.summary}</p>
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+        {s.flagged.length > 0 && <span className="rounded-full bg-red-100 px-2 py-0.5 font-bold text-red-800">{s.flagged.length} abnormal: {s.flagged.slice(0, 5).join(', ')}{s.flagged.length > 5 ? '…' : ''}</span>}
+        {s.elevated.length > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-800">{s.elevated.length} elevated</span>}
+        {s.market_regime_shifts.length > 0 && <span className="rounded-full bg-sky-100 px-2 py-0.5 font-bold text-sky-800">{s.market_regime_shifts.length} market repriced</span>}
+        {s.joint && !s.joint.skipped && <span className="rounded-full bg-slate-100 px-2 py-0.5 font-bold text-slate-700">joint check: {s.joint.verdict?.replaceAll('_', ' ')} (AUC {number(s.joint.auc, 3)} vs. null {number(s.joint.permutation_null_p95, 3)})</span>}
+      </div>
+      {s.top_features.length > 0 && <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold text-slate-500">Moved features ({s.top_features.length})</summary>
+        <div className="mt-2 overflow-x-auto"><table className="w-full min-w-[32rem] text-left text-[11px]">
+          <thead className="text-slate-400"><tr><th className="py-1 pr-2">Feature</th><th className="py-1 pr-2">Role</th><th className="py-1 pr-2">PSI</th><th className="py-1 pr-2">Wasserstein (norm.)</th><th className="py-1 pr-2">Verdict</th></tr></thead>
+          <tbody>{s.top_features.map(f => <tr key={f.feature} className="border-t border-slate-100"><td className="py-1 pr-2 text-slate-700">{f.feature}</td><td className="py-1 pr-2 text-slate-500">{f.role}</td><td className="py-1 pr-2">{number(f.psi, 3)}</td><td className="py-1 pr-2">{number(f.wasserstein_normalized, 3)}</td><td className={`py-1 pr-2 ${f.verdict === 'abnormal' || f.verdict === 'feed_break_suspected' ? 'font-bold text-red-700' : 'text-slate-600'}`} title={f.verdict_reason ?? undefined}>{label(f.verdict)}</td></tr>)}</tbody>
+        </table></div>
+      </details>}
+      {s.conventional_thresholds_rejected && <p className="mt-2 text-[11px] leading-4 text-slate-400">Textbook PSI cutoffs ({s.conventional_thresholds_rejected.values.join('/')}) are not used as the bar here: {s.conventional_thresholds_rejected.reason}</p>}
+    </>}
+  </div>)}</div>;
+}
+function DriftDeclinePanel({ decline }: { decline: DriftDecline | null }) {
+  if (!decline) return <p className="mt-3 text-xs text-slate-500">This report predates the distributional-drift check.</p>;
+  return <p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600"><span className="font-bold uppercase tracking-wide text-slate-400">Distributional drift · declined · </span>{decline.reason}<span className="mt-1 block text-slate-400">Becomes applicable when {decline.becomes_applicable_when}.</span></p>;
 }

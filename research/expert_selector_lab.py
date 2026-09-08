@@ -75,8 +75,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 import numpy as np
 from scipy.optimize import minimize
+from drift import detect_distribution_drift
 
-VERSION = 'expert-selector-lab-v1'
+# Bumped from expert-selector-lab-v1 when `drift_scans` was added per substrate.
+# The reader in server/services/nfl-research-lab.js accepts both versions: the
+# frozen v1 report on disk (a real run, and a negative result) is evidence and
+# must keep rendering; it simply has no drift block.
+VERSION = 'expert-selector-lab-v2'
 SEED = 83017
 
 # Correlation at or above this merges two experts into one family. Deliberately
@@ -586,7 +591,13 @@ def declaration(substrates):
             'TPOT is excluded as an expert on the tree substrate: its selected pipeline is a different '
             'architecture in each fold, so it has no stable identity for a weight to attach to.',
             'Council expert rows are deduplicated by newest audit_run_id; the same expert_id across '
-            'older runs may be a different engine version.'],
+            'older runs may be a different engine version.',
+            'A distributional-drift scan (research/drift.py, `drift_scans` per substrate) runs over the '
+            'same season folds walk_forward fits on, scanning each expert\'s prediction distribution and '
+            'its coverage rate. It REPORTS ONLY -- no fold is skipped and no expert is dropped because of '
+            'what it finds. The earliest fold in each substrate has only one training season and so no '
+            'season boundary of its own to calibrate against; its verdicts fall back to the analytic '
+            'noise floor and are marked calibration_weak.'],
         'trials_planned': [
             'global simplex-ridge stacker (bins=1)',
             'gate on disagreement at 2 and 3 bins',
@@ -604,6 +615,86 @@ def declaration(substrates):
             'baselines, split policy and failure criteria are unchanged from the pre-scoring declaration.'),
         'costs': 'no paid feeds, no LLM calls, no wagers; CPU only',
         'artifacts': 'preregistered.json (this file, written before scoring), report.json, latest.json'}
+
+
+# ---------------------------------------------------------------------------
+# Distributional drift (research/drift.py), over exactly walk_forward's own folds
+# ---------------------------------------------------------------------------
+
+def expert_drift_scan(P, mask, columns, seasons, week_keys, label_prefix, random_state=SEED):
+    """Has the population of expert predictions moved between the seasons a
+    fold trains on and the season it scores? Run over the SAME chronological
+    season folds `walk_forward` fits on (train on unique[:k], score on
+    unique[k]), so the drift verdict describes exactly the comparison the
+    selector's own accuracy numbers are made on -- not a re-derived window that
+    could quietly drift from it, the same discipline market_lab.py and
+    tree_lab.py use for their own drift scans.
+
+    Two kinds of column are scanned side by side, because they answer two
+    different questions that neither the selector's MAE nor the leakage scan
+    can:
+
+      - `{expert}_prediction` -- has this expert's own FORECAST distribution
+        moved? Values are masked to NaN wherever `mask` says the expert did not
+        fire that row, so a row where it was simply absent (imputed 0 in `P` by
+        `council_matrix`/`load_tree_oof`) never masquerades as a real
+        prediction of zero; `detect_distribution_drift`'s own finite-value
+        filter then drops exactly those NaNs per column.
+      - `{expert}_available` -- has this expert's COVERAGE collapsed? This is
+        drift.py's own availability-role naming convention
+        (`classify_feature_role`), so a coverage collapse here gets the same
+        tightest treatment -- escalated on the rate itself, without waiting for
+        PSI -- that a dead upstream feed gets in market_lab/tree_lab. This is
+        the failure walk_forward's own accuracy metrics cannot see: an expert
+        that rarely fires can still look fine on the rows it does cover while
+        silently carrying near-zero weight everywhere else.
+
+    `market_only` is excluded from both: it is a constant zero / always-
+    available column by construction (see `council_matrix`), and a drift
+    statistic on a constant is not a finding.
+
+    Like every other drift scan in this project, this REPORTS ONLY: no fold is
+    skipped and no expert is dropped because of what it finds.
+    """
+    experts = [c for c in columns if c != 'market_only']
+    if not experts:
+        return []
+    cols = [columns.index(c) for c in experts]
+    predictions = np.where(mask[:, cols] > 0, P[:, cols], np.nan)
+    availability = mask[:, cols]
+    X = np.column_stack([predictions, availability])
+    names = [f'{c}_prediction' for c in experts] + [f'{c}_available' for c in experts]
+
+    seasons_arr = np.asarray(seasons)
+    unique = sorted({int(s) for s in seasons})
+    scans = []
+    for k in range(1, len(unique)):
+        train_seasons, test_season = unique[:k], unique[k]
+        tr = np.flatnonzero(np.isin(seasons_arr, train_seasons))
+        te = np.flatnonzero(seasons_arr == test_season)
+        # Same minimum fold size walk_forward itself requires before it fits
+        # anything, so a drift scan is never reported for a season the selector
+        # did not actually fit or score.
+        if len(tr) < 60 or len(te) < 20:
+            continue
+        # `week_keys` entries are (season, week) TUPLES. joint_drift_classifier
+        # builds its group array with np.asarray(groups, dtype=object), and
+        # numpy silently collapses a list of same-length tuples into a 2D
+        # array rather than an array of tuple objects -- np.unique then
+        # operates element-wise across season and week instead of grouping by
+        # game-week, which is exactly the row-independence bug OOF-1's group
+        # unit rule exists to prevent. Stringifying each key first is the same
+        # fix market_lab.py and tree_lab.py already use for their own drift
+        # scans (f'{season}-{week}').
+        group_key = lambda i: f'{week_keys[i][0]}-{week_keys[i][1]}'
+        report = detect_distribution_drift(
+            X[tr], X[te], names,
+            train_seasons=seasons_arr[tr], score_season=int(test_season),
+            train_groups=[group_key(i) for i in tr], score_groups=[group_key(i) for i in te],
+            random_state=random_state, label=f'{label_prefix}/{test_season}')
+        report['market'] = label_prefix
+        scans.append(report)
+    return scans
 
 
 # ---------------------------------------------------------------------------
@@ -654,6 +745,11 @@ def run_substrate(name, P, mask, y, columns, context, seasons, week_keys, guaran
         errors.append(f'{name}/contribution failed: {type(e).__name__}: {str(e)[:200]}')
         result['contribution'] = None
     result['verdict'] = verdict_for(result)
+    try:
+        result['drift_scans'] = expert_drift_scan(P, mask, columns, seasons, week_keys, name)
+    except Exception as e:
+        errors.append(f'{name}/drift scan failed: {type(e).__name__}: {str(e)[:200]}')
+        result['drift_scans'] = []
     return result
 
 

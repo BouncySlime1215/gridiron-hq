@@ -82,13 +82,15 @@ export async function researchLabStatus() {
   // the other.
   let treeExperiment = null, treeReportError = null;
   try {
-    treeExperiment = parse(await fs.readFile(path.join(root, 'server/data/tree-lab/latest.json'), 'utf8'));
-    if (treeExperiment?.schema !== 'tree-lab-v1') { treeExperiment = null; treeReportError = 'Unrecognized or invalid extended research report'; }
+    treeExperiment = readSchema(parse(await fs.readFile(path.join(root, 'server/data/tree-lab/latest.json'), 'utf8')),
+      ['tree-lab-v1', 'tree-lab-v2']);
+    if (!treeExperiment) treeReportError = 'Unrecognized or invalid extended research report';
   } catch (error) { if (error.code !== 'ENOENT') treeReportError = 'Extended research report could not be read'; }
   let bookLagLab = null, bookLagLabError = null;
   try {
-    bookLagLab = parse(await fs.readFile(path.join(root, 'server/data/book-lag-lab/latest.json'), 'utf8'));
-    if (bookLagLab?.schema !== 'book-lag-lab-v1') { bookLagLab = null; bookLagLabError = 'Unrecognized or invalid book-lag report'; }
+    bookLagLab = readSchema(parse(await fs.readFile(path.join(root, 'server/data/book-lag-lab/latest.json'), 'utf8')),
+      ['book-lag-lab-v1', 'book-lag-lab-v2']);
+    if (!bookLagLab) bookLagLabError = 'Unrecognized or invalid book-lag report';
   } catch (error) { if (error.code !== 'ENOENT') bookLagLabError = 'Book-lag report could not be read'; }
   // Package F (research/expert_selector_lab.py). Its own schema again, for the
   // same reason tree-lab-v1 is not market-lab-v1: a per-substrate,
@@ -96,8 +98,9 @@ export async function researchLabStatus() {
   // either existing reader.
   let expertSelectorLab = null, expertSelectorLabError = null;
   try {
-    expertSelectorLab = parse(await fs.readFile(path.join(root, 'server/data/expert-selector-lab/latest.json'), 'utf8'));
-    if (expertSelectorLab?.schema !== 'expert-selector-lab-v1') { expertSelectorLab = null; expertSelectorLabError = 'Unrecognized or invalid expert-selector report'; }
+    expertSelectorLab = readSchema(parse(await fs.readFile(path.join(root, 'server/data/expert-selector-lab/latest.json'), 'utf8')),
+      ['expert-selector-lab-v1', 'expert-selector-lab-v2']);
+    if (!expertSelectorLab) expertSelectorLabError = 'Unrecognized or invalid expert-selector report';
   } catch (error) { if (error.code !== 'ENOENT') expertSelectorLabError = 'Expert-selector report could not be read'; }
   // Package E (scripts/run-news-event-impact.mjs). Surfaced for the same reason
   // the negative selector result is: this workspace is supposed to show failed
@@ -133,8 +136,14 @@ export async function researchLabStatus() {
         declaration: manifest.declaration, results: manifest.results, verdict: manifest.verdict,
         limitations: manifest.limitations, authority: manifest.authority };
     })(),
-    experiment, report_error: reportError,
-    tree_experiment: treeExperiment, tree_report_error: treeReportError,
+    // The full per-feature drift table (~86 features x every fold) stays on
+    // disk; only the projected, movers-only view goes to the browser. `null`
+    // for a v1 report means the run predates the drift check, which the UI
+    // renders differently from the check having run and found nothing.
+    experiment: experiment ? { ...experiment, drift_scans: projectDrift(experiment.drift_scans) } : null,
+    report_error: reportError,
+    tree_experiment: treeExperiment ? { ...treeExperiment, drift_scans: projectDrift(treeExperiment.drift_scans) } : null,
+    tree_report_error: treeReportError,
     book_lag_lab: (() => {
       if (!bookLagLab) return null;
       return {
@@ -146,6 +155,13 @@ export async function researchLabStatus() {
         lead_lag_by_book: bookLagLab.lead_lag_matrix?.by_book ?? null,
         next_move: bookLagLab.next_move, time_to_follow: bookLagLab.time_to_follow,
         delay_survival: bookLagLab.delay_survival, opportunity_routing: bookLagLab.opportunity_routing,
+        // A declined scan, not a missing one: this lab's tape spans one NFL
+        // week with no training/scoring season pair to compare, so the scan is
+        // a small self-explaining decline object (see book_lag_lab.py's `run`)
+        // rather than the {features, flagged, ...} shape scan_lab_fold
+        // produces. `null` on a v1 report means the run predates the decision
+        // to record that decline at all.
+        drift_scan: bookLagLab.drift_scan ?? null,
         verdict: bookLagLab.verdict, limitations: bookLagLab.limitations,
         split_policy_limitation: bookLagLab.protocol?.split_policy?.declared_limitation ?? null
       };
@@ -174,6 +190,11 @@ export async function researchLabStatus() {
           families: r.families, family_note: r.family_note,
           top_correlations: (r.top_correlations ?? []).slice(0, 8),
           verdict: r.verdict,
+          // `null` on a v1 report means the run predates the drift check;
+          // absent below covers a v2 substrate whose own folds were all too
+          // small to scan (e.g. a single training season) rather than never
+          // having been asked.
+          drift_scans: r.drift_scans !== undefined ? projectDrift(r.drift_scans) : null,
           folds: (r.trials ?? []).flatMap(t => (t.folds ?? []).map(f => ({
             trial: t.label, test_season: f.test_season, test_rows: f.test_rows,
             train_rows: f.train_rows, alpha: f.alpha,

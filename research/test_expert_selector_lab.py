@@ -10,7 +10,8 @@ import unittest
 import numpy as np
 
 from expert_selector_lab import (simplex_ridge, apply_weights, cluster_families,
-    week_cluster_interval, verdict_for, select_alpha, fit_and_predict, effective_weights)
+    week_cluster_interval, verdict_for, select_alpha, fit_and_predict, effective_weights,
+    expert_drift_scan)
 
 
 class TestEffectiveWeights(unittest.TestCase):
@@ -207,6 +208,83 @@ class TestSplitDiscipline(unittest.TestCase):
             gate_key='disagreement', bins=2, context=context)
         # median of 0..149 is ~74.5, not the median of the full 0..199 range
         self.assertLess(weights['edges'][0], 100.0)
+
+
+def _synthetic_expert_panel(rng, expert_b_availability=(0.95, 0.95, 0.95)):
+    """Three walk-forward seasons of a two-expert-plus-market_only panel, sized
+    to clear walk_forward's own fold minimums (60 train rows, 20 test rows) so
+    a drift scan is actually attempted on every fold, not skipped for size."""
+    season_sizes = {2022: 100, 2023: 100, 2024: 60}
+    P_rows, mask_rows, seasons, week_keys = [], [], [], []
+    for season, n, avail in zip(season_sizes, season_sizes.values(), expert_b_availability):
+        for i in range(n):
+            week = 1 + (i % 17)
+            a = rng.normal()
+            b = rng.normal() if rng.random() < avail else 0.0
+            b_avail = 1.0 if rng.random() < avail else 0.0
+            P_rows.append([a, b if b_avail else 0.0, 0.0])
+            mask_rows.append([1.0, b_avail, 1.0])
+            seasons.append(season)
+            week_keys.append((season, week))
+    return np.array(P_rows), np.array(mask_rows), ['expert_a', 'expert_b', 'market_only'], seasons, week_keys
+
+
+class TestExpertDriftScan(unittest.TestCase):
+    def test_market_only_is_excluded_from_the_scanned_columns(self):
+        """market_only is a constant zero / always-available column by
+        construction (council_matrix); a drift statistic on a constant is not
+        a finding, so it must never appear as a scanned feature name."""
+        rng = np.random.default_rng(1)
+        P, mask, columns, seasons, week_keys = _synthetic_expert_panel(rng)
+        scans = expert_drift_scan(P, mask, columns, seasons, week_keys, 'council', random_state=1)
+        self.assertTrue(scans)
+        for scan in scans:
+            names = [f['feature'] for f in scan.get('features', [])]
+            self.assertNotIn('market_only_prediction', names)
+            self.assertNotIn('market_only_available', names)
+            self.assertIn('expert_a_prediction', names)
+            self.assertIn('expert_a_available', names)
+
+    def test_one_scan_per_walk_forward_fold(self):
+        """Three seasons means two walk-forward folds (train=2022 test=2023;
+        train=2022+2023 test=2024) -- the exact folds walk_forward itself
+        fits on, not a re-derived window."""
+        rng = np.random.default_rng(2)
+        P, mask, columns, seasons, week_keys = _synthetic_expert_panel(rng)
+        scans = expert_drift_scan(P, mask, columns, seasons, week_keys, 'council', random_state=2)
+        self.assertEqual(sorted(s['score_season'] for s in scans), [2023, 2024])
+
+    def test_no_scans_with_only_one_season(self):
+        rng = np.random.default_rng(3)
+        P, mask, columns, seasons, week_keys = _synthetic_expert_panel(rng)
+        one_season = [2022] * len(seasons)
+        scans = expert_drift_scan(P, mask, columns, one_season, week_keys, 'council', random_state=3)
+        self.assertEqual(scans, [])
+
+    def test_an_expert_that_stops_reporting_is_flagged_as_a_feed_break(self):
+        """expert_b's coverage collapses from ~95% to ~5% in the final scored
+        season. This is exactly the failure walk_forward's own MAE cannot see
+        on its own -- the expert can still look fine on the few rows it
+        covers -- and it must be escalated on the availability RATE itself,
+        the same way a dead upstream feed is in market_lab/tree_lab."""
+        rng = np.random.default_rng(4)
+        P, mask, columns, seasons, week_keys = _synthetic_expert_panel(rng, expert_b_availability=(0.95, 0.95, 0.05))
+        scans = expert_drift_scan(P, mask, columns, seasons, week_keys, 'council', random_state=4)
+        final = next(s for s in scans if s['score_season'] == 2024)
+        self.assertIn('expert_b_available', final['flagged'])
+        feature = next(f for f in final['features'] if f['feature'] == 'expert_b_available')
+        self.assertEqual(feature['verdict'], 'feed_break_suspected')
+        # expert_a's coverage never moved and must stay quiet.
+        self.assertNotIn('expert_a_available', final['flagged'])
+
+    def test_stable_coverage_and_predictions_are_not_flagged(self):
+        """Same distribution, same availability rate, every fold: nothing here
+        should read as abnormal drift."""
+        rng = np.random.default_rng(5)
+        P, mask, columns, seasons, week_keys = _synthetic_expert_panel(rng)
+        scans = expert_drift_scan(P, mask, columns, seasons, week_keys, 'council', random_state=5)
+        for scan in scans:
+            self.assertEqual(scan['flagged'], [])
 
 
 if __name__ == '__main__':

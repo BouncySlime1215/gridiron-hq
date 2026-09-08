@@ -90,8 +90,14 @@ export function parseFrame(text) {
       return { type, playerId };
     }
     case 'INIT': {
-      const data = args.join('');
-      if (!data || !/^[A-Za-z0-9+/=_-]+$/.test(data)) return { type: 'UNKNOWN', raw };
+      // Sanitize, don't reject: a live payload can carry a stray non-base64
+      // character (howell/draft-builder saw a literal '#'), and rejecting the
+      // whole snapshot here — before decodeInitLedger's own sanitizer ever
+      // runs — is exactly how a real draft's full pick ledger got filed as
+      // UNKNOWN and truncated to 512 chars on 2026-09-07. Keep every legal
+      // base64 character; the decoder decides whether the result is a ledger.
+      const data = args.join('').replace(/[^A-Za-z0-9+/=_-]/g, '');
+      if (!data) return { type: 'UNKNOWN', raw };
       return { type, data };
     }
     default:
@@ -100,7 +106,12 @@ export function parseFrame(text) {
 }
 
 export const INIT_RECORD_STRIDES = [45, 44, 46, 48];
-const MAX_HEADER_SCAN = 256;
+// A real 2026 INIT opens with a settings block (league id repeated, pick
+// timer ms, roster limits, IEEE doubles for scoring weights) that already ran
+// past 215 bytes before the first record could appear; 256 was too tight a
+// window to ever find the grid behind it. The scan is offset x stride reads
+// over a few-KB buffer, so a wider window costs nothing.
+const MAX_HEADER_SCAN = 4096;
 const MAX_TEAM_ID = 1024;
 
 /**

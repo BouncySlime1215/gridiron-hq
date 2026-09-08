@@ -115,7 +115,10 @@ function storeFrames(draftId, captureId, frames) {
       if (problem) { parseErrors.push({ seq: f?.seq ?? null, error: problem }); continue; }
       const ev = parseFrame(f.data);
       const { type, raw, ...payload } = ev;
-      if (type === 'UNKNOWN') payload.raw = String(raw ?? '').slice(0, 512);
+      // An INIT that failed to parse is still the only full copy of the draft
+      // so far — keep it whole (bounded) so it can be decoded later once the
+      // parser is fixed, instead of losing everything past 512 chars.
+      if (type === 'UNKNOWN') payload.raw = String(raw ?? '').slice(0, /^INIT\b/.test(String(raw ?? '')) ? 65536 : 512);
       const r = db.prepare(`INSERT OR IGNORE INTO draft_capture_events (capture_id, seq, draft_id, ts, dir, type, payload_json)
                             VALUES (?,?,?,?,?,?,?)`)
         .run(captureId, f.seq, draftId, Number.isFinite(f.ts) ? Math.trunc(f.ts) : null, f.dir, type, JSON.stringify(payload));

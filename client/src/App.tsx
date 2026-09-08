@@ -39,6 +39,7 @@ const BettingHome = lazy(() => import('./pages/betting/BettingHome'));
 const MlbBoard = lazy(() => import('./pages/betting/MlbBoard'));
 const MlbHub = lazy(() => import('./pages/betting/MlbHub'));
 const MlbAutoPicks = lazy(() => import('./pages/betting/MlbAutoPicks'));
+const NflAutoPicks = lazy(() => import('./pages/betting/NflAutoPicks'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 type NavItem = { to: string; label: string; icon: string; end?: boolean; live?: boolean };
@@ -155,7 +156,7 @@ export default function App() {
           <Route path="/settings" element={<Settings />} /><Route path="/lab" element={<FantasyLab />} />
           <Route path="/pair" element={<Pair />} />
           <Route path="/betting" element={<BettingHome />} /><Route path="/betting/nfl" element={<NflMarketBoard initialTool="board" />} />
-          <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} />
+          <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} /><Route path="/betting/nfl/auto-picks" element={<NflAutoPicks />} />
           <Route path="/betting/nfl/operations" element={<NflMarketBoard initialTool="operations" />} /><Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} /><Route path="/betting/nfl/forward" element={<NflMarketBoard initialTool="forward" />} />
           <Route path="/betting/nfl/research" element={<NflMarketBoard initialTool="research" />} />
           <Route path="/betting/nfl/watch" element={<NflMarketBoard initialTool="watch" />} />

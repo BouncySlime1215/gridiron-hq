@@ -26,15 +26,6 @@ import { db, rows } from '../db/index.js';
 import { PPR, scoreLine } from './scoring.js';
 import { cholesky, correlatedNormals, normalCdf, mean } from './stats-util.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS correlation_estimates (
-    key TEXT PRIMARY KEY,       -- e.g. 'QB|WR|team'
-    correlation REAL,
-    pairs INTEGER,
-    fitted_at TEXT
-  );
-`);
-
 const POS = ['QB', 'RB', 'WR', 'TE'];
 // Below this many observed pairs an archetype estimate is not worth keeping.
 const MIN_PAIRS = 200;

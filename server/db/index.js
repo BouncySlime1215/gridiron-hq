@@ -15,188 +15,9 @@ db.exec(`
   PRAGMA foreign_keys = ON;
   PRAGMA journal_mode = WAL;
   PRAGMA busy_timeout = 15000;
-
-  CREATE TABLE IF NOT EXISTS nfl_teams (
-    id INTEGER PRIMARY KEY,
-    abbr TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    conference TEXT NOT NULL,
-    division TEXT NOT NULL,
-    head_coach TEXT,
-    oc_name TEXT,
-    dc_name TEXT,
-    off_scheme TEXT,
-    off_scheme_detail TEXT,
-    def_scheme TEXT,
-    def_scheme_detail TEXT,
-    st_coordinator TEXT,
-    ol_analysis TEXT,
-    dl_analysis TEXT,
-    lb_analysis TEXT,
-    secondary_analysis TEXT,
-    st_analysis TEXT,
-    coach_analysis TEXT,
-    primary_color TEXT,
-    secondary_color TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS players (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    position TEXT NOT NULL,
-    team_id INTEGER REFERENCES nfl_teams(id),
-    depth_rank INTEGER DEFAULT 1,
-    slot_code TEXT,
-    phase TEXT DEFAULT 'offense',
-    bye_week INTEGER,
-    fantasy_relevant INTEGER DEFAULT 0,
-    scheme_note TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS ranking_sets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    scoring TEXT DEFAULT 'PPR',
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS ranking_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    set_id INTEGER NOT NULL REFERENCES ranking_sets(id) ON DELETE CASCADE,
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    rank INTEGER NOT NULL,
-    tier INTEGER DEFAULT 1,
-    note TEXT,
-    UNIQUE(set_id, player_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS drafts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL DEFAULT 'mock',
-    team_count INTEGER DEFAULT 12,
-    rounds INTEGER DEFAULT 16,
-    my_slot INTEGER DEFAULT 1,
-    ranking_set_id INTEGER REFERENCES ranking_sets(id),
-    status TEXT DEFAULT 'active',
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS draft_picks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    draft_id INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
-    pick_number INTEGER NOT NULL,
-    team_slot INTEGER NOT NULL,
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(draft_id, pick_number),
-    UNIQUE(draft_id, player_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS espn_settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    league_id TEXT,
-    season INTEGER,
-    team_id INTEGER,
-    espn_s2 TEXT,
-    swid TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS espn_cache (
-    key TEXT PRIMARY KEY,
-    payload TEXT NOT NULL,
-    fetched_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS news_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    team_id INTEGER REFERENCES nfl_teams(id),
-    headline TEXT NOT NULL,
-    body TEXT,
-    ai_analysis TEXT,
-    fantasy_impact TEXT,
-    importance INTEGER DEFAULT 2,
-    source TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
 `);
 
-// lightweight migrations
-const teamCols = db.prepare(`PRAGMA table_info(nfl_teams)`).all().map(c => c.name);
-if (!teamCols.includes('analysis_updated_at')) {
-  db.exec(`ALTER TABLE nfl_teams ADD COLUMN analysis_updated_at TEXT`);
-}
-const playerCols = db.prepare(`PRAGMA table_info(players)`).all().map(c => c.name);
-if (!playerCols.includes('espn_id')) db.exec(`ALTER TABLE players ADD COLUMN espn_id INTEGER`);
-if (!playerCols.includes('sleeper_id')) db.exec(`ALTER TABLE players ADD COLUMN sleeper_id TEXT`);
-if (!playerCols.includes('gsis_id')) db.exec(`ALTER TABLE players ADD COLUMN gsis_id TEXT`);
-
-const dpCols = db.prepare(`PRAGMA table_info(draft_picks)`).all().map(c => c.name);
-if (!dpCols.includes('reason')) db.exec(`ALTER TABLE draft_picks ADD COLUMN reason TEXT`);
-const draftCols = db.prepare(`PRAGMA table_info(drafts)`).all().map(c => c.name);
-if (!draftCols.includes('pick_seconds')) db.exec(`ALTER TABLE drafts ADD COLUMN pick_seconds INTEGER DEFAULT 90`);
-
 db.exec(`
-  CREATE TABLE IF NOT EXISTS leagues (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    platform TEXT NOT NULL,             -- 'espn' | 'sleeper'
-    league_id TEXT NOT NULL,
-    season INTEGER,
-    name TEXT,
-    my_team_id TEXT,
-    espn_s2 TEXT,
-    swid TEXT,
-    team_count INTEGER,
-    ppr REAL DEFAULT 1,
-    superflex INTEGER DEFAULT 0,
-    roster_positions TEXT,              -- JSON array
-    payload TEXT,                       -- cached full league JSON
-    fetched_at TEXT,
-    UNIQUE(platform, league_id, season)
-  );
-
-  CREATE TABLE IF NOT EXISTS draft_grades (
-    draft_id INTEGER PRIMARY KEY REFERENCES drafts(id) ON DELETE CASCADE,
-    grade TEXT, summary TEXT, strengths TEXT, weaknesses TEXT,
-    best_pick TEXT, reach TEXT, generated_at TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS player_analysis (
-    player_id INTEGER PRIMARY KEY REFERENCES players(id),
-    verdict TEXT,                       -- BUY | SELL | HOLD
-    reasoning TEXT,
-    generated_at TEXT
-  );
-
-  -- Dynasty / format-aware market values. Kept separate from player_metrics on
-  -- purpose: FantasyCalc prices per league format (a superflex QB is worth roughly
-  -- double his 1QB value), so values cannot be stored once globally. player_metrics
-  -- keeps serving the redraft 'fc_value' path unchanged.
-  CREATE TABLE IF NOT EXISTS dynasty_values (
-    format_key TEXT NOT NULL,
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    value INTEGER,
-    redraft_value INTEGER,
-    trend30 INTEGER,
-    age REAL,
-    pos_rank INTEGER,
-    fetched_at TEXT,
-    PRIMARY KEY (format_key, player_id)
-  );
-
-  -- Draft pick market values, e.g. pick_key 'FP_2027_1' = "2027 1st".
-  CREATE TABLE IF NOT EXISTS pick_values (
-    format_key TEXT NOT NULL,
-    pick_key TEXT NOT NULL,
-    label TEXT,
-    season INTEGER,
-    round INTEGER,
-    value INTEGER,
-    fetched_at TEXT,
-    PRIMARY KEY (format_key, pick_key)
-  );
-
   CREATE TABLE IF NOT EXISTS schema_migrations (
     name TEXT PRIMARY KEY,
     applied_at TEXT DEFAULT (datetime('now'))
@@ -204,12 +25,13 @@ db.exec(`
 `);
 
 /**
- * Run a one-time, named migration. Schema is still created ad-hoc across ~40
- * route/service files at import time (each idempotent CREATE TABLE IF NOT
- * EXISTS / ALTER TABLE ADD COLUMN) — retroactively centralizing all of that
- * on a database people are actively using is a real but separate, higher-risk
- * project. This is the mechanism new schema changes should use going forward,
- * and what a future centralization would consolidate into.
+ * Run a one-time, named migration. This is the ONLY way schema changes enter
+ * this database now: the ad-hoc `CREATE TABLE IF NOT EXISTS` blocks that used
+ * to run at import time across 122 route/service files were lifted into
+ * server/db/schema/ and are applied by 000_legacy_schema below, then deleted
+ * from those files. `schema_migrations` (above) and `db_health_checks` (below)
+ * are the two exceptions that must still be created here, because they
+ * bootstrap the mechanism that applies everything else.
  */
 export function migrate(name, fn) {
   if (db.prepare('SELECT 1 FROM schema_migrations WHERE name = ?').get(name)) return;
@@ -262,10 +84,12 @@ export function backupBeforeMigration(reason = 'migrations') {
  * Everything that used to be created at import time by 122 service and route
  * files, applied once, here, before any of them can run. On a fresh database
  * this is the whole schema; on an existing one it is an idempotent no-op that
- * only records the marker — those files still carry their own
- * `CREATE TABLE IF NOT EXISTS` copies until phase 2 removes them, so this is
- * deliberately redundant with them for now, not a replacement yet. Proof that
- * the two are equivalent is scripts/schema-snapshot.mjs.
+ * only records the marker. Those files no longer carry their own copies —
+ * phase 2 deleted them — so importing a service can no longer create, alter
+ * or silently redefine a table. scripts/schema-snapshot.mjs is the standing
+ * proof: `--mode baseline` (migrations only, zero service imports) and
+ * `--mode full` (migrations plus every module) must stay byte-identical.
+ * If they ever diverge, some file has started creating schema again.
  */
 if (!db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get(LEGACY_SCHEMA_MIGRATION)) {
   backupBeforeMigration(LEGACY_SCHEMA_MIGRATION);
@@ -309,11 +133,6 @@ if (integrityMode !== 'off') {
     }
   }
 }
-
-const leagueCols = db.prepare(`PRAGMA table_info(leagues)`).all().map(c => c.name);
-// 'redraft' | 'keeper' | 'dynasty' — drives whether we price this league off
-// FantasyCalc's dynasty or redraft value set.
-if (!leagueCols.includes('league_type')) db.exec(`ALTER TABLE leagues ADD COLUMN league_type TEXT`);
 
 // migrate the old single-league espn_settings row into leagues
 const legacy = db.prepare('SELECT * FROM espn_settings WHERE id = 1').get();

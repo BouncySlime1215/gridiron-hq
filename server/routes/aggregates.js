@@ -3,18 +3,9 @@ import { db, rows, row, run } from '../db/index.js';
 import { syncPlayersFromESPN, syncGeneralNews, syncTeamNewsFeed } from './espn.js';
 import { deriveFormat } from '../services/format.js';
 import { recordSync } from '../services/scheduler.js';
-import '../services/espn-market.js'; // creates espn_player_market, joined by computeConsensus()
 import { normalizePlayerName } from '../services/player-identity.js';
 
 const r = Router();
-
-db.exec(`CREATE TABLE IF NOT EXISTS player_metrics (
-  player_id INTEGER NOT NULL REFERENCES players(id),
-  source TEXT NOT NULL,
-  value REAL NOT NULL,
-  fetched_at TEXT DEFAULT (datetime('now')),
-  PRIMARY KEY (player_id, source)
-)`);
 
 // normalize names across platforms: lowercase, strip punctuation and suffixes
 function normName(name) {

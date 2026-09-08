@@ -59,30 +59,6 @@ export const RULES = Object.freeze({
     basis: 'Phase 2: TeamRankings predictive rating vs Pinnacle opener (Wednesday snapshot), +0.55 CLV [0.23, 0.92], 57.7%, n 570 held out, Holm p < 0.01' }
 });
 
-/**
- * One row per rule, tracking retirement — never deleted, only ever written
- * forward. `consecutive_negative_weeks` counts weekly reads in a row whose
- * bootstrap interval sat entirely below zero; two in a row retires the rule.
- * `last_read_season`/`last_read_week` make weeklyRead() idempotent — calling
- * it twice for the same week must not double-count that week's read.
- */
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_rule_state (
-  signal TEXT PRIMARY KEY,
-  consecutive_negative_weeks INTEGER NOT NULL DEFAULT 0,
-  last_read_season INTEGER, last_read_week INTEGER,
-  retired_at TEXT, retired_reason TEXT
-)`);
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_signal_snapshots (
-  captured_at TEXT NOT NULL,
-  season INTEGER NOT NULL, week INTEGER NOT NULL,
-  home TEXT NOT NULL, away TEXT NOT NULL,
-  market TEXT NOT NULL, signal TEXT NOT NULL,
-  value REAL, opener_line REAL, current_line REAL, opener_at TEXT,
-  detail_json TEXT,
-  PRIMARY KEY (captured_at, season, week, home, market, signal)
-)`);
-
 const r3 = v => (Number.isFinite(v) ? +v.toFixed(3) : null);
 const mean = list => (list.length ? list.reduce((s, v) => s + v, 0) / list.length : null);
 

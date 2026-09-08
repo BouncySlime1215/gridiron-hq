@@ -5,19 +5,6 @@ import { recordSync } from '../services/scheduler.js';
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS player_season_stats (
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    season INTEGER NOT NULL,
-    kind TEXT NOT NULL,            -- 'projected' | 'actual'
-    fantasy_points REAL,
-    games INTEGER,
-    raw TEXT,                      -- JSON of the underlying stat map
-    fetched_at TEXT,
-    PRIMARY KEY (player_id, season, kind)
-  );
-`);
-
 // ESPN stat ids we care about (fantasy-relevant box score lines)
 const STAT_LABEL = {
   3: 'passYds', 4: 'passTD', 20: 'int',

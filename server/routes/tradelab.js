@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db, rows, row, run } from '../db/index.js';
+import { rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { vorBoard, volatility } from './edge.js';
 import { deriveFormat } from '../services/format.js';
@@ -332,9 +332,6 @@ Respond with ONLY JSON:
 });
 
 /* ------------------------------------- Sleeper trending adds/drops */
-db.exec(`CREATE TABLE IF NOT EXISTS trending_players (
-  player_id INTEGER PRIMARY KEY, kind TEXT, count INTEGER, fetched_at TEXT
-)`);
 
 r.post('/trending/sync', async (req, res, next) => {
   try {

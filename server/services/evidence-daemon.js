@@ -7,7 +7,7 @@
  * context even when the paid odds feed is absent, reports that gap explicitly,
  * and never creates a retrospective snapshot.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { hasKey, reserveStatus } from './odds-api.js';
 import { snapshotLines } from './line-shopping.js';
 import { capturePregameSnapshots } from './nfl-pregame.js';
@@ -19,22 +19,6 @@ import { captureRiskLabWeek } from './nfl-risk-lab.js';
 import { captureForwardExpertWeek } from './nfl-expert-council.js';
 import { hasKey as hasSgoKey, captureSportsGameOddsSnapshot } from './sportsgameodds.js';
 import { captureBookFeeds } from './book-feeds.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS evidence_capture_windows (
-    sport TEXT NOT NULL, event_key TEXT NOT NULL, event_at TEXT NOT NULL,
-    horizon TEXT NOT NULL, due_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
-    attempts INTEGER NOT NULL DEFAULT 0, last_attempt_at TEXT, captured_at TEXT,
-    detail_json TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (sport,event_key,horizon)
-  );
-  CREATE INDEX IF NOT EXISTS idx_evidence_windows_due
-    ON evidence_capture_windows(status,due_at);
-  CREATE TABLE IF NOT EXISTS evidence_daemon_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT NOT NULL, finished_at TEXT,
-    status TEXT NOT NULL, detail_json TEXT
-  );
-`);
 
 const HORIZONS = [
   ['open', null], ['T-24h', 24 * 60], ['T-6h', 6 * 60],

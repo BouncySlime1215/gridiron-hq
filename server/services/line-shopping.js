@@ -17,28 +17,9 @@
  * never beat the closing line, but always taking the best of nine books is
  * arithmetic, not forecasting.
  */
-import { rows, run, db } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { hasKey, gameOdds } from './odds-api.js';
 import { isFreshQuote } from './book-feeds.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_line_snapshots (
-    captured_at TEXT NOT NULL, event_id TEXT NOT NULL,
-    commence_time TEXT, home_team TEXT, away_team TEXT,
-    book TEXT NOT NULL, market TEXT NOT NULL,
-    side TEXT, line REAL, price INTEGER,
-    PRIMARY KEY (captured_at, event_id, book, market, side)
-  );
-  CREATE INDEX IF NOT EXISTS idx_lines_event ON nfl_line_snapshots(event_id, market);
-`);
-// Provider-agnostic columns. `provider` says which feed wrote the row (the
-// Odds API, SportsGameOdds, or one of the free book feeds); `book_updated_at`
-// is the book's own last-change stamp when the feed exposes one, so a capture
-// whose book last moved four hours earlier is not mistaken for a fresh quote.
-for (const [col, type] of [['provider', 'TEXT'], ['book_updated_at', 'TEXT']]) {
-  const cols = db.prepare('PRAGMA table_info(nfl_line_snapshots)').all().map(c => c.name);
-  if (!cols.includes(col)) db.exec(`ALTER TABLE nfl_line_snapshots ADD COLUMN ${col} ${type}`);
-}
 
 const americanToProb = o => (o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100));
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));

@@ -30,18 +30,6 @@ const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
-run(`CREATE TABLE IF NOT EXISTS decision_basis (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  recorded_at  TEXT NOT NULL,
-  season       INTEGER, week INTEGER,
-  home         TEXT, away TEXT, side TEXT,
-  market_margin REAL, model_margin REAL, edge_points REAL,
-  result       TEXT, units REAL,
-  drivers_json TEXT,
-  narrative    TEXT
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_db_season ON decision_basis(season, week)`);
-
 /**
  * Reduce one game's twenty-two component predictions to the handful that
  * actually moved the answer.

@@ -23,58 +23,6 @@ import { recordSync } from './scheduler.js';
 const GAMES_URL = 'https://github.com/nflverse/nfldata/raw/master/data/games.csv';
 const ESPN_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS game_lines (
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    team TEXT NOT NULL,
-    opponent TEXT,
-    home INTEGER,
-    spread REAL,          -- from this team's perspective; negative = favoured
-    total REAL,
-    implied_points REAL,  -- this team's share of the total
-    source TEXT,
-    fetched_at TEXT,
-    PRIMARY KEY (season, week, team)
-  );
-  CREATE TABLE IF NOT EXISTS gamescript_model (
-    target TEXT PRIMARY KEY,   -- 'pass_att' | 'rush_att'
-    b0 REAL, b_spread REAL, b_total REAL,
-    r2 REAL, n INTEGER, fitted_at TEXT
-  );
-`);
-
-// Real final scores and real sportsbook prices (not just the spread/total numbers), added
-// alongside the original columns — both are already sitting in the same nflverse/ESPN
-// responses this file already fetches, and the NFL win/cover/total model needs them.
-const glCols = db.prepare(`PRAGMA table_info(game_lines)`).all().map(c => c.name);
-for (const [col, type] of [
-  ['team_score', 'INTEGER'], ['opp_score', 'INTEGER'], ['moneyline', 'INTEGER'],
-  ['spread_odds', 'INTEGER'], ['total_over_odds', 'INTEGER'], ['total_under_odds', 'INTEGER'],
-  // Game context: weather, surface, rest and divisional status all come from the
-  // same games.csv row already being read, and drive a whole family of betting
-  // variables (dome vs wind, short week, off a bye, division familiarity).
-  ['temp', 'INTEGER'], ['wind', 'INTEGER'], ['roof', 'TEXT'], ['surface', 'TEXT'],
-  ['rest_days', 'INTEGER'], ['div_game', 'INTEGER'], ['gameday', 'TEXT'], ['gametime', 'TEXT'],
-  // Opening numbers, so line movement (and reverse line movement) is measurable
-  // rather than inferred. ESPN reports both the open and the current quote.
-  ['open_spread', 'REAL'], ['open_total', 'REAL'], ['book_count', 'INTEGER'],
-  // A neutral-site game (London, Munich, Melbourne, a relocated Super Bowl) has a
-  // nominal home team and no home field. Without this flag every model hands the
-  // nominal home side a ~1.9-point advantage it does not have.
-  ['neutral_site', 'INTEGER'],
-  // The immutable "true close": the last spread/total observed strictly before
-  // this game's kickoff, frozen by syncCurrentLines and never touched again.
-  // `spread`/`total` above stay live (line-shopping and movement detection read
-  // them as "current"), which is exactly what lets ESPN's odds object — which
-  // sometimes keeps quoting a moving in-game number after kickoff — clobber them
-  // mid-game. Consumers that need the real close (forward-ledger settlement,
-  // gamescript's own training path) must read these columns instead.
-  ['closing_spread', 'REAL'], ['closing_total', 'REAL']
-]) {
-  if (!glCols.includes(col)) db.exec(`ALTER TABLE game_lines ADD COLUMN ${col} ${type}`);
-}
-
 /**
  * A team's implied point total: half the game total, adjusted by half the spread.
  * This is the single most useful derived quantity from a line — it is the market's

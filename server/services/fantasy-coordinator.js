@@ -91,7 +91,7 @@
  * ensemble champion weights — a 30-40s walk-forward-style refit has no
  * business blocking a page load.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { buildPlayerWeekEngine, playerWeekProjection, playerWeekEventExpectation } from './player-week-engine.js';
 import { gameScriptFor } from './gamescript.js';
 import { scoreLine, PPR } from './scoring.js';
@@ -103,17 +103,6 @@ import { expertConfidenceTier, predictionConfidence } from './confidence-tier.js
 
 export const FANTASY_COORDINATOR_VERSION = 'fantasy-coordinator-v1-no-regimes';
 const EXPERT_IDS = ['ensemble_shift', 'game_script_delta', 'boom_bust_signal'];
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS fantasy_coordinator_fits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    version TEXT NOT NULL,
-    through_season INTEGER NOT NULL,
-    rows INTEGER NOT NULL,
-    fit_json TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-`);
 
 const MIN_ROWS = 200;
 const RIDGE = 36;

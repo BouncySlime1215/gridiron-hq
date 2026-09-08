@@ -22,28 +22,6 @@ import { reconcileDraftBoard } from './draft-reconcile.js';
 import { parseFrame, decodeInitLedger } from './draft-frames.js';
 import { resolveEspnPlayers, boardSummary, ingestIsFresh } from './espn-draft.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS draft_capture_sessions (
-    capture_id TEXT PRIMARY KEY,
-    draft_id INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
-    baseline_picks INTEGER,
-    started_at TEXT DEFAULT (datetime('now')),
-    last_seen_at TEXT
-  );
-  CREATE TABLE IF NOT EXISTS draft_capture_events (
-    capture_id TEXT NOT NULL,
-    seq INTEGER NOT NULL,
-    draft_id INTEGER NOT NULL,
-    ts INTEGER,
-    dir TEXT NOT NULL,
-    type TEXT NOT NULL,
-    payload_json TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (capture_id, seq)
-  );
-  CREATE INDEX IF NOT EXISTS idx_draft_capture_events_draft ON draft_capture_events(draft_id, capture_id, seq);
-`);
-
 export const MAX_FRAMES_PER_BATCH = 200;
 const KEY_PREFIX = 'gik_';
 const KEY_HOURS_AFTER_DRAFT = 8;

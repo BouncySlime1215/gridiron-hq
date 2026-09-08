@@ -33,42 +33,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { alwaysValidPValue } from './backtest-significance.js';
 
-run(`CREATE TABLE IF NOT EXISTS audit_registry (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  name           TEXT NOT NULL,
-  hypothesis     TEXT NOT NULL,
-  metric         TEXT NOT NULL,
-  direction      TEXT NOT NULL,
-  threshold      REAL NOT NULL,
-  preregistered_at TEXT NOT NULL,
-  code_hash      TEXT NOT NULL,
-  data_signature TEXT NOT NULL,
-  status         TEXT NOT NULL,
-  require_significance INTEGER DEFAULT 0,
-  require_deterministic INTEGER DEFAULT 0,
-  significant    INTEGER,
-  ran_at         TEXT,
-  observed       REAL,
-  passed         INTEGER,
-  p_value        REAL,
-  sample_size    INTEGER,
-  detail_json    TEXT,
-  void_reason    TEXT,
-  always_valid_p           REAL,
-  always_valid_significant INTEGER,
-  always_valid_n           INTEGER
-)`);
-
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
-
-// Columns added after the table shipped. CREATE TABLE IF NOT EXISTS does
-// nothing to an existing table, so an install that filed even one audit before
-// this change would keep the old schema and fail every insert.
-for (const col of ['require_significance INTEGER DEFAULT 0',
-  'require_deterministic INTEGER DEFAULT 0', 'significant INTEGER',
-  'always_valid_p REAL', 'always_valid_significant INTEGER', 'always_valid_n INTEGER']) {
-  try { run(`ALTER TABLE audit_registry ADD COLUMN ${col}`); } catch { /* already present */ }
-}
 
 /**
  * A hash of the code that will produce the answer.

@@ -4,24 +4,6 @@ import { recordSync } from '../services/scheduler.js';
 
 const r = Router();
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS player_accolades (
-    roster_player_id INTEGER PRIMARY KEY REFERENCES roster_players(id),
-    name TEXT,
-    pro_bowls INTEGER DEFAULT 0,
-    first_team_all_pro INTEGER DEFAULT 0,
-    second_team_all_pro INTEGER DEFAULT 0,
-    super_bowls INTEGER DEFAULT 0,
-    major_awards TEXT,              -- MVP / OPOY / DPOY / OROY / DROY etc
-    all_rookie INTEGER DEFAULT 0,
-    draft_round INTEGER,
-    draft_pick INTEGER,
-    draft_year INTEGER,
-    source TEXT,
-    fetched_at TEXT
-  );
-`);
-
 const WIKI_API = 'https://en.wikipedia.org/w/api.php';
 
 /** Pull the infobox "highlights" block and count accolades. */
@@ -178,15 +160,6 @@ r.get('/:abbr', (req, res) => {
 export default r;
 
 // ---- AI weakness review (the only path that can mark a slot weak) ----
-db.exec(`
-  CREATE TABLE IF NOT EXISTS slot_weakness (
-    roster_player_id INTEGER PRIMARY KEY REFERENCES roster_players(id),
-    verdict TEXT,              -- 'weak' | 'fine'
-    reasoning TEXT,
-    stats_seen TEXT,
-    generated_at TEXT
-  );
-`);
 
 /** Season stat line from ESPN for any player (works for OL/DEF, not just fantasy). */
 async function seasonStatLine(espnId, season) {
@@ -269,16 +242,6 @@ Respond with ONLY a JSON array:
 });
 
 // ---- NFL Top 100 (player-voted) ----
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_top100 (
-    season INTEGER NOT NULL,
-    rank INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    name_key TEXT,
-    fetched_at TEXT,
-    PRIMARY KEY (season, rank)
-  );
-`);
 
 const nameKey = n => (n ?? '').toLowerCase().replace(/[.'’-]/g, '')
   .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();

@@ -17,35 +17,6 @@
  */
 import { rows, row, run, db } from '../db/index.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS draft_pick_quarantine (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    draft_id INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
-    espn_pick_number INTEGER NOT NULL,
-    espn_player_id INTEGER NOT NULL,
-    espn_team_id INTEGER,
-    reason TEXT NOT NULL,
-    first_seen_at TEXT DEFAULT (datetime('now')),
-    last_attempt_at TEXT DEFAULT (datetime('now')),
-    attempt_count INTEGER DEFAULT 1,
-    resolved_at TEXT,
-    UNIQUE(draft_id, espn_pick_number, espn_player_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS draft_pick_corrections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    draft_id INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
-    espn_league_id TEXT,
-    season INTEGER,
-    espn_pick_number INTEGER NOT NULL,
-    previous_state TEXT,
-    corrected_state TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    source_snapshot TEXT,
-    applied_at TEXT DEFAULT (datetime('now'))
-  );
-`);
-
 /** Stable identity for a pick's mirrored fields — used to detect real changes, not to hash the whole snapshot. */
 function pickSignature(p) {
   return JSON.stringify({ player_id: p.player_id, team_slot: p.team_slot, espn_team_id: p.espn_team_id, keeper: Boolean(p.keeper) });

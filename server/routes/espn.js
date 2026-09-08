@@ -13,10 +13,6 @@ const r = Router();
 // recorded that a player named A.J. Brown genuinely moved teams versus his
 // row having always said that. Now every detected move is a row here.
 import { db } from '../db/index.js';
-db.exec(`CREATE TABLE IF NOT EXISTS player_team_changes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL,
-  player_name TEXT NOT NULL, from_team TEXT, to_team TEXT, detected_at TEXT NOT NULL
-)`);
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 const SEASON = () => Number(process.env.NFL_SEASON) || new Date().getFullYear();
 

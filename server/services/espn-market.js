@@ -15,15 +15,6 @@ import { BROWSER_HEADERS } from './espn-draft.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
-db.exec(`CREATE TABLE IF NOT EXISTS espn_player_market (
-  espn_id INTEGER PRIMARY KEY,
-  season INTEGER NOT NULL,
-  adp REAL, adp_change REAL, ppr_rank INTEGER, std_rank INTEGER,
-  percent_owned REAL, percent_started REAL,
-  injury_status TEXT, season_proj REAL, week1_proj REAL, news_at TEXT,
-  outlook TEXT, fetched_at TEXT NOT NULL
-)`);
-
 export async function syncEspnMarket(leagueRowId, { limit = 400 } = {}) {
   const lg = row('SELECT league_id, season, espn_s2, swid FROM leagues WHERE id = ?', leagueRowId);
   if (!lg) throw new Error(`league row ${leagueRowId} not found`);

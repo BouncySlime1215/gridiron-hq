@@ -121,24 +121,6 @@ const MIN_POSITION_ROWS = 40;
 const SOURCE_URL = season =>
   `https://fantasyfootballcalculator.com/api/v1/adp/ppr?teams=12&year=${season}`;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_historical_ffc_adp (
-    season INTEGER NOT NULL,
-    source TEXT NOT NULL,
-    player_key TEXT NOT NULL,
-    name TEXT NOT NULL,
-    position TEXT,
-    team TEXT,
-    adp REAL NOT NULL,
-    adp_stdev REAL,
-    times_drafted INTEGER,
-    window_start TEXT,
-    window_end TEXT,
-    fetched_at TEXT NOT NULL,
-    PRIMARY KEY (season, source, player_key)
-  )
-`);
-
 /**
  * Ingest FantasyFootballCalculator's final preseason PPR ADP for each season.
  *

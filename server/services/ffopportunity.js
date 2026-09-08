@@ -22,29 +22,6 @@ export const FFOPPORTUNITY_SOURCE = Object.freeze({
   code_copied: false
 });
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_ffopportunity_weekly (
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    player_gsis_id TEXT NOT NULL,
-    player_name TEXT,
-    team TEXT,
-    position TEXT,
-    expected_fantasy_points REAL,
-    actual_fantasy_points REAL,
-    expected_pass_points REAL,
-    expected_receive_points REAL,
-    expected_rush_points REAL,
-    expected_total_yards REAL,
-    expected_touchdowns REAL,
-    source_release TEXT NOT NULL,
-    ingested_at TEXT NOT NULL,
-    PRIMARY KEY (season,week,player_gsis_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_ffopp_player_cutoff
-    ON nfl_ffopportunity_weekly(player_gsis_id,season,week);
-`);
-
 const number = value => {
   if (value == null || value === '' || value === 'NA') return null;
   const parsed = Number(value);

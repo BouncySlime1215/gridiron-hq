@@ -31,24 +31,6 @@ import {
   eachPreseasonRow, HISTORICAL_ADP_SOURCE, SEASON_WEEK1_KICKOFF
 } from './historical-adp.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_historical_adp_scrape (
-    season INTEGER NOT NULL,
-    source TEXT NOT NULL,
-    player_key TEXT NOT NULL,
-    scrape_date TEXT NOT NULL,
-    name TEXT NOT NULL,
-    position TEXT,
-    team TEXT,
-    ecr_rank REAL NOT NULL,
-    ecr_std_dev REAL,
-    fetched_at TEXT NOT NULL,
-    PRIMARY KEY (season, source, player_key, scrape_date)
-  )
-`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_adp_scrape_season_date
-         ON nfl_historical_adp_scrape (season, scrape_date)`);
-
 /** Every retained scrape for a season, oldest first. */
 export function adpScrapesFor(season) {
   return rows(`SELECT * FROM nfl_historical_adp_scrape WHERE season = ?

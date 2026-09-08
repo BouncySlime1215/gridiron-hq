@@ -8,54 +8,6 @@ const r = Router();
 const SITE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
 export const SEASON = Number(process.env.NFL_SEASON) || 2026;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS roster_players (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    team_id INTEGER NOT NULL REFERENCES nfl_teams(id),
-    espn_id INTEGER,
-    name TEXT NOT NULL,
-    position TEXT,
-    unit TEXT,                -- offense | defense | specialTeam | ir | practiceSquad
-    jersey TEXT,
-    age INTEGER,
-    experience INTEGER,
-    height TEXT,
-    weight INTEGER,
-    status TEXT,
-    fetched_at TEXT,
-    depth_slot TEXT,
-    depth_order INTEGER,
-    UNIQUE(team_id, espn_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS schedule_games (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    season INTEGER NOT NULL,
-    team_id INTEGER NOT NULL REFERENCES nfl_teams(id),
-    week INTEGER,
-    date TEXT,
-    opponent_abbr TEXT,
-    home INTEGER,
-    UNIQUE(season, team_id, week)
-  );
-
-  CREATE TABLE IF NOT EXISTS team_cap (
-    team_id INTEGER PRIMARY KEY REFERENCES nfl_teams(id),
-    cap_space REAL,
-    effective_cap_space REAL,
-    active_spending REAL,
-    dead_money REAL,
-    roster_count INTEGER,
-    source TEXT,
-    fetched_at TEXT
-  );
-`);
-
-// migrations for tables created before these columns existed
-const rpCols = db.prepare(`PRAGMA table_info(roster_players)`).all().map(c => c.name);
-if (!rpCols.includes('depth_slot')) db.exec(`ALTER TABLE roster_players ADD COLUMN depth_slot TEXT`);
-if (!rpCols.includes('depth_order')) db.exec(`ALTER TABLE roster_players ADD COLUMN depth_order INTEGER`);
-
 // ESPN team id -> our abbr
 const PRO_TEAM = {
   1: 'ATL', 2: 'BUF', 3: 'CHI', 4: 'CIN', 5: 'CLE', 6: 'DAL', 7: 'DEN', 8: 'DET',

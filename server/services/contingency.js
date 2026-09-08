@@ -15,7 +15,7 @@
  * usage across the two. That is a direct measurement of the handoff, rather than an
  * assumption that the next man on a depth chart inherits everything.
  */
-import { db, rows } from '../db/index.js';
+import { rows } from '../db/index.js';
 import { shrink, mean } from './stats-util.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -25,17 +25,6 @@ const MIN_MISSED = 3;
 // Who can inherit whose workload. Receivers and tight ends share a target pool; backs
 // share carries; quarterbacks are a closed shop.
 const INHERITS = { QB: ['QB'], RB: ['RB'], WR: ['WR', 'TE'], TE: ['TE', 'WR'] };
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_injuries (
-  season INTEGER, week INTEGER, gsis_id TEXT, team TEXT, full_name TEXT,
-  position TEXT, report_status TEXT, practice_status TEXT, injury TEXT,
-  PRIMARY KEY (season, week, gsis_id)
-)`);
-db.exec(`CREATE TABLE IF NOT EXISTS player_metrics (
-  player_id INTEGER NOT NULL REFERENCES players(id), source TEXT NOT NULL,
-  value REAL NOT NULL, fetched_at TEXT DEFAULT (datetime('now')),
-  PRIMARY KEY (player_id, source)
-)`);
 
 /* ------------------------------------------------------------ availability */
 

@@ -57,22 +57,6 @@ export const SEASON_WEEK1_KICKOFF = Object.freeze({
   2024: '2024-09-05', 2025: '2025-09-04'
 });
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_historical_adp (
-    season INTEGER NOT NULL,
-    source TEXT NOT NULL,
-    player_key TEXT NOT NULL,
-    name TEXT NOT NULL,
-    position TEXT,
-    team TEXT,
-    ecr_rank REAL NOT NULL,
-    ecr_std_dev REAL,
-    scrape_date TEXT NOT NULL,
-    fetched_at TEXT NOT NULL,
-    PRIMARY KEY (season, source, player_key)
-  )
-`);
-
 /** `season|player_key` -> row, for the boom/bust join and any other reader. */
 export function historicalAdpFor(season) {
   return rows(`SELECT * FROM nfl_historical_adp WHERE season = ? ORDER BY ecr_rank`, season);

@@ -1,27 +1,10 @@
-import { db, rows, row, run } from '../db/index.js';
+import { rows, row, run } from '../db/index.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = path.join(__dirname, '..', '..', '.env');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS ai_usage (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
-    feature TEXT NOT NULL,
-    model TEXT,
-    input_tokens INTEGER DEFAULT 0,
-    output_tokens INTEGER DEFAULT 0,
-    calls INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE TABLE IF NOT EXISTS app_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  );
-`);
 
 // $ per million tokens — Haiku 4.5 is what every feature here uses.
 export const PRICING = {

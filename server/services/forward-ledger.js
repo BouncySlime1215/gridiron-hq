@@ -67,34 +67,6 @@ import { nflKickoffDate } from './date-util.js';
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const BREAK_EVEN = 0.5238;
 
-run(`CREATE TABLE IF NOT EXISTS forward_picks (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  recorded_at   TEXT NOT NULL,
-  season        INTEGER NOT NULL,
-  week          INTEGER NOT NULL,
-  home          TEXT NOT NULL,
-  away          TEXT NOT NULL,
-  market        TEXT NOT NULL,
-  side          TEXT NOT NULL,
-  line_at_pick  REAL,
-  price_at_pick INTEGER,
-  source        TEXT NOT NULL,
-  lean          REAL,
-  confidence    REAL,
-  leading_reason TEXT,
-  reasoning     TEXT,
-  features      TEXT,
-  -- Settled later, never at insert.
-  closing_line  REAL,
-  actual_margin REAL,
-  actual_total  REAL,
-  result        TEXT,
-  clv_points    REAL,
-  settled_at    TEXT
-)`);
-run(`CREATE UNIQUE INDEX IF NOT EXISTS forward_picks_unique
-     ON forward_picks (season, week, home, away, market, source)`);
-
 /**
  * Record a pick before the game.
  *

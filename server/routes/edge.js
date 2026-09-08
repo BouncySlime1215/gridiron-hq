@@ -7,21 +7,6 @@ import { draftSurvival } from '../services/draft-survival.js';
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS player_gamelog (
-    player_id INTEGER NOT NULL,
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    opponent TEXT,
-    fantasy_points REAL,
-    PRIMARY KEY (player_id, season, week)
-  );
-  CREATE TABLE IF NOT EXISTS scout_reports (
-    player_id INTEGER PRIMARY KEY REFERENCES players(id),
-    verdict TEXT, report TEXT, confidence TEXT, generated_at TEXT
-  );
-`);
-
 // ---------------------------------------------------------------- 1. VOR
 /**
  * Value Over Replacement: projected points minus the points of the last

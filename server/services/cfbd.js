@@ -27,24 +27,6 @@ import { normalizePlayerName } from './player-identity.js';
 
 const BASE = 'https://api.collegefootballdata.com';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS cfbd_player_season (
-    season INTEGER NOT NULL,
-    player_key TEXT NOT NULL,
-    name TEXT NOT NULL,
-    position TEXT,
-    team TEXT,
-    usage_overall REAL,
-    usage_rush REAL,
-    usage_pass REAL,
-    ppa_overall REAL,
-    ppa_rush REAL,
-    ppa_pass REAL,
-    fetched_at TEXT NOT NULL,
-    PRIMARY KEY (season, player_key)
-  );
-`);
-
 /** Same convention as odds-api.js's hasKey(): callers check this rather than
  *  letting a missing key surface as a network/auth error. */
 export const hasKey = () => Boolean(process.env.CFBD_API_KEY);

@@ -10,40 +10,11 @@
  * Picks are mirrored into the same `draft_picks` table the mock drafter uses, so every
  * downstream feature (board, recommendation, grade) works unchanged on a live draft.
  */
-import { rows, row, run, db } from '../db/index.js';
+import { rows, row, run } from '../db/index.js';
 import { reconcileDraftBoard, openQuarantine } from './draft-reconcile.js';
 import { normalizePlayerName } from './player-identity.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS draft_advice (
-    draft_id INTEGER NOT NULL REFERENCES drafts(id) ON DELETE CASCADE,
-    pick_number INTEGER NOT NULL,
-    payload TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (draft_id, pick_number)
-  );
-`);
-
-// Live drafts are bound to a connected league; mock drafts leave these null.
-const draftCols = db.prepare(`PRAGMA table_info(drafts)`).all().map(c => c.name);
-if (!draftCols.includes('league_row_id')) db.exec(`ALTER TABLE drafts ADD COLUMN league_row_id INTEGER`);
-if (!draftCols.includes('espn_league_id')) db.exec(`ALTER TABLE drafts ADD COLUMN espn_league_id TEXT`);
-if (!draftCols.includes('season')) db.exec(`ALTER TABLE drafts ADD COLUMN season INTEGER`);
-if (!draftCols.includes('pick_order')) db.exec(`ALTER TABLE drafts ADD COLUMN pick_order TEXT`);
-if (!draftCols.includes('roster_slots')) db.exec(`ALTER TABLE drafts ADD COLUMN roster_slots TEXT`);
-if (!draftCols.includes('last_synced_at')) db.exec(`ALTER TABLE drafts ADD COLUMN last_synced_at TEXT`);
-if (!draftCols.includes('draft_at')) db.exec(`ALTER TABLE drafts ADD COLUMN draft_at TEXT`);
-// NULL/0 means "we could not prove which ESPN team is the connected user's" — the
-// client must ask them to confirm before treating any slot as "my turn" (Phase 3A).
-if (!draftCols.includes('my_slot_confirmed')) db.exec(`ALTER TABLE drafts ADD COLUMN my_slot_confirmed INTEGER DEFAULT 1`);
-// In-page capture (draft-ingest.js): a per-draft key the bookmarklet presents, and
-// the last time it delivered frames — while that is fresh, polling ESPN is paused.
-if (!draftCols.includes('ingest_key_hash')) db.exec(`ALTER TABLE drafts ADD COLUMN ingest_key_hash TEXT`);
-if (!draftCols.includes('ingest_key_expires_at')) db.exec(`ALTER TABLE drafts ADD COLUMN ingest_key_expires_at TEXT`);
-if (!draftCols.includes('ingest_last_seen_at')) db.exec(`ALTER TABLE drafts ADD COLUMN ingest_last_seen_at TEXT`);
-if (!draftCols.includes('ingest_capture_id')) db.exec(`ALTER TABLE drafts ADD COLUMN ingest_capture_id TEXT`);
 
 /** How long after the last captured frame the ESPN poller stays paused. */
 export const INGEST_FRESH_MS = 30_000;
@@ -51,10 +22,6 @@ export function ingestIsFresh(draft, now = Date.now()) {
   const at = draft?.ingest_last_seen_at ? Date.parse(draft.ingest_last_seen_at) : NaN;
   return Number.isFinite(at) && now - at < INGEST_FRESH_MS;
 }
-
-const pickCols = db.prepare(`PRAGMA table_info(draft_picks)`).all().map(c => c.name);
-if (!pickCols.includes('espn_team_id')) db.exec(`ALTER TABLE draft_picks ADD COLUMN espn_team_id INTEGER`);
-if (!pickCols.includes('keeper')) db.exec(`ALTER TABLE draft_picks ADD COLUMN keeper INTEGER DEFAULT 0`);
 
 /** ESPN cookies, from wherever the user connected (bookmarklet or manual form). */
 export function espnCookies() {

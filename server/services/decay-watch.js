@@ -46,24 +46,8 @@
  * "discovery loop can propose, it cannot approve" — this is the mirror image
  * for things already approved: it can flag, it cannot revert.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { alwaysValidPValue } from './backtest-significance.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS decay_watch_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  finding_key TEXT NOT NULL,
-  label TEXT NOT NULL,
-  checked_at TEXT NOT NULL,
-  approved_at TEXT,
-  status TEXT NOT NULL,
-  flag INTEGER NOT NULL DEFAULT 0,
-  n INTEGER,
-  min_n INTEGER,
-  mean_post_approval_effect REAL,
-  p_always_valid REAL,
-  reason TEXT,
-  detail_json TEXT
-)`);
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const currentSeason = () => Number(process.env.NFL_SEASON) || new Date().getFullYear();

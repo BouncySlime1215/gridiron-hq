@@ -17,22 +17,10 @@ import { Router } from 'express';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parseCsv } from '../services/nflverse.js';
-import { db, rows as dbRows, run } from '../db/index.js';
+import { rows as dbRows, run } from '../db/index.js';
 
 const execFileAsync = promisify(execFile);
 const r = Router();
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS props_auto_picks (
-    pick_date TEXT NOT NULL,
-    rank INTEGER NOT NULL,
-    market TEXT, selection TEXT, matchup TEXT, game_time TEXT, side TEXT, line REAL,
-    american_price INTEGER, model_probability REAL, implied_probability REAL,
-    probability_difference REAL, recommendation TEXT, signal TEXT,
-    selected_at TEXT NOT NULL,
-    PRIMARY KEY (pick_date, rank)
-  );
-`);
 
 const OWNER = 'glederer04';
 const REPO = 'Baseball-Props';

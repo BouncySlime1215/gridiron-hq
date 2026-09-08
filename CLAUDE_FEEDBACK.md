@@ -91,31 +91,64 @@ places — this new migration is now genuinely the latest, so the chain needed
 Tests: new `test/props-saved-tickets.test.js` (8 tests) + full suite (958 tests,
 957 pass, 1 pre-existing skip, 0 fail) + typecheck + build.
 
-## Explicitly deferred, with reason
+## Completed after initially being deferred
 
 **Full schema/migrations centralization** (audit item 5, "Centralize schema and
-migrations," P0). Only partially true today: the migration system, `schema_migrations`
-tracking, `PRAGMA foreign_keys=ON`, configurable `GRIDIRON_DB_PATH`, and a periodic
-integrity check all already existed before this session; this session added the
-one missing piece from that specific list (backup-before-migration). What's
-still genuinely ad-hoc is ~121 files' worth of `CREATE TABLE IF NOT EXISTS`
-statements at import time across `server/services/` and `server/routes/`,
-predating the migration system.
+migrations," P0) — **done**. This was deferred earlier in the session as too
+wide a blast radius to delegate blindly, then explicitly re-authorized and
+carried out in two proven phases.
 
-I did not delegate ripping those out to background agents this session. Reasoning:
-every one of those statements is idempotent and harmless as-is; extracting and
-removing them from 121 live files against the user's only copy of ~6.4GB of
-personal betting/model history, with server startup ordering that currently
-depends on services importing (and thus creating their tables) before
-`runMigrations()` runs, is a wide-blast-radius refactor whose main benefit is
-code hygiene, not user-facing correctness. This is a judgment call, not a
-capability gap — it can be done, in a dedicated pass, one domain at a time, each
-gated on `npm run check` and a real backup, if wanted. Flagged to the user
-directly rather than either quietly skipping it or quietly doing it.
+The pre-existing half was already there before any of this: the migration
+system, `schema_migrations` tracking, `PRAGMA foreign_keys=ON`, configurable
+`GRIDIRON_DB_PATH`, and a periodic integrity check. This session added
+backup-before-migration (`VACUUM INTO`, not a raw file copy — a WAL-mode
+database can have committed pages still in the `-wal` file that a plain copy
+would miss), then did the actual centralization:
+
+- **Phase 0** — `scripts/schema-snapshot.mjs`, which builds a throwaway
+  database three ways (legacy import-time DDL / migrations-only / migrations
+  plus every import) and dumps a normalized `sqlite_master` + `PRAGMA
+  table_info` snapshot. Without this the refactor would have been unverifiable.
+- **Phase 1** — lifted every `CREATE TABLE` / `CREATE INDEX` / `CREATE TRIGGER`
+  / guarded `ALTER` out of 122 files into four frozen fragments under
+  `server/db/schema/`, verbatim, each with a manifest recording what came from
+  which file and which lines. `server/migrations/000_legacy_schema.js` assembles
+  them (all tables, then all alters, then all indexes/triggers, then all seeds)
+  and `server/db/index.js` applies it at database open, before any service can
+  be imported. The original DDL was deliberately left in place, redundant.
+- **Phase 2** — deleted the now-redundant originals from all 122 files,
+  ~3,000 lines, in four parallel batches.
+
+**The proof, which is the point:** `--mode baseline` (migrations only, zero
+service imports) and `--mode full` (migrations plus every module) are
+byte-identical to the pre-phase-2 reference across all 515 schema objects —
+0 missing, 0 extra, 0 SQL differences, identical column lists — and identical
+to each other. Importing a service can no longer create, alter or silently
+redefine a table. That equality is now a standing invariant: if the two modes
+ever diverge, some file has started creating schema again.
+
+`server/db/index.js` retains exactly two `CREATE TABLE`s — `schema_migrations`
+and `db_health_checks` — because they bootstrap the mechanism that applies
+everything else.
+
+Four real bugs surfaced and were fixed along the way, none of them the
+refactor's own doing: a missing index on `nfl_quote_tape.batch_id` that made
+one dataset build a ~470-million-row scan; a V8 string-length crash freezing
+datasets above ~750K rows; and two scripts (`build-evidence-dataset.mjs`,
+`run-news-event-impact.mjs`) that never called `runMigrations()` at all.
+
+Operational lesson for future parallel work: **git worktrees share one stash
+stack.** Two batch agents collided on it mid-run, each `git stash pop`
+retrieving the other's entry. Both detected it, recovered their own work by
+immutable SHA, and re-verified from the restored tree — and both stash commits
+were tagged (`rescue/phase2-*`) as a safety net — but concurrent agents in
+shared worktrees must use a throwaway WIP commit instead of `git stash`.
 
 ## Not started
 
-- Decision Inbox (P1, design project) — needs a schema/API design pass first.
+(Decision Inbox is now built and wired into two real engines — see the
+commit history; it moved out of this list.)
+
 - Global command palette (P1).
 - Accessibility/responsive nav overhaul beyond the existing mobile drawer
   (density toggle, full ARIA pass, keyboard table navigation).

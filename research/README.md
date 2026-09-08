@@ -16,6 +16,49 @@ The current dataset is reconstructed from past closing/opening quotes and conser
 
 The initial runner tests a small generic feature set and selects on inner MAE. It does not implement the full book-response, role-state, news-impact or execution-model program. See the master plan for those bounded agent assignments.
 
+## Package B: `book_lag_lab.py` — who moves the price, and who follows
+
+Unlike `market_lab.py`, this one does not query `data.sqlite` itself. It reads a
+FROZEN Package A evidence dataset (`npm run build:evidence-dataset`, which
+writes under `server/data/evidence-datasets/<hash>/`) so it inherits Package
+A's chronology guarantees instead of re-deriving them:
+
+```sh
+npm run build:evidence-dataset   # once, or whenever you want a fresher tape
+python research/book_lag_lab.py \
+  --dataset-dir /absolute/path/to/server/data/evidence-datasets \
+  --output /absolute/path/to/server/data/book-lag-lab
+```
+
+No new Python packages are required beyond `research/requirements.txt`
+(scikit-learn/numpy, already pinned there). `--dataset-hash` pins a specific
+frozen dataset instead of following `evidence-datasets/latest.json`.
+
+Every run writes `preregistered.json` (the declared hypothesis, scope, split
+policy and failure criteria, written **before** any model is scored),
+`lead_lag_matrix.json` (a descriptive, symmetric book-relationship map — no
+book is hardcoded as the sharp reference), `trials.json` (every model fit,
+including the ones that lost to baseline), `panel_summary.json`, and
+`report.json`. `latest.json` is the UI pointer, in the same shape convention
+`server/services/nfl-research-lab.js` already uses for `market_lab.py`.
+
+Read the module docstring in `book_lag_lab.py` before touching it — it
+explains, with the numbers behind each decision: why a Hawkes/marked-
+point-process model is explicitly NOT attempted against the current tape
+(checked fresh every run by `hawkes_feasibility()`, not assumed), why the
+plan's 5s/30s/2m/10m execution-delay buckets are produced by extrapolating a
+fitted continuous-time hazard rather than replayed (the tape's own native
+poll cadence is coarser than all four), and why the cross-validation split is
+`GroupKFold` on the game rather than the plan's requested chronological
+week-embargoed split (the tape currently spans one NFL week — there is no
+second week yet to hold out).
+
+Run `python -m unittest research/test_book_lag_lab.py` (or
+`python -m unittest discover research`) to exercise the pure logic — panel
+construction, forward-fill staleness, lead/lag crediting, the Hawkes go/no-go
+check, and the hazard-to-survival extrapolation — against small synthetic
+panels, independent of the real database.
+
 ## tree_lab.py — the extended tree/TPOT factory
 
 `tree_lab.py` is a sibling script, not a replacement: `market_lab.py` and its

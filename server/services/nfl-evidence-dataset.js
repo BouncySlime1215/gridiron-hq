@@ -180,10 +180,20 @@ export function buildEvidenceDataset({ decisionAt = new Date().toISOString(),
  * The hash covers the rows and the filters, so re-running the builder after the
  * warehouse changes produces a new directory rather than editing the one an
  * experiment already cited.
+ *
+ * Hashed and written one line at a time rather than via `rows.map().join('\n')`
+ * into one JS string first. A full season's quote tape freezes to 750K+ rows,
+ * and a string that large throws `RangeError: Invalid string length` (V8's
+ * per-string cap) — found running this for real against a live-DB copy for the
+ * first time; nothing had ever frozen a dataset at this scale before, so there
+ * is no prior hash format this needs to stay compatible with.
  */
 export function freezeEvidenceDataset(dataset, { outputDir = OUTPUT_DIR } = {}) {
-  const body = dataset.rows.map(r => JSON.stringify(r)).join('\n');
-  const datasetHash = sha(JSON.stringify({ filters: dataset.filters, body })).slice(0, 16);
+  const hash = crypto.createHash('sha256');
+  hash.update(JSON.stringify(dataset.filters));
+  for (const row of dataset.rows) hash.update('\n' + JSON.stringify(row));
+  const datasetHash = hash.digest('hex').slice(0, 16);
+
   const dir = path.join(outputDir, datasetHash);
   const manifest = { ...dataset, rows: undefined, dataset_hash: datasetHash,
     row_file: 'rows.jsonl', frozen_at: new Date().toISOString() };
@@ -191,7 +201,12 @@ export function freezeEvidenceDataset(dataset, { outputDir = OUTPUT_DIR } = {}) 
     return { existing: true, dataset_hash: datasetHash, dir };
   }
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'rows.jsonl'), body);
+  const fd = fs.openSync(path.join(dir, 'rows.jsonl'), 'w');
+  try {
+    for (let i = 0; i < dataset.rows.length; i++) {
+      fs.writeSync(fd, (i ? '\n' : '') + JSON.stringify(dataset.rows[i]));
+    }
+  } finally { fs.closeSync(fd); }
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
   fs.writeFileSync(path.join(outputDir, 'latest.json'), JSON.stringify(manifest, null, 2));
   return { existing: false, dataset_hash: datasetHash, dir, rows: dataset.rows.length };

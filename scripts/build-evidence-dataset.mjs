@@ -2,11 +2,22 @@
 /**
  * Build and freeze one evidence dataset from the quote tape (Package A).
  *
- * Read-only against the live database: it only inserts rows into an
+ * Read-only on the DATA in data.sqlite: it only inserts rows into an
  * append-only frozen output directory under server/data/evidence-datasets,
- * never into data.sqlite. Safe to run against the live league database.
+ * never writes a row into data.sqlite. It does apply any pending schema
+ * migrations first (runMigrations(), same as every other entry point —
+ * idempotent, backed up automatically when there's real history to protect,
+ * see backupBeforeMigration() in server/db/index.js), because this script's
+ * own query pattern depends on the schema actually being current: without
+ * migration 021's index on nfl_quote_tape.batch_id, one query per batch
+ * across 624 batches over 750K+ rows was a full-table scan every time,
+ * discovered when a real run took 15+ minutes instead of the few seconds the
+ * row count justifies.
  */
+import { runMigrations } from '../server/db/migrate.js';
 import { buildEvidenceDataset, freezeEvidenceDataset } from '../server/services/nfl-evidence-dataset.js';
+
+await runMigrations();
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => {
   const [k, v] = a.replace(/^--/, '').split('=');

@@ -12,7 +12,7 @@ const optional = (table, sql) => exists(table) ? rows(sql) : [];
 
 export const RESEARCH_PACKAGES = [
   { id: 'A', title: 'A trustworthy price tape', state: 'next', risk: 'Foundation', purpose: 'Know exactly what was available when. Separate current quotes from stale copies and preserve revisions.' },
-  { id: 'B', title: 'Learn which books move first', state: 'planned', risk: 'High upside', purpose: 'Predict the next price change and whether a slower book will still offer its price when we arrive.' },
+  { id: 'B', title: 'Learn which books move first', state: 'starter_built', risk: 'High upside', purpose: 'Predict the next price change and whether a slower book will still offer its price when we arrive.' },
   { id: 'C', title: 'Trees and TPOT laboratory', state: 'extended', risk: 'Experimental', purpose: 'Search for useful interactions and compare them to simple baselines on later games. Now covers three targets (movement, cover/over, quantile) across six model families, a ranker branch and a market-anchored logit branch.' },
   { id: 'D', title: 'Model changing player roles', state: 'planned', risk: 'High upside', purpose: 'Price full, limited and inactive scenarios instead of pretending every player has one certain role.' },
   { id: 'E', title: 'News that arrives before the price moves', state: 'planned', risk: 'Experimental', purpose: 'Extract sourced changes in role or availability, then learn which changes move specific markets.' },
@@ -44,6 +44,11 @@ export async function researchLabStatus() {
     treeExperiment = parse(await fs.readFile(path.join(root, 'server/data/tree-lab/latest.json'), 'utf8'));
     if (treeExperiment?.schema !== 'tree-lab-v1') { treeExperiment = null; treeReportError = 'Unrecognized or invalid extended research report'; }
   } catch (error) { if (error.code !== 'ENOENT') treeReportError = 'Extended research report could not be read'; }
+  let bookLagLab = null, bookLagLabError = null;
+  try {
+    bookLagLab = parse(await fs.readFile(path.join(root, 'server/data/book-lag-lab/latest.json'), 'utf8'));
+    if (bookLagLab?.schema !== 'book-lag-lab-v1') { bookLagLab = null; bookLagLabError = 'Unrecognized or invalid book-lag report'; }
+  } catch (error) { if (error.code !== 'ENOENT') bookLagLabError = 'Book-lag report could not be read'; }
   return {
     as_of: new Date().toISOString(), authority: 'research_only', production_changed: false,
     latest_attempt: describe(auditRows[0]), latest_completed: describe(auditRows.find(r => r.status === 'complete')),
@@ -70,6 +75,22 @@ export async function researchLabStatus() {
     })(),
     experiment, report_error: reportError,
     tree_experiment: treeExperiment, tree_report_error: treeReportError,
+    book_lag_lab: (() => {
+      if (!bookLagLab) return null;
+      return {
+        authority: 'research_only', run_id: bookLagLab.run_id, dataset_hash: bookLagLab.dataset_hash,
+        events: bookLagLab.panel_summary?.events, books: bookLagLab.panel_summary?.books?.length ?? null,
+        native_step_seconds: bookLagLab.panel_summary?.native_step_seconds,
+        hawkes_attempted: bookLagLab.hawkes_feasibility?.attempted ?? false,
+        hawkes_verdict: bookLagLab.hawkes_feasibility?.verdict ?? null,
+        lead_lag_by_book: bookLagLab.lead_lag_matrix?.by_book ?? null,
+        next_move: bookLagLab.next_move, time_to_follow: bookLagLab.time_to_follow,
+        delay_survival: bookLagLab.delay_survival, opportunity_routing: bookLagLab.opportunity_routing,
+        verdict: bookLagLab.verdict, limitations: bookLagLab.limitations,
+        split_policy_limitation: bookLagLab.protocol?.split_policy?.declared_limitation ?? null
+      };
+    })(),
+    book_lag_lab_error: bookLagLabError,
     packages: RESEARCH_PACKAGES,
     plan_url: '/api/nfl-market/research-lab/plan',
     principles: [

@@ -10,6 +10,15 @@ interface Lab {
   report_error: string | null;
   packages: { id: string; title: string; state: string; risk: string; purpose: string }[];
   experiment: { run_id: string; status: string; progress?: string; rows: number; features: string[]; limitations: string[]; errors: string[]; markets: { market: string; folds: Fold[]; pooled: Score }[]; dataset_hash: string; code_hash: string } | null;
+  book_lag_lab: {
+    run_id: string; dataset_hash: string; events: number; books: number; native_step_seconds: number | null;
+    hawkes_attempted: boolean; hawkes_verdict: string | null;
+    lead_lag_by_book: Record<string, { confirmed_leads: number; confirmed_follows: number; leader_share: number | null; readable: boolean }>;
+    delay_survival: Record<string, { readable: boolean; delay_survival?: Record<string, { survival_probability: number | null; extrapolated: boolean }> }>;
+    opportunity_routing: { counts: Record<string, number> } | null;
+    verdict: string; limitations: string[]; split_policy_limitation: string | null;
+  } | null;
+  book_lag_lab_error: string | null;
   tree_experiment: TreeLab | null; tree_report_error: string | null;
 }
 type TreeTargetFold = { season: number; target: string; selected: string; tpot_trials?: number;
@@ -92,6 +101,34 @@ export default function ResearchLab() {
         </details>
         {tree.errors.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-900">{tree.errors.length} search or data issues — not successful runs</summary><ul className="mt-2 space-y-1 text-xs text-amber-900">{tree.errors.map((e, i) => <li className="break-words" key={i}>{e}</li>)}</ul></details>}
         <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Limits and reproducibility</summary><ul className="mt-3 list-disc space-y-2 pl-5">{tree.limitations.map(l => <li key={l}>{l}</li>)}</ul><div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {tree.run_id}<br />Dataset: {tree.dataset_hash}<br />Code: {tree.code_hash}</div></details>
+      </>}
+    </section>
+
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-widest text-slate-400">Working laboratory · Package B</div><h3 className="mt-1 text-xl font-black text-slate-950">Who moves the price, and who follows</h3></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">research only</span></div>
+      <p className="mt-3 text-sm leading-6 text-slate-600">No book is assumed sharp. Every book is scored, in turn, as a possible mover and a possible follower, from the raw quote tape.</p>
+      {data.book_lag_lab_error && <p role="alert" className="mt-3 text-sm text-red-700">{data.book_lag_lab_error}</p>}
+      {!data.book_lag_lab ? <p className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-500">No saved run yet. `python research/book_lag_lab.py` writes a report here.</p> : <>
+        <p className="mt-3 text-xs text-slate-500">{data.book_lag_lab.events} events · {data.book_lag_lab.books} books · native poll gap ≈ {data.book_lag_lab.native_step_seconds ? Math.round(data.book_lag_lab.native_step_seconds / 60) : '?'} min</p>
+        <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{data.book_lag_lab.verdict}</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Book relationship explorer</div>
+            <p className="mt-1 text-xs text-slate-500">Share of this book's confirmed matched-pair moves in which it moved first. Descriptive only — not fed back into any model.</p>
+            <div className="mt-2 space-y-1 text-sm">{Object.entries(data.book_lag_lab.lead_lag_by_book).filter(([, v]) => v.readable).sort(([, a], [, b]) => (b.leader_share ?? 0) - (a.leader_share ?? 0)).slice(0, 6).map(([book, v]) => <div key={book} className="flex justify-between border-t border-slate-100 pt-1"><span className="text-slate-600">{book}</span><span className="font-semibold text-slate-900">{v.leader_share == null ? '—' : `${(v.leader_share * 100).toFixed(0)}% leads`}</span></div>)}</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Hawkes model</div>
+            <p className="mt-1 text-xs text-slate-500">{data.book_lag_lab.hawkes_attempted ? 'Attempted this run.' : 'Not attempted — assessed fresh every run:'}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">{data.book_lag_lab.hawkes_verdict}</p>
+          </div>
+        </div>
+        {data.book_lag_lab.opportunity_routing && <div className="mt-4 flex flex-wrap gap-3 text-xs">{Object.entries(data.book_lag_lab.opportunity_routing.counts).map(([state, n]) => <span key={state} className="rounded-full bg-slate-100 px-3 py-1 font-bold text-slate-700">{state.replaceAll('_', ' ')}: {n}</span>)}</div>}
+        <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Delay survival and limits</summary>
+          <div className="mt-3 space-y-3">{Object.entries(data.book_lag_lab.delay_survival).map(([market, m]) => <div key={market}><div className="text-xs font-bold uppercase text-slate-400">{market}</div>{!m.readable ? <p className="text-xs text-slate-500">Not yet readable.</p> : <div className="mt-1 flex flex-wrap gap-2 text-xs">{Object.entries(m.delay_survival ?? {}).map(([seconds, d]) => <span key={seconds} className="rounded bg-slate-50 px-2 py-1">{seconds}s: {d.survival_probability == null ? '—' : `${(d.survival_probability * 100).toFixed(0)}%`}{d.extrapolated ? ' (extrapolated)' : ' (measured)'}</span>)}</div>}</div>)}</div>
+          <ul className="mt-3 list-disc space-y-2 pl-5">{data.book_lag_lab.limitations.map(l => <li key={l}>{l}</li>)}</ul>
+          <div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {data.book_lag_lab.run_id}<br />Dataset: {data.book_lag_lab.dataset_hash}</div>
+        </details>
       </>}
     </section>
 

@@ -94,7 +94,10 @@ export function newsSourceVerification(item) {
   return { state: 'quarantined', reason: `domain ${host} is not in the verified source registry` };
 }
 
-const STATUS_RULES = [
+// Exported so other typed-evidence modules (nfl-news-events.js's contradiction
+// detector) can classify a claim's polarity with the exact same vocabulary
+// this module already uses, instead of maintaining a second copy of the rules.
+export const STATUS_RULES = [
   // Transaction-wire language. Distinct from an injury-driven "out": a
   // release changes the ROSTER, not just this week's availability — the
   // player may sign elsewhere within days, which "out for season" would
@@ -117,7 +120,7 @@ const STATUS_RULES = [
   { re: /(?:full participant|full practice|cleared to play|will play|good to go|['’]fine['’]|on the mend|returns? to practice)\b/i, status: 'available_positive', unavailable: 0.06, confidence: 0.78 }
 ];
 
-const ROLE_RULES = [
+export const ROLE_RULES = [
   { re: /(?:named|will be|remains?) (?:the )?(?:starting|starter|qb1|rb1)\b/i, status: 'starter_confirmed', delta: 0.2, confidence: 0.86 },
   { re: /(?:benched|demoted|loses? (?:the )?starting job|backup role)\b/i, status: 'role_down', delta: -0.45, confidence: 0.9 },
   { re: /(?:expanded role|more touches|more targets|larger role|workload increase)\b/i, status: 'role_up', delta: 0.18, confidence: 0.72 },

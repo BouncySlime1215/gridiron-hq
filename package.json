@@ -27,6 +27,7 @@
     "diagnose:nfl-passing": "node scripts/diagnose-passing-components.mjs",
     "audit:nfl-passing-specialists": "node scripts/audit-passing-specialists.mjs",
     "sync:ffopportunity": "node --env-file-if-exists=.env scripts/sync-ffopportunity.mjs",
+    "news:event-impact": "node --env-file-if-exists=.env scripts/run-news-event-impact.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:rollback": "node scripts/rollback-migration.mjs",
     "build:evidence-dataset": "node scripts/build-evidence-dataset.mjs",

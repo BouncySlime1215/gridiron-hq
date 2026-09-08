@@ -140,8 +140,12 @@ test('a capture writes both providers under canonical event ids, with Circa pres
     const opener = out.openers.find(o => o.book === 'betmgm' && o.side === 'SEA' && o.event_id === 'nfl:2026-09-10:NE@SEA');
     assert.deepEqual(opener, { event_id: 'nfl:2026-09-10:NE@SEA', book: 'betmgm', market: 'spreads', side: 'SEA', line: -4.5, price: -105 });
     assert.equal(rows(`SELECT COUNT(*) n FROM nfl_line_snapshots WHERE line=-4.5 AND book='betmgm'`)[0].n, 0, 'openers are not written');
-    // The quote tape is never touched: its module is not even imported, so the table does not exist here.
-    assert.equal(rows(`SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='nfl_quote_tape'`)[0].n, 0, 'the quote tape is left alone');
+    // The quote tape is never touched by this capture. Its table now exists on every
+    // database regardless of which service files happen to be imported (schema
+    // creation was centralized into 000_legacy_schema.js, applied once at db open —
+    // see server/db/schema/README.md), so "left alone" means zero rows, not a
+    // missing table.
+    assert.equal(rows(`SELECT COUNT(*) n FROM nfl_quote_tape`)[0].n, 0, 'the quote tape is left alone');
     // A second capture in the same instant is idempotent (ON CONFLICT DO NOTHING).
     const again = await feeds.captureExtraBookFeeds({ providers: ['rotowire'] });
     assert.equal(again.errors, undefined);

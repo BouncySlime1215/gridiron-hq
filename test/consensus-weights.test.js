@@ -56,8 +56,6 @@ function seedDatabase() {
     CREATE TABLE IF NOT EXISTS nfl_roster_snapshots (
       captured_at TEXT, player_id INTEGER, espn_id INTEGER, gsis_id TEXT,
       player_name TEXT, position TEXT, team TEXT, status TEXT, source TEXT);
-    CREATE TABLE IF NOT EXISTS nfl_depth (
-      season INTEGER, week INTEGER, team TEXT, gsis_id TEXT, player_name TEXT, position TEXT);
     CREATE TABLE IF NOT EXISTS nflverse_player_positions (
       gsis_id TEXT PRIMARY KEY, position TEXT, position_group TEXT, ngs_position TEXT,
       birth_date TEXT, rookie_season INTEGER, draft_year INTEGER, draft_round INTEGER,
@@ -72,13 +70,20 @@ function seedDatabase() {
   }));
 
   const insPlayer = db.prepare('INSERT INTO players (name, position, espn_id, gsis_id) VALUES (?,?,?,?)');
-  const insDepth = db.prepare('INSERT INTO nfl_depth (season, week, team, gsis_id, player_name, position) VALUES (?,?,?,?,?,?)');
+  // nfl_depth's real schema (server/services/nfl-advanced.js) always exists now that
+  // schema creation is centralized (server/migrations/000_legacy_schema.js) — it spells
+  // the position column pos_abb, not position.
+  const insDepth = db.prepare('INSERT INTO nfl_depth (season, week, team, gsis_id, player_name, pos_abb) VALUES (?,?,?,?,?,?)');
   const insBio = db.prepare(`INSERT INTO nflverse_player_positions
     (gsis_id, position, birth_date, rookie_season) VALUES (?,?,?,?)`);
   const insWeek = db.prepare(`INSERT INTO nfl_player_week_features
     (season, week, player_id, player_name, team, position, features) VALUES (?,?,?,?,?,?,?)`);
+  // nfl_historical_adp's real schema (server/db/schema/core-and-fantasy.js) requires
+  // scrape_date/fetched_at NOT NULL and always exists now that schema creation is
+  // centralized (server/migrations/000_legacy_schema.js).
   const insAdp = db.prepare(`INSERT INTO nfl_historical_adp
-    (season, source, player_key, name, position, team, ecr_rank, ecr_std_dev) VALUES (?,?,?,?,?,?,?,?)`);
+    (season, source, player_key, name, position, team, ecr_rank, ecr_std_dev, scrape_date, fetched_at)
+    VALUES (?,?,?,?,?,?,?,?,'2025-01-01','2025-01-01T00:00:00.000Z')`);
   const insFfc = db.prepare(`INSERT INTO nfl_historical_ffc_adp
     (season, source, player_key, name, position, team, adp, adp_stdev, times_drafted,
      window_start, window_end, fetched_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);

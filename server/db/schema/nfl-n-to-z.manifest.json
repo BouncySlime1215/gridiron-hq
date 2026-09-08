@@ -1,0 +1,253 @@
+{
+  "server/services/nfl-neural-replay.js": {
+    "tables": ["nfl_neural_replay_audits"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[33, 36]],
+    "notes": []
+  },
+  "server/services/nfl-news-signal.js": {
+    "tables": ["nfl_news_signals", "nfl_news_extraction_attempts"],
+    "indexes": ["idx_nfl_news_signal_player", "idx_nfl_news_signal_team"], "triggers": [],
+    "alters": ["nfl_news_signals.verification_state", "nfl_news_signals.verification_reason"], "seeds": [],
+    "lines": [[14, 43], [45, 51]],
+    "notes": [
+      "both guarded ALTERs are no-ops on a fresh database (the columns are in the CREATE); reproduced for the upgrade path",
+      "left in place: INSERT OR REPLACE INTO nfl_news_extraction_attempts (line 349) is runtime data"
+    ]
+  },
+  "server/services/nfl-officials.js": {
+    "tables": ["nfl_officials"], "indexes": ["idx_off_season"], "triggers": [],
+    "alters": ["nfl_officials.home_team", "nfl_officials.away_team"], "seeds": [],
+    "lines": [[30, 40], [46, 49]],
+    "notes": [
+      "DDL ran via run() rather than db.exec(); lifted as db.exec()",
+      "dynamic column loop reproduced as the concrete (home_team TEXT, away_team TEXT) it is called with; both fire on a fresh database and are appended to the stored CREATE text, matching golden"
+    ]
+  },
+  "server/services/nfl-online-neural.js": {
+    "tables": ["nfl_online_neural_examples", "nfl_online_neural_artifacts"],
+    "indexes": ["idx_online_neural_training"], "triggers": [],
+    "alters": ["nfl_online_neural_examples.engine_version", "nfl_online_neural_examples.epoch_id", "nfl_online_neural_artifacts.epoch_id"], "seeds": [],
+    "lines": [[42, 64], [66, 76]],
+    "notes": [
+      "all three guarded ALTERs are no-ops on a fresh database (columns are in the CREATEs); reproduced for the upgrade path",
+      "left in place: INSERT OR IGNORE INTO nfl_online_neural_examples / nfl_online_neural_artifacts (lines 249, 359) are runtime data"
+    ]
+  },
+  "server/services/nfl-orthogonal-specialists.js": {
+    "tables": ["nfl_orthogonal_specialist_artifacts"], "indexes": [],
+    "triggers": ["nfl_orthogonal_artifacts_no_update", "nfl_orthogonal_artifacts_no_delete"],
+    "alters": [], "seeds": [],
+    "lines": [[15, 33]],
+    "notes": ["left in place: INSERT OR IGNORE INTO nfl_orthogonal_specialist_artifacts (line 226) is runtime data"]
+  },
+  "server/services/nfl-page-explain-audit.js": {
+    "tables": ["nfl_page_explain_audits"], "indexes": ["idx_page_explain_lookup"], "triggers": [],
+    "alters": ["nfl_page_explain_audits.tool_calls_json"], "seeds": [],
+    "lines": [[12, 28], [34, 34]],
+    "notes": [
+      "source ALTER is unguarded, wrapped in try/catch and runs on every import; reproduced as a PRAGMA table_info guard with the same effect. The column is not in the CREATE, so it fires on a fresh database and is appended to the stored CREATE text (golden shows the appended ' , tool_calls_json TEXT')"
+    ]
+  },
+  "server/services/nfl-pbp.js": {
+    "tables": ["nfl_team_week_features", "nfl_player_week_features"],
+    "indexes": ["idx_twf_team", "idx_pwf_player", "idx_pwf_team"], "triggers": [],
+    "alters": [], "seeds": [],
+    "lines": [[23, 38]],
+    "notes": [
+      "nfl_player_week_features is also created by server/services/player-career.js (lines 29-35) with whitespace-identical text; nfl-pbp.js imports first (production order 93 vs 127), no conflict"
+    ]
+  },
+  "server/services/nfl-pick-explanation-audit.js": {
+    "tables": ["nfl_pick_explanation_audits"], "indexes": ["idx_pick_explanation_lookup"], "triggers": [],
+    "alters": [], "seeds": [],
+    "lines": [[5, 22]],
+    "notes": []
+  },
+  "server/services/nfl-pick-watch.js": {
+    "tables": ["nfl_pick_watch_log"], "indexes": ["idx_pick_watch_log_check"], "triggers": [],
+    "alters": [], "seeds": [],
+    "lines": [[47, 63]],
+    "notes": []
+  },
+  "server/services/nfl-player-state.js": {
+    "tables": ["nfl_roster_snapshots", "nfl_player_roster_events", "nfl_player_state_quarantine"],
+    "indexes": ["idx_nfl_roster_snapshot_cutoff", "idx_nfl_roster_event_cutoff"], "triggers": [],
+    "alters": ["nfl_player_roster_events.event_key"], "seeds": [],
+    "lines": [[12, 57], [59, 63]],
+    "notes": [
+      "the event_key guard also creates CREATE UNIQUE INDEX IF NOT EXISTS idx_nfl_roster_event_key; it is kept inside the same guard in alters() because the source only creates it on the upgrade path. On a fresh database the column is in the CREATE (NOT NULL UNIQUE), so neither fires and idx_nfl_roster_event_key does not exist — matching golden, which has no such index",
+      "left in place: INSERT OR IGNORE INTO nfl_roster_snapshots (line 164) is runtime data"
+    ]
+  },
+  "server/services/nfl-postgame-truth.js": {
+    "tables": ["nfl_postgame_truth_packets", "nfl_game_variance"],
+    "indexes": ["idx_nfl_postgame_truth_week"],
+    "triggers": ["nfl_postgame_truth_no_update", "nfl_postgame_truth_no_delete"],
+    "alters": [], "seeds": [],
+    "lines": [[17, 30], [585, 589]],
+    "notes": ["left in place: INSERT OR REPLACE INTO nfl_game_variance and INSERT OR IGNORE INTO nfl_postgame_truth_packets (lines 601, 618, 622) are runtime data"]
+  },
+  "server/services/nfl-pregame.js": {
+    "tables": ["nfl_pregame_snapshot_history"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[6, 13]],
+    "notes": []
+  },
+  "server/services/nfl-profitability.js": {
+    "tables": ["nfl_teaser_price_ledger"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[16, 30]],
+    "notes": []
+  },
+  "server/services/nfl-prop-calibration.js": {
+    "tables": ["nfl_prop_calibration_fits"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[14, 18]],
+    "notes": []
+  },
+  "server/services/nfl-prop-clv.js": {
+    "tables": ["nfl_prop_clv", "nfl_prop_policy_archive"], "indexes": ["idx_prop_clv_settle"], "triggers": [],
+    "alters": [
+      "nfl_prop_clv.commence_time", "nfl_prop_clv.home_team", "nfl_prop_clv.away_team",
+      "nfl_prop_clv.closing_fair_probability", "nfl_prop_clv.clv_probability",
+      "nfl_prop_clv.model_match_status", "nfl_prop_clv.model_match_reason",
+      "nfl_prop_clv.matched_player_id", "nfl_prop_clv.capture_horizon_hours", "nfl_prop_clv.settlement_reason"
+    ],
+    "seeds": [],
+    "lines": [[46, 58], [60, 69], [102, 105]],
+    "notes": [
+      "dynamic column loop reproduced as the ten concrete (column, type) pairs in source order; none are in the CREATE, so all fire on a fresh database and are appended to the stored CREATE text, matching golden",
+      "left in place: freezePropDecisionPolicy() (called at import, line 118) inserts one policy row into nfl_prop_policy_archive — data, guarded by an existence check, not schema",
+      "left in place: INSERT OR IGNORE INTO nfl_prop_clv (lines 280, 347) are runtime data"
+    ]
+  },
+  "server/services/nfl-prop-correlation.js": {
+    "tables": ["prop_correlation_estimates"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[33, 39]],
+    "conflicts": [
+      {
+        "name": "nfl_sgp_quotes",
+        "loser": "server/services/nfl-prop-correlation.js (lines 41-51, inside lazily-called ensureSgpQuoteTable(); no CHECK on stage)",
+        "winner": "server/migrations/014_profit_execution_triggers.js (lines 23-38, CREATE TABLE nfl_sgp_quotes with stage CHECK(stage IN ('candidate','close')) plus idx_sgp_quotes_route)",
+        "golden": "matches the migration's definition"
+      }
+    ],
+    "notes": [
+      "NOT lifted: nfl_sgp_quotes and idx_sgp_quotes_route from ensureSgpQuoteTable(). The function never runs at import, so the legacy build never creates this table before migrations; migration 014 then CREATEs it WITHOUT IF NOT EXISTS. Lifting the lazy definition into 000_legacy_schema would (a) create a different table than golden and (b) make 014 throw 'table nfl_sgp_quotes already exists' on every fresh database. The lazy DDL stays in place as an idempotent no-op on any database that has run 014",
+      "the stored CREATE text for prop_correlation_estimates includes the inline SQL comment -- 'passing_yards|QB|receiving_yards|WR|team'; copied verbatim so the normalized text matches golden"
+    ]
+  },
+  "server/services/nfl-prop-head-validation.js": {
+    "tables": ["prop_head_audits"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[27, 32]],
+    "notes": []
+  },
+  "server/services/nfl-props.js": {
+    "tables": ["nfl_total_picks", "nfl_prop_quote_snapshots"], "indexes": ["idx_nfl_prop_quotes_event"], "triggers": [],
+    "alters": ["nfl_total_picks.calibration_eligible", "nfl_total_picks.calibrated_probability"], "seeds": [],
+    "lines": [[32, 50], [60, 63]],
+    "notes": [
+      "dynamic column loop on nfl_total_picks reproduced as the two concrete (column, type) pairs; neither is in the CREATE, so both fire on a fresh database, matching golden",
+      "golden's nfl_prop_quote_snapshots carries three trailing columns (provider TEXT, book_updated_at TEXT, is_opener INTEGER) that this batch does not add: they come from server/services/prop-feeds.js (line 42-43) and server/services/line-shopping.js (line 38), which belong to other batches and are not duplicated here. This fragment's CREATE equals golden minus those three appended columns",
+      "left in place: INSERT OR IGNORE INTO nfl_prop_quote_snapshots (line 70) is runtime data"
+    ]
+  },
+  "server/services/nfl-qbr.js": {
+    "tables": ["nfl_qbr_weekly"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[16, 22]],
+    "notes": ["left in place: INSERT OR REPLACE INTO nfl_qbr_weekly (line 33) is runtime data"]
+  },
+  "server/services/nfl-quote-tape.js": {
+    "tables": ["nfl_quote_batches", "nfl_quote_tape"],
+    "indexes": ["idx_nfl_quote_event_time", "idx_nfl_quote_match_time"],
+    "triggers": ["nfl_quote_batches_no_update", "nfl_quote_batches_no_delete", "nfl_quote_tape_no_update", "nfl_quote_tape_no_delete"],
+    "alters": [], "seeds": [],
+    "lines": [[16, 69]],
+    "notes": ["left in place: INSERT OR IGNORE INTO nfl_quote_tape (line 137) is runtime data"]
+  },
+  "server/services/nfl-replay.js": {
+    "tables": ["nfl_replay_runs", "nfl_replay_bets", "nfl_policy_audits", "nfl_candidate_input_audits"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[29, 55]],
+    "notes": []
+  },
+  "server/services/nfl-research.js": {
+    "tables": ["nfl_feature_ablation_audits", "nfl_residual_audits"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[14, 21]],
+    "notes": []
+  },
+  "server/services/nfl-risk-lab.js": {
+    "tables": ["nfl_risk_lab_predictions", "nfl_risk_lab_artifacts"], "indexes": ["idx_risk_lab_training"], "triggers": [],
+    "alters": [
+      "nfl_risk_lab_predictions.market_total", "nfl_risk_lab_predictions.predicted_total_residual",
+      "nfl_risk_lab_predictions.predicted_total_uncertainty", "nfl_risk_lab_predictions.actual_total",
+      "nfl_risk_lab_predictions.target_total_residual"
+    ],
+    "seeds": [],
+    "lines": [[186, 207], [209, 216]],
+    "notes": [
+      "dynamic column loop reproduced as the five concrete (column, type) pairs; all are already in the CREATE, so they are no-ops on a fresh database and only serve the upgrade path",
+      "left in place: INSERT OR IGNORE INTO nfl_risk_lab_predictions / nfl_risk_lab_artifacts (lines 369, 495) are runtime data"
+    ]
+  },
+  "server/services/nfl-rookies.js": {
+    "tables": ["nfl_rookie_evidence"], "indexes": ["idx_rookie_evidence_cutoff"], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[40, 59]],
+    "notes": []
+  },
+  "server/services/nfl-roster-strength.js": {
+    "tables": ["nfl_external_player_grades", "player_team_changes"], "indexes": ["idx_external_player_grade_cutoff"], "triggers": [],
+    "alters": [], "seeds": [],
+    "lines": [[19, 33]],
+    "notes": [
+      "player_team_changes is also created by server/routes/espn.js (lines 16-19) with whitespace-identical text; espn.js imports first (production order 6 vs 111) so it is the definition that actually won, but the two are identical after normalization — no conflict"
+    ]
+  },
+  "server/services/nfl-signal-reliability.js": {
+    "tables": ["nfl_signal_reliability_artifacts"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[20, 31]],
+    "notes": []
+  },
+  "server/services/nfl-sim-calibration.js": {
+    "tables": ["nfl_sim_calibration_artifacts"], "indexes": [],
+    "triggers": ["nfl_sim_calibration_no_update", "nfl_sim_calibration_no_delete"], "alters": [], "seeds": [],
+    "lines": [[8, 18]],
+    "notes": ["left in place: INSERT OR IGNORE INTO nfl_sim_calibration_artifacts (line 108) is runtime data"]
+  },
+  "server/services/nfl-team-card.js": {
+    "tables": ["nfl_team_cards"], "indexes": ["idx_nfl_team_cards_cutoff"],
+    "triggers": ["nfl_team_cards_no_update", "nfl_team_cards_no_delete"], "alters": [], "seeds": [],
+    "lines": [[22, 41]],
+    "notes": []
+  },
+  "server/services/nfl-total-calibration.js": {
+    "tables": ["nfl_total_calibrations"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[32, 39]],
+    "notes": []
+  },
+  "server/services/nfl-tweet-line-correlation.js": {
+    "tables": ["nfl_tweet_line_watch"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[33, 44]],
+    "notes": []
+  },
+  "server/services/nfl-user-bets.js": {
+    "tables": ["nfl_user_bets"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[9, 18]],
+    "notes": []
+  },
+  "server/services/nfl-weather-history.js": {
+    "tables": ["nfl_game_weather_forecast_history"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[29, 35]],
+    "notes": ["left in place: INSERT OR REPLACE INTO nfl_game_weather_forecast_history (line 95) is runtime data"]
+  },
+  "server/services/nfl-weather.js": {
+    "tables": ["nfl_game_weather"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[29, 34]],
+    "notes": ["left in place: INSERT OR REPLACE INTO nfl_game_weather (lines 78, 128) are runtime data"]
+  },
+  "server/services/nfl-weekly-feature-store.js": {
+    "tables": ["nfl_feature_dictionary", "nfl_team_feature_vectors", "nfl_player_feature_vectors"],
+    "indexes": ["idx_nfl_team_feature_vector_cutoff", "idx_nfl_player_feature_vector_cutoff"],
+    "triggers": ["nfl_team_feature_vectors_no_update", "nfl_team_feature_vectors_no_delete", "nfl_player_feature_vectors_no_update", "nfl_player_feature_vectors_no_delete"],
+    "alters": [], "seeds": [],
+    "lines": [[15, 46]],
+    "notes": ["left in place: INSERT OR IGNORE INTO nfl_feature_dictionary inside register() (line 140) is runtime feature-dictionary registration, called only while building vectors — not a schema seed"]
+  }
+}

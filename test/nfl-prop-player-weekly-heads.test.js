@@ -69,6 +69,26 @@ for (const season of SEASONS) {
   }
 }
 
+// A genuine rookie: 2023 rows only, no 2020-2022 history at all. Every other
+// player above has full season-over-season continuity (same team, every
+// year), so offseason-model.js's buildPanel() computes a real (if all-zero)
+// churn entry for every one of them — none of them is actually "missing"
+// offseason context once buildPanel can run to completion. Only a player
+// absent from the prior season's own nfl_player_week_features rows is
+// genuinely excluded from its output, which is the only real trigger for
+// wk_newrole_missing left once schema centralization (server/migrations/
+// 000_legacy_schema.js) means buildPanel's supporting tables always exist and
+// its queries no longer throw on a minimal test database.
+const ROOKIE = GSIS(999);
+for (let week = 1; week <= 15; week++) {
+  insert.run(2023, week, ROOKIE, 'Rookie', 'BUF', 'MIA', 'RB', JSON.stringify({
+    carries: 5, targets: 2, pass_attempts: 0, rushing_yards: 20, receiving_yards: 10,
+    passing_yards: 0, receptions: 2, rushing_tds: 0, receiving_tds: 0, passing_tds: 0,
+    interceptions: 0, red_zone_carries: 0, goal_line_carries: 0, red_zone_targets: 0,
+    end_zone_targets: 0, goal_to_go_targets: 0, opportunity_share: 0.08
+  }));
+}
+
 const { propPlayerWeeklyFeatures, weeklyVarianceReport, assertNoTargetWeekLeak,
   clearWeeklyFeatureCache, WEEKLY_FEATURE_BLOCKS } =
   await import('../server/services/nfl-props-player-features-weekly.js');
@@ -147,14 +167,15 @@ test('no player-week feature contains that week own game', () => {
 
 test('missing context is flagged, never imputed as an average player', () => {
   clearWeeklyFeatureCache();
-  const f = propPlayerWeeklyFeatures(2023).get(`2|${PLAYERS[4]}`);
-  // No offseason panel exists in this synthetic league, so the block must
-  // announce itself absent instead of contributing a fabricated zero that
-  // reads as "an average amount of churn".
+  const f = propPlayerWeeklyFeatures(2023).get(`2|${ROOKIE}`);
+  // The rookie has no 2022 (or earlier) row at all, so buildPanel() has
+  // nothing to compute his churn from and correctly omits him entirely —
+  // the block must announce itself absent instead of contributing a
+  // fabricated zero that reads as "an average amount of churn".
   assert.equal(f.wk_newrole_missing, 1);
   assert.equal(f.wk_new_role_vacated, 0);
   // Week 1 has no prior games at all, so the trend block flags itself too.
-  const w1 = propPlayerWeeklyFeatures(2023).get(`1|${PLAYERS[4]}`);
+  const w1 = propPlayerWeeklyFeatures(2023).get(`1|${ROOKIE}`);
   assert.equal(w1.wk_trend_missing, 1);
   assert.equal(w1.wk_games_prior, 0);
 });

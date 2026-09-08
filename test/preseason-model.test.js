@@ -47,17 +47,12 @@ function seedDatabase() {
     CREATE TABLE IF NOT EXISTS nfl_historical_adp (
       season INTEGER, source TEXT, player_key TEXT, name TEXT, position TEXT, team TEXT,
       ecr_rank REAL, ecr_std_dev REAL, scrape_date TEXT, fetched_at TEXT);
-    CREATE TABLE IF NOT EXISTS nfl_ffopportunity_weekly (
-      season INTEGER, week INTEGER, player_gsis_id TEXT, player_name TEXT, team TEXT,
-      position TEXT, expected_fantasy_points REAL, actual_fantasy_points REAL);
     CREATE TABLE IF NOT EXISTS nfl_injuries (
       season INTEGER, week INTEGER, gsis_id TEXT, team TEXT, full_name TEXT,
       position TEXT, report_status TEXT);
     CREATE TABLE IF NOT EXISTS nfl_roster_snapshots (
       captured_at TEXT, player_id INTEGER, espn_id INTEGER, gsis_id TEXT,
       player_name TEXT, position TEXT, team TEXT, status TEXT, source TEXT);
-    CREATE TABLE IF NOT EXISTS nfl_depth (
-      season INTEGER, week INTEGER, team TEXT, gsis_id TEXT, player_name TEXT, position TEXT);
     CREATE TABLE IF NOT EXISTS nflverse_player_positions (
       gsis_id TEXT PRIMARY KEY, position TEXT, position_group TEXT, ngs_position TEXT,
       birth_date TEXT, rookie_season INTEGER, draft_year INTEGER, draft_round INTEGER,
@@ -72,17 +67,29 @@ function seedDatabase() {
   }));
 
   const insPlayer = db.prepare('INSERT INTO players (name, position, espn_id, gsis_id) VALUES (?,?,?,?)');
-  const insDepth = db.prepare('INSERT INTO nfl_depth (season, week, team, gsis_id, player_name, position) VALUES (?,?,?,?,?,?)');
+  // nfl_depth's real schema (server/services/nfl-advanced.js) always exists now that
+  // schema creation is centralized (server/migrations/000_legacy_schema.js) — it spells
+  // the position column pos_abb, not position.
+  const insDepth = db.prepare('INSERT INTO nfl_depth (season, week, team, gsis_id, player_name, pos_abb) VALUES (?,?,?,?,?,?)');
   const insBio = db.prepare(`INSERT INTO nflverse_player_positions
     (gsis_id, position, birth_date, rookie_season, draft_year, draft_round, draft_pick) VALUES (?,?,?,?,?,?,?)`);
   const insWeek = db.prepare(`INSERT INTO nfl_player_week_features
     (season, week, player_id, player_name, team, position, features) VALUES (?,?,?,?,?,?,?)`);
+  // nfl_historical_adp and nfl_ffopportunity_weekly's real schemas (server/db/schema/
+  // core-and-fantasy.js) require scrape_date/fetched_at and source_release/ingested_at
+  // NOT NULL and always exist now that schema creation is centralized
+  // (server/migrations/000_legacy_schema.js).
   const insAdp = db.prepare(`INSERT INTO nfl_historical_adp
-    (season, source, player_key, name, position, team, ecr_rank, ecr_std_dev) VALUES (?,?,?,?,?,?,?,?)`);
-  const insMarket = db.prepare('INSERT INTO espn_player_market (espn_id, season, adp, ppr_rank, season_proj) VALUES (?,?,?,?,?)');
+    (season, source, player_key, name, position, team, ecr_rank, ecr_std_dev, scrape_date, fetched_at)
+    VALUES (?,?,?,?,?,?,?,?,'2025-01-01','2025-01-01T00:00:00.000Z')`);
+  // espn_player_market's real schema (server/db/schema/core-and-fantasy.js) requires
+  // fetched_at NOT NULL and always exists now that schema creation is centralized.
+  const insMarket = db.prepare(`INSERT INTO espn_player_market (espn_id, season, adp, ppr_rank, season_proj, fetched_at)
+    VALUES (?,?,?,?,?,'2025-01-01T00:00:00.000Z')`);
   const insFf = db.prepare(`INSERT INTO nfl_ffopportunity_weekly
-    (season, week, player_gsis_id, player_name, team, position, expected_fantasy_points, actual_fantasy_points)
-    VALUES (?,?,?,?,?,?,?,?)`);
+    (season, week, player_gsis_id, player_name, team, position, expected_fantasy_points, actual_fantasy_points,
+     source_release, ingested_at)
+    VALUES (?,?,?,?,?,?,?,?,'test','2025-01-01T00:00:00.000Z')`);
 
   for (const p of players) {
     insPlayer.run(p.name, p.position, p.espn_id, p.gsis);

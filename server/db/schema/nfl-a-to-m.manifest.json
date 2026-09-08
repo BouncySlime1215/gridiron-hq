@@ -1,0 +1,243 @@
+{
+  "server/services/nfl-advanced.js": {
+    "tables": ["nfl_ngs", "nfl_pfr_adv", "nfl_snaps", "nfl_depth", "nfl_injuries"],
+    "indexes": ["idx_snaps_team", "idx_depth_player"],
+    "triggers": [],
+    "alters": ["nfl_snaps.defense_snaps", "nfl_snaps.defense_pct", "nfl_injuries.modified_at"],
+    "seeds": [],
+    "lines": [[29, 59], [64, 68]],
+    "notes": [
+      "all three ALTERs are no-ops on a fresh build (the columns are already in the CREATE text); guards reproduced verbatim",
+      "left in place: PRAGMA table_info(${table}) read at line 399 is a column-availability probe inside a sync routine, not schema"
+    ]
+  },
+  "server/services/nfl-ai-replay.js": {
+    "tables": ["nfl_ai_replay_runs", "nfl_ai_replay_reviews", "nfl_ai_replay_candidate_cache"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[15, 28]],
+    "notes": []
+  },
+  "server/services/nfl-auto-picks.js": {
+    "tables": ["nfl_auto_picks", "nfl_pick_decisions"],
+    "indexes": [], "triggers": [],
+    "alters": [
+      "nfl_auto_picks.policy_id", "nfl_auto_picks.policy_version", "nfl_auto_picks.book", "nfl_auto_picks.quote_at",
+      "nfl_auto_picks.quote_source", "nfl_auto_picks.feature_snapshot_json", "nfl_auto_picks.voided_at", "nfl_auto_picks.void_reason"
+    ],
+    "seeds": [],
+    "lines": [[18, 27], [29, 39], [41, 51]],
+    "notes": [
+      "dynamic-column loop (lines 29-39) reproduced with the concrete (name, type) pairs it iterates, same order, same PRAGMA guard; golden confirms all eight are appended after selected_at",
+      "left in place: ensurePicksFor() (line 54) is a data writer (INSERT INTO nfl_auto_picks), not schema"
+    ]
+  },
+  "server/services/nfl-bitemporal.js": {
+    "tables": ["nfl_feature_revisions"],
+    "indexes": ["idx_feature_revisions_read"],
+    "triggers": ["nfl_feature_revisions_no_update", "nfl_feature_revisions_no_delete"],
+    "alters": [], "seeds": [],
+    "lines": [[43, 64]],
+    "notes": [
+      "this file is not present in the agent worktree (uncommitted in the main checkout); DDL lifted from /Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/services/nfl-bitemporal.js"
+    ]
+  },
+  "server/services/nfl-blind-audit.js": {
+    "tables": ["nfl_blind_audit_runs", "nfl_blind_audit_weeks", "nfl_blind_input_mutations", "nfl_blind_audit_week_performance", "nfl_blind_audit_retries"],
+    "indexes": [],
+    "triggers": [
+      "nfl_blind_input_<table>_insert", "nfl_blind_input_<table>_update", "nfl_blind_input_<table>_delete",
+      "for <table> in INPUT_TABLES (31): players, player_week_usage, game_lines, nflverse_player_positions, nfl_team_week_features, nfl_player_week_features, nfl_depth, nfl_injuries, nfl_ngs, nfl_pfr_adv, nfl_snaps, nfl_teams, weekly_ensemble_fits, nfl_ensemble_fit_artifacts, nfl_line_snapshots, nfl_news_signals, news_items, nfl_external_player_grades, nfl_rookie_evidence, nfl_team_coaches, player_team_changes, nfl_player_roster_events, nfl_roster_snapshots, nfl_play_by_play, nfl_play_formations, nfl_play_charting, nfl_verified_events, nfl_team_feature_vectors, nfl_player_feature_vectors, nfl_team_cards, nfl_quote_tape"
+    ],
+    "alters": [], "seeds": [],
+    "lines": [[29, 71], [73, 84], [88, 120], [888, 890]],
+    "notes": [
+      "installInputMutationJournal() (lines 88-120) reproduced verbatim in indexesAndTriggers(): same 31-entry INPUT_TABLES list, same sqlite_master existence guard, same players-specific WHEN bodies, same generic INSERT/UPDATE/DELETE bodies. Most of those tables are owned by other fragments.",
+      "FINDING: golden has 81 nfl_blind_input_* triggers (27 tables x 3), not 93. In a legacy fresh build, nfl_play_by_play, nfl_play_formations, nfl_play_charting and nfl_quote_tape do not yet exist when nfl-blind-audit.js runs its loop (their modules import later), so the existence guard skips them; on the NEXT boot of the same database they do exist and the loop adds the missing 12. In the centralized build every tables() phase runs first, so all 93 are created in one pass. The 12 extra triggers are therefore an import-order artifact of the golden, not a definition difference; each of the 12 has the identical body template as its 81 siblings.",
+      "left in place: the trigger bodies write to nfl_blind_input_mutations, which this fragment owns; inputMutationState()/inputDataState() (PRAGMA table_info at line 178) are reads, not schema"
+    ]
+  },
+  "server/services/nfl-candidate-analysis.js": {
+    "tables": ["nfl_candidate_robustness_audits"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[7, 10]],
+    "notes": []
+  },
+  "server/services/nfl-capture-dispatch.js": {
+    "tables": [], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [],
+    "conflicts": [
+      {
+        "name": "nfl_capture_triggers",
+        "winner": "server/migrations/014_profit_execution_triggers.js (CREATE TABLE without IF NOT EXISTS; adds CHECK(source IN ('espn_move','news_signal')) and CHECK(state IN ('pending','captured','deferred','failed')))",
+        "loser": "server/services/nfl-capture-dispatch.js lines 10-16, inside lazily-called ensureCaptureTriggerTable() (never runs at import; already has IF NOT EXISTS; no CHECK constraints)",
+        "resolution": "NOT lifted. The migration owns the table and index in golden. Lifting the loser into tables() would pre-create the table without CHECKs and make migration 014 throw on a fresh database."
+      },
+      {
+        "name": "idx_capture_triggers_state",
+        "winner": "server/migrations/014_profit_execution_triggers.js",
+        "loser": "server/services/nfl-capture-dispatch.js line 15-16 (identical column list)",
+        "resolution": "NOT lifted; same reason as nfl_capture_triggers."
+      }
+    ],
+    "notes": [
+      "left in place: ensureCaptureTriggerTable() (lines 9-17) — a runtime no-op on any database that has applied migration 014; removal phase may delete it outright or leave it, either is schema-neutral"
+    ]
+  },
+  "server/services/nfl-clv.js": {
+    "tables": ["nfl_bet_log"],
+    "indexes": ["idx_betlog_event"],
+    "triggers": [], "alters": [], "seeds": [],
+    "lines": [[24, 39]],
+    "notes": ["side-effect import of ./line-shopping.js (line 20) is that module's DDL, owned by another batch"]
+  },
+  "server/services/nfl-coaches.js": {
+    "tables": ["nfl_team_coaches"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[33, 37]],
+    "notes": []
+  },
+  "server/services/nfl-cover-calibration.js": {
+    "tables": ["nfl_cover_calibrations"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[5, 12]],
+    "notes": []
+  },
+  "server/services/nfl-engine-backfill.js": {
+    "tables": ["nfl_engine_backfill_runs", "nfl_engine_backfill_checkpoints", "nfl_historical_engine_replay", "nfl_historical_signal_replay"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[9, 38]],
+    "notes": ["left in place: INSERT OR REPLACE / INSERT OR IGNORE at lines 136 and 187 are replay data writers inside the backfill loop, not seeds"]
+  },
+  "server/services/nfl-engine-registry.js": {
+    "tables": ["nfl_engine_artifacts", "nfl_learning_epochs"],
+    "indexes": ["idx_nfl_one_active_learning_epoch"],
+    "triggers": [],
+    "alters": [
+      "nfl_engine_artifacts.epoch_id",
+      "weekly_ensemble_fits.epoch_id (table owned by another batch; guarded by tableExists && !columnExists)",
+      "nfl_online_neural_artifacts.epoch_id (table owned by another batch; same guard)",
+      "nfl_online_neural_examples.epoch_id (table owned by another batch; same guard)"
+    ],
+    "seeds": [],
+    "lines": [[20, 44], [46, 48], [61, 65]],
+    "notes": [
+      "the source's tableExists()/columnExists() helpers (lines 15-17, sqlite_master + PRAGMA table_info) are reproduced inline in alters() with identical semantics",
+      "all four epoch_id ALTERs are no-ops on a fresh build: golden shows epoch_id mid-column in each owning CREATE (nfl_engine_artifacts, weekly_ensemble_fits, nfl_online_neural_artifacts, nfl_online_neural_examples)",
+      "left in place: initial active learning-epoch row (lines 50-56) — a parameterized run(INSERT INTO nfl_learning_epochs ...) guarded by a SELECT, outside any DDL block, with a runtime timestamp; not a verbatim INSERT OR IGNORE seed",
+      "left in place: INSERT OR IGNORE INTO nfl_engine_artifacts at line 200 is recordNflEngineArtifact(), a data writer"
+    ]
+  },
+  "server/services/nfl-ensemble.js": {
+    "tables": ["nfl_ensemble_fit_artifacts"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[39, 43]],
+    "notes": []
+  },
+  "server/services/nfl-espn-line-watch.js": {
+    "tables": ["espn_line_moves"],
+    "indexes": ["idx_espn_moves_event", "idx_espn_moves_time"],
+    "triggers": [], "alters": [], "seeds": [],
+    "lines": [[29, 46]],
+    "notes": ["the two '-- What the spread move ...' SQL comment lines inside the CREATE are kept verbatim; SQLite stores them in sqlite_master.sql and golden contains them"]
+  },
+  "server/services/nfl-espn-pbp.js": {
+    "tables": ["nfl_play_by_play"],
+    "indexes": ["idx_pbp_season_week"],
+    "triggers": [],
+    "alters": ["nfl_play_by_play.shotgun", "nfl_play_by_play.no_huddle", "nfl_play_by_play.pass_depth", "nfl_play_by_play.pass_direction"],
+    "seeds": [],
+    "lines": [[41, 68], [69, 69], [76, 80]],
+    "notes": [
+      "the source guards these four ALTERs with try/catch (duplicate-column error is the expected no-op) rather than PRAGMA table_info; the try/catch is reproduced as-is because it is already plain JS. All four are no-ops on a fresh build (columns are in the CREATE text)."
+    ]
+  },
+  "server/services/nfl-event-archive.js": {
+    "tables": ["nfl_verified_events"],
+    "indexes": ["idx_nfl_verified_events_team_time", "idx_nfl_verified_events_player_time"],
+    "triggers": ["nfl_verified_events_no_update", "nfl_verified_events_no_delete"],
+    "alters": [], "seeds": [],
+    "lines": [[27, 60]],
+    "notes": ["left in place: INSERT OR IGNORE INTO nfl_verified_events at line 96 is the archive writer, not a seed"]
+  },
+  "server/services/nfl-evidence.js": {
+    "tables": ["nfl_source_registry", "nfl_validation_windows"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[14, 26]],
+    "notes": [
+      "left in place: SOURCES upsert (lines 59-65, run(INSERT ... ON CONFLICT(source_id) DO UPDATE ...) with bound parameters) is seed reconciliation, not a verbatim INSERT OR IGNORE inside a DDL block",
+      "left in place: WINDOWS insert (lines 73-75, run(INSERT ... ON CONFLICT(window_id) DO NOTHING) with bound parameters and datetime('now')) — same reasoning; both still run at import after the removal phase because the tables will exist"
+    ]
+  },
+  "server/services/nfl-execution.js": {
+    "tables": ["nfl_execution_log"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[29, 46]],
+    "notes": ["source uses run(`CREATE TABLE ...`) (db/index.js helper) rather than db.exec; lifted as db.exec of the same text"]
+  },
+  "server/services/nfl-experiments.js": {
+    "tables": ["nfl_model_experiments"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[15, 21]],
+    "notes": []
+  },
+  "server/services/nfl-expert-council.js": {
+    "tables": ["nfl_weekly_expert_examples", "nfl_expert_forward_predictions", "nfl_expert_forward_settlements"],
+    "indexes": ["idx_nfl_weekly_expert_cutoff"],
+    "triggers": [
+      "nfl_weekly_expert_examples_no_update", "nfl_weekly_expert_examples_no_delete",
+      "nfl_expert_forward_predictions_no_update", "nfl_expert_forward_predictions_no_delete",
+      "nfl_expert_forward_settlements_no_update", "nfl_expert_forward_settlements_no_delete"
+    ],
+    "alters": [], "seeds": [],
+    "lines": [[55, 114]],
+    "notes": ["left in place: INSERT OR IGNORE calls at lines 740, 767, 781, 796 are prediction/settlement/example writers, not seeds"]
+  },
+  "server/services/nfl-external-ratings.js": {
+    "tables": ["nfl_external_ratings"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[42, 46]],
+    "notes": ["left in place: INSERT OR REPLACE at line 62 is the ratings fetch writer"]
+  },
+  "server/services/nfl-feature-coverage.js": {
+    "tables": ["nfl_feature_coverage_snapshots"],
+    "indexes": [],
+    "triggers": ["nfl_feature_coverage_snapshots_no_update", "nfl_feature_coverage_snapshots_no_delete"],
+    "alters": [], "seeds": [],
+    "lines": [[8, 20]],
+    "notes": ["left in place: PRAGMA table_info reads at lines 28 and 46 are coverage probes, not schema"]
+  },
+  "server/services/nfl-formations.js": {
+    "tables": ["nfl_play_formations", "nfl_play_charting"],
+    "indexes": ["idx_form_season", "idx_chart_season"],
+    "triggers": [], "alters": [], "seeds": [],
+    "lines": [[33, 45], [47, 59]],
+    "notes": ["source uses run(`CREATE ...`) helper; lifted as db.exec of the same text"]
+  },
+  "server/services/nfl-live-ledger.js": {
+    "tables": ["nfl_live_possession_predictions", "nfl_live_possession_settlements"],
+    "indexes": ["idx_nfl_live_ledger_event"],
+    "triggers": [
+      "nfl_live_predictions_no_update", "nfl_live_predictions_no_delete",
+      "nfl_live_settlements_no_update", "nfl_live_settlements_no_delete"
+    ],
+    "alters": ["nfl_live_possession_predictions.simulator_version", "nfl_live_possession_predictions.simulator_calibration_hash"],
+    "seeds": [],
+    "lines": [[9, 37], [39, 46]],
+    "notes": [
+      "both ALTERs are no-ops on a fresh build (columns are mid-CREATE in the source and in golden); guards reproduced verbatim",
+      "left in place: INSERT OR IGNORE at lines 132 and 165 are ledger writers"
+    ]
+  },
+  "server/services/nfl-model-growth.js": {
+    "tables": ["nfl_model_growth_runs"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[42, 52]],
+    "notes": []
+  },
+  "server/services/nfl-model-watch.js": {
+    "tables": ["nfl_model_watch_runs"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[40, 46]],
+    "notes": []
+  }
+}

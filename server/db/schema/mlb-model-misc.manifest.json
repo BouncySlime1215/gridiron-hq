@@ -1,0 +1,247 @@
+{
+  "server/services/mlb-auto-picks.js": {
+    "tables": ["mlb_first_party_picks", "mlb_pick_decisions"],
+    "indexes": [], "triggers": [],
+    "alters": [
+      "mlb_first_party_picks.american_price", "mlb_first_party_picks.implied_probability",
+      "mlb_first_party_picks.probability_difference", "mlb_first_party_picks.book",
+      "mlb_first_party_picks.quote_at", "mlb_first_party_picks.quote_event_id",
+      "mlb_first_party_picks.model_version", "mlb_first_party_picks.pregame_snapshot_at",
+      "mlb_first_party_picks.lineup_status", "mlb_first_party_picks.tracking_mode"
+    ],
+    "seeds": [],
+    "lines": [[24, 40], [42, 49]],
+    "notes": [
+      "alter loop (lines 42-49) reproduced as-is: concrete [name,type] list, PRAGMA re-read per iteration exactly like the source",
+      "ensurePicksFor() (line 220) contains no DDL; it inserts pick rows at runtime and stays where it is"
+    ]
+  },
+  "server/services/mlb-calibration.js": {
+    "tables": ["mlb_probability_calibrations"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[4, 9]], "notes": []
+  },
+  "server/services/mlb-experiments.js": {
+    "tables": ["mlb_model_experiments"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[11, 16]], "notes": []
+  },
+  "server/services/mlb-pregame.js": {
+    "tables": ["mlb_pregame_snapshots", "mlb_market_quotes"],
+    "indexes": ["idx_mlb_quotes_game"], "triggers": [],
+    "alters": ["mlb_pregame_snapshots.odds_source", "mlb_market_quotes.source"],
+    "seeds": [],
+    "lines": [[11, 26], [29, 32]],
+    "notes": ["guards used the rows() helper from db/index.js; translated to db.prepare(...).all() with the same PRAGMA text"]
+  },
+  "server/services/mlb.js": {
+    "tables": ["mlb_games", "mlb_probable_starters", "mlb_pitcher_games", "mlb_batter_games", "mlb_boxscore_sync"],
+    "indexes": ["idx_mlb_games_date", "idx_mlb_games_season", "idx_probable_date", "idx_mlb_pg_season", "idx_mlb_pg_player", "idx_mlb_bg_season", "idx_mlb_bg_player"],
+    "triggers": [],
+    "alters": ["mlb_games.status", "mlb_games.game_time"],
+    "seeds": [],
+    "lines": [[21, 96], [100, 102]],
+    "notes": ["mixed block split by statement: CREATE TABLEs to tables(), CREATE INDEXes to indexesAndTriggers(); the SQL comment above mlb_boxscore_sync is kept with the table"]
+  },
+  "server/services/model-governance.js": {
+    "tables": ["model_feature_contracts", "model_evidence_manifests", "model_registry", "model_gate_audits", "model_registry_history"],
+    "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[5, 35]], "notes": []
+  },
+  "server/services/model-intelligence.js": {
+    "tables": ["research_hypotheses"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[14, 19]],
+    "notes": [
+      "left in place: research_hypotheses default rows (lines 27-38) -- a parameterized run(`INSERT ... ON CONFLICT(id) DO NOTHING`) executed at import time outside the DDL block; data seeding, not schema"
+    ]
+  },
+  "server/services/nfelo.js": {
+    "tables": ["nfl_nfelo_qb", "nfl_nfelo_games", "nfl_nfelo_lines", "nfl_stadiums", "nfl_team_stadiums"],
+    "indexes": ["idx_nfl_nfelo_qb_week", "idx_nfl_nfelo_games_match", "idx_nfl_nfelo_lines_match"],
+    "triggers": [],
+    "alters": ["nfl_nfelo_games.home_line_pre_regression", "nfl_nfelo_games.market_regression_factor", "nfl_nfelo_games.market_implied_elo_dif"],
+    "seeds": [],
+    "lines": [[49, 57], [59, 69], [71, 76], [78, 88], [90, 94], [95, 99]],
+    "notes": [
+      "the three nfl_nfelo_games alters are no-ops on a fresh database (the CREATE already lists those columns); guard reproduced anyway for databases created before them",
+      "guard used the rows() helper; translated to db.prepare(...).all()",
+      "left in place: INSERT OR REPLACE upserts (lines 163, 233, 253, 274) are runtime data loads, not seeds"
+    ]
+  },
+  "server/services/nflverse.js": {
+    "tables": ["player_week_usage", "player_week_snaps", "nflverse_player_positions"],
+    "indexes": ["idx_pwu_season_week", "idx_pwu_player"], "triggers": [],
+    "alters": [
+      "nflverse_player_positions.birth_date", "nflverse_player_positions.rookie_season",
+      "nflverse_player_positions.draft_year", "nflverse_player_positions.draft_round",
+      "nflverse_player_positions.draft_pick", "players.gsis_id"
+    ],
+    "seeds": [],
+    "lines": [[20, 64], [72, 80], [88, 89]],
+    "notes": [
+      "addCol(name, type) helper (line 74) reproduced with its five concrete call sites (lines 75-79)",
+      "players.gsis_id (lines 88-89) duplicates the identical guard in server/db/index.js line 131; kept verbatim, it is a no-op after db/index.js opens",
+      "SQL comments inside the CREATE TABLE bodies (-- opportunity / -- production / -- efficiency) are part of the stored sqlite_master text and are kept verbatim"
+    ]
+  },
+  "server/services/odds-api.js": {
+    "tables": ["odds_cache", "odds_usage"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[21, 31]], "notes": []
+  },
+  "server/services/odds-archive.js": {
+    "tables": ["nfl_odds_archive"], "indexes": ["idx_nfl_odds_archive_game"], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[36, 48], [49, 49]],
+    "notes": ["left in place: INSERT OR IGNORE INTO nfl_line_snapshots (line 118) is a runtime data write inside a function, not a seed; nfl_line_snapshots is not defined in this batch"]
+  },
+  "server/services/offseason-data.js": {
+    "tables": [
+      "off_draft_picks", "off_contracts", "off_rosters", "off_depth_chart", "off_ngs_season",
+      "off_pfr_adv_season", "off_qbr_season", "off_schedule_games", "off_team_season_stats",
+      "off_sleeper_players", "off_team_season", "off_player_season_features"
+    ],
+    "indexes": [
+      "idx_off_draft_team", "idx_off_contracts_gsis", "idx_off_rosters_team", "idx_off_rosters_pfr",
+      "idx_off_depth_player", "idx_off_sched_season", "idx_off_sleeper_gsis", "idx_off_features_player"
+    ],
+    "triggers": [], "alters": [], "seeds": [],
+    "lines": [[44, 212]],
+    "notes": [
+      "mixed block split by statement; the SQL comments preceding each CREATE TABLE are kept with their table, and the comments inside off_player_season_features are part of the stored text",
+      "left in place: INSERT OR REPLACE loaders (lines 303-1217) are runtime data writes"
+    ]
+  },
+  "server/services/offseason-model.js": {
+    "tables": [], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [],
+    "notes": ["no DDL in this file; the grep hit at line 1192 is a comment explaining why it reads off_player_season_features with a plain SELECT instead of importing offseason-data.js"]
+  },
+  "server/services/parlay-api.js": {
+    "tables": ["parlay_cache", "parlay_usage"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[34, 44]], "notes": []
+  },
+  "server/services/player-career.js": {
+    "tables": ["nfl_player_week_features"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[29, 35]],
+    "conflicts": [
+      {
+        "name": "nfl_player_week_features",
+        "winner": "server/services/nfl-pbp.js:31 (imported first in production via routes/props.js -> nfl-props.js -> nfl-pbp.js)",
+        "loser": "server/services/player-career.js:30",
+        "note": "both definitions are byte-identical after whitespace normalization and both equal golden; no schema difference. nfl-pbp.js's idx_pwf_player / idx_pwf_team indexes belong to that file's batch, not this one"
+      }
+    ],
+    "notes": ["the file's own comment says it mirrors nfl-pbp.js so a test database works without the play-by-play loader; included here verbatim because the name appears in this file's DDL"]
+  },
+  "server/services/player-head-validation.js": {
+    "tables": ["player_head_audits"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[10, 15]], "notes": []
+  },
+  "server/services/player-repair.js": {
+    "tables": ["player_identity_repairs"], "indexes": [],
+    "triggers": ["player_identity_repairs_no_update", "player_identity_repairs_no_delete"],
+    "alters": [], "seeds": [],
+    "lines": [[4, 13]],
+    "notes": [
+      "single db.exec block split: CREATE TABLE to tables(), the two CREATE TRIGGERs to indexesAndTriggers()",
+      "left in place: playerReferenceTables() (lines 15-19) uses PRAGMA table_info for runtime introspection, not schema"
+    ]
+  },
+  "server/services/polymarket-lines.js": {
+    "tables": ["polymarket_line_moves"], "indexes": ["idx_pm_moves_time", "idx_pm_moves_game"], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[27, 42]],
+    "notes": ["left in place: INSERT OR IGNORE INTO polymarket_line_moves (line 242) is a runtime write"]
+  },
+  "server/services/polymarket.js": {
+    "tables": ["polymarket_markets", "polymarket_quotes", "polymarket_price_history"],
+    "indexes": ["idx_pmq_cond", "idx_pmh_ts"], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[39, 65], [337, 343]],
+    "notes": ["DDL was issued through run() (db.prepare().run()); reproduced via db.exec() with identical SQL text"]
+  },
+  "server/services/prediction-markets.js": {
+    "tables": ["prediction_market_quotes", "prediction_market_flow"],
+    "indexes": ["idx_pm_ticker", "idx_pmflow_ticker"], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[39, 53], [55, 68]],
+    "notes": ["DDL was issued through run(); reproduced via db.exec() with identical SQL text"]
+  },
+  "server/services/press-conference.js": {
+    "tables": ["yt_channels", "press_conferences", "press_availability"],
+    "indexes": ["idx_pa_team"], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[36, 64]],
+    "notes": ["DDL was issued through run(); reproduced via db.exec() with identical SQL text"]
+  },
+  "server/services/prop-feeds.js": {
+    "tables": [], "indexes": [], "triggers": [],
+    "alters": ["nfl_prop_quote_snapshots.provider", "nfl_prop_quote_snapshots.book_updated_at", "nfl_prop_quote_snapshots.is_opener"],
+    "seeds": [],
+    "lines": [[41, 44]],
+    "notes": [
+      "dynamic column helper: the loop at lines 42-44 adds whichever [column, type] it iterates; its only call list is the literal [['provider','TEXT'],['book_updated_at','TEXT'],['is_opener','INTEGER']], reproduced as those three guarded ALTERs",
+      "nfl_prop_quote_snapshots itself is created by server/services/nfl-props.js (another batch); this fragment's alters() assumes that fragment's tables() ran first, exactly as the source's `import './nfl-props.js'` guaranteed",
+      "left in place: INSERT OR IGNORE INTO nfl_prop_quote_snapshots (line 205) is a runtime write"
+    ]
+  },
+  "server/services/report-cache.js": {
+    "tables": ["nfl_cached_reports"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[27, 34]], "notes": []
+  },
+  "server/services/scheduler.js": {
+    "tables": ["sync_log"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[62, 70]],
+    "notes": ["the guarded SELECT on drafts (lines 45-60) and the comment mentioning migrate() are not DDL"]
+  },
+  "server/services/shadow-ledger.js": {
+    "tables": ["shadow_decisions"], "indexes": [], "triggers": [],
+    "alters": [
+      "shadow_decisions.season", "shadow_decisions.week", "shadow_decisions.home_team", "shadow_decisions.away_team",
+      "shadow_decisions.line", "shadow_decisions.american_price", "shadow_decisions.quote_at",
+      "shadow_decisions.feature_snapshot_json", "shadow_decisions.result", "shadow_decisions.clv_points"
+    ],
+    "seeds": [],
+    "lines": [[5, 12], [18, 25]],
+    "notes": ["alter loop reproduced as-is with its concrete [name,type] list"]
+  },
+  "server/services/shrinkage-fit.js": {
+    "tables": ["shrinkage_fits", "shrinkage_k"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[36, 60]], "notes": []
+  },
+  "server/services/source-validation.js": {
+    "tables": ["news_source_validation"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[23, 35]],
+    "notes": ["DDL was issued through run(); reproduced via db.exec() with identical SQL text"]
+  },
+  "server/services/sportsgameodds.js": {
+    "tables": ["sgo_usage"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[34, 40]],
+    "notes": ["left in place: INSERT INTO nfl_line_snapshots (line 163) is a runtime write to a table defined outside this batch"]
+  },
+  "server/services/trend-watch.js": {
+    "tables": ["trend_findings"], "indexes": ["trend_findings_unique", "trend_findings_week"], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[41, 64]],
+    "notes": [
+      "DDL was issued through run(); reproduced via db.exec() with identical SQL text",
+      "the inline SQL comments on subject_type / subject / status are part of the stored CREATE text and are kept verbatim"
+    ]
+  },
+  "server/services/twitterapi-io.js": {
+    "tables": ["twitterapi_io_usage"], "indexes": [], "triggers": [], "alters": [], "seeds": [],
+    "lines": [[17, 21]], "notes": []
+  },
+  "server/services/weekly-learning.js": {
+    "tables": ["weekly_prediction_snapshots"], "indexes": ["idx_weekly_snapshots_settlement"], "triggers": [],
+    "alters": [
+      "weekly_prediction_snapshots.candidate_version", "weekly_prediction_snapshots.candidate_heads_json",
+      "weekly_prediction_snapshots.gridiron_engine_version"
+    ],
+    "seeds": [],
+    "lines": [[20, 46], [48, 57]],
+    "notes": [
+      "gridiron_engine_version is already in the CREATE, so that guard is a no-op on a fresh database; kept for databases created before it",
+      "left in place: INSERT OR IGNORE INTO weekly_prediction_snapshots (line 99) is a runtime write"
+    ]
+  },
+  "server/services/weekly-weight-store.js": {
+    "tables": ["weekly_ensemble_fits"], "indexes": ["idx_weekly_fits_cutoff"], "triggers": [],
+    "alters": ["weekly_ensemble_fits.epoch_id"],
+    "seeds": [],
+    "lines": [[6, 27], [29, 32]],
+    "notes": ["epoch_id is already in the CREATE, so the guard is a no-op on a fresh database; kept for databases created before it"]
+  }
+}

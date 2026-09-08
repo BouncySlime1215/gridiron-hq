@@ -1,0 +1,338 @@
+{
+  "server/db/index.js": {
+    "tables": ["nfl_teams", "players", "ranking_sets", "ranking_entries", "drafts", "draft_picks", "espn_settings", "espn_cache", "news_items", "leagues", "draft_grades", "player_analysis", "dynasty_values", "pick_values"],
+    "indexes": [],
+    "triggers": [],
+    "alters": ["nfl_teams.analysis_updated_at", "players.espn_id", "players.sleeper_id", "players.gsis_id", "draft_picks.reason", "drafts.pick_seconds", "leagues.league_type"],
+    "seeds": [],
+    "lines": [[17, 120], [124, 136], [139, 196], [263, 266]],
+    "notes": [
+      "left in place: PRAGMA foreign_keys / journal_mode / busy_timeout (lines 13-15, same exec block as the first CREATEs)",
+      "left in place: CREATE TABLE IF NOT EXISTS schema_migrations (lines 198-201) — index.js must create it before migrate() can record anything",
+      "left in place: CREATE TABLE IF NOT EXISTS db_health_checks (lines 230-235) — index.js must create it before the integrity/quick check can store a result",
+      "left in place: integrity/quick_check run and db_health_checks upsert (lines 236-261)",
+      "left in place: espn_settings -> leagues single-row data copy (lines 268-279)",
+      "left in place: migrate()/rows/row/run helpers (lines 212-223, 281-289)",
+      "the first exec block spans lines 12-121 and the second 138-202; only the CREATE TABLE text inside them was lifted",
+      "golden `drafts` also carries revision, order_type, roster_positions, turn_deadline, paused — added by server/migrations/003_draft_state_machine.js after import, not by any file in this batch",
+      "golden `draft_picks` also carries idempotency_key, source — added by server/migrations/003_draft_state_machine.js",
+      "golden `leagues` also carries connection_status, sync_error — added by server/migrations/011_league_connection_integrity.js",
+      "golden `news_items` also carries source_url .. attribution_required (16 columns) — added by server/migrations/010_news_provenance_and_dedup.js",
+      "ordering: this file's ALTERs on drafts/draft_picks must run before server/services/espn-draft.js's (they do, within this fragment), and migration 003's must run after both (it does — migrations run after all fragments)"
+    ]
+  },
+  "server/routes/espn.js": {
+    "tables": ["player_team_changes"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[16, 19]],
+    "notes": []
+  },
+  "server/routes/aggregates.js": {
+    "tables": ["player_metrics"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[11, 17]],
+    "conflicts": [
+      {
+        "table": "player_metrics",
+        "lifted_from": "server/routes/aggregates.js:11-17",
+        "duplicate": "server/services/contingency.js:34-38",
+        "note": "both definitions are identical after whitespace normalization and both equal golden; lifted once (aggregates.js text), contingency.js's copy not repeated"
+      }
+    ],
+    "notes": []
+  },
+  "server/routes/nfldata.js": {
+    "tables": ["roster_players", "schedule_games", "team_cap"],
+    "indexes": [],
+    "triggers": [],
+    "alters": ["roster_players.depth_slot", "roster_players.depth_order"],
+    "seeds": [],
+    "lines": [[11, 52], [55, 57]],
+    "notes": [
+      "the two guarded ALTERs are no-ops on a fresh database (the CREATE already lists depth_slot and depth_order); lifted anyway so an old database that predates those columns still gets them"
+    ]
+  },
+  "server/routes/stats.js": {
+    "tables": ["player_season_stats"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[8, 19]],
+    "notes": []
+  },
+  "server/routes/accolades.js": {
+    "tables": ["player_accolades", "slot_weakness", "nfl_top100"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[7, 23], [181, 189], [272, 281]],
+    "notes": []
+  },
+  "server/routes/edge.js": {
+    "tables": ["player_gamelog", "scout_reports"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[10, 23]],
+    "notes": []
+  },
+  "server/routes/tradelab.js": {
+    "tables": ["trending_players"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[335, 337]],
+    "notes": []
+  },
+  "server/routes/props.js": {
+    "tables": ["props_auto_picks"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[25, 35]],
+    "notes": [
+      "left in place: ensureAutoPicksFor() (lines 161-182) inserts the day's five picks at request time (INSERT ... ON CONFLICT DO NOTHING) — runtime data, not DDL or a seed"
+    ]
+  },
+  "server/services/audit-registry.js": {
+    "tables": ["audit_registry"],
+    "indexes": [],
+    "triggers": [],
+    "alters": ["audit_registry.require_significance", "audit_registry.require_deterministic", "audit_registry.significant", "audit_registry.always_valid_p", "audit_registry.always_valid_significant", "audit_registry.always_valid_n"],
+    "seeds": [],
+    "lines": [[36, 60], [67, 71]],
+    "notes": [
+      "CREATE was run(`...`) (db.prepare().run()); lifted as db.exec with identical SQL",
+      "the six ALTERs were unguarded, each wrapped in try/catch that swallows 'duplicate column'; translated to a PRAGMA table_info guard with the same six column definitions in the same order",
+      "all six columns are already in the CREATE, so the ALTERs are no-ops on a fresh database"
+    ]
+  },
+  "server/services/beat-the-close.js": {
+    "tables": ["nfl_rule_state", "nfl_signal_snapshots"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[69, 74], [76, 84]],
+    "notes": [
+      "left in place: INSERT OR IGNORE INTO nfl_signal_snapshots inside snapshotSignals() (line 221) — runtime capture data, not a seed"
+    ]
+  },
+  "server/services/cfbd.js": {
+    "tables": ["cfbd_player_season"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[30, 46]],
+    "notes": []
+  },
+  "server/services/claude.js": {
+    "tables": ["ai_usage", "app_settings"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[9, 24]],
+    "notes": []
+  },
+  "server/services/consensus-weights.js": {
+    "tables": ["nfl_historical_ffc_adp"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[124, 140]],
+    "notes": [
+      "left in place: INSERT OR REPLACE INTO nfl_historical_ffc_adp inside syncFfcAdpHistory() (line 175) — sync data, not a seed"
+    ]
+  },
+  "server/services/contingency.js": {
+    "tables": ["nfl_injuries"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[29, 33], [34, 38]],
+    "conflicts": [
+      {
+        "table": "player_metrics",
+        "lifted_from": "server/routes/aggregates.js:11-17",
+        "duplicate": "server/services/contingency.js:34-38",
+        "note": "identical after whitespace normalization; not repeated in the fragment"
+      },
+      {
+        "table": "nfl_injuries",
+        "lifted_from": "server/services/contingency.js:29-33",
+        "other_definition": "server/services/nfl-advanced.js:53-58 (another batch)",
+        "note": "nfl-advanced.js's CREATE lists modified_at inline and also guards ALTER TABLE nfl_injuries ADD COLUMN modified_at TEXT (line 68). contingency.js's CREATE has no modified_at. Golden = contingency's column list + modified_at before PRIMARY KEY, which is what EITHER path produces after normalization (SQLite inserts an added column before the table constraints), so the two are indistinguishable in the proof. Lifted contingency.js's text verbatim here; whichever fragment's tables() runs first wins and nfl-advanced.js's guarded ALTER completes it either way."
+      }
+    ],
+    "notes": []
+  },
+  "server/services/correlation.js": {
+    "tables": ["correlation_estimates"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[29, 36]],
+    "notes": []
+  },
+  "server/services/decay-watch.js": {
+    "tables": ["decay_watch_runs"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[52, 66]],
+    "notes": []
+  },
+  "server/services/decision-basis.js": {
+    "tables": ["decision_basis"],
+    "indexes": ["idx_db_season"],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[33, 42], [43, 43]],
+    "notes": [
+      "CREATE TABLE and CREATE INDEX were run(`...`) calls; lifted as db.exec with identical SQL"
+    ]
+  },
+  "server/services/draft-ingest.js": {
+    "tables": ["draft_capture_sessions", "draft_capture_events"],
+    "indexes": ["idx_draft_capture_events_draft"],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[25, 45]],
+    "notes": [
+      "the index at line 44 lived in the same exec block as the tables; split into indexesAndTriggers() per the fragment contract",
+      "left in place: INSERT OR IGNORE INTO draft_capture_events inside storeFrames() (line 122) — runtime capture data, not a seed"
+    ]
+  },
+  "server/services/draft-reconcile.js": {
+    "tables": ["draft_pick_quarantine", "draft_pick_corrections"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[20, 47]],
+    "notes": []
+  },
+  "server/services/espn-draft.js": {
+    "tables": ["draft_advice"],
+    "indexes": [],
+    "triggers": [],
+    "alters": ["drafts.league_row_id", "drafts.espn_league_id", "drafts.season", "drafts.pick_order", "drafts.roster_slots", "drafts.last_synced_at", "drafts.draft_at", "drafts.my_slot_confirmed", "drafts.ingest_key_hash", "drafts.ingest_key_expires_at", "drafts.ingest_last_seen_at", "drafts.ingest_capture_id", "draft_picks.espn_team_id", "draft_picks.keeper"],
+    "seeds": [],
+    "lines": [[19, 27], [30, 46], [55, 57]],
+    "notes": [
+      "ordering: these ALTERs follow server/db/index.js's pick_seconds / reason columns (golden column order), which the fragment preserves by placing db/index.js first"
+    ]
+  },
+  "server/services/espn-market.js": {
+    "tables": ["espn_player_market"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[18, 25]],
+    "notes": []
+  },
+  "server/services/evidence-daemon.js": {
+    "tables": ["evidence_capture_windows", "evidence_daemon_runs"],
+    "indexes": ["idx_evidence_windows_due"],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[23, 37]],
+    "notes": [
+      "the index at lines 31-32 sat between the two CREATE TABLEs in one exec block; split into indexesAndTriggers() per the fragment contract",
+      "left in place: addWindow() upsert into evidence_capture_windows (lines 50-61) — runtime scheduling data, not a seed"
+    ]
+  },
+  "server/services/fantasy-coordinator.js": {
+    "tables": ["fantasy_coordinator_fits"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[107, 116]],
+    "notes": []
+  },
+  "server/services/ffopportunity.js": {
+    "tables": ["nfl_ffopportunity_weekly"],
+    "indexes": ["idx_ffopp_player_cutoff"],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[25, 46]],
+    "notes": [
+      "the index at lines 44-45 lived in the same exec block as the table; split into indexesAndTriggers() per the fragment contract"
+    ]
+  },
+  "server/services/forward-ledger.js": {
+    "tables": ["forward_picks"],
+    "indexes": ["forward_picks_unique"],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[70, 94], [95, 96]],
+    "notes": [
+      "CREATE TABLE and CREATE UNIQUE INDEX were run(`...`) calls; lifted as db.exec with identical SQL"
+    ]
+  },
+  "server/services/gamescript.js": {
+    "tables": ["game_lines", "gamescript_model"],
+    "indexes": [],
+    "triggers": [],
+    "alters": ["game_lines.team_score", "game_lines.opp_score", "game_lines.moneyline", "game_lines.spread_odds", "game_lines.total_over_odds", "game_lines.total_under_odds", "game_lines.temp", "game_lines.wind", "game_lines.roof", "game_lines.surface", "game_lines.rest_days", "game_lines.div_game", "game_lines.gameday", "game_lines.gametime", "game_lines.open_spread", "game_lines.open_total", "game_lines.book_count", "game_lines.neutral_site", "game_lines.closing_spread", "game_lines.closing_total"],
+    "seeds": [],
+    "lines": [[26, 45], [50, 76]],
+    "notes": [
+      "the 20 ALTERs come from a literal [column, type] list in a for-loop with a table_info guard; the loop and its literal list are reproduced verbatim (each concrete column is enumerated above)"
+    ]
+  },
+  "server/services/historical-adp-scrapes.js": {
+    "tables": ["nfl_historical_adp_scrape"],
+    "indexes": ["idx_adp_scrape_season_date"],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[34, 48], [49, 50]],
+    "notes": []
+  },
+  "server/services/historical-adp.js": {
+    "tables": ["nfl_historical_adp"],
+    "indexes": [],
+    "triggers": [],
+    "alters": [],
+    "seeds": [],
+    "lines": [[60, 74]],
+    "notes": []
+  },
+  "server/services/line-shopping.js": {
+    "tables": ["nfl_line_snapshots"],
+    "indexes": ["idx_lines_event"],
+    "triggers": [],
+    "alters": ["nfl_line_snapshots.provider", "nfl_line_snapshots.book_updated_at"],
+    "seeds": [],
+    "lines": [[24, 33], [38, 41]],
+    "notes": [
+      "the index at line 32 lived in the same exec block as the table; split into indexesAndTriggers() per the fragment contract",
+      "the two ALTERs come from a literal [column, type] list in a for-loop that re-reads table_info on each iteration; reproduced verbatim"
+    ]
+  }
+}

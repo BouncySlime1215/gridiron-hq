@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { up as applyLegacySchema } from '../migrations/000_legacy_schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Tests and offline diagnostics can point at an isolated database instead of
@@ -221,6 +222,54 @@ export function migrate(name, fn) {
     db.exec('ROLLBACK');
     throw error;
   }
+}
+
+/** The one migration every real database already has the body of; it never counts as history worth a snapshot on its own. */
+export const LEGACY_SCHEMA_MIGRATION = '000_legacy_schema';
+
+/**
+ * A pre-migration snapshot, taken only when there is schema history worth
+ * protecting and new schema about to be applied to it.
+ *
+ * `VACUUM INTO` (not a raw file copy) because the live database runs in WAL
+ * mode: copying `data.sqlite` alone can miss committed pages still sitting in
+ * `data.sqlite-wal`, producing a backup that looks complete but is quietly
+ * behind. `VACUUM INTO` asks SQLite itself for a consistent single-file
+ * snapshot, the same way it already answers every other query.
+ *
+ * Skipped on a database that has never had a migration applied — there is
+ * nothing there yet that a failed first migration could lose, and it is what
+ * keeps every test's fresh temp database from paying for a snapshot of an
+ * empty file on every run. Once real schema history exists, every migration
+ * after it is preceded by one. Snapshots are not pruned automatically —
+ * recovery after a bad migration is worth more than the disk they cost, and
+ * this project already leaves manual reset backups in place for the same reason.
+ */
+export function backupBeforeMigration(reason = 'migrations') {
+  const prior = db.prepare('SELECT COUNT(*) n FROM schema_migrations WHERE name <> ?')
+    .get(LEGACY_SCHEMA_MIGRATION)?.n ?? 0;
+  if (!prior || !DB_PATH || DB_PATH === ':memory:') return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = `${DB_PATH}.pre-migration-${stamp}.bak`;
+  const startedAt = Date.now();
+  console.log(`[db] backing up ${DB_PATH} to ${backupPath} before ${reason}…`);
+  db.prepare(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`).run();
+  console.log(`[db] backup complete in ${Date.now() - startedAt}ms`);
+  return backupPath;
+}
+
+/**
+ * Everything that used to be created at import time by 122 service and route
+ * files, applied once, here, before any of them can run. On a fresh database
+ * this is the whole schema; on an existing one it is an idempotent no-op that
+ * only records the marker — those files still carry their own
+ * `CREATE TABLE IF NOT EXISTS` copies until phase 2 removes them, so this is
+ * deliberately redundant with them for now, not a replacement yet. Proof that
+ * the two are equivalent is scripts/schema-snapshot.mjs.
+ */
+if (!db.prepare('SELECT 1 FROM schema_migrations WHERE name=?').get(LEGACY_SCHEMA_MIGRATION)) {
+  backupBeforeMigration(LEGACY_SCHEMA_MIGRATION);
+  migrate(LEGACY_SCHEMA_MIGRATION, () => applyLegacySchema(db));
 }
 
 // A full integrity_check scans the entire database. Once historical NFL evidence

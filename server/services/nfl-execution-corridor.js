@@ -29,6 +29,22 @@
  * produced it and is exported so a future reader can re-derive it from a fresh
  * sample rather than trusting a constant.
  *
+ * WHAT test/nfl-execution-corridor.test.js CAN AND CANNOT REPRODUCE. It
+ * exercises `deriveCorridorThreshold()` and `marketLineCorridorCheck()`
+ * against hand-verifiable synthetic arrays, and checks CORRIDOR_DERIVATION
+ * for internal self-consistency (frozen, the shipped 11.5 sitting below every
+ * fold's own fitted value, the alpha-test interval excluding zero, and so
+ * on). It does NOT and, inside an isolated agent worktree with no live
+ * database and no extracted copy of `nfl_weekly_expert_examples` present (by
+ * this project's own no-concurrent-writers rule for agent worktrees), CANNOT
+ * re-pull the 12,318-row population and re-derive 11.684 / 11.781 / 11.514
+ * from scratch. Those three numbers, and the alpha-test result, were measured
+ * once against the real audit-run-17 table via a read-only connection and
+ * are recorded here as frozen constants; re-deriving them again requires
+ * running against that table directly (`deriveCorridorThreshold()` is built
+ * for exactly that), not something this test suite can fabricate a stand-in
+ * for without misrepresenting synthetic data as real history.
+ *
  * WHAT THE OUT-OF-FOLD EVIDENCE SAYS. The corridor's premise — that an extreme
  * divergence is more likely a bug than found alpha — is falsifiable, and was
  * tested rather than assumed. On held-out seasons, flagged model outputs are
@@ -105,7 +121,8 @@ export const CORRIDOR_DERIVATION = Object.freeze({
     'read from a read-only connection; no rebuild was run against league data',
   statistic: 'absolute divergence, in points, between a model output and the market line at the same decision instant',
   fold_protocol: 'expanding chronological folds by season, one-week embargo at each train/test boundary; ' +
-    'the threshold is fit on the training block only and scored on the untouched test season',
+    'the threshold is fit on the training block only and scored on the untouched test season — OOF-1, the ' +
+    'canonical isolation statement in docs/NFL_RESEARCH_MASTER_PLAN_2026_09_08.md ("Acceptance and release")',
   target_flag_rate: CORRIDOR_TARGET_FLAG_RATE,
 
   // Fit on each training block, scored on the season after it.

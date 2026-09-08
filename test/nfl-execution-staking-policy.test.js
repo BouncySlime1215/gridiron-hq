@@ -96,3 +96,55 @@ test('compareStakingPolicies never derives a stake purely from a raw historical 
 function americanForFairProb(p) {
   return p >= 0.5 ? Math.round(-100 * p / (1 - p)) : Math.round(100 * (1 - p) / p);
 }
+
+test('uncertaintyShrunkKelly: the default CLV-downsize multiplier of 1 leaves sizing unchanged', () => {
+  const withDefault = uncertaintyShrunkKelly({ modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 5000, americanPrice: -110 });
+  const withExplicitOne = uncertaintyShrunkKelly({ modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 5000, americanPrice: -110, clvDownsizeMultiplier: 1 });
+  assert.equal(withDefault.stake_fraction, withExplicitOne.stake_fraction);
+  assert.equal(withDefault.stake_fraction, withDefault.pre_downsize_stake_fraction);
+});
+
+test('uncertaintyShrunkKelly: a Rule-2 downsize multiplier shrinks the stake proportionally', () => {
+  const full = uncertaintyShrunkKelly({ modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 5000, americanPrice: -110 });
+  const halved = uncertaintyShrunkKelly({ modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 5000, americanPrice: -110, clvDownsizeMultiplier: 0.5 });
+  assert.equal(halved.pre_downsize_stake_fraction, full.stake_fraction);
+  assert.ok(Math.abs(halved.stake_fraction - full.stake_fraction * 0.5) < 0.0001);
+  assert.equal(halved.clv_downsize_multiplier, 0.5);
+});
+
+test('uncertaintyShrunkKelly: a downsize multiplier of 0 stakes exactly zero without needing a separate gate', () => {
+  const result = uncertaintyShrunkKelly({ modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 5000, americanPrice: -110, clvDownsizeMultiplier: 0 });
+  assert.equal(result.stake_fraction, 0);
+  assert.ok(result.pre_downsize_stake_fraction > 0, 'the underlying Kelly edge is still real — the ladder floor is what zeroed it');
+});
+
+test('uncertaintyShrunkKelly: a multiplier above 1 never amplifies the stake beyond full Kelly', () => {
+  const full = uncertaintyShrunkKelly({ modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 5000, americanPrice: -110 });
+  const clamped = uncertaintyShrunkKelly({ modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 5000, americanPrice: -110, clvDownsizeMultiplier: 5 });
+  assert.equal(clamped.stake_fraction, full.stake_fraction);
+  assert.equal(clamped.clv_downsize_multiplier, 1);
+});
+
+test('compareStakingPolicies threads the CLV-downsize multiplier through to the reported Kelly units', () => {
+  const full = compareStakingPolicies({
+    marketScorecard: CALIBRATED_SCORECARD, modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 240, americanPrice: -110, bankrollUnits: 100
+  });
+  const downsized = compareStakingPolicies({
+    marketScorecard: CALIBRATED_SCORECARD, modelProbability: 0.60, fairProbability: 0.50,
+    settledSamples: 240, americanPrice: -110, bankrollUnits: 100, clvDownsizeMultiplier: 0.25
+  });
+  assert.ok(downsized.kelly.units < full.kelly.units);
+  // Loose tolerance: stake_fraction is rounded to 4dp before being scaled into units, so a small amount of
+  // double-rounding error versus the unrounded reference is expected, not a sizing bug.
+  assert.ok(Math.abs(downsized.kelly.units - full.kelly.units * 0.25) < 0.01);
+  // The fixed paper stake is a different policy entirely and must not move with the model's own downsize state.
+  assert.equal(downsized.fixed.units, full.fixed.units);
+});

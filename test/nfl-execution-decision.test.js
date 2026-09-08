@@ -66,6 +66,44 @@ test('acceptance is blocked when it would breach the game exposure budget', () =
   assert.equal(getOpportunity(second.opp.id).status, 'decision', 'a blocked acceptance must not advance the state');
 });
 
+test('acceptance is blocked when the model line is outside the market line corridor, unless explicitly acknowledged', () => {
+  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-01' });
+  const blocked = attemptAcceptance(opp.id, {
+    occurredAt: '2026-09-30T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
+    eventKey, modelLine: -3.5, marketLine: -20 // 16.5 points off — well past the 11.5-point corridor
+  });
+  assert.equal(blocked.accepted, false);
+  assert.equal(blocked.blocked_reason, 'market_line_corridor');
+  assert.equal(blocked.corridor.verdict, 'needs_review');
+  assert.equal(getOpportunity(opp.id).status, 'decision', 'a blocked acceptance must not advance the state');
+
+  const acknowledged = attemptAcceptance(opp.id, {
+    occurredAt: '2026-09-30T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
+    eventKey, modelLine: -3.5, marketLine: -20, acknowledgeCorridorBreach: true
+  });
+  assert.equal(acknowledged.accepted, true);
+  assert.equal(acknowledged.corridor.verdict, 'needs_review');
+});
+
+test('a model line inside the market line corridor is reported but never blocks acceptance', () => {
+  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-08' });
+  const outcome = attemptAcceptance(opp.id, {
+    occurredAt: '2026-10-07T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
+    eventKey, modelLine: -3.5, marketLine: -4
+  });
+  assert.equal(outcome.accepted, true);
+  assert.equal(outcome.corridor.verdict, 'inside_corridor');
+});
+
+test('acceptance without a model/market line pair proceeds with the corridor reported as not evaluated, never as a silent pass', () => {
+  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-15' });
+  const outcome = attemptAcceptance(opp.id, {
+    occurredAt: '2026-10-14T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1, eventKey
+  });
+  assert.equal(outcome.accepted, true);
+  assert.equal(outcome.corridor, null, 'no lines supplied means no corridor check was attempted at all');
+});
+
 test('acceptance is blocked when the fair-price EV is suspiciously extreme, unless explicitly acknowledged', () => {
   const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-09-24', price: 900 });
   const blocked = attemptAcceptance(opp.id, {

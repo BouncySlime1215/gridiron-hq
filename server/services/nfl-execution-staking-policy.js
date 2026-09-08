@@ -21,8 +21,22 @@
  * comparison needs, and importing it here would make a unit test of sizing
  * arithmetic depend on all of that being wired up. The caller (a route, or a
  * future scheduled job) passes in the real scorecard when this is used live.
+ *
+ * A THIRD DIAL, applied after calibration-shrunk Kelly and before the per-bet
+ * cap: `clvDownsizeMultiplier`, from `nfl-execution-clv-downsize.js` — Rule 2
+ * of Package H's two stress-test rules. Calibration answers "has this market
+ * earned the right to size at all"; the downsize multiplier answers a
+ * different, ongoing question, "has recent realized CLV on this market
+ * stayed at or above what got it calibrated in the first place." A market
+ * can clear calibration once and still drift below its own bar later — this
+ * multiplier is what makes staking respond to that without needing a human
+ * to re-run the calibration gate by hand. It is deliberately a pure
+ * multiply-and-clamp here rather than re-implemented: the control law that
+ * decides its value (window, hysteresis, floor, all measured out of fold in
+ * that module's own derivation) belongs in exactly one place.
  */
 import { kellyFraction } from './nfl-execution-edge.js';
+import { applyClvDownsize } from './nfl-execution-clv-downsize.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
@@ -55,16 +69,28 @@ export function shrinkProbability({ modelProbability, fairProbability, settledSa
   return r4(fairProbability + (modelProbability - fairProbability) * weight);
 }
 
-/** Fractional Kelly on a probability that has already been shrunk toward the fair price. */
+/**
+ * Fractional Kelly on a probability that has already been shrunk toward the
+ * fair price, then scaled by the CLV-downsize multiplier (default 1 — no
+ * effect until a caller supplies one from `currentClvDownsizeMultiplier()`).
+ * The multiplier is applied to the STAKE FRACTION, after Kelly, not folded
+ * into the probability the way calibration-shrinkage is — a CLV miss is
+ * evidence about the SIZE this market has earned, not a fresh estimate of
+ * its win probability, so it belongs on the sizing side of the arithmetic.
+ */
 export function uncertaintyShrunkKelly({ modelProbability, fairProbability, settledSamples, americanPrice,
-  fraction = 0.25, priorStrength = CALIBRATION_PRIOR_STRENGTH }) {
+  fraction = 0.25, priorStrength = CALIBRATION_PRIOR_STRENGTH, clvDownsizeMultiplier = 1 }) {
   const shrunk = shrinkProbability({ modelProbability, fairProbability, settledSamples, priorStrength });
   if (shrunk == null) return { stake_fraction: 0, reason: 'insufficient inputs to shrink a probability' };
+  const kelly = kellyFraction({ winProbability: shrunk, americanPrice, fraction });
   return {
     shrunk_probability: shrunk, raw_model_probability: r4(modelProbability), fair_probability: r4(fairProbability),
     settled_samples: settledSamples, shrink_weight: r4(Math.max(0, settledSamples || 0)
       / (Math.max(0, settledSamples || 0) + priorStrength)),
-    ...kellyFraction({ winProbability: shrunk, americanPrice, fraction })
+    ...kelly,
+    pre_downsize_stake_fraction: kelly.stake_fraction,
+    clv_downsize_multiplier: Number.isFinite(clvDownsizeMultiplier) ? Math.min(1, Math.max(0, clvDownsizeMultiplier)) : 1,
+    stake_fraction: applyClvDownsize(kelly.stake_fraction ?? 0, clvDownsizeMultiplier)
   };
 }
 
@@ -76,7 +102,8 @@ export function uncertaintyShrunkKelly({ modelProbability, fairProbability, sett
  * sizing off a raw historical hit rate is exactly the mistake this refuses.
  */
 export function compareStakingPolicies({ marketScorecard, modelProbability, fairProbability, settledSamples,
-  americanPrice, bankrollUnits = 100, fraction = 0.25, maxUnitsPerBet = 3, priorStrength } = {}) {
+  americanPrice, bankrollUnits = 100, fraction = 0.25, maxUnitsPerBet = 3, priorStrength,
+  clvDownsizeMultiplier = 1 } = {}) {
   const fixed = {
     policy: 'fixed_paper_stake', units: FIXED_PAPER_STAKE_UNITS,
     note: 'A flat paper stake needs no probability estimate and is always available, calibrated or not.'
@@ -95,7 +122,7 @@ export function compareStakingPolicies({ marketScorecard, modelProbability, fair
   }
 
   const kelly = uncertaintyShrunkKelly({ modelProbability, fairProbability, settledSamples, americanPrice,
-    fraction, priorStrength });
+    fraction, priorStrength, clvDownsizeMultiplier });
   const rawUnits = (kelly.stake_fraction ?? 0) * bankrollUnits;
   const units = Math.min(rawUnits, maxUnitsPerBet);
   return {

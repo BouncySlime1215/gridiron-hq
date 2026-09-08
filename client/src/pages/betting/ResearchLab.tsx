@@ -328,6 +328,7 @@ function DisciplinePanel({ discipline }: { discipline?: ModelDiscipline | null }
     </li>)}</ul>}
     <p className="mt-2 text-[10px] leading-4 text-slate-400">{discipline.compression_policy}</p>
   </details>;
+}
 // Has the population a model was fitted on stopped resembling the one it now
 // scores? research/drift.py answers that per fold; this renders its report.
 // `null` means the run predates the check -- shown differently from the check

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import type { ReactNode } from 'react';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { RecordLine } from '../components/lineup/EvidenceStrip';
 import { usePageExplain } from '../components/betting/PageExplainContext';
+import { PageLoading, PageError, EmptyState, PageData } from '../components/PageState';
 
 /**
  * One page that answers "what do I actually do to win this league".
@@ -46,8 +46,12 @@ export default function LeagueBrain() {
     managers_profiled: (managers.data ?? []).length
   });
 
-  if (!leagueId) return <Empty>Connect a league first.</Empty>;
-  if (plan.error) return <Empty>{plan.error}</Empty>;
+  if (!leagueId) return (
+    <EmptyState title="Connect a league first" description="League brain ranks your best moves once a league is connected — there's no roster or trade board to analyze yet."
+      actionLabel="Connect a league" actionTo="/leagues" />
+  );
+  if (plan.loading && !plan.data) return <PageLoading label="Loading league brain…" />;
+  if (plan.error && !plan.data) return <PageError message={plan.error} onRetry={plan.refetch} />;
 
   const d = plan.data;
 
@@ -203,11 +207,8 @@ export default function LeagueBrain() {
           )}
 
           {!plan.loading && !d?.all_moves?.length && (
-            <Empty>
-              Nothing on the board improves your lineup right now — no free agent cracks it and no
-              trade survives the filters. That is a finding, not a failure. The near misses below
-              show what came closest.
-            </Empty>
+            <EmptyState title="Nothing on the board right now"
+              description="No free agent cracks your lineup and no trade survives the filters. That is a finding, not a failure — the near misses below show what came closest." />
           )}
 
           {d?.near_misses?.length > 0 && (
@@ -305,9 +306,13 @@ export default function LeagueBrain() {
       {/* Both refetches, deliberately: the whole point of setting a tier is that
           the plan re-ranks around it, and refreshing only the manager list left
           the plan showing recommendations for someone just marked unreachable. */}
-      {tab === 'managers' && <Managers leagueId={leagueId}
-        data={managers.data}
-        refetch={() => { managers.refetch(); plan.refetch(); }} />}
+      {tab === 'managers' && (
+        <PageData data={managers.data} loading={managers.loading} error={managers.error}
+          onRetry={managers.refetch} loadingLabel="Loading managers…">
+          {(mdata) => <Managers leagueId={leagueId} data={mdata}
+            refetch={() => { managers.refetch(); plan.refetch(); }} />}
+        </PageData>
+      )}
     </div>
   );
 }
@@ -631,18 +636,22 @@ function Detail({ label, value, hint }: { label: string; value: string; hint: st
 
 function Managers({ leagueId, data, refetch }: { leagueId: string | number; data: any; refetch: () => void }) {
   const [saving, setSaving] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastSet, setLastSet] = useState<{ rosterId: string; tier: Tier; owner: string } | null>(null);
 
   const set = async (rosterId: string, tier: Tier, owner: string) => {
     setSaving(rosterId);
+    setSaveError(null);
+    setLastSet({ rosterId, tier, owner });
     try {
       await api(`/trades/${leagueId}/brain/managers/${rosterId}`, {
         method: 'POST', body: JSON.stringify({ tradeability: tier, owner })
       });
       refetch();
+    } catch (err: any) {
+      setSaveError(err?.message || 'Could not save that tradeability setting — try again.');
     } finally { setSaving(null); }
   };
-
-  if (!data) return <Empty>Loading managers…</Empty>;
 
   return (
     <div className="space-y-3">
@@ -652,6 +661,10 @@ function Managers({ leagueId, data, refetch }: { leagueId: string | number; data
         re-ranks around it. Anyone marked <b>never trades</b> is dropped from planning entirely
         rather than shown at the bottom of a list.
       </p>
+      {saveError && (
+        <PageError message={saveError}
+          onRetry={lastSet ? () => set(lastSet.rosterId, lastSet.tier, lastSet.owner) : undefined} />
+      )}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         {data.managers?.filter((m: any) => m.roster_id !== data.my_roster_id).map((m: any) => (
           <div key={m.roster_id} className="flex flex-wrap items-center gap-3 border-b border-slate-100 p-3 last:border-0">
@@ -675,6 +688,3 @@ function Managers({ leagueId, data, refetch }: { leagueId: string | number; data
     </div>
   );
 }
-
-const Empty = ({ children }: { children: ReactNode }) =>
-  <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm leading-6 text-slate-500">{children}</div>;

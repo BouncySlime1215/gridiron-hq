@@ -4,6 +4,7 @@ import Drafts from './Drafts';
 import LiveDraft from './LiveDraft';
 import { PageHeader } from '../components/ui/DesignSystem';
 import { useApi } from '../api';
+import { PageData } from '../components/PageState';
 
 type View = 'mock' | 'survival' | 'live' | 'recap';
 export default function DraftHub() {
@@ -30,7 +31,7 @@ export default function DraftHub() {
 function DraftSurvival() {
   const [seat, setSeat] = useState(5);
   const [teams, setTeams] = useState(10);
-  const { data, loading } = useApi<any>(`/edge/draft-survival?seat=${seat}&teams=${teams}&trials=3000`);
+  const { data, loading, error, refetch } = useApi<any>(`/edge/draft-survival?seat=${seat}&teams=${teams}&trials=3000`);
 
   return (
     <div>
@@ -56,45 +57,48 @@ function DraftSurvival() {
         </div>
       </div>
 
-      {loading ? <div className="card p-6 text-sm text-slate-500">Simulating the rest of the draft…</div>
-      : data?.error ? <div className="card p-6 text-sm text-rose-600">{data.error}</div>
-      : (
-        <>
-          <div className="card p-4 mb-3 border-emerald-200 bg-emerald-50/40">
-            <p className="text-sm text-slate-800">{data.guidance}</p>
-          </div>
-          <div className="grid md:grid-cols-2 gap-3">
-            {([['take_now', 'Take now — gone by your next pick', 'rose'],
-               ['can_wait', 'Can wait — comes back to you', 'emerald']] as const).map(([key, title, tone]) => (
-              <div key={key} className="card overflow-hidden">
-                <div className={`px-4 py-2.5 border-b border-slate-200 text-sm font-bold ${
-                  tone === 'rose' ? 'bg-rose-50 text-rose-800' : 'bg-emerald-50 text-emerald-800'}`}>
-                  {title}
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {(data[key] ?? []).map((p: any) => (
-                    <div key={p.id} className="flex items-center gap-2 px-4 py-2 text-sm">
-                      <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
-                      <span className="font-semibold text-slate-800 truncate">{p.name}</span>
-                      <span className="text-[11px] text-slate-400">{p.team_abbr}</span>
-                      <span className="ml-auto text-right tabular-nums">
-                        <span className="block text-xs font-bold text-slate-800">
-                          {Math.round((p.survives_pick_after ?? 0) * 100)}%
-                        </span>
-                        <span className="block text-[10px] text-slate-400">back at your next</span>
-                      </span>
-                    </div>
-                  ))}
-                  {!(data[key] ?? []).length && (
-                    <div className="px-4 py-3 text-xs text-slate-500">Nothing falls clearly into this bucket.</div>
-                  )}
-                </div>
+      <PageData data={data} loading={loading} error={error} onRetry={refetch}
+        loadingLabel="Simulating the rest of the draft…">
+        {(data) => (
+          data.error ? <div className="card p-6 text-sm text-rose-600">{data.error}</div> : (
+            <>
+              <div className="card p-4 mb-3 border-emerald-200 bg-emerald-50/40">
+                <p className="text-sm text-slate-800">{data.guidance}</p>
               </div>
-            ))}
-          </div>
-          <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">{data.note}</p>
-        </>
-      )}
+              <div className="grid md:grid-cols-2 gap-3">
+                {([['take_now', 'Take now — gone by your next pick', 'rose'],
+                   ['can_wait', 'Can wait — comes back to you', 'emerald']] as const).map(([key, title, tone]) => (
+                  <div key={key} className="card overflow-hidden">
+                    <div className={`px-4 py-2.5 border-b border-slate-200 text-sm font-bold ${
+                      tone === 'rose' ? 'bg-rose-50 text-rose-800' : 'bg-emerald-50 text-emerald-800'}`}>
+                      {title}
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {(data[key] ?? []).map((p: any) => (
+                        <div key={p.id} className="flex items-center gap-2 px-4 py-2 text-sm">
+                          <span className={`text-[9px] font-black pos-${p.position}`}>{p.position}</span>
+                          <span className="font-semibold text-slate-800 truncate">{p.name}</span>
+                          <span className="text-[11px] text-slate-400">{p.team_abbr}</span>
+                          <span className="ml-auto text-right tabular-nums">
+                            <span className="block text-xs font-bold text-slate-800">
+                              {Math.round((p.survives_pick_after ?? 0) * 100)}%
+                            </span>
+                            <span className="block text-[10px] text-slate-400">back at your next</span>
+                          </span>
+                        </div>
+                      ))}
+                      {!(data[key] ?? []).length && (
+                        <div className="px-4 py-3 text-xs text-slate-500">Nothing falls clearly into this bucket.</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">{data.note}</p>
+            </>
+          )
+        )}
+      </PageData>
     </div>
   );
 }

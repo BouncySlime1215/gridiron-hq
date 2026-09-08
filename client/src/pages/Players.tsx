@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { api, headshotUrl, useApi } from '../api';
 import { Headshot, TIER_COLORS } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
+import { PageLoading, PageError, EmptyState } from '../components/PageState';
 
 type Col = { key: string; label: string; w?: string; fmt?: (p: any) => any; tone?: (p: any) => string; title?: string };
 
@@ -138,7 +139,7 @@ export default function Players() {
   // every single page load. `sets` starts null and flips to an array (even an
   // empty one) once the fetch resolves, so it's a reliable "have we heard back yet".
   const boardPath = sets ? (active ? `/edge/board?set_id=${active}` : '/edge/board') : null;
-  const { data: board, refetch } = useApi<any[]>(boardPath);
+  const { data: board, loading: boardLoading, error: boardError, refetch } = useApi<any[]>(boardPath);
   const open = usePlayerCard();
 
   const [view, setView] = useState<keyof typeof VIEWS>('board');
@@ -154,6 +155,8 @@ export default function Players() {
   const [showGlossary, setShowGlossary] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [compare, setCompare] = useState<number[]>([]);
+  const [addErr, setAddErr] = useState<string | null>(null);
+  const [lastAddPid, setLastAddPid] = useState<number | null>(null);
   const { data: sparks } = useApi<Record<string, number[]>>('/edge/sparklines');
 
   useEffect(() => { setLimit(75); }, [q, pos, team, onlyBoard, onlyBadged, hideInjured, view]);
@@ -198,8 +201,19 @@ export default function Players() {
 
   const addToBoard = async (pid: number) => {
     if (!active) return;
-    await api(`/rankings/${active}/entries`, { method: 'POST', body: JSON.stringify({ player_id: pid }) });
-    refetch();
+    setLastAddPid(pid);
+    setAddErr(null);
+    try {
+      await api(`/rankings/${active}/entries`, { method: 'POST', body: JSON.stringify({ player_id: pid }) });
+      refetch();
+    } catch (e: any) {
+      setAddErr(e.message || 'Failed to add player to board.');
+    }
+  };
+
+  const clearFilters = () => {
+    setQ(''); setPos('ALL'); setTeam('ALL');
+    setOnlyBoard(false); setOnlyBadged(false); setHideInjured(false);
   };
 
   return (
@@ -286,6 +300,12 @@ export default function Players() {
         ))}
       </div>
 
+      {addErr && (
+        <div className="mb-3">
+          <PageError message={addErr} onRetry={() => lastAddPid != null && addToBoard(lastAddPid)} />
+        </div>
+      )}
+
       {compare.length > 0 && (
         <div className="card p-3 mb-3 border-emerald-300 bg-emerald-50/40">
           <div className="flex items-center gap-2 mb-2">
@@ -337,6 +357,18 @@ export default function Players() {
         </div>
       )}
 
+      {boardLoading && !board ? (
+        <PageLoading label="Loading players…" />
+      ) : boardError && !board ? (
+        <PageError message={boardError} onRetry={refetch} />
+      ) : rows.length === 0 ? (
+        board && board.length === 0 ? (
+          <EmptyState title="No players available" description="The player board hasn't returned any players yet." />
+        ) : (
+          <EmptyState title="No players match these filters" description="Try loosening a filter or clearing your search."
+            actionLabel="Clear filters" onAction={clearFilters} />
+        )
+      ) : (
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -447,8 +479,8 @@ export default function Players() {
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && <p className="p-6 text-sm text-slate-500 text-center">No players match those filters.</p>}
       </div>
+      )}
 
       {rows.length > limit && (
         <button className="btn-ghost w-full mt-3" onClick={() => setLimit(l => l + 100)}>

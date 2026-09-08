@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { ConnectedNewsHub } from '../features/news/NewsHub';
+import { PageLoading, PageError, EmptyState } from '../components/PageState';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -50,7 +51,7 @@ function TwitterStatus() {
 
 function SignalFeed() {
   const [team, setTeam] = useState('');
-  const { data, refetch } = useApi<any>(`/news/signals${team ? `?team=${team}` : ''}`);
+  const { data, refetch, loading: signalsLoading, error: signalsError } = useApi<any>(`/news/signals${team ? `?team=${team}` : ''}`);
   const { data: teams } = useApi<any[]>('/teams');
   useEffect(() => {
     if (!data?.signals?.some((signal: any) => signal.tracking?.status === 'game_day')) return;
@@ -97,11 +98,14 @@ function SignalFeed() {
         </div>
       )}
 
+      {signalsLoading && !data && <PageLoading label="Loading news signals…" />}
+      {signalsError && !data && <PageError message={signalsError} onRetry={refetch} />}
+
       {data?.signals?.length === 0 && (
-        <div className="card p-8 text-center text-sm text-slate-500">
-          No typed claims {data.scope === 'my_roster' ? 'for your roster' : 'for this team'} in the last 14 days.
-          The extractor runs hourly against ingested news — pull news on the Camp Log tab first if the archive is empty.
-        </div>
+        <EmptyState
+          title="No typed claims yet"
+          description={`No typed claims ${data.scope === 'my_roster' ? 'for your roster' : 'for this team'} in the last 14 days. The extractor runs hourly against ingested news — pull news on the Camp Log tab first if the archive is empty.`}
+        />
       )}
 
       <div className="space-y-2">
@@ -180,15 +184,18 @@ export default function News() {
   const { data: dates, refetch: refetchDates } = useApi<string[]>('/news/dates');
   const { data: teams } = useApi<any[]>('/teams');
   const query = `/news?${date ? `date=${date}&` : ''}${teamFilter ? `team=${teamFilter}&` : ''}limit=160`;
-  const { data: items, refetch } = useApi<any[]>(query);
+  const { data: items, loading: itemsLoading, error: itemsError, refetch } = useApi<any[]>(query);
 
   const [showAdd, setShowAdd] = useState(false);
   const [aiText, setAiText] = useState('');
   const [aiTeam, setAiTeam] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState<string | null>(null);
+  const [aiErr, setAiErr] = useState<string | null>(null);
   const [manual, setManual] = useState({ team_abbr: '', headline: '', body: '', importance: 2 });
+  const [addManualErr, setAddManualErr] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
+  const [pullErr, setPullErr] = useState<string | null>(null);
   const [ingesting, setIngesting] = useState(false);
   const [ingestErr, setIngestErr] = useState<string | null>(null);
   const [roundup, setRoundup] = useState<any>(null);
@@ -196,15 +203,17 @@ export default function News() {
   const [roundupErr, setRoundupErr] = useState<string | null>(null);
   const [explaining, setExplaining] = useState<number | null>(null);
   const [explainErr, setExplainErr] = useState<string | null>(null);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
+  const [lastDeleteId, setLastDeleteId] = useState<number | null>(null);
 
   const refresh = () => { refetch(); refetchDates(); };
 
   const pullNews = async () => {
-    setPulling(true);
+    setPulling(true); setPullErr(null);
     try {
       await api(`/espn/sync-news${teamFilter ? `?team=${teamFilter}` : ''}`, { method: 'POST' });
       refresh();
-    } catch (e: any) { setRoundupErr(e.message); }
+    } catch (e: any) { setPullErr(e.message || 'Failed to pull ESPN news.'); }
     finally { setPulling(false); }
   };
 
@@ -235,7 +244,7 @@ export default function News() {
   const analyze = async () => {
     const lines = aiText.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length === 0) return;
-    setAiBusy(true); setAiMsg(null);
+    setAiBusy(true); setAiMsg(null); setAiErr(null);
     try {
       const items = lines.map(l => {
         const m = l.match(/^\[?([A-Z]{2,3})\]?[:\s-]+(.+)$/);
@@ -246,15 +255,30 @@ export default function News() {
       setAiText('');
       refresh();
     } catch (e: any) {
-      setAiMsg(e.message);
+      setAiErr(e.message || 'Failed to analyze stories.');
     } finally { setAiBusy(false); }
   };
 
   const addManual = async () => {
     if (!manual.headline) return;
-    await api('/news', { method: 'POST', body: JSON.stringify({ ...manual, date: today() }) });
-    setManual({ team_abbr: '', headline: '', body: '', importance: 2 });
-    refresh();
+    setAddManualErr(null);
+    try {
+      await api('/news', { method: 'POST', body: JSON.stringify({ ...manual, date: today() }) });
+      setManual({ team_abbr: '', headline: '', body: '', importance: 2 });
+      refresh();
+    } catch (e: any) {
+      setAddManualErr(e.message || 'Failed to save story.');
+    }
+  };
+
+  const deleteNews = async (id: number) => {
+    setLastDeleteId(id); setDeleteErr(null);
+    try {
+      await api(`/news/${id}`, { method: 'DELETE' });
+      refresh();
+    } catch (e: any) {
+      setDeleteErr(e.message || 'Failed to delete story.');
+    }
   };
 
   return (
@@ -294,8 +318,14 @@ export default function News() {
         <button className="btn-ghost" onClick={() => setShowAdd(v => !v)}>{showAdd ? 'Close' : '+ Add'}</button>
       </div>
 
-      {roundupErr && <p className="text-sm text-rose-600 mb-3">{roundupErr}</p>}
-      {ingestErr && <p className="text-sm text-rose-600 mb-3">{ingestErr}</p>}
+      {pullErr && <div className="mb-3"><PageError message={pullErr} onRetry={pullNews} /></div>}
+      {roundupErr && <div className="mb-3"><PageError message={roundupErr} onRetry={roundupNow} /></div>}
+      {ingestErr && <div className="mb-3"><PageError message={ingestErr} onRetry={ingestRss} /></div>}
+      {deleteErr && (
+        <div className="mb-3">
+          <PageError message={deleteErr} onRetry={() => lastDeleteId != null && deleteNews(lastDeleteId)} />
+        </div>
+      )}
       {roundup && (
         <div className="card p-5 mb-6 border-emerald-200 bg-emerald-50/30">
           <div className="flex items-center gap-2 mb-2">
@@ -347,6 +377,7 @@ export default function News() {
               <button className="btn-primary" onClick={analyze} disabled={aiBusy}>{aiBusy ? 'Analyzing…' : 'Analyze & save'}</button>
             </div>
             {aiMsg && <p className="text-xs text-amber-600 mt-2">{aiMsg}</p>}
+            {aiErr && <div className="mt-2"><PageError message={aiErr} onRetry={analyze} /></div>}
           </div>
           <div className="card p-4">
             <h3 className="text-sm font-bold text-slate-700 mb-2">Manual entry</h3>
@@ -365,17 +396,25 @@ export default function News() {
               <textarea className="input w-full h-16" placeholder="Details / your own analysis (optional)" value={manual.body}
                 onChange={e => setManual(m => ({ ...m, body: e.target.value }))} />
               <button className="btn-ghost" onClick={addManual}>Save story</button>
+              {addManualErr && <PageError message={addManualErr} onRetry={addManual} />}
             </div>
           </div>
         </div>
       )}
 
+      {itemsLoading && !items && <PageLoading label="Loading news…" />}
+      {itemsError && !items && <PageError message={itemsError} onRetry={refetch} />}
+
+      {items && items.length === 0 && (
+        <EmptyState
+          title="No stories yet"
+          description="Log camp reports — paste headlines and let AI write the analysis, or enter your own takes."
+          actionLabel={showAdd ? undefined : '+ Add news'}
+          onAction={() => setShowAdd(true)}
+        />
+      )}
+
       <div className="space-y-3">
-        {items?.length === 0 && (
-          <div className="card p-8 text-center text-sm text-slate-500">
-            No stories yet. Hit <span className="text-emerald-600">+ Add news</span> to log camp reports — paste headlines and let AI write the analysis, or enter your own takes.
-          </div>
-        )}
         {items?.map((n: any) => (
           <div key={n.id} className="card p-4">
             <div className="flex items-center gap-2 text-xs mb-1">
@@ -388,7 +427,7 @@ export default function News() {
               {n.importance === 1 && <span className="text-slate-400">minor</span>}
               {n.source && <span className="text-slate-400 ml-auto">{n.source}</span>}
               <button className="text-slate-700 hover:text-rose-600"
-                onClick={async () => { await api(`/news/${n.id}`, { method: 'DELETE' }); refresh(); }}>✕</button>
+                onClick={() => deleteNews(n.id)}>✕</button>
             </div>
             <h3 className="font-semibold">{n.headline}</h3>
             {n.body && <p className="text-sm text-slate-600 mt-1">{n.body}</p>}

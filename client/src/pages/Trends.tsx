@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
+import { PageError, EmptyState } from '../components/PageState';
 
 /**
  * What changed lately, and what to do about it.
@@ -32,12 +33,14 @@ export default function Trends() {
   const [lookback, setLookback] = useState(3);
   const [scanning, setScanning] = useState(false);
   const [scan, setScan] = useState<any>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const exploits = useApi<any>(leagueId ? `/trades/${leagueId}/trends?lookback=${lookback}` : null);
   const watch = useApi<any>(`/trades/trends/watch?lookback=${lookback}`);
   const regression = useApi<any>(leagueId ? `/trades/${leagueId}/regression` : null);
 
   const runScan = async () => {
     setScanning(true);
+    setScanError(null);
     try {
       const r = await api<any>('/trades/trends/scan', {
         method: 'POST', body: JSON.stringify({ lookback })
@@ -45,13 +48,21 @@ export default function Trends() {
       setScan(r);
       watch.refetch();
       exploits.refetch();
+    } catch (err: any) {
+      setScanError(err?.message || 'Could not sweep the league — try again.');
     } finally { setScanning(false); }
   };
 
   const d = exploits.data;
   const fresh = scan?.new ?? [];
 
-  if (!leagueId) return <Shell><Empty>Connect a league first.</Empty></Shell>;
+  if (!leagueId) return (
+    <Shell>
+      <EmptyState title="Connect a league first"
+        description="Trends compares your league's teams week over week — connect a league to see what changed and what to do about it."
+        actionLabel="Connect a league" actionTo="/leagues" />
+    </Shell>
+  );
 
   return (
     <Shell>
@@ -85,6 +96,8 @@ export default function Trends() {
           )}
         </div>
       </header>
+
+      {scanError && <PageError message={scanError} onRetry={runScan} />}
 
       {/* Tested, and it does not transfer. Stated on the page rather than left
           for someone to assume, because "my model found a real trend" is exactly
@@ -167,7 +180,7 @@ export default function Trends() {
             )}
           </div>
 
-          {!d.exploits?.length && <Empty>{d.note}</Empty>}
+          {!d.exploits?.length && <EmptyState title="Nothing actionable this sweep" description={d.note} />}
           <div className="space-y-2">
             {d.exploits?.map((e: any, i: number) => <Exploit key={i} e={e} index={i} />)}
           </div>
@@ -176,10 +189,19 @@ export default function Trends() {
 
       {exploits.loading && <Sweeping lookback={lookback} label="Reading the last few weeks" />}
 
+      {/* The main trends fetch failed outright — distinct from "nothing changed",
+          which is d.note above and is not an error at all. */}
+      {exploits.error && !d && (
+        <PageError message={exploits.error} onRetry={exploits.refetch} />
+      )}
+
       {/* Touchdown luck. A separate section from the trends above because it is
           a different kind of claim: those measure a change in role, this
           measures a gap between role and results that has not closed yet. */}
       {regression.data && !regression.data.error && <Regression d={regression.data} />}
+      {regression.error && !regression.data && (
+        <PageError message={regression.error} onRetry={regression.refetch} />
+      )}
 
       {/* The full league picture, with real sparklines. */}
       {!!d?.team_reads?.length && (
@@ -194,6 +216,10 @@ export default function Trends() {
             {d.team_reads.map((t: any, i: number) => <TeamRead key={t.team} t={t} index={i} />)}
           </div>
         </section>
+      )}
+
+      {watch.error && !watch.data && (
+        <PageError message={watch.error} onRetry={watch.refetch} />
       )}
 
       {watch.data?.conflicts?.length > 0 && (
@@ -475,6 +501,3 @@ function Spark({ series, recentCount, good }: { series: any[]; recentCount: numb
 
 const Shell = ({ children }: { children: React.ReactNode }) =>
   <div className="mx-auto max-w-[1240px] space-y-5">{children}</div>;
-
-const Empty = ({ children }: { children: React.ReactNode }) =>
-  <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm leading-6 text-slate-500">{children}</div>;

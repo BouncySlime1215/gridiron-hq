@@ -4,6 +4,7 @@ import { headshotUrl, useApi } from '../api';
 import FormationView from '../components/FormationView';
 import { Headshot } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
+import { PageLoading, PageError } from '../components/PageState';
 
 // Which unit analysis matters for this position
 const UNIT_FOR_POS: Record<string, { key: string; label: string }> = {
@@ -24,11 +25,11 @@ const OFF_POS = new Set(['QB', 'RB', 'WR', 'TE', 'K']);
 export default function PlayerDetail() {
   const { id } = useParams();
   const openCard = usePlayerCard();
-  const { data: p, loading } = useApi<any>(`/players/${id}`);
+  const { data: p, loading, error, refetch } = useApi<any>(`/players/${id}`);
 
-
-
-  if (loading || !p) return <p className="text-slate-500">Loading player…</p>;
+  if (loading && !p) return <PageLoading label="Loading player…" />;
+  if (error && !p) return <PageError message={error} onRetry={refetch} />;
+  if (!p) return null;
 
   const phase = OFF_POS.has(p.position) ? (p.position === 'K' ? 'special_teams' : 'offense') : 'defense';
   const unit = UNIT_FOR_POS[p.position];

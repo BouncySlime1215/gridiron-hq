@@ -4,6 +4,7 @@ import { useApi } from '../api';
 import { useLeague } from '../state/league';
 import EvidenceStrip, { RecordLine } from '../components/lineup/EvidenceStrip';
 import { usePageExplain } from '../components/betting/PageExplainContext';
+import { PageLoading, PageError, EmptyState } from '../components/PageState';
 
 /**
  * The week's lineup, with the closeness of each call made visible.
@@ -26,7 +27,7 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
 export default function Lineup() {
   const { activeId: leagueId } = useLeague();
   const [objective, setObjective] = useState<'mean' | 'ceiling' | 'floor'>('mean');
-  const { data: d, loading, error } = useApi<any>(
+  const { data: d, loading, error, refetch } = useApi<any>(
     leagueId ? `/trades/${leagueId}/lineup?objective=${objective}` : null);
 
   // The floating assistant otherwise never learns what's on this page and
@@ -41,8 +42,18 @@ export default function Lineup() {
     warnings: (d?.warnings ?? []).length
   });
 
-  if (!leagueId) return <Shell><Empty>Connect a league first.</Empty></Shell>;
-  if (error) return <Shell><Empty>{error}</Empty></Shell>;
+  if (!leagueId) {
+    return (
+      <Shell>
+        <EmptyState
+          title="No league connected"
+          description="Connect a league to see this week's start/sit calls."
+          actionLabel="Connect a league"
+          actionTo="/league?view=connections"
+        />
+      </Shell>
+    );
+  }
 
   return (
     <Shell>
@@ -55,6 +66,8 @@ export default function Lineup() {
           inside the projection's own error, and it is labelled as a tie here rather than dressed up.
         </p>
       </header>
+
+      {error && !d && <PageError message={error} onRetry={refetch} />}
 
       {d && (
         <section className="tr-rise surface-deep rounded-2xl p-5" style={{ animationDelay: '50ms' }}>
@@ -89,7 +102,7 @@ export default function Lineup() {
         </section>
       )}
 
-      {loading && !d && <Empty>Solving the lineup…</Empty>}
+      {loading && !d && <PageLoading label="Solving the lineup…" />}
 
       {d?.warnings?.length > 0 && (
         <section className="tr-rise rounded-2xl border border-amber-200 bg-amber-50/60 p-4" style={{ animationDelay: '80ms' }}>
@@ -104,9 +117,18 @@ export default function Lineup() {
         </section>
       )}
 
-      <div className="space-y-2">
-        {d?.lineup?.map((c: any, i: number) => <Slot key={i} c={c} index={i} />)}
-      </div>
+      {d && d.lineup?.length === 0 ? (
+        <EmptyState
+          title="No lineup to show"
+          description="No rostered players were found for this league — sync your roster first."
+          actionLabel="Manage roster"
+          actionTo="/league?view=connections"
+        />
+      ) : (
+        <div className="space-y-2">
+          {d?.lineup?.map((c: any, i: number) => <Slot key={i} c={c} index={i} />)}
+        </div>
+      )}
 
       {d?.unavailable?.length > 0 && (
         <details className="tr-rise rounded-xl border border-slate-200 bg-white p-4" style={{ animationDelay: '150ms' }}>
@@ -248,6 +270,3 @@ function Slot({ c, index }: { c: any; index: number }) {
 
 const Shell = ({ children }: { children: ReactNode }) =>
   <div className="mx-auto max-w-[1000px] space-y-4">{children}</div>;
-
-const Empty = ({ children }: { children: ReactNode }) =>
-  <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm leading-6 text-slate-500">{children}</div>;

@@ -8,6 +8,7 @@ import StreakChips from '../components/draft/StreakChips';
 import { statHeadline } from '../components/draft/types';
 import { hasEvidence } from '../components/trade/types';
 import { usePageExplain } from '../components/betting/PageExplainContext';
+import { PageLoading, PageError, EmptyState } from '../components/PageState';
 
 const TABS = [
   { id: 'news', label: 'News edge', hint: 'Act on news your league has not seen yet' },
@@ -32,9 +33,9 @@ const loadUntouchable = (leagueId: number | null): number[] => {
 export default function TradeLab() {
   // Which league is active now lives in the header, shared with My Team and the
   // Prediction Engine — this page just follows it rather than keeping its own.
-  const { activeId: active } = useLeague();
+  const { leagues, activeId: active, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues } = useLeague();
   const [tab, setTab] = useState<Tab>('find');
-  const { data: rosters } = useApi<any>(active ? `/trades/${active}/rosters` : null);
+  const { data: rosters, loading: rostersLoading, error: rostersError, refetch: refetchRosters } = useApi<any>(active ? `/trades/${active}/rosters` : null);
   const [teamId, setTeamId] = useState<string | null>(null);
   // A "which team is me" pick only means something within the league it was made in.
   useEffect(() => { setTeamId(null); }, [active]);
@@ -61,6 +62,33 @@ export default function TradeLab() {
   usePageExplain('trade lab', tab, {
     tab, team_selected: !!me, roster_size: myPlayers.length, untouchable_count: untouchable.length
   });
+
+  if (leaguesLoading && !leagues.length) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-4">Trade Lab</h1>
+        <PageLoading label="Loading your leagues…" />
+      </div>
+    );
+  }
+  if (leaguesError && !leagues.length) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-4">Trade Lab</h1>
+        <PageError message={leaguesError} onRetry={refetchLeagues} />
+      </div>
+    );
+  }
+  if (!leagues.length) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-4">Trade Lab</h1>
+        <EmptyState title="Connect a league to start proposing trades"
+          description="Trade Lab needs a synced roster to find deals, price targets, and simulate mock trades."
+          actionLabel="Connect a league" actionTo="/leagues" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -97,13 +125,24 @@ export default function TradeLab() {
         ))}
       </div>
 
-      {!active && <div className="card p-6 text-sm text-slate-500">Connect a league in League Hub first.</div>}
-      {active && tab === 'news' && <NewsEdge leagueId={active} teamId={me} />}
-      {active && tab === 'find' && <FindDeals leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
-      {active && tab === 'title' && <TitleTrades leagueId={active} teamId={me} />}
-      {active && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
-      {active && tab === 'targetMany' && <TargetMany leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
-      {active && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {!active && tab !== 'matchups' && <PageLoading label="Loading your leagues…" />}
+
+      {active && !rosters && rostersLoading && tab !== 'matchups' && <PageLoading label="Loading your roster…" />}
+      {active && !rosters && !rostersLoading && rostersError && tab !== 'matchups' && (
+        <PageError message={rostersError} onRetry={refetchRosters} />
+      )}
+      {active && rosters && !rosters.teams?.length && tab !== 'matchups' && (
+        <EmptyState title="No rosters found for this league"
+          description="This league hasn't synced any teams yet. Sync it from League Hub, then come back."
+          actionLabel="Go to League Hub" actionTo="/league" />
+      )}
+
+      {active && rosters && !!rosters.teams?.length && tab === 'news' && <NewsEdge leagueId={active} teamId={me} />}
+      {active && rosters && !!rosters.teams?.length && tab === 'find' && <FindDeals leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {active && rosters && !!rosters.teams?.length && tab === 'title' && <TitleTrades leagueId={active} teamId={me} />}
+      {active && rosters && !!rosters.teams?.length && tab === 'target' && <TargetPlayer leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {active && rosters && !!rosters.teams?.length && tab === 'targetMany' && <TargetMany leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
+      {active && rosters && !!rosters.teams?.length && tab === 'mock' && <MockTrade leagueId={active} teamId={me} rosters={rosters} untouchable={untouchable} untouchableNames={untouchableNames} />}
       {active && tab === 'matchups' && <Matchups />}
     </div>
   );
@@ -127,10 +166,11 @@ const ACTION_STYLE: Record<string, { label: string; cls: string }> = {
 
 function NewsEdge({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
   const [hours, setHours] = useState(168);
-  const { data, loading } = useApi<any>(
+  const { data, loading, error, refetch } = useApi<any>(
     teamId ? `/trades/${leagueId}/news-edge?team_id=${teamId}&hours=${hours}` : null);
 
-  if (loading) return <div className="card p-6 text-sm text-slate-500">Reading the wire…</div>;
+  if (loading) return <PageLoading label="Reading the wire…" />;
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
   if (data?.error) return <div className="card p-6 text-sm text-rose-600">{data.error}</div>;
 
   const opps = data?.opportunities ?? [];
@@ -159,10 +199,8 @@ function NewsEdge({ leagueId, teamId }: { leagueId: number; teamId: string | nul
       </div>
 
       {!opps.length ? (
-        <div className="card p-6 text-sm text-slate-500">
-          Nothing actionable in this window. Either the wire is quiet, or every affected player is
-          already owned by you and there is no inheritor to chase.
-        </div>
+        <EmptyState title="Nothing actionable in this window"
+          description="Either the wire is quiet, or every affected player is already owned by you and there is no inheritor to chase." />
       ) : (
         <div className="space-y-2">
           {opps.map((o: any, i: number) => {
@@ -211,14 +249,11 @@ function NewsEdge({ leagueId, teamId }: { leagueId: number; teamId: string | nul
  * three points a week and still leave you less likely to win the league.
  */
 function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
-  const { data, loading } = useApi<any>(
+  const { data, loading, error, refetch } = useApi<any>(
     teamId ? `/trades/${leagueId}/title-trades?team_id=${teamId}&shortlist=6` : null);
 
-  if (loading) return (
-    <div className="card p-6 text-sm text-slate-500">
-      Simulating each deal twice under the same season… this takes a moment on the first run.
-    </div>
-  );
+  if (loading) return <PageLoading label="Simulating each deal twice under the same season… this takes a moment on the first run." />;
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
   if (data?.error) return <div className="card p-6 text-sm text-rose-600">{data.error}</div>;
   const deals = data?.deals ?? [];
 
@@ -232,9 +267,8 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
       </div>
 
       {!deals.length ? (
-        <div className="card p-6 text-sm text-slate-500">
-          No plausible deals to simulate — the finder returned nothing that clears its acceptance bar.
-        </div>
+        <EmptyState title="No plausible deals to simulate"
+          description="The finder returned nothing that clears its acceptance bar." />
       ) : (
         <div className="space-y-2">
           {deals.map((d: any, i: number) => {
@@ -369,7 +403,7 @@ function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }:
   // result comes back. Raised well past what one batch needs so "Reload" has
   // real distinct ideas to draw on across many clicks.
   const q = `/trades/${leagueId}/find?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}&limit=300${exclude}`;
-  const { data, loading } = useApi<any>(teamId ? q : null);
+  const { data, loading, error, refetch } = useApi<any>(teamId ? q : null);
 
   const allDeals = data?.deals ?? [];
   const hiddenCount = hideSeen ? allDeals.filter((d: any) => seen.has(dealSignature(d))).length : 0;
@@ -455,13 +489,12 @@ function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }:
         </label>
       </div>
 
-      {loading && <div className="card p-6 text-sm text-slate-500">Searching every roster in the league…</div>}
+      {loading && <PageLoading label="Searching every roster in the league…" />}
+      {error && !data && <PageError message={error} onRetry={refetch} />}
 
       {data?.deals?.length === 0 && (
-        <div className="card p-6 text-sm text-slate-500">
-          Nothing clears the bar right now, even searching up to 3-for-3 packages across every team in the league.
-          Try unticking “only deals they&apos;d accept” to see deals that only help your side.
-        </div>
+        <EmptyState title="Nothing clears the bar right now"
+          description={`Nothing clears the bar right now, even searching up to 3-for-3 packages across every team in the league. Try unticking "only deals they'd accept" to see deals that only help your side.`} />
       )}
 
       {data?.deals?.length > 0 && (
@@ -527,10 +560,9 @@ function FindDeals({ leagueId, teamId, rosters, untouchable, untouchableNames }:
       </div>
 
       {data?.deals?.length > 0 && visible.length === 0 && (
-        <div className="card p-6 text-sm text-slate-500">
-          You&apos;ve dismissed every deal that clears the bar right now. <button className="underline" onClick={resetSeen}>Show them again</button>,
-          or check back after the next data refresh — new rosters and projections surface new ideas.
-        </div>
+        <EmptyState title="You've dismissed every deal that clears the bar right now"
+          description="Check back after the next data refresh — new rosters and projections surface new ideas."
+          actionLabel="Show them again" onAction={resetSeen} />
       )}
       <div className="space-y-3">
         {visible.map((d: any, i: number) => (
@@ -555,7 +587,11 @@ function TradeSequences({ leagueId, teamId, mutual, size, exclude, untouchableNa
   leagueId: number; teamId: string | null; mutual: boolean; size: number; exclude: string; untouchableNames: string[];
 }) {
   const q = `/trades/${leagueId}/find/sequences?team_id=${teamId ?? ''}&mutual=${mutual ? 1 : 0}&max_per_side=${size}${exclude}`;
-  const { data, loading } = useApi<any>(teamId ? q : null);
+  const { data, loading, error, refetch } = useApi<any>(teamId ? q : null);
+  // A failure here is worth surfacing even though this whole section is
+  // optional/supplementary — otherwise a broken sequences call looks
+  // identical to "nothing chains together right now" and hides a real bug.
+  if (error && !data) return <div className="mt-6"><PageError message={error} onRetry={refetch} /></div>;
   if (loading || !data?.step1 || !data?.sequences?.length) return null;
 
   return (
@@ -586,9 +622,10 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
   // A targeted player only means something within the league he was picked in.
   useEffect(() => { setQuery(''); setPicked(null); }, [leagueId]);
   const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
-  const { data: offer, loading } = useApi<any>(
+  const { data: offer, loading, error, refetch } = useApi<any>(
     picked && teamId ? `/trades/${leagueId}/offer?team_id=${teamId}&player_id=${picked.id}${exclude}` : null);
-  const { data: outlook } = useApi<any>(picked ? `/trades/${leagueId}/player/${picked.id}` : null);
+  const { data: outlook, loading: outlookLoading, error: outlookError, refetch: refetchOutlook } = useApi<any>(
+    picked ? `/trades/${leagueId}/player/${picked.id}` : null);
 
   // Everyone rostered by somebody other than me — the only players I can trade for.
   const pool = useMemo(() => {
@@ -628,7 +665,8 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
           )}
         </div>
 
-        {loading && <div className="card p-6 text-sm text-slate-500">Pricing him against your roster…</div>}
+        {loading && <PageLoading label="Pricing him against your roster…" />}
+        {error && !offer && <PageError message={error} onRetry={refetch} />}
         {offer?.error && (
           <div className="card p-5 border-amber-200 bg-amber-50/40">
             <p className="font-bold text-slate-800 mb-1.5">{offer.error}</p>
@@ -680,6 +718,8 @@ function TargetPlayer({ leagueId, teamId, rosters, untouchable, untouchableNames
         )}
       </div>
 
+      {picked && outlookLoading && !outlook && <PageLoading label="Loading player outlook…" />}
+      {picked && outlookError && !outlook && <PageError message={outlookError} onRetry={refetchOutlook} />}
       {outlook && !outlook.error && <PlayerOutlook o={outlook} />}
     </div>
   );
@@ -700,7 +740,7 @@ function TargetMany({ leagueId, teamId, rosters, untouchable, untouchableNames }
   useEffect(() => { setPicked([]); setQuery(''); }, [partnerId]);
   const exclude = untouchable.length ? `&exclude=${untouchable.join(',')}` : '';
   const ids = picked.map(p => p.id).join(',');
-  const { data: result, loading } = useApi<any>(
+  const { data: result, loading, error, refetch } = useApi<any>(
     picked.length && teamId ? `/trades/${leagueId}/offer-many?team_id=${teamId}&player_ids=${ids}${exclude}` : null);
 
   const partners = useMemo(() =>
@@ -760,7 +800,8 @@ function TargetMany({ leagueId, teamId, rosters, untouchable, untouchableNames }
         )}
       </div>
 
-      {loading && <div className="card p-6 text-sm text-slate-500">Pricing them against your roster…</div>}
+      {loading && <PageLoading label="Pricing them against your roster…" />}
+      {error && !result && <PageError message={error} onRetry={refetch} />}
       {result?.error && <div className="card p-5 border-amber-200 bg-amber-50/40 text-sm text-slate-700">{result.error}</div>}
 
       {result?.ladders?.map((l: any) => (
@@ -805,11 +846,10 @@ function TargetMany({ leagueId, teamId, rosters, untouchable, untouchableNames }
       ))}
 
       {!picked.length && (
-        <div className="card p-6 text-sm text-slate-500">
-          {partnerId
+        <EmptyState title="Pick a few players to get started"
+          description={partnerId
             ? `Search ${partners.find((t: any) => t.roster_id === partnerId)?.owner}'s roster and add the players you want — this builds the real packages that would get a deal done with them specifically.`
-            : 'Search and add a few players — from one team or several — and this builds the real packages that would land them, priced against your own roster.'}
-        </div>
+            : 'Search and add a few players — from one team or several — and this builds the real packages that would land them, priced against your own roster.'} />
       )}
     </div>
   );
@@ -1040,7 +1080,7 @@ function MockTrade({ leagueId, teamId, rosters, untouchable, untouchableNames }:
 /* --------------------------------------------------------------- matchups */
 function Matchups() {
   const [pos, setPos] = useState('WR');
-  const { data } = useApi<any>(`/trades/dvp?position=${pos}`);
+  const { data, loading, error, refetch } = useApi<any>(`/trades/dvp?position=${pos}`);
   const open = usePlayerCard();
 
   return (
@@ -1057,6 +1097,10 @@ function Matchups() {
         {data && <span className="text-slate-400 ml-auto">from {data.seasons?.join(', ')} boxscores</span>}
       </div>
 
+      {loading && !data && <PageLoading label="Loading matchup history…" />}
+      {error && !data && <PageError message={error} onRetry={refetch} />}
+
+      {data && (
       <div className="grid md:grid-cols-2 gap-4">
         {[['Softest defences — target these', 0, 8, true], ['Toughest defences — fade these', -8, undefined, false]].map(
           ([title, from, to, isGood]: any) => {
@@ -1082,6 +1126,7 @@ function Matchups() {
             );
           })}
       </div>
+      )}
 
       <p className="text-[11px] text-slate-400 mt-3">
         Weighted so recent seasons count more, and computed only over players who actually cleared a startable score —

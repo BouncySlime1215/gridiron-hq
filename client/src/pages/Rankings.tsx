@@ -1,46 +1,64 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, headshotUrl, RankingEntry, useApi } from '../api';
 import { TIER_COLORS } from '../components/PlayerRow';
 import { StatRow, StatHeader, colsFor, StatMode } from '../components/StatTable';
+import { PageLoading, PageError, EmptyState } from '../components/PageState';
 
 const TIER_LABEL = ['', 'Elite', 'Tier 2', 'Tier 3', 'Tier 4', 'Tier 5', 'Deep'];
 
 export default function Rankings() {
-  const { data: sets, refetch: refetchSets } = useApi<any[]>('/rankings');
+  const { data: sets, loading: setsLoading, error: setsError, refetch: refetchSets } = useApi<any[]>('/rankings');
   const [setId, setSetId] = useState<number | null>(null);
   const [entries, setEntries] = useState<RankingEntry[]>([]);
+  const [entriesLoading, setEntriesLoading] = useState(false);
+  const [entriesError, setEntriesError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [filter, setFilter] = useState('ALL');
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [mode, setMode] = useState<StatMode>('projected');
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => { if (sets && sets.length && setId === null) setSetId(sets[0].id); }, [sets, setId]);
 
-  useEffect(() => {
+  const loadEntries = useCallback(() => {
     if (setId == null) return;
-    api<RankingEntry[]>(`/rankings/${setId}/entries`).then(es => { setEntries(es); setDirty(false); });
+    setEntriesLoading(true);
+    setEntriesError(null);
+    api<RankingEntry[]>(`/rankings/${setId}/entries`)
+      .then(es => { setEntries(es); setDirty(false); })
+      .catch(e => setEntriesError(e.message || 'Failed to load this ranking set'))
+      .finally(() => setEntriesLoading(false));
   }, [setId]);
 
+  useEffect(() => { loadEntries(); }, [loadEntries]);
+
   useEffect(() => {
-    if (search.length < 2) { setSearchResults([]); return; }
+    if (search.length < 2) { setSearchResults([]); setSearchError(null); return; }
     const t = setTimeout(() => {
-      api<any[]>(`/players?q=${encodeURIComponent(search)}`).then(ps =>
-        setSearchResults(ps.filter(p => !entries.some(e => e.player_id === p.id)).slice(0, 8)));
+      api<any[]>(`/players?q=${encodeURIComponent(search)}`)
+        .then(ps => { setSearchResults(ps.filter(p => !entries.some(e => e.player_id === p.id)).slice(0, 8)); setSearchError(null); })
+        .catch(e => setSearchError(e.message || 'Search failed'));
     }, 200);
     return () => clearTimeout(t);
   }, [search, entries]);
 
   const save = async () => {
     if (setId == null) return;
-    await api(`/rankings/${setId}/entries`, {
-      method: 'PUT',
-      body: JSON.stringify(entries.map((e, i) => ({ ...e, rank: i + 1 })))
-    });
-    setEntries(es => es.map((e, i) => ({ ...e, rank: i + 1 })));
-    setDirty(false);
+    setActionError(null);
+    try {
+      await api(`/rankings/${setId}/entries`, {
+        method: 'PUT',
+        body: JSON.stringify(entries.map((e, i) => ({ ...e, rank: i + 1 })))
+      });
+      setEntries(es => es.map((e, i) => ({ ...e, rank: i + 1 })));
+      setDirty(false);
+    } catch (e: any) {
+      setActionError(e.message || 'Failed to save changes');
+    }
   };
 
   const move = (from: number, to: number) => {
@@ -63,16 +81,26 @@ export default function Rankings() {
     const name = prompt('Ranking set name?');
     if (!name) return;
     const copy = setId != null && confirm('Copy current board into the new set?');
-    const s = await api('/rankings', { method: 'POST', body: JSON.stringify({ name, copyFrom: copy ? setId : undefined }) });
-    await refetchSets();
-    setSetId(s.id);
+    setActionError(null);
+    try {
+      const s = await api('/rankings', { method: 'POST', body: JSON.stringify({ name, copyFrom: copy ? setId : undefined }) });
+      await refetchSets();
+      setSetId(s.id);
+    } catch (e: any) {
+      setActionError(e.message || 'Failed to create ranking set');
+    }
   };
 
   const addPlayer = async (pid: number) => {
     if (setId == null) return;
-    await api(`/rankings/${setId}/entries`, { method: 'POST', body: JSON.stringify({ player_id: pid }) });
-    setEntries(await api<RankingEntry[]>(`/rankings/${setId}/entries`));
-    setSearch('');
+    setActionError(null);
+    try {
+      await api(`/rankings/${setId}/entries`, { method: 'POST', body: JSON.stringify({ player_id: pid }) });
+      setEntries(await api<RankingEntry[]>(`/rankings/${setId}/entries`));
+      setSearch('');
+    } catch (e: any) {
+      setActionError(e.message || 'Failed to add player');
+    }
   };
 
   const visible = entries.map((e, i) => ({ e, i })).filter(({ e }) => filter === 'ALL' || e.position === filter);
@@ -87,6 +115,8 @@ export default function Rankings() {
         <select className="input" value={setId ?? ''} onChange={e => setSetId(Number(e.target.value))}>
           {sets?.map(s => <option key={s.id} value={s.id}>{s.name} ({s.entry_count})</option>)}
         </select>
+        {setsLoading && !sets && <span className="text-xs text-slate-400">Loading sets…</span>}
+        {setsError && <span className="text-xs text-rose-600">Couldn't load ranking sets: {setsError}</span>}
         <button className="btn-ghost" onClick={createSet}>+ New set</button>
         <div className="ml-auto flex gap-1.5 items-center">
           {['ALL', 'QB', 'RB', 'WR', 'TE'].map(p => (
@@ -124,10 +154,25 @@ export default function Rankings() {
             ))}
           </div>
         )}
+        {searchError && <p className="text-[11px] text-rose-600 mt-1">{searchError}</p>}
       </div>
+
+      {actionError && <div className="mb-4"><PageError message={actionError} onRetry={() => setActionError(null)} /></div>}
 
       {!canDrag && <p className="text-xs text-slate-500 mb-2">Showing {filter} only — switch to ALL to drag-reorder.</p>}
 
+      {entriesError ? (
+        <PageError message={entriesError} onRetry={loadEntries} />
+      ) : entriesLoading && entries.length === 0 ? (
+        <PageLoading label="Loading rankings…" />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          title={filter === 'ALL' ? 'This ranking set is empty' : `No ${filter}s in this set`}
+          description={filter === 'ALL'
+            ? 'Search above to add players to this board.'
+            : 'Try switching back to ALL, or add players using the search above.'}
+        />
+      ) : (
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -177,8 +222,8 @@ export default function Rankings() {
             </tbody>
           </table>
         </div>
-        {visible.length === 0 && <p className="p-6 text-sm text-slate-500 text-center">No players at this filter.</p>}
       </div>
+      )}
     </div>
   );
 }

@@ -6,13 +6,14 @@
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://fantasy.espn.com/*",
+    "https://fantasydraft.espn.com/*",
     "http://localhost:5177/*",
     "http://127.0.0.1:5177/*"
   ],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
-      "matches": ["https://fantasy.espn.com/football/*"],
+      "matches": ["https://fantasy.espn.com/football/*", "https://fantasydraft.espn.com/*"],
       "js": ["content.js"],
       "run_at": "document_start",
       "all_frames": true

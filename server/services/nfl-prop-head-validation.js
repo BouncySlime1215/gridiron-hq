@@ -17,19 +17,12 @@
  * baseline.
  */
 import { createHash } from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { playerWeeks } from './nfl-pbp.js';
 import { gameScriptFor } from './gamescript.js';
 import { buildPlayerWeekEngine, playerWeekProjection, playerWeekEventExpectation } from './player-week-engine.js';
 import { candidatePlayerHeads, PLAYER_HEADS, PLAYER_HEAD_REGISTRY_VERSION } from './player-head-registry.js';
 import { metrics, correlation, signFlipP, holmDecisions } from './player-head-validation.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS prop_head_audits (
-  spec_hash TEXT PRIMARY KEY, created_at TEXT NOT NULL, registry_version TEXT NOT NULL, metric TEXT NOT NULL,
-  development_season INTEGER NOT NULL, discovery_season INTEGER NOT NULL,
-  validation_season INTEGER, validation_opened INTEGER NOT NULL DEFAULT 0,
-  result_json TEXT NOT NULL
-)`);
 
 /** Every metric graded here must have real prior-week history to blend against — a volume threshold, not a market gate. */
 export const PROP_METRIC_CONFIG = Object.freeze({

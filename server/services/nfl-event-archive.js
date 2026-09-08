@@ -9,7 +9,7 @@
 import { canonicalTeamCode } from './team-codes.js';
 import { nflKickoffDate } from './date-util.js';
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { parseCsv } from './nflverse.js';
 import { syncInjuries } from './nfl-advanced.js';
 
@@ -24,40 +24,8 @@ import { syncInjuries } from './nfl-advanced.js';
 export const VERIFIED_EVENT_ARCHIVE_VERSION = 'nfl-verified-event-archive-v2-conservative-availability';
 const RELEASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_verified_events (
-    event_key TEXT PRIMARY KEY,
-    event_type TEXT NOT NULL,
-    season INTEGER,
-    week INTEGER,
-    team TEXT,
-    other_team TEXT,
-    player_id TEXT,
-    pfr_id TEXT,
-    player_name TEXT,
-    position TEXT,
-    status_before TEXT,
-    status_after TEXT,
-    body_part TEXT,
-    occurred_at TEXT NOT NULL,
-    available_at TEXT NOT NULL,
-    time_precision TEXT NOT NULL,
-    source TEXT NOT NULL,
-    source_url TEXT NOT NULL,
-    verification_state TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    archive_version TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_verified_events_team_time
-    ON nfl_verified_events(team,available_at,event_type);
-  CREATE INDEX IF NOT EXISTS idx_nfl_verified_events_player_time
-    ON nfl_verified_events(player_id,available_at,event_type);
-  CREATE TRIGGER IF NOT EXISTS nfl_verified_events_no_update BEFORE UPDATE ON nfl_verified_events
-    BEGIN SELECT RAISE(ABORT, 'verified event archive is immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_verified_events_no_delete BEFORE DELETE ON nfl_verified_events
-    BEGIN SELECT RAISE(ABORT, 'verified event archive is immutable'); END;
-`);
+// nfl_verified_events, its two lookup indexes and the two triggers that make
+// the archive immutable come from server/migrations/000_legacy_schema.js.
 
 const canonical = value => {
   if (Array.isArray(value)) return value.map(canonical);

@@ -26,14 +26,6 @@ const PREVIOUS_RUNS_API = 'https://previous-runs-api.open-meteo.com/v1/forecast'
 const HISTORICAL_FORECAST_API = 'https://historical-forecast-api.open-meteo.com/v1/forecast';
 const VARIABLES = Object.freeze({ wind_kmh: 'wind_speed_10m', gust_kmh: 'wind_gusts_10m', precip_mm: 'precipitation', temp_c: 'temperature_2m' });
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_game_weather_forecast_history (
-  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL,
-  kickoff TEXT NOT NULL, lead_days INTEGER NOT NULL,
-  wind_kmh REAL, gust_kmh REAL, precip_mm REAL, temp_c REAL,
-  source TEXT NOT NULL, fetched_at TEXT NOT NULL,
-  PRIMARY KEY (season, week, home, lead_days)
-)`);
-
 // Same selection as nfl-weather.js's outdoorGames (copied, not imported — that one is private).
 function outdoorGames(seasons) {
   return rows(`SELECT season,week,team home,gameday,gametime,roof,neutral_site FROM game_lines

@@ -9,59 +9,6 @@
 import { db, rows } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_roster_snapshots (
-    captured_at TEXT NOT NULL,
-    player_id INTEGER,
-    espn_id INTEGER,
-    gsis_id TEXT,
-    player_name TEXT NOT NULL,
-    position TEXT,
-    team TEXT NOT NULL,
-    status TEXT,
-    depth_slot TEXT,
-    depth_order INTEGER,
-    source TEXT NOT NULL,
-    PRIMARY KEY (captured_at,team,player_name)
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_roster_snapshot_cutoff
-    ON nfl_roster_snapshots(captured_at,team);
-  CREATE TABLE IF NOT EXISTS nfl_player_roster_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    player_id INTEGER,
-    espn_id INTEGER,
-    gsis_id TEXT,
-    player_name TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    from_team TEXT,
-    to_team TEXT,
-    roster_status TEXT NOT NULL,
-    effective_at TEXT NOT NULL,
-    captured_at TEXT NOT NULL DEFAULT (datetime('now')),
-    news_id INTEGER,
-    source TEXT NOT NULL,
-    source_url TEXT,
-    confidence REAL NOT NULL,
-    verification_state TEXT NOT NULL,
-    evidence TEXT NOT NULL,
-    event_key TEXT NOT NULL UNIQUE
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_roster_event_cutoff
-    ON nfl_player_roster_events(effective_at,player_id);
-  CREATE TABLE IF NOT EXISTS nfl_player_state_quarantine (
-    news_id INTEGER PRIMARY KEY,
-    reason TEXT NOT NULL,
-    evidence TEXT NOT NULL,
-    captured_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-`);
-
-const eventColumns = new Set(db.prepare('PRAGMA table_info(nfl_player_roster_events)').all().map(column => column.name));
-if (!eventColumns.has('event_key')) {
-  db.exec(`ALTER TABLE nfl_player_roster_events ADD COLUMN event_key TEXT`);
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_nfl_roster_event_key ON nfl_player_roster_events(event_key)`);
-}
-
 const parseJson = (value, fallback = {}) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
 
 /** Parse the team-facing meaning of one official transaction sentence. */

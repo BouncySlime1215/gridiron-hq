@@ -19,40 +19,12 @@
  * any correction on seasons it was not discovered on. A fix that only works on
  * the season that suggested it is reported as exactly that — rejected.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { fitEnsemble, ensembleLine } from './nfl-ensemble.js';
 import { mean, quantile, random, withRandomSeed } from './stats-util.js';
 import { NFL_PRODUCTION_POLICY, NFL_HISTORICAL_REPLAY_POLICY,
   applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
 import { shinNoVig } from './nfl-devig.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_replay_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    season INTEGER NOT NULL, label TEXT, created_at TEXT NOT NULL,
-    bets INTEGER, wins INTEGER, losses INTEGER, pushes INTEGER,
-    units REAL, roi REAL, config TEXT
-  );
-  CREATE TABLE IF NOT EXISTS nfl_replay_bets (
-    run_id INTEGER NOT NULL, season INTEGER, week INTEGER,
-    home TEXT, away TEXT, market TEXT, side TEXT, line REAL,
-    model_margin REAL, market_margin REAL, edge REAL, disagreement REAL,
-    actual_margin REAL, actual_total REAL,
-    result TEXT, units REAL,
-    PRIMARY KEY (run_id, season, week, home, market)
-  );
-  CREATE TABLE IF NOT EXISTS nfl_policy_audits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    policy_id TEXT NOT NULL, policy_version TEXT NOT NULL,
-    seasons_json TEXT NOT NULL, created_at TEXT NOT NULL,
-    result_json TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS nfl_candidate_input_audits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    candidate_id TEXT NOT NULL, seasons_json TEXT NOT NULL,
-    created_at TEXT NOT NULL, result_json TEXT NOT NULL
-  );
-`);
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);

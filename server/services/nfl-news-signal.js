@@ -11,45 +11,6 @@ import { normalizePlayerName } from './player-identity.js';
 import { nflKickoffDate } from './date-util.js';
 import { callClaude, getApiKey, parseJson } from './claude.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_news_signals (
-    news_id INTEGER NOT NULL,
-    player_key TEXT NOT NULL,
-    player_id TEXT,
-    player_name TEXT,
-    team TEXT,
-    signal_type TEXT NOT NULL,
-    status TEXT,
-    body_part TEXT,
-    unavailable_probability REAL,
-    role_delta REAL,
-    confidence REAL NOT NULL,
-    published_at TEXT NOT NULL,
-    source TEXT,
-    source_url TEXT,
-    evidence_span TEXT NOT NULL,
-    extractor_version TEXT NOT NULL,
-    verification_state TEXT NOT NULL DEFAULT 'quarantined',
-    verification_reason TEXT NOT NULL DEFAULT 'source not evaluated',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (news_id,player_key,signal_type)
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_news_signal_player ON nfl_news_signals(player_key,published_at);
-  CREATE INDEX IF NOT EXISTS idx_nfl_news_signal_team ON nfl_news_signals(team,published_at);
-  CREATE TABLE IF NOT EXISTS nfl_news_extraction_attempts (
-    news_id INTEGER NOT NULL,extractor_version TEXT NOT NULL,attempted_at TEXT NOT NULL,
-    accepted_claims INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(news_id,extractor_version)
-  );
-`);
-
-const signalColumns = new Set(db.prepare('PRAGMA table_info(nfl_news_signals)').all().map(item => item.name));
-if (!signalColumns.has('verification_state')) {
-  db.exec(`ALTER TABLE nfl_news_signals ADD COLUMN verification_state TEXT NOT NULL DEFAULT 'quarantined'`);
-}
-if (!signalColumns.has('verification_reason')) {
-  db.exec(`ALTER TABLE nfl_news_signals ADD COLUMN verification_reason TEXT NOT NULL DEFAULT 'source not evaluated'`);
-}
-
 const EXTRACTOR_VERSION = 'typed-rules-2026.1';
 const parse = (value, fallback) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
 const clamp = (value, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, value));

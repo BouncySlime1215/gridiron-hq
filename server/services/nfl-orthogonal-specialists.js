@@ -7,30 +7,10 @@
  * negative incremental value remains visible but contributes zero.
  */
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { getFrozenTeamCard, TEAM_CARD_VERSION } from './nfl-team-card.js';
 
 export const ORTHOGONAL_SPECIALIST_VERSION = 'nfl-orthogonal-specialists-v2-reconciled-depth';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_orthogonal_specialist_artifacts (
-    artifact_id TEXT PRIMARY KEY,
-    version TEXT NOT NULL,
-    through_season INTEGER NOT NULL,
-    through_week INTEGER NOT NULL,
-    data_hash TEXT NOT NULL,
-    training_games INTEGER NOT NULL,
-    validation_games INTEGER NOT NULL,
-    artifact_json TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  CREATE TRIGGER IF NOT EXISTS nfl_orthogonal_artifacts_no_update
-    BEFORE UPDATE ON nfl_orthogonal_specialist_artifacts
-    BEGIN SELECT RAISE(ABORT, 'orthogonal specialist artifacts are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_orthogonal_artifacts_no_delete
-    BEFORE DELETE ON nfl_orthogonal_specialist_artifacts
-    BEGIN SELECT RAISE(ABORT, 'orthogonal specialist artifacts are immutable'); END;
-`);
 
 const FAMILY_SPEC = Object.freeze([
   { id: 'roster', fields: ['roster_score', 'starter_score', 'depth_score', 'fragility',

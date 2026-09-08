@@ -8,17 +8,11 @@
  */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { trainingIteration } from './nfl-replay.js';
 import { NFL_PRODUCTION_POLICY } from './nfl-policy.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_experiments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL, hypothesis TEXT NOT NULL, created_at TEXT NOT NULL,
-  spec_hash TEXT NOT NULL UNIQUE, spec_json TEXT NOT NULL,
-  discovery_json TEXT, validation_json TEXT, holdout_json TEXT,
-  validation_passed INTEGER, verdict TEXT
-)`);
+// nfl_model_experiments comes from server/migrations/000_legacy_schema.js.
 
 const PRODUCTION = {
   ...NFL_PRODUCTION_POLICY,

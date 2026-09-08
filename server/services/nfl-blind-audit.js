@@ -26,50 +26,17 @@ import { weeklyExpertAudit, persistWeeklyExpertAudit, EXPERT_COUNCIL_VERSION,
 import { buildPostgameTruth, persistPostgameTruth, postgameAuditSummary,
   POSTGAME_TRUTH_VERSION } from './nfl-postgame-truth.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_blind_audit_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    label TEXT NOT NULL,
-    spec_hash TEXT NOT NULL UNIQUE,
-    spec_json TEXT NOT NULL,
-    code_hash TEXT NOT NULL,
-    data_hash TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'registered',
-    next_ordinal INTEGER NOT NULL DEFAULT 0,
-    final_json TEXT
-  );
-  CREATE TABLE IF NOT EXISTS nfl_blind_audit_weeks (
-    run_id INTEGER NOT NULL,
-    ordinal INTEGER NOT NULL,
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    opened_at TEXT NOT NULL,
-    prior_chain_hash TEXT NOT NULL,
-    result_hash TEXT NOT NULL,
-    chain_hash TEXT NOT NULL,
-    result_json TEXT NOT NULL,
-    fault_json TEXT NOT NULL,
-    PRIMARY KEY (run_id, ordinal),
-    UNIQUE (run_id, season, week)
-  );
-  CREATE TABLE IF NOT EXISTS nfl_blind_input_mutations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    table_name TEXT NOT NULL,
-    operation TEXT NOT NULL,
-    changed_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS nfl_blind_audit_week_performance (
-    run_id INTEGER NOT NULL,
-    ordinal INTEGER NOT NULL,
-    freeze_check_ms INTEGER NOT NULL,
-    compute_ms INTEGER NOT NULL,
-    persist_ms INTEGER NOT NULL,
-    total_ms INTEGER NOT NULL,
-    PRIMARY KEY (run_id, ordinal)
-  );
-`);
+// nfl_blind_audit_runs, nfl_blind_audit_weeks, nfl_blind_input_mutations,
+// nfl_blind_audit_week_performance and nfl_blind_audit_retries come from
+// server/migrations/000_legacy_schema.js — as do the three
+// nfl_blind_input_<table> journal triggers per table in INPUT_TABLES below,
+// which that migration installs after every fragment's tables exist.
 
+/**
+ * The input tables an audit run freezes. The mutation-journal triggers over
+ * these live in server/db/schema/nfl-a-to-m.js; this list still drives the
+ * freeze coverage check and the preregistered spec.
+ */
 const INPUT_TABLES = [
   'players', 'player_week_usage', 'game_lines', 'nflverse_player_positions',
   'nfl_team_week_features', 'nfl_player_week_features', 'nfl_depth',
@@ -84,43 +51,6 @@ const INPUT_TABLES = [
 ];
 const sha = value => createHash('sha256').update(value).digest('hex');
 const mutationCursor = new Map();
-
-function installInputMutationJournal() {
-  const tables = new Set(rows("SELECT name FROM sqlite_master WHERE type='table'").map(item => item.name));
-  for (const table of INPUT_TABLES) {
-    if (!tables.has(table)) continue;
-    const prefix = `nfl_blind_input_${table}`;
-    if (table === 'players') {
-      db.exec(`
-        CREATE TRIGGER IF NOT EXISTS ${prefix}_insert AFTER INSERT ON ${table}
-        WHEN NEW.gsis_id IS NOT NULL BEGIN
-          INSERT INTO nfl_blind_input_mutations(table_name,operation,changed_at)
-          VALUES ('${table}','insert',datetime('now'));
-        END;
-        CREATE TRIGGER IF NOT EXISTS ${prefix}_update AFTER UPDATE OF id,name,position,gsis_id ON ${table}
-        WHEN OLD.gsis_id IS NOT NULL OR NEW.gsis_id IS NOT NULL BEGIN
-          INSERT INTO nfl_blind_input_mutations(table_name,operation,changed_at)
-          VALUES ('${table}','update',datetime('now'));
-        END;
-        CREATE TRIGGER IF NOT EXISTS ${prefix}_delete AFTER DELETE ON ${table}
-        WHEN OLD.gsis_id IS NOT NULL BEGIN
-          INSERT INTO nfl_blind_input_mutations(table_name,operation,changed_at)
-          VALUES ('${table}','delete',datetime('now'));
-        END;
-      `);
-      continue;
-    }
-    for (const operation of ['INSERT', 'UPDATE', 'DELETE']) db.exec(`
-      CREATE TRIGGER IF NOT EXISTS ${prefix}_${operation.toLowerCase()} AFTER ${operation} ON ${table}
-      BEGIN
-        INSERT INTO nfl_blind_input_mutations(table_name,operation,changed_at)
-        VALUES ('${table}','${operation.toLowerCase()}',datetime('now'));
-      END;
-    `);
-  }
-}
-
-installInputMutationJournal();
 
 function inputMutationState(afterId = 0) {
   const latest = rows('SELECT COALESCE(MAX(id),0) id FROM nfl_blind_input_mutations')[0]?.id ?? 0;
@@ -884,10 +814,6 @@ function weekLookback(result, prior = null) {
     reads,
     rule: 'Graded after the week is opened, chained from the previous look-back; the next week trains only on rows settled before its cutoff.' };
 }
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_blind_audit_retries (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, ordinal INTEGER, at TEXT NOT NULL, error TEXT NOT NULL
-)`);
 
 /** Open the next week; a failed attempt is recorded as a retry against the run (manifest v2) and rethrown. */
 export function runNextBlindAuditWeek(id) {

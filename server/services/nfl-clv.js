@@ -16,27 +16,13 @@
  * unless it is attached to a number someone actually took, at a price, at a
  * time. That is why this keeps a ledger rather than scoring games.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import './line-shopping.js';   // owns nfl_line_snapshots, read below
 import { isFreshQuote } from './book-feeds.js';
 import { shinNoVig, proportionalNoVig } from './nfl-devig.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_bet_log (
-    bet_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    placed_at TEXT NOT NULL,
-    event_id TEXT NOT NULL, commence_time TEXT,
-    home_team TEXT, away_team TEXT,
-    market TEXT NOT NULL, side TEXT NOT NULL,
-    line REAL, price INTEGER NOT NULL, book TEXT,
-    stake_units REAL DEFAULT 1,
-    source TEXT, model_edge REAL,
-    closing_line REAL, closing_price INTEGER, closing_fair_prob REAL,
-    clv_points REAL, clv_pct REAL, graded_at TEXT,
-    result TEXT, units_won REAL
-  );
-  CREATE INDEX IF NOT EXISTS idx_betlog_event ON nfl_bet_log(event_id, market, side);
-`);
+// nfl_bet_log and idx_betlog_event come from
+// server/migrations/000_legacy_schema.js.
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));

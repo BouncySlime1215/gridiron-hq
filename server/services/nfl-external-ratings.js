@@ -39,11 +39,7 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 const FPI_URL = 'https://site.web.api.espn.com/apis/fitt/v3/sports/football/nfl/powerindex?region=us&lang=en';
 const TEAMRANKINGS_URL = 'https://www.teamrankings.com/nfl/ranking/predictive-by-other/';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_external_ratings (
-  source TEXT NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL, team TEXT NOT NULL,
-  rating REAL NOT NULL, detail_json TEXT, fetched_at TEXT NOT NULL,
-  PRIMARY KEY (source, season, week, team)
-)`);
+// nfl_external_ratings comes from server/migrations/000_legacy_schema.js.
 
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));

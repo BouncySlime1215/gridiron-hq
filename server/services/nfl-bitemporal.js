@@ -29,7 +29,7 @@
  * and the reader always says which it handed back.
  */
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 
 export const BITEMPORAL_VERSION = 'nfl-bitemporal-v1';
 
@@ -40,28 +40,8 @@ export const PROVENANCE = Object.freeze({
   derived: 'Computed here from other stored revisions; inherits their weakest provenance.'
 });
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_feature_revisions (
-    revision_id  TEXT PRIMARY KEY,
-    entity       TEXT NOT NULL,
-    feature      TEXT NOT NULL,
-    valid_from   TEXT,
-    published_at TEXT NOT NULL,
-    observed_at  TEXT NOT NULL,
-    provenance   TEXT NOT NULL,
-    source_id    TEXT NOT NULL,
-    value_json   TEXT NOT NULL,
-    raw_hash     TEXT NOT NULL,
-    version      TEXT NOT NULL,
-    created_at   TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_feature_revisions_read
-    ON nfl_feature_revisions(entity, feature, published_at, observed_at);
-  CREATE TRIGGER IF NOT EXISTS nfl_feature_revisions_no_update BEFORE UPDATE ON nfl_feature_revisions
-    BEGIN SELECT RAISE(ABORT, 'feature revisions are append-only'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_feature_revisions_no_delete BEFORE DELETE ON nfl_feature_revisions
-    BEGIN SELECT RAISE(ABORT, 'feature revisions are append-only'); END;
-`);
+// nfl_feature_revisions, its read index and its two append-only triggers come
+// from server/migrations/000_legacy_schema.js.
 
 // `new Date(null)` is the epoch, not an error, so a missing timestamp would
 // otherwise be stored as 1970 and silently satisfy every cutoff.

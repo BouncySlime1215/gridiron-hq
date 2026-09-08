@@ -5,7 +5,7 @@
  * silently change if the model or lines move later; grading reads the real
  * final score straight out of game_lines once ESPN reports the game final.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { ensembleWeek } from './nfl-ensemble.js';
 import { NFL_PRODUCTION_POLICY, applyNflPolicy } from './nfl-policy.js';
 import { calibratedCoverProbability } from './nfl-cover-calibration.js';
@@ -15,40 +15,12 @@ import { shinNoVig } from './nfl-devig.js';
 
 const COORDINATED_DECISION_VERSION = 'coordinated-market-residual-v1';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_auto_picks (
-    season INTEGER NOT NULL, week INTEGER NOT NULL, rank INTEGER NOT NULL,
-    home_team TEXT, away_team TEXT, matchup TEXT,
-    selection TEXT, side TEXT, line REAL, american_price INTEGER,
-    model_probability REAL, implied_probability REAL, probability_difference REAL,
-    detail TEXT, units_staked REAL DEFAULT 1, selected_at TEXT NOT NULL,
-    PRIMARY KEY (season, week, rank)
-  );
-`);
-
-for (const [name, type] of [
-  ['policy_id', 'TEXT'], ['policy_version', 'TEXT'], ['book', 'TEXT'], ['quote_at', 'TEXT'],
-  ['quote_source', 'TEXT'], ['feature_snapshot_json', 'TEXT'],
-  // A locked pick is a ledger entry and must never silently vanish, but a pick
-  // locked under a policy that no longer exists is not a live position either.
-  // Voiding keeps the row and its history while removing it from the standing.
-  ['voided_at', 'TEXT'], ['void_reason', 'TEXT']
-]) {
-  const cols = db.prepare('PRAGMA table_info(nfl_auto_picks)').all().map(c => c.name);
-  if (!cols.includes(name)) db.exec(`ALTER TABLE nfl_auto_picks ADD COLUMN ${name} ${type}`);
-}
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_pick_decisions (
-    season INTEGER NOT NULL, week INTEGER NOT NULL, policy_id TEXT NOT NULL,
-    policy_version TEXT NOT NULL, matchup TEXT NOT NULL, selection TEXT,
-    market TEXT NOT NULL, line REAL, american_price INTEGER, book TEXT,
-    quote_at TEXT, quote_source TEXT, edge REAL, disagreement REAL,
-    eligible INTEGER NOT NULL, abstention_reason TEXT, policy_rank INTEGER,
-    feature_snapshot_json TEXT NOT NULL, recorded_at TEXT NOT NULL,
-    PRIMARY KEY (season, week, policy_id, matchup, market, selection)
-  );
-`);
+// nfl_auto_picks and nfl_pick_decisions come from
+// server/migrations/000_legacy_schema.js, along with the policy/quote/void
+// columns that were once appended here. A locked pick is a ledger entry and
+// must never silently vanish, but a pick locked under a policy that no longer
+// exists is not a live position either — that is what voided_at/void_reason
+// are for: the row and its history stay, the standing drops it.
 
 /** Locks in this week's top-5 spread picks, if they don't already exist. */
 export function ensurePicksFor(season, week, board, count = 5) {

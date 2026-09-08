@@ -13,61 +13,6 @@ import { gameOdds, hasKey } from './odds-api.js';
 export const QUOTE_TAPE_VERSION = 'nfl-quote-tape-v1';
 const HISTORICAL_ENDPOINT = 'https://api.the-odds-api.com/v4/historical/sports/americanfootball_nfl/odds';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_quote_batches (
-    batch_id TEXT PRIMARY KEY,
-    provider TEXT NOT NULL,
-    requested_at TEXT NOT NULL,
-    snapshot_at TEXT NOT NULL,
-    previous_snapshot_at TEXT,
-    next_snapshot_at TEXT,
-    mode TEXT NOT NULL,
-    markets TEXT NOT NULL,
-    source_ref TEXT NOT NULL,
-    events INTEGER NOT NULL,
-    quotes INTEGER NOT NULL,
-    raw_hash TEXT NOT NULL,
-    tape_version TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS nfl_quote_tape (
-    quote_id TEXT PRIMARY KEY,
-    batch_id TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    provider_event_id TEXT NOT NULL,
-    commence_time TEXT NOT NULL,
-    snapshot_at TEXT NOT NULL,
-    book_updated_at TEXT,
-    bookmaker_key TEXT NOT NULL,
-    bookmaker_title TEXT,
-    market TEXT NOT NULL,
-    period TEXT NOT NULL,
-    side_key TEXT NOT NULL,
-    side_name TEXT NOT NULL,
-    home_team TEXT NOT NULL,
-    away_team TEXT NOT NULL,
-    line REAL,
-    american_price INTEGER NOT NULL,
-    implied_probability REAL NOT NULL,
-    raw_json TEXT NOT NULL,
-    tape_version TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(batch_id) REFERENCES nfl_quote_batches(batch_id) ON DELETE RESTRICT
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_quote_event_time
-    ON nfl_quote_tape(provider_event_id,market,snapshot_at);
-  CREATE INDEX IF NOT EXISTS idx_nfl_quote_match_time
-    ON nfl_quote_tape(home_team,away_team,commence_time,snapshot_at);
-  CREATE TRIGGER IF NOT EXISTS nfl_quote_batches_no_update BEFORE UPDATE ON nfl_quote_batches
-    BEGIN SELECT RAISE(ABORT, 'quote batches are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_quote_batches_no_delete BEFORE DELETE ON nfl_quote_batches
-    BEGIN SELECT RAISE(ABORT, 'quote batches are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_quote_tape_no_update BEFORE UPDATE ON nfl_quote_tape
-    BEGIN SELECT RAISE(ABORT, 'quote tape is immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_quote_tape_no_delete BEFORE DELETE ON nfl_quote_tape
-    BEGIN SELECT RAISE(ABORT, 'quote tape is immutable'); END;
-`);
-
 const canonical = value => {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort()

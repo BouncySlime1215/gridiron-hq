@@ -37,30 +37,12 @@
  * limit is more useful than quietly implying the model view is live when it
  * is not.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { rankBooks, breakEvenRate } from './nfl-execution.js';
 import { simultaneousQuotes } from './nfl-shopping-board.js';
 import { registry } from './model-governance.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_pick_watch_log (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    checked_at     TEXT NOT NULL,
-    pick_source    TEXT NOT NULL,   -- 'spread' | 'total'
-    season         INTEGER NOT NULL, week INTEGER NOT NULL, rank INTEGER NOT NULL,
-    matchup        TEXT, market TEXT, selection TEXT, side TEXT,
-    line_at_generation  REAL, price_at_generation INTEGER, book_at_generation TEXT,
-    best_book      TEXT, best_line REAL, best_price INTEGER, books_compared INTEGER,
-    break_even_at_generation REAL, break_even_now REAL, direction TEXT,
-    model_probability REAL, model_edge_at_generation REAL,
-    gate_open      INTEGER NOT NULL, recommended_stake_units REAL NOT NULL,
-    status         TEXT NOT NULL, note TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_pick_watch_log_check
-    ON nfl_pick_watch_log(pick_source, season, week, rank, checked_at);
-`);
 
 const NOTE_NO_EDGE = 'No proven CLV for this market yet (model-governance.js: no champion has been ' +
   'promoted to production). For shopping/monitoring purposes only — not a recommendation to bet money.';

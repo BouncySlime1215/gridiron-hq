@@ -1,21 +1,9 @@
 /** Chronological calibration for the generative play/drive simulator. */
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { RATE_SPEC } from './nfl-sim-learn.js';
 
 export const SIM_CALIBRATION_VERSION = 'nfl-sim-calibration-v1';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_sim_calibration_artifacts (
-    artifact_id TEXT PRIMARY KEY,version TEXT NOT NULL,season INTEGER NOT NULL,week INTEGER NOT NULL,
-    evidence_hash TEXT NOT NULL,plays INTEGER NOT NULL,games INTEGER NOT NULL,
-    calibration_json TEXT NOT NULL,created_at TEXT NOT NULL
-  );
-  CREATE TRIGGER IF NOT EXISTS nfl_sim_calibration_no_update BEFORE UPDATE ON nfl_sim_calibration_artifacts
-    BEGIN SELECT RAISE(ABORT, 'simulation calibration artifacts are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_sim_calibration_no_delete BEFORE DELETE ON nfl_sim_calibration_artifacts
-    BEGIN SELECT RAISE(ABORT, 'simulation calibration artifacts are immutable'); END;
-`);
 
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 const r4 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(4);

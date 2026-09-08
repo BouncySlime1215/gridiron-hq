@@ -13,39 +13,14 @@ import { modelMap } from './gridiron-model.js';
 export const GRIDIRON_ENGINE_SCHEMA = 'gridiron-engine-v1';
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const tableExists = table => Boolean(row(`SELECT 1 ok FROM sqlite_master WHERE type='table' AND name=?`, table));
-const columnExists = (table, column) => tableExists(table)
-  && db.prepare(`PRAGMA table_info(${table})`).all().some(item => item.name === column);
 const computedCache = new Map();
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_engine_artifacts (
-  engine_version TEXT PRIMARY KEY,
-  schema_version TEXT NOT NULL,
-  season INTEGER NOT NULL,
-  trained_through_week INTEGER NOT NULL,
-  predicts_week INTEGER NOT NULL,
-  epoch_id INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL,
-  data_hash TEXT NOT NULL,
-  component_json TEXT NOT NULL,
-  UNIQUE(season,predicts_week,data_hash)
-);
-CREATE TABLE IF NOT EXISTS nfl_learning_epochs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  parent_epoch_id INTEGER,
-  created_at TEXT NOT NULL,
-  closed_at TEXT,
-  status TEXT NOT NULL CHECK(status IN ('active','archived')),
-  reason TEXT NOT NULL,
-  reset_policy_json TEXT NOT NULL,
-  FOREIGN KEY(parent_epoch_id) REFERENCES nfl_learning_epochs(id)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_nfl_one_active_learning_epoch
-  ON nfl_learning_epochs(status) WHERE status='active';
-`);
-
-if (!columnExists('nfl_engine_artifacts', 'epoch_id')) {
-  db.exec(`ALTER TABLE nfl_engine_artifacts ADD COLUMN epoch_id INTEGER NOT NULL DEFAULT 1`);
-}
+// nfl_engine_artifacts, nfl_learning_epochs and
+// idx_nfl_one_active_learning_epoch come from
+// server/migrations/000_legacy_schema.js, which also carries the epoch_id
+// column additions this module used to make — including the ones for the
+// tables owned by weekly-learning.js and nfl-online-neural.js, which are no
+// longer import-order dependent because the migration runs before any of them.
 
 if (!row(`SELECT 1 ok FROM nfl_learning_epochs WHERE status='active' LIMIT 1`)) {
   run(`INSERT INTO nfl_learning_epochs
@@ -53,15 +28,6 @@ if (!row(`SELECT 1 ok FROM nfl_learning_epochs WHERE status='active' LIMIT 1`)) 
     VALUES (NULL,?,'active','initial persistent learning epoch',?)`, new Date().toISOString(),
   JSON.stringify({ preserve: ['raw evidence', 'outcomes', 'predictions', 'audits'],
     reset: [], automatic: false }));
-}
-
-// These tables predate learning epochs in existing installations. The registry
-// can be imported before their owning services, so upgrade them here as well as
-// in those modules instead of depending on import order.
-for (const table of ['weekly_ensemble_fits', 'nfl_online_neural_artifacts', 'nfl_online_neural_examples']) {
-  if (tableExists(table) && !columnExists(table, 'epoch_id')) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN epoch_id INTEGER NOT NULL DEFAULT 1`);
-  }
 }
 
 const optionalRow = (table, sql, ...params) => tableExists(table) ? row(sql, ...params) : null;

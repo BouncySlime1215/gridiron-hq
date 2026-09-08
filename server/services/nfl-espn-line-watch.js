@@ -19,31 +19,17 @@
  * snapshot would actually buy new information, which turns a small credit
  * budget from blind polling into a targeted instrument.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { lineMoveValue } from './nfl-execution-edge.js';
 import { recordSync } from './scheduler.js';
 
 const ESPN_SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS espn_line_moves (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    observed_at TEXT NOT NULL,
-    season INTEGER NOT NULL, week INTEGER NOT NULL,
-    event_id TEXT NOT NULL,
-    home_team TEXT, away_team TEXT, commence_time TEXT,
-    home_spread REAL, total REAL,
-    prev_home_spread REAL, prev_total REAL,
-    spread_delta REAL, total_delta REAL,
-    -- What the spread move is worth in win probability, priced against the real
-    -- NFL margin distribution. A half point across 3 is not a half point across 5.
-    spread_move_value REAL,
-    first_sighting INTEGER NOT NULL DEFAULT 0
-  );
-  CREATE INDEX IF NOT EXISTS idx_espn_moves_event ON espn_line_moves(event_id, observed_at);
-  CREATE INDEX IF NOT EXISTS idx_espn_moves_time ON espn_line_moves(observed_at);
-`);
+// espn_line_moves and its two indexes come from
+// server/migrations/000_legacy_schema.js. Its spread_move_value column holds
+// what a spread move is worth in win probability, priced against the real NFL
+// margin distribution — a half point across 3 is not a half point across 5.
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 

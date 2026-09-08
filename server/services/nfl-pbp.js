@@ -20,23 +20,6 @@ import { recordSync } from './scheduler.js';
 
 const PBP_URL = s => `https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_${s}.csv.gz`;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_team_week_features (
-    season INTEGER NOT NULL, week INTEGER NOT NULL, team TEXT NOT NULL,
-    opponent TEXT, home INTEGER, features TEXT NOT NULL,
-    PRIMARY KEY (season, week, team)
-  );
-  CREATE INDEX IF NOT EXISTS idx_twf_team ON nfl_team_week_features(team, season, week);
-
-  CREATE TABLE IF NOT EXISTS nfl_player_week_features (
-    season INTEGER NOT NULL, week INTEGER NOT NULL, player_id TEXT NOT NULL,
-    player_name TEXT, team TEXT, opponent TEXT, position TEXT, features TEXT NOT NULL,
-    PRIMARY KEY (season, week, player_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_pwf_player ON nfl_player_week_features(player_id, season, week);
-  CREATE INDEX IF NOT EXISTS idx_pwf_team ON nfl_player_week_features(team, season, week);
-`);
-
 /* ------------------------------------------------------------ CSV streaming */
 
 /**

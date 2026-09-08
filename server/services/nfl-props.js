@@ -29,39 +29,6 @@ import { nflEngineVersionFor } from './nfl-engine-registry.js';
 import { calibratedTotalProbability } from './nfl-total-calibration.js';
 import { shinNoVig } from './nfl-devig.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_total_picks (
-    season INTEGER NOT NULL, week INTEGER NOT NULL, rank INTEGER NOT NULL,
-    home_team TEXT, away_team TEXT, matchup TEXT,
-    side TEXT, line REAL, american_price INTEGER,
-    model_probability REAL, implied_probability REAL, probability_difference REAL,
-    model_total REAL, detail TEXT, units_staked REAL DEFAULT 1, selected_at TEXT NOT NULL,
-    PRIMARY KEY (season, week, rank)
-  );
-  CREATE TABLE IF NOT EXISTS nfl_prop_quote_snapshots (
-    captured_at TEXT NOT NULL, event_id TEXT NOT NULL, commence_time TEXT,
-    home_team TEXT, away_team TEXT, book TEXT NOT NULL, market TEXT NOT NULL,
-    player TEXT NOT NULL, side TEXT NOT NULL, line REAL, line_key TEXT NOT NULL,
-    american_price INTEGER NOT NULL,
-    PRIMARY KEY (captured_at,event_id,book,market,player,side,line_key)
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_prop_quotes_event
-    ON nfl_prop_quote_snapshots(event_id,market,captured_at);
-`);
-
-// Totals used to be staked at a flat 1 unit with no calibration gate at all
-// (unlike spread, blocked from staking until `calibratedCoverProbability`
-// proves an out-of-sample edge). A real walk-forward audit of the totals
-// model (nfl-total-calibration.js, 2010-2025, n=4317) found no lambda that
-// beats the no-vig market and no significant edge-predicts-outcome
-// relationship — the model has nothing over the market to stake. These
-// columns record that gate's verdict on every pick going forward instead of
-// silently staking 1 unit regardless.
-for (const [name, type] of [['calibration_eligible', 'INTEGER'], ['calibrated_probability', 'REAL']]) {
-  const cols = db.prepare('PRAGMA table_info(nfl_total_picks)').all().map(c => c.name);
-  if (!cols.includes(name)) db.exec(`ALTER TABLE nfl_total_picks ADD COLUMN ${name} ${type}`);
-}
-
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const accuracyCache = new Map();
 const replayCache = new Map();

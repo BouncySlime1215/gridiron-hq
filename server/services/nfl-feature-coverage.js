@@ -1,23 +1,12 @@
 /** Evidence-backed inventory of the variables that can exist at each weekly cutoff. */
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { WEEKLY_FEATURE_STORE_VERSION, weeklyFeatureStoreStatus } from './nfl-weekly-feature-store.js';
 
 export const FEATURE_COVERAGE_VERSION = 'nfl-feature-coverage-v1';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_feature_coverage_snapshots (
-    season INTEGER NOT NULL,week INTEGER NOT NULL,version TEXT NOT NULL,
-    evidence_hash TEXT NOT NULL,snapshot_json TEXT NOT NULL,created_at TEXT NOT NULL,
-    PRIMARY KEY(season,week,version)
-  );
-  CREATE TRIGGER IF NOT EXISTS nfl_feature_coverage_snapshots_no_update
-    BEFORE UPDATE ON nfl_feature_coverage_snapshots BEGIN
-      SELECT RAISE(ABORT, 'feature coverage snapshots are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_feature_coverage_snapshots_no_delete
-    BEFORE DELETE ON nfl_feature_coverage_snapshots BEGIN
-      SELECT RAISE(ABORT, 'feature coverage snapshots are immutable'); END;
-`);
+// nfl_feature_coverage_snapshots and its two immutability triggers come from
+// server/migrations/000_legacy_schema.js.
 
 const sha = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const tableExists = name => Boolean(rows(`SELECT 1 ok FROM sqlite_master WHERE type='table' AND name=?`, name)[0]);

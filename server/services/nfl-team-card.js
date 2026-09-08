@@ -7,7 +7,7 @@
  * models consume the same card or fail explicitly.
  */
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';
 import { teamRosterStrength } from './nfl-roster-strength.js';
 import { teamNewsSignals } from './nfl-news-signal.js';
@@ -18,27 +18,6 @@ import { buildTeamFeatureVector } from './nfl-weekly-feature-store.js';
 // remain immutable evidence of the earlier source snapshot; refreshed evidence
 // must receive a new identity instead of colliding with those rows.
 export const TEAM_CARD_VERSION = 'nfl-team-card-v2-reconciled-depth';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_team_cards (
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    team TEXT NOT NULL,
-    opponent TEXT NOT NULL,
-    horizon TEXT NOT NULL,
-    version TEXT NOT NULL,
-    cutoff TEXT NOT NULL,
-    evidence_hash TEXT NOT NULL,
-    card_json TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (season,week,team,horizon,version)
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_team_cards_cutoff ON nfl_team_cards(cutoff,season,week);
-  CREATE TRIGGER IF NOT EXISTS nfl_team_cards_no_update BEFORE UPDATE ON nfl_team_cards
-    BEGIN SELECT RAISE(ABORT, 'frozen team cards are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_team_cards_no_delete BEFORE DELETE ON nfl_team_cards
-    BEGIN SELECT RAISE(ABORT, 'frozen team cards are immutable'); END;
-`);
 
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 const parse = (value, fallback = {}) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };

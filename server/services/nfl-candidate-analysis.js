@@ -1,13 +1,11 @@
 /** Candidate-vs-champion robustness and decision attribution. */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { replaySeason, uncertainty } from './nfl-replay.js';
 import { applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
 import { deriveSignalReliability, SIGNAL_RELIABILITY_VERSION } from './nfl-signal-reliability.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_candidate_robustness_audits (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL,
-  seasons_json TEXT NOT NULL, created_at TEXT NOT NULL, result_json TEXT NOT NULL
-)`);
+// nfl_candidate_robustness_audits comes from
+// server/migrations/000_legacy_schema.js.
 
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 const keyFor = item => `${item.season}|${item.week}|${item.home}|${item.market}`;

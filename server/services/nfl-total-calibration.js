@@ -26,17 +26,8 @@
  * scale than the one `topTotals()` actually feeds it — a real train/serve
  * mismatch, not just a stylistic choice.)
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { nestedEvaluationRows } from './nfl-market.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_total_calibrations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  model_version TEXT NOT NULL, trained_from INTEGER NOT NULL, trained_through INTEGER NOT NULL,
-  created_at TEXT NOT NULL, sample_size INTEGER NOT NULL,
-  intercept REAL NOT NULL, edge_slope REAL NOT NULL,
-  metrics_json TEXT NOT NULL, reliability_json TEXT NOT NULL,
-  UNIQUE(model_version, trained_from, trained_through)
-)`);
 
 const VERSION = 'total-logit-v1';
 const r4 = v => v == null || !Number.isFinite(v) ? null : +v.toFixed(4);

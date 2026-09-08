@@ -1,5 +1,5 @@
 /** NFL market-residual research, ablations and promotion readiness. */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { accuracy, nestedEvaluationRows } from './nfl-market.js';
 import { FORWARD_SAMPLE_TARGETS } from './nfl-policy.js';
 import { trainingIteration, latestTrainingAudit } from './nfl-replay.js';
@@ -10,15 +10,6 @@ import { allPickResults } from './nfl-auto-picks.js';
 import { featureContracts, registry, recordGateAudit, gateAudits, evidenceManifests, updateRegistry } from './model-governance.js';
 import { nflIntelligence } from './model-intelligence.js';
 import { nflEvidenceCoverage } from './nfl-evidence.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_feature_ablation_audits (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
-  seasons_json TEXT NOT NULL, policy_json TEXT NOT NULL, results_json TEXT NOT NULL
-)`);
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_residual_audits (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
-  data_fingerprint TEXT NOT NULL, result_json TEXT NOT NULL
-)`);
 
 const FAMILIES = ['Rating systems', 'Efficiency', 'Context', 'Market'];
 const r3 = x => x == null || !Number.isFinite(x) ? null : +x.toFixed(3);

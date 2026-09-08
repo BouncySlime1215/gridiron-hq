@@ -1,41 +1,14 @@
 /** Resumable, chronological development backfill for the unified engine. */
-import { db, row, rows, run } from '../db/index.js';
+import { row, rows, run } from '../db/index.js';
 import { syncAll as syncNflverse } from './nflverse.js';
 import { syncPbpSeason } from './nfl-pbp.js';
 import { syncNgs, syncPfrAdv, syncSnaps, syncDepthCharts, syncInjuries } from './nfl-advanced.js';
 import { challengerSignalWeek, ensembleLine, fitEnsemble, invalidateEnsembleCaches } from './nfl-ensemble.js';
 import { nflEngineVersionFor, recordNflEngineArtifact } from './nfl-engine-registry.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_engine_backfill_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  started_at TEXT NOT NULL, finished_at TEXT,
-  start_season INTEGER NOT NULL, end_season INTEGER NOT NULL,
-  ingest_requested INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL, detail_json TEXT
-);
-CREATE TABLE IF NOT EXISTS nfl_engine_backfill_checkpoints (
-  run_id INTEGER NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL,
-  stage TEXT NOT NULL, status TEXT NOT NULL, completed_at TEXT, detail_json TEXT,
-  PRIMARY KEY(run_id,season,week,stage),
-  FOREIGN KEY(run_id) REFERENCES nfl_engine_backfill_runs(id)
-);
-CREATE TABLE IF NOT EXISTS nfl_historical_engine_replay (
-  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
-  engine_version TEXT NOT NULL, generated_at TEXT NOT NULL,
-  market_margin REAL, projected_margin REAL, projected_total REAL,
-  actual_margin REAL NOT NULL, actual_total REAL NOT NULL,
-  classification TEXT NOT NULL DEFAULT 'historical_development_replay',
-  PRIMARY KEY(season,week,home,engine_version)
-);
-CREATE TABLE IF NOT EXISTS nfl_historical_signal_replay (
-  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
-  signal_id TEXT NOT NULL, signal_version TEXT NOT NULL, generated_at TEXT NOT NULL,
-  market_margin REAL, projected_margin REAL, projected_total REAL,
-  actual_margin REAL NOT NULL, actual_total REAL NOT NULL,
-  classification TEXT NOT NULL DEFAULT 'historical_shadow_signal',
-  PRIMARY KEY(season,week,home,signal_id,signal_version)
-);
-`);
+// nfl_engine_backfill_runs, nfl_engine_backfill_checkpoints,
+// nfl_historical_engine_replay and nfl_historical_signal_replay come from
+// server/migrations/000_legacy_schema.js.
 
 const sourceTables = ['game_lines', 'nfl_team_week_features', 'nfl_player_week_features',
   'player_week_usage', 'nfl_snaps', 'nfl_ngs', 'nfl_pfr_adv', 'nfl_depth', 'nfl_injuries'];

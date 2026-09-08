@@ -26,46 +26,9 @@ import { recordSync } from './scheduler.js';
 const REL = 'https://github.com/nflverse/nflverse-data/releases/download';
 export const depthChartReleaseUrl = season => `${REL}/depth_charts/depth_charts_${season}.csv`;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_ngs (
-    season INTEGER, week INTEGER, player_id TEXT, kind TEXT,
-    player_name TEXT, team TEXT, position TEXT, stats TEXT,
-    PRIMARY KEY (season, week, player_id, kind)
-  );
-  CREATE TABLE IF NOT EXISTS nfl_pfr_adv (
-    season INTEGER, week INTEGER, player_name TEXT, kind TEXT,
-    team TEXT, opponent TEXT, stats TEXT,
-    PRIMARY KEY (season, week, player_name, kind)
-  );
-  CREATE TABLE IF NOT EXISTS nfl_snaps (
-    season INTEGER, week INTEGER, player TEXT, team TEXT, position TEXT,
-    offense_snaps INTEGER, offense_pct REAL,
-    defense_snaps INTEGER, defense_pct REAL, st_pct REAL,
-    PRIMARY KEY (season, week, player, team)
-  );
-  CREATE INDEX IF NOT EXISTS idx_snaps_team ON nfl_snaps(season, week, team);
-  CREATE TABLE IF NOT EXISTS nfl_depth (
-    season INTEGER, week INTEGER, team TEXT, gsis_id TEXT, player_name TEXT,
-    pos_abb TEXT, pos_rank INTEGER, pos_slot TEXT, captured TEXT,
-    PRIMARY KEY (season, week, team, gsis_id, pos_abb)
-  );
-  CREATE INDEX IF NOT EXISTS idx_depth_player ON nfl_depth(gsis_id, season, week);
-  CREATE TABLE IF NOT EXISTS nfl_injuries (
-    season INTEGER, week INTEGER, gsis_id TEXT, team TEXT, full_name TEXT,
-    position TEXT, report_status TEXT, practice_status TEXT, injury TEXT,
-    modified_at TEXT,
-    PRIMARY KEY (season, week, gsis_id)
-  );
-`);
-
-// Older databases captured only offensive participation. nflverse publishes
-// both sides of the ball; without these columns a CB1 and a reserve corner both
-// fell back to the same guessed 15% role in the injury model.
-const snapColumns = new Set(db.prepare('PRAGMA table_info(nfl_snaps)').all().map(x => x.name));
-if (!snapColumns.has('defense_snaps')) db.exec('ALTER TABLE nfl_snaps ADD COLUMN defense_snaps INTEGER');
-if (!snapColumns.has('defense_pct')) db.exec('ALTER TABLE nfl_snaps ADD COLUMN defense_pct REAL');
-const injuryColumns = new Set(db.prepare('PRAGMA table_info(nfl_injuries)').all().map(x => x.name));
-if (!injuryColumns.has('modified_at')) db.exec('ALTER TABLE nfl_injuries ADD COLUMN modified_at TEXT');
+// nfl_ngs, nfl_pfr_adv, nfl_snaps, nfl_depth and nfl_injuries (and their
+// indexes and the defense-participation columns) now come from
+// server/migrations/000_legacy_schema.js, applied before this module imports.
 
 /* ------------------------------------------------------------ csv plumbing */
 

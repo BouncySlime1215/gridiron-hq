@@ -7,23 +7,14 @@
  * opened during development. The UI can therefore say "development replay"
  * instead of implying that repeatedly inspected seasons remain untouched.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { hasKey } from './odds-api.js';
 import { FORWARD_SAMPLE_TARGETS } from './nfl-policy.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_source_registry (
-    source_id TEXT PRIMARY KEY, label TEXT NOT NULL, evidence_kind TEXT NOT NULL,
-    available_from TEXT, live_cadence TEXT, cutoff_rule TEXT NOT NULL,
-    missing_behavior TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS nfl_validation_windows (
-    window_id TEXT PRIMARY KEY, seasons TEXT NOT NULL, state TEXT NOT NULL,
-    purpose TEXT NOT NULL, opened_at TEXT, reason TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-`);
+// nfl_source_registry and nfl_validation_windows come from
+// server/migrations/000_legacy_schema.js. The reconciliation of their contents
+// below still runs here: it is data, and it is meant to re-converge whenever
+// the lists change.
 
 const SOURCES = [
   ['odds-live', 'Sportsbook snapshots', 'market', '2020-06-06', '5–10 minutes',

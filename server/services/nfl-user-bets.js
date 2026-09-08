@@ -4,18 +4,7 @@
  * rules as the auto-pick engine, kept in a separate table so a user's own
  * action never contaminates the model's own graded track record.
  */
-import { db, rows, run } from '../db/index.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_user_bets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    season INTEGER NOT NULL, week INTEGER NOT NULL,
-    matchup TEXT NOT NULL, market TEXT NOT NULL,
-    selection TEXT NOT NULL, side TEXT, line REAL, american_price INTEGER,
-    model_probability REAL, implied_probability REAL, edge REAL,
-    units_staked REAL DEFAULT 1, note TEXT, placed_at TEXT NOT NULL
-  );
-`);
+import { rows, run } from '../db/index.js';
 
 export function addUserBet(season, week, bet) {
   if (bet.market !== 'spread') throw new Error('Only spread grading is supported today.');

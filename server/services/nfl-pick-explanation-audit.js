@@ -1,25 +1,6 @@
 /** Immutable provenance for post-pick AI translations. */
 import { createHash } from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_pick_explanation_audits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    matchup TEXT,
-    market TEXT NOT NULL,
-    selection TEXT,
-    reasoning_hash TEXT NOT NULL,
-    reasoning_json TEXT NOT NULL,
-    translation_json TEXT NOT NULL,
-    model TEXT NOT NULL,
-    authority TEXT NOT NULL DEFAULT 'wording_only'
-  );
-  CREATE INDEX IF NOT EXISTS idx_pick_explanation_lookup
-    ON nfl_pick_explanation_audits(season,week,matchup,market,selection,created_at);
-`);
+import { rows, run } from '../db/index.js';
 
 export const explanationReasoningHash = reasoning => createHash('sha256')
   .update(JSON.stringify(reasoning)).digest('hex');

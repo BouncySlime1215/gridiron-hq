@@ -37,27 +37,6 @@ import { db, rows } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
 import { ridgeFit } from './nfl-specialists.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_rookie_evidence (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    season INTEGER NOT NULL,
-    player_id INTEGER,
-    player_name TEXT NOT NULL,
-    position TEXT NOT NULL,
-    college TEXT,
-    evidence_type TEXT NOT NULL,
-    values_json TEXT NOT NULL,
-    available_at TEXT NOT NULL,
-    captured_at TEXT NOT NULL,
-    source TEXT NOT NULL,
-    source_ref TEXT NOT NULL,
-    verification_state TEXT NOT NULL,
-    UNIQUE(season,player_name,evidence_type,source_ref)
-  );
-  CREATE INDEX IF NOT EXISTS idx_rookie_evidence_cutoff
-    ON nfl_rookie_evidence(season,available_at,player_id);
-`);
-
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 

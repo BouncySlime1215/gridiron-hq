@@ -12,7 +12,7 @@
  * target builder and its own forward promotion gate.
  */
 import crypto from 'node:crypto';
-import { db, row, rows, run } from '../db/index.js';
+import { row, rows, run } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { activeLearningEpoch, nflEngineVersionFor } from './nfl-engine-registry.js';
@@ -38,42 +38,6 @@ const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toF
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const parse = (value, fallback = null) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_online_neural_examples (
-    season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
-    head TEXT NOT NULL, horizon TEXT NOT NULL, captured_at TEXT NOT NULL, kickoff_at TEXT,
-    schema_version TEXT NOT NULL, model_version TEXT NOT NULL, feature_hash TEXT NOT NULL,
-    engine_version TEXT, epoch_id INTEGER NOT NULL DEFAULT 1,
-    features_json TEXT NOT NULL, market_margin REAL NOT NULL, market_total REAL,
-    prediction_residual REAL NOT NULL, predicted_margin REAL NOT NULL,
-    actual_margin REAL, target_residual REAL, settled_at TEXT, trained_at TEXT,
-    selected_for_training INTEGER,
-    PRIMARY KEY (season,week,home,head,horizon)
-  );
-  CREATE INDEX IF NOT EXISTS idx_online_neural_training
-    ON nfl_online_neural_examples(head,trained_at,season,week);
-  CREATE TABLE IF NOT EXISTS nfl_online_neural_artifacts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, head TEXT NOT NULL, version TEXT NOT NULL UNIQUE,
-    parent_version TEXT, schema_version TEXT NOT NULL, created_at TEXT NOT NULL,
-    epoch_id INTEGER NOT NULL DEFAULT 1,
-    trained_through_season INTEGER, trained_through_week INTEGER,
-    state_json TEXT NOT NULL, state_hash TEXT NOT NULL, metrics_json TEXT,
-    UNIQUE(head,trained_through_season,trained_through_week)
-  );
-`);
-
-const neuralExampleColumns = new Set(db.prepare('PRAGMA table_info(nfl_online_neural_examples)').all().map(item => item.name));
-if (!neuralExampleColumns.has('engine_version')) {
-  db.exec('ALTER TABLE nfl_online_neural_examples ADD COLUMN engine_version TEXT');
-}
-if (!neuralExampleColumns.has('epoch_id')) {
-  db.exec('ALTER TABLE nfl_online_neural_examples ADD COLUMN epoch_id INTEGER NOT NULL DEFAULT 1');
-}
-const neuralArtifactColumns = new Set(db.prepare('PRAGMA table_info(nfl_online_neural_artifacts)').all().map(item => item.name));
-if (!neuralArtifactColumns.has('epoch_id')) {
-  db.exec('ALTER TABLE nfl_online_neural_artifacts ADD COLUMN epoch_id INTEGER NOT NULL DEFAULT 1');
-}
 
 function seeded(seed = 0x51f15e) {
   let state = seed >>> 0;

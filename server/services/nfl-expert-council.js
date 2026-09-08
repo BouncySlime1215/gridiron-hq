@@ -9,7 +9,7 @@
 import { MATCHUP_ROLES, EXTERNAL_LINE_ROLES, matchupOpinion } from './nfl-matchup-specialists.js';
 import { teamEventVector } from './nfl-event-archive.js';
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { buildGbmDataset, fitGbm, predictGbm } from './nfl-gbm.js';
 import { createNetwork, predictNetwork, spreadFeatureVector, trainBatch } from './nfl-online-neural.js';
@@ -52,66 +52,10 @@ export const NFL_EXPERTS = Object.freeze([
   { id: 'teamrankings_line', name: 'TeamRankings predictive line', kind: 'external_model', lifecycle: 'pregame', score: 'market_residual' }
 ]);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_weekly_expert_examples (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    audit_run_id INTEGER NOT NULL,
-    season INTEGER NOT NULL,
-    week INTEGER NOT NULL,
-    home TEXT NOT NULL,
-    away TEXT NOT NULL,
-    expert_id TEXT NOT NULL,
-    council_version TEXT NOT NULL,
-    engine_version TEXT,
-    evidence_hash TEXT NOT NULL,
-    evidence_cutoff TEXT NOT NULL,
-    observed INTEGER NOT NULL,
-    forecast_residual REAL,
-    uncertainty REAL,
-    actual_residual REAL,
-    directional_correct INTEGER,
-    squared_error REAL,
-    authority TEXT NOT NULL,
-    missing_reason TEXT,
-    payload_json TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE(audit_run_id,season,week,home,expert_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_weekly_expert_cutoff
-    ON nfl_weekly_expert_examples(season,week,expert_id);
-  CREATE TRIGGER IF NOT EXISTS nfl_weekly_expert_examples_no_update
-    BEFORE UPDATE ON nfl_weekly_expert_examples BEGIN
-      SELECT RAISE(ABORT, 'weekly expert examples are immutable');
-    END;
-  CREATE TRIGGER IF NOT EXISTS nfl_weekly_expert_examples_no_delete
-    BEFORE DELETE ON nfl_weekly_expert_examples BEGIN
-      SELECT RAISE(ABORT, 'weekly expert examples are immutable');
-    END;
-  CREATE TABLE IF NOT EXISTS nfl_expert_forward_predictions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
-    expert_id TEXT NOT NULL, horizon TEXT NOT NULL, council_version TEXT NOT NULL,
-    engine_version TEXT, evidence_hash TEXT NOT NULL, evidence_cutoff TEXT NOT NULL,
-    captured_at TEXT NOT NULL, market_margin REAL NOT NULL, observed INTEGER NOT NULL,
-    forecast_residual REAL, uncertainty REAL, authority TEXT NOT NULL, missing_reason TEXT,
-    payload_json TEXT NOT NULL,
-    UNIQUE(season,week,home,expert_id,horizon)
-  );
-  CREATE TABLE IF NOT EXISTS nfl_expert_forward_settlements (
-    prediction_id INTEGER PRIMARY KEY,
-    settled_at TEXT NOT NULL, actual_margin REAL NOT NULL, actual_residual REAL NOT NULL,
-    directional_correct INTEGER, squared_error REAL,
-    FOREIGN KEY(prediction_id) REFERENCES nfl_expert_forward_predictions(id) ON DELETE RESTRICT
-  );
-  CREATE TRIGGER IF NOT EXISTS nfl_expert_forward_predictions_no_update BEFORE UPDATE ON nfl_expert_forward_predictions
-    BEGIN SELECT RAISE(ABORT, 'forward expert predictions are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_expert_forward_predictions_no_delete BEFORE DELETE ON nfl_expert_forward_predictions
-    BEGIN SELECT RAISE(ABORT, 'forward expert predictions are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_expert_forward_settlements_no_update BEFORE UPDATE ON nfl_expert_forward_settlements
-    BEGIN SELECT RAISE(ABORT, 'forward expert settlements are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_expert_forward_settlements_no_delete BEFORE DELETE ON nfl_expert_forward_settlements
-    BEGIN SELECT RAISE(ABORT, 'forward expert settlements are immutable'); END;
-`);
+// nfl_weekly_expert_examples, nfl_expert_forward_predictions and
+// nfl_expert_forward_settlements — with the cutoff index and the six triggers
+// that make all three immutable — come from
+// server/migrations/000_legacy_schema.js.
 
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 const mean = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;

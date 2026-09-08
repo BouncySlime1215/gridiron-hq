@@ -1,16 +1,7 @@
 /** Immutable pregame context snapshots for 2026 forward-shadow evaluation. */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { captureEvidenceManifest, validateEvidenceCutoff } from './model-governance.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_pregame_snapshot_history (
-  season INTEGER NOT NULL, week INTEGER NOT NULL, team TEXT NOT NULL,
-  captured_at TEXT NOT NULL, data_cutoff TEXT NOT NULL,
-  quarterback_json TEXT NOT NULL, roster_json TEXT NOT NULL,
-  injuries_json TEXT NOT NULL, coaching_json TEXT NOT NULL,
-  feature_coverage_json TEXT NOT NULL,
-  PRIMARY KEY (season, week, team, captured_at)
-)`);
 
 const parse = value => { try { return JSON.parse(value); } catch { return null; } };
 

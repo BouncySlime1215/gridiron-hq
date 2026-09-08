@@ -38,46 +38,9 @@ const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 
-run(`CREATE TABLE IF NOT EXISTS nfl_play_by_play (
-  event_id     TEXT NOT NULL,
-  play_id      TEXT NOT NULL,
-  season       INTEGER,
-  week         INTEGER,
-  sequence     INTEGER,
-  period       INTEGER,
-  clock_seconds INTEGER,
-  offense      TEXT,
-  defense      TEXT,
-  down         INTEGER,
-  distance     INTEGER,
-  yards_to_endzone INTEGER,
-  play_type    TEXT,
-  yards_gained INTEGER,
-  is_turnover  INTEGER,
-  is_scoring   INTEGER,
-  is_penalty   INTEGER,
-  home_score   INTEGER,
-  away_score   INTEGER,
-  shotgun      INTEGER,
-  no_huddle    INTEGER,
-  pass_depth   TEXT,
-  pass_direction TEXT,
-  text         TEXT,
-  fetched_at   TEXT,
-  PRIMARY KEY (event_id, play_id)
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_pbp_season_week ON nfl_play_by_play(season, week)`);
-
-// The formation columns were added after the table shipped, and CREATE TABLE IF
-// NOT EXISTS silently does nothing on an existing table — so an install that
-// ingested even one play before this change would keep a schema without them and
-// fail every insert. Adding them idempotently is the fix; SQLite has no
-// ADD COLUMN IF NOT EXISTS, so a duplicate-column error is the expected no-op.
-for (const col of ['shotgun INTEGER', 'no_huddle INTEGER', 'pass_depth TEXT',
-  'pass_direction TEXT']) {
-  try { run(`ALTER TABLE nfl_play_by_play ADD COLUMN ${col}`); }
-  catch { /* already present */ }
-}
+// nfl_play_by_play, idx_pbp_season_week and the formation columns
+// (shotgun, no_huddle, pass_depth, pass_direction) that were added after the
+// table shipped all come from server/migrations/000_legacy_schema.js.
 
 /* ------------------------------------------------------------- normalising */
 

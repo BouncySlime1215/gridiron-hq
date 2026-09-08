@@ -30,33 +30,8 @@ import { db, rows, row, run } from '../db/index.js';
 const BASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
-run(`CREATE TABLE IF NOT EXISTS nfl_play_formations (
-  game_id      TEXT NOT NULL,
-  play_id      INTEGER NOT NULL,
-  season       INTEGER,
-  possession   TEXT,
-  offense_formation TEXT,
-  offense_personnel TEXT,
-  defense_personnel TEXT,
-  defenders_in_box  INTEGER,
-  pass_rushers      INTEGER,
-  PRIMARY KEY (game_id, play_id)
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_form_season ON nfl_play_formations(season, offense_formation)`);
-
-run(`CREATE TABLE IF NOT EXISTS nfl_play_charting (
-  game_id      TEXT NOT NULL,
-  play_id      INTEGER NOT NULL,
-  season       INTEGER, week INTEGER,
-  qb_location  TEXT,
-  backfield    INTEGER,
-  defense_box  INTEGER,
-  no_huddle    INTEGER, motion INTEGER, play_action INTEGER,
-  screen       INTEGER, rpo INTEGER, trick INTEGER,
-  out_of_pocket INTEGER, throw_away INTEGER, contested INTEGER,
-  PRIMARY KEY (game_id, play_id)
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_chart_season ON nfl_play_charting(season)`);
+// nfl_play_formations, nfl_play_charting and their season indexes come from
+// server/migrations/000_legacy_schema.js.
 
 /** Split a CSV line, honouring quoted fields — personnel strings contain commas. */
 function splitCsv(line) {

@@ -6,7 +6,7 @@
  * venues; every 2022+ home is covered). Neutral-site and indoor games are
  * skipped, never guessed.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';
 
 export const NFL_WEATHER_VERSION = 'nfl-weather-open-meteo-v1';
@@ -25,13 +25,6 @@ export const STADIUMS = Object.freeze({
   PIT: { lat: 40.4468, lon: -80.0158 }, SF: { lat: 37.4032, lon: -121.9698 }, SEA: { lat: 47.5952, lon: -122.3316 },
   TB: { lat: 27.9759, lon: -82.5033 }, TEN: { lat: 36.1665, lon: -86.7713 }, WAS: { lat: 38.9076, lon: -76.8645 }
 });
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_game_weather (
-  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL,
-  kickoff TEXT NOT NULL, temp_c REAL, wind_kmh REAL, gust_kmh REAL, precip_mm REAL,
-  source TEXT NOT NULL, fetched_at TEXT NOT NULL,
-  PRIMARY KEY (season, week, home)
-)`);
 
 function outdoorGames(seasons) {
   return rows(`SELECT season,week,team home,gameday,gametime,roof,neutral_site FROM game_lines

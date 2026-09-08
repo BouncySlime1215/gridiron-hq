@@ -30,11 +30,7 @@ import { db, rows, run } from '../db/index.js';
 
 const NFLDATA_GAMES = 'https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_team_coaches (
-  season INTEGER NOT NULL, team TEXT NOT NULL, coach TEXT NOT NULL,
-  games INTEGER NOT NULL, fetched_at TEXT NOT NULL,
-  PRIMARY KEY (season, team)
-)`);
+// nfl_team_coaches comes from server/migrations/000_legacy_schema.js.
 
 /** Minimal CSV split that tolerates quoted fields containing commas. */
 function splitCsvLine(line) {

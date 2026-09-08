@@ -7,7 +7,7 @@
  * the market. Production weights and staking authority remain untouched.
  */
 import crypto from 'node:crypto';
-import { db, row, rows, run } from '../db/index.js';
+import { row, rows, run } from '../db/index.js';
 
 export const SIGNAL_RELIABILITY_VERSION = 'nfl-signal-reliability-v1-shrink-only';
 const MIN_EXAMPLES = 32;
@@ -16,19 +16,6 @@ const RECENT_WEEKS = 6;
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 const parse = (value, fallback = null) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_signal_reliability_artifacts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  version TEXT NOT NULL UNIQUE,
-  target_season INTEGER NOT NULL,
-  target_week INTEGER NOT NULL,
-  trained_through_season INTEGER NOT NULL,
-  trained_through_week INTEGER NOT NULL,
-  created_at TEXT NOT NULL,
-  examples_hash TEXT NOT NULL,
-  result_json TEXT NOT NULL,
-  UNIQUE(target_season,target_week)
-)`);
 
 function wilsonUpper(wins, total, z = 1.645) {
   if (!total) return null;

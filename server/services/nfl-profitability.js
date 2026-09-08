@@ -1,5 +1,5 @@
 /** Operational controls for the evidence-gated NFL profitability plan. */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { propClvStatus, propDecisionPolicyHash, PROP_DECISION_POLICY,
   propEdgeEvidence, propHorizonCoverage, propMarketScorecards,
   propMatchCoverage, propSettlementHealth } from './nfl-prop-clv.js';
@@ -12,22 +12,6 @@ import { nflOnlineNeuralStatus } from './nfl-online-neural.js';
 import { nflRiskLabStatus } from './nfl-risk-lab.js';
 import { weeklyLearningStatus } from './weekly-learning.js';
 import { nflEngineStatus } from './nfl-engine-registry.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_teaser_price_ledger (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    captured_at TEXT NOT NULL,
-    book TEXT NOT NULL,
-    teaser_points REAL NOT NULL,
-    legs INTEGER NOT NULL,
-    american_price INTEGER NOT NULL,
-    different_games_required INTEGER NOT NULL DEFAULT 1,
-    push_rule TEXT,
-    reachable INTEGER NOT NULL DEFAULT 0,
-    notes TEXT,
-    UNIQUE(captured_at,book,teaser_points,legs)
-  );
-`);
 
 export const EXTERNAL_MODEL_SOURCES = Object.freeze([
   {

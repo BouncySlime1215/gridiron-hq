@@ -27,21 +27,8 @@
  * becomes a real feature goes through the same discovery -> validation gate
  * as everything else once enough observations exist.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from './claude.js';
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_tweet_line_watch (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  news_id INTEGER NOT NULL, team TEXT NOT NULL, event_id TEXT NOT NULL,
-  market TEXT NOT NULL, side TEXT NOT NULL,
-  baseline_line REAL, baseline_captured_at TEXT NOT NULL,
-  tweet_text TEXT, tweet_published_at TEXT NOT NULL,
-  resolved INTEGER NOT NULL DEFAULT 0,
-  resolved_line REAL, resolved_captured_at TEXT,
-  moved_points REAL, ai_explanation TEXT, ai_confidence REAL,
-  created_at TEXT NOT NULL,
-  UNIQUE(news_id, event_id, market, side)
-)`);
 
 /** Noise floor: a spread needs to move at least this much to count as a real move, not vig wobble. */
 const NOISE_FLOOR = { spreads: 0.5, totals: 0.5 };

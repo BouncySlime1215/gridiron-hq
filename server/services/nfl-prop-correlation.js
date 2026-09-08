@@ -25,30 +25,10 @@
  * CLV against real SGP prices, exactly like every other candidate signal.
  */
 import { createHash } from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { cholesky, correlatedNormals, normalCdf, probit, withRandomSeed } from './stats-util.js';
 
 export const SGP_MODEL_VERSION = 'prop-sgp-copula-v1';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS prop_correlation_estimates (
-    key TEXT PRIMARY KEY,          -- 'passing_yards|QB|receiving_yards|WR|team'
-    stat_a TEXT, position_a TEXT, stat_b TEXT, position_b TEXT, relation TEXT,
-    correlation REAL, pairs INTEGER, fitted_at TEXT
-  );
-`);
-
-function ensureSgpQuoteTable() {
-  db.exec(`CREATE TABLE IF NOT EXISTS nfl_sgp_quotes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,captured_at TEXT NOT NULL,event_key TEXT NOT NULL,
-    book TEXT NOT NULL,stage TEXT NOT NULL,legs_hash TEXT NOT NULL,legs_json TEXT NOT NULL,
-    offered_odds INTEGER NOT NULL,correlated_probability REAL NOT NULL,fair_odds INTEGER,
-    expected_value REAL NOT NULL,model_version TEXT NOT NULL,
-    UNIQUE(event_key,book,stage,legs_hash,captured_at)
-  );
-  CREATE INDEX IF NOT EXISTS idx_sgp_quotes_route
-    ON nfl_sgp_quotes(event_key,book,legs_hash,captured_at);`);
-}
 
 /** Prop market → the column in player_week_usage it settles against. */
 export const MARKET_STAT = {
@@ -353,7 +333,6 @@ const legsHash = legs => createHash('sha256').update(JSON.stringify((legs ?? [])
 })))).digest('hex');
 
 export function recordSgpQuote({ event_key, book, stage = 'candidate', legs, offered_odds } = {}) {
-  ensureSgpQuoteTable();
   const eventKey = String(event_key ?? '').trim(), bookKey = String(book ?? '').trim().toLowerCase();
   const offered = Number(offered_odds);
   if (!eventKey || !bookKey || !['candidate', 'close'].includes(stage) || !Number.isInteger(offered) || offered === 0) {
@@ -372,7 +351,6 @@ export function recordSgpQuote({ event_key, book, stage = 'candidate', legs, off
 }
 
 export function sgpQuoteEvidence() {
-  ensureSgpQuoteTable();
   const quotes = rows(`SELECT * FROM nfl_sgp_quotes ORDER BY captured_at,id`);
   const candidates = quotes.filter(q => q.stage === 'candidate');
   const paired = [];

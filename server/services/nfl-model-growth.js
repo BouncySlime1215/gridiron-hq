@@ -12,7 +12,7 @@
  * feature warehouse has not absorbed yet. No result means no fake retrain.
  */
 import crypto from 'node:crypto';
-import { db, row, rows, run } from '../db/index.js';
+import { row, rows, run } from '../db/index.js';
 import { syncAll as syncNflverse } from './nflverse.js';
 import { syncPbpSeason } from './nfl-pbp.js';
 import { syncNgs, syncPfrAdv, syncSnaps, syncDepthCharts, syncInjuries,
@@ -39,17 +39,7 @@ import { simulationCalibrationFor } from './nfl-sim-calibration.js';
 import { fitOrthogonalSpecialists } from './nfl-orthogonal-specialists.js';
 import { freezeFeatureCoverageSnapshot } from './nfl-feature-coverage.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_growth_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  started_at TEXT NOT NULL,
-  finished_at TEXT,
-  season INTEGER NOT NULL,
-  finalized_week INTEGER,
-  status TEXT NOT NULL,
-  before_hash TEXT NOT NULL,
-  after_hash TEXT,
-  detail_json TEXT
-)`);
+// nfl_model_growth_runs comes from server/migrations/000_legacy_schema.js.
 
 const scalar = (sql, ...args) => Number(row(sql, ...args)?.value ?? 0);
 const through = (table, season) => scalar(

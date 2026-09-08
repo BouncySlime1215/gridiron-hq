@@ -1,49 +1,15 @@
 /** Possession-by-possession immutable live prediction ledger. */
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { simulateRemainder } from './nfl-drive-sim.js';
 import { matchupTeamCards } from './nfl-team-card.js';
 
 export const LIVE_LEDGER_VERSION = 'nfl-live-possession-ledger-v1';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_live_possession_predictions (
-    prediction_id TEXT PRIMARY KEY,
-    event_id TEXT NOT NULL,season INTEGER NOT NULL,week INTEGER NOT NULL,
-    home_team TEXT NOT NULL,away_team TEXT NOT NULL,sequence INTEGER NOT NULL,
-    possession_index INTEGER NOT NULL,classification TEXT NOT NULL,
-    state_hash TEXT NOT NULL,team_card_hash TEXT NOT NULL,model_version TEXT NOT NULL,
-    simulator_version TEXT,simulator_calibration_hash TEXT,
-    state_json TEXT NOT NULL,prediction_json TEXT NOT NULL,evidence_json TEXT NOT NULL,
-    source_observed_at TEXT,captured_at TEXT NOT NULL,
-    UNIQUE(event_id,sequence,classification,model_version)
-  );
-  CREATE TABLE IF NOT EXISTS nfl_live_possession_settlements (
-    prediction_id TEXT PRIMARY KEY,settled_at TEXT NOT NULL,home_won REAL NOT NULL,
-    home_probability REAL NOT NULL,brier REAL NOT NULL,log_loss REAL NOT NULL,
-    final_home_score INTEGER NOT NULL,final_away_score INTEGER NOT NULL,
-    settlement_json TEXT NOT NULL,
-    FOREIGN KEY(prediction_id) REFERENCES nfl_live_possession_predictions(prediction_id) ON DELETE RESTRICT
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_live_ledger_event ON nfl_live_possession_predictions(event_id,sequence);
-  CREATE TRIGGER IF NOT EXISTS nfl_live_predictions_no_update BEFORE UPDATE ON nfl_live_possession_predictions
-    BEGIN SELECT RAISE(ABORT, 'live possession predictions are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_live_predictions_no_delete BEFORE DELETE ON nfl_live_possession_predictions
-    BEGIN SELECT RAISE(ABORT, 'live possession predictions are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_live_settlements_no_update BEFORE UPDATE ON nfl_live_possession_settlements
-    BEGIN SELECT RAISE(ABORT, 'live possession settlements are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_live_settlements_no_delete BEFORE DELETE ON nfl_live_possession_settlements
-    BEGIN SELECT RAISE(ABORT, 'live possession settlements are immutable'); END;
-`);
-
-const predictionColumns = db.prepare('PRAGMA table_info(nfl_live_possession_predictions)').all()
-  .map(column => column.name);
-if (!predictionColumns.includes('simulator_version')) {
-  db.exec('ALTER TABLE nfl_live_possession_predictions ADD COLUMN simulator_version TEXT');
-}
-if (!predictionColumns.includes('simulator_calibration_hash')) {
-  db.exec('ALTER TABLE nfl_live_possession_predictions ADD COLUMN simulator_calibration_hash TEXT');
-}
+// nfl_live_possession_predictions and nfl_live_possession_settlements, their
+// event index, their four immutability triggers and the simulator_version /
+// simulator_calibration_hash columns all come from
+// server/migrations/000_legacy_schema.js.
 
 const canonical = value => {
   if (Array.isArray(value)) return value.map(canonical);

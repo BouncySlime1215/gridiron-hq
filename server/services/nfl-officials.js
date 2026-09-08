@@ -18,7 +18,7 @@
  * because "referee X goes over 60% of the time" on thirty games is exactly the
  * shape of a finding that evaporates.
  */
-import { rows, row, run, db } from '../db/index.js';
+import { rows, row, run } from '../db/index.js';
 import { parseCsv } from './nflverse.js';
 
 const BASE = 'https://github.com/nflverse/nflverse-data/releases/download';
@@ -26,27 +26,6 @@ const GAMES_URL = 'https://github.com/nflverse/nfldata/raw/master/data/games.csv
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const mean = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
-
-run(`CREATE TABLE IF NOT EXISTS nfl_officials (
-  game_id     TEXT NOT NULL,
-  official_id TEXT,
-  name        TEXT NOT NULL,
-  position    TEXT,
-  season      INTEGER,
-  week        INTEGER,
-  season_type TEXT,
-  PRIMARY KEY (game_id, name, position)
-)`);
-run(`CREATE INDEX IF NOT EXISTS idx_off_season ON nfl_officials(season, week)`);
-// The officials feed's `game_id` is the NFL's legacy numeric gamecenter id
-// (e.g. "2015091000"), not a team-readable key, and carries no team columns of
-// its own. Denormalizing home/away onto each row — resolved once at ingest
-// from nflverse's own game_id crosswalk — is what lets a later query join
-// exactly to one game instead of to every game in that referee's week.
-for (const [col, type] of [['home_team', 'TEXT'], ['away_team', 'TEXT']]) {
-  const cols = db.prepare(`PRAGMA table_info(nfl_officials)`).all().map(c => c.name);
-  if (!cols.includes(col)) db.exec(`ALTER TABLE nfl_officials ADD COLUMN ${col} ${type}`);
-}
 
 function splitCsv(line) {
   const out = []; let cur = '', quoted = false;

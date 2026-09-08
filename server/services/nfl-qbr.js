@@ -13,14 +13,6 @@ import { canonicalTeamCode } from './team-codes.js';
 export const NFL_QBR_VERSION = 'nfl-qbr-weekly-v1';
 const URL = 'https://github.com/nflverse/nflverse-data/releases/download/espn_data/qbr_week_level.csv';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_qbr_weekly (
-  season INTEGER NOT NULL, week INTEGER NOT NULL, team TEXT NOT NULL,
-  player_id TEXT NOT NULL, name TEXT, opponent TEXT,
-  qbr_total REAL, pts_added REAL, qb_plays INTEGER, epa_total REAL, qbr_raw REAL, sack REAL, qualified INTEGER,
-  fetched_at TEXT NOT NULL,
-  PRIMARY KEY (season, week, team, player_id)
-)`);
-
 const num = v => { if (v === '' || v == null || v === 'NA') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 
 export async function syncQbr({ seasons = null } = {}) {

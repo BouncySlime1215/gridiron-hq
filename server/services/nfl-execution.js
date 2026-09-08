@@ -26,24 +26,7 @@ import { lineMoveValue } from './nfl-execution-edge.js';
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
-run(`CREATE TABLE IF NOT EXISTS nfl_execution_log (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  routed_at    TEXT NOT NULL,
-  event_id     TEXT,
-  matchup      TEXT,
-  market       TEXT NOT NULL,
-  side         TEXT NOT NULL,
-  stake_units  REAL NOT NULL,
-  chosen_book  TEXT NOT NULL,
-  chosen_line  REAL,
-  chosen_price INTEGER,
-  median_price INTEGER,
-  worst_price  INTEGER,
-  books_compared INTEGER,
-  saved_vs_median_pct REAL,
-  saved_vs_worst_pct  REAL,
-  note         TEXT
-)`);
+// nfl_execution_log comes from server/migrations/000_legacy_schema.js.
 
 /** American odds to implied probability, vig included. */
 export const impliedProbability = odds => {

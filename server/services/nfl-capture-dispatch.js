@@ -3,25 +3,20 @@
  * Triggers are durable: a closed laptop or exhausted quota defers work instead
  * of silently losing the news/movement event that made a capture valuable.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { hasKey, usage } from './odds-api.js';
 
-function ensureCaptureTriggerTable() {
-  db.exec(`CREATE TABLE IF NOT EXISTS nfl_capture_triggers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,created_at TEXT NOT NULL,source TEXT NOT NULL,
-    source_ref TEXT NOT NULL,event_id TEXT NOT NULL,team TEXT,reason TEXT NOT NULL,
-    priority REAL NOT NULL DEFAULT 0,state TEXT NOT NULL DEFAULT 'pending',attempted_at TEXT,
-    snapshot_at TEXT,outcome_json TEXT,UNIQUE(source,source_ref,event_id));
-    CREATE INDEX IF NOT EXISTS idx_capture_triggers_state
-      ON nfl_capture_triggers(state,priority DESC,created_at);`);
-}
+// nfl_capture_triggers and idx_capture_triggers_state are created by
+// server/migrations/014_profit_execution_triggers.js, which owns the CHECK
+// constraints on `source` and `state`. This module used to carry a lazily
+// called, constraint-free copy of that definition; it never won, and the table
+// now always exists before any of these functions can run.
 
 const RESERVE = 50;
 const COOLDOWN_MINUTES = 15;
 const now = () => new Date().toISOString();
 
 export function enqueueEspnMoveTriggers(detected = [], observedAt = now()) {
-  ensureCaptureTriggerTable();
   let queued = 0;
   for (const move of detected) {
     const priority = Math.max(Math.abs(Number(move.move_value) || 0), Math.abs(Number(move.spread_delta) || 0) / 100);
@@ -38,7 +33,6 @@ export function enqueueEspnMoveTriggers(detected = [], observedAt = now()) {
 
 /** Queue newly typed, material claims against the latest ESPN-tracked event. */
 export function enqueueRecentNewsTriggers({ minutes = 120 } = {}) {
-  ensureCaptureTriggerTable();
   const signals = rows(`SELECT news_id,team,signal_type,status,confidence,published_at
     FROM nfl_news_signals
     WHERE verification_state='verified' AND created_at>=datetime('now',?) AND team IS NOT NULL
@@ -62,7 +56,6 @@ export function enqueueRecentNewsTriggers({ minutes = 120 } = {}) {
 }
 
 export async function dispatchTriggeredCapture() {
-  ensureCaptureTriggerTable();
   const pending = rows(`SELECT * FROM nfl_capture_triggers
     WHERE state IN ('pending','deferred') ORDER BY priority DESC,created_at LIMIT 100`);
   if (!pending.length) return { pending: 0, captured: 0, reason: 'no movement or news trigger is waiting' };
@@ -102,7 +95,6 @@ export async function dispatchTriggeredCapture() {
 }
 
 export function captureTriggerStatus() {
-  ensureCaptureTriggerTable();
   const byState = rows(`SELECT state,COUNT(*) n FROM nfl_capture_triggers GROUP BY state`);
   return { by_state: Object.fromEntries(byState.map(item => [item.state, item.n])),
     recent: rows(`SELECT id,created_at,source,event_id,team,reason,priority,state,snapshot_at

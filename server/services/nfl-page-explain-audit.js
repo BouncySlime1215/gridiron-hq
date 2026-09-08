@@ -7,31 +7,7 @@
  * make a call.
  */
 import { createHash } from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_page_explain_audits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    route TEXT NOT NULL,
-    section TEXT,
-    subview TEXT,
-    question TEXT,
-    summary_hash TEXT NOT NULL,
-    summary_json TEXT NOT NULL,
-    translation_json TEXT NOT NULL,
-    model TEXT NOT NULL,
-    authority TEXT NOT NULL DEFAULT 'wording_only'
-  );
-  CREATE INDEX IF NOT EXISTS idx_page_explain_lookup
-    ON nfl_page_explain_audits(route,section,subview,created_at);
-`);
-
-// Column added after the table shipped, for the tool-use loop: which
-// read-only backend tools (names + params, never full results) Claude called
-// while answering. CREATE TABLE IF NOT EXISTS does nothing to an existing
-// table, so an install with rows filed before this change needs the ALTER.
-try { run(`ALTER TABLE nfl_page_explain_audits ADD COLUMN tool_calls_json TEXT`); } catch { /* already present */ }
+import { rows, run } from '../db/index.js';
 
 export const pageExplainHash = summary => createHash('sha256')
   .update(JSON.stringify(summary ?? {})).digest('hex');

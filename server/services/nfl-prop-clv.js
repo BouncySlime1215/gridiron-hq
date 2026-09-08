@@ -43,31 +43,6 @@ import { projectWeek } from './nfl-props.js';
 import { normalizePlayerName } from './player-identity.js';
 import { shinNoVig } from './nfl-devig.js';
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_prop_clv (
-    captured_at TEXT NOT NULL, event_id TEXT NOT NULL, book TEXT NOT NULL,
-    market TEXT NOT NULL, player TEXT NOT NULL, side TEXT NOT NULL,
-    line REAL, american_price INTEGER NOT NULL,
-    model_probability REAL, implied_probability REAL, edge REAL,
-    season INTEGER, week INTEGER,
-    closing_line REAL, closing_price INTEGER, clv_cents REAL,
-    settled INTEGER NOT NULL DEFAULT 0, actual_value REAL, won INTEGER,
-    PRIMARY KEY (captured_at, event_id, book, market, player, side)
-  );
-  CREATE INDEX IF NOT EXISTS idx_prop_clv_settle ON nfl_prop_clv(settled, season, week);
-`);
-
-const quoteCols = new Set(db.prepare('PRAGMA table_info(nfl_prop_clv)').all().map(c => c.name));
-for (const [column, type] of [
-  ['commence_time', 'TEXT'], ['home_team', 'TEXT'], ['away_team', 'TEXT'],
-  ['closing_fair_probability', 'REAL'], ['clv_probability', 'REAL'],
-  ['model_match_status', 'TEXT'], ['model_match_reason', 'TEXT'],
-  ['matched_player_id', 'TEXT'], ['capture_horizon_hours', 'INTEGER'],
-  ['settlement_reason', 'TEXT']
-]) {
-  if (!quoteCols.has(column)) db.exec(`ALTER TABLE nfl_prop_clv ADD COLUMN ${column} ${type}`);
-}
-
 /** American odds -> implied probability, and the no-vig pair. */
 export const impliedFromAmerican = p => (p >= 0 ? 100 / (p + 100) : -p / (-p + 100));
 
@@ -98,11 +73,6 @@ export const PROP_DECISION_POLICY = Object.freeze({
 
 export const propDecisionPolicyHash = () => createHash('sha256')
   .update(JSON.stringify(PROP_DECISION_POLICY)).digest('hex');
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_prop_policy_archive (
-  version TEXT PRIMARY KEY,policy_hash TEXT NOT NULL,policy_json TEXT NOT NULL,
-  frozen_at TEXT NOT NULL
-)`);
 
 export function freezePropDecisionPolicy() {
   const hash = propDecisionPolicyHash();

@@ -7,7 +7,7 @@
  * magnitude, price side and season phase into a cover probability. This is an
  * opened research candidate and never changes production authority.
  */
-import { db, row, rows, run } from '../db/index.js';
+import { row, rows, run } from '../db/index.js';
 import { ensembleLine } from './nfl-ensemble.js';
 import { createNetwork, predictNetwork, spreadFeatureVector, trainBatch } from './nfl-online-neural.js';
 import { uncertainty } from './nfl-replay.js';
@@ -29,11 +29,6 @@ const noVig = (selected, opposite) => {
 };
 const unitsFor = item => item.result === 'Push' ? 0 : item.result === 'Lost' ? -1
   : item.american_price > 0 ? item.american_price / 100 : 100 / Math.abs(item.american_price);
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_neural_replay_audits (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, version TEXT NOT NULL,
-  created_at TEXT NOT NULL, result_json TEXT NOT NULL
-)`);
 
 function vector(item) {
   return [1, Math.max(-3, Math.min(3, item.prediction_residual / 3)),

@@ -11,12 +11,6 @@ import { createHash } from 'node:crypto';
 import { db, rows, run } from '../db/index.js';
 import { random, withRandomSeed } from './stats-util.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_prop_calibration_fits (
-  id TEXT PRIMARY KEY, created_at TEXT NOT NULL, market TEXT NOT NULL,
-  spec_hash TEXT NOT NULL, candidate_id TEXT NOT NULL, train_through INTEGER NOT NULL,
-  params_json TEXT NOT NULL, audit_json TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0
-)`);
-
 const clamp = p => Math.max(0.001, Math.min(0.999, Number(p)));
 const logit = p => Math.log(clamp(p) / (1 - clamp(p)));
 const sigmoid = x => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x))));

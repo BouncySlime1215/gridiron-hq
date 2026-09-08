@@ -32,18 +32,12 @@
  * clearing the bar as another season of data lands — those are all things a
  * human will not notice until they are looking, and this looks every day.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { allBaselineGates, propAccuracy } from './nfl-props.js';
 import { auditPropHeads, PROP_METRIC_CONFIG } from './nfl-prop-head-validation.js';
 import { propEdgeEvidence } from './nfl-prop-clv.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_model_watch_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ran_at TEXT NOT NULL,
-  seasons TEXT NOT NULL,
-  findings_json TEXT NOT NULL,
-  alerts INTEGER NOT NULL DEFAULT 0
-)`);
+// nfl_model_watch_runs comes from server/migrations/000_legacy_schema.js.
 
 const SEASONS = [2022, 2023, 2024, 2025];
 

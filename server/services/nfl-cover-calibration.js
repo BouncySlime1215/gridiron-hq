@@ -1,15 +1,8 @@
 /** Price-aware cover calibration, trained only on earlier seasons. */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { replaySeason } from './nfl-replay.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_cover_calibrations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  model_version TEXT NOT NULL, trained_from INTEGER NOT NULL, trained_through INTEGER NOT NULL,
-  created_at TEXT NOT NULL, sample_size INTEGER NOT NULL,
-  intercept REAL NOT NULL, edge_slope REAL NOT NULL,
-  metrics_json TEXT NOT NULL, reliability_json TEXT NOT NULL,
-  UNIQUE(model_version, trained_from, trained_through)
-)`);
+// nfl_cover_calibrations comes from server/migrations/000_legacy_schema.js.
 
 const VERSION = 'cover-logit-v2';
 const r4 = v => v == null || !Number.isFinite(v) ? null : +v.toFixed(4);

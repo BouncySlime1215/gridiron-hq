@@ -11,26 +11,10 @@
 import { gameCutoff } from './game-cutoff.js';
 import './nfl-advanced.js';
 import './nfl-pbp.js';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { evidenceAdjustedRookiePrior } from './nfl-rookies.js';
 import { coachChanges } from './nfl-coaches.js';
 import { schemeChange } from './nfl-scheme.js';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_external_player_grades (
-    provider TEXT NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL,
-    team TEXT NOT NULL, player_id TEXT NOT NULL, player_name TEXT,
-    position TEXT, overall_grade REAL, facets_json TEXT,
-    captured_at TEXT NOT NULL, source_ref TEXT,
-    PRIMARY KEY (provider,season,week,team,player_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_external_player_grade_cutoff
-    ON nfl_external_player_grades(provider,season,week,team);
-  CREATE TABLE IF NOT EXISTS player_team_changes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, player_id INTEGER NOT NULL,
-    player_name TEXT NOT NULL, from_team TEXT, to_team TEXT, detected_at TEXT NOT NULL
-  );
-`);
 
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const r2 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(2);

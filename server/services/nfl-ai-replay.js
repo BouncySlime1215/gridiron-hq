@@ -6,26 +6,14 @@
  * scores and results are withheld until every response is immutable.  A run is
  * deliberately capped by an estimated dollar budget before any API call.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { fork } from 'node:child_process';
 import { replaySeason } from './nfl-replay.js';
 import { teamFeatureVector } from './nfl-features.js';
 import { getApiKey, callClaude, costOf } from './claude.js';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_ai_replay_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, status TEXT NOT NULL,
-  seasons_json TEXT NOT NULL, budget_usd REAL NOT NULL, estimated_cost_usd REAL NOT NULL,
-  progress_json TEXT NOT NULL, result_json TEXT, error TEXT
-);
-CREATE TABLE IF NOT EXISTS nfl_ai_replay_reviews (
-  run_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, season INTEGER NOT NULL, week INTEGER NOT NULL,
-  home TEXT NOT NULL, away TEXT NOT NULL, selection TEXT NOT NULL, packet_json TEXT NOT NULL,
-  review_json TEXT, outcome TEXT, units REAL, PRIMARY KEY(run_id, ordinal)
-);
-CREATE TABLE IF NOT EXISTS nfl_ai_replay_candidate_cache (
-  season INTEGER NOT NULL, cache_version TEXT NOT NULL, created_at TEXT NOT NULL,
-  candidates_json TEXT NOT NULL, PRIMARY KEY(season, cache_version)
-);`);
+// nfl_ai_replay_runs, nfl_ai_replay_reviews and nfl_ai_replay_candidate_cache
+// come from server/migrations/000_legacy_schema.js.
 
 const parse = v => { try { return JSON.parse(v); } catch { return null; } };
 const r3 = v => v == null || !Number.isFinite(v) ? null : +v.toFixed(3);

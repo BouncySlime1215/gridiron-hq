@@ -21,7 +21,7 @@
  * ratings, Pythagenport expectation, margin-dependent Elo — implemented here
  * rather than imported.
  */
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { availabilityDeficit } from './nfl-availability.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { mean } from './stats-util.js';
@@ -36,11 +36,8 @@ const WEIGHT_FIT_FROM = 2018; // discovery history available before the opened 2
 const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v7-consistent-historical-market';
 export const CHALLENGER_SIGNAL_VERSION = 'nfl-challenger-signals-v2';
 
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_ensemble_fit_artifacts (
-  artifact_key TEXT PRIMARY KEY, model_version TEXT NOT NULL,
-  data_fingerprint TEXT NOT NULL, cutoff TEXT NOT NULL,
-  weighting TEXT NOT NULL, created_at TEXT NOT NULL, result_json TEXT NOT NULL
-)`);
+// nfl_ensemble_fit_artifacts comes from
+// server/migrations/000_legacy_schema.js.
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);

@@ -7,7 +7,7 @@
  * vectors, score a complete week, then update. None has betting authority.
  */
 import crypto from 'node:crypto';
-import { db, row, rows, run } from '../db/index.js';
+import { row, rows, run } from '../db/index.js';
 import { activeLearningEpoch } from './nfl-engine-registry.js';
 
 export const RISK_LAB_SCHEMA = 'nfl-risk-lab-v2-multitask';
@@ -181,38 +181,6 @@ function trainDeepBatch(source, examples, { epochs = 24, learningRate = 0.008, l
   }
   network.updates += 1; network.examples_seen += examples.length;
   return network;
-}
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_risk_lab_predictions (
-  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
-  horizon TEXT NOT NULL, model_id TEXT NOT NULL, epoch_id INTEGER NOT NULL,
-  captured_at TEXT NOT NULL, engine_version TEXT, feature_hash TEXT NOT NULL,
-  features_json TEXT NOT NULL, market_margin REAL NOT NULL,
-  predicted_residual REAL NOT NULL, predicted_uncertainty REAL,
-  market_total REAL, predicted_total_residual REAL, predicted_total_uncertainty REAL,
-  actual_margin REAL, target_residual REAL, settled_at TEXT, trained_at TEXT,
-  actual_total REAL, target_total_residual REAL,
-  selected_for_training INTEGER,
-  PRIMARY KEY(season,week,home,horizon,model_id,epoch_id)
-);
-CREATE INDEX IF NOT EXISTS idx_risk_lab_training
-  ON nfl_risk_lab_predictions(epoch_id,model_id,trained_at,season,week);
-CREATE TABLE IF NOT EXISTS nfl_risk_lab_artifacts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, model_id TEXT NOT NULL, epoch_id INTEGER NOT NULL,
-  version TEXT NOT NULL UNIQUE, parent_version TEXT, schema_version TEXT NOT NULL,
-  created_at TEXT NOT NULL, trained_through_season INTEGER, trained_through_week INTEGER,
-  state_json TEXT NOT NULL, state_hash TEXT NOT NULL, metrics_json TEXT,
-  UNIQUE(model_id,epoch_id,trained_through_season,trained_through_week)
-);
-`);
-
-const riskPredictionColumns = new Set(db.prepare('PRAGMA table_info(nfl_risk_lab_predictions)').all()
-  .map(item => item.name));
-for (const [column, type] of [
-  ['market_total', 'REAL'], ['predicted_total_residual', 'REAL'], ['predicted_total_uncertainty', 'REAL'],
-  ['actual_total', 'REAL'], ['target_total_residual', 'REAL']
-]) {
-  if (!riskPredictionColumns.has(column)) db.exec(`ALTER TABLE nfl_risk_lab_predictions ADD COLUMN ${column} ${type}`);
 }
 
 function coldState(modelId, inputSize) {

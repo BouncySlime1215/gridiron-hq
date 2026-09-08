@@ -7,27 +7,12 @@
  */
 import { canonicalTeamCode, espnTeamCode } from './team-codes.js';
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { teamTrends } from './weekly-trends.js';
 import { nflKickoffDate } from './date-util.js';
 import { playerNewsSignal } from './nfl-news-signal.js';
 
 export const POSTGAME_TRUTH_VERSION = 'nfl-postgame-truth-v2';
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_postgame_truth_packets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL, away TEXT NOT NULL,
-    version TEXT NOT NULL, source_hash TEXT NOT NULL, created_at TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    UNIQUE(season,week,home,version,source_hash)
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_postgame_truth_week ON nfl_postgame_truth_packets(season,week,home);
-  CREATE TRIGGER IF NOT EXISTS nfl_postgame_truth_no_update BEFORE UPDATE ON nfl_postgame_truth_packets
-    BEGIN SELECT RAISE(ABORT, 'postgame truth packets are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_postgame_truth_no_delete BEFORE DELETE ON nfl_postgame_truth_packets
-    BEGIN SELECT RAISE(ABORT, 'postgame truth packets are immutable'); END;
-`);
 
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 const parse = value => { try { return JSON.parse(value); } catch { return {}; } };
@@ -581,12 +566,6 @@ export function gameInjuryCarryover(season, week, home, away) {
     production_eligible: false,
     rule: 'Raw injury/return opinion is recorded. The coordinator learns its weight chronologically; official reports prevent double-counting the roster packet.' };
 }
-
-db.exec(`CREATE TABLE IF NOT EXISTS nfl_game_variance (
-  season INTEGER NOT NULL, week INTEGER NOT NULL, home TEXT NOT NULL,
-  variance_points REAL, adjusted_residual REAL, raw_residual REAL, items_json TEXT, version TEXT, created_at TEXT NOT NULL,
-  PRIMARY KEY (season, week, home)
-)`);
 
 /** Decompose every final game that has a play log; idempotent. */
 export function backfillGameVariance({ seasons = [2021, 2022, 2023, 2024, 2025] } = {}) {

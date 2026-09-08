@@ -6,44 +6,11 @@
  * generates those transformations uniformly and freezes the resulting vector.
  */
 import crypto from 'node:crypto';
-import { db, rows, run } from '../db/index.js';
+import { rows, run } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';
 
 export const WEEKLY_FEATURE_STORE_VERSION = 'nfl-weekly-feature-store-v1';
 export const TRUSTED_HISTORY_START = Math.max(1999, Number(process.env.NFL_TRUSTED_HISTORY_START) || 2022);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS nfl_feature_dictionary (
-    feature_id TEXT PRIMARY KEY,entity_type TEXT NOT NULL,source_family TEXT NOT NULL,
-    source_metric TEXT NOT NULL,transform TEXT NOT NULL,version TEXT NOT NULL,
-    description TEXT NOT NULL,created_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS nfl_team_feature_vectors (
-    season INTEGER NOT NULL,week INTEGER NOT NULL,team TEXT NOT NULL,version TEXT NOT NULL,
-    cutoff TEXT NOT NULL,evidence_hash TEXT NOT NULL,feature_count INTEGER NOT NULL,
-    coverage REAL NOT NULL,vector_json TEXT NOT NULL,missing_json TEXT NOT NULL,created_at TEXT NOT NULL,
-    PRIMARY KEY(season,week,team,version)
-  );
-  CREATE TABLE IF NOT EXISTS nfl_player_feature_vectors (
-    season INTEGER NOT NULL,week INTEGER NOT NULL,player_id TEXT NOT NULL,player_name TEXT,
-    position TEXT,team TEXT,version TEXT NOT NULL,cutoff TEXT NOT NULL,evidence_hash TEXT NOT NULL,
-    feature_count INTEGER NOT NULL,coverage REAL NOT NULL,vector_json TEXT NOT NULL,
-    missing_json TEXT NOT NULL,created_at TEXT NOT NULL,
-    PRIMARY KEY(season,week,player_id,version)
-  );
-  CREATE INDEX IF NOT EXISTS idx_nfl_team_feature_vector_cutoff
-    ON nfl_team_feature_vectors(season,week,team);
-  CREATE INDEX IF NOT EXISTS idx_nfl_player_feature_vector_cutoff
-    ON nfl_player_feature_vectors(season,week,team,position);
-  CREATE TRIGGER IF NOT EXISTS nfl_team_feature_vectors_no_update BEFORE UPDATE ON nfl_team_feature_vectors
-    BEGIN SELECT RAISE(ABORT, 'weekly team feature vectors are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_team_feature_vectors_no_delete BEFORE DELETE ON nfl_team_feature_vectors
-    BEGIN SELECT RAISE(ABORT, 'weekly team feature vectors are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_player_feature_vectors_no_update BEFORE UPDATE ON nfl_player_feature_vectors
-    BEGIN SELECT RAISE(ABORT, 'weekly player feature vectors are immutable'); END;
-  CREATE TRIGGER IF NOT EXISTS nfl_player_feature_vectors_no_delete BEFORE DELETE ON nfl_player_feature_vectors
-    BEGIN SELECT RAISE(ABORT, 'weekly player feature vectors are immutable'); END;
-`);
 
 const TRANSFORMS = Object.freeze(['latest', 'mean_3', 'mean_6', 'mean_12', 'ewma_6',
   'slope_6', 'sd_6', 'min_6', 'max_6', 'delta_1', 'z_latest', 'coverage_12', 'missing']);

@@ -22,6 +22,14 @@ extends the research program with:
     ROI on top-K picks -- never by NDCG alone.
   - A leakage scan (research/leakage.py) run against the real dataset, plus
     research/test_tree_lab.py's synthetic leak that proves the scan works.
+  - A per-fold observation-to-parameter check (research/model_discipline.py)
+    run BEFORE each fit. It is deliberately a different number per target:
+    the movement branch is judged on week-clustered rows, the cover branch on
+    the MINORITY CLASS count (a 660-row fold with 40 positives has 40
+    observations, not 660), the quantile branch on the tail mass of its most
+    extreme quantile (~10% of rows at tau=0.1, five models deep), and the
+    ranker on its top-graded opportunities. Verdicts land in the report's
+    `model_discipline` block pass or fail; `--discipline strict` stops instead.
 
 The dataset builder below is a close relative of market_lab.build_dataset,
 not an import of it: it needs several team-week fields and time windows
@@ -58,8 +66,12 @@ import joblib
 
 from market_lab import stamp, digest, atomic_json, american_profit, settlement, time_folds, FrozenTimeCV, cluster_interval
 from leakage import detect_feature_leakage
+from model_discipline import check_fold, record, summarize
 
-VERSION = 'tree-lab-v1'
+# v2 adds one additive, optional `model_discipline` block; nothing else about the
+# shape changed. The reader in server/services/nfl-research-lab.js accepts v1 and
+# v2 alike, so the already-frozen v1 report on disk keeps rendering.
+VERSION = 'tree-lab-v2'
 SEED = 83017
 THRESHOLD = 0.5          # movement-target abstention, points -- same convention as market_lab
 PROB_EDGE = 0.02         # classification/logit paper-bet trigger: model must beat market prob by this much
@@ -582,7 +594,7 @@ def key_number_push_mass(rows):
 # Ranker branch
 # ---------------------------------------------------------------------------
 
-def run_ranker(train_rows, test_rows, names, run_dir, market, season):
+def run_ranker(train_rows, test_rows, names, run_dir, market, season, discipline=None, strict=False):
     """LGBMRanker over per-(game,side) opportunities. Relevance grades come
     from REALIZED profit on the training rows only (bucketed into 5 grades
     per week so LightGBM's ranking objective has integer targets); the
@@ -615,6 +627,13 @@ def run_ranker(train_rows, test_rows, names, run_dir, market, season):
     X = np.array([o['x'] for o in train_opp])
     y = np.array([o['grade'] for o in train_opp])
     group_sizes = [len(list(g)) for _, g in itertools.groupby(train_opp, key=lambda o: o['group'])]
+    # The weakest-justified of the six numerators, and labelled as such by the
+    # module: LambdaRank is rewarded for placing the top-graded opportunities,
+    # so those are counted rather than every listed one. The +1 column is the
+    # positive/negative side flag appended to each opportunity's feature row.
+    record(discipline, check_fold(package='C', label=f'{market}/{season}/ranker',
+        target_type='graded_ranking', y=y, feature_count=len(names) + 1,
+        clusters=[o['group'] for o in train_opp]), strict=strict)
     model = LGBMRanker(n_estimators=100, max_depth=4, num_leaves=11, min_child_samples=10,
         learning_rate=.05, random_state=SEED, verbose=-1)
     model.fit(X, y, group=group_sizes)
@@ -649,7 +668,8 @@ def run_ranker(train_rows, test_rows, names, run_dir, market, season):
 # Market-anchored logit branch
 # ---------------------------------------------------------------------------
 
-def run_market_anchored_logit(train, test, names, cv, market_prob_train, market_prob_test):
+def run_market_anchored_logit(train, test, names, cv, market_prob_train, market_prob_test,
+                              discipline=None, strict=False):
     """logit(p) = logit(p_market) + shrinkage * (logit(p_hat) - logit(p_market)).
 
     p_hat comes from a HistGradientBoostingClassifier fit on features alone.
@@ -662,6 +682,13 @@ def run_market_anchored_logit(train, test, names, cv, market_prob_train, market_
     Xtr = np.array([[r['features'][k] for k in names] for r in train])
     ytr = np.array([1 if r['outcome'] > 0 else 0 for r in train])
     Xte = np.array([[r['features'][k] for k in names] for r in test])
+    # parameters is len(names)+1: the shrinkage constant is itself selected from
+    # this same training data by inner CV, so it is a fitted parameter and is
+    # counted as one rather than treated as a free hyperparameter that costs
+    # nothing.
+    record(discipline, check_fold(package='C', label=f'{train[0]["market"]}/market_anchored_logit',
+        target_type='binary_classification', y=ytr, feature_count=len(names),
+        parameters=len(names) + 1, clusters=[(r['season'], r['week']) for r in train]), strict=strict)
 
     inner_scores = {s: [] for s in SHRINKAGE_GRID}
     for tr_idx, va_idx in cv:
@@ -712,7 +739,7 @@ def _fit_tpot_classifier(X, y, cv, minutes, seed=SEED):
     return automl
 
 
-def run_movement(data, names, market, season, run_dir, tpot_minutes, errors):
+def run_movement(data, names, market, season, run_dir, tpot_minutes, errors, discipline=None, strict=False):
     test = [r for r in data if r['market'] == market and r['season'] == season]
     if not test:
         return None
@@ -723,6 +750,16 @@ def run_movement(data, names, market, season, run_dir, tpot_minutes, errors):
         errors.append(f'{market}/{season}/move: insufficient temporal training folds')
         return None
     X = np.array([[r['features'][k] for k in names] for r in train]); y = np.array([r['y'] for r in train])
+    # Continuous target: every row constrains the conditional mean, so the only
+    # discount is the week-clustering one -- the same (season, week) unit
+    # cluster_interval() bootstraps this branch's own intervals over.
+    weeks = [(r['season'], r['week']) for r in train]
+    record(discipline, check_fold(package='C', label=f'{market}/{season}/move/refit',
+        target_type='continuous_regression', y=y, feature_count=len(names), clusters=weeks), strict=strict)
+    for i, (tr, _va) in enumerate(cv):
+        record(discipline, check_fold(package='C', label=f'{market}/{season}/move/inner-{i}',
+            target_type='continuous_regression', y=y[tr], feature_count=len(names),
+            clusters=[weeks[j] for j in tr]), strict=strict)
     Xt = np.array([[r['features'][k] for k in names] for r in test])
     models = regression_candidates(); scores = {}; trials = 0
     for name, model in models.items():
@@ -756,7 +793,8 @@ def run_movement(data, names, market, season, run_dir, tpot_minutes, errors):
         'selected': selected, 'tpot_trials': trials, 'candidates': candidate_rows, **evaluate_movement(test, pred)}
 
 
-def run_classification(data, names, market, season, run_dir, tpot_minutes, errors, leakage_reports):
+def run_classification(data, names, market, season, run_dir, tpot_minutes, errors, leakage_reports,
+                       discipline=None, strict=False):
     all_rows = [r for r in data if r['market'] == market and abs(r['outcome']) > 1e-9]
     test = [r for r in all_rows if r['season'] == season]
     if not test:
@@ -774,6 +812,20 @@ def run_classification(data, names, market, season, run_dir, tpot_minutes, error
     Xt = np.array([[r['features'][k] for k in names] for r in test])
     Xt_mo = np.column_stack([Xt, mp_test])
     y = np.array([1 if r['outcome'] > 0 else 0 for r in train])
+
+    # The cover target is the case the architecture assessment's part 3.1 is
+    # really about: rows are not observations here. A fold's power to pin down a
+    # logistic coefficient comes from its MINORITY class, so a 660-row fold that
+    # is 40/620 has 40 effective observations before the week discount, not 660.
+    # (This target is near 50/50 by construction, so in practice this bar asks
+    # for roughly twice as many rows as a flat 15:1 would -- see the module.)
+    weeks = [(r['season'], r['week']) for r in train]
+    record(discipline, check_fold(package='C', label=f'{market}/{season}/cover/refit',
+        target_type='binary_classification', y=y, feature_count=len(names), clusters=weeks), strict=strict)
+    for i, (tr, _va) in enumerate(cv):
+        record(discipline, check_fold(package='C', label=f'{market}/{season}/cover/inner-{i}',
+            target_type='binary_classification', y=y[tr], feature_count=len(names),
+            clusters=[weeks[j] for j in tr]), strict=strict)
 
     if len(cv) >= 2:
         leak = detect_feature_leakage(X, y, cv, names, task='classification')
@@ -829,7 +881,7 @@ def run_classification(data, names, market, season, run_dir, tpot_minutes, error
         **evaluate_classification(test, pred, mp_test)}
 
 
-def run_quantile(data, names, market, season, run_dir, errors):
+def run_quantile(data, names, market, season, run_dir, errors, discipline=None, strict=False):
     """No TPOT here: TPOT's regressor/classifier search spaces do not cover
     multi-quantile objectives, and building a bespoke TPOT config for pinball
     loss was out of scope for this pass -- stated plainly rather than
@@ -845,6 +897,17 @@ def run_quantile(data, names, market, season, run_dir, errors):
         return None
     X = np.array([[r['features'][k] for k in names] for r in train]); y = np.array([r['outcome'] for r in train])
     Xt = np.array([[r['features'][k] for k in names] for r in test]); yt = np.array([r['outcome'] for r in test])
+    # Every family except xgboost fits ONE MODEL PER QUANTILE on the same
+    # columns, and the tau=0.1 model is pinned down by the ~10% of rows near
+    # that tail, not by all of them. The extreme quantile binds the verdict.
+    weeks = [(r['season'], r['week']) for r in train]
+    record(discipline, check_fold(package='C', label=f'{market}/{season}/quantile/refit',
+        target_type='quantile_regression', y=y, feature_count=len(names),
+        clusters=weeks, quantiles=QUANTILES), strict=strict)
+    for i, (tr, _va) in enumerate(cv):
+        record(discipline, check_fold(package='C', label=f'{market}/{season}/quantile/inner-{i}',
+            target_type='quantile_regression', y=y[tr], feature_count=len(names),
+            clusters=[weeks[j] for j in tr], quantiles=QUANTILES), strict=strict)
 
     families = ['market_only', 'sklearn_gbr', 'lightgbm', 'catboost', 'xgboost']
     inner_scores = {}
@@ -896,7 +959,8 @@ def run(args):
     run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + code_hash[:8]
     run_dir = out / run_id; run_dir.mkdir()
     dataset_hash = digest(data)
-    errors, leakage_reports = [], []
+    errors, leakage_reports, discipline = [], [], []
+    strict = getattr(args, 'discipline', 'report') == 'strict'
 
     report = {'schema': VERSION, 'run_id': run_id, 'status': 'running', 'created_at': datetime.now(timezone.utc).isoformat(),
         'authority': 'research_only', 'production_changed': False, 'untouched_holdout': False,
@@ -905,6 +969,10 @@ def run(args):
             'quantile (residual quantile regression)'], 'outer_seasons': [2023, 2024, 2025],
             'inner_validation': 'expanding whole-week folds; seven-day label embargo',
             'selection': 'minimum inner-fold loss, evaluated before any outer-season scoring',
+            'data_to_feature_ratio': 'research/model_discipline.py, per fold, BEFORE each fit. The '
+                'effective-observation count is target-specific: week-clustered rows for movement, the '
+                'minority class for cover, the most extreme quantile\'s tail mass for the quantile '
+                'branch, top-graded items for the ranker. Refuse-and-report: no automatic compression.',
             'families': ['ridge/logistic', 'hist_gb', 'extra_trees', 'lightgbm', 'xgboost', 'catboost',
                 'market_only/coin_flip/no_move baselines', 'bounded TPOT (move, cover only)'],
             'tpot_minutes_per_combination': args.tpot_minutes, 'seed': SEED,
@@ -922,7 +990,8 @@ def run(args):
                 'block to extract a wider feature set; the two extractors must be kept in agreement by hand. '
                 'See the module docstring.',
             'Points of CLV/log-loss gain are not dollars of edge. Positive historical ROI cannot authorize staking.'],
-        'markets': [], 'ranker': [], 'market_anchored_logit': [], 'leakage_scans': leakage_reports, 'errors': errors}
+        'markets': [], 'ranker': [], 'market_anchored_logit': [], 'leakage_scans': leakage_reports,
+        'model_discipline': summarize([]), 'errors': errors}
     atomic_json(run_dir / 'dataset.json', data)
     atomic_json(run_dir / 'preregistered.json', report)
 
@@ -933,13 +1002,16 @@ def run(args):
     for market in ['spreads', 'totals']:
         market_block = {'market': market, 'move': [], 'cover': [], 'quantile': []}
         for season in [2023, 2024, 2025]:
-            move = run_movement(data, names, market, season, run_dir, args.tpot_minutes, errors)
+            move = run_movement(data, names, market, season, run_dir, args.tpot_minutes, errors,
+                discipline=discipline, strict=strict)
             if move:
                 market_block['move'].append(move)
-            cover = run_classification(data, names, market, season, run_dir, args.tpot_minutes, errors, leakage_reports)
+            cover = run_classification(data, names, market, season, run_dir, args.tpot_minutes, errors,
+                leakage_reports, discipline=discipline, strict=strict)
             if cover:
                 market_block['cover'].append(cover)
-            quant = run_quantile(data, names, market, season, run_dir, errors)
+            quant = run_quantile(data, names, market, season, run_dir, errors,
+                discipline=discipline, strict=strict)
             if quant:
                 market_block['quantile'].append(quant)
             print(f'{market} {season}: move={move["selected"] if move else "skipped"} '
@@ -955,7 +1027,8 @@ def run(args):
         train_final = [r for r in rows_market if r['season'] < 2025]
         if test_final and train_final:
             try:
-                ranker_result = run_ranker(train_final, test_final, names, run_dir, market, 2025)
+                ranker_result = run_ranker(train_final, test_final, names, run_dir, market, 2025,
+                    discipline=discipline, strict=strict)
             except Exception as e:
                 ranker_result = {'skipped': True, 'reason': f'{type(e).__name__}: {str(e)[:300]}'}
             report['ranker'].append({'market': market, 'test_season': 2025, **ranker_result})
@@ -968,7 +1041,8 @@ def run(args):
                 mp_tr = np.array([market_no_vig_prob(r['positive_price'], r['negative_price']) or 0.5 for r in train_c])
                 mp_te = np.array([market_no_vig_prob(r['positive_price'], r['negative_price']) or 0.5 for r in test_c])
                 try:
-                    logit_result = run_market_anchored_logit(train_c, test_c, names, cv_c, mp_tr, mp_te)
+                    logit_result = run_market_anchored_logit(train_c, test_c, names, cv_c, mp_tr, mp_te,
+                        discipline=discipline, strict=strict)
                 except Exception as e:
                     logit_result = {'skipped': True, 'reason': f'{type(e).__name__}: {str(e)[:300]}'}
                 report['market_anchored_logit'].append({'market': market, 'test_season': 2025, **logit_result})
@@ -988,6 +1062,7 @@ def run(args):
         leakage_reports.append({'market': 'spreads', 'season': '<2025 pooled', 'target': 'move', **leak})
     save()
 
+    report['model_discipline'] = {**summarize(discipline), 'folds': discipline}
     report['status'] = ('complete_with_errors' if errors else 'complete') if report['markets'] else 'failed'
     report['completed_at'] = datetime.now(timezone.utc).isoformat()
     report['wall_clock_seconds'] = round(time.time() - started, 1)
@@ -1006,6 +1081,9 @@ if __name__ == '__main__':
     p.add_argument('--db', required=True)
     p.add_argument('--output', required=True)
     p.add_argument('--tpot-minutes', type=float, default=0, help='Per market/season/target (move, cover only) budget')
+    p.add_argument('--discipline', choices=['report', 'strict'], default='report',
+        help='report (default): record every observation-to-parameter verdict in the frozen report and keep '
+             'going. strict: stop on the first under-powered fold.')
     args = p.parse_args()
     if not 0 <= args.tpot_minutes <= 10:
         p.error('--tpot-minutes must be between 0 and 10')

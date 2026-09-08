@@ -3,6 +3,12 @@
 Run from any directory with --db and --output. Uses already-held historical
 odds and prior-game aggregates, with a point-in-time label embargo. All opened
 seasons remain development data; chronological folds do not restore holdout status.
+
+Every fit is preceded by a per-fold observation-to-parameter check from
+research/model_discipline.py (see that module's docstring for why the movement
+target's numerator is the week-clustered row count and not the raw one). The
+verdicts are recorded in `model_discipline` in this run's report whether they
+pass or fail; `--discipline strict` turns a failure into a hard stop instead.
 """
 from __future__ import annotations
 import argparse, collections, hashlib, json, math, os, sqlite3, subprocess
@@ -18,7 +24,12 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error
 import joblib
 
-VERSION = 'market-lab-v1'
+from model_discipline import check_fold, record, summarize
+
+# v2 adds one additive, optional `model_discipline` block. Readers accept v1 and
+# v2 alike (server/services/nfl-research-lab.js), so an already-frozen v1 report
+# on disk keeps rendering rather than being invalidated by this change.
+VERSION = 'market-lab-v2'
 SEED = 83017
 THRESHOLD = 0.5  # fixed before looking at evaluations; points, not probability
 PB_KEYS = ['off_epa_per_play', 'def_epa_per_play', 'off_success_rate',
@@ -191,12 +202,15 @@ def run(args):
     code_hash=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     run_id=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+code_hash[:8]
     run_dir=out/run_id;run_dir.mkdir()
+    discipline=[];strict=getattr(args,'discipline','report')=='strict'
     report={'schema':VERSION,'run_id':run_id,'status':'running','created_at':datetime.now(timezone.utc).isoformat(),
       'authority':'research_only','production_changed':False,'untouched_holdout':False,
       'dataset_hash':digest(data),'code_hash':code_hash,'rows':len(data),'features':names,'dropped':dropped,
       'protocol':{'target':'opening-to-closing market movement','outer_seasons':[2023,2024,2025],
         'inner_validation':'expanding whole-week folds; seven-day label embargo',
         'selection':'minimum inner-fold MAE, including no-movement baseline',
+        'data_to_feature_ratio':'research/model_discipline.py, checked per fold BEFORE any fit; '
+          'refuse-and-report (no automatic PCA/Lasso compression -- see that module for why)',
         'abstention_points':THRESHOLD,'tpot_minutes_per_outer_fold':args.tpot_minutes,
         'total_tpot_budget_minutes':args.tpot_minutes*6,'seed':SEED},
       'limitations':['Previously opened seasons are development data, not an untouched holdout.',
@@ -204,7 +218,7 @@ def run(args):
         'Prior play-by-play uses a conservative publication delay, but historical revision vintages are unavailable.',
         'Points of CLV are not dollars of edge. Positive historical ROI cannot authorize staking.',
         'No news, injury, kickoff weather or nfelo historical forecast is admitted without an availability timestamp.'],
-      'markets':[],'errors':[]}
+      'markets':[],'errors':[],'model_discipline':summarize([])}
     atomic_json(run_dir/'dataset.json',data)
     atomic_json(run_dir/'preregistered.json',report)
     def save():atomic_json(run_dir/'report.json',report);atomic_json(out/'latest.json',report)
@@ -219,6 +233,16 @@ def run(args):
             cv=time_folds(train)
             if len(cv)<2:report['errors'].append(f'{market}/{season}: insufficient temporal training folds');continue
             X=np.array([[r['features'][k] for k in names] for r in train]);y=np.array([r['y'] for r in train])
+            # Ratio check before anything is fit. The cluster key is (season, week) --
+            # the same unit cluster_interval() bootstraps over below, so the ratio's
+            # numerator cannot claim more independence than this file's own intervals do.
+            wk=[(r['season'],r['week']) for r in train]
+            record(discipline,check_fold(package='pilot',label=f'{market}/{season}/move/refit',
+                target_type='continuous_regression',y=y,feature_count=len(names),clusters=wk),strict=strict)
+            for fold_i,(tr,_va) in enumerate(cv):
+                record(discipline,check_fold(package='pilot',label=f'{market}/{season}/move/inner-{fold_i}',
+                    target_type='continuous_regression',y=y[tr],feature_count=len(names),
+                    clusters=[wk[i] for i in tr]),strict=strict)
             Xt=np.array([[r['features'][k] for k in names] for r in test]);models=candidates();scores={};search_trials=[]
             for name,model in models.items():
                 losses=[]
@@ -260,6 +284,7 @@ def run(args):
         if combined:
             report['markets'].append({'market':market,'folds':results,'pooled':evaluate(combined,selected_preds)})
             save()
+    report['model_discipline']={**summarize(discipline),'folds':discipline}
     report['status']=('complete_with_errors' if report['errors'] else 'complete') if report['markets'] else 'failed'
     report['completed_at']=datetime.now(timezone.utc).isoformat();report['progress']='Finished; no model promoted'
     report['verdict']='Research complete. Review predictive skill, execution assumptions and forward evidence separately.'
@@ -270,6 +295,9 @@ def run(args):
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--db',required=True);p.add_argument('--output',required=True)
     p.add_argument('--tpot-minutes',type=float,default=0,help='Per market/outer-fold budget; total budget is six times this value')
+    p.add_argument('--discipline',choices=['report','strict'],default='report',
+        help='report (default): record every observation-to-feature verdict in the frozen report and keep going. '
+             'strict: stop on the first under-powered fold.')
     args=p.parse_args()
     if not 0<=args.tpot_minutes<=10:p.error('--tpot-minutes must be between 0 and 10')
     run(args)

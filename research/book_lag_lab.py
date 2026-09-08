@@ -74,6 +74,29 @@ reported by `hawkes_feasibility()` rather than asserted from memory:
 This is a data-volume verdict, not a permanent one: `hawkes_feasibility()`
 reruns this check every time and will say so the day it stops being true.
 
+## Observation-to-feature discipline, per fold, before each fit
+
+`GATE_MIN_LABELS` below is a flat row-count gate. It is kept, but it is not
+the same question as "does this cell have enough information for this many
+columns", and it cannot be: the design matrix here is mostly one-hot book
+dummies, so its width grows with the number of books in the tape while the
+gate stays at 40. `research/model_discipline.py` asks the sharper question
+before each fit, and asks it with a numerator that matches the target:
+
+  - next-move PROBABILITY is a rare-event binary target, so its numerator is
+    the minority class (books mostly do not move in the next poll), not the
+    row count. On a 5%-base-rate cell this demands many multiples of what a
+    flat 15:1 on rows would.
+  - next-move SIZE is continuous, so its numerator is the row count,
+    discounted only for event-level clustering.
+  - time-to-follow is a discrete-time hazard whose rows are (move, follower,
+    step-at-risk) triples: one race lasting eight polls is eight rows and ONE
+    event. Its numerator is follow events, the way survival power is quoted
+    in deaths rather than patient-years.
+
+Every verdict lands in `model_discipline` in the report whether it passes or
+fails; `--discipline strict` stops the run on the first failure instead.
+
 ## Split policy limitation, declared before evaluation, not after
 
 The plan asks for chronological, grouped, week-embargoed folds. The tape
@@ -104,7 +127,12 @@ from sklearn.metrics import log_loss, mean_absolute_error
 from sklearn.model_selection import GroupKFold
 from sklearn.preprocessing import StandardScaler
 
-VERSION = 'book-lag-lab-v1'
+from model_discipline import check_fold, record, summarize
+
+# v2 adds one additive, optional `model_discipline` block. The reader in
+# server/services/nfl-research-lab.js accepts v1 and v2 alike, so an
+# already-frozen v1 report keeps rendering instead of being invalidated.
+VERSION = 'book-lag-lab-v2'
 SEED = 90210
 MIN_MOVE = {'spreads': 0.5, 'totals': 0.5}
 CANON_SIDE = {'spreads': 'home', 'totals': 'over'}
@@ -440,6 +468,29 @@ def mae(y_true, p):
     return float(mean_absolute_error(y_true, p))
 
 
+def discipline_for_group_folds(feature_count, y, groups, *, package, label, target_type,
+                                discipline, strict, n_splits=N_FOLDS):
+    """Record two verdicts per cell: the whole labelled cell, and the BINDING
+    GroupKFold training slice (the fold with the fewest effective observations,
+    which is the one that actually decides whether the cell's numbers are
+    trustworthy). Recording all five folds would triple the report for no
+    additional information -- the binding one is the constraint."""
+    record(discipline, check_fold(package=package, label=f'{label}/cell', target_type=target_type,
+        y=y, feature_count=feature_count, clusters=list(groups)), strict=strict)
+    k = min(n_splits, len(set(groups)))
+    if k < 2:
+        return
+    worst = None
+    for train_idx, _test_idx in GroupKFold(n_splits=k).split(np.zeros((len(y), 1)), y, groups):
+        v = check_fold(package=package, label=f'{label}/binding-fold', target_type=target_type,
+            y=np.asarray(y)[train_idx], feature_count=feature_count,
+            clusters=[groups[i] for i in train_idx])
+        if worst is None or v['effective_n'] < worst['effective_n']:
+            worst = v
+    if worst is not None:
+        record(discipline, worst, strict=strict)
+
+
 def group_kfold_eval(X, y, groups, fit_fn, predict_fn, loss_fn, n_splits=N_FOLDS):
     n_groups = len(set(groups))
     k = min(n_splits, n_groups)
@@ -459,7 +510,7 @@ def group_kfold_eval(X, y, groups, fit_fn, predict_fn, loss_fn, n_splits=N_FOLDS
     return {'mean_loss': r4(float(np.mean(losses))), 'fold_losses': [r4(v) for v in losses], 'folds': len(losses)}
 
 
-def run_target1(panels, market, trials):
+def run_target1(panels, market, trials, discipline=None, strict=False):
     rows = target1_rows(panels, market)
     result = {}
     for h in HORIZON_STEPS:
@@ -471,6 +522,15 @@ def run_target1(panels, market, trials):
         y_delta = np.array([r['delta'] for r in sub], dtype=float)
         groups = np.array([r['event_key'] for r in sub])
         X = design_matrix(sub, FEATURE_KEYS_T1, BOOK_VOCAB)
+        # feature_count is the design matrix's real width: the one-hot book
+        # block is most of it, and it grows with the tape while GATE_MIN_LABELS
+        # above does not.
+        discipline_for_group_folds(X.shape[1], y_move, groups, package='B',
+            label=f'{market}/next_move_probability/{h}', target_type='binary_classification',
+            discipline=discipline, strict=strict)
+        discipline_for_group_folds(X.shape[1], y_delta, groups, package='B',
+            label=f'{market}/next_move_size/{h}', target_type='continuous_regression',
+            discipline=discipline, strict=strict)
 
         base_rate = float(np.mean(y_move))
         base_pred = np.full(len(y_move), base_rate)
@@ -605,13 +665,18 @@ def hazard_rows(panels, market):
     return out
 
 
-def run_target2(panels, market, trials):
+def run_target2(panels, market, trials, discipline=None, strict=False):
     rows = hazard_rows(panels, market)
     if len(rows) < GATE_MIN_LABELS:
         return {'readable': False, 'n': len(rows), 'reason': f'fewer than {GATE_MIN_LABELS} at-risk step rows'}
     y = np.array([r['followed'] for r in rows], dtype=float)
     groups = np.array([r['event_key'] for r in rows])
     X = np.array([[float(r[k]) for k in FEATURE_KEYS_T2] for r in rows])
+    # Counted in follow EVENTS, not at-risk step rows: one race that takes
+    # eight polls to resolve contributes eight rows here and one event.
+    discipline_for_group_folds(X.shape[1], y, groups, package='B',
+        label=f'{market}/time_to_follow', target_type='discrete_time_hazard',
+        discipline=discipline, strict=strict)
 
     by_step = collections.defaultdict(list)
     for r in rows:
@@ -836,6 +901,10 @@ def write_protocol(run_dir, dataset_hash, native_step_seconds, n_events, books):
                               'does NOT show these models generalize to a different week or news cycle. Re-run '
                               'this identical script, unmodified, once several more weeks of tape exist, and '
                               'treat this run\'s numbers as superseded when that run completes.'},
+        'data_to_feature_ratio': 'research/model_discipline.py, checked before each fit on the whole cell '
+            'and on the binding GroupKFold training slice. Numerators are target-specific: minority class '
+            'for next-move probability, event-clustered rows for next-move size, follow EVENTS (not at-risk '
+            'step rows) for time-to-follow. Refuse-and-report; no automatic compression.',
         'trials_declared': 'every candidate fit for every target/market/horizon is appended to trials.json, '
             'including any that fail to beat baseline; none are omitted after the fact',
         'selection_rule': 'lowest mean cross-validated loss (log-loss for probability/hazard targets, MAE for '
@@ -879,8 +948,10 @@ def run(args):
     atomic_json(run_dir / 'lead_lag_matrix.json', matrix)
 
     trials = []
-    target1 = {m: run_target1(panels, m, trials) for m in CANON_SIDE}
-    target2 = {m: run_target2(panels, m, trials) for m in CANON_SIDE}
+    discipline = []
+    strict = getattr(args, 'discipline', 'report') == 'strict'
+    target1 = {m: run_target1(panels, m, trials, discipline, strict) for m in CANON_SIDE}
+    target2 = {m: run_target2(panels, m, trials, discipline, strict) for m in CANON_SIDE}
     target3 = run_target3(target2, native_step_seconds)
     routing = route_opportunities(panels, target3)
     atomic_json(run_dir / 'trials.json', trials)
@@ -927,6 +998,7 @@ def run(args):
         'protocol': protocol, 'panel_summary': panel_summary, 'hawkes_feasibility': hawkes,
         'lead_lag_matrix': matrix, 'next_move': target1, 'time_to_follow': target2,
         'delay_survival': target3, 'opportunity_routing': routing,
+        'model_discipline': {**summarize(discipline), 'folds': discipline},
         'verdict': overall_verdict, 'per_cell_baseline_failures': verdicts,
         'limitations': [
             'The tape spans one NFL week (48 events, one capture window). Every number here is a pilot, not '
@@ -954,5 +1026,8 @@ if __name__ == '__main__':
     p.add_argument('--dataset-dir', required=True, help='server/data/evidence-datasets directory')
     p.add_argument('--dataset-hash', default=None, help='defaults to that directory\'s latest.json pointer')
     p.add_argument('--output', required=True, help='server/data/book-lag-lab directory')
+    p.add_argument('--discipline', choices=['report', 'strict'], default='report',
+                   help='report (default): record every observation-to-feature verdict in the frozen '
+                        'report and keep going. strict: stop on the first under-powered fold.')
     args = p.parse_args()
     run(args)

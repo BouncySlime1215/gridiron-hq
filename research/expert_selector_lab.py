@@ -66,6 +66,25 @@ lab asks whether weight should change WITH the situation, and benchmarks
 that conditional gate against the coordinator's own blend as a competing
 expert.
 
+OBSERVATION-TO-PARAMETER DISCIPLINE
+-----------------------------------
+`research/model_discipline.py` checks every simplex fit before it happens,
+including each gate bin's own fit, and two things about this particular
+meta-learner make the naive `rows / experts` ratio wrong in both directions:
+
+  - The sum-to-1 EQUALITY CONSTRAINT removes a degree of freedom, so a
+    J-expert stack is fitting J-1 free numbers, not J.
+  - An expert earns its own weight only from the rows where it is AVAILABLE.
+    `effective_weights` below already documents this after the fact --
+    `nfelo_line` covers only 2022-2023, so a raw 0.24 on a 2025 fold is a
+    coefficient that `apply_weights` renormalizes away on nearly every row it
+    is scored against. The discipline check names such experts BEFORE the fit
+    instead, and an under-supported expert fails the fold's verdict even when
+    the fold is large in aggregate.
+
+Verdicts are recorded per substrate whether they pass or fail; `--discipline
+strict` stops the run on the first failure instead.
+
 AUTHORITY: research only. Nothing here promotes a model, touches a live pick
 endpoint, or gains staking authority. The database is opened read-only.
 """
@@ -76,7 +95,13 @@ from datetime import datetime, timezone
 import numpy as np
 from scipy.optimize import minimize
 
-VERSION = 'expert-selector-lab-v1'
+from model_discipline import check_fold, record, summarize
+
+# v2 adds one additive, optional `model_discipline` block plus a
+# `discipline_passed` flag on each fold. The reader in
+# server/services/nfl-research-lab.js accepts v1 and v2 alike, so the already
+# frozen v1 report keeps rendering rather than being invalidated by this change.
+VERSION = 'expert-selector-lab-v2'
 SEED = 83017
 
 # Correlation at or above this merges two experts into one family. Deliberately
@@ -371,15 +396,32 @@ def select_alpha(P, mask, y, seasons, train_seasons, gate_key=None, context=None
     return best, f'selected on inner chronological split (fit {inner_fit}, validate {inner_val})'
 
 
-def fit_and_predict(P, mask, y, fit_idx, test_idx, alpha, gate_key=None, context=None, bins=1):
+def fit_and_predict(P, mask, y, fit_idx, test_idx, alpha, gate_key=None, context=None, bins=1,
+                    discipline_sink=None, strict=False, discipline_label='fit',
+                    expert_names=None, clusters=None):
     """Fit the simplex-constrained stacker on fit_idx and predict test_idx.
 
     With bins > 1 this becomes the mixture-of-experts GATE: training rows are
     partitioned by a context variable at quantiles computed on TRAINING rows
     only, a separate weight vector is fitted per bin, and a test row is routed
     by the same training-derived edges. A bin with too few rows falls back to
-    the global weights instead of fitting noise."""
+    the global weights instead of fitting noise.
+
+    `discipline_sink`, when given, receives one observation-to-parameter
+    verdict per ACTUAL simplex fit -- the global one, and each gate bin that
+    fits its own weights rather than falling back. The alpha search leaves it
+    None on purpose: those are inner fits of the same shape, and recording six
+    grid points per fold would bury the folds that matter."""
+    def _check(rows_idx, label):
+        if discipline_sink is None:
+            return
+        record(discipline_sink, check_fold(package='F', label=label, target_type='simplex_weights',
+            y=y[rows_idx], feature_count=P.shape[1], availability=mask[rows_idx],
+            expert_names=expert_names,
+            clusters=[clusters[i] for i in rows_idx] if clusters is not None else None), strict=strict)
+
     if bins <= 1 or gate_key is None:
+        _check(fit_idx, f'{discipline_label}/global')
         b, ok = simplex_ridge(P[fit_idx], y[fit_idx], alpha, mask[fit_idx])
         return apply_weights(P[test_idx], b, mask[test_idx]), {'global': b.tolist()}, ok
 
@@ -387,11 +429,15 @@ def fit_and_predict(P, mask, y, fit_idx, test_idx, alpha, gate_key=None, context
     edges = np.quantile(values[fit_idx], np.linspace(0, 1, bins + 1)[1:-1])
     fit_bin = np.digitize(values[fit_idx], edges)
     test_bin = np.digitize(values[test_idx], edges)
+    _check(fit_idx, f'{discipline_label}/global')
     global_b, ok = simplex_ridge(P[fit_idx], y[fit_idx], alpha, mask[fit_idx])
     weights = {}; pred = np.zeros(len(test_idx))
     for bi in range(bins):
         sel = fit_idx[fit_bin == bi]
         if len(sel) >= 40:
+            # A gate bin is a fit in its own right on a fraction of the rows,
+            # so it gets its own verdict rather than inheriting the global one.
+            _check(sel, f'{discipline_label}/bin_{bi}')
             b, sub_ok = simplex_ridge(P[sel], y[sel], alpha, mask[sel])
             ok = ok and sub_ok
         else:
@@ -423,7 +469,8 @@ def baselines(P, mask, y, columns, test_idx):
     return out
 
 
-def walk_forward(P, mask, y, columns, context, seasons, week_keys, gate_key=None, bins=1, label='global'):
+def walk_forward(P, mask, y, columns, context, seasons, week_keys, gate_key=None, bins=1, label='global',
+                 discipline=None, strict=False):
     """Chronological walk-forward over seasons: fit the stacker on all earlier
     seasons, test on the next one. Never fits on the season it scores."""
     unique = sorted(set(seasons))
@@ -435,12 +482,20 @@ def walk_forward(P, mask, y, columns, context, seasons, week_keys, gate_key=None
         if len(fit_idx) < 60 or len(test_idx) < 20:
             continue
         alpha, alpha_note = select_alpha(P, mask, y, seasons, train_seasons, gate_key, context, bins)
-        pred, weights, ok = fit_and_predict(P, mask, y, fit_idx, test_idx, alpha, gate_key, context, bins)
+        seen = len(discipline) if discipline is not None else 0
+        pred, weights, ok = fit_and_predict(P, mask, y, fit_idx, test_idx, alpha, gate_key, context, bins,
+            discipline_sink=discipline, strict=strict, discipline_label=f'{label}/{int(test_season)}',
+            expert_names=columns, clusters=week_keys)
         base = baselines(P, mask, y, columns, test_idx)
         yt = y[test_idx]; wk = [week_keys[i] for i in test_idx]
         entry = {'test_season': int(test_season), 'train_seasons': [int(s) for s in train_seasons],
             'train_rows': int(len(fit_idx)), 'test_rows': int(len(test_idx)),
             'alpha': alpha, 'alpha_note': alpha_note, 'converged': ok,
+            # The verdicts themselves live once per substrate, not once per fold;
+            # this is the flag that says whether to read this fold's numbers as
+            # coming from a fit the fold could actually support.
+            'discipline_passed': (all(v['passed'] for v in discipline[seen:])
+                                  if discipline is not None else None),
             'selector_mae': mae(yt, pred), 'selector_mse': mse(yt, pred),
             'weights': weights, 'baselines': {}}
         if 'global' in weights:
@@ -560,6 +615,13 @@ def declaration(substrates):
                                       'bin count is reported as fragile, per the failure criterion'},
         'family_clustering': f'single-linkage union-find on |pearson r| >= {FAMILY_CORRELATION}, computed on '
                              'training rows where both experts are available. Whole families are ablated.',
+        'data_to_feature_ratio':
+            'research/model_discipline.py, checked before every simplex fit including each gate bin. The '
+            'sum-to-1 constraint means the parameter count is experts-1, and an expert is checked against '
+            'the rows where it is actually AVAILABLE, so an expert with too little coverage to earn its own '
+            'weight fails the fold even when the fold is large. Refuse-and-report: no automatic compression, '
+            'because compressing per fold would change the declared model between the folds this '
+            'preregistration compares.',
         'selection_rule':
             'The conditional selector is declared an improvement ONLY if its mean gain over BOTH the '
             'market-only and static-equal-weight baselines is positive AND the week-clustered 95% '
@@ -610,7 +672,9 @@ def declaration(substrates):
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def run_substrate(name, P, mask, y, columns, context, seasons, week_keys, guarantee, errors):
+def run_substrate(name, P, mask, y, columns, context, seasons, week_keys, guarantee, errors,
+                  strict=False):
+    discipline = []
     result = {'substrate': name, 'guarantee': guarantee, 'rows': int(len(y)),
         'experts': columns, 'expert_count': len(columns),
         'seasons': sorted(int(s) for s in set(seasons))}
@@ -631,14 +695,16 @@ def run_substrate(name, P, mask, y, columns, context, seasons, week_keys, guaran
 
     trials = []
     try:
-        trials.append(walk_forward(P, mask, y, columns, context, seasons, week_keys, label='global'))
+        trials.append(walk_forward(P, mask, y, columns, context, seasons, week_keys, label='global',
+            discipline=discipline, strict=strict))
     except Exception as e:
         errors.append(f'{name}/global failed: {type(e).__name__}: {str(e)[:200]}')
     for gate_key in ('disagreement', 'coverage', 'week'):
         for bins in (2, 3):
             try:
                 trials.append(walk_forward(P, mask, y, columns, context, seasons, week_keys,
-                    gate_key=gate_key, bins=bins, label=f'gate:{gate_key}:{bins}'))
+                    gate_key=gate_key, bins=bins, label=f'gate:{gate_key}:{bins}',
+                    discipline=discipline, strict=strict))
             except Exception as e:
                 errors.append(f'{name}/gate {gate_key} {bins} failed: {type(e).__name__}: {str(e)[:200]}')
     result['trials'] = trials
@@ -653,6 +719,12 @@ def run_substrate(name, P, mask, y, columns, context, seasons, week_keys, guaran
     except Exception as e:
         errors.append(f'{name}/contribution failed: {type(e).__name__}: {str(e)[:200]}')
         result['contribution'] = None
+    # Ablation and leave-one-out refit the same shapes many times over; their
+    # verdicts would be the declared trials' verdicts repeated with one column
+    # missing, so only the declared trials are recorded.
+    result['model_discipline'] = {**summarize(discipline), 'folds': discipline,
+        'scope': 'the declared trials (global stacker and each gate); family ablation and '
+                 'leave-one-out refits are not separately recorded'}
     result['verdict'] = verdict_for(result)
     return result
 
@@ -733,11 +805,12 @@ def run(args):
     declaration_written_at = datetime.now(timezone.utc).isoformat()
 
     results = []
+    strict = getattr(args, 'discipline', 'report') == 'strict'
     P, mask, y, columns, context = council_matrix(games, council_names)
     seasons = [g['season'] for g in games]
     week_keys = [(g['season'], g['week']) for g in games]
     results.append(run_substrate('council', P, mask, y, columns, context, seasons, week_keys,
-        substrate_summary['council']['guarantee'], errors))
+        substrate_summary['council']['guarantee'], errors, strict=strict))
 
     if tree:
         for market, bundle in sorted(tree.items()):
@@ -745,7 +818,7 @@ def run(args):
             wk = [(r['season'], r['week']) for r in bundle['rows']]
             results.append(run_substrate(f'tree:{market}:move', bundle['P'], bundle['mask'], bundle['y'],
                 bundle['columns'], bundle['context'], s, wk,
-                substrate_summary['tree']['guarantee'], errors))
+                substrate_summary['tree']['guarantee'], errors, strict=strict))
 
     report = {'schema': VERSION, 'run_id': run_id, 'status': 'complete', 'package': 'F',
         'authority': 'research_only', 'production_changed': False, 'staking_authority': 'none',
@@ -768,6 +841,9 @@ def main():
     ap.add_argument('--db', required=True)
     ap.add_argument('--oof-dir', default=None, help='directory holding tree_lab *-oof.json files')
     ap.add_argument('--output', required=True)
+    ap.add_argument('--discipline', choices=['report', 'strict'], default='report',
+        help='report (default): record every observation-to-parameter verdict in the frozen report and '
+             'keep going. strict: stop on the first under-powered fit.')
     run(ap.parse_args())
 
 

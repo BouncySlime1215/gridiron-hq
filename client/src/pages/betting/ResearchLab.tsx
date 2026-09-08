@@ -1,5 +1,16 @@
 import { useApi } from '../../api';
 
+// research/model_discipline.py's per-fold verdicts, reduced to a summary plus
+// the failures by server/services/nfl-research-lab.js. Optional everywhere: a
+// report frozen before this check existed (schema -v1) simply has no block, and
+// that is a different thing from a run whose folds all failed.
+type ModelDiscipline = {
+  version: string | null; checks: number; passed: boolean | null;
+  by_status: Record<string, number>; statement: string | null;
+  compression_policy: string | null; ratio_constants: Record<string, number> | null;
+  failures: { label: string; target_type: string; rows: number; effective_n: number;
+    parameters: number; observed_ratio: number | null; required_ratio: number; reason: string }[];
+};
 type Score = { games: number; paper_bets: number; mae: number; no_move_mae: number; mean_clv: number | null; roi: number | null; roi_interval: number[] | null };
 type Fold = Score & { season: number; selected: string; tpot_trials: number; candidates: (Score & { name: string; inner_mae: number })[] };
 interface Lab {
@@ -9,7 +20,7 @@ interface Lab {
   warehouse: { archive: { rows: number; games: number } | null; forward: { decisions: number; settled: number | null } | null; expert_forward: { predictions: number; games: number } | null };
   report_error: string | null;
   packages: { id: string; title: string; state: string; risk: string; purpose: string }[];
-  experiment: { run_id: string; status: string; progress?: string; rows: number; features: string[]; limitations: string[]; errors: string[]; markets: { market: string; folds: Fold[]; pooled: Score }[]; dataset_hash: string; code_hash: string } | null;
+  experiment: { run_id: string; status: string; progress?: string; rows: number; features: string[]; limitations: string[]; errors: string[]; markets: { market: string; folds: Fold[]; pooled: Score }[]; dataset_hash: string; code_hash: string; model_discipline?: ModelDiscipline | null } | null;
   book_lag_lab: {
     run_id: string; dataset_hash: string; events: number; books: number; native_step_seconds: number | null;
     hawkes_attempted: boolean; hawkes_verdict: string | null;
@@ -17,6 +28,7 @@ interface Lab {
     delay_survival: Record<string, { readable: boolean; delay_survival?: Record<string, { survival_probability: number | null; extrapolated: boolean }> }>;
     opportunity_routing: { counts: Record<string, number> } | null;
     verdict: string; limitations: string[]; split_policy_limitation: string | null;
+    model_discipline?: ModelDiscipline | null;
   } | null;
   book_lag_lab_error: string | null;
   tree_experiment: TreeLab | null; tree_report_error: string | null;
@@ -46,6 +58,7 @@ type SelectorSubstrate = {
   verdict: { any_trial_passed: boolean; statement: string; trials_meeting_declared_rule: string[];
     trials_meeting_rule_on_secondary_mse_metric: string[];
     significantly_worse_than_market: { trial: string; test_season: number; mean_gain_vs_market: number }[] };
+  model_discipline?: ModelDiscipline | null;
   folds: SelectorFold[];
   expert_contribution: { expert: string; mean_weight: number | null; never_selected: boolean | null;
     mae_increase_when_removed_by_fold: number[] | null; note: string | null }[];
@@ -70,6 +83,7 @@ interface TreeLab {
   run_id: string; status: string; rows: number; features: string[]; dataset_hash: string; code_hash: string;
   wall_clock_seconds?: number; errors: string[]; limitations: string[];
   markets: TreeMarketBlock[]; leakage_scans: LeakageScan[]; ranker: RankerResult[]; market_anchored_logit: LogitResult[];
+  model_discipline?: ModelDiscipline | null;
 }
 const label = (s: string) => s.replaceAll('_', ' ');
 const number = (n: number | null | undefined, digits = 2) => n == null ? 'Unavailable' : n.toFixed(digits);
@@ -109,6 +123,7 @@ export default function ResearchLab() {
           <details className="mt-4 text-sm"><summary className="cursor-pointer font-semibold text-slate-600">Open technical results</summary><div className="mt-3 overflow-x-auto"><table className="w-full min-w-[360px] text-left text-xs"><thead><tr className="border-b text-slate-400"><th className="p-2">Year / candidate</th><th className="p-2">Line error</th><th className="p-2">Paper bets</th><th className="p-2">Paper return</th></tr></thead><tbody>{m.folds.flatMap(f => f.candidates.map(c => <tr key={`${f.season}-${c.name}`} className="border-b border-slate-100"><td className="p-2">{f.season} / {label(c.name)}</td><td className="p-2">{number(c.mae)}</td><td className="p-2">{c.paper_bets}</td><td className="p-2">{c.roi == null ? 'No bets' : `${(c.roi * 100).toFixed(1)}%`}</td></tr>))}</tbody></table></div><p className="mt-2 text-xs leading-5 text-slate-500">Candidate selection used earlier-fold error, not these returns. Archived quotes do not prove fills. Previously studied seasons are development data.</p></details>
         </div>)}</div>
         {run.errors.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-900">{run.errors.length} search or data issues — not successful runs</summary><ul className="mt-2 space-y-1 text-xs text-amber-900">{run.errors.map((e,i) => <li className="break-words" key={i}>{e}</li>)}</ul></details>}
+        <DisciplinePanel discipline={run.model_discipline} />
         <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Limits and reproducibility</summary><ul className="mt-3 list-disc space-y-2 pl-5">{run.limitations.map(l => <li key={l}>{l}</li>)}</ul><div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {run.run_id}<br />Dataset: {run.dataset_hash}<br />Code: {run.code_hash}</div></details>
       </>}
     </section>
@@ -136,6 +151,7 @@ export default function ResearchLab() {
           <ul className="mt-2 space-y-1 text-xs text-slate-600">{tree.leakage_scans.map((s, i) => <li key={i}>{s.market} / {s.season} / {s.target}: {s.skipped ? 'skipped (not enough folds)' : s.flagged.length ? <span className="font-bold text-red-700">flagged {s.flagged.join(', ')}</span> : 'no feature flagged as a suspected leak'}</li>)}</ul>
         </details>
         {tree.errors.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-900">{tree.errors.length} search or data issues — not successful runs</summary><ul className="mt-2 space-y-1 text-xs text-amber-900">{tree.errors.map((e, i) => <li className="break-words" key={i}>{e}</li>)}</ul></details>}
+        <DisciplinePanel discipline={tree.model_discipline} />
         <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Limits and reproducibility</summary><ul className="mt-3 list-disc space-y-2 pl-5">{tree.limitations.map(l => <li key={l}>{l}</li>)}</ul><div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {tree.run_id}<br />Dataset: {tree.dataset_hash}<br />Code: {tree.code_hash}</div></details>
       </>}
     </section>
@@ -160,6 +176,7 @@ export default function ResearchLab() {
           </div>
         </div>
         {data.book_lag_lab.opportunity_routing && <div className="mt-4 flex flex-wrap gap-3 text-xs">{Object.entries(data.book_lag_lab.opportunity_routing.counts).map(([state, n]) => <span key={state} className="rounded-full bg-slate-100 px-3 py-1 font-bold text-slate-700">{state.replaceAll('_', ' ')}: {n}</span>)}</div>}
+        <DisciplinePanel discipline={data.book_lag_lab.model_discipline} />
         <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Delay survival and limits</summary>
           <div className="mt-3 space-y-3">{Object.entries(data.book_lag_lab.delay_survival).map(([market, m]) => <div key={market}><div className="text-xs font-bold uppercase text-slate-400">{market}</div>{!m.readable ? <p className="text-xs text-slate-500">Not yet readable.</p> : <div className="mt-1 flex flex-wrap gap-2 text-xs">{Object.entries(m.delay_survival ?? {}).map(([seconds, d]) => <span key={seconds} className="rounded bg-slate-50 px-2 py-1">{seconds}s: {d.survival_probability == null ? '—' : `${(d.survival_probability * 100).toFixed(0)}%`}{d.extrapolated ? ' (extrapolated)' : ' (measured)'}</span>)}</div>}</div>)}</div>
           <ul className="mt-3 list-disc space-y-2 pl-5">{data.book_lag_lab.limitations.map(l => <li key={l}>{l}</li>)}</ul>
@@ -224,6 +241,7 @@ export default function ResearchLab() {
             <p className="mt-2 rounded bg-slate-50 p-3 text-xs leading-5 text-slate-600"><span className="font-bold uppercase tracking-wide text-slate-400">Guarantee · </span>{r.guarantee}</p>
             <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm leading-6 text-slate-700">{r.verdict.statement}</p>
             {r.verdict.significantly_worse_than_market.length > 0 && <p className="mt-2 text-xs leading-5 text-amber-800">Significantly worse than simply taking the market in {r.verdict.significantly_worse_than_market.length} trial/season combination{r.verdict.significantly_worse_than_market.length === 1 ? '' : 's'} (week-clustered interval entirely below zero).</p>}
+            <DisciplinePanel discipline={r.model_discipline} />
             <details className="mt-3 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Walk-forward folds vs both baselines</summary>
               <div className="mt-2 overflow-x-auto">
                 <table className="w-full min-w-[46rem] text-left text-xs">
@@ -262,4 +280,23 @@ export default function ResearchLab() {
 }
 function Card({ title, value, detail }: { title: string; value: string; detail: string }) {
   return <div className="rounded-xl border border-slate-200 bg-white p-5"><div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{title}</div><div className="mt-2 text-xl font-black text-slate-900">{value}</div><p className="mt-2 text-xs leading-5 text-slate-500">{detail}</p></div>;
+}
+// research/model_discipline.py's per-fold observation-to-parameter check, run
+// before every fit in this lab and recorded whether it passes or fails. Absent
+// entirely on a report frozen before this check existed (schema -v1) -- shown
+// as nothing, not as a false "all clear" -- which is why this returns null
+// rather than a zero-check panel in that case.
+function DisciplinePanel({ discipline }: { discipline?: ModelDiscipline | null }) {
+  if (!discipline) return null;
+  const failing = discipline.failures.length;
+  return <details className={`mt-4 rounded-lg border p-3 text-sm ${failing ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'}`} open={failing > 0}>
+    <summary className={`cursor-pointer font-semibold ${failing ? 'text-amber-900' : 'text-slate-600'}`}>
+      Observation-to-parameter discipline · {discipline.checks} fold check{discipline.checks === 1 ? '' : 's'} · {failing ? `${failing} under-powered` : 'all passed'}
+    </summary>
+    <p className={`mt-2 text-xs leading-5 ${failing ? 'text-amber-900' : 'text-slate-600'}`}>{discipline.statement}</p>
+    {failing > 0 && <ul className="mt-2 space-y-1.5 text-xs leading-5 text-amber-900">{discipline.failures.map((f, i) => <li key={i}>
+      <span className="font-mono text-[10px]">{f.label}</span> ({label(f.target_type)}): {f.rows} rows → {number(f.effective_n, 1)} effective observations for {f.parameters} parameters ({f.observed_ratio == null ? 'undefined' : `${number(f.observed_ratio, 1)}:1`}, bar {f.required_ratio}:1). {f.reason}
+    </li>)}</ul>}
+    <p className="mt-2 text-[10px] leading-4 text-slate-400">{discipline.compression_policy}</p>
+  </details>;
 }

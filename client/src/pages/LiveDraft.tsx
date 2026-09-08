@@ -8,6 +8,7 @@ import SourcePill from '../components/draft/SourcePill';
 import DraftBoardRail from '../components/draft/DraftBoardRail';
 import { pprSeries, statHeadline } from '../components/draft/types';
 import { usePageExplain } from '../components/betting/PageExplainContext';
+import { EmptyState, PageError, PageLoading } from '../components/PageState';
 
 /* --------------------------------------------------------------- primitives */
 
@@ -88,7 +89,7 @@ function Face({ p, size = 40 }: { p: any; size?: number }) {
 /* ------------------------------------------------------------------ picker */
 
 function ConnectLeague() {
-  const { data: leagues } = useApi<any[]>('/leagues');
+  const { data: leagues, loading, error: loadError, refetch } = useApi<any[]>('/leagues');
   const [busy, setBusy] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const nav = useNavigate();
@@ -110,25 +111,26 @@ function ConnectLeague() {
         Mirrors your ESPN draft board pick-by-pick and tells you who to take while you're on the clock.
       </p>
       {err && <p className="text-sm text-rose-600 mb-3">{err}</p>}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {espn.map(l => (
-          <button key={l.id} onClick={() => link(l.id)} disabled={busy === l.id}
-            className="card p-4 text-left hover:border-sky-300 disabled:opacity-50">
-            <div className="font-semibold">{l.name ?? `ESPN ${l.league_id}`}</div>
-            <div className="text-xs text-slate-500 mt-1">
-              {l.season} · {l.team_count ?? '?'} teams · league {l.league_id}
-            </div>
-            <div className="text-xs font-medium text-sky-700 mt-2">
-              {busy === l.id ? 'Connecting…' : 'Open draft room →'}
-            </div>
-          </button>
-        ))}
-        {!espn.length && (
-          <p className="text-sm text-slate-500">
-            No ESPN leagues connected yet — <Link to="/settings" className="text-sky-700 underline">connect ESPN</Link> first.
-          </p>
-        )}
-      </div>
+      {loading && !leagues ? <PageLoading label="Loading your leagues…" /> : loadError && !leagues ? (
+        <PageError message={loadError} onRetry={refetch} />
+      ) : !espn.length ? (
+        <EmptyState title="No ESPN leagues connected yet" description="Connect ESPN to mirror a live draft board pick-by-pick." actionLabel="Connect ESPN" actionTo="/settings" />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {espn.map(l => (
+            <button key={l.id} onClick={() => link(l.id)} disabled={busy === l.id}
+              className="card p-4 text-left hover:border-sky-300 disabled:opacity-50">
+              <div className="font-semibold">{l.name ?? `ESPN ${l.league_id}`}</div>
+              <div className="text-xs text-slate-500 mt-1">
+                {l.season} · {l.team_count ?? '?'} teams · league {l.league_id}
+              </div>
+              <div className="text-xs font-medium text-sky-700 mt-2">
+                {busy === l.id ? 'Connecting…' : 'Open draft room →'}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -365,7 +367,11 @@ function Room({ id }: { id: string }) {
     claudes_pick: advice?.pick ?? null
   });
 
-  if (!state) return <p className="text-slate-500">Connecting to your ESPN draft…</p>;
+  // `err` also carries transient poll failures once the board has loaded (shown
+  // inline in the header below, without blanking the board — see the comment on
+  // `tick`), so only treat it as page-blocking here, before anything has loaded.
+  if (!state && err) return <PageError message={err} onRetry={tick} />;
+  if (!state) return <PageLoading label="Connecting to your ESPN draft…" />;
 
   const d = state.draft;
   const pickEvidence = advice?.pick ? evidenceFor(advice.pick) : { career: null, preseason: null };

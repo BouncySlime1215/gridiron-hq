@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useApi } from '../api';
+import { PageError, PageLoading } from '../components/PageState';
 
 /**
  * Everything the platform believes, and what it is allowed to do about it.
@@ -43,9 +44,16 @@ const TIER: Record<Authority, {
 };
 
 export default function TheModel() {
-  const { data: state } = useApi<any>('/model/state');
-  const { data: map } = useApi<any>('/model/map');
+  const { data: state, loading: stateLoading, error: stateError, refetch: refetchState } = useApi<any>('/model/state');
+  const { data: map, loading: mapLoading, error: mapError, refetch: refetchMap } = useApi<any>('/model/map');
   const { data: heads } = useApi<any>('/model/heads');
+
+  // `map` is the one every section below actually depends on (capabilities,
+  // tiers) — `state` only decorates the header strip. Treat a missing map as
+  // the page-blocking condition; a failed `state` fetch degrades gracefully
+  // (the header summary just doesn't render) rather than blanking everything.
+  if (mapLoading && !map) return <PageLoading label="Loading model capability map…" />;
+  if (mapError && !map) return <PageError message={mapError} onRetry={refetchMap} />;
 
   const grouped = (map?.capabilities ?? []).slice().sort(
     (a: any, b: any) => (TIER[a.authority as Authority]?.order ?? 9) - (TIER[b.authority as Authority]?.order ?? 9)
@@ -67,6 +75,13 @@ export default function TheModel() {
           not written down here — so it cannot claim something passed when the record says it failed.
         </p>
       </header>
+
+      {stateError && !state && (
+        <p className="tr-rise text-sm text-crit">
+          Couldn't load the distribution summary: {stateError}
+          <button className="btn-ghost text-xs ml-2" onClick={refetchState}>↻ Retry</button>
+        </p>
+      )}
 
       {state && (
         <section className="tr-rise surface-deep rounded-2xl p-5" style={{ animationDelay: '50ms' }}>

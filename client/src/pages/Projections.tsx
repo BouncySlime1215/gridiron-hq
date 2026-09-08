@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { api, headshotUrl, useApi } from '../api';
 import PlayerRow, { Trend } from '../components/PlayerRow';
+import { EmptyState, PageError, PageLoading } from '../components/PageState';
 
 export default function Projections() {
-  const { data: agg, refetch, loading } = useApi<any[]>('/aggregates');
+  const { data: agg, refetch, loading, error } = useApi<any[]>('/aggregates');
   const [filter, setFilter] = useState('ALL');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -48,10 +49,15 @@ export default function Projections() {
       </p>
       {msg && <p className="text-sm text-amber-600 mb-3">{msg}</p>}
 
-      {loading ? <p className="text-slate-500">Loading…</p> : visible.length === 0 ? (
-        <div className="card p-8 text-center text-sm text-slate-500">
-          No market data yet — hit <span className="text-emerald-600">↻ Pull latest</span> to fetch ADP, Sleeper ranks and trade values (all free, no keys).
-        </div>
+      {loading && !agg ? <PageLoading label="Loading projections & market data…" /> : error && !agg ? (
+        <PageError message={error} onRetry={refetch} />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          title="No market data yet"
+          description="Pull ADP, Sleeper ranks and trade values to build the blended consensus board (all free, no keys)."
+          actionLabel={busy ? 'Pulling…' : '↻ Pull latest'}
+          onAction={sync}
+        />
       ) : (
         <>
           <div className="card overflow-hidden">

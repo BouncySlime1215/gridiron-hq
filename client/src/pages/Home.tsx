@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
-import { Card, Confidence, ErrorState, PageHeader, Provenance, Section, Skeleton, StatTile } from '../components/ui/DesignSystem';
+import { Card, Confidence, PageHeader, Provenance, Section, Skeleton, StatTile } from '../components/ui/DesignSystem';
+import { EmptyState, PageError } from '../components/PageState';
 
 interface InboxItem { type: string; priority: 'high' | 'medium' | 'low'; title: string; action: string; link: string; }
 interface AccuracyPayload { season: number; players_graded: number; table: { source: string; mae: number; r2: number; spearman: number }[]; distribution?: { coverage_80?: number }; note: string; error?: string; }
@@ -41,15 +42,16 @@ export default function Home() {
       actions={<button className="btn-primary" onClick={refreshAll} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh sources'}</button>}
       meta={<><span>{league?.connection_status === 'connected' ? '● League connected' : '○ League needs attention'}</span><span>{leagues.length} league{leagues.length === 1 ? '' : 's'} available</span></>} />
     {status && <div aria-live="polite" className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">{status}</div>}
-    {sourceError && <div className="mb-4"><ErrorState message={String(sourceError)} retry={() => { draftsApi.refetch(); rankingsApi.refetch(); newsApi.refetch(); refetchLeagues(); }} /></div>}
+    {sourceError && <div className="mb-4"><PageError message={String(sourceError)} onRetry={() => { draftsApi.refetch(); rankingsApi.refetch(); newsApi.refetch(); refetchLeagues(); }} /></div>}
 
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,.7fr)]">
       <div className="space-y-6">
         <Section title="1 · Act now" description="Urgent roster, credential, trade and draft decisions come first.">
-          {!league ? <Card className="p-5"><div className="font-bold">Connect your first league</div><p className="mt-1 text-sm text-slate-500">ESPN and Sleeper context powers every personal recommendation.</p><Link to="/league?view=connections" className="btn-primary mt-4 inline-block">Connect league</Link></Card>
+          {!league ? <EmptyState title="Connect your first league" description="ESPN and Sleeper context powers every personal recommendation." actionLabel="Connect league" actionTo="/league?view=connections" />
             : inboxApi.loading && !inboxApi.data ? <div className="space-y-2"><Skeleton className="h-20" /><Skeleton className="h-20" /></div>
+            : inboxApi.error && !inboxApi.data ? <PageError message={inboxApi.error} onRetry={inboxApi.refetch} />
             : attention.length ? <div className="space-y-2">{attention.map((item, index) => <Link key={`${item.type}:${index}`} to={item.link} className={`block rounded-[10px] border p-4 transition-colors hover:border-slate-400 ${priorityStyle[item.priority]}`}><div className="flex items-center gap-2"><span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">{item.priority}</span><span className="font-bold text-slate-900">{item.title}</span></div><p className="mt-1 text-sm text-slate-600">Why: {item.action}</p></Link>)}</div>
-            : <Card className="p-5"><div className="font-bold text-slate-900">No urgent roster action</div><p className="mt-1 text-sm text-slate-500">The current roster, news and trade scans found nothing that clears the action threshold.</p></Card>}
+            : <EmptyState title="No urgent roster action" description="The current roster, news and trade scans found nothing that clears the action threshold." />}
         </Section>
 
         <Section title="2 · What changed" description="Newest information, ranked before general browsing.">
@@ -70,7 +72,9 @@ export default function Home() {
       <aside className="space-y-4">
         <Section title="4 · Confidence" description="Measured calibration, not a decorative score.">
           <Card className="p-4">
-            {accuracyApi.loading && !accuracyApi.data ? <Skeleton className="h-20" /> : accuracyApi.data?.error ? <p className="text-sm text-amber-700">{accuracyApi.data.error}</p> : <>
+            {accuracyApi.loading && !accuracyApi.data ? <Skeleton className="h-20" />
+              : accuracyApi.error && !accuracyApi.data ? <PageError message={accuracyApi.error} onRetry={accuracyApi.refetch} />
+              : accuracyApi.data?.error ? <p className="text-sm text-amber-700">{accuracyApi.data.error}</p> : <>
               <Confidence coverage={coverage} sample={accuracyApi.data?.players_graded} />
               <div className="mt-4 grid grid-cols-2 gap-3"><StatTile label="Held-out MAE" value={modelRow ? modelRow.mae.toFixed(1) : '—'} delta="season points" /><StatTile label="Rank correlation" value={modelRow ? modelRow.spearman.toFixed(3) : '—'} delta="Spearman" /></div>
               <p className="mt-3 text-xs leading-5 text-slate-500">{accuracyApi.data?.note}</p>

@@ -3,6 +3,7 @@ import Edge from './Edge';
 import Model from './Model';
 import { api, useApi } from '../api';
 import ModelRegistryPanel from '../features/model-lab/ModelRegistryPanel';
+import { EmptyState, PageError, PageLoading } from '../components/PageState';
 
 /**
  * Edge Tools and the Prediction Engine, merged into one hub.
@@ -108,8 +109,8 @@ function Registry() {
   const { data, loading, error, refetch } = useApi<any>('/model/registry');
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  if (loading) return <div className="text-sm text-slate-500">Loading persisted registry…</div>;
-  if (error) return <div className="text-sm text-red-600">Registry unavailable: {String(error)}</div>;
+  if (loading && !data) return <PageLoading label="Loading persisted registry…" />;
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
   const experiments = data?.experiments ?? [];
   const act = async (id: string, action: 'backtests' | 'holdout' | 'promote' | 'rollback') => {
     setBusy(`${id}:${action}`); setActionError(null);
@@ -124,7 +125,7 @@ function Registry() {
         ['Datasets', data?.datasets?.length ?? 0], ['Feature versions', data?.features?.length ?? 0]].map(([label, value]) =>
         <div key={String(label)} className="card p-3"><div className="text-xs text-slate-500">{label}</div><div className="font-semibold mt-1">{value}</div></div>)}
     </div>
-    {!experiments.length ? <div className="card p-4 text-sm text-slate-500">No persisted experiments yet. Research analytics are not production models until registered and promoted through every gate.</div> :
+    {!experiments.length ? <EmptyState title="No persisted experiments yet" description="Research analytics are not production models until registered and promoted through every gate." /> :
       <div className="card overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-slate-500 border-b">
         <th className="p-3">Experiment</th><th className="p-3">Status</th><th className="p-3">Pinned inputs</th><th className="p-3">Gates</th><th className="p-3">Actions</th>
       </tr></thead><tbody>{experiments.map((x: any) => <tr key={x.id} className="border-b last:border-0">

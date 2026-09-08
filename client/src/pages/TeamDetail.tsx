@@ -7,6 +7,7 @@ import { usePlayerCard } from '../components/PlayerCard';
 import OffseasonPanel from '../components/OffseasonPanel';
 import TeamSchedule from '../components/TeamSchedule';
 import SidePanel from '../components/SidePanel';
+import { EmptyState, PageError, PageLoading } from '../components/PageState';
 
 type Phase = 'offense' | 'defense' | 'special_teams' | 'schedule' | 'offseason';
 
@@ -56,8 +57,8 @@ const UNIT_LABEL: Record<string, string> = {
 export default function TeamDetail() {
   const { abbr } = useParams();
   const openCard = usePlayerCard();
-  const { data: team, loading, refetch: refetchTeam } = useApi<Team>(`/teams/${abbr}`);
-  const { data: teamNews, refetch: refetchNews } = useApi<any[]>(`/news?team=${abbr}`);
+  const { data: team, loading, error, refetch: refetchTeam } = useApi<Team>(`/teams/${abbr}`);
+  const { data: teamNews, loading: newsLoading, error: newsError, refetch: refetchNews } = useApi<any[]>(`/news?team=${abbr}`);
   const [newsBusy, setNewsBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState<string | null>(null);
@@ -88,7 +89,8 @@ export default function TeamDetail() {
 
 
 
-  if (loading || !team) return <p className="text-slate-500">Loading team…</p>;
+  if (error && !team) return <PageError message={error} onRetry={refetchTeam} />;
+  if (loading || !team) return <PageLoading label="Loading team…" />;
 
   const unitAnalysis: Record<string, string | undefined> = {
     OL: team.ol_analysis, DL: team.dl_analysis, LB: team.lb_analysis,
@@ -257,8 +259,10 @@ export default function TeamDetail() {
             </button>
           </div>
           {aiMsg && <p className="text-xs text-amber-600 mb-2">{aiMsg}</p>}
-          {(teamNews ?? []).length === 0 ? (
-            <p className="text-xs text-slate-500">No stories for {team.abbr} yet — pull the latest from ESPN&apos;s team feed.</p>
+          {newsLoading && !teamNews ? <PageLoading label="Loading team news…" /> : newsError && !teamNews ? (
+            <PageError message={newsError} onRetry={refetchNews} />
+          ) : (teamNews ?? []).length === 0 ? (
+            <EmptyState title={`No stories for ${team.abbr} yet`} description="Pull the latest from ESPN's team feed." actionLabel={newsBusy ? 'Pulling…' : '↻ Pull latest from ESPN'} onAction={pullTeamNews} />
           ) : (teamNews ?? []).slice(0, 8).map(n => (
             <div key={n.id} className="py-3 border-b border-slate-100 last:border-0">
               <div className="flex items-center gap-2 text-[11px] mb-1">
@@ -307,7 +311,12 @@ export default function TeamDetail() {
  */
 function Tendencies({ abbr }: { abbr: string }) {
   const [open, setOpen] = useState(false);
-  const { data } = useApi<any>(`/teams/${abbr}/tendencies`);
+  const { data, loading, error, refetch } = useApi<any>(`/teams/${abbr}/tendencies`);
+  // A secondary, below-the-fold widget — loading and "not enough data" are
+  // both unremarkable and shown quietly, but a genuine fetch failure still
+  // needs to say so instead of just disappearing.
+  if (loading && !data) return null;
+  if (error && !data) return <div className="mt-3"><PageError message={error} onRetry={refetch} /></div>;
   if (!data || data.error) return null;
 
   const bar = (pct: number) => Math.max(3, Math.min(100, pct * 100));

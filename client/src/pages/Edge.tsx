@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, headshotUrl, useApi } from '../api';
 import { Headshot } from '../components/PlayerRow';
 import { usePlayerCard } from '../components/PlayerCard';
+import { EmptyState, PageError, PageLoading } from '../components/PageState';
 
 // No "trade" tab here anymore — it was a leagueless, roster-blind VOR-diff
 // tool that duplicated (much worse than) the real Trade Lab, which knows
@@ -71,11 +72,11 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
   const tab = controlledTab ?? ownTab;
   const [pos, setPos] = useState('ALL');
 
-  const { data: vor } = useApi<any[]>('/edge/vor');
-  const { data: movers } = useApi<any>('/edge/movers');
-  const { data: vol } = useApi<any[]>('/edge/volatility');
-  const { data: sched } = useApi<any[]>('/edge/schedule-edge');
-  const { data: eff } = useApi<any[]>(`/edge/efficiency${pos !== 'ALL' ? `?position=${pos}` : ''}`);
+  const { data: vor, loading: vorLoading, error: vorError, refetch: refetchVor } = useApi<any[]>('/edge/vor');
+  const { data: movers, loading: moversLoading, error: moversError, refetch: refetchMovers } = useApi<any>('/edge/movers');
+  const { data: vol, loading: volLoading, error: volError, refetch: refetchVol } = useApi<any[]>('/edge/volatility');
+  const { data: sched, loading: schedLoading, error: schedError, refetch: refetchSched } = useApi<any[]>('/edge/schedule-edge');
+  const { data: eff, loading: effLoading, error: effError, refetch: refetchEff } = useApi<any[]>(`/edge/efficiency${pos !== 'ALL' ? `?position=${pos}` : ''}`);
 
   const [simIds, setSimIds] = useState<number[]>([]);
   const [sim, setSim] = useState<any>(null);
@@ -110,7 +111,11 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
       </div>
 
       {/* ---------- VOR ---------- */}
-      {tab === 'vor' && (
+      {tab === 'vor' && (vorLoading && !vor ? <PageLoading label="Loading value board…" /> : vorError && !vor ? (
+        <PageError message={vorError} onRetry={refetchVor} />
+      ) : !filt(vor).length ? (
+        <EmptyState title="No value board yet" description="Run a projections sync to populate points-over-replacement for every player." />
+      ) : (
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-400">
@@ -145,10 +150,14 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
             </tbody>
           </table>
         </div>
-      )}
+      ))}
 
       {/* ---------- movers ---------- */}
-      {tab === 'movers' && (
+      {tab === 'movers' && (moversLoading && !movers ? <PageLoading label="Loading breakouts & regressions…" /> : moversError && !movers ? (
+        <PageError message={moversError} onRetry={refetchMovers} />
+      ) : !filt(movers?.breakouts).length && !filt(movers?.regressions).length ? (
+        <EmptyState title="No movers yet" description="Breakout and regression signals need at least a couple of weeks of updated projections to compare against." />
+      ) : (
         <div className="grid lg:grid-cols-2 gap-4">
           {([['breakouts', 'Projected to break out', true], ['regressions', 'Projected to regress', false]] as const).map(([key, title, isGood]) => (
             <div key={key} className="card overflow-hidden">
@@ -175,10 +184,14 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
             </div>
           ))}
         </div>
-      )}
+      ))}
 
       {/* ---------- volatility ---------- */}
-      {tab === 'volatility' && (
+      {tab === 'volatility' && (volLoading && !vol ? <PageLoading label="Loading boom/bust data…" /> : volError && !vol ? (
+        <PageError message={volError} onRetry={refetchVol} />
+      ) : !filt(vol).filter(p => p.games >= 6).length ? (
+        <EmptyState title="No boom/bust data yet" description="Weekly floor, ceiling and consistency need at least 6 games of history per player." />
+      ) : (
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-400">
@@ -212,10 +225,14 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
             </tbody>
           </table>
         </div>
-      )}
+      ))}
 
       {/* ---------- efficiency ---------- */}
-      {tab === 'efficiency' && (
+      {tab === 'efficiency' && (effLoading && !eff ? <PageLoading label="Loading efficiency data…" /> : effError && !eff ? (
+        <PageError message={effError} onRetry={refetchEff} />
+      ) : !(eff ?? []).length ? (
+        <EmptyState title="No efficiency data yet" description="Usage share and rate stats need weekly boxscore data to compute." />
+      ) : (
         <div className="card overflow-hidden">
           <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-800">
             Usage share is computed across tracked fantasy players on each team, so it reads high for
@@ -261,10 +278,14 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
             </table>
           </div>
         </div>
-      )}
+      ))}
 
       {/* ---------- playoff schedule ---------- */}
-      {tab === 'schedule' && (
+      {tab === 'schedule' && (schedLoading && !sched ? <PageLoading label="Loading playoff schedule…" /> : schedError && !sched ? (
+        <PageError message={schedError} onRetry={refetchSched} />
+      ) : !(sched ?? []).length ? (
+        <EmptyState title="No schedule data yet" description="Playoff strength-of-schedule needs the season schedule and team ratings to be synced." />
+      ) : (
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-400">
@@ -289,7 +310,7 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
             </tbody>
           </table>
         </div>
-      )}
+      ))}
 
       {/* ---------- simulator ---------- */}
       {tab === 'sim' && (

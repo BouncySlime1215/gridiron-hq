@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import { usePlayerCard } from '../components/PlayerCard';
+import { EmptyState, PageError, PageLoading } from '../components/PageState';
 
 /**
  * The prediction engine, made inspectable.
@@ -87,10 +88,11 @@ export default function Model({ tab: controlledTab, embedded }: { tab?: Tab; emb
 /* -------------------------------------------------------------- accuracy */
 function Accuracy() {
   const [season, setSeason] = useState(2025);
-  const { data, loading } = useApi<any>(`/model/accuracy?season=${season}`);
+  const { data, loading, error, refetch } = useApi<any>(`/model/accuracy?season=${season}`);
 
-  if (loading) return <div className="card p-6 text-sm text-slate-500">Rebuilding the model on held-out data and grading it…</div>;
-  if (data?.error) return <div className="card p-6 text-sm text-slate-600">{data.error}</div>;
+  if (loading && !data) return <PageLoading label="Rebuilding the model on held-out data and grading it…" />;
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
+  if (data?.error) return <EmptyState title="Accuracy not available" description={data.error} />;
 
   const best = data?.table?.[0];
   return (
@@ -234,11 +236,12 @@ function Odds() {
   // Follows the league picked in the header — previously this silently always used
   // whichever league synced first, with no way to see odds for a second league.
   const { activeId: id } = useLeague();
-  const { data, loading } = useApi<any>(id ? `/model/${id}/simulate?runs=2000` : null);
+  const { data, loading, error, refetch } = useApi<any>(id ? `/model/${id}/simulate?runs=2000` : null);
 
-  if (!id) return <div className="card p-6 text-sm text-slate-500">Connect a league first.</div>;
-  if (loading) return <div className="card p-6 text-sm text-slate-500">Simulating the season 2,000 times…</div>;
-  if (data?.error) return <div className="card p-6 text-sm text-slate-600">{data.error}</div>;
+  if (!id) return <EmptyState title="Connect a league first" description="Championship odds are simulated against a real league's rosters and schedule." actionLabel="Connect a league" actionTo="/league?view=connections" />;
+  if (loading && !data) return <PageLoading label="Simulating the season 2,000 times…" />;
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
+  if (data?.error) return <EmptyState title="Championship odds not available" description={data.error} />;
 
   const max = Math.max(...(data?.teams ?? []).map((t: any) => t.title_odds), 0.01);
   return (
@@ -272,7 +275,12 @@ function Odds() {
 
 /* -------------------------------------------------------- correlation */
 function Correlation() {
-  const { data } = useApi<any[]>('/model/correlations');
+  const { data, loading, error, refetch } = useApi<any[]>('/model/correlations');
+
+  if (loading && !data) return <PageLoading label="Loading correlation archetypes…" />;
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
+  if (!data?.length) return <EmptyState title="No correlations fitted yet" description="Correlation archetypes are fitted from residuals across seasons of boxscores — resync the model to build them." />;
+
   return (
     <div className="card overflow-hidden">
       <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
@@ -312,10 +320,13 @@ function Correlation() {
 /* -------------------------------------------------------- game script */
 function GameScript() {
   const [week, setWeek] = useState(1);
-  const { data } = useApi<any>(`/model/gamescript?season=2026&week=${week}`);
+  const { data, loading, error, refetch } = useApi<any>(`/model/gamescript?season=2026&week=${week}`);
   const model = data?.model ?? [];
   const fitted = (data?.lines ?? []).find((l: any) => l.home && l.fitted_through)?.fitted_through;
   const observations = (data?.lines ?? []).find((l: any) => l.home)?.training_observations;
+
+  if (loading && !data) return <PageLoading label="Loading game script model…" />;
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
 
   return (
     <div className="space-y-4">
@@ -383,8 +394,10 @@ function GameScript() {
 /* ------------------------------------------------------- availability */
 function Availability() {
   const [week, setWeek] = useState(1);
-  const { data, loading } = useApi<any>(`/model/availability?season=2026&week=${week}`);
+  const { data, loading, error, refetch } = useApi<any>(`/model/availability?season=2026&week=${week}`);
   const players = data?.players ?? [];
+
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
   const reported = players.filter((p: any) => p.report_status || p.practice_status);
   const shown = (reported.length ? reported : players).slice(0, 100);
 
@@ -401,7 +414,7 @@ function Availability() {
         <b className="text-slate-800">Availability is part of the forecast.</b> Historical durability supplies the prior;
         the exact report status and practice participation available this week update it. An inactive simulation scores zero.
       </div>
-      {loading ? <div className="card p-6 text-sm text-slate-500">Calculating weekly availability…</div> : (
+      {loading && !data ? <PageLoading label="Calculating weekly availability…" /> : (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto max-h-[58vh] overflow-y-auto">
             <table className="w-full text-xs">
@@ -434,8 +447,13 @@ function Availability() {
 
 /* ---------------------------------------------------------- handcuffs */
 function Handcuffs() {
-  const { data } = useApi<any[]>('/model/handcuffs?limit=40');
+  const { data, loading, error, refetch } = useApi<any[]>('/model/handcuffs?limit=40');
   const open = usePlayerCard();
+
+  if (loading && !data) return <PageLoading label="Loading contingent-value data…" />;
+  if (error && !data) return <PageError message={error} onRetry={refetch} />;
+  if (!data?.length) return <EmptyState title="No handcuff data yet" description="Contingent value is measured from games a starter actually missed — resync the model once enough games are on record." />;
+
   return (
     <div className="card overflow-hidden">
       <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">

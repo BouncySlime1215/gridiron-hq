@@ -58,8 +58,14 @@ import joblib
 
 from market_lab import stamp, digest, atomic_json, american_profit, settlement, time_folds, FrozenTimeCV, cluster_interval
 from leakage import detect_feature_leakage
+from drift import scan_lab_fold
 
-VERSION = 'tree-lab-v1'
+# Bumped from tree-lab-v1 when the distributional-drift scan (research/drift.py,
+# `drift_scans` below) was added next to the leakage scan. The reader in
+# server/services/nfl-research-lab.js accepts BOTH versions on purpose: the
+# frozen v1 report on disk is real evidence from a real run and must keep
+# rendering, it simply has no drift block.
+VERSION = 'tree-lab-v2'
 SEED = 83017
 THRESHOLD = 0.5          # movement-target abstention, points -- same convention as market_lab
 PROB_EDGE = 0.02         # classification/logit paper-bet trigger: model must beat market prob by this much
@@ -896,7 +902,7 @@ def run(args):
     run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + code_hash[:8]
     run_dir = out / run_id; run_dir.mkdir()
     dataset_hash = digest(data)
-    errors, leakage_reports = [], []
+    errors, leakage_reports, drift_reports = [], [], []
 
     report = {'schema': VERSION, 'run_id': run_id, 'status': 'running', 'created_at': datetime.now(timezone.utc).isoformat(),
         'authority': 'research_only', 'production_changed': False, 'untouched_holdout': False,
@@ -921,8 +927,15 @@ def run(args):
             'This dataset builder duplicates (rather than imports) market_lab.build_dataset\'s chronology '
                 'block to extract a wider feature set; the two extractors must be kept in agreement by hand. '
                 'See the module docstring.',
-            'Points of CLV/log-loss gain are not dollars of edge. Positive historical ROI cannot authorize staking.'],
-        'markets': [], 'ranker': [], 'market_anchored_logit': [], 'leakage_scans': leakage_reports, 'errors': errors}
+            'Points of CLV/log-loss gain are not dollars of edge. Positive historical ROI cannot authorize staking.',
+            'The drift scan REPORTS; it never withholds a fold or a model. A feature listed under '
+                'drift_scans[*].flagged means a result should be read with that in mind, not that the '
+                'result was suppressed.',
+            'The 2023 outer fold has only one training season, so it has no NFL season boundary of its '
+                'own to calibrate drift against and falls back to the analytic sampling-noise floor. '
+                'Its drift verdicts are marked calibration_weak and are the least trustworthy of the three.'],
+        'markets': [], 'ranker': [], 'market_anchored_logit': [], 'leakage_scans': leakage_reports,
+        'drift_scans': drift_reports, 'errors': errors}
     atomic_json(run_dir / 'dataset.json', data)
     atomic_json(run_dir / 'preregistered.json', report)
 
@@ -975,6 +988,31 @@ def run(args):
         save()
 
         report['markets'].append(market_block); save()
+
+    # Distributional-drift scan on the REAL dataset, one per market/outer
+    # season, using exactly the train/test windows the outer folds fit on.
+    # This sits beside the leakage scan below and answers the other half of
+    # the same question: leakage asks "is a feature secretly the label?",
+    # drift asks "has the population moved so far that a model fitted on the
+    # earlier seasons should not be trusted on this one?". It REPORTS ONLY --
+    # no fold is skipped and no model is withheld because of what it finds.
+    # See research/drift.py for why PSI's conventional 0.1/0.25 thresholds are
+    # explicitly rejected at these fold sizes.
+    for market in ['spreads', 'totals']:
+        for season in [2023, 2024, 2025]:
+            score_rows = [r for r in data if r['market'] == market and r['season'] == season]
+            if not score_rows:
+                continue
+            outer_cutoff = min(stamp(r['decision_at']) for r in score_rows) - timedelta(days=7)
+            train_rows = [r for r in data if r['market'] == market and r['season'] < season
+                          and stamp(r['label_at']) < outer_cutoff]
+            try:
+                drift_reports.append(scan_lab_fold(train_rows, score_rows, names, market=market,
+                                                   score_season=season, label=f'{market}/{season}',
+                                                   random_state=SEED))
+            except Exception as e:
+                errors.append(f'{market}/{season} drift scan failed: {type(e).__name__}: {str(e)[:200]}')
+    save()
 
     # Leakage scan on the REAL dataset (not just the synthetic test), for the
     # movement target on the fullest training set available, so a genuine

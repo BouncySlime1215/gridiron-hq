@@ -18,7 +18,13 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error
 import joblib
 
-VERSION = 'market-lab-v1'
+from drift import scan_lab_fold
+
+# Bumped from market-lab-v1 when the distributional-drift scan (research/drift.py,
+# `drift_scans` in the report) was added. server/services/nfl-research-lab.js
+# accepts BOTH versions on purpose: the frozen v1 report on disk is evidence
+# from a real run and must keep rendering; it simply has no drift block.
+VERSION = 'market-lab-v2'
 SEED = 83017
 THRESHOLD = 0.5  # fixed before looking at evaluations; points, not probability
 PB_KEYS = ['off_epa_per_play', 'def_epa_per_play', 'off_success_rate',
@@ -203,8 +209,11 @@ def run(args):
         'Archived opening prices are indicative; access, limits, delay and fills are unverified.',
         'Prior play-by-play uses a conservative publication delay, but historical revision vintages are unavailable.',
         'Points of CLV are not dollars of edge. Positive historical ROI cannot authorize staking.',
+        'The drift scan reports; it never withholds a fold or a model. The 2023 outer fold has one '
+          'training season and so no season boundary to calibrate against; its verdicts are marked '
+          'calibration_weak.',
         'No news, injury, kickoff weather or nfelo historical forecast is admitted without an availability timestamp.'],
-      'markets':[],'errors':[]}
+      'markets':[],'drift_scans':[],'errors':[]}
     atomic_json(run_dir/'dataset.json',data)
     atomic_json(run_dir/'preregistered.json',report)
     def save():atomic_json(run_dir/'report.json',report);atomic_json(out/'latest.json',report)
@@ -260,6 +269,23 @@ def run(args):
         if combined:
             report['markets'].append({'market':market,'folds':results,'pooled':evaluate(combined,selected_preds)})
             save()
+    # Distributional-drift scan over exactly the outer windows fitted above:
+    # has the population moved between the training seasons and the scoring
+    # season by more than an NFL season boundary normally moves it? Reported
+    # only -- see research/drift.py, which also explains why PSI's textbook
+    # 0.1/0.25 thresholds are rejected at these fold sizes.
+    for market in ['spreads','totals']:
+        for season in [2023,2024,2025]:
+            score_rows=[r for r in data if r['market']==market and r['season']==season]
+            if not score_rows:continue
+            outer_cutoff=min(stamp(r['decision_at']) for r in score_rows)-timedelta(days=7)
+            train_rows=[r for r in data if r['market']==market and r['season']<season and stamp(r['label_at'])<outer_cutoff]
+            try:
+                report['drift_scans'].append(scan_lab_fold(train_rows,score_rows,names,market=market,
+                    score_season=season,label=f'{market}/{season}',random_state=SEED))
+            except Exception as e:
+                report['errors'].append(f'{market}/{season} drift scan failed: {type(e).__name__}: {str(e)[:200]}')
+    save()
     report['status']=('complete_with_errors' if report['errors'] else 'complete') if report['markets'] else 'failed'
     report['completed_at']=datetime.now(timezone.utc).isoformat();report['progress']='Finished; no model promoted'
     report['verdict']='Research complete. Review predictive skill, execution assumptions and forward evidence separately.'

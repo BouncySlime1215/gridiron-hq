@@ -7,6 +7,46 @@ import { latestRoleScenarioExperiment } from './role-scenario-lab.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const parse = value => { try { return JSON.parse(value); } catch { return null; } };
+// A report's schema is versioned, and readers here accept EVERY version they
+// understand rather than only the newest. When research/drift.py's
+// distributional-drift scan was added, market-lab, tree-lab and book-lag-lab
+// each went to -v2. The -v1 reports already on disk are frozen evidence from
+// real runs; they simply have no drift block. Pinning these readers to -v2
+// would have silently dropped that evidence from the page, which is a worse
+// failure than not having the new check at all -- a research workspace that
+// hides a result it cannot fully parse is lying by omission.
+const readSchema = (report, accepted) => (report && accepted.includes(report.schema)) ? report : null;
+// The drift block is projected identically wherever it appears, so a reader
+// change only has to happen once. `null` for a v1 report is the honest answer:
+// the run predates the check, which is different from the check finding
+// nothing. The UI distinguishes the two.
+const projectDrift = scans => Array.isArray(scans) ? scans.map(s => ({
+  label: s.label ?? null, market: s.market ?? null, score_season: s.score_season ?? null,
+  version: s.version ?? null, skipped: !!s.skipped, reason: s.reason ?? null,
+  n_train: s.n_train ?? null, n_score: s.n_score ?? null, bins_used: s.bins_used ?? null,
+  calibration_weak: !!s.calibration_weak,
+  psi_noise_p95: s.psi_noise_reference?.p95_under_no_drift ?? null,
+  league_reference: s.league_reference ?? null,
+  // Carried verbatim: the reason this project does not use PSI's textbook
+  // 0.1/0.25 cut is evidence a reader is entitled to see, not a hidden
+  // implementation choice.
+  conventional_thresholds_rejected: s.conventional_psi_thresholds_rejected ?? null,
+  flagged: s.flagged ?? [], elevated: s.elevated ?? [], market_regime_shifts: s.market_regime_shifts ?? [],
+  joint: s.joint ?? null, summary: s.summary ?? null,
+  // Only the movers are sent to the browser; the full per-feature table stays
+  // in the report on disk. A frozen run has ~86 features x 6 folds and the
+  // page needs the ones that actually moved, not all of them.
+  top_features: (s.features ?? [])
+    .filter(f => f.psi != null && f.verdict !== 'stable')
+    .sort((a, b) => (b.psi ?? 0) - (a.psi ?? 0)).slice(0, 12)
+    .map(f => ({ feature: f.feature, role: f.role, psi: f.psi,
+      psi_binning_spread: f.psi_binning_spread ?? null,
+      wasserstein_normalized: f.wasserstein_normalized ?? null,
+      mean_shift_in_train_sd: f.mean_shift_in_train_sd ?? null,
+      available_rate_train: f.available_rate_train ?? null,
+      available_rate_score: f.available_rate_score ?? null,
+      verdict: f.verdict, verdict_reason: f.verdict_reason ?? null }))
+})) : null;
 const exists = table => rows("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).length > 0;
 const optional = (table, sql) => exists(table) ? rows(sql) : [];
 
@@ -30,8 +70,9 @@ export async function researchLabStatus() {
     error: parse(r.final_json)?.error ?? null } : null;
   let experiment = null, reportError = null;
   try {
-    experiment = parse(await fs.readFile(path.join(root, 'server/data/market-lab/latest.json'), 'utf8'));
-    if (experiment?.schema !== 'market-lab-v1') { experiment = null; reportError = 'Unrecognized or invalid research report'; }
+    experiment = readSchema(parse(await fs.readFile(path.join(root, 'server/data/market-lab/latest.json'), 'utf8')),
+      ['market-lab-v1', 'market-lab-v2']);
+    if (!experiment) reportError = 'Unrecognized or invalid research report';
   } catch (error) { if (error.code !== 'ENOENT') reportError = 'Research report could not be read'; }
   // The Package C extension (research/tree_lab.py) writes a SEPARATE report
   // under its own schema (tree-lab-v1) rather than reshaping market-lab-v1:

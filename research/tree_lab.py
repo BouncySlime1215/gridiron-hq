@@ -431,6 +431,50 @@ def quantile_predict(name, model, X):
 # Evaluation
 # ---------------------------------------------------------------------------
 
+def emit_oof(run_dir, market, season, target, rows, per_candidate, extra=None):
+    """Persist the per-row, per-candidate held-out predictions this script
+    ALREADY computes for its `candidates` summary block, so that a downstream
+    stacker (Package F, research/expert_selector_lab.py) can consume them
+    without ever refitting -- and, critically, without ever scoring a model on
+    rows it was trained on.
+
+    What these predictions are, stated precisely, because the distinction
+    matters for anything that stacks them: they are NOT k-fold out-of-fold
+    predictions over a shuffled pool. Every candidate here was fit on rows from
+    seasons STRICTLY EARLIER than `season`, further restricted to rows whose
+    label was already settled seven days before the earliest decision time in
+    the test season (`outer_cutoff` in the callers). The test season's rows were
+    never in any candidate's training matrix. That is a strictly stronger,
+    forward-only guarantee than shuffled k-fold, and it is the guarantee a
+    market-timing stacker actually needs.
+
+    Consequence for the consumer, which the consumer must respect: because each
+    season's predictions come from a model trained only on earlier seasons, the
+    STACKER itself must also be fit chronologically across these seasons. Fitting
+    a stacker on all seasons at once and reporting its in-sample fit would
+    reintroduce exactly the leak this file exists to prevent.
+    """
+    payload = []
+    for i, r in enumerate(rows):
+        row = {'event_id': r['event_id'], 'market': market, 'season': season, 'week': r['week'],
+            'home': r['home'], 'away': r['away'], 'decision_at': r['decision_at'], 'label_at': r['label_at'],
+            'opening_line': r['opening_line'], 'closing_line': r['closing_line'],
+            'positive_price': r['positive_price'], 'negative_price': r['negative_price'],
+            'y': r['y'], 'outcome': r['outcome'],
+            'experts': {name: (float(v[i]) if np.isfinite(v[i]) else None) for name, v in per_candidate.items()}}
+        if extra:
+            for k, v in extra.items():
+                row[k] = float(v[i]) if np.isfinite(v[i]) else None
+        payload.append(row)
+    atomic_json(run_dir / f'{market}-{season}-{target}-oof.json', {
+        'schema': 'tree-lab-oof-v1', 'market': market, 'season': season, 'target': target,
+        'experts': sorted(per_candidate), 'rows': len(payload),
+        'guarantee': 'each expert fit on seasons < test season only, with a seven-day settled-label cutoff; '
+                     'test-season rows appear in no expert training matrix',
+        'predictions': payload})
+    return len(payload)
+
+
 def evaluate_movement(rows, pred):
     """Identical semantics to market_lab.evaluate -- reproduced here (not
     imported) only because it is short and this module's row dicts carry an
@@ -699,8 +743,15 @@ def run_movement(data, names, market, season, run_dir, tpot_minutes, errors):
     selected = min(scores, key=scores.get)
     model = clone(models[selected]).fit(X, y); pred = model.predict(Xt)
     joblib.dump(model, run_dir / f'{market}-{season}-move.joblib')
-    candidate_rows = [{'name': n, 'inner_mae': scores[n], **evaluate_movement(test, clone(m).fit(X, y).predict(Xt))}
-        for n, m in models.items()]
+    candidate_rows = []; per_candidate = {}
+    for n, m in models.items():
+        # One fit per candidate, reused for both the summary metrics and the
+        # persisted per-row vector -- previously this prediction was computed
+        # and thrown away after evaluate_movement() reduced it to scalars.
+        cand_pred = clone(m).fit(X, y).predict(Xt)
+        per_candidate[n] = np.asarray(cand_pred, dtype=float)
+        candidate_rows.append({'name': n, 'inner_mae': scores[n], **evaluate_movement(test, cand_pred)})
+    emit_oof(run_dir, market, season, 'move', test, per_candidate)
     return {'season': season, 'target': 'move', 'train_games': len(train), 'inner_folds': len(cv),
         'selected': selected, 'tpot_trials': trials, 'candidates': candidate_rows, **evaluate_movement(test, pred)}
 
@@ -763,12 +814,16 @@ def run_classification(data, names, market, season, run_dir, tpot_minutes, error
     pred = model.predict_proba(fit_xt)[:, 1]
     if selected not in ('coin_flip', 'market_only'):
         joblib.dump(model, run_dir / f'{market}-{season}-cover.joblib')
-    candidate_rows = []
+    candidate_rows = []; per_candidate = {}
     for n, m in models.items():
         cx, cxt = (Xmo, Xt_mo) if n == 'market_only' else (X, Xt)
         fitted = m if n in ('coin_flip', 'market_only') else clone(m).fit(cx, y)
         proba = fitted.predict_proba(cxt)[:, 1]
+        per_candidate[n] = np.asarray(proba, dtype=float)
         candidate_rows.append({'name': n, 'inner_log_loss': scores[n], **evaluate_classification(test, proba, mp_test)})
+    # market_prob is carried alongside so the stacker can compare against, and
+    # fall back to, the de-vigged market without re-deriving it from prices.
+    emit_oof(run_dir, market, season, 'cover', test, per_candidate, extra={'market_prob': mp_test})
     return {'season': season, 'target': 'cover', 'train_games': len(train), 'inner_folds': len(cv),
         'selected': selected, 'tpot_trials': trials, 'candidates': candidate_rows,
         **evaluate_classification(test, pred, mp_test)}

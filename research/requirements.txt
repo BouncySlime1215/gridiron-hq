@@ -9,3 +9,10 @@ setuptools<81  # TPOT dependency stopit still imports pkg_resources
 lightgbm==4.7.0
 xgboost==3.4.1
 catboost==1.2.10
+
+# Package F (research/expert_selector_lab.py) imports scipy.optimize directly
+# for the simplex-constrained meta-learner. scikit-learn already pulls scipy in
+# transitively, but a direct import belongs in the direct dependency list —
+# otherwise a future scikit-learn that dropped it would break this lab with a
+# confusing ModuleNotFoundError instead of a resolver error.
+scipy==1.18.1

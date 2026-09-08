@@ -135,3 +135,81 @@ Lab UI renders both as separate sections.
 
 Run `python -m unittest test_market_lab test_tree_lab` from `research/` before
 trusting any change to either script.
+
+## Package F: `expert_selector_lab.py` — a selector that learns when experts are useful
+
+```sh
+python research/expert_selector_lab.py \
+  --db /absolute/path/to/server/data.sqlite \
+  --oof-dir /absolute/path/to/server/data/expert-selector-lab/oof-source/<run_id> \
+  --output /absolute/path/to/server/data/expert-selector-lab
+```
+
+No new Python packages: it uses numpy plus `scipy.optimize` (already present
+via scikit-learn). Report schema `expert-selector-lab-v1`, surfaced by
+`server/services/nfl-research-lab.js` as `expert_selector_lab`.
+
+**The Level-1 meta-learner** is the constrained form
+`docs/MODEL_ARCHITECTURE_ASSESSMENT_2026_09_08.md` part 2.6 names as its single
+highest-leverage adoption — a non-negative ridge whose coefficients sum to 1:
+
+```
+min_b SUM_i (y_i - SUM_j b_j yhat_ij)^2 + alpha * SUM_j b_j^2   s.t. b_j >= 0, SUM_j b_j = 1
+```
+
+That makes it a bounded weighted average: it cannot subtract one expert from
+another or invent a leveraged coefficient, so one expert going haywire on one
+game cannot drag the blend outside the envelope of the experts themselves
+(`test_expert_selector_lab.py` proves both properties). A market-only expert
+competes on equal terms and may take weight 1.0 — "trust nothing here, take
+the market" is a selectable outcome, not the absence of one.
+
+**The out-of-fold prerequisite.** The master plan says F depends on C/D/E
+producing frozen out-of-fold outputs. Checked on disk rather than assumed,
+that was only partly true, so this lab uses two substrates with *separately
+reported* guarantees:
+
+- **`tree`** — `tree_lab.py` gained an `emit_oof()` that PERSISTS the per-row,
+  per-candidate held-out predictions it already computed and then discarded.
+  Nothing is refit and no model is scored on its own training rows: every
+  expert was fit on seasons strictly earlier than the one it predicts, with a
+  seven-day settled-label cutoff. Regenerate with
+  `python research/tree_lab.py --db ... --output <dir>/oof-source --tpot-minutes 0`.
+  TPOT is excluded as an expert on purpose: its selected pipeline is a
+  different architecture in every fold, so it has no stable identity for a
+  weight to attach to.
+- **`council`** — `nfl_weekly_expert_examples` (28,723 labeled rows, 20
+  experts, 831 games, 2022–2025). These are **retrospective backfills**: rows
+  written 2026-09-01/02 while their `evidence_cutoff` is the historical
+  kickoff. Cutoff-*simulated* walk-forward, not frozen-at-decision-time. Any
+  council component whose own artifact was fitted on full history leaks here.
+  Stated on every council result rather than buried.
+
+`nfl_expert_forward_predictions` is the architecturally correct artifact —
+append-only, immutability-triggered, captured before kickoff — but it holds
+672 rows from a single unplayed week with **zero settlements**, so it can
+train nothing today. It becomes the right substrate the moment weeks settle.
+Packages D and E contribute no expert at all: D persisted only a manifest, and
+E has never been run (a real run costs LLM API money).
+
+**Relationship to the production coordinator.** This does not duplicate
+`server/services/nfl-expert-coordinator.js`, which already does walk-forward
+per-expert shrinkage, correlated-family clustering and Shapley attribution.
+The coordinator's `k` is one *global* number per expert — shrink it to zero and
+that expert is silent in every context forever. This lab asks whether weight
+should change *with the situation*, and benchmarks the conditional gate against
+the coordinator's own blend as a competing expert.
+
+**Result: negative, and that is a complete Package F outcome.** No
+configuration — global stacker, or a mixture-of-experts gate on disagreement,
+coverage or week at 2 and 3 bins — beat BOTH the market-only and static
+equal-weight baselines with a week-clustered interval excluding zero, on any
+substrate, on either the declared MAE metric or the secondary MSE one. On the
+council substrate the selector's MAE was 9.63/9.30/9.97 points against the
+market's 9.49/9.29/9.99. Several configurations were *significantly worse*
+than simply taking the market. Read `preregistered.json` (written before any
+scoring) and the `verdict` block in `report.json` for the exact rule and the
+per-fold numbers.
+
+Run `python -m unittest test_expert_selector_lab` from `research/` before
+trusting any change.

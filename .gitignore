@@ -38,3 +38,8 @@ research/__pycache__/
 research/.venv/
 research/catboost_info/
 **/__pycache__/
+
+# Agent worktrees created under the repo, and this session scratch dir.
+# Neither is source; both otherwise make every `git status` look dirty.
+.claude/worktrees/
+scratchpad/

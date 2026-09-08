@@ -16,7 +16,7 @@ export const RESEARCH_PACKAGES = [
   { id: 'C', title: 'Trees and TPOT laboratory', state: 'extended', risk: 'Experimental', purpose: 'Search for useful interactions and compare them to simple baselines on later games. Now covers three targets (movement, cover/over, quantile) across six model families, a ranker branch and a market-anchored logit branch.' },
   { id: 'D', title: 'Model changing player roles', state: 'planned', risk: 'High upside', purpose: 'Price full, limited and inactive scenarios instead of pretending every player has one certain role.' },
   { id: 'E', title: 'News that arrives before the price moves', state: 'planned', risk: 'Experimental', purpose: 'Extract sourced changes in role or availability, then learn which changes move specific markets.' },
-  { id: 'F', title: 'Learn when to trust each specialist', state: 'planned', risk: 'Experimental', purpose: 'Let different experts contribute in different situations, while testing whether they add independent information.' },
+  { id: 'F', title: 'Learn when to trust each specialist', state: 'built_result_negative', risk: 'Experimental', purpose: 'Let different experts contribute in different situations, while testing whether they add independent information. Built and run: a non-negative sum-to-1 ridge selector, with a market-only expert and abstain as first-class options, did NOT beat taking the market alone on any tested configuration. Reported as a completed negative result, not a pending success.' },
   { id: 'G', title: 'Find inconsistent prices across markets', state: 'planned', risk: 'Speculative', purpose: 'Test whether connected player and team markets contradict one another after actual ticket rules and costs.' },
   { id: 'H', title: 'Replay what we could actually obtain', state: 'next', risk: 'Foundation', purpose: 'Include delays, disappearing prices, limits and correlated losses before treating a forecast as an opportunity.' },
   { id: 'I', title: 'One research workspace', state: 'starter_built', risk: 'Foundation', purpose: 'Show completed evidence, failed attempts and the next build step together. Keep heavy training outside the app server.' }
@@ -49,6 +49,15 @@ export async function researchLabStatus() {
     bookLagLab = parse(await fs.readFile(path.join(root, 'server/data/book-lag-lab/latest.json'), 'utf8'));
     if (bookLagLab?.schema !== 'book-lag-lab-v1') { bookLagLab = null; bookLagLabError = 'Unrecognized or invalid book-lag report'; }
   } catch (error) { if (error.code !== 'ENOENT') bookLagLabError = 'Book-lag report could not be read'; }
+  // Package F (research/expert_selector_lab.py). Its own schema again, for the
+  // same reason tree-lab-v1 is not market-lab-v1: a per-substrate,
+  // per-trial, per-fold shape with two baselines and two metrics does not fit
+  // either existing reader.
+  let expertSelectorLab = null, expertSelectorLabError = null;
+  try {
+    expertSelectorLab = parse(await fs.readFile(path.join(root, 'server/data/expert-selector-lab/latest.json'), 'utf8'));
+    if (expertSelectorLab?.schema !== 'expert-selector-lab-v1') { expertSelectorLab = null; expertSelectorLabError = 'Unrecognized or invalid expert-selector report'; }
+  } catch (error) { if (error.code !== 'ENOENT') expertSelectorLabError = 'Expert-selector report could not be read'; }
   return {
     as_of: new Date().toISOString(), authority: 'research_only', production_changed: false,
     latest_attempt: describe(auditRows[0]), latest_completed: describe(auditRows.find(r => r.status === 'complete')),
@@ -91,6 +100,54 @@ export async function researchLabStatus() {
       };
     })(),
     book_lag_lab_error: bookLagLabError,
+    expert_selector_lab: (() => {
+      if (!expertSelectorLab) return null;
+      return {
+        authority: 'research_only', run_id: expertSelectorLab.run_id,
+        created_at: expertSelectorLab.created_at,
+        declaration_written_at: expertSelectorLab.declaration_written_at,
+        wall_clock_seconds: expertSelectorLab.wall_clock_seconds,
+        meta_learner: expertSelectorLab.declaration?.level_1_meta_learner ?? null,
+        economic_hypothesis: expertSelectorLab.declaration?.economic_hypothesis ?? null,
+        selection_rule: expertSelectorLab.declaration?.selection_rule ?? null,
+        baselines: expertSelectorLab.declaration?.baselines_that_must_be_beaten ?? [],
+        known_limitations: expertSelectorLab.declaration?.known_limitations ?? [],
+        substrates: expertSelectorLab.substrates ?? null,
+        errors: expertSelectorLab.errors ?? [],
+        // One compact row per substrate. The negative verdict is carried
+        // verbatim rather than reduced to a pass/fail badge -- a selector that
+        // cannot beat the market is the result, not a missing result.
+        results: (expertSelectorLab.results ?? []).map(r => ({
+          substrate: r.substrate, rows: r.rows, expert_count: r.expert_count,
+          seasons: r.seasons, guarantee: r.guarantee,
+          families: r.families, family_note: r.family_note,
+          top_correlations: (r.top_correlations ?? []).slice(0, 8),
+          verdict: r.verdict,
+          folds: (r.trials ?? []).flatMap(t => (t.folds ?? []).map(f => ({
+            trial: t.label, test_season: f.test_season, test_rows: f.test_rows,
+            train_rows: f.train_rows, alpha: f.alpha,
+            selector_mae: f.selector_mae, selector_mse: f.selector_mse,
+            market_only_mae: f.baselines?.market_only?.mae ?? null,
+            gain_vs_market: f.baselines?.market_only?.mean_gain ?? null,
+            gain_vs_market_interval: f.baselines?.market_only?.gain_interval_week_clustered ?? null,
+            static_equal_weight_mae: f.baselines?.static_equal_weight?.mae ?? null,
+            gain_vs_equal_weight: f.baselines?.static_equal_weight?.mean_gain ?? null,
+            gain_vs_equal_weight_interval: f.baselines?.static_equal_weight?.gain_interval_week_clustered ?? null,
+            existing_coordinator_mae: f.baselines?.existing_coordinator?.mae ?? null
+          }))),
+          expert_contribution: (r.contribution?.experts ?? []).map(e => ({
+            expert: e.expert, mean_weight: e.mean_weight ?? null,
+            never_selected: e.never_selected ?? null,
+            mae_increase_when_removed_by_fold: e.mae_increase_when_removed_by_fold ?? null,
+            note: e.leave_one_out ?? null
+          })),
+          effective_weights_by_fold: (r.contribution?.base?.folds ?? []).map(f => ({
+            test_season: f.test_season, effective_weights: f.effective_weights ?? null
+          }))
+        }))
+      };
+    })(),
+    expert_selector_lab_error: expertSelectorLabError,
     packages: RESEARCH_PACKAGES,
     plan_url: '/api/nfl-market/research-lab/plan',
     principles: [

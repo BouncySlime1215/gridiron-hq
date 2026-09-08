@@ -20,6 +20,31 @@ interface Lab {
   } | null;
   book_lag_lab_error: string | null;
   tree_experiment: TreeLab | null; tree_report_error: string | null;
+  expert_selector_lab: ExpertSelectorLab | null; expert_selector_lab_error: string | null;
+}
+type SelectorFold = {
+  trial: string; test_season: number; test_rows: number; train_rows: number; alpha: number;
+  selector_mae: number; selector_mse: number;
+  market_only_mae: number | null; gain_vs_market: number | null; gain_vs_market_interval: number[] | null;
+  static_equal_weight_mae: number | null; gain_vs_equal_weight: number | null;
+  gain_vs_equal_weight_interval: number[] | null; existing_coordinator_mae: number | null;
+};
+type SelectorSubstrate = {
+  substrate: string; rows: number; expert_count: number; seasons: number[]; guarantee: string;
+  families: string[][]; family_note: string; top_correlations: { a: string; b: string; r: number; n: number }[];
+  verdict: { any_trial_passed: boolean; statement: string; trials_meeting_declared_rule: string[];
+    trials_meeting_rule_on_secondary_mse_metric: string[];
+    significantly_worse_than_market: { trial: string; test_season: number; mean_gain_vs_market: number }[] };
+  folds: SelectorFold[];
+  expert_contribution: { expert: string; mean_weight: number | null; never_selected: boolean | null;
+    mae_increase_when_removed_by_fold: number[] | null; note: string | null }[];
+  effective_weights_by_fold: { test_season: number; effective_weights: Record<string, number> | null }[];
+};
+interface ExpertSelectorLab {
+  run_id: string; created_at: string; declaration_written_at: string; wall_clock_seconds: number;
+  meta_learner: string | null; economic_hypothesis: string | null; selection_rule: string | null;
+  baselines: string[]; known_limitations: string[]; errors: string[];
+  results: SelectorSubstrate[];
 }
 type TreeTargetFold = { season: number; target: string; selected: string; tpot_trials?: number;
   candidates: { name: string }[] };
@@ -128,6 +153,58 @@ export default function ResearchLab() {
           <div className="mt-3 space-y-3">{Object.entries(data.book_lag_lab.delay_survival).map(([market, m]) => <div key={market}><div className="text-xs font-bold uppercase text-slate-400">{market}</div>{!m.readable ? <p className="text-xs text-slate-500">Not yet readable.</p> : <div className="mt-1 flex flex-wrap gap-2 text-xs">{Object.entries(m.delay_survival ?? {}).map(([seconds, d]) => <span key={seconds} className="rounded bg-slate-50 px-2 py-1">{seconds}s: {d.survival_probability == null ? '—' : `${(d.survival_probability * 100).toFixed(0)}%`}{d.extrapolated ? ' (extrapolated)' : ' (measured)'}</span>)}</div>}</div>)}</div>
           <ul className="mt-3 list-disc space-y-2 pl-5">{data.book_lag_lab.limitations.map(l => <li key={l}>{l}</li>)}</ul>
           <div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {data.book_lag_lab.run_id}<br />Dataset: {data.book_lag_lab.dataset_hash}</div>
+        </details>
+      </>}
+    </section>
+
+    <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Package F · a selector that learns when experts are useful</div>
+          <h3 className="mt-1 text-xl font-black text-slate-950">Conditional expert selector</h3>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{data.expert_selector_lab ? 'Ran · result negative' : 'Not run yet'}</span>
+      </div>
+      {data.expert_selector_lab_error && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{data.expert_selector_lab_error}</p>}
+      {!data.expert_selector_lab ? <p className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-500">No saved selector experiment yet. Run research/expert_selector_lab.py to write a report here.</p> : <>
+        <p className="mt-3 text-sm leading-6 text-slate-600">The stacker is a non-negative ridge whose weights sum to 1, so it can only ever produce a bounded weighted average of its experts — it cannot subtract one expert from another or invent a leveraged coefficient. A market-only expert competes on equal terms and may take all the weight, which is what "trust nothing here, take the market" looks like as a selectable outcome.</p>
+        <div className="mt-4 space-y-4">
+          {data.expert_selector_lab.results.map(r => <div key={r.substrate} className="rounded-lg border border-slate-200 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div className="font-bold text-slate-900">{r.substrate}</div>
+              <div className="text-xs text-slate-500">{r.rows} rows · {r.expert_count} experts · seasons {r.seasons.join(', ')}</div>
+            </div>
+            <p className="mt-2 rounded bg-slate-50 p-3 text-xs leading-5 text-slate-600"><span className="font-bold uppercase tracking-wide text-slate-400">Guarantee · </span>{r.guarantee}</p>
+            <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm leading-6 text-slate-700">{r.verdict.statement}</p>
+            {r.verdict.significantly_worse_than_market.length > 0 && <p className="mt-2 text-xs leading-5 text-amber-800">Significantly worse than simply taking the market in {r.verdict.significantly_worse_than_market.length} trial/season combination{r.verdict.significantly_worse_than_market.length === 1 ? '' : 's'} (week-clustered interval entirely below zero).</p>}
+            <details className="mt-3 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Walk-forward folds vs both baselines</summary>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full min-w-[46rem] text-left text-xs">
+                  <thead className="text-slate-400"><tr><th className="py-1 pr-3 font-bold uppercase tracking-wide">Trial</th><th className="py-1 pr-3">Season</th><th className="py-1 pr-3">n</th><th className="py-1 pr-3">Selector MAE</th><th className="py-1 pr-3">Market MAE</th><th className="py-1 pr-3">Gain vs market (95% CI)</th><th className="py-1 pr-3">Gain vs equal weight (95% CI)</th></tr></thead>
+                  <tbody>{r.folds.map((f, i) => <tr key={i} className="border-t border-slate-100"><td className="py-1 pr-3 font-mono text-[10px] text-slate-600">{f.trial}</td><td className="py-1 pr-3">{f.test_season}</td><td className="py-1 pr-3">{f.test_rows}</td><td className="py-1 pr-3">{number(f.selector_mae, 3)}</td><td className="py-1 pr-3">{number(f.market_only_mae, 3)}</td><td className={`py-1 pr-3 ${(f.gain_vs_market ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-600'}`}>{number(f.gain_vs_market, 3)} {f.gain_vs_market_interval && `[${number(f.gain_vs_market_interval[0], 3)}, ${number(f.gain_vs_market_interval[1], 3)}]`}</td><td className={`py-1 pr-3 ${(f.gain_vs_equal_weight ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-600'}`}>{number(f.gain_vs_equal_weight, 3)} {f.gain_vs_equal_weight_interval && `[${number(f.gain_vs_equal_weight_interval[0], 3)}, ${number(f.gain_vs_equal_weight_interval[1], 3)}]`}</td></tr>)}</tbody>
+                </table>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">A positive gain means the selector beat that baseline. Intervals bootstrap over weeks, not rows, because games in a week are dependent.</p>
+            </details>
+            <details className="mt-2 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Each expert's contribution and conditional usefulness</summary>
+              <p className="mt-2 text-xs leading-5 text-slate-500">{r.family_note}</p>
+              <div className="mt-2 overflow-x-auto"><table className="w-full min-w-[34rem] text-left text-xs">
+                <thead className="text-slate-400"><tr><th className="py-1 pr-3 font-bold uppercase tracking-wide">Expert</th><th className="py-1 pr-3">Mean weight</th><th className="py-1 pr-3">Ever selected?</th><th className="py-1 pr-3">MAE change when removed, per fold</th></tr></thead>
+                <tbody>{r.expert_contribution.map(e => <tr key={e.expert} className="border-t border-slate-100"><td className="py-1 pr-3 text-slate-700">{e.expert}</td><td className="py-1 pr-3">{e.note ? '—' : number(e.mean_weight, 4)}</td><td className="py-1 pr-3">{e.note ? '—' : (e.never_selected ? <span className="text-slate-400">never</span> : 'yes')}</td><td className="py-1 pr-3 font-mono text-[10px] text-slate-500">{e.note ?? (e.mae_increase_when_removed_by_fold ?? []).map(v => v.toFixed(4)).join(', ')}</td></tr>)}</tbody>
+              </table></div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">"Never selected" is a real finding about this evidence, not a reason to delete an expert: a weak standalone forecast may still carry conditional information that a later, larger sample can surface.</p>
+            </details>
+          </div>)}
+        </div>
+        <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Declaration, baselines and known limitations</summary>
+          <p className="mt-3 text-xs leading-5 text-slate-600"><span className="font-bold">Hypothesis · </span>{data.expert_selector_lab.economic_hypothesis}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-600"><span className="font-bold">Meta-learner · </span>{data.expert_selector_lab.meta_learner}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-600"><span className="font-bold">Selection rule · </span>{data.expert_selector_lab.selection_rule}</p>
+          <div className="mt-2 text-xs font-bold uppercase tracking-wide text-slate-400">Baselines that had to be beaten</div>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5">{data.expert_selector_lab.baselines.map(b => <li key={b}>{b}</li>)}</ul>
+          <div className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-400">Known limitations</div>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-xs leading-5">{data.expert_selector_lab.known_limitations.map(l => <li key={l}>{l}</li>)}</ul>
+          <div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {data.expert_selector_lab.run_id}<br />Declared before scoring: {data.expert_selector_lab.declaration_written_at}<br />Wall clock: {data.expert_selector_lab.wall_clock_seconds}s</div>
         </details>
       </>}
     </section>

@@ -28,7 +28,8 @@
     "audit:nfl-passing-specialists": "node scripts/audit-passing-specialists.mjs",
     "sync:ffopportunity": "node --env-file-if-exists=.env scripts/sync-ffopportunity.mjs",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:rollback": "node scripts/rollback-migration.mjs"
+    "db:rollback": "node scripts/rollback-migration.mjs",
+    "build:evidence-dataset": "node scripts/build-evidence-dataset.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

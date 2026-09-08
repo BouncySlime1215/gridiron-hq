@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rows } from '../db/index.js';
+import { latestEvidenceDataset } from './nfl-evidence-dataset.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const parse = value => { try { return JSON.parse(value); } catch { return null; } };
@@ -40,6 +41,14 @@ export async function researchLabStatus() {
       forward: optional('forward_picks', 'SELECT COUNT(*) decisions,SUM(settled_at IS NOT NULL) settled FROM forward_picks')[0] ?? null,
       expert_forward: optional('nfl_expert_forward_predictions', 'SELECT COUNT(*) predictions,COUNT(DISTINCT season||\'|\'||week||\'|\'||home||\'|\'||away) games FROM nfl_expert_forward_predictions')[0] ?? null
     },
+    evidence_dataset: (() => {
+      const manifest = latestEvidenceDataset();
+      if (!manifest) return null;
+      return { dataset_hash: manifest.dataset_hash, built_at: manifest.built_at, decision_at: manifest.decision_at,
+        accepted: manifest.accepted, dropped: manifest.dropped, events: manifest.events,
+        quarantine: manifest.quarantine, coverage_bias: manifest.coverage_bias,
+        duplicate_event_count: manifest.duplicate_event_count, provenance: manifest.provenance };
+    })(),
     experiment, report_error: reportError, packages: RESEARCH_PACKAGES,
     plan_url: '/api/nfl-market/research-lab/plan',
     principles: [

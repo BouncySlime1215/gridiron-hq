@@ -11,8 +11,16 @@
  * One deliberate simplification: the original tries IndexedDB first and falls
  * back to localStorage (working around old Safari private-browsing caps on
  * localStorage). Plain localStorage is what the rest of this app already uses
- * for local preferences, so that's all this uses too — one storage backend,
- * not two.
+ * for local preferences, so that's all the in-progress pick slip below uses
+ * too — one storage backend, not two.
+ *
+ * Saved tickets (committed singles/parlays) are NOT localStorage anymore —
+ * see server/routes/props-tickets.js and server/migrations/018_saved_prop_tickets.js.
+ * They used to be, and that was a real split-brain: this is a single-user app
+ * opened from more than one browser/device (desktop + phone via tunnel), and a
+ * ticket saved on one never appeared on the other. Only the transient
+ * in-progress slip below (legs being assembled, not yet saved) is still a
+ * legitimate localStorage scratch state.
  */
 
 export interface BoardRow {
@@ -228,7 +236,7 @@ export function ticketStatus(grades: Grade[]): LegStatus {
 /* -------------------------------------------------------------- storage */
 
 const SLIP_KEY = 'gh:props:slip';
-const TICKETS_KEY = 'gh:props:tickets';
+const LEGACY_TICKETS_KEY = 'gh:props:tickets';
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -240,7 +248,16 @@ const writeJson = (key: string, value: unknown) => localStorage.setItem(key, JSO
 
 export const loadSlip = (): Leg[] => readJson(SLIP_KEY, []);
 export const saveSlipStorage = (slip: Leg[]) => writeJson(SLIP_KEY, slip);
-export const loadTickets = (): Ticket[] => readJson(TICKETS_KEY, []);
-export const saveTicketsStorage = (tickets: Ticket[]) => writeJson(TICKETS_KEY, tickets);
+
+/**
+ * Whatever this browser had saved under the old localStorage-only scheme
+ * (before server/routes/props-tickets.js existed), plus the way to clear it.
+ * usePickSlip uses these exactly once, per browser, to copy any pre-existing
+ * saved tickets into the server ledger the first time it loads successfully —
+ * so switching to server-side storage doesn't silently drop history someone
+ * already saved. Not used for anything ongoing.
+ */
+export const loadLegacyTickets = (): Ticket[] => readJson(LEGACY_TICKETS_KEY, []);
+export const clearLegacyTickets = () => { try { localStorage.removeItem(LEGACY_TICKETS_KEY); } catch { /* ignore */ } };
 
 export const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);

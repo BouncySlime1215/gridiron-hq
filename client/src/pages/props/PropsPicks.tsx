@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApi } from '../../api';
+import { PageLoading, PageError } from '../../components/PageState';
 import { usePickSlip } from './usePickSlip';
 import {
   totalOdds, buildResultIndex, gradeLeg, ticketStatus, formatDate, formatDateTime,
@@ -22,7 +23,10 @@ interface GradedTicket extends Ticket {
 }
 
 export default function PropsPicks() {
-  const { slip, tickets, removeLeg, updateOdds, clearSlip, saveTicket, deleteTicket, clearTickets } = usePickSlip();
+  const {
+    slip, tickets, ticketsLoading, ticketsError, refetchTickets,
+    removeLeg, updateOdds, clearSlip, saveTicket, deleteTicket, clearTickets
+  } = usePickSlip();
   const { data: results } = useApi<ResultRow[]>('/props/results');
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
@@ -105,9 +109,10 @@ export default function PropsPicks() {
   const decidedLegs = filteredLegs.filter(l => l.grade.status !== 'Pending' && l.grade.status !== 'Push');
   const legWins = filteredLegs.filter(l => l.grade.status === 'Won').length;
 
-  const onSave = () => {
-    const err = saveTicket();
-    setSaveMsg(err ?? `Saved your ${slip.length === 1 ? 'single' : `${slip.length}-leg parlay`}.`);
+  const onSave = async () => {
+    const legCount = slip.length;
+    const err = await saveTicket();
+    setSaveMsg(err ?? `Saved your ${legCount === 1 ? 'single' : `${legCount}-leg parlay`}.`);
     setTimeout(() => setSaveMsg(null), 4000);
   };
 
@@ -155,7 +160,11 @@ export default function PropsPicks() {
       )}
 
       <h2 className="text-sm font-bold text-slate-700 mb-2">Saved Slips</h2>
-      {graded.length === 0 ? (
+      {ticketsLoading ? (
+        <PageLoading label="Loading saved slips…" />
+      ) : ticketsError ? (
+        <PageError message={ticketsError} onRetry={refetchTickets} />
+      ) : graded.length === 0 ? (
         <div className="card p-6 text-sm text-slate-500">
           No saved slips yet. Saved singles and parlays will appear here with grading once final game data is available.
         </div>

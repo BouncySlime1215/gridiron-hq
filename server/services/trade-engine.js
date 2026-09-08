@@ -25,6 +25,7 @@ import { vorBoard, volatility } from '../routes/edge.js';
 import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
 import { analyzeLeague } from '../routes/tradelab.js';
+import { publishRecommendation } from '../routes/decision-inbox.js';
 import { scheduleOutlook, relevantSplits, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { SLOT_NAME } from './espn-draft.js';
 import { seasonEndingEspnIds } from './player-availability.js';
@@ -1469,12 +1470,43 @@ export function lineupDiff(lg, myTeamId) {
   const submittedLineup = bestLineup(me.players.filter(p => submittedIds.has(p.id)), slots);
   const swapIn = optimal.slots.filter(s => s.player && !submittedIds.has(s.player.id)).map(s => ({ slot: s.slot, player: slim(s.player) }));
   const swapOut = [...submittedIds].filter(id => !optimalIds.has(id)).map(id => slim(me.players.find(p => p.id === id)));
+  const gain = +(optimal.points - submittedLineup.points).toFixed(2);
+
+  // Decision Inbox publish (additive — the object below is unchanged and is
+  // still exactly what every existing caller of lineupDiff() gets back).
+  // "Start Player A over Player B" is the audit's own lead example for the
+  // universal Decision Inbox. Gated at 1.0 projected point so a coin-flip
+  // near-tie (this module's whole point, see the file header on lineup-brain.js
+  // about not dressing up noise as a decision) never spams a recommendation.
+  // See server/routes/decision-inbox.js for publishRecommendation() and
+  // server/migrations/019_decision_recommendations.js for the schema.
+  try {
+    const teamKey = String(myTeamId ?? lg.my_team_id ?? me.roster_id);
+    if (swapIn.length && gain >= 1.0) {
+      const single = swapIn.length === 1 && swapOut.length === 1;
+      publishRecommendation({
+        dedupKey: `lineup:${lg.id}:${teamKey}`,
+        leagueId: lg.id, sport: 'NFL', type: 'lineup',
+        subjectIds: [...swapIn.map(s => s.player.id), ...swapOut.map(p => p.id)],
+        title: single ? `Start ${swapIn[0].player.name} over ${swapOut[0].name}`
+          : `${swapIn.length} lineup swap${swapIn.length > 1 ? 's' : ''} available (+${gain} pts)`,
+        rationale: `Submitted lineup projects ${submittedLineup.points} vs. optimal ${optimal.points} this week — ` +
+          `swapping in ${swapIn.map(s => s.player.name).join(', ')} for ${swapOut.map(p => p.name).join(', ')} gains ${gain} points.`,
+        expectedValue: gain, confidence: null,
+        urgency: gain >= 4 ? 'high' : gain >= 2 ? 'medium' : 'low',
+        // No exact kickoff time is threaded into this module today, so this is
+        // a judgment-call heuristic (72h), not a computed slate deadline —
+        // flagged rather than silently assumed.
+        expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+        sourceModel: 'lineup-brain', sourceVersion: 'v1', link: '/lineup'
+      });
+    }
+  } catch { /* Decision Inbox publish is a side effect; never break lineup-diff over it. */ }
 
   return {
     matches: swapIn.length === 0,
     submitted_points: submittedLineup.points,
     optimal_points: optimal.points,
-    gain: +(optimal.points - submittedLineup.points).toFixed(2),
-    swap_in: swapIn, swap_out: swapOut
+    gain, swap_in: swapIn, swap_out: swapOut
   };
 }

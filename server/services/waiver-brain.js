@@ -33,6 +33,7 @@
  */
 import { row } from '../db/index.js';
 import { deriveFormat } from './format.js';
+import { publishRecommendation } from '../routes/decision-inbox.js';
 import {
   assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext
 } from './trade-engine.js';
@@ -279,6 +280,35 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   }
 
   upgrades.sort((a, b) => b.expected_value - a.expected_value);
+
+  // Decision Inbox publish (additive — everything returned below this point is
+  // unchanged for every existing caller). "Add a free-agent RB before waivers
+  // process" is the audit's own lead waiver example. Gated at 0.75 expected
+  // points/week: acceptance here is ~1 (nobody has to agree to a waiver claim,
+  // per this file's own header), so the bar for "worth a recommendation" is
+  // lower than a trade's, but a near-zero gain still shouldn't spam the inbox.
+  // See server/routes/decision-inbox.js for publishRecommendation() and
+  // server/migrations/019_decision_recommendations.js for the schema.
+  try {
+    const top = upgrades[0];
+    if (top && top.expected_value >= 0.75) {
+      const teamKey = String(myTeamId ?? lg.my_team_id ?? me.roster_id);
+      publishRecommendation({
+        dedupKey: `waiver:${lg.id}:${teamKey}`,
+        leagueId: lg.id, sport: 'NFL', type: 'waiver',
+        subjectIds: [top.player.id, ...(top.replaces ? [top.replaces.id] : [])],
+        title: `Add ${top.player.name} before waivers process`,
+        rationale: top.why + (top.drop_candidate ? ` Drop candidate: ${top.drop_candidate.name}.` : ''),
+        expectedValue: top.expected_value, confidence: top.accept_probability,
+        urgency: top.expected_value >= 2 ? 'high' : top.expected_value >= 1.2 ? 'medium' : 'low',
+        // This league's actual waiver-processing day isn't threaded into this
+        // module today, so this is a judgment-call heuristic (72h) rather than
+        // a computed processing deadline — flagged rather than silently assumed.
+        expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+        sourceModel: 'waiver-brain', sourceVersion: 'v1', link: '/brain'
+      });
+    }
+  } catch { /* Decision Inbox publish is a side effect; never break waiverUpgrades over it. */ }
 
   return {
     league: lg.name, owner: me.owner, season, week,

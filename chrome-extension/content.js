@@ -128,134 +128,27 @@
     renderPill();
   }
 
-  // -------------------------------------------------------------- WS patches
-  // Identical technique to the bookmarklet (client/public/draft-capture.js):
-  // late-attach via the MessageEvent.data getter, patch send() for outgoing
-  // frames, and wrap the constructor so a reconnect is captured from its
-  // first frame. Every hook falls through to the original — ESPN's own
-  // handlers must never see a difference.
-
-  function isDraftSocket(target) {
-    try { return !!target && typeof target.url === 'string' && isCapturedUrl(target.url); } catch (e) { return false; }
-  }
-
-  function installPatches() {
-    if (window.__GHQ_CAPTURE__ && window.__GHQ_CAPTURE__.patched) return;
-    var registry = window.__GHQ_CAPTURE__ = { patched: true };
-    try { registry.seen = new WeakSet(); } catch (e) { registry.seen = null; }
-
-    function teeEvent(ev) {
-      try { if (registry.seen) { if (registry.seen.has(ev)) return; registry.seen.add(ev); } } catch (e) { /* ignore */ }
-      if (isDraftSocket(ev.target)) enqueueFrame('in', ev.target.url, registry.origData ? registry.origData.call(ev) : ev.data);
-    }
-
-    try {
-      var desc = Object.getOwnPropertyDescriptor(MessageEvent.prototype, 'data');
-      if (desc && desc.get && desc.configurable) {
-        registry.origData = desc.get;
-        Object.defineProperty(MessageEvent.prototype, 'data', {
-          configurable: true, enumerable: desc.enumerable,
-          get: function () {
-            var value = registry.origData.call(this);
-            try {
-              if (isDraftSocket(this.target)) {
-                var seen = registry.seen ? registry.seen.has(this) : this.__ghqSeen;
-                if (!seen) { if (registry.seen) registry.seen.add(this); else this.__ghqSeen = true; enqueueFrame('in', this.target.url, value); }
-              }
-            } catch (e) { /* never break ESPN */ }
-            return value;
-          }
-        });
-      } else {
-        log('MessageEvent.data not patchable here — only sockets opened after this point are captured');
-      }
-    } catch (e) { log('MessageEvent patch failed', e && e.message); }
-
-    try {
-      var origSend = WebSocket.prototype.send;
-      WebSocket.prototype.send = function (data) {
-        try { if (isDraftSocket(this)) enqueueFrame('out', this.url, data); } catch (e) { /* ignore */ }
-        return origSend.apply(this, arguments);
-      };
-    } catch (e) { log('send patch failed', e && e.message); }
-
-    try {
-      var Orig = window.WebSocket;
-      var Patched = function WebSocket(url, protocols) {
-        var ws = arguments.length > 1 ? new Orig(url, protocols) : new Orig(url);
-        // Temporary diagnostic (2026-09-07, remove once mock-draft socket
-        // behavior is confirmed): every socket this page opens, matched or
-        // not, goes through the SAME capture pipeline as a real frame (just
-        // tagged 'diag') so it lands in draft_capture_events and is checkable
-        // server-side directly — no console, no screenshot, nothing to relay.
-        try {
-          log('page opened a WebSocket to', String(url), isCapturedUrl(String(url)) ? '(matches, watching it)' : '(does not match ' + HOST_MATCH + ')');
-          enqueueFrame('in', String(url), 'GHQ_DIAG socket_opened matched=' + isCapturedUrl(String(url)));
-          buildBatches();
-        } catch (e) { /* ignore */ }
-        try { if (isCapturedUrl(String(url))) { state.baselineDirty = true; ws.addEventListener('message', teeEvent); } } catch (e) { /* ignore */ }
-        return ws;
-      };
-      Patched.prototype = Orig.prototype;
-      ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function (k) { try { Object.defineProperty(Patched, k, { value: Orig[k], enumerable: true }); } catch (e) { Patched[k] = Orig[k]; } });
-      for (var k in Orig) { if (!(k in Patched)) { try { Patched[k] = Orig[k]; } catch (e2) { /* ignore */ } } }
-      window.WebSocket = Patched;
-    } catch (e) { log('constructor patch failed', e && e.message); }
-
-    // Temporary transport diagnostic (2026-09-07): with the WebSocket patch
-    // above provably never firing during a live draft, the live feed must be
-    // arriving some other way. Log every OTHER real-time transport the page
-    // could be using -- an SSE stream, a Worker holding the socket where a
-    // content script can't see it, or plain fetch/XHR polling -- so the next
-    // reload answers "what does ESPN actually use" definitively instead of
-    // guessing again. Same GHQ_DIAG pipeline; diagnostic only, captures nothing.
-    function diag(kind, url) {
+  // -------------------------------------------------------------- frame relay
+  // The socket tap itself is inject.js, declared "world": "MAIN" so it runs
+  // where ESPN's WebSocket actually lives. A content script's own world has a
+  // separate copy of every global -- patching WebSocket here intercepted
+  // nothing, which is exactly how this sat at "0 frames" through a live draft
+  // while heartbeats (the extension's own code) kept flowing. inject.js relays
+  // each frame with window.postMessage; only same-window messages carrying the
+  // marker are trusted, and only draft-socket frames (or diagnostics) are kept.
+  var MARK = '__ghq_frame__';
+  function listenForFrames() {
+    window.addEventListener('message', function (ev) {
       try {
-        var u = String(url || '');
-        log('transport:', kind, u);
-        enqueueFrame('in', u, 'GHQ_DIAG ' + kind + ' url=' + u.slice(0, 300));
-        buildBatches();
+        if (ev.source !== window) return;
+        var m = ev.data;
+        if (!m || m.mark !== MARK || (m.dir !== 'in' && m.dir !== 'out') || typeof m.data !== 'string') return;
+        var isDiag = /^GHQ_DIAG\b/.test(m.data);
+        if (!isDiag && !isCapturedUrl(m.url)) return;
+        enqueueFrame(m.dir, m.url, m.data);
+        if (isDiag) buildBatches();
       } catch (e) { /* ignore */ }
-    }
-    try {
-      if (window.EventSource) {
-        var OrigES = window.EventSource;
-        var PatchedES = function EventSource(url, init) {
-          diag('eventsource_opened', url);
-          return arguments.length > 1 ? new OrigES(url, init) : new OrigES(url);
-        };
-        PatchedES.prototype = OrigES.prototype;
-        window.EventSource = PatchedES;
-      }
-    } catch (e) { log('EventSource patch failed', e && e.message); }
-    try {
-      if (window.Worker) {
-        var OrigWorker = window.Worker;
-        var PatchedWorker = function Worker(url, opts) {
-          diag('worker_started', url);
-          return arguments.length > 1 ? new OrigWorker(url, opts) : new OrigWorker(url);
-        };
-        PatchedWorker.prototype = OrigWorker.prototype;
-        window.Worker = PatchedWorker;
-      }
-    } catch (e) { log('Worker patch failed', e && e.message); }
-    try {
-      var origFetch = window.fetch;
-      window.fetch = function (input, init) {
-        try {
-          var u = typeof input === 'string' ? input : (input && input.url) || '';
-          if (/draft|fantasydraft|pick/i.test(u)) diag('fetch', u);
-        } catch (e) { /* ignore */ }
-        return origFetch.apply(this, arguments);
-      };
-    } catch (e) { log('fetch patch failed', e && e.message); }
-    try {
-      var origOpen = XMLHttpRequest.prototype.open;
-      XMLHttpRequest.prototype.open = function (method, url) {
-        try { if (/draft|fantasydraft|pick/i.test(String(url))) diag('xhr', url); } catch (e) { /* ignore */ }
-        return origOpen.apply(this, arguments);
-      };
-    } catch (e) { log('XHR patch failed', e && e.message); }
+    });
   }
 
   // ------------------------------------------------------------------- pill
@@ -310,11 +203,11 @@
 
   // ------------------------------------------------------------------- boot
 
-  installPatches();
+  listenForFrames();
   state.lastBaseline = readBaseline();
   var timer = setInterval(tick, BATCH_MS);
   tick();
-  log('attached, watching for a fantasydraft.espn.com socket');
+  log('attached (isolated world); inject.js is tapping the fantasydraft.espn.com socket in the page world');
 
   // A SPA route change (entering the draft room without a full page load)
   // doesn't create a new content-script instance, but the DOM baseline can

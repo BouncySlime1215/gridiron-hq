@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // mutating the user's league file. Production keeps the original local path.
 const DB_PATH = process.env.GRIDIRON_DB_PATH || path.join(__dirname, '..', 'data.sqlite');
 
+export const dbPath = DB_PATH;
 export const db = new DatabaseSync(DB_PATH);
 
 db.exec(`

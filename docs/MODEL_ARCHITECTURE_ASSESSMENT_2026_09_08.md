@@ -31,7 +31,10 @@ stronger in exactly two places worth taking seriously: it has **no engineered
 distributional-drift check** (this project doesn't either — a real gap), and
 its **non-negative, sum-to-1 ridge meta-learner constraint** is more precise
 than this project's own Package F description ("ridge/logistic stacking") and
-should be adopted verbatim when F is built. The GNN/player-tracking stream and
+was adopted verbatim. (F has since been built with it and **lost to the market
+on every substrate** — see Part 2.6, which also corrects a wrong claim in this
+document's first draft about C/D/E's out-of-fold outputs already existing.)
+The GNN/player-tracking stream and
 the "Public Action Coefficient" market-hype feature are real ideas with no
 supporting data source currently identified in this project's data-acquisition
 plan — they are parked as speculative, not rejected.
@@ -305,29 +308,83 @@ over a transformer-embedding rebuild — it's already built, already tested
 against the exact failure mode (timing leakage) that matters most here, and
 better suited to the sample size this project actually has.
 
-### 2.6 Meta-learner stacking (Package F) — the proposal's most directly adoptable piece
+### 2.6 Meta-learner stacking (Package F) — adopted verbatim, built, and it lost
 
-Package F ("a selector that learns when experts are useful") is explicitly
-in the master plan, explicitly not yet started, and explicitly blocked on
-"C/D/E producing frozen out-of-fold outputs" — which, as of this document,
-**C, D, and E are all done**. Package F is now unblocked. The master plan's
-own description of F ("ridge/logistic stacking of out-of-fold residuals")
-does not specify the exact constraint form. **Adopt the proposal's
-non-negative, sum-to-1 ridge constraint verbatim when F is built**:
+**Correction to this document's first draft.** That draft said Package F was
+blocked on "C/D/E producing frozen out-of-fold outputs" and that "**C, D, and
+E are all done**," so F was unblocked. Package F's own build checked the disk
+before trusting that sentence and found it **overstated**: C had trained
+models and a dataset but **no per-row predictions** persisted anywhere; D had
+only a manifest; E had never been run at all. A stacker has nothing to stack
+without per-row held-out predictions, and this document asserted their
+existence from the existence of the packages that would have produced them.
+The claim is corrected here rather than quietly edited away, because the
+failure mode — inferring an artifact from the pipeline that should have made
+it — is exactly what the rest of this document argues against.
+
+F was still built, because the fix was cheap: `research/tree_lab.py` was
+already computing per-candidate held-out predictions and discarding them
+after reducing each to scalars, so `emit_oof()` now persists them
+(`tree-lab-oof-v1`). Those predictions carry a **stronger** guarantee than
+the shuffled k-fold OOF the proposal assumes — each candidate is fit only on
+seasons strictly earlier than the test season, under a seven-day
+settled-label cutoff — which in turn obligates the stacker to be fit
+chronologically across seasons too.
+
+The proposal's constraint was adopted verbatim:
 
 ```
 min_β Σ(yᵢ − Σⱼ βⱼ ŷᵢⱼ)² + α Σⱼ βⱼ²   subject to βⱼ ≥ 0, Σⱼ βⱼ = 1
 ```
 
-This is a sound, well-justified constraint — it forces the stacker to act as
-a bounded weighted average across C's tree-family predictions, D's
-role-scenario adjustment, and E's news-impact signal, with a market-only
-expert (weight can go to 1.0 on it, i.e., "ignore everything else") always
-in the mix as the master plan requires. It cannot invent a leveraged,
-sign-flipping combination the way an unconstrained stacker could. This is
-the single cleanest point of alignment between the two plans, and the
-correct place to spend adoption effort — not a rewrite, a precise
-specification for a package that already exists on paper.
+It is a sound constraint and it does what it claims: the stacker can only
+produce a bounded weighted average, never a leveraged sign-flipping
+combination, and a market-only expert competes on equal terms and may take
+all the weight. **It also did not work.** Across three substrates and seven
+gate configurations:
+
+| substrate | rows | experts | selector MAE | market MAE |
+|---|---|---|---|---|
+| council | 831 | 18 | 9.63 | 9.49 |
+| tree:spreads:move | 660 | 7 | 9.30 | 9.29 |
+| tree:totals:move | 685 | 7 | 9.97 | 9.99 |
+
+No configuration met the pre-declared bar (positive mean gain over *both*
+baselines, week-clustered 95% interval excluding zero, on a majority of
+walk-forward test seasons). Seven trial/season combinations were
+significantly *worse* than the market. The declared metric was MAE while the
+meta-learner minimizes squared error; MSE was added as a secondary metric
+afterward, which can only flatter the method's own objective, and it failed
+on both.
+
+The diagnostic worth keeping is not the MAE gap, which is small. It is that
+**the selector essentially never chose to abstain**: `market_only` carried
+weight 0.000 / 0.068 / 0.000 across the three substrates even though taking
+the market outright was the better answer on two of them. The correct action
+was available in the action set and the fitting procedure did not find it.
+That is a statement about how little signal is in the expert pool at this
+sample size, not a bug in the constraint — and it is a sharper negative
+result than "the numbers came out slightly worse."
+
+Four experts (`boosted_tree`, `deep_residual`, `rulebook`, `specialist_team`)
+took zero weight in every fold. Recorded as a finding about this evidence,
+not as grounds for deletion: a weak standalone forecast can still carry
+conditional information that a larger sample surfaces.
+
+So 2.6 remains the cleanest point of *alignment* between the two plans — the
+proposal specified the right constraint and this project adopted it exactly —
+while being a caution about what alignment buys. A well-specified stacker
+over experts that do not beat the market produces a well-specified forecast
+that does not beat the market. The binding constraint here is the evidence,
+not the combination rule. Reported in the app as `built_result_negative`,
+with research-only authority; full report at
+`server/data/expert-selector-lab/latest.json` and on the Research Lab page.
+
+One follow-on is explicitly recommended **against**: contextual bandits. NFL
+delivers full information on every game — every expert's error is observable
+whether or not that expert was chosen — so supervised updates are strictly
+more sample-efficient than bandit exploration. Sample size is the binding
+constraint, and exploration spends exactly that.
 
 ---
 
@@ -447,10 +504,14 @@ Every actionable item above is a graft onto a package that already exists in
 top-level initiative, a new phase ordering, or stopping any in-flight
 package. In priority order:
 
-1. **Package F, now unblocked** (C, D, E all have frozen out-of-fold
-   outputs) — build it next, using the proposal's exact non-negative
-   sum-to-1 ridge constraint (Part 2.6). This is the highest-leverage single
-   adoption from the proposal.
+1. ~~**Package F, now unblocked**~~ — **done, and the answer was no.** Built
+   with the proposal's exact non-negative sum-to-1 ridge constraint, run on
+   three substrates, beat the market on none of them (Part 2.6). The premise
+   of this line as originally written was also wrong: C, D and E did *not*
+   all have frozen out-of-fold outputs on disk, and F had to make them before
+   it could run. The remaining adoption value from the proposal is now items
+   2–5, not this one; the highest-leverage next move on the modelling side is
+   better evidence, not a better combination rule.
 2. **Package H's stress-test list gains two concrete rules**: the Market
    Line Corridor check (Part 1.3, threshold derived from this project's own
    residual distributions, not imported blindly) and the CLV-miss-triggers-

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { PlayerCardProvider } from './components/PlayerCard';
 import { LeagueProvider } from './state/league';
@@ -107,9 +107,15 @@ export default function App() {
   // yet (most non-betting pages, so far) just leaves this at its default,
   // and the assistant itself falls back to an honest route-derived guess.
   const [pageInfo, setPageInfo] = useState<PageExplainInfo>({});
+  // Memoized so an App re-render for an unrelated reason (sidebar collapse,
+  // route change) doesn't hand every consumer a new object and re-render them
+  // all. usePageExplain no longer depends on this identity at all, so this is
+  // now only about wasted work — but it is the shape the hook's comment
+  // assumes, and leaving it unmemoized invites the loop back.
+  const pageExplain = useMemo(() => ({ info: pageInfo, setInfo: setPageInfo }), [pageInfo]);
 
   return <LeagueProvider><PlayerCardProvider>
-    <PageExplainContext.Provider value={{ info: pageInfo, setInfo: setPageInfo }}>
+    <PageExplainContext.Provider value={pageExplain}>
     <div className="flex min-h-screen bg-white">
       {drawerOpen && <div className="fixed inset-0 z-40 bg-slate-900/40" aria-hidden="true" onClick={() => setCollapsed(true)} />}
       <aside style={{ width: rail ? 64 : 244 }} className={`flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-slate-50 py-4 ${rail ? 'px-2' : 'px-3'} ${isMobile

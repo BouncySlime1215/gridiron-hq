@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
 
 /**
  * Lets a page register a small, cheap-to-produce summary of what it's
@@ -46,10 +46,31 @@ export function usePageExplain(
   const ctx = useContext(PageExplainContext);
   const summaryKey = JSON.stringify(summary);
   const eventContextKey = JSON.stringify(eventContext);
+  // The context object is deliberately NOT an effect dependency, and reaching
+  // it through a ref is what makes that safe rather than stale.
+  //
+  // The provider builds a fresh `{ info, setInfo }` on every render, so its
+  // identity changes every time `info` is set. With `ctx` in the dependency
+  // array that is a guaranteed infinite loop: the effect calls setInfo, the
+  // provider re-renders with a new object, the dependency compares unequal,
+  // the cleanup fires `setInfo({})`, the provider re-renders again, and React
+  // eventually bails out with "Maximum update depth exceeded". Worse than the
+  // wasted renders, the registered summary spent half of them as `{}` — the
+  // floating assistant could be asked what the page shows at exactly the
+  // moment the answer had been cleared.
+  //
+  // Only `setInfo` is ever used here and it is a useState setter, which React
+  // guarantees is stable for the life of the component, so the ref can never
+  // hand back a setter that writes to the wrong provider. What genuinely
+  // should re-register is the page's own identity and payload, and those are
+  // the remaining dependencies (the payloads serialized, so a fresh object
+  // literal with unchanged contents does not count as a change).
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
   useEffect(() => {
-    if (!ctx) return;
-    ctx.setInfo({ section, subview, summary: JSON.parse(summaryKey), eventContext: JSON.parse(eventContextKey) });
-    return () => ctx.setInfo({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx, section, subview, summaryKey, eventContextKey]);
+    const current = ctxRef.current;
+    if (!current) return;
+    current.setInfo({ section, subview, summary: JSON.parse(summaryKey), eventContext: JSON.parse(eventContextKey) });
+    return () => ctxRef.current?.setInfo({});
+  }, [section, subview, summaryKey, eventContextKey]);
 }

@@ -21,6 +21,17 @@ interface Lab {
   book_lag_lab_error: string | null;
   tree_experiment: TreeLab | null; tree_report_error: string | null;
   expert_selector_lab: ExpertSelectorLab | null; expert_selector_lab_error: string | null;
+  news_event_impact: NewsEventImpact | null; news_event_impact_error: string | null;
+}
+interface NewsEventImpact {
+  run_hash: string; frozen_at: string; market: string | null;
+  claims_considered: number; paired_rows: number; skipped_no_quote_pair: number;
+  min_rows_required: number | null;
+  coverage: { events: number; players: number; sources: number; verified: number; quarantined: number;
+    unknown_certainty: number; restatements: number; contradictions: number; press_role_signals: number;
+    extractor_version: string; latest: string } | null;
+  provenance: { events: number; flagged: number; verdict: string; rule: string } | null;
+  evaluation: { insufficient_data?: boolean; rows?: number; verdict?: string } | null;
 }
 type SelectorFold = {
   trial: string; test_season: number; test_rows: number; train_rows: number; alpha: number;
@@ -154,6 +165,42 @@ export default function ResearchLab() {
           <ul className="mt-3 list-disc space-y-2 pl-5">{data.book_lag_lab.limitations.map(l => <li key={l}>{l}</li>)}</ul>
           <div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {data.book_lag_lab.run_id}<br />Dataset: {data.book_lag_lab.dataset_hash}</div>
         </details>
+      </>}
+    </section>
+
+    <section className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-widest text-slate-400">Package E · news that arrives before the price moves</div>
+          <h3 className="mt-1 text-xl font-black text-slate-950">Typed news events and their price impact</h3>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{data.news_event_impact ? 'Extraction ran · impact not measurable' : 'Not run yet'}</span>
+      </div>
+      {data.news_event_impact_error && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{data.news_event_impact_error}</p>}
+      {!data.news_event_impact ? <p className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-500">No saved news-event run yet. This one costs real API money — run <code className="font-mono text-xs">node scripts/run-news-event-impact.mjs extract</code> then <code className="font-mono text-xs">impact</code> to write a report here.</p> : <>
+        {(() => { const e = data.news_event_impact!; const c = e.coverage; return <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[['Typed events', c ? String(c.events) : '—'], ['Verified', c ? String(c.verified) : '—'],
+              ['Quarantined', c ? String(c.quarantined) : '—'], ['Contradictions', c ? String(c.contradictions) : '—']]
+              .map(([k, v]) => <div key={k} className="rounded-lg bg-slate-50 p-3"><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{k}</div><div className="mt-1 text-2xl font-black text-slate-900">{v}</div></div>)}
+          </div>
+          {e.provenance && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs leading-5 text-emerald-900"><span className="font-bold uppercase tracking-wide">Provenance · </span>{e.provenance.flagged} of {e.provenance.events} claims flagged. {e.provenance.verdict}. Rule: {e.provenance.rule}</p>}
+          <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm leading-6 text-slate-700"><span className="font-bold">Impact model · </span>{e.evaluation?.verdict ?? 'No verdict recorded.'}</p>
+          {/* The reason for the empty result is the finding, and it is not a
+              plumbing failure: a claim is pivoted on when THIS system first saw
+              it, never on when the article was published, because we cannot
+              claim to have known a story before we read it. A retrospective
+              extraction therefore stamps every claim with the moment the
+              extractor ran -- which is after the quote tape ends -- so no claim
+              can have a post-claim quote. The time-shifted control proves the
+              pairing itself works: move the pivot back inside the tape's window
+              and 24 pairs appear immediately, and the provenance rule catches
+              exactly that as the leak it is. */}
+          {e.paired_rows === 0 && e.claims_considered > 0 && <p className="mt-2 text-xs leading-5 text-slate-500">
+            All {e.claims_considered} verified claims were skipped for want of a post-claim quote. Claims are pivoted on when this system first <em>saw</em> them, never on the article's publication time — so a retrospective extraction stamps every claim with the moment the extractor ran, which is after the price tape ends. This is measurable only with the extractor running on a schedule alongside quote collection; a backfill can never produce a row. The negative controls confirm the pairing code itself is fine: shifting a claim's pivot back into the tape's window finds pairs immediately, and the provenance rule flags that shift as the leak it would be.
+          </p>}
+          <p className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px] text-slate-500">Market: {e.market ?? '—'} · run {e.run_hash} · frozen {e.frozen_at}{c ? ` · extractor ${c.extractor_version}` : ''}</p>
+        </>; })()}
       </>}
     </section>
 

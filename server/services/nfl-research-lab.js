@@ -15,7 +15,7 @@ export const RESEARCH_PACKAGES = [
   { id: 'B', title: 'Learn which books move first', state: 'starter_built', risk: 'High upside', purpose: 'Predict the next price change and whether a slower book will still offer its price when we arrive.' },
   { id: 'C', title: 'Trees and TPOT laboratory', state: 'extended', risk: 'Experimental', purpose: 'Search for useful interactions and compare them to simple baselines on later games. Now covers three targets (movement, cover/over, quantile) across six model families, a ranker branch and a market-anchored logit branch.' },
   { id: 'D', title: 'Model changing player roles', state: 'planned', risk: 'High upside', purpose: 'Price full, limited and inactive scenarios instead of pretending every player has one certain role.' },
-  { id: 'E', title: 'News that arrives before the price moves', state: 'planned', risk: 'Experimental', purpose: 'Extract sourced changes in role or availability, then learn which changes move specific markets.' },
+  { id: 'E', title: 'News that arrives before the price moves', state: 'extraction_built_impact_unmeasurable', risk: 'Experimental', purpose: 'Extract sourced changes in role or availability, then learn which changes move specific markets. Extraction is built and has run for real: 30 typed events, 24 verified, 0 provenance violations, 0 contradictions, and all three negative controls pass. The impact model correctly refuses to report — every claim was first seen when the extractor ran, which is after the quote tape ends, so no claim has a post-claim quote to react to. This measures only under a live extractor running alongside quote collection; a retrospective batch can never produce a row.' },
   { id: 'F', title: 'Learn when to trust each specialist', state: 'built_result_negative', risk: 'Experimental', purpose: 'Let different experts contribute in different situations, while testing whether they add independent information. Built and run: a non-negative sum-to-1 ridge selector, with a market-only expert and abstain as first-class options, did NOT beat taking the market alone on any tested configuration. Reported as a completed negative result, not a pending success.' },
   { id: 'G', title: 'Find inconsistent prices across markets', state: 'planned', risk: 'Speculative', purpose: 'Test whether connected player and team markets contradict one another after actual ticket rules and costs.' },
   { id: 'H', title: 'Replay what we could actually obtain', state: 'next', risk: 'Foundation', purpose: 'Include delays, disappearing prices, limits and correlated losses before treating a forecast as an opportunity.' },
@@ -58,6 +58,16 @@ export async function researchLabStatus() {
     expertSelectorLab = parse(await fs.readFile(path.join(root, 'server/data/expert-selector-lab/latest.json'), 'utf8'));
     if (expertSelectorLab?.schema !== 'expert-selector-lab-v1') { expertSelectorLab = null; expertSelectorLabError = 'Unrecognized or invalid expert-selector report'; }
   } catch (error) { if (error.code !== 'ENOENT') expertSelectorLabError = 'Expert-selector report could not be read'; }
+  // Package E (scripts/run-news-event-impact.mjs). Surfaced for the same reason
+  // the negative selector result is: this workspace is supposed to show failed
+  // and unmeasurable attempts next to successful ones, and E's report is
+  // currently the clearest example of a package whose extraction works and
+  // whose model honestly cannot report yet.
+  let newsEventImpact = null, newsEventImpactError = null;
+  try {
+    newsEventImpact = parse(await fs.readFile(path.join(root, 'server/data/news-event-impact/latest.json'), 'utf8'));
+    if (newsEventImpact?.schema !== 'nfl-news-event-impact-v1') { newsEventImpact = null; newsEventImpactError = 'Unrecognized or invalid news-event impact report'; }
+  } catch (error) { if (error.code !== 'ENOENT') newsEventImpactError = 'News-event impact report could not be read'; }
   return {
     as_of: new Date().toISOString(), authority: 'research_only', production_changed: false,
     latest_attempt: describe(auditRows[0]), latest_completed: describe(auditRows.find(r => r.status === 'complete')),
@@ -148,6 +158,24 @@ export async function researchLabStatus() {
       };
     })(),
     expert_selector_lab_error: expertSelectorLabError,
+    news_event_impact: (() => {
+      if (!newsEventImpact) return null;
+      const d = newsEventImpact.dataset ?? {};
+      return {
+        authority: 'research_only', run_hash: newsEventImpact.run_hash, frozen_at: newsEventImpact.frozen_at,
+        coverage: newsEventImpact.coverage ?? null,
+        provenance: newsEventImpact.provenance ?? null,
+        market: d.market ?? null,
+        claims_considered: d.claims_considered ?? 0,
+        paired_rows: Array.isArray(d.rows) ? d.rows.length : 0,
+        skipped_no_quote_pair: d.skipped_no_quote_pair ?? 0,
+        min_rows_required: d.min_rows_required ?? null,
+        // The verdict string is carried verbatim. "Not enough data to say" is a
+        // result this workspace is required to display, not a blank to hide.
+        evaluation: newsEventImpact.evaluation ?? null
+      };
+    })(),
+    news_event_impact_error: newsEventImpactError,
     packages: RESEARCH_PACKAGES,
     plan_url: '/api/nfl-market/research-lab/plan',
     principles: [

@@ -20,6 +20,7 @@
     "dev": "concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "node --watch --env-file-if-exists=.env server/index.js",
     "dev:client": "vite --config client/vite.config.ts",
+    "dev:verify": "API_PORT=5187 VITE_CLIENT_PORT=5188 VITE_API_PROXY=http://localhost:5187 npm run dev",
     "sync:data": "node scripts/bootstrap-data.mjs",
     "sync:history": "node server/scripts/sync-history.js",
     "audit:nfl": "node scripts/nfl-blind-audit.mjs",

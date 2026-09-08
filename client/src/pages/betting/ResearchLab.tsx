@@ -10,6 +10,21 @@ interface Lab {
   report_error: string | null;
   packages: { id: string; title: string; state: string; risk: string; purpose: string }[];
   experiment: { run_id: string; status: string; progress?: string; rows: number; features: string[]; limitations: string[]; errors: string[]; markets: { market: string; folds: Fold[]; pooled: Score }[]; dataset_hash: string; code_hash: string } | null;
+  tree_experiment: TreeLab | null; tree_report_error: string | null;
+}
+type TreeTargetFold = { season: number; target: string; selected: string; tpot_trials?: number;
+  candidates: { name: string }[] };
+type TreeMarketBlock = { market: string; move: TreeTargetFold[]; cover: TreeTargetFold[]; quantile: TreeTargetFold[] };
+type LeakageScan = { market: string; season: number | string; target: string; flagged: string[]; skipped: boolean };
+type RankerResult = { market: string; test_season: number; skipped: boolean; roi: number | null; profit_units?: number;
+  wins?: number; losses?: number; mean_ndcg_informational_only: number | null; note?: string; reason?: string };
+type LogitResult = { market: string; test_season: number; skipped: boolean; shrinkage_selected?: number;
+  log_loss?: number; market_log_loss?: number; beats_market_log_loss?: boolean; roi: number | null;
+  paper_bets?: number; reason?: string };
+interface TreeLab {
+  run_id: string; status: string; rows: number; features: string[]; dataset_hash: string; code_hash: string;
+  wall_clock_seconds?: number; errors: string[]; limitations: string[];
+  markets: TreeMarketBlock[]; leakage_scans: LeakageScan[]; ranker: RankerResult[]; market_anchored_logit: LogitResult[];
 }
 const label = (s: string) => s.replaceAll('_', ' ');
 const number = (n: number | null | undefined, digits = 2) => n == null ? 'Unavailable' : n.toFixed(digits);
@@ -19,6 +34,7 @@ export default function ResearchLab() {
   if (error) return <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-red-900">Research evidence could not load: {error}<button className="ml-3 underline" onClick={() => refetch()}>Retry</button></div>;
   if (loading || !data) return <div className="rounded-xl bg-slate-50 p-6 text-slate-600">Reading saved research and current evidence…</div>;
   const run = data.experiment;
+  const tree = data.tree_experiment;
   return <div className="space-y-5">
     <section className="overflow-hidden rounded-2xl bg-slate-950 text-white">
       <div className="grid gap-8 p-6 sm:p-8 lg:grid-cols-[1.5fr_1fr]">
@@ -49,6 +65,33 @@ export default function ResearchLab() {
         </div>)}</div>
         {run.errors.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-900">{run.errors.length} search or data issues — not successful runs</summary><ul className="mt-2 space-y-1 text-xs text-amber-900">{run.errors.map((e,i) => <li className="break-words" key={i}>{e}</li>)}</ul></details>}
         <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Limits and reproducibility</summary><ul className="mt-3 list-disc space-y-2 pl-5">{run.limitations.map(l => <li key={l}>{l}</li>)}</ul><div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {run.run_id}<br />Dataset: {run.dataset_hash}<br />Code: {run.code_hash}</div></details>
+      </>}
+    </section>
+
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-widest text-slate-400">Working laboratory · extended</div><h3 className="mt-1 text-xl font-black text-slate-950">Three targets · LightGBM, XGBoost, CatBoost</h3></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{tree ? label(tree.status) : 'Not run yet'}</span></div>
+      <p className="mt-3 text-sm leading-6 text-slate-600">A separate report from the pilot above: cover/over classification and quantile residual regression alongside the original movement target, three new bounded tree families, a ranker over opportunities (evaluated by real paper return, not a ranking metric), a market-anchored logit branch, and quantile coherence / key-number diagnostics. See the master plan's Package C section for what each branch is meant to prove.</p>
+      {data.tree_report_error && <p role="alert" className="mt-3 text-sm text-red-700">{data.tree_report_error}</p>}
+      {!tree ? <p className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-500">No saved extended experiment yet. Run research/tree_lab.py to write a report here.</p> : <>
+        <p className="mt-3 text-xs text-slate-500">{tree.rows.toLocaleString()} market observations · {tree.features.length} input columns{tree.wall_clock_seconds != null ? ` · ${Math.round(tree.wall_clock_seconds / 60 * 10) / 10} minutes wall-clock` : ''}</p>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">{tree.markets.map(m => <div key={m.market} className="rounded-xl border border-slate-200 p-4">
+          <h4 className="font-bold capitalize text-slate-900">{m.market}</h4>
+          {(['move', 'cover', 'quantile'] as const).map(target => <div key={target} className="mt-3">
+            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{target === 'move' ? 'Movement regression' : target === 'cover' ? 'Cover / over classification' : 'Quantile regression'}</div>
+            <div className="mt-1 space-y-1">{(m[target] ?? []).map(f => <div key={f.season} className="flex justify-between gap-3 border-t border-slate-100 pt-1 text-sm"><span className="font-semibold text-slate-500">{f.season}</span><span className="text-right font-semibold text-slate-900">{label(f.selected)}{f.tpot_trials != null && <span className="ml-2 text-xs font-normal text-slate-400">{f.tpot_trials} TPOT trials</span>}</span></div>)}</div>
+          </div>)}
+        </div>)}</div>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg bg-slate-50 p-4"><div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Ranker branch (top-3 per week)</div>{tree.ranker.map(r => <p key={r.market} className="mt-2 text-sm text-slate-700">{r.market}: {r.skipped ? `skipped — ${r.reason}` : `${r.roi == null ? 'no bets' : `${(r.roi * 100).toFixed(1)}% paper ROI`} (${r.wins ?? 0}-${r.losses ?? 0}); NDCG ${r.mean_ndcg_informational_only?.toFixed(3) ?? '—'} is informational only, not proof of profit`}</p>)}</div>
+          <div className="rounded-lg bg-slate-50 p-4"><div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Market-anchored logit branch</div>{tree.market_anchored_logit.map(l => <p key={l.market} className="mt-2 text-sm text-slate-700">{l.market}: {l.skipped ? `skipped — ${l.reason}` : `shrinkage ${l.shrinkage_selected} selected on earlier folds; ${l.beats_market_log_loss ? 'beat' : 'did not beat'} the market's own log-loss (${number(l.log_loss, 4)} vs ${number(l.market_log_loss, 4)})`}</p>)}</div>
+        </div>
+
+        <details className="mt-4 text-sm"><summary className="cursor-pointer font-semibold text-slate-600">Leakage scan (run against the real dataset)</summary>
+          <ul className="mt-2 space-y-1 text-xs text-slate-600">{tree.leakage_scans.map((s, i) => <li key={i}>{s.market} / {s.season} / {s.target}: {s.skipped ? 'skipped (not enough folds)' : s.flagged.length ? <span className="font-bold text-red-700">flagged {s.flagged.join(', ')}</span> : 'no feature flagged as a suspected leak'}</li>)}</ul>
+        </details>
+        {tree.errors.length > 0 && <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-900">{tree.errors.length} search or data issues — not successful runs</summary><ul className="mt-2 space-y-1 text-xs text-amber-900">{tree.errors.map((e, i) => <li className="break-words" key={i}>{e}</li>)}</ul></details>}
+        <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-semibold">Limits and reproducibility</summary><ul className="mt-3 list-disc space-y-2 pl-5">{tree.limitations.map(l => <li key={l}>{l}</li>)}</ul><div className="mt-3 break-all rounded-lg bg-slate-50 p-3 font-mono text-[10px]">Run: {tree.run_id}<br />Dataset: {tree.dataset_hash}<br />Code: {tree.code_hash}</div></details>
       </>}
     </section>
 

@@ -28,4 +28,11 @@ server/data.sqlite.pre-reset-*.bak-wal
 
 # Offline ML artifacts and Python caches
 server/data/market-lab/
+server/data/tree-lab/
+server/data/role-scenario-lab/
+server/data/book-lag-lab/
+server/data/evidence-datasets/
 research/__pycache__/
+research/.venv/
+research/catboost_info/
+**/__pycache__/

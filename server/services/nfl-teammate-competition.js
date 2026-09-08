@@ -35,7 +35,7 @@ const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
  * Per player-week share of his own team's receiving+rushing opportunity,
  * strictly from completed games.
  */
-function shareSeries(season) {
+export function shareSeries(season) {
   const usage = rows(`SELECT player_id, position, team, week,
                              COALESCE(targets,0) targets, COALESCE(carries,0) carries
                       FROM player_week_usage

@@ -29,7 +29,8 @@
     "sync:ffopportunity": "node --env-file-if-exists=.env scripts/sync-ffopportunity.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:rollback": "node scripts/rollback-migration.mjs",
-    "build:evidence-dataset": "node scripts/build-evidence-dataset.mjs"
+    "build:evidence-dataset": "node scripts/build-evidence-dataset.mjs",
+    "build:role-scenario-lab": "node scripts/build-role-scenario-lab.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

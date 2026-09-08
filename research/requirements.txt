@@ -2,3 +2,10 @@
 tpot==1.1.0
 scikit-learn==1.7.2
 setuptools<81  # TPOT dependency stopit still imports pkg_resources
+
+# Package C extension (research/tree_lab.py): bounded model families beyond
+# sklearn's own boosted/extra trees, used for movement regression, cover/over
+# classification and quantile regression alike.
+lightgbm==4.7.0
+xgboost==3.4.1
+catboost==1.2.10

@@ -273,7 +273,7 @@ export function playerWeekEventExpectation(projection, { mult = 1, scoring = PPR
   return eventExpectationFromVolume(projection, { attempts, carries, targets }, scoring);
 }
 
-function eventExpectationFromVolume(projection, { attempts, carries, targets }, scoring = PPR) {
+export function eventExpectationFromVolume(projection, { attempts, carries, targets }, scoring = PPR) {
   const p = projection.params;
   const events = {
     passYd: attempts * p.ypa,

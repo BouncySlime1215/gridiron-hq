@@ -9,6 +9,7 @@ import { rows, run } from '../db/index.js';
 import { ensembleWeek } from './nfl-ensemble.js';
 import { NFL_PRODUCTION_POLICY, applyNflPolicy } from './nfl-policy.js';
 import { calibratedCoverProbability } from './nfl-cover-calibration.js';
+import { promotedFindingVeto } from './nfl-candidate-findings.js';
 import { pregameSnapshotFor } from './nfl-pregame.js';
 import { onlineNeuralPrediction } from './nfl-online-neural.js';
 import { shinNoVig } from './nfl-devig.js';
@@ -122,7 +123,19 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
     // null probability is intentional: the walk-forward calibration audit has
     // not proven that the ensemble improves on the market, so this game is an
     // auditable abstention rather than a lower-confidence recommendation.
-    const calibrationEligible = modelProbability != null && incremental != null && incremental > 0;
+    // Shrink-only, never boost: a promoted candidate-finding (nfl-candidate-
+    // findings.js) can only ever push an otherwise-eligible pick to abstain,
+    // never make an ineligible one eligible. Checked with the exact same
+    // segmentsFor (nfl-replay.js) that discovered and validated the finding,
+    // so there is no drift between "what was proven" and "what gets applied
+    // live." As of tonight zero findings have ever been promoted, so this is
+    // a guaranteed no-op — verified by its own test — until one actually is.
+    const veto = promotedFindingVeto({
+      season, week, home: game.home, away: game.away, market: 'spread',
+      side: home ? game.home : game.away, line: quote?.spread ?? 0,
+      edge: edge ?? 0, disagreement: e.model_disagreement_margin
+    });
+    const calibrationEligible = !veto.vetoed && modelProbability != null && incremental != null && incremental > 0;
     const activeModels = game.models.filter(m => m.margin != null && m.margin_weight > 0);
     const pregame = pregameSnapshotFor(season, week, selection);
     out.push({
@@ -136,6 +149,7 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
       implied_probability: implied,
       probability_difference: incremental,
       calibration_eligible: calibrationEligible,
+      promoted_finding_veto: veto.vetoed ? { segment_key: veto.segment_key, reason: veto.reason } : null,
       detail: `Ensemble edge ${edge > 0 ? '+' : ''}${edge} · disagreement ${e.model_disagreement_margin}`,
       edge_points: edge == null ? null : Math.abs(edge), disagreement: e.model_disagreement_margin,
       book: quote?.source ?? null, quote_source: quote?.source ?? null, quote_at: quote?.fetched_at ?? null,

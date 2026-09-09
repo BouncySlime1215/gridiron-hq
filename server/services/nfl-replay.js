@@ -375,13 +375,24 @@ function sideSign(b) {
   return b.side.includes(b.home) ? 1 : -1;
 }
 
-function segmentsFor(b, ctx) {
+export function segmentsFor(b, ctx) {
   const segs = [];
   segs.push(['market', b.market]);
   if (b.market === 'spread') {
     segs.push(['side', sideSign(b) > 0 ? 'backed home' : 'backed away']);
     segs.push(['role', b.line < 0 ? 'home favoured' : 'home underdog']);
     segs.push(['spread size', Math.abs(b.line) >= 7 ? 'big spread (7+)' : Math.abs(b.line) <= 3 ? 'short spread (<=3)' : 'mid spread']);
+    // A specific, deliberately-added interaction, not a general pairwise
+    // expansion (that would be ~20,000 combinations and its own multiple-
+    // comparisons disaster). Added 2026-09-09 after a real observation: a
+    // "confident shape" big-spread pick goes 70% early/mid season vs 29%
+    // late season, pooled across all 5 audited seasons, present in 3 of 5
+    // individually. Registered as a manually-observed candidate finding
+    // (nfl-candidate-findings.js) with 2021-2025 locked in as its discovery
+    // seasons FOREVER — Rule 1 (a season can never change role) means this
+    // can only ever be confirmed by real seasons that come after tonight,
+    // never retroactively "confirmed" on the same data that suggested it.
+    segs.push(['spread_x_timing', `${Math.abs(b.line) >= 7 ? 'big spread (7+)' : 'not big spread'} + ${b.week >= 14 ? 'late (wk14+)' : 'not late'}`]);
   } else if (b.market === 'moneyline') {
     segs.push(['side', sideSign(b) > 0 ? 'backed home' : 'backed away']);
     segs.push(['role', b.american_price < 0 ? 'backed favourite' : 'backed underdog']);
@@ -521,7 +532,7 @@ const OVERLAP_THRESHOLD = 0.5;
  * finding, not two) and leave-one-season-out (a pooled effect that is really
  * one anomalous season dominating the total is not a systematic bias).
  */
-function gameContext() {
+export function gameContext() {
   const ctx = new Map();
   for (const r of rows(`SELECT season, week, team, roof, wind, temp, rest_days, div_game
                         FROM game_lines WHERE home = 1`)) {

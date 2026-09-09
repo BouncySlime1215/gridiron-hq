@@ -27,7 +27,8 @@ const { db } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
-const { promoteFindingToShrink, rejectFinding, candidateFindingsStatus, nextHoldoutState, runCandidateFindingsForSeasonEnd, __test } =
+const { promoteFindingToShrink, rejectFinding, candidateFindingsStatus, nextHoldoutState, runCandidateFindingsForSeasonEnd,
+  registerManuallyObservedFinding, promotedFindingVeto, __test } =
   await import('../server/services/nfl-candidate-findings.js');
 const { recordDiscoveryFlag, assertSeasonRoleAvailable } = __test;
 
@@ -124,4 +125,61 @@ test('runCandidateFindingsForSeasonEnd defers rather than runs while a blind aud
   const result = runCandidateFindingsForSeasonEnd(2099); // season is fictional; should never get far enough to matter
   assert.equal(result.skipped, true);
   assert.match(result.reason, /blind audit run.*in progress/);
+});
+
+test('registerManuallyObservedFinding locks in every observed season as discovery, permanently', () => {
+  const found = registerManuallyObservedFinding(
+    segment('spread_x_timing', 'big spread (7+) + late (wk14+)', 0.292),
+    [2021, 2022, 2023, 2024, 2025]
+  );
+  assert.equal(found.state, 'discovered');
+  assert.deepEqual(found.discovery_seasons, [2021, 2022, 2023, 2024, 2025]);
+
+  const status = candidateFindingsStatus().find(f => f.id === found.finding_id);
+  assert.equal(status.direction, 'weak');
+  assert.ok(status.rule_definition_hash, 'the rule must be frozen immediately, same as an algorithmically discovered finding');
+  assert.ok(status.discovery_note?.includes('Manually observed'));
+
+  // Rule 1 still applies: none of the observed seasons can later be reused as holdout.
+  assert.throws(() => assertSeasonRoleAvailable(found.finding_id, 2023, 'holdout'), /already used as 'discovery'/);
+  // A genuinely new season (one nobody looked at when proposing this) is fine.
+  assert.doesNotThrow(() => assertSeasonRoleAvailable(found.finding_id, 2026, 'holdout'));
+});
+
+test('registerManuallyObservedFinding refuses to re-register the same segment twice', () => {
+  // A segment_key/name not touched by any earlier test in this file — reusing
+  // one that already exists would collide with unrelated prior test state in
+  // this shared database, not exercise the guard this test is actually for.
+  registerManuallyObservedFinding(segment('rest', 'off a bye', 0.4), [2021]);
+  assert.throws(() => registerManuallyObservedFinding(segment('rest', 'off a bye', 0.4), [2022]), /already exists/);
+});
+
+test('promotedFindingVeto is a guaranteed no-op with zero promoted findings', () => {
+  const bet = { season: 2026, week: 3, home: 'ZZZ', away: 'YYY', market: 'spread',
+    side: 'ZZZ', line: -10, edge: 5, disagreement: 2 };
+  const result = promotedFindingVeto(bet);
+  assert.equal(result.vetoed, false);
+});
+
+test('promotedFindingVeto fires once (and only once) a finding is actually promoted', () => {
+  const found = registerManuallyObservedFinding(segment('edge size', 'small edge (<4)', 0.4), [2021, 2022]);
+  // Force through the holdout requirement directly (the real path is exercised
+  // in the holdout-state-machine tests above) so this test is about the veto
+  // consumer, not re-proving the state machine.
+  db.prepare(`UPDATE nfl_candidate_findings SET state='flagged_for_review' WHERE id=?`).run(found.finding_id);
+  const stillNotPromoted = promotedFindingVeto({ season: 2026, week: 3, home: 'AAA', away: 'BBB',
+    market: 'spread', side: 'AAA', line: -1, edge: 1, disagreement: 2 });
+  assert.equal(stillNotPromoted.vetoed, false, 'flagged_for_review alone must not veto anything -- only promoted does');
+
+  promoteFindingToShrink(found.finding_id, { actor: 'nick', reason: 'test promotion' });
+  // This bet's edge (1) is < 4, matching the promoted 'small edge (<4)' segment.
+  const matching = promotedFindingVeto({ season: 2026, week: 3, home: 'AAA', away: 'BBB',
+    market: 'spread', side: 'AAA', line: -1, edge: 1, disagreement: 2 });
+  assert.equal(matching.vetoed, true);
+  assert.equal(matching.segment_key, 'edge size|small edge (<4)');
+
+  // A bet that does NOT match the promoted segment (large edge) must not be vetoed.
+  const nonMatching = promotedFindingVeto({ season: 2026, week: 3, home: 'AAA', away: 'BBB',
+    market: 'spread', side: 'AAA', line: -1, edge: 9, disagreement: 2 });
+  assert.equal(nonMatching.vetoed, false, 'the veto must be scoped to exactly the promoted segment, not every bet');
 });

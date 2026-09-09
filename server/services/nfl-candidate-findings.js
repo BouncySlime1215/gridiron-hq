@@ -32,7 +32,7 @@
  * case a future edit forgets to check).
  */
 import { rows, row, run } from '../db/index.js';
-import { replaySeason, analyzeErrors, proposeAdjustment, segmentRuleHash } from './nfl-replay.js';
+import { replaySeason, analyzeErrors, proposeAdjustment, segmentRuleHash, segmentsFor, gameContext } from './nfl-replay.js';
 
 const REQUIRED_HOLDOUT_CONFIRMATIONS = 3;
 
@@ -67,6 +67,42 @@ function singleSeasonFindings(season, config = {}) {
   if (replay.error) return { error: replay.error, season };
   const analysis = analyzeErrors(replay.bets, { minBets: config.minBets ?? 25 });
   return { season, weakest: analysis.weakest, strongest: analysis.strongest, bets: replay.bets.length };
+}
+
+/**
+ * Registers a finding a HUMAN noticed by looking at real results, rather
+ * than one the automatic per-season search flagged. This is honest about
+ * the risk that framing implies: looking at data and then proposing to test
+ * exactly the pattern that looked bad is how spurious findings get
+ * "confirmed" by data snooping. So this does not skip the rigor — it front-
+ * loads it. Every season the human actually looked at is locked in as this
+ * finding's `discovery_seasons` PERMANENTLY (Rule 1: a season can never
+ * change role), which means those seasons can never later be used as
+ * holdout for this exact segment_key. The finding starts directly in
+ * `discovered` (skipping pending_confirmation, since the two-independent-
+ * flags requirement doesn't apply to a single manual observation the same
+ * way — the honesty here is in the season-locking, not in re-deriving a
+ * discovery step that already happened) and still needs
+ * REQUIRED_HOLDOUT_CONFIRMATIONS non-overlapping seasons that come AFTER
+ * the seasons already looked at before it can ever reach flagged_for_review.
+ */
+export function registerManuallyObservedFinding(segment, observedSeasons, { note } = {}) {
+  const key = segmentKeyFor(segment);
+  const existing = findingByKey(key);
+  if (existing) throw new Error(`a finding for '${key}' already exists (state: ${existing.state}) — cannot re-register`);
+  const sortedSeasons = [...observedSeasons].sort((a, b) => a - b);
+  const ruleHash = segmentRuleHash(segment);
+  const insert = run(`INSERT INTO nfl_candidate_findings
+    (segment_key, dimension, segment, direction, state, rule_definition_hash, discovery_seasons_json, confirmed_at, discovery_note)
+    VALUES (?,?,?,?, 'discovered', ?, ?, datetime('now'), ?)`,
+    key, segment.dimension, segment.segment, segment.win_rate < 0.5 ? 'weak' : 'strong', ruleHash, JSON.stringify(sortedSeasons),
+    note ?? `Manually observed by looking at real results across seasons ${sortedSeasons.join(', ')} — these seasons are locked in as discovery and can never serve as holdout for this finding.`);
+  const findingId = insert.lastInsertRowid;
+  for (const season of sortedSeasons) {
+    run(`INSERT INTO nfl_candidate_finding_seasons (finding_id, season, role) VALUES (?,?,'discovery')`, findingId, season);
+  }
+  return { finding_id: findingId, segment_key: key, state: 'discovered', discovery_seasons: sortedSeasons,
+    note: 'Needs holdout confirmations from seasons NOT in this list before it can ever be validated.' };
 }
 
 /**
@@ -205,14 +241,45 @@ export function runCandidateFindingsForSeasonEnd(season, config = {}) {
 }
 
 /**
+ * Reads every `promoted` finding and checks whether a live candidate bet
+ * falls in one of their frozen segments — the actual downstream consumer
+ * `promoteFindingToShrink` writes a record for but does nothing with on its
+ * own. Built 2026-09-09, wired into `nfl-auto-picks.js`'s live decision
+ * board ONLY (never `replaySeason`/the blind audit — a future promotion
+ * must never leak into grading seasons that already happened).
+ *
+ * Reuses the exact same `segmentsFor` (nfl-replay.js) that discovered and
+ * validated the finding in the first place, so there is zero drift between
+ * "what was proven" and "what gets checked live" — two separate
+ * re-implementations of the same predicate is exactly how this kind of
+ * system quietly breaks.
+ *
+ * Shrink-only, matching this project's standing convention
+ * (nfl-signal-reliability.js): the only action is a full veto (abstain on
+ * this bet) — the same mechanical "stop betting this segment" correction
+ * `proposeAdjustment` already validated during holdout testing. It never
+ * boosts a bet, and with zero promoted findings (true as of tonight) this
+ * is a guaranteed no-op — verified by its own test.
+ */
+export function promotedFindingVeto(bet) {
+  const promoted = rows(`SELECT * FROM nfl_candidate_findings WHERE state='promoted'`);
+  if (!promoted.length) return { vetoed: false };
+  const ctx = gameContext();
+  const betSegments = new Set(segmentsFor(bet, ctx).map(([dim, val]) => `${dim}|${val}`));
+  for (const finding of promoted) {
+    if (betSegments.has(finding.segment_key)) {
+      return { vetoed: true, finding_id: finding.id, segment_key: finding.segment_key,
+        reason: `Matches promoted finding '${finding.segment_key}' — proven unreliable across ${JSON.parse(finding.discovery_seasons_json ?? '[]').length}+ seasons of validation.` };
+    }
+  }
+  return { vetoed: false };
+}
+
+/**
  * The ONLY code path that lets a finding touch anything live — explicitly
  * invoked by a person, mirroring model-governance.js's promoteEligibleAudit.
- * Even then it only ever registers a shrink-authority record; it does not
- * itself define what "shrink" means for a situational segment (that
- * mechanism, analogous to nfl-signal-reliability.js's per-signal multiplier
- * but at segment grain, is future work once a real finding exists to
- * exercise it against — there is deliberately no path from here to
- * production weights today).
+ * From this moment, `promotedFindingVeto` above (wired into the live
+ * decision board) will abstain on any bet matching this segment.
  */
 export function promoteFindingToShrink(findingId, { actor, reason } = {}) {
   const finding = row(`SELECT * FROM nfl_candidate_findings WHERE id=?`, Number(findingId));

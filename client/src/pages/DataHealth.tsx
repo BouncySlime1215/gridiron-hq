@@ -183,6 +183,80 @@ function SourceTable({ title, hint, sources }: { title: string; hint: string; so
   );
 }
 
+interface CollectionResult {
+  status: 'ok' | 'partial' | 'error';
+  quote_capture: { skipped?: boolean; reason?: string; error?: string; events?: number; quotes?: number } | null;
+  news_extraction: { skipped?: boolean; reason?: string; error?: string; reviewed?: number; candidates?: number; accepted?: number; rejected?: number; note?: string } | null;
+  errors: string[];
+  restart_limitation: string;
+}
+
+/**
+ * Execution brief Phase 3. Separate card, separate button, from the free
+ * "Refresh everything" above — this is the one action on this page that
+ * spends real money every time it runs (Odds API quota + Anthropic API
+ * spend), so it gets its own explicit confirmation-shaped button rather
+ * than being folded into a free-feeling refresh.
+ */
+function ProspectiveCollectionCard() {
+  const [newsLimit, setNewsLimit] = useState('10');
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<CollectionResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setRunning(true); setError(null); setResult(null);
+    try {
+      const r = await api<CollectionResult>('/nfl-market/prospective-collection/run', {
+        method: 'POST', body: JSON.stringify({ newsLimit: Number(newsLimit) || 10 })
+      });
+      setResult(r);
+    } catch (e: any) { setError(e.message); }
+    finally { setRunning(false); }
+  };
+
+  return (
+    <div className="card p-5 mb-4 border-amber-200">
+      <h2 className="mb-1 text-sm font-bold text-slate-800">Prospective collection (Phase 3)</h2>
+      <p className="mb-3 text-xs text-slate-500">
+        Captures a real multi-book quote-tape snapshot and runs bounded typed-news extraction, together — the
+        only way a forward claim can ever land inside a genuinely current price tape. <strong>Costs real money
+        every time you press it</strong> (Odds API quota + Anthropic API spend for the news extraction; a
+        bounded run has cost about $0.015 in this project's own measurement). Manual only — there is no
+        background daemon, so collection stops the moment this app is closed or the machine sleeps.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs text-slate-600">News items to review
+          <input type="number" min={1} max={50} value={newsLimit} onChange={e => setNewsLimit(e.target.value)}
+            className="ml-2 w-16 rounded border border-slate-300 px-2 py-1 text-sm" />
+        </label>
+        <button className="btn-primary" disabled={running} onClick={run}>
+          {running ? 'Collecting…' : 'Run collection now (costs money)'}
+        </button>
+      </div>
+      {error && <p className="mt-3 text-sm text-crit">Failed: {error}</p>}
+      {result && <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 p-3 text-xs">
+          <div className="font-semibold text-slate-700">Quote tape</div>
+          {result.quote_capture?.skipped ? <div className="text-slate-500">Skipped — {result.quote_capture.reason}</div>
+            : result.quote_capture?.error ? <div className="text-rose-600">{result.quote_capture.error}</div>
+            : <div className="text-slate-500 tabular-nums">{result.quote_capture?.events ?? 0} events, {result.quote_capture?.quotes ?? 0} quotes captured</div>}
+        </div>
+        <div className="rounded-lg border border-slate-200 p-3 text-xs">
+          <div className="font-semibold text-slate-700">News extraction</div>
+          {result.news_extraction?.skipped ? <div className="text-slate-500">Skipped — {result.news_extraction.reason}</div>
+            : result.news_extraction?.error ? <div className="text-rose-600">{result.news_extraction.error}</div>
+            : <div className="text-slate-500 tabular-nums">
+                {result.news_extraction?.reviewed ?? 0} reviewed · {result.news_extraction?.candidates ?? 0} candidates · {result.news_extraction?.accepted ?? 0} accepted
+                {result.news_extraction?.note ? ` · ${result.news_extraction.note}` : ''}
+              </div>}
+        </div>
+      </div>}
+      {result && <p className="mt-2 text-[11px] text-slate-400">{result.restart_limitation}</p>}
+    </div>
+  );
+}
+
 export default function DataHealth() {
   const { data, loading, error, refetch } = useApi<SourcesResponse>('/dev/sources');
   const { data: devStatus } = useApi<DevStatus>('/dev/status');
@@ -280,6 +354,11 @@ export default function DataHealth() {
             </div>
           </div>
         </div>
+
+        {/* Phase 3: prospective collection — separate from the free "Refresh everything"
+            button above because, unlike everything it touches, this one costs real money
+            (Odds API quota + Anthropic spend) on every click. Never auto-triggered. */}
+        <ProspectiveCollectionCard />
 
         {/* Refresh result */}
         {refreshError && <div className="card p-4 mb-4 border-crit"><p className="text-sm text-crit">Refresh failed: {refreshError}</p></div>}

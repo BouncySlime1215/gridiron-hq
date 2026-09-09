@@ -208,6 +208,13 @@ export const MANUAL_SOURCES = {
     cutoff: 'the last scrape before that season\'s Week 1 kickoff',
     failureMode: 'throws; the boom/bust classifier has zero training examples for the affected seasons and shrinks to zero rather than guessing',
     maxAgeMinutes: 90 * 24 * 60
+  },
+  nfl_prospective_collection: {
+    label: 'NFL prospective collection: multi-book quote tape + bounded typed-news extraction (Phase 3)',
+    cadence: 'manual only, by design — no timer; costs real Odds API quota and Anthropic spend per run',
+    cutoff: 'as of the moment the button was last pressed; stops entirely when the app is closed',
+    failureMode: 'each half (quote capture, news extraction) fails independently and is recorded separately; no automatic retry, so a failure is never silently re-charged',
+    maxAgeMinutes: 6 * 60
   }
 };
 

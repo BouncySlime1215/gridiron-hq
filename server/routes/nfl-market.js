@@ -32,6 +32,7 @@ import { db } from '../db/index.js';
 
 import { researchLabStatus, researchMasterPlan } from '../services/nfl-research-lab.js';
 import { runExecutionPipeline, settleExecutionOpportunities } from '../services/nfl-execution-pipeline.js';
+import { runProspectiveCollection } from '../services/nfl-prospective-collection.js';
 import { attemptAcceptance } from '../services/nfl-execution-decision.js';
 import { getOpportunity, listOpportunities, lifecycleFunnel } from '../services/nfl-execution-lifecycle.js';
 
@@ -377,6 +378,21 @@ r.post('/execution/:id/accept', requireModelPermission('model:execute'), (req, r
 /** Settle every accepted position whose game now has a real final score. Safe to call repeatedly — already-settled positions are simply skipped. */
 r.post('/execution/settle', requireModelPermission('model:train'), (req, res, next) => {
   try { res.json(settleExecutionOpportunities()); } catch (e) { next(e); }
+});
+
+/**
+ * Execution brief Phase 3: run a real quote-tape capture and a bounded
+ * typed-news extraction together, on demand. See
+ * server/services/nfl-prospective-collection.js — this is NOT a scheduled
+ * job (SCHEDULER_DISABLED stays set, by explicit operator decision) and it
+ * costs real money both halves (Odds API quota, Anthropic spend). `newsLimit`
+ * defaults small on purpose; a caller who wants more must ask for it explicitly.
+ */
+r.post('/prospective-collection/run', requireModelPermission('model:train'), (req, res, next) => {
+  runProspectiveCollection({
+    newsLimit: Math.min(50, Math.max(1, Number(req.body?.newsLimit) || 10)),
+    sinceDays: Math.min(14, Math.max(1, Number(req.body?.sinceDays) || 2))
+  }).then(result => res.json(result)).catch(next);
 });
 
 /**

@@ -538,12 +538,53 @@ package. In priority order:
 6. **Parked, not rejected**: player-tracking GNN stream (blocked on an
    actual accessible data source — revisit only if one is identified),
    public-action-coefficient bias correction (blocked on a public-bet-
-   percentage feed, and contested in practice even with one), human-grader
+   percentage feed, and contested in practice even with one), ~~human-grader
    Z-normalization (blocked on a PFF/referee-grade ingestion service that
-   doesn't exist yet).
+   doesn't exist yet)~~ — **implemented 2026-09-08, see Part 5**; the
+   ingestion service is still the real dependency, not the code.
 
 The overall shape of this project — canonical contracts, bitemporal
 point-in-time correctness, purged chronological folds, market-residual
 targets, honest negative results kept and reported rather than discarded —
 is not what the proposed architecture would replace. It's what the proposed
 architecture is, in places, still describing as an aspiration.
+
+---
+
+## Part 5 — The same architecture, re-submitted later the same day, checked against work that didn't exist yet this morning
+
+A near-identical system prompt (Silo 1/2/3 stacking, the 15:1-with-a-fixed-
+feature-cap rule, non-negative sum-to-1 ridge stacking, a PSI ≥ 0.25 drift
+gate, a 4.5-point market-line corridor, a 53.5%-over-30-games CLV rule with
+a 50% downsize, and a rigid Tuesday/Wednesday/Thursday–Sunday/Tuesday weekly
+cron lifecycle) was submitted again, framed as replacing "our audit"
+wholesale. Between the version assessed above and this one, three of that
+proposal's own headline rules were independently built, tested against real
+data, and specifically superseded by something the proposal's generic
+version does not survive contact with. Re-verified line by line before
+answering, not from memory of the morning's assessment:
+
+| Proposal's rule | What this project has instead, verified against the actual committed code |
+|---|---|
+| Market Line Corridor at **4.5 points** | `server/services/nfl-execution-corridor.js`: `MARKET_LINE_CORRIDOR_POINTS = 11.5`. Derived from this project's own pooled residual distribution (99.5th percentile, fit on training folds, validated out-of-fold), not imported. 4.5 was measured against the same residuals and would flag one model output in fifteen — a review queue nobody could work, verified in the module's own header comment and `test/nfl-execution-corridor.test.js`. |
+| CLV Z-Test: **53.5% over a rolling 30-game window → halve Kelly** | `server/services/nfl-execution-clv-downsize.js`, whose own header names this exact rule as "the proposal's version" and explains what changed: a 4-rung ladder (1×/0.5×/0.25×/0×) over **non-overlapping** 6-week blocks, gated by a week-clustered Student's-t 98% CI on CLV directly (not a win/loss proxy for it). The naive overlapping-window version of the proposal's own rule was built, simulated, and left full stakes on **90%+ of paths under pure noise** — a real, measured false-positive rate, not a hypothetical objection. |
+| Level 1 Meta-Learner: **non-negative Ridge, weights sum to 1.0** | This is Package F (`research/expert_selector_lab.py`), built and run for real on three substrates and seven gate configurations. It did not "solve" stacking — it **lost to the market on every configuration**, and the sharpest diagnostic was that the stacker almost never chose to abstain (`market_only` weight 0.000/0.068/0.000) even when abstaining was the better answer. Presenting this exact architecture as this session's proposed solution ignores a result this project already has. |
+| PSI **≥ 0.25** drift gate | `research/drift.py`'s own docstring: "0.1 and 0.25 are conventions, not a decision rule... [0.1] sits BELOW the 95th percentile... alarms per fold on data with no drift at all." Replaced with an analytic noise floor plus an empirically-calibrated season-boundary reference, specifically because the fixed threshold produces false alarms at this project's fold sizes. |
+| 15:1 ratio, hard cap of **108 features for ~1,600 rows** | `research/model_discipline.py`: no flat ratio. Effective observations are computed per target type — raw rows for continuous regression, minority-class count for classification, tail mass of the most extreme quantile for quantile regression, follow-event count for hazard models, simplex degrees of freedom for a stacker — and the module's own comment states this is "STRICTER than the proposal's flat 15:1, not a loosening of it." A flat 108-feature cap does not even specify which of these a "feature" is being counted against. |
+| Z-score normalize human-graded inputs (PFF) | **Genuinely new, and adopted.** Part 4 above had this parked as blocked on a PFF connector that doesn't exist. The connector is still absent (`pffConnectorStatus().configured` is false — no `PFF_API_BASE_URL`/`PFF_API_TOKEN`), but the normalization itself no longer needs to wait on that: `nfl-roster-strength.js#normalizedGrade` computes a per-position, decision-time-cutoff Z-score against the actually-observed grade population (never a hardcoded league mean/SD), remapped onto the same evidence scale the rest of `rankPlayer`'s composite already uses. 7 tests against synthetic fixtures via the real `importLicensedPffGrades` path, including a leak-safety case (a same-week batch must not enter the prior population). Returns `null` — never a guessed default — while the population has fewer than 8 observed grades at that position, which is always true today. Ready the day the connector is authorized; not a live feature until then. |
+| Pythagorean substitution for raw win-loss | **Already present**, not new: `nfl-ensemble.js`'s `pythagorean` model ("Pythagenport expectation... regresses lucky records") has been one of the ensemble's rating-system models. Colley's win/loss-only model exists too, but as one comparison point among many families, not a naive default fed everywhere raw. |
+| Silo 2: GNN over raw player-tracking (x,y) coordinates | Not adoptable without new investment — no player-tracking data source exists in this project, and the master plan already parked this exact idea as speculative for that reason (see Part 4's own "GNN/player-tracking stream" line, unchanged by this session). |
+| Silo 3: a single BERT/Llama-derived 0.00–1.00 semantic scalar | Not an upgrade — this project's typed-news extraction (Package E, `nfl-news-events.js`) already produces structured, verified, provenance-tracked claims with explicit quarantine and contradiction states. Collapsing that to one scalar would be a regression, not a refinement. |
+| Market data excluded from Level 0, introduced only at execution | Rejected outright — this reverses the market-residual design this entire project is built on (predicting movement/cover relative to the market line, not an absolute score), a deliberate, tested choice documented throughout `nfl-ensemble.js` (`market_anchor`, `market_regression` are named active models) and the master plan. |
+| Rigid weekly cron: Tue retrain / Wed 11:59pm audit lock / Thu–Sun frozen inference / Tue post-mortem | Rejected as an operating decision, not a technical one — `SCHEDULER_DISABLED=1` is set in this project's `.env` by the user's own explicit instruction this same session ("ion think i need the disabled thing off"), and Phase 3's prospective collection was deliberately built as an on-demand action instead of a scheduled job for exactly that reason. Imposing a rigid automated weekly schedule would silently reverse that decision. |
+
+**Net verdict, unchanged from the morning's, now with more evidence behind
+it rather than less:** every headline rule in this proposal that this
+project had already tested turned out to need a real, project-specific
+correction to survive contact with this project's own data — and in every
+one of those cases, the correction was already built, not merely argued
+for. The one rule that was genuinely still open (Z-score normalizing
+human-graded inputs) is now built and tested too. Nothing here is a case
+for wholesale replacement; it is, again, a case for citing this project's
+own completed corrections rather than reintroducing the versions they
+replaced.

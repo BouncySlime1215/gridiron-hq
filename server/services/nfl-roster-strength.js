@@ -216,6 +216,50 @@ function performanceScore(featureRows, position) {
   return clamp(60 + z, 35, 95);
 }
 
+/**
+ * Z-score normalize a raw human-graded evaluation (PFF's overall_grade)
+ * against the actual distribution of OTHER graded players at the same
+ * position, observed strictly before this row's own decision cutoff -- not
+ * a hardcoded league mean/SD. A grade of 68 means something different for a
+ * guard than a slot receiver, and something different again once the
+ * graded population itself shifts across seasons or PFF's own methodology
+ * changes; this recomputes the reference distribution from what has
+ * actually been recorded rather than assuming a fixed constant nobody can
+ * verify against this table. Requested by the compared architecture's
+ * "strip subjective evaluator bias via Z-score normalization" rule
+ * (docs/MODEL_ARCHITECTURE_ASSESSMENT_2026_09_08.md) -- the one genuinely
+ * new, low-risk piece from that comparison this project did not already
+ * have covered by tested, superior work.
+ *
+ * Remapped onto the same ~35-95 evidence scale `rankPlayer`'s other
+ * components already use (depthPrior, participation, performance all center
+ * near 65 with roughly a 15-point spread), so the weighted mean below never
+ * mixes a raw 0-100 grading scale against differently-scaled evidence --
+ * that mismatch, not merely evaluator bias, was the more basic defect: an
+ * ungraded population's raw scale doesn't line up with this composite's at
+ * all, so a systematic grader-scale offset would previously have shown up
+ * as an unexplained constant shift in `rating`, indistinguishable from
+ * signal. Returns null (never a guessed default) when there are too few
+ * observed grades at this position to trust a distribution -- which is
+ * always true today, since no PFF connector is configured
+ * (`pffConnectorStatus()`); the function is correct and tested now, ready
+ * for when that changes, rather than silently no-op guessing in the
+ * meantime.
+ */
+function normalizedGrade(rawGrade, position, season, week, minPopulation = 8) {
+  if (!Number.isFinite(rawGrade)) return null;
+  const population = rows(`SELECT overall_grade FROM nfl_external_player_grades
+    WHERE provider='pff' AND position=? AND overall_grade IS NOT NULL
+      AND (season<? OR (season=? AND week<?))`, position, season, season, week)
+    .map(r => r.overall_grade).filter(Number.isFinite);
+  if (population.length < minPopulation) return null;
+  const mean = population.reduce((sum, v) => sum + v, 0) / population.length;
+  const variance = population.reduce((sum, v) => sum + (v - mean) ** 2, 0) / population.length;
+  const sd = Math.sqrt(variance);
+  if (!(sd > 1e-6)) return null; // a degenerate (zero-spread) population carries no z-score information
+  return clamp(65 + ((rawGrade - mean) / sd) * 15, 35, 95);
+}
+
 function rankPlayer(player, snapMap, featureMap, gradeMap, rookieMap, changeMap) {
   const position = canonicalPosition(player.pos_abb);
   const depthRank = Number(player.pos_rank) || 9;
@@ -238,7 +282,7 @@ function rankPlayer(player, snapMap, featureMap, gradeMap, rookieMap, changeMap)
     { value: depthPrior, weight: 0.5 },
     { value: participation, weight: 0.23 },
     { value: performance, weight: 0.17 },
-    { value: external?.overall_grade, weight: 0.10 }
+    { value: normalizedGrade(external?.overall_grade, position, player.season, player.week), weight: 0.10 }
   ];
   if (rookieRating != null) evidence.push({ value: rookieRating, weight: 0.28 });
   let rating = weightedMean(evidence);
@@ -376,3 +420,5 @@ export async function syncLicensedPffGrades(season, week) {
   return importLicensedPffGrades(items.map(item => ({ ...item, season: item.season ?? season, week: item.week ?? week })),
     { sourceRef: url.origin });
 }
+
+export const __test = { normalizedGrade };

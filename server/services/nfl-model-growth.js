@@ -39,6 +39,7 @@ import { simulationCalibrationFor } from './nfl-sim-calibration.js';
 import { fitOrthogonalSpecialists } from './nfl-orthogonal-specialists.js';
 import { freezeFeatureCoverageSnapshot } from './nfl-feature-coverage.js';
 import { refreshNflOffseasonCycle } from './nfl-offseason-cycle.js';
+import { runCandidateFindingsForSeasonEnd } from './nfl-candidate-findings.js';
 
 // nfl_model_growth_runs comes from server/migrations/000_legacy_schema.js.
 
@@ -245,6 +246,14 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
         detail.feature_coverage = freezeFeatureCoverageSnapshot(season, nextWeek);
       } else {
         detail.offseason = await refreshNflOffseasonCycle(season);
+        // Phase 3: feed the just-completed season into the candidate-findings
+        // ledger (nfl-candidate-findings.js) -- fully automatic and safe,
+        // because every transition through flagged_for_review only ever
+        // RECORDS evidence; nothing here can change live behavior (that
+        // requires promoteFindingToShrink, a distinct function only a
+        // person calls, never invoked from this cycle or anywhere else
+        // automatic).
+        detail.candidate_findings = runCandidateFindingsForSeasonEnd(season);
       }
       detail.online_neural = trainOnlineNeuralThroughSettled();
       detail.risk_lab = trainRiskLabThroughSettled();

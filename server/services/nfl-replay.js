@@ -29,6 +29,10 @@ import { mean, quantile, random, withRandomSeed, normalCdf, holm } from './stats
 import { NFL_PRODUCTION_POLICY, NFL_HISTORICAL_REPLAY_POLICY,
   applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
 import { shinNoVig } from './nfl-devig.js';
+import { availableLeaderboardKeys, teamStatBucket } from './nfl-rolling-leaders.js';
+import { availabilityDeficit } from './nfl-availability.js';
+import { teamNewsSignals } from './nfl-news-signal.js';
+import { teamEventVector } from './nfl-event-archive.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
@@ -397,6 +401,88 @@ function segmentsFor(b, ctx) {
     if (c.rest_days != null) segs.push(['rest', c.rest_days <= 6 ? 'short week' : c.rest_days >= 10 ? 'off a bye' : 'normal week']);
     if (c.div_game != null) segs.push(['divisional', c.div_game === 1 ? 'divisional' : 'non-divisional']);
   }
+
+  // "Was the team actually bet a leader or trailer, through its games so
+  // far, in [a multitude of] real stats" — cutoff-safe rolling leaderboards
+  // (nfl-rolling-leaders.js), fed in wide rather than curated: every numeric
+  // feature the warehouse tracks becomes its own segment dimension here, and
+  // analyzeErrors' Holm correction + effect-size gate + leave-one-season-out
+  // (plus, for anything that survives a run, Phase 3's multi-season
+  // independent-confirmation requirement) are what decide which of them (if
+  // any) are real rather than a person pre-guessing a shortlist. Totals have
+  // no single "team actually bet," so this only applies to spread/moneyline.
+  if (b.market === 'spread' || b.market === 'moneyline') {
+    const backedTeam = sideSign(b) > 0 ? b.home : b.away;
+    for (const statKey of availableLeaderboardKeys(b.season, b.week)) {
+      const bucket = teamStatBucket(b.season, b.week, backedTeam, statKey);
+      if (bucket) segs.push([`stat:${statKey}`, bucket]);
+    }
+
+    // Qualitative signals, on the exact same week-to-week, cutoff-safe
+    // footing as the quantitative stat leaderboards above — an honest gap
+    // found while investigating this: nothing in the live ensemble treats
+    // injury/news signals as a distinct, separately-weighted class of
+    // evidence at all (injury is just one more RMSE-weighted numeric
+    // component, and news currently carries zero production authority).
+    // Rather than hand-designing a new meta-weighting scheme for the live
+    // model, this feeds both into the SAME rigorous pipeline already built
+    // for the quantitative side (Holm correction, minimum effect size,
+    // leave-one-season-out, and — for anything that survives a run —
+    // Phase 3's multi-season independent-confirmation requirement) and lets
+    // it determine, from real evidence, whether "backed a team the injury
+    // report or verified news favored/disfavored" is a real bias worth
+    // anything — the same "let it figure it out over time" approach as the
+    // 178 quantitative stats, applied to the two qualitative sources.
+    const deficits = availabilityDeficit(b.season, b.week);
+    const backedDeficit = deficits.get(backedTeam);
+    const opponentTeam = backedTeam === b.home ? b.away : b.home;
+    const opponentDeficit = deficits.get(opponentTeam);
+    if (backedDeficit != null || opponentDeficit != null) {
+      // Threshold grounded in the real distribution of this metric (2024
+      // season: median ~0.74, IQR ~0.33-1.15) rather than an arbitrary
+      // round number — 0.5 is roughly half the IQR width, a meaningfully
+      // large gap between two teams' availability, not noise.
+      const edge = (opponentDeficit ?? 0) - (backedDeficit ?? 0); // positive = the OPPONENT is more banged up than the side backed
+      segs.push(['injury_edge', edge > 0.5 ? 'backed healthier side' : edge < -0.5 ? 'backed more banged-up side' : 'similar health']);
+    }
+
+    const cutoff = weekCutoffIso(b.season, b.week);
+    if (cutoff) {
+      const news = teamNewsSignals(backedTeam, { before: cutoff });
+      if (news.claims?.length) {
+        // Threshold grounded in the real distribution (median ~2.0, IQR
+        // ~0.8-4.0 across teams with any verified claims in a real sample)
+        // rather than a round guess.
+        segs.push(['news_signal', (news.unavailable_burden ?? 0) > 2 ? 'verified negative news on backed side' : 'verified news, low burden']);
+        // A separate dimension from availability on purpose: "a starter is
+        // out" and "a backup is stepping into a bigger role" are related but
+        // distinct facts (role_delta on `signal_type: 'role'` claims,
+        // already computed by teamNewsSignals — this just gives it a
+        // segment of its own instead of leaving it folded silently into
+        // news_signal). Threshold from the real distribution: most
+        // team-weeks with any claims show zero role news; the ones that
+        // don't range roughly 0.02-0.5, so >0.15 is comfortably past the
+        // zero cluster, not an arbitrary round number.
+        if (Math.abs(news.role_pressure ?? 0) > 0.15) {
+          segs.push(['role_change_signal', news.role_pressure > 0 ? 'backed side has a role stepping up (e.g. backup elevated)' : 'backed side has a role being reduced']);
+        }
+      } else {
+        // Falls back to the verified-event archive exactly the way
+        // nfl-expert-council.js's own newsFor() does — this is where
+        // press-conference-derived signals (press-conference.js ->
+        // extractPressConferenceRoleSignals) actually land today, a real,
+        // live, scheduled pipeline (32 channels resolved, transcribing
+        // real games) that was capturing coach-speak but wasn't reaching
+        // this segment dimension until this fallback. Same "let the ML
+        // pipeline decide if it matters" treatment as everything else here.
+        const archive = teamEventVector(backedTeam, { before: cutoff });
+        if (archive.events > 0) {
+          segs.push(['event_archive_signal', archive.injury_burden > 1 ? 'elevated verified-event burden' : 'low verified-event burden']);
+        }
+      }
+    }
+  }
+
   return segs;
 }
 
@@ -442,6 +528,23 @@ function gameContext() {
     ctx.set(`${r.season}|${r.week}|${r.team}`, r);
   }
   return ctx;
+}
+
+/** The earliest kickoff of a given week, as an ISO timestamp — a
+ * conservative, week-level cutoff for the injury/news segments below. Using
+ * the week's FIRST kickoff (rather than each specific game's own) is
+ * deliberately a little stricter than strictly necessary for a Sunday/Monday
+ * game, in exchange for not needing to thread a per-game timestamp through
+ * `segmentsFor`'s bet-shaped input — safe, never leaky, for a diagnostic
+ * tool that is not making a live per-game decision. */
+const weekCutoffCache = new Map();
+function weekCutoffIso(season, week) {
+  const key = `${season}|${week}`;
+  if (weekCutoffCache.has(key)) return weekCutoffCache.get(key);
+  const earliest = rows(`SELECT MIN(gameday) d FROM game_lines WHERE season=? AND week=? AND gameday IS NOT NULL`, season, week)[0]?.d;
+  const iso = earliest ? `${earliest}T00:00:00Z` : null;
+  weekCutoffCache.set(key, iso);
+  return iso;
 }
 
 export function analyzeErrors(bets, { minBets = 25 } = {}) {

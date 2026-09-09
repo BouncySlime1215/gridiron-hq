@@ -72,6 +72,53 @@ const unitsFor = (won, pushed, price) => {
 };
 
 /**
+ * The primary grade above compares the pick to the CLOSING line -- a number
+ * that does not exist yet at any point a real bet could have been placed.
+ * "Beat the market" against it answers "beat the final number", not "beat
+ * what was actually obtainable". This computes the same edge/cover call
+ * against the OPENING line instead (`game_lines.open_spread`), which is a
+ * real, obtainable decision-time price, and reports it as a separate,
+ * clearly-labeled field rather than replacing the closing-line grade --
+ * the same disclose-both pattern nfl-blind-audit.js already uses for its
+ * beat-the-close shadow decisions.
+ *
+ * There is no stored opening PRICE (no `open_spread_odds` column, only the
+ * opening line number), so win/loss/push here is determined purely from the
+ * line number against the actual margin -- no price is needed for that --
+ * and this never feeds `units`/staking, which still settle at the one price
+ * that was ever actually obtainable: the closing odds.
+ */
+function spreadDecisionTimeReference(openSpread, projectedMargin, actualMargin, closeBackHome) {
+  if (openSpread == null) return { available: false };
+  const openMarketMargin = -openSpread;
+  const openEdge = projectedMargin - openMarketMargin;
+  const backHome = openEdge > 0;
+  const pushed = actualMargin + openSpread === 0;
+  const covered = backHome ? actualMargin + openSpread > 0 : actualMargin + openSpread < 0;
+  return {
+    available: true, line: openSpread, edge: r2(openEdge),
+    side: backHome ? 'home' : 'away',
+    result: pushed ? 'Push' : covered ? 'Won' : 'Lost',
+    same_side_as_close: backHome === closeBackHome
+  };
+}
+
+/** Total-market counterpart of {@link spreadDecisionTimeReference}, against `game_lines.open_total`. */
+function totalDecisionTimeReference(openTotal, projectedTotal, actualTotal, closeOver) {
+  if (openTotal == null) return { available: false };
+  const openEdge = projectedTotal - openTotal;
+  const over = openEdge > 0;
+  const pushed = actualTotal === openTotal;
+  const won = over ? actualTotal > openTotal : actualTotal < openTotal;
+  return {
+    available: true, line: openTotal, edge: r2(openEdge),
+    side: over ? 'Over' : 'Under',
+    result: pushed ? 'Push' : won ? 'Won' : 'Lost',
+    same_side_as_close: over === closeOver
+  };
+}
+
+/**
  * Replays one season. For each week, the ensemble is asked for a line using
  * only prior games, a bet is placed when the edge clears `minEdge`, and the
  * result is graded against what actually happened.
@@ -93,6 +140,7 @@ export function replaySeason(season, {
     SELECT gl.season, gl.week, gl.team AS home, gl.opponent AS away,
            gl.team_score AS home_score, gl.opp_score AS away_score,
            gl.spread AS home_spread, gl.total,
+           gl.open_spread AS home_open_spread, gl.open_total,
            gl.spread_odds AS home_spread_odds,
            away.spread_odds AS away_spread_odds,
            gl.total_over_odds, gl.total_under_odds,
@@ -149,6 +197,7 @@ export function replaySeason(season, {
           actual_margin: actualMargin, actual_total: actualTotal,
           result: pushed ? 'Push' : covered ? 'Won' : 'Lost',
           won: covered, pushed, book: g.source ?? null, quote_source: g.source ?? null, quote_at: g.fetched_at ?? null,
+          decision_time_reference: spreadDecisionTimeReference(g.home_open_spread, e.projected_margin, actualMargin, backHome),
           feature_snapshot: {
             margin_models_active: e.models_contributing_margin ?? null,
             predictive_distribution: e.distribution ?? null,
@@ -175,6 +224,7 @@ export function replaySeason(season, {
           actual_margin: actualMargin, actual_total: actualTotal,
           result: pushed ? 'Push' : won ? 'Won' : 'Lost',
           won, pushed, book: g.source ?? null, quote_source: g.source ?? null, quote_at: g.fetched_at ?? null,
+          decision_time_reference: totalDecisionTimeReference(g.open_total, e.projected_total, actualTotal, over),
           feature_snapshot: { total_models_active: e.models_contributing_total ?? null }
         });
     }
@@ -245,9 +295,33 @@ export function replaySeason(season, {
       abstentions: Object.fromEntries([...new Set(decisions.filter(d => !d.eligible).map(d => d.abstention_reason))]
         .map(reason => [reason, decisions.filter(d => d.abstention_reason === reason).length]))
     },
-    uncertainty: uncertainty(bets)
+    uncertainty: uncertainty(bets),
+    vs_open_line: vsOpenLineSummary(bets)
   };
   return { summary, bets, decisions };
+}
+
+/**
+ * Discloses the same win/loss grade using the opening line instead of the
+ * closing line -- see {@link spreadDecisionTimeReference} for why this
+ * exists and why it never touches `units`. Only spread/total bets carry a
+ * `decision_time_reference` (moneyline has no stored opening price at all);
+ * `coverage` says what share of this run's actual bets could be checked
+ * this way, so a thin sample reads as thin rather than as certainty.
+ */
+function vsOpenLineSummary(bets) {
+  const checkable = bets.filter(b => b.decision_time_reference?.available);
+  const wins = checkable.filter(b => b.decision_time_reference.result === 'Won').length;
+  const losses = checkable.filter(b => b.decision_time_reference.result === 'Lost').length;
+  const flippedSide = checkable.filter(b => b.decision_time_reference.same_side_as_close === false).length;
+  return {
+    note: 'Same picks, graded against the obtainable opening line instead of the closing line. ' +
+      'Payout units are unaffected -- there is no stored opening price to settle at, only the closing one.',
+    coverage: bets.length ? r2(checkable.length / bets.length) : null,
+    bets: checkable.length, wins, losses,
+    win_rate: wins + losses ? r2(wins / (wins + losses)) : null,
+    picks_that_flip_side_at_open: flippedSide
+  };
 }
 
 const fmtLine = v => (v > 0 ? `+${v}` : `${v}`);

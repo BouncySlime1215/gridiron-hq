@@ -88,6 +88,16 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
   if (!SOURCES.includes(source)) throw new Error(`unknown source: ${source}`);
 
   const id = crypto.randomUUID();
+  // The contract's settlement/push/void/overtime treatment is recorded on the
+  // OFFERED event rather than only living in a nfl-contract-key.js code
+  // comment. `overtime_rule_source: 'us_default_convention'` in particular is
+  // an acknowledged convention, not a rule verified against any specific
+  // book's actual terms — this is the "unresolved rules" disclosure the plan
+  // asks for, attached to the ledger row itself so a settlement dispute or an
+  // economics report can see it without reading source code.
+  const settlementRules = { overtime_rule_source: contract.overtime_rule_source ?? null,
+    settlement: contract.settlement ?? null, push_rule: contract.push_rule ?? null,
+    void_rule: contract.void_rule ?? null };
   db.exec('BEGIN IMMEDIATE');
   try {
     run(`INSERT INTO nfl_execution_opportunities
@@ -99,7 +109,8 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
     run(`INSERT INTO nfl_execution_lifecycle_events
          (opportunity_id, state, occurred_at, book, line, price, source, quote_id, actor, detail_json)
          VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    id, 'offered', new Date(occurredAt).toISOString(), book, line, price, source, quoteId, 'system', null);
+    id, 'offered', new Date(occurredAt).toISOString(), book, line, price, source, quoteId, 'system',
+    JSON.stringify({ settlement_rules: settlementRules }));
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
   return getOpportunity(id);

@@ -20,23 +20,44 @@
  * because a blocked acceptance is a normal, expected outcome here — this
  * module's job is to make blocking the easy path, not an exception to catch.
  * Both the corridor and suspect-price gates are OPTIONAL inputs (a caller
- * that supplies neither `modelLine`/`marketLine` nor `fairProbability` gets
- * an ordinary acceptance with those checks reported `not_evaluated` /
- * absent) — this module never manufactures a review it has no evidence for.
+ * that supplies neither `modelLine` nor `fairProbability` gets an ordinary
+ * acceptance with those checks reported `not_evaluated` / absent) — this
+ * module never manufactures a review it has no evidence for.
+ *
+ * `eventKey` and `participant` used to be caller-supplied options here, the
+ * same way `modelLine`/`fairProbability` legitimately are. They are not
+ * analytical inputs, though — they are the identity the exposure-budget gate
+ * uses to decide whether accepting THIS bet would cross a per-game or
+ * per-player cap, and the persisted opportunity already carries its own
+ * `event_key`/`participant` from `openOpportunity()`'s contract. A caller
+ * that passed a mismatched value — a copy/paste from a different game, a
+ * stale variable reused across a loop — would have had the exposure check
+ * silently run against the wrong game or the wrong player, with no way for
+ * this function to notice, because it never looked at what was actually
+ * being accepted. Both are now read from `getOpportunity(opportunityId)`
+ * instead, so the exposure check is provably about the contract being
+ * accepted, not about whatever the caller happened to pass.
  */
-import { recordAcceptance, openExposure } from './nfl-execution-lifecycle.js';
+import { recordAcceptance, openExposure, getOpportunity } from './nfl-execution-lifecycle.js';
 import { checkExposureBudget, DEFAULT_EXPOSURE_BUDGET } from './nfl-execution-exposure.js';
 import { challengeExtremePrice } from './nfl-execution-attribution.js';
 import { marketLineCorridorCheck, MARKET_LINE_CORRIDOR_POINTS } from './nfl-execution-corridor.js';
 
 export function attemptAcceptance(opportunityId, { occurredAt, book, line = null, price, stakeUnits,
-  actor = 'user:nick', note = null, eventKey = null, participant = null, fairProbability = null,
+  actor = 'user:nick', note = null, fairProbability = null,
   budget = DEFAULT_EXPOSURE_BUDGET, acknowledgeSuspectPrice = false,
   modelLine = null, marketLine = null, corridorPoints = MARKET_LINE_CORRIDOR_POINTS,
   acknowledgeCorridorBreach = false } = {}) {
+  const opportunity = getOpportunity(opportunityId);
+  if (!opportunity) {
+    return { accepted: false, blocked_reason: 'opportunity_not_found',
+      reason: `no persisted opportunity ${opportunityId} — an acceptance must be against a real, ` +
+        'previously opened opportunity, never a bare identifier the caller asserts facts about' };
+  }
+
   const exposure = checkExposureBudget({
     openExposures: openExposure(),
-    candidate: { event_key: eventKey, participant, stake_units: stakeUnits },
+    candidate: { event_key: opportunity.event_key, participant: opportunity.participant, stake_units: stakeUnits },
     budget
   });
   if (!exposure.allowed) {
@@ -59,6 +80,6 @@ export function attemptAcceptance(opportunityId, { occurredAt, book, line = null
     }
   }
 
-  const opportunity = recordAcceptance(opportunityId, { occurredAt, book, line, price, stakeUnits, actor, note });
-  return { accepted: true, opportunity, exposure, suspect, corridor };
+  const accepted = recordAcceptance(opportunityId, { occurredAt, book, line, price, stakeUnits, actor, note });
+  return { accepted: true, opportunity: accepted, exposure, suspect, corridor };
 }

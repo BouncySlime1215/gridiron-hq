@@ -69,7 +69,15 @@ export function feedOutageScenario({ timeline, outageStart, outageEnd, decisionA
   // pre-outage sample silently gets reused as if it were still current. With
   // one, an execution instant that falls past the trust window is reported
   // as stale_unknown instead — the contrast is the point of the scenario.
-  const withoutStalenessWindow = replayDelayLadder({ timeline: darkened, decisionAt, delays });
+  //
+  // `maxStalenessSeconds: Infinity` is explicit here on purpose, not the
+  // module's own default: this comparison arm's entire point is "what an
+  // unbounded trust window does," and it must keep meaning that even if
+  // `replayDelayLadder`'s own default policy value changes later. This is
+  // exactly the labeled-research-scenario carve-out the plan allows — an
+  // unbounded window is fine here because the result is explicitly compared
+  // against the policy-bound arm below, never presented alone as executable.
+  const withoutStalenessWindow = replayDelayLadder({ timeline: darkened, decisionAt, delays, maxStalenessSeconds: Infinity });
   const withStalenessWindow = delays.map(delaySeconds => ({
     delay_seconds: delaySeconds,
     ...replayDelayedExecution({ timeline: darkened, decisionAt, delaySeconds, maxStalenessSeconds })

@@ -61,6 +61,22 @@ test('a full walk through OFFERED -> OBSERVED -> DECISION -> REFRESHED -> ACCEPT
   assert.ok(Math.abs(settleEvent.realized_pnl_units - (100 / 108)) < 1e-3);
 });
 
+test('the contract\'s settlement/push/void/overtime rules are recorded on the OFFERED event, not left only in source comments', () => {
+  const c = contract();
+  const opp = openOpportunity({ contract: c, decisionSource: 'test',
+    occurredAt: '2026-09-10T10:00:00Z', book: 'draftkings', line: -3.5, price: -110 });
+  const offered = opp.events.find(e => e.state === 'offered');
+  assert.ok(offered.detail, 'the OFFERED event must carry the contract\'s settlement rules, not a null detail');
+  assert.deepEqual(offered.detail.settlement_rules, {
+    overtime_rule_source: c.overtime_rule_source, settlement: c.settlement,
+    push_rule: c.push_rule, void_rule: c.void_rule ?? null
+  });
+  // The specific value this project actually has, disclosed rather than
+  // implied: overtime treatment is an acknowledged US convention, never
+  // verified against a specific book's real settlement terms.
+  assert.equal(offered.detail.settlement_rules.overtime_rule_source, 'us_default_convention');
+});
+
 test('ACCEPTED is a user-recorded claim, never a sportsbook fill — fill_confirmed is schema-pinned to 0', () => {
   const c = contract();
   const opp = openOpportunity({ contract: c, decisionSource: 'test', occurredAt: '2026-09-10T10:00:00Z',

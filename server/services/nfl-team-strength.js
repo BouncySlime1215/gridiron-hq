@@ -295,11 +295,18 @@ export function clearTeamStrengthCache() { cache.clear(); }
  */
 export function teamStrengthWalkForward({
   market = 'spread', fromSeason = 2018, throughSeason = 2025,
-  testSeasons = [2023, 2024, 2025], iterations = 2000, ...opts
+  testSeasons = [2023, 2024, 2025], iterations = 2000,
+  // Defaults to this file's own team-strength columns, but any other
+  // {names, row} extra-feature accessor built the same way (see
+  // nfl-preseason-blend.js's preseasonBlendGbmFeatures) can reuse this exact
+  // harness instead of re-implementing paired, week-block-resampled
+  // significance testing a second time.
+  challengerFeatures = null,
+  ...opts
 } = {}) {
   const champion = buildGbmDataset({ fromSeason, throughSeason });
   const challenger = buildGbmDataset({ fromSeason, throughSeason,
-    extraFeatures: teamStrengthGbmFeatures() });
+    extraFeatures: challengerFeatures ?? teamStrengthGbmFeatures() });
 
   // The two builders walk the same games in the same order and the challenger
   // drops a game only if its extra row is malformed, so a length mismatch means
@@ -370,11 +377,12 @@ export function teamStrengthWalkForward({
   // is a coin flip dressed up as evidence.
   const passes = wins >= 2;
 
+  const featureNames = challengerFeatures ? challengerFeatures.names : TEAM_STRENGTH_KEYS.map(k => `ts_${k}`);
   return {
     market,
     champion: 'nfl-gbm residual champion (29 team-week differentials + 7 situational)',
-    challenger: `champion + ${TEAM_STRENGTH_KEYS.length} team-strength differentials`,
-    added_features: TEAM_STRENGTH_KEYS.map(k => `ts_${k}`),
+    challenger: `champion + ${featureNames.length} ${challengerFeatures ? 'challenger' : 'team-strength'} differential(s)`,
+    added_features: featureNames,
     target: market === 'total'
       ? 'total residual (actual combined points minus the closing total)'
       : 'margin residual (actual margin minus market-implied margin)',

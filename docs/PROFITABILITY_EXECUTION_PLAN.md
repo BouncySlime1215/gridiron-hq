@@ -116,37 +116,54 @@ or the UI a person actually uses. **Eval** = has a completed, trustworthy evalua
 | **E** — typed news → price impact | ✅ extraction | ⚠️ | ✅ (honest null) | research only | Verified live this session's predecessor work: 30 typed events, 24 verified, 0 provenance violations, 0 paired claims (every claim stamped after the one-week quote tape ends — see B) | Collect prospectively alongside B once the scheduler question is resolved; the extractor itself needs no further work |
 | **F** — expert selector | ✅ | ✅ (reported in Research Lab) | ✅ complete, negative | research only | Built and run this session (`74db0ac`): lost to the market on all 3 substrates, 7/7 gate configs. Preserved, not reopened | No action unless a materially new hypothesis is proposed |
 | **G** — cross-market consistency | ❌ | ❌ | n/a | none | Speculative, per the brief explicitly deferred | Deferred |
-| **H** — execution lifecycle/replay/attribution/risk | ✅ | ❌ **confirmed zero route/UI wiring** | partial (corridor + CLV-downsize rules tested out-of-fold in isolation) | none — cannot place/price/stake | `grep` across `server/routes/` and `client/src/` for every `nfl-execution-*` module name: **zero matches**. `nfl_execution_opportunities` and `nfl_execution_lifecycle_events` both exist and both hold **0 rows** — the tables have never been written to outside tests | Highest-priority connection work (Phase 2) — exactly as the reviewed table said, unchanged by today's corridor/CLV-downsize additions |
+| **H** — execution lifecycle/replay/attribution/risk | ✅ | ✅ **connected** (`/betting/nfl/ledger`, Phase 2, commit `3de0cb0`) | partial (corridor + CLV-downsize out-of-fold; the connected pipeline itself has run live only against zero real candidates — see below) | paper only — a route and a UI exist to run the pipeline and to accept, but `attemptAcceptance` still requires a real human-supplied stake, and ACCEPTED still cannot become a confirmed fill (`fill_confirmed` schema-pinned to 0) | Phase 1 (`cadcb40`) fixed the four source-level replay findings; Phase 2 (`3de0cb0`) wired `nfl-execution-pipeline.js` to the real `autoPickDecisionBoard`, added accept/settle/funnel routes and the Execution Desk UI. Verified live: the production policy currently selects **zero** spread candidates (every one abstains `calibration_not_proven`), so the pipeline has run clean against real data but processed nothing yet — an honest, current state, not a stub | Nothing further until a real candidate exists; then verify one real opportunity moves offered→observed→decision→(accept)→settled by hand |
 | **I** — research product / status | ✅ | ✅ (Research Lab page) | n/a | none | This document + the Research Lab page are now the two sources of status; `RESEARCH_PACKAGES` badges in `nfl-research-lab.js` still read `next`/`planned` for A/H/D — stale against this table | Update `RESEARCH_PACKAGES` state strings to match this table in the same commit that starts Phase 2 |
 
-**Forward/paper ledgers, checked live:** `forward_picks` — 0 rows. `shadow_decisions` — 89 rows.
-`nfl_expert_forward_predictions` — 672 rows, but (per this session's earlier verification)
-one unplayed week and zero settlements. `nfl_execution_opportunities` /
-`nfl_execution_lifecycle_events` — 0 rows each. `decision_recommendations` — 0 rows.
-`saved_prop_tickets` — 0 rows. **There is currently no strategy anywhere in this system with a
-single settled, paper-recorded, end-to-end result.** That is the concrete gap Phase 2 closes.
+**Forward/paper ledgers, checked live (pre-Phase-2 snapshot):** `forward_picks` — 0 rows.
+`shadow_decisions` — 89 rows. `nfl_expert_forward_predictions` — 672 rows, one unplayed week,
+zero settlements. `nfl_execution_opportunities`/`nfl_execution_lifecycle_events` — 0 rows each
+at the time this was written. **They are still 0 rows now** — Phase 2 built and verified the
+connector (live browser round-trip, 9 unit tests against real primitives), but the production
+policy has had zero eligible candidates for it to open all session. The pipe is built and
+proven; nothing has flowed through it yet because nothing eligible exists to flow. That is a
+finding about calibration (see B and the operating manual §2.2), not a gap in Phase 2's work.
 
 ---
 
 ## Critical path
 
 1. ~~Fix the two-place magic-number drift in `backfillOddsArchive` defaults and run the 2021
-   backfill.~~ **Done this session** (see above; result recorded below once the run completes).
-2. **Resolve `SCHEDULER_DISABLED`** — your call, not mine to flip. Blocks Phase 3 entirely and
-   caps Package B's evaluation at "one week forever."
-3. **Phase 1 — replay freshness/availability.** Thread `open_spread`/archive-open price through
-   `nfl-replay.js` as the decision-time reference (separate from the closing-line comparison,
-   which stays as a distinct, labeled number); give `replayDelayedExecution` real
-   `maxStalenessSeconds`/`bookLimitUnits` defaults instead of `Infinity`; make
-   `replayFromFrozenDataset`/`replayDelayLadder` pass those through. No dependency on the
-   scheduler question — start immediately.
-4. **Phase 2 — wire Package H into one route and one UI screen**, for one market
-   (same-line NFL spreads, pending confirming current paired-price coverage supports it),
-   through the receipt→settlement path the brief specifies. This is where "implementation
-   complete" becomes "collecting evidence" for the first time in this codebase.
-5. **Phase 3 — prospective collection**, once step 2 is resolved.
-6. **Phases 4–5** — economics dashboard and the bounded B/D research follow-ons, in that order,
-   once 3 is producing real weeks.
+   backfill.~~ **Code fixed** (`bfe7f4d`); **the actual data backfill did not complete** —
+   OddsTrader was returning Cloudflare 502s when tried. Needs a re-run once the vendor recovers
+   (see below); no code work remains.
+2. ~~**Resolve `SCHEDULER_DISABLED`**~~ — **resolved: staying set, by your explicit decision.**
+   Phase 3 (prospective collection) stays blocked on this by design, not by omission — do not
+   re-raise it as an open question. `nfl_quote_tape` will not grow past its current one real
+   week until this changes.
+3. ~~**Phase 1 — replay freshness/availability.**~~ **Done** (`cadcb40`). All four source-level
+   findings fixed and tested: real versioned staleness/book-limit policy instead of `Infinity`
+   defaults; the freshness param threaded through every replay entry point; genuine `removed`
+   detection from sibling-row quote-tape evidence instead of every retained record reading as
+   `quote`; `attemptAcceptance` now derives identity from the persisted opportunity rather than
+   trusting a caller-supplied `eventKey`/`participant`.
+4. ~~**Phase 2 — wire Package H into one route and one UI screen**~~ **Done** (`3de0cb0`).
+   `nfl-execution-pipeline.js` connects `autoPickDecisionBoard`'s existing frozen-policy output
+   to Package H's ledger; `/betting/nfl/ledger` is a real, working screen (Desk / Positions &
+   Results) verified live in a browser with zero console errors. **Currently processes zero
+   candidates** because the production policy currently selects zero (calibration not proven,
+   verified live) — the pipe is proven, not yet fed.
+5. **Phase 3 — prospective collection.** Blocked on step 2's decision, which is final for now.
+   Not attempted this session; would need to be built as an on-demand action (matching the
+   pipeline's own pattern) rather than a scheduled job, the same way `/execution/run` is a
+   button press, not a cron entry.
+6. **Phases 4–5** — economics dashboard and the bounded B/D research follow-ons. Phase 2 already
+   built the funnel/scorecard primitive (`GET /execution/funnel`, `lifecycleFunnel()`) the
+   economics dashboard would extend; a full nav reorganization (Desk / Positions & Results /
+   Research / Data Health as the top-level betting structure the plan describes) is a much
+   larger, more invasive change to information architecture people already use daily, and was
+   deliberately not attempted without a checkpoint. Phase 5's B/D research needs real collected
+   weeks (see 5) or a real prop-market data source (D) neither of which exist yet — reported
+   here as blocked on data, not attempted with fabricated inputs.
 
 ## What ran, this session, on this document
 
@@ -175,9 +192,36 @@ single settled, paper-recorded, end-to-end result.** That is the concrete gap Ph
   re-running: a single `fetch` to the archive endpoint for any 2021 date should return
   `200` in well under a second if the vendor has recovered.
 
+## What ran, Phases 1–2
+
+- **Phase 1** (`cadcb40`): fixed all four source-level replay findings in `nfl-execution-replay.js`
+  and `nfl-execution-decision.js`, caught and fixed one real interaction with an existing stress
+  scenario along the way (`nfl-execution-stress.js`'s intentional unbounded-trust comparison arm),
+  added settlement-rule disclosure to the OFFERED event. 16 new tests, 117 pre-existing Package H
+  tests unchanged. Full suite after: 1127/1126/1/0.
+- **Phase 2** (`3de0cb0`): built `nfl-execution-pipeline.js`, found and fixed a real team-name-format
+  bug while writing its own tests (quote-tape stores full names, contracts store abbreviations —
+  a naive string match would have silently never found real coverage), wired 7 new routes and one
+  new UI page, verified live in a browser (round-trip through the real API, zero console errors).
+  9 new tests. Full suite after: 1136/1135/1/0.
+- Both phases' work was verified against the real 6.4GB database, never a worktree stub.
+
 ## Unresolved, going into the next session
 
-- The 2021 backfill needs to actually run — blocked on OddsTrader's origin recovering from
-  its current Cloudflare 502s, not on anything in this codebase. Re-run command is above.
-- `SCHEDULER_DISABLED` — needs your decision before Phase 3 can start.
-- Phase 1 has not been started yet (this document is the Phase 0 deliverable only).
+- The 2021 odds-archive backfill needs to actually run — blocked on OddsTrader's origin
+  recovering from Cloudflare 502s it was returning when tried, not on anything in this
+  codebase. Re-run command is in the Phase 0 section above.
+- Phase 3 stays inactive by your explicit decision (`SCHEDULER_DISABLED` remains set). Do not
+  re-open this as a question in a future session without a new instruction to do so.
+- The production spread policy has selected zero candidates all session
+  (`calibration_not_proven`) — Phase 2's pipeline is proven correct against real live ensemble
+  output but has never yet opened a real opportunity. The first real verification of the full
+  offered→observed→decision→accept→settle path end to end, on a real candidate, is still ahead
+  and cannot be forced — it depends on the calibration gate clearing on its own evidence.
+- Phase 4's full UI reorganization (Desk / Positions & Results / Research / Data Health as the
+  top-level betting structure) was not attempted — it is a much larger, more invasive change
+  than anything else in this document and deserves an explicit go-ahead rather than being
+  bundled into an already-large session.
+- Phase 5's research follow-ons (B's forward re-evaluation, D's conservation repair) are
+  genuinely blocked on data this session could not manufacture: more collected weeks (Phase 3)
+  and a real prop-market data source (D), respectively.

@@ -67,7 +67,7 @@ stubs used earlier this session):
 | `game_lines` **opening** spread | 0% before 2013; ~96% 2013–2022; 100% 2023–2026 | Pre-2013 has no opening line at all. 2013–2022 has scattered nulls. |
 | `game_lines` **opening** total | 0% before 2021; 100% 2021–2026 | Pre-2021 has no opening total at all. |
 | `nfl_odds_archive` (11-book open+close, Pinnacle/Bovada/Unibet/etc.) | **2022–2026 only**, ~6.8K rows/book | **2021 was never fetched — not a vendor limit, a code default.** `backfillOddsArchive()`'s default `seasons` list was `[2022, 2023, 2024, 2025]`; the blind audit's default season list is `[2021, 2022, 2023, 2024, 2025]`. 2021 has been running with strictly less price-archive support than every other audited season. |
-| `nfl_quote_tape` (fine-grained multi-book live tape, the substrate Package B and the Package F/drift work run on) | **752,954 rows spanning a single week**, 2026-09-02 to 2026-09-07 | This is the real constraint on Package B and everything downstream of it. One week cannot support a chronological, purged evaluation — see the collection blocker below. |
+| `nfl_quote_tape` (fine-grained multi-book live tape, the substrate Package B and the Package F/drift work run on) | **912,702 rows, 1,342 events, 2020-10-05 to 2026-12-26** — updated after this table was first written; see below | Was 752,954 rows spanning a single real week. A paid Odds API historical key (user-supplied, $30/mo, 20K credits) added two real chronological snapshots per week (an early-week and a near-kickoff read) for every week 5-18 of seasons 2020-2025 — 168 requests, 3,480 credits spent of 20,000, 16,520 remaining, zero errors. This is genuinely NEW real multi-book price history, not a reconstruction: 191-238 events per season now have actual captured quotes. Still only 2 points/week (not the ~6-minute cadence the live week has), so within-week movement is coarse, but week-over-week and season-spanning chronological analysis is now possible for the first time. |
 | `nfl_nfelo_games` | 2020–2026, 1,709 rows | Fine. |
 | `nfl_external_ratings` | `teamrankings_predictive` 2022–2026 (2,336 rows); `espn_fpi` **2026 only** (32 rows) | FPI is not usable for any historical comparison; nothing currently depends on it for that. |
 
@@ -89,8 +89,12 @@ added 2026-09-07 as an explicit, dated, hand-operated brake — *"hours before t
 draft... the safe move for a night that has to work is to stop paying that cost... Unset (or
 remove from .env) to resume normal syncing once nothing depends on the app being maximally
 responsive."* It is still set. This means every scheduled job — quote-tape capture, odds-archive
-refresh, news ingestion, forward settlement — has not run since that night, which is the
-direct reason the quote tape is stuck at one week instead of growing by one week every week.
+refresh, news ingestion, forward settlement — has not run since that night, which is why the
+LIVE quote tape (the ~6-minute-cadence real-time capture) has not grown past its original one
+week. (A separate, historical backfill later filled 2020-2025 with coarser 2-points/week
+coverage using a paid key — see the updated `nfl_quote_tape` row below and "What ran" — but
+that does not address ongoing live collection, which is still what this scheduler decision
+gates.)
 **Resolved: staying set, by your explicit decision.** I have not unset this and will not
 without a new instruction to do so. Phase 3 (prospective collection) was still built —
 `nfl-prospective-collection.js`, see the critical path below — as a manual, on-demand action
@@ -108,7 +112,7 @@ or the UI a person actually uses. **Eval** = has a completed, trustworthy evalua
 | Package | Impl | Integ | Eval | Auth | Evidence | Next action |
 |---|---|---|---|---|---|---|
 | **A** — exact contracts, bitemporal evidence | ✅ | ⚠️ partial | n/a (infra) | none | `nfl-contract-key.js`, `nfl-bitemporal.js` exist and are unit-tested; grep confirms zero callers of `nfl-bitemporal.js`'s `recordRevision`/`valueAsKnown` outside its own module and tests | Adopt inside Phase 2's single strategy path rather than building a second contract system |
-| **B** — book response / price advantage | ✅ pilot | ❌ | ⚠️ inconclusive | research only | One-week pilot (commit `047703f`): next-move probability improved over baseline, magnitude did not; delay-survival modeled from coarse snapshots. `nfl_quote_tape` is still one week — cannot be re-evaluated chronologically until it's several | Primary experiment (Phase 5) — blocked on collection (see scheduler above), not on model work |
+| **B** — book response / price advantage | ✅ pilot | ❌ | ⚠️ inconclusive | research only | One-week pilot (commit `047703f`): next-move probability improved over baseline, magnitude did not; delay-survival modeled from coarse snapshots. `nfl_quote_tape` now spans 2020-2026 (1,342 events) after the historical backfill below, but at 2 points/week for the backfilled seasons — enough for cross-season/week-over-week analysis, still too coarse to re-run the original within-week delay-survival pilot, which needs the live week's ~6-minute cadence | Primary experiment (Phase 5) — a cross-season re-evaluation (movement/direction only, not delay-survival) is newly possible; the original pilot's exact question still needs more weeks of continuous fine-grained capture |
 | **C** — trees/TPOT lab | ✅ extended | n/a (research tool) | ⚠️ no executable edge shown | research only | Multiple targets/families verified in this session's own work (model-discipline + drift merges, `a3d59a6`/`eaf9a0b`) | Shared tool. Not a target for new expansion per the brief's 10%-maintenance cap |
 | **D** — player roles (targets+carries) | ✅ | ❌ | ⚠️ conservation gap | research only | Reviewed finding (~27% of checked starters show excess beneficiary gains) not yet re-verified this session | Secondary experiment, gated on the conservation repair the brief specifies, and on choosing one real prop contract — not "targets+carries" as if it were a settleable market |
 | **E** — typed news → price impact | ✅ extraction | ⚠️ | ✅ (honest null) | research only | Verified live this session's predecessor work: 30 typed events, 24 verified, 0 provenance violations, 0 paired claims (every claim stamped after the one-week quote tape ends — see B) | Collect prospectively alongside B once the scheduler question is resolved; the extractor itself needs no further work |
@@ -214,6 +218,25 @@ finding about calibration (see B and the operating manual §2.2), not a gap in P
   construction (confirmed the test runner has neither API key loaded, so both halves take their
   documented no-key skip path — proven, not assumed). Full suite after: 1141/1140/1/0.
 - All three phases' work was verified against the real 6.4GB database, never a worktree stub.
+- **Historical quote-tape backfill, out of band from the phase sequence** (data change, no code
+  commit): the user supplied a new, paid Odds API key specifically for historical access
+  ($30/mo, 20,000 credits) and asked for a one-time capture, not an ongoing integration. Used it
+  directly against `the-odds-api.com`'s historical endpoint — validated the real per-call cost
+  first (30 credits for 3 markets, confirmed the historical endpoint's documented 10x-live
+  multiplier), caught and fixed a real bug before spending anything (`.toISOString()`'s trailing
+  `.000` milliseconds makes the API reject the timestamp with 422 `INVALID_HISTORICAL_TIMESTAMP`
+  — all 140 first-attempt requests failed this way, at zero credit cost, before the fix), then
+  captured two real chronological snapshots per week (early-week, near-kickoff) for weeks 5-18
+  of seasons 2020-2025 (user's own instruction: "they have 2020," extending the original
+  2021-2025 plan). 168/168 requests succeeded. `nfl_quote_tape` went from 752,954 rows spanning
+  one real week to 912,702 rows spanning 2020-10-05 to 2026-12-26, 1,342 events, 3,480 of 20,000
+  credits spent. The key was used only as an inline environment variable for these specific
+  commands — it was never written to `.env` or any file in this repo or the session scratchpad
+  (confirmed by grep). `.env`'s existing `ODDS_API_KEY` (used for ongoing live capture) was not
+  touched. This closes the single largest data gap identified in Phase 0's "do we have the
+  historical line data this needs" section, though 2 points/week is still far coarser than the
+  live week's ~6-minute cadence — enough for week-over-week and cross-season analysis, not for
+  fine-grained delay/movement modeling within a single game week.
 
 ## Unresolved, going into the next session
 

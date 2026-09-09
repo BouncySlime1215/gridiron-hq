@@ -159,16 +159,25 @@ single settled, paper-recorded, end-to-end result.** That is the concrete gap Ph
   carried forward from a prior document or from this session's earlier worktree checks (those
   worktrees had a 2MB stub `data.sqlite`, not the real 6.4GB one).
 - Code change: `server/services/odds-archive.js` and `server/routes/nfl-market.js`, adding
-  2021 to two independent default-season lists. Not yet committed — pending the backfill run's
-  result and a `npm test`/`typecheck` pass, so the commit can report real numbers rather than
-  "queued."
-- Data change: ran `backfillOddsArchive({ seasons: [2021] })` against the live database.
-  Read-only against `game_lines`/`nflverse`, additive-only against `nfl_odds_archive` and
-  `nfl_line_snapshots`, fills nulls only in `game_lines.open_spread`/`open_total`. Result:
-  **[pending — see follow-up]**.
+  2021 to two independent default-season lists. Committed (`bfe7f4d`) with lint clean and the
+  two relevant `odds-archive.test.js` tests passing.
+- Data change attempted: ran `backfillOddsArchive({ seasons: [2021] })` against the live
+  database. **Did not complete — OddsTrader's origin is currently returning Cloudflare 502s**
+  (verified directly: a single request for 2021-09-09 took 12.8s and came back
+  `Error 502: Bad gateway ... the origin is overloaded or unavailable`, not a code or query
+  error). At that latency a full 62-day run would take up to ~45 minutes against a vendor
+  that is currently down, so the run was killed after 7 minutes with zero rows landed rather
+  than left to fail slowly. The code fix (both default-season-list sites) is correct and
+  tested independently of this — `node --check` and the two `odds-archive.test.js` tests
+  pass. **Re-run `backfillOddsArchive({ seasons: [2021] })` (or `POST
+  /nfl-market/odds-archive/backfill` with `{"seasons":[2021]}`) once OddsTrader is responding
+  normally** — no code changes needed, just a healthy origin. Quick health check before
+  re-running: a single `fetch` to the archive endpoint for any 2021 date should return
+  `200` in well under a second if the vendor has recovered.
 
 ## Unresolved, going into the next session
 
-- The 2021 backfill result (rows archived, openers filled, any failures).
+- The 2021 backfill needs to actually run — blocked on OddsTrader's origin recovering from
+  its current Cloudflare 502s, not on anything in this codebase. Re-run command is above.
 - `SCHEDULER_DISABLED` — needs your decision before Phase 3 can start.
 - Phase 1 has not been started yet (this document is the Phase 0 deliverable only).

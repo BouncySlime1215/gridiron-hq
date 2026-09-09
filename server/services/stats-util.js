@@ -252,3 +252,17 @@ export function normalCdf(x) {
   const p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
   return x >= 0 ? 1 - p : p;
 }
+
+/**
+ * Holm-Bonferroni step-down correction. Controls the family-wise error rate
+ * across `pvals.length` simultaneous hypotheses without the full conservatism
+ * of a flat Bonferroni cutoff. Returns adjusted p-values in the same order as
+ * the input; compare each to your original alpha (e.g. 0.05).
+ */
+export function holm(pvals) {
+  const order = pvals.map((p, i) => [p, i]).sort((a, b) => a[0] - b[0]);
+  const m = pvals.length, adjusted = new Array(m).fill(1);
+  let running = 0;
+  order.forEach(([p, i], rank) => { running = Math.max(running, Math.min(1, (m - rank) * p)); adjusted[i] = running; });
+  return adjusted;
+}

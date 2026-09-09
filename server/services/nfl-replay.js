@@ -19,9 +19,13 @@
  * any correction on seasons it was not discovered on. A fix that only works on
  * the season that suggested it is reported as exactly that — rejected.
  */
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { rows, run } from '../db/index.js';
 import { fitEnsemble, ensembleLine } from './nfl-ensemble.js';
-import { mean, quantile, random, withRandomSeed } from './stats-util.js';
+import { mean, quantile, random, withRandomSeed, normalCdf, holm } from './stats-util.js';
 import { NFL_PRODUCTION_POLICY, NFL_HISTORICAL_REPLAY_POLICY,
   applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
 import { shinNoVig } from './nfl-devig.js';
@@ -354,18 +358,31 @@ export function saveReplay(result) {
  * Each is a hypothesis about *when* the model might be wrong, not about any
  * individual game.
  */
+/**
+ * +1 when a bet backs the home side (spread/moneyline) or the over (total),
+ * -1 for away/under. Every place that needs to know "which side did this bet
+ * take" reads it from here, so there is exactly one definition to get right —
+ * see `analyzeErrors`'s `mean_signed_error`, which silently read backwards
+ * for away/under bets before this existed (2026-09-09 fix).
+ */
+function sideSign(b) {
+  if (b.market === 'total') return /Over/.test(b.side) ? 1 : -1;
+  if (b.market === 'moneyline') return b.side === b.home ? 1 : -1;
+  return b.side.includes(b.home) ? 1 : -1;
+}
+
 function segmentsFor(b, ctx) {
   const segs = [];
   segs.push(['market', b.market]);
   if (b.market === 'spread') {
-    segs.push(['side', b.side.includes(b.home) ? 'backed home' : 'backed away']);
+    segs.push(['side', sideSign(b) > 0 ? 'backed home' : 'backed away']);
     segs.push(['role', b.line < 0 ? 'home favoured' : 'home underdog']);
     segs.push(['spread size', Math.abs(b.line) >= 7 ? 'big spread (7+)' : Math.abs(b.line) <= 3 ? 'short spread (<=3)' : 'mid spread']);
   } else if (b.market === 'moneyline') {
-    segs.push(['side', b.side === b.home ? 'backed home' : 'backed away']);
+    segs.push(['side', sideSign(b) > 0 ? 'backed home' : 'backed away']);
     segs.push(['role', b.american_price < 0 ? 'backed favourite' : 'backed underdog']);
   } else {
-    segs.push(['side', /Over/.test(b.side) ? 'took over' : 'took under']);
+    segs.push(['side', sideSign(b) > 0 ? 'took over' : 'took under']);
     segs.push(['total size', b.line >= 48 ? 'high total (48+)' : b.line <= 41 ? 'low total (<=41)' : 'mid total']);
   }
   segs.push(['edge size', Math.abs(b.edge) >= 4 ? 'large edge (4+)' : 'small edge (<4)']);
@@ -383,36 +400,72 @@ function segmentsFor(b, ctx) {
   return segs;
 }
 
+/** Two-sided p-value from a z-score, via the shared normal CDF. */
+const zToP = z => 2 * (1 - normalCdf(Math.abs(z)));
+
+/** A bet's stable identity, for detecting when two segments are really the same games. */
+const betKey = b => `${b.season}|${b.week}|${b.home}|${b.away}|${b.market}`;
+
+/**
+ * Family-wise significance threshold after Holm correction, and the minimum
+ * practical effect a segment must clear even if it is statistically real.
+ * Both are named here, not buried in a conditional, because "how sure" and
+ * "how much" are two different questions and this file used to only ask one.
+ */
+const ALPHA = 0.05;
+const MIN_EFFECT_ROI = 0.05;
+const OVERLAP_THRESHOLD = 0.5;
+
 /**
  * Finds segments where the model is systematically wrong.
  *
- * `minBets` is the guard that keeps this from being noise-chasing: a 2-8 stretch
- * in freezing games is not evidence of anything. Segments are reported with
- * their sample size so a thin one is visibly thin, and the bias direction is
- * given as average signed error so the fix is legible.
+ * `minBets` is the first guard: a 2-8 stretch in freezing games is not
+ * evidence of anything. It is not the only one. This function tests ~20-30
+ * segment/bucket combinations at once, which is exactly the setting where
+ * *something* looks significant by chance alone if you only check one
+ * threshold — so every segment's p-value is Holm-corrected across the whole
+ * family before anything is called a finding (mirroring the Holm correction
+ * `line-move-study.js` already trusts for the same class of problem). A
+ * corrected p-value is still not enough on its own: a segment can be
+ * statistically real and practically meaningless, so `MIN_EFFECT_ROI` also
+ * requires the bootstrapped ROI interval's near-zero bound to still represent
+ * a real edge, not just "different from zero." Two more checks run only on
+ * survivors, because they are the expensive ones: overlap detection (two
+ * "findings" that are mostly the same games wearing different labels are one
+ * finding, not two) and leave-one-season-out (a pooled effect that is really
+ * one anomalous season dominating the total is not a systematic bias).
  */
-export function analyzeErrors(bets, { minBets = 25 } = {}) {
+function gameContext() {
   const ctx = new Map();
   for (const r of rows(`SELECT season, week, team, roof, wind, temp, rest_days, div_game
                         FROM game_lines WHERE home = 1`)) {
     ctx.set(`${r.season}|${r.week}|${r.team}`, r);
   }
+  return ctx;
+}
+
+export function analyzeErrors(bets, { minBets = 25 } = {}) {
+  const ctx = gameContext();
 
   const buckets = new Map();
   for (const b of bets) {
     if (b.result === 'Push') continue;
     for (const [dim, val] of segmentsFor(b, ctx)) {
       const key = `${dim}|${val}`;
-      const e = buckets.get(key) ?? { dim, val, n: 0, wins: 0, units: 0, signed: [], breakEven: [] };
+      const e = buckets.get(key) ?? { dim, val, n: 0, wins: 0, units: 0, signed: [], breakEven: [], bets: [] };
       e.n++;
       if (b.result === 'Won') e.wins++;
       e.units += b.units;
+      e.bets.push(b);
       if (b.american_price != null) e.breakEven.push(b.american_price > 0
         ? 100 / (b.american_price + 100) : Math.abs(b.american_price) / (Math.abs(b.american_price) + 100));
-      // Signed model error: positive means the model was too high on its side.
-      e.signed.push(b.market === 'total'
+      // Signed model error, relative to the side actually bet: positive means
+      // the model was too generous to its own pick, regardless of whether
+      // that pick was home/away or over/under (sideSign flips it for the
+      // away/under half of every bucket that mixes both).
+      e.signed.push(sideSign(b) * (b.market === 'total'
         ? b.model_margin - b.actual_total
-        : b.model_margin - b.actual_margin);
+        : b.model_margin - b.actual_margin));
       buckets.set(key, e);
     }
   }
@@ -422,6 +475,7 @@ export function analyzeErrors(bets, { minBets = 25 } = {}) {
     if (e.n < minBets) continue;
     const winRate = e.wins / e.n;
     const breakEven = avg(e.breakEven) ?? 0.524;
+    const z = (winRate - breakEven) / Math.sqrt(breakEven * (1 - breakEven) / e.n);
     out.push({
       dimension: e.dim, segment: e.val, bets: e.n,
       win_rate: r2(winRate), units: r2(e.units),
@@ -429,22 +483,96 @@ export function analyzeErrors(bets, { minBets = 25 } = {}) {
       mean_signed_error: r2(avg(e.signed)),
       break_even_needed: r2(breakEven),
       beats_vig: e.units > 0,
-      // How far from break-even, in standard errors — the honest test of whether
-      // a segment is a real bias or just a run of results.
-      z: r2((winRate - breakEven) / Math.sqrt(breakEven * (1 - breakEven) / e.n))
+      // How far from break-even, in standard errors — the input to the real
+      // (Holm-corrected) significance test below, not itself the test.
+      z: r2(z),
+      p: zToP(z),
+      _bets: e.bets, _seasons: [...new Set(e.bets.map(x => x.season))]
     });
   }
   out.sort((a, b) => a.win_rate - b.win_rate);
 
-  const weakest = out.filter(s => s.win_rate < 0.5 && Math.abs(s.z) >= 1.5);
-  const strongest = out.filter(s => s.win_rate > 0.55 && s.z >= 1.5);
+  // Holm correction across every segment tested in this call — the family is
+  // "everything checked this run," not "everything that happened to look
+  // interesting," which is the part a flat per-segment threshold gets wrong.
+  const adjustedP = holm(out.map(s => s.p));
+  out.forEach((s, i) => { s.p_holm = r2(adjustedP[i]); delete s.p; });
+
+  const significant = side => out.filter(s => s.p_holm < ALPHA
+    && (side === 'weak' ? s.win_rate < 0.5 : s.win_rate > 0.55));
+
+  /** Bootstrapped ROI interval for one segment's own bets, reusing `uncertainty`'s
+   * weekly-cluster method rather than a second bootstrap implementation. */
+  const effectGate = (candidates, side) => candidates.filter(s => {
+    const ci = uncertainty(s._bets).roi_95;
+    s.roi_95 = ci;
+    if (ci[0] == null || ci[1] == null) return false;
+    // The bound CLOSER to zero must still clear the minimum real-world effect —
+    // "even in the least extreme quarter of plausible outcomes, this still
+    // loses/wins by a meaningful margin," not merely "differs from zero."
+    return side === 'weak' ? ci[1] < -MIN_EFFECT_ROI : ci[0] > MIN_EFFECT_ROI;
+  });
+
+  /** At least 2 of the segment's own seasons must individually show the same
+   * direction of bias — otherwise one anomalous season is doing all the work
+   * and the pooled effect is not "systematic," just "once." */
+  const robustAcrossSeasons = (segment, side) => {
+    if (segment._seasons.length < 3) return { robust: true, note: 'fewer than 3 seasons in this segment; leave-one-out not meaningful' };
+    let agreeing = 0;
+    const perSeason = segment._seasons.map(season => {
+      const subset = segment._bets.filter(b => b.season !== season); // leave THIS season out
+      const w = subset.filter(b => b.result === 'Won').length, l = subset.filter(b => b.result === 'Lost').length;
+      const wr = w + l ? w / (w + l) : null;
+      const agrees = wr != null && (side === 'weak' ? wr < 0.5 : wr > 0.5);
+      if (agrees) agreeing++;
+      return { held_out_season: season, win_rate_without_it: r2(wr) };
+    });
+    return { robust: agreeing >= Math.ceil(segment._seasons.length * (2 / 3)), agreeing_folds: agreeing, of: segment._seasons.length, detail: perSeason };
+  };
+
+  /** Two segments sharing more than OVERLAP_THRESHOLD of the smaller one's
+   * bets are correlated, not independent — flag rather than double-count. */
+  const overlapWarnings = (segments) => {
+    const warnings = [];
+    for (let i = 0; i < segments.length; i++) {
+      for (let j = i + 1; j < segments.length; j++) {
+        const a = new Set(segments[i]._bets.map(betKey)), b = new Set(segments[j]._bets.map(betKey));
+        const shared = [...a].filter(k => b.has(k)).length;
+        const smaller = Math.min(a.size, b.size);
+        const fraction = smaller ? shared / smaller : 0;
+        if (fraction >= OVERLAP_THRESHOLD) warnings.push({
+          a: `${segments[i].dimension}|${segments[i].segment}`, b: `${segments[j].dimension}|${segments[j].segment}`,
+          shared_bets: shared, overlap_fraction: r2(fraction),
+          note: 'These likely describe the same underlying games, not two independent biases.'
+        });
+      }
+    }
+    return warnings;
+  };
+
+  const finalize = side => effectGate(significant(side), side).map(s => {
+    const robustness = robustAcrossSeasons(s, side);
+    return { ...s, robust_across_seasons: robustness.robust, leave_one_season_out: robustness };
+  });
+
+  let weakest = finalize('weak');
+  let strongest = finalize('strong');
+  const overlap_warnings = overlapWarnings([...weakest, ...strongest]);
+
+  // Strip working fields (_bets/_seasons) from every returned segment now that
+  // they've done their job — they are large and not meant for API consumers.
+  const strip = s => { const { _bets, _seasons, ...rest } = s; return rest; };
+  out.forEach(s => { delete s._bets; delete s._seasons; });
+  weakest = weakest.map(strip);
+  strongest = strongest.map(strip);
 
   return {
     segments: out,
-    weakest, strongest,
-    note: weakest.length
-      ? 'Segments below break-even by more than 1.5 standard errors are candidates for a correction — but any correction must be validated on a season it was not found on.'
-      : 'No segment is reliably below break-even at this sample size. Differences here are consistent with chance, and "fixing" them would be fitting noise.'
+    weakest, strongest, overlap_warnings,
+    thresholds: { alpha: ALPHA, min_effect_roi: MIN_EFFECT_ROI, overlap_threshold: OVERLAP_THRESHOLD },
+    note: weakest.length || strongest.length
+      ? 'These segments cleared Holm-corrected significance AND a minimum real effect size AND held up leaving each season out one at a time. Still not a green light — validateAdjustment/proposeAdjustment must confirm on seasons none of this ran on before anything changes.'
+      : 'Nothing here survives correction for testing ~20-30 segments at once plus a real minimum effect size. That is itself the honest finding, not a failure of the search.'
   };
 }
 
@@ -504,6 +632,57 @@ export function validateAdjustment({ discoverySeasons, holdoutSeasons, adjust, c
   };
 }
 
+/** Content hash of a segment's exact predicate — frozen the moment a finding
+ * is proposed, so nothing downstream can quietly redefine what is being
+ * tested after seeing how it does on a holdout (see Phase 3 of the
+ * 2026-09-09 learning-pipeline plan: a rule is frozen at discovery, forever). */
+export function segmentRuleHash(segment) {
+  return sha256Hex(JSON.stringify({ dimension: segment.dimension, segment: segment.segment,
+    direction: segment.win_rate < 0.5 ? 'weak' : 'strong' }));
+}
+
+function sha256Hex(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+/**
+ * The only sanctioned path from a raw `analyzeErrors` finding to a validated
+ * one. Two things `validateAdjustment` alone does not enforce, made
+ * structurally impossible here instead of merely documented:
+ *
+ *   1. Discovery and holdout seasons cannot overlap — throws immediately if
+ *      they do, rather than silently producing a number that looks like an
+ *      out-of-sample test but isn't.
+ *   2. The correction being tested is always exactly "stop betting this
+ *      segment" — derived mechanically from the segment's own frozen
+ *      dimension/value, never a hand-written closure a caller could get
+ *      subtly wrong or drift from what was actually discovered.
+ *
+ * `rule_definition_hash` on the result is `segmentRuleHash(segment)` — the
+ * frozen predicate this call tested, for Phase 3's candidate-findings ledger
+ * to key on so a later re-test of the "same" finding is provably the same
+ * finding, not a redefinition.
+ */
+export function proposeAdjustment(segment, { discoverySeasons, holdoutSeasons, config = {} }) {
+  const overlap = discoverySeasons.filter(s => holdoutSeasons.includes(s));
+  if (overlap.length) {
+    throw new Error(`proposeAdjustment: discovery and holdout seasons must not overlap (shared: ${overlap.join(', ')})`);
+  }
+  if (!discoverySeasons.length || !holdoutSeasons.length) {
+    throw new Error('proposeAdjustment: both discoverySeasons and holdoutSeasons are required and non-empty');
+  }
+  const ctx = gameContext();
+  const matchesSegment = b => segmentsFor(b, ctx).some(([dim, val]) => dim === segment.dimension && val === segment.segment);
+  // The mechanical correction a segment finding implies: stop betting there.
+  // Not "adjust the number" — that would need its own validated magnitude,
+  // which this tool does not claim to know. Dropping a proven-bad segment is
+  // the one correction directly supported by "this segment loses."
+  const adjust = b => (matchesSegment(b) ? null : b);
+  const result = validateAdjustment({ discoverySeasons, holdoutSeasons, adjust, config });
+  return { ...result, segment: { dimension: segment.dimension, segment: segment.segment },
+    rule_definition_hash: segmentRuleHash(segment) };
+}
+
 /**
  * One full training iteration: replay, grade, look for systematic bias, and
  * report what is worth acting on.
@@ -552,11 +731,43 @@ export function trainingIteration(seasons, config = {}) {
   };
 }
 
+/**
+ * Lightweight content-addressing for a training audit, so a finding is
+ * provably tied to a specific, reproducible code+data state rather than just
+ * a timestamp — the same discipline `nfl-blind-audit.js` uses for the full
+ * blind audit, scoped down here to what `trainingIteration` actually reads
+ * (the replay/analysis code, and the settled games for the seasons involved).
+ * Not the blind audit's own machinery (that is private to that module and
+ * proves a stronger, week-by-week no-leak guarantee this tool doesn't need)
+ * — a purpose-built equivalent for this tool's own reproducibility claim.
+ */
+function trainingAuditCodeHash() {
+  try {
+    const cwd = process.cwd();
+    const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z',
+      '--', 'server/services/nfl-replay.js', 'server/services/stats-util.js', 'server/services/nfl-policy.js'],
+      { cwd, encoding: 'utf8' }).split('\0').filter(Boolean).sort();
+    const content = createHash('sha256');
+    for (const path of files) { try { content.update(path).update('\0').update(readFileSync(resolve(cwd, path))); } catch { /* skip */ } }
+    return content.digest('hex');
+  } catch { return null; }
+}
+
+function trainingAuditDataHash(seasons) {
+  const data = rows(`SELECT season, week, team, opponent, team_score, opp_score, spread, total
+    FROM game_lines WHERE season IN (${seasons.map(() => '?').join(',')}) AND home = 1 AND team_score IS NOT NULL
+    ORDER BY season, week, team`, ...seasons);
+  return sha256Hex(JSON.stringify({ seasons, rows: data.length, data }));
+}
+
 export function saveTrainingAudit(result) {
   const policy = result.policy ?? normalizeNflPolicy(result.config ?? {});
+  const code_hash = trainingAuditCodeHash();
+  const data_hash = trainingAuditDataHash(result.seasons);
+  const stamped = { ...result, provenance: { code_hash, data_hash } };
   run(`INSERT INTO nfl_policy_audits
     (policy_id,policy_version,seasons_json,created_at,result_json) VALUES (?,?,?,?,?)`,
-    policy.id, policy.version, JSON.stringify(result.seasons), new Date().toISOString(), JSON.stringify(result));
+    policy.id, policy.version, JSON.stringify(result.seasons), new Date().toISOString(), JSON.stringify(stamped));
   return latestTrainingAudit();
 }
 

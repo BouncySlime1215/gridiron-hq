@@ -22,6 +22,7 @@
  * seasons, is the gate. Direction accuracy is reported beside it.
  */
 import { rows } from '../db/index.js';
+import { holm } from './stats-util.js';
 import { fitModel, fitRatings } from './nfl-market.js';
 import { matchupOpinion, MATCHUP_ROLES, ridge } from './nfl-matchup-specialists.js';
 import { teamEventVector } from './nfl-event-archive.js';
@@ -364,14 +365,6 @@ function holdout(data, names) {
   return { train, preds: fitAndPredict(train, test, names) ?? [] };
 }
 
-/** Holm step-down on a list of p-values; returns adjusted p per index. */
-function holm(pvals) {
-  const order = pvals.map((p, i) => [p, i]).sort((a, b) => a[0] - b[0]);
-  const m = pvals.length, adjusted = new Array(m).fill(1);
-  let running = 0;
-  order.forEach(([p, i], rank) => { running = Math.max(running, Math.min(1, (m - rank) * p)); adjusted[i] = running; });
-  return adjusted;
-}
 
 /* ---------------------------------------------------------------- report */
 

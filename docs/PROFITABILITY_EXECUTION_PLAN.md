@@ -91,13 +91,11 @@ remove from .env) to resume normal syncing once nothing depends on the app being
 responsive."* It is still set. This means every scheduled job — quote-tape capture, odds-archive
 refresh, news ingestion, forward settlement — has not run since that night, which is the
 direct reason the quote tape is stuck at one week instead of growing by one week every week.
-**I have not unset this.** It changes live operating behavior and resumes real (if free/
-low-cost) network polling against your machine, which is the kind of decision this brief asks
-me to identify and leave inactive rather than flip on my own judgment. Phase 3 (prospective
-collection, below) cannot start until this is resolved one way or another — either unset for
-normal operation, or replaced with a narrower flag that re-enables only the collection jobs
-this phase needs while leaving the fantasy-facing live-odds polling that caused the original
-slowdown off.
+**Resolved: staying set, by your explicit decision.** I have not unset this and will not
+without a new instruction to do so. Phase 3 (prospective collection) was still built —
+`nfl-prospective-collection.js`, see the critical path below — as a manual, on-demand action
+that does not depend on the scheduler at all, rather than waiting on a decision that has
+already been made.
 
 ---
 
@@ -152,18 +150,23 @@ finding about calibration (see B and the operating manual §2.2), not a gap in P
    Results) verified live in a browser with zero console errors. **Currently processes zero
    candidates** because the production policy currently selects zero (calibration not proven,
    verified live) — the pipe is proven, not yet fed.
-5. **Phase 3 — prospective collection.** Blocked on step 2's decision, which is final for now.
-   Not attempted this session; would need to be built as an on-demand action (matching the
-   pipeline's own pattern) rather than a scheduled job, the same way `/execution/run` is a
-   button press, not a cron entry.
+5. ~~**Phase 3 — prospective collection.**~~ **Done** (`1e01028`), respecting the scheduler
+   decision fully: `nfl-prospective-collection.js` runs a real quote-tape capture and bounded
+   typed-news extraction together, on demand only, via a distinct "costs money" button on the
+   Data Health page — never a scheduled job. Not run for real this session (both API keys are
+   configured in the real `.env`; building the wiring and spending the money are different
+   actions, and only the first was authorized). Run it yourself when ready: Data Health page,
+   or `POST /nfl-market/prospective-collection/run`.
 6. **Phases 4–5** — economics dashboard and the bounded B/D research follow-ons. Phase 2 already
    built the funnel/scorecard primitive (`GET /execution/funnel`, `lifecycleFunnel()`) the
    economics dashboard would extend; a full nav reorganization (Desk / Positions & Results /
    Research / Data Health as the top-level betting structure the plan describes) is a much
    larger, more invasive change to information architecture people already use daily, and was
    deliberately not attempted without a checkpoint. Phase 5's B/D research needs real collected
-   weeks (see 5) or a real prop-market data source (D) neither of which exist yet — reported
-   here as blocked on data, not attempted with fabricated inputs.
+   weeks (blocked on someone actually pressing the Phase 3 button repeatedly over real weeks —
+   the wiring exists now, the weeks of history don't yet) or a real prop-market data source (D),
+   neither of which exist yet — reported here as blocked on data, not attempted with fabricated
+   inputs.
 
 ## What ran, this session, on this document
 
@@ -192,7 +195,7 @@ finding about calibration (see B and the operating manual §2.2), not a gap in P
   re-running: a single `fetch` to the archive endpoint for any 2021 date should return
   `200` in well under a second if the vendor has recovered.
 
-## What ran, Phases 1–2
+## What ran, Phases 1–3
 
 - **Phase 1** (`cadcb40`): fixed all four source-level replay findings in `nfl-execution-replay.js`
   and `nfl-execution-decision.js`, caught and fixed one real interaction with an existing stress
@@ -204,15 +207,23 @@ finding about calibration (see B and the operating manual §2.2), not a gap in P
   a naive string match would have silently never found real coverage), wired 7 new routes and one
   new UI page, verified live in a browser (round-trip through the real API, zero console errors).
   9 new tests. Full suite after: 1136/1135/1/0.
-- Both phases' work was verified against the real 6.4GB database, never a worktree stub.
+- **Phase 3** (`1e01028`): built `nfl-prospective-collection.js` — quote-tape capture and bounded
+  typed-news extraction, run together, on demand only, registered in `source-registry.js` for
+  real Data Health heartbeat tracking. Not run for real (both API keys are live in `.env`;
+  building wiring and spending money are different actions). 5 new tests, all safe by
+  construction (confirmed the test runner has neither API key loaded, so both halves take their
+  documented no-key skip path — proven, not assumed). Full suite after: 1141/1140/1/0.
+- All three phases' work was verified against the real 6.4GB database, never a worktree stub.
 
 ## Unresolved, going into the next session
 
 - The 2021 odds-archive backfill needs to actually run — blocked on OddsTrader's origin
   recovering from Cloudflare 502s it was returning when tried, not on anything in this
   codebase. Re-run command is in the Phase 0 section above.
-- Phase 3 stays inactive by your explicit decision (`SCHEDULER_DISABLED` remains set). Do not
-  re-open this as a question in a future session without a new instruction to do so.
+- Phase 3 is built but has never been run for real — the button on the Data Health page (or
+  `POST /nfl-market/prospective-collection/run`) needs an explicit press, and each press spends
+  real money. `SCHEDULER_DISABLED` remains set by your explicit decision; do not re-open that as
+  a question in a future session without a new instruction to do so.
 - The production spread policy has selected zero candidates all session
   (`calibration_not_proven`) — Phase 2's pipeline is proven correct against real live ensemble
   output but has never yet opened a real opportunity. The first real verification of the full

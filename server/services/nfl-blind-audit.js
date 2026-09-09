@@ -115,6 +115,17 @@ function inputDataState(spec = null) {
     if (table === 'players') {
       selectedColumns = ['id', 'name', 'position', 'gsis_id'];
       where = ' WHERE gsis_id IS NOT NULL';
+    } else if (table === 'nfl_teams') {
+      // nfl_teams.head_coach/oc_name/dc_name/off_scheme/def_scheme/*_analysis are
+      // explicitly documented elsewhere in this codebase (nfl-scheme.js,
+      // nfl-offseason-change.js, offseason-model.js) as "one undated current
+      // snapshot" — never season-versioned, and never read by prediction/replay
+      // for anything but id/abbr/name (verified: nfl-expert-council.js only
+      // selects those three). A live coaching-staff update for the CURRENT
+      // season has zero bearing on a historical replay of 2021-2024 games, so
+      // freeze the actual structural dependency instead of voiding a run every
+      // time this season's staff changes.
+      selectedColumns = ['id', 'abbr', 'name', 'conference', 'division'];
     } else if (maxSeason != null && seasonTables.has(table) && columns.includes('season')) {
       where = ' WHERE season<=?'; params = [maxSeason];
     } else if (afterSeason && table === 'news_items') {

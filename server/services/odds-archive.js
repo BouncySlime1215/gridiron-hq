@@ -161,7 +161,7 @@ async function fetchArchive(startMs) {
  * game day is enough because the service answers with the events on and
  * after `startDate`; requests are spaced so the aggregator is not hammered.
  */
-export async function backfillOddsArchive({ seasons = [2022, 2023, 2024, 2025], pauseMs = 1200, onProgress = null } = {}) {
+export async function backfillOddsArchive({ seasons = [2021, 2022, 2023, 2024, 2025], pauseMs = 1200, onProgress = null } = {}) {
   const days = rows(`SELECT DISTINCT gameday FROM game_lines WHERE home=1 AND gameday IS NOT NULL
     AND season IN (${seasons.map(() => '?').join(',')}) ORDER BY gameday`, ...seasons).map(r => r.gameday);
   // Thursday-to-Monday slates: one request per game day, but skip a day whose

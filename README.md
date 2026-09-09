@@ -8,10 +8,14 @@ Everything runs on your own machine. No hosting, no accounts, no telemetry — d
 local SQLite file.
 
 For AI agents and model researchers, the living system contract, current audit truth, learning
-loop, news-verification rules, and execution queue are in
+loop, and news-verification rules are in
 [docs/AI_MODEL_OPERATING_MANUAL.md](docs/AI_MODEL_OPERATING_MANUAL.md).
-The current execution queue is in [docs/PROFITABILITY_PLAN.md](docs/PROFITABILITY_PLAN.md),
-and the exact recovered Audit 8 identity and results are in
+**The active execution queue is [docs/PROFITABILITY_EXECUTION_PLAN.md](docs/PROFITABILITY_EXECUTION_PLAN.md)** —
+one status table (implementation / integration / evaluation / authority, kept against live
+database checks, not carried-forward counts) and one critical path.
+[docs/PROFITABILITY_PLAN.md](docs/PROFITABILITY_PLAN.md) is the prior queue and remains as
+historical record of what was tried and found; its evidence is not erased, only superseded.
+The exact recovered Audit 8 identity and results are in
 [docs/NFL_AUDIT_RUN_8_MANIFEST.json](docs/NFL_AUDIT_RUN_8_MANIFEST.json).
 
 ---

@@ -164,12 +164,12 @@ r.get('/odds-archive', (_req, res, next) => {
   try { res.json(oddsArchiveStatus()); } catch (e) { next(e); }
 });
 
-/** Historical per-book opening and closing quotes for 2022-2025; runs in the background and answers at once. */
+/** Historical per-book opening and closing quotes for 2021-2025; runs in the background and answers at once. */
 let archiveJob = null;
 r.post('/odds-archive/backfill', requireModelPermission('model:train'), (req, res, next) => {
   try {
     if (archiveJob) return res.status(202).json({ running: true, ...archiveJob.progress });
-    const seasons = Array.isArray(req.body?.seasons) ? req.body.seasons.map(Number) : [2022, 2023, 2024, 2025];
+    const seasons = Array.isArray(req.body?.seasons) ? req.body.seasons.map(Number) : [2021, 2022, 2023, 2024, 2025];
     archiveJob = { progress: { seasons, started_at: new Date().toISOString() } };
     backfillOddsArchive({ seasons, onProgress: p => { archiveJob.progress = { ...archiveJob.progress, ...p }; } })
       .then(result => { archiveJob = null; console.log('[odds-archive] backfill', JSON.stringify(result).slice(0, 400)); })

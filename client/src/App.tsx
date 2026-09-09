@@ -137,6 +137,7 @@ export default function App() {
           <Route path="/betting/nfl/operations" element={<NflMarketBoard initialTool="operations" />} /><Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} /><Route path="/betting/nfl/forward" element={<NflMarketBoard initialTool="forward" />} />
           <Route path="/betting/nfl/research" element={<NflMarketBoard initialTool="research" />} />
           <Route path="/betting/nfl/watch" element={<NflMarketBoard initialTool="watch" />} />
+          <Route path="/betting/nfl/ledger" element={<NflMarketBoard initialTool="ledger" />} />
           <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} /><Route path="/betting/training" element={<NflMarketBoard initialTool="training" />} /><Route path="/betting/catalog" element={<NflMarketBoard initialTool="variables" />} />
           {/* One MLB hub instead of six routes, two of which were named "legacy"
               and all of which were reachable with nothing saying which was current. */}

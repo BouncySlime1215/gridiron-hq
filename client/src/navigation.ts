@@ -82,6 +82,7 @@ const NAV_NOTES: Record<string, string> = {
  */
 export const DEEP_DESTINATIONS: readonly (readonly [string, string, string])[] = [
   ['Research Lab', '/betting/nfl/research', 'Experiments, negative results and the agent master plan'],
+  ['Execution Ledger', '/betting/nfl/ledger', 'Exact-contract accept/settle path with real realized P&L'],
   ['NFL Auto Picks', '/betting/nfl/auto-picks', "The model's graded record, not what it would bet now"],
   ['Forward Ledger', '/betting/nfl/forward', "This week's frozen picks and their settlement"],
   ['NFL Props', '/betting/nfl/props', 'Player prop board and ticket builder'],

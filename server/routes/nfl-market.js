@@ -31,6 +31,9 @@ import { recordModelAudit } from '../modeling/sqlite-store.js';
 import { db } from '../db/index.js';
 
 import { researchLabStatus, researchMasterPlan } from '../services/nfl-research-lab.js';
+import { runExecutionPipeline, settleExecutionOpportunities } from '../services/nfl-execution-pipeline.js';
+import { attemptAcceptance } from '../services/nfl-execution-decision.js';
+import { getOpportunity, listOpportunities, lifecycleFunnel } from '../services/nfl-execution-lifecycle.js';
 
 const r = Router();
 
@@ -296,6 +299,84 @@ r.post('/bets', requireModelPermission('model:execute'), (req, res, next) => {
 
 r.delete('/bets/:id', requireModelPermission('model:execute'), (req, res, next) => {
   try { res.json(removeUserBet(Number(req.params.id))); } catch (e) { next(e); }
+});
+
+/**
+ * Execution brief Phase 2: the connector between the frozen NFL spread
+ * decision board above and Package H's exact-contract execution ledger. See
+ * server/services/nfl-execution-pipeline.js for what this does and does not
+ * do — it never decides a candidate, only opens/advances the ledger for
+ * whatever the board already selected, and never accepts anything itself.
+ *
+ * There is no scheduled job calling `/execution/run` automatically:
+ * SCHEDULER_DISABLED is currently set deliberately (see
+ * docs/PROFITABILITY_EXECUTION_PLAN.md) and this phase does not depend on
+ * it — the pipeline runs when this route is called, the same way "Refresh
+ * prices" already triggers other on-demand work in this app.
+ */
+r.post('/execution/run', requireModelPermission('model:train'), (req, res, next) => {
+  try {
+    const season = Number(req.body?.season) || SEASON;
+    const week = Number(req.body?.week) || currentNflWeek(season).week;
+    res.json(runExecutionPipeline(season, week));
+  } catch (e) { next(e); }
+});
+
+/** Every opportunity currently sitting at DECISION — pipeline-opened, awaiting a real human accept/pass. */
+r.get('/execution/pending', (req, res, next) => {
+  try {
+    res.json({ pending: listOpportunities({ status: 'decision', market: req.query.market ?? null })
+      .map(o => getOpportunity(o.id)) });
+  } catch (e) { next(e); }
+});
+
+/** Open (accepted, not yet settled) positions — real exposure, tracked toward a real result. */
+r.get('/execution/positions', (req, res, next) => {
+  try {
+    res.json({ open: listOpportunities({ status: 'accepted', market: req.query.market ?? null })
+      .map(o => getOpportunity(o.id)) });
+  } catch (e) { next(e); }
+});
+
+r.get('/execution/settled', (req, res, next) => {
+  try {
+    res.json({ settled: listOpportunities({ status: 'settled', market: req.query.market ?? null, limit: 500 })
+      .map(o => getOpportunity(o.id)) });
+  } catch (e) { next(e); }
+});
+
+/** The strategy scorecard: how much of the ledger reached each stage, and the real realized P&L of what settled. */
+r.get('/execution/funnel', (req, res, next) => {
+  try { res.json(lifecycleFunnel({ market: req.query.market ?? null })); } catch (e) { next(e); }
+});
+
+/**
+ * The one place a real human decision enters this ledger. `stakeUnits` and
+ * `line`/`price` (the number actually being accepted, which may have moved
+ * since DECISION — see REFRESHED) are the only things a caller supplies;
+ * `attemptAcceptance` derives the exposure-check identity from the
+ * persisted opportunity itself, never from anything in this request body.
+ */
+r.post('/execution/:id/accept', requireModelPermission('model:execute'), (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    if (!Number.isFinite(Number(body.stakeUnits)) || Number(body.stakeUnits) <= 0) {
+      return res.status(400).json({ error: 'stakeUnits must be a positive number' });
+    }
+    const outcome = attemptAcceptance(req.params.id, {
+      occurredAt: new Date().toISOString(), book: body.book, line: body.line ?? null,
+      price: Number(body.price), stakeUnits: Number(body.stakeUnits), note: body.note ?? null,
+      fairProbability: body.fairProbability ?? null, modelLine: body.modelLine ?? null,
+      marketLine: body.marketLine ?? null, acknowledgeCorridorBreach: Boolean(body.acknowledgeCorridorBreach),
+      acknowledgeSuspectPrice: Boolean(body.acknowledgeSuspectPrice)
+    });
+    res.status(outcome.accepted ? 200 : 409).json(outcome);
+  } catch (e) { next(e); }
+});
+
+/** Settle every accepted position whose game now has a real final score. Safe to call repeatedly — already-settled positions are simply skipped. */
+r.post('/execution/settle', requireModelPermission('model:train'), (req, res, next) => {
+  try { res.json(settleExecutionOpportunities()); } catch (e) { next(e); }
 });
 
 /**

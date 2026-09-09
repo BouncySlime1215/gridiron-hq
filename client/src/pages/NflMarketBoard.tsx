@@ -14,6 +14,7 @@ const Edges = lazy(() => import('./betting/Edges'));
 const LineShop = lazy(() => import('./betting/LineShop'));
 const PickWatch = lazy(() => import('./betting/PickWatch'));
 const Venues = lazy(() => import('./betting/Venues'));
+const NflExecutionDesk = lazy(() => import('./betting/NflExecutionDesk'));
 const NflProps = lazy(() => import('./betting/NflProps'));
 const FieldSim = lazy(() => import('./betting/FieldSim'));
 const Gates = lazy(() => import('./betting/Gates'));
@@ -29,9 +30,9 @@ const EnsemblePage = lazy(() => import('./betting/Ensemble'));
 const VariableCatalog = lazy(() => import('./betting/VariableCatalog'));
 
 type Section = 'board' | 'execute' | 'live' | 'engine';
-type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'watch' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info' | 'forward' | 'research';
+type InitialTool = Section | 'edges' | 'board' | 'props' | 'lines' | 'venues' | 'watch' | 'ledger' | 'simulator' | 'training' | 'operations' | 'ensemble' | 'variables' | 'model' | 'audit' | 'ai' | 'info' | 'forward' | 'research';
 type DecideView = 'games' | 'props';
-type ExecuteView = 'edge' | 'shop' | 'venues' | 'watch';
+type ExecuteView = 'edge' | 'shop' | 'venues' | 'watch' | 'ledger';
 type ProofView = 'research' | 'overview' | 'forward' | 'audit' | 'diagnostics' | 'data' | 'ensemble' | 'variables';
 
 interface AllGameRow {
@@ -57,7 +58,7 @@ interface AiExplanation { paragraph: string; limitations: string[]; audit: { id:
 interface TrackedBet { id: number; matchup: string; selection: string; side: string | null; american_price: number; status: string }
 
 const normalizeSection = (tool: InitialTool): Section => {
-  if (['edges', 'lines', 'venues', 'watch', 'execute'].includes(tool)) return 'execute';
+  if (['edges', 'lines', 'venues', 'watch', 'ledger', 'execute'].includes(tool)) return 'execute';
   if (['simulator', 'replay'].includes(tool)) return 'live';
   if (['training', 'operations', 'ensemble', 'variables', 'model', 'audit', 'ai', 'info', 'proof', 'forward', 'research'].includes(tool)) return 'engine';
   return 'board';
@@ -76,7 +77,7 @@ const initialProofView = (tool: InitialTool): ProofView => {
 export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?: InitialTool }) {
   const [section, setSection] = useState<Section>(() => normalizeSection(initialTool));
   const [decideView, setDecideView] = useState<DecideView>(initialTool === 'props' ? 'props' : 'games');
-  const [executeView, setExecuteView] = useState<ExecuteView>(initialTool === 'venues' ? 'venues' : initialTool === 'lines' ? 'shop' : initialTool === 'watch' ? 'watch' : 'edge');
+  const [executeView, setExecuteView] = useState<ExecuteView>(initialTool === 'venues' ? 'venues' : initialTool === 'lines' ? 'shop' : initialTool === 'watch' ? 'watch' : initialTool === 'ledger' ? 'ledger' : 'edge');
   const [proofView, setProofView] = useState<ProofView>(() => initialProofView(initialTool));
   const [week, setWeek] = useState(1);
   const [running, setRunning] = useState(false);
@@ -183,12 +184,14 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
         ['edge', 'Ticket builder', 'Build and log a multi-leg teaser ticket'],
         ['shop', 'Line shop', 'Best price per side, priced against real game margins'],
         ['venues', 'Venue routing', 'Where to place a bet you already decided on, and what each venue costs'],
-        ['watch', 'Pick watch', 'Track open picks against the live market — monitoring only']
+        ['watch', 'Pick watch', 'Track open picks against the live market — monitoring only'],
+        ['ledger', 'Execution ledger', 'Exact-contract accept/settle path with real realized P&L — Package H']
       ]} />
       {executeView === 'edge' && <><NextAction eyebrow="Execution focus" title={teaser?.live ? teaser.headline : 'Verify the payout before building a ticket'} detail={teaser?.detail ?? 'Reading the latest price gate…'} action={() => setExecuteView('shop')} tone="light" /><Panel fallback="Loading ticket evidence…"><Edges /></Panel></>}
       {executeView === 'shop' && <Panel fallback="Loading line shop…"><LineShop /></Panel>}
       {executeView === 'venues' && <Panel fallback="Loading venue routes…"><Venues /></Panel>}
       {executeView === 'watch' && <Panel fallback="Loading the pick watch board…"><PickWatch /></Panel>}
+      {executeView === 'ledger' && <Panel fallback="Loading the execution ledger…"><NflExecutionDesk /></Panel>}
     </>}
 
     {section === 'live' && <Panel fallback="Building field replay…"><FieldSim /></Panel>}

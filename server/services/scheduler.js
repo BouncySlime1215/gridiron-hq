@@ -670,6 +670,19 @@ async function refreshNflModelGrowth() {
 }
 
 /**
+ * The independent half of the offseason-blackout fix (nfl-offseason-cycle.js):
+ * depth charts and injury reports must not wait for "a game just finalized,"
+ * because nothing finalizes for ~6 months every year. Checked on a short,
+ * flat tick like every other job here, but the function itself decides
+ * whether real work is actually due under its own calendar-aware cadence —
+ * so this entry being "live tier" means "check often," not "refetch often."
+ */
+async function refreshNflOffseasonDepthInjury() {
+  const { refreshNflOffseasonDepthAndInjuries } = await import('./nfl-offseason-cycle.js');
+  return refreshNflOffseasonDepthAndInjuries();
+}
+
+/**
  * The forward decision ledger for the CURRENT week, unattended.
  *
  * Until now the only writer of `nfl_pick_decisions`, the pregame snapshots and
@@ -805,6 +818,11 @@ export const JOBS = {
   // week is ahead of the feature warehouse.
   nfl_model_growth: { run: refreshNflModelGrowth, maxAgeMinutes: 6 * 60, tier: 'growth',
     label: 'NFL finalized-week ingest, shadow settlement, and next-week fit' },
+  // Checked every 6h like model_growth, but genuinely decoupled from it — this
+  // is what actually runs during the offseason, when model_growth's own
+  // "newly finalized week" gate is never true for months at a time.
+  nfl_offseason_depth_injury: { run: refreshNflOffseasonDepthInjury, maxAgeMinutes: 6 * 60, tier: 'growth',
+    label: 'Depth chart / injury refresh on a calendar-aware cadence, independent of game finalization' },
   nfl_decision_ledger: { run: refreshNflDecisionLedger, maxAgeMinutes: 3 * 60, tier: 'growth',
     label: 'NFL current-week decision ledger, pregame snapshots, and expert council freeze (zero units)' },
   nfl_reports: { run: refreshReports, maxAgeMinutes: 3 * 60, tier: 'growth',

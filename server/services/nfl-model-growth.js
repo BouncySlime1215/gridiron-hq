@@ -38,6 +38,7 @@ import { backfillTeamCards } from './nfl-team-card.js';
 import { simulationCalibrationFor } from './nfl-sim-calibration.js';
 import { fitOrthogonalSpecialists } from './nfl-orthogonal-specialists.js';
 import { freezeFeatureCoverageSnapshot } from './nfl-feature-coverage.js';
+import { refreshNflOffseasonCycle } from './nfl-offseason-cycle.js';
 
 // nfl_model_growth_runs comes from server/migrations/000_legacy_schema.js.
 
@@ -63,6 +64,13 @@ function warehouseSnapshot(season) {
       SELECT week FROM game_lines WHERE season=? AND home=1
       GROUP BY week
       HAVING COUNT(*) > 0 AND SUM(team_score IS NOT NULL AND opp_score IS NOT NULL) = COUNT(*))`, season);
+  // The highest week number with any scheduled game this season -- 18 for a
+  // regular season alone, 22 once the four playoff rounds (wildcard through
+  // Super Bowl) are loaded. Reading this from the real schedule instead of a
+  // hardcoded "18" is what lets `seasonComplete` below actually mean "no
+  // games are left," not "the regular season specifically ended."
+  const seasonMaxWeek = scalar(`SELECT COALESCE(MAX(week),0) value FROM game_lines WHERE season=? AND home=1`, season);
+  const seasonComplete = finalizedWeek > 0 && finalizedWeek >= seasonMaxWeek;
   const sources = [
     { id: 'results_and_lines', table: 'game_lines', required: true,
       rows: count('game_lines', season), through_week: finalizedWeek },
@@ -96,7 +104,8 @@ function warehouseSnapshot(season) {
   }));
   const core = sources.filter(source => source.required && source.id !== 'results_and_lines');
   const learnedThrough = core.length ? Math.min(...core.map(source => source.through_week)) : 0;
-  return { season, finalized_week: finalizedWeek, learned_through_week: learnedThrough, sources };
+  return { season, finalized_week: finalizedWeek, learned_through_week: learnedThrough, sources,
+    season_max_week: seasonMaxWeek, season_complete: seasonComplete };
 }
 
 function latestRun() {
@@ -227,29 +236,32 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
     if (afterIngest.finalized_week > 0 && coreCurrent) {
       detail.team_code_reconciliation = reconcileHistoricalTeamCodes();
       const nextWeek = afterIngest.finalized_week + 1;
-      if (nextWeek <= 18) {
+      const seasonOver = afterIngest.season_complete;
+      if (!seasonOver) {
         detail.shared_weekly_state = freezeWeeklyFeatureState(season, nextWeek);
         detail.team_cards = backfillTeamCards({ seasons: [season], startWeek: nextWeek, endWeek: nextWeek });
         detail.simulation_calibration = simulationCalibrationFor(season, nextWeek, { persist: true });
         detail.specialist_learning = fitOrthogonalSpecialists(season, nextWeek, { persist: true });
         detail.feature_coverage = freezeFeatureCoverageSnapshot(season, nextWeek);
+      } else {
+        detail.offseason = await refreshNflOffseasonCycle(season);
       }
       detail.online_neural = trainOnlineNeuralThroughSettled();
       detail.risk_lab = trainRiskLabThroughSettled();
       const playerSettlement = settleWeeklyPredictions();
       const playerTraining = retrainWeeklyWeights();
       clearPlayerWeekEngineCache();
-      const playerCapture = nextWeek <= 18
-        ? captureWeeklyPredictions(season, nextWeek) : { captured: 0, blocked: true, reason: 'regular season complete' };
+      const playerCapture = !seasonOver
+        ? captureWeeklyPredictions(season, nextWeek) : { captured: 0, blocked: true, reason: 'season complete (including playoffs)' };
       detail.player_learning = {
         settlement: playerSettlement, training: playerTraining, next_week_capture: playerCapture,
         downstream: 'The shared player engine feeds fantasy projections and every player-prop market.'
       };
       detail.expert_council = {
         settlement: detail.settlement.expert_council,
-        next_week_capture: nextWeek <= 18
+        next_week_capture: !seasonOver
           ? captureForwardExpertWeek(season, nextWeek, { horizon: 'weekly_growth' })
-          : { captured: 0, blocked: true, reason: 'regular season complete' },
+          : { captured: 0, blocked: true, reason: 'season complete (including playoffs)' },
         status: expertCouncilStatus(),
         downstream: 'Each raw role and abstention is frozen before kickoff; only settled earlier weeks may train the robust coordinator.'
       };

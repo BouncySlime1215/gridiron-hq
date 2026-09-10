@@ -1,11 +1,17 @@
-> **Not an active work queue.** Superseded 2026-09-10. The single active plan is
-> [`docs/CLAUDE-NEXT-STEPS.md`](docs/CLAUDE-NEXT-STEPS.md). This file is retained only as the
-> dated record of what was observed and decided at the time. Its task lists, phase plans and
-> ranked recommendations are history, not instructions. Content extraction and relocation to
-> `docs/evidence/` and `docs/reference/` happen in slice 9 of the active plan, per the
-> disposition table in `docs/reference/architecture/FOLDER-REORGANIZATION.md`.
+# Platform-audit implementation record — September 8, 2026
 
-# Claude feedback — Codex platform audit (CODEX_SUGGESTIONS.md)
+**Status: evidence, not instructions.** Relocated 2026-09-10 from the repository root per the
+disposition table in
+[`../reference/architecture/FOLDER-REORGANIZATION.md`](../../reference/architecture/FOLDER-REORGANIZATION.md)
+and §10.4 of the active plan.
+
+This is what was actually implemented, verified and rolled back against the
+[August 24 platform audit](../historical/platform-audit-2026-08-24-findings.md) — including which
+of that audit's findings turned out to be stale before any work began. Its value is the
+verification record, not its plans. The single active work queue is
+[`docs/CLAUDE-NEXT-STEPS.md`](../../CLAUDE-NEXT-STEPS.md).
+
+---
 
 Session: 2026-09-08. Verified against current code/DB before acting — several audit
 findings (dated 2026-08-24) were already stale; noted below where that changed scope.

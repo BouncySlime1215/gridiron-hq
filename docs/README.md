@@ -21,9 +21,17 @@ authorizes spending, or promotes a model.
 - [evidence/2026-09-10/IMPLEMENTATION-SUMMARY.md](evidence/2026-09-10/IMPLEMENTATION-SUMMARY.md)
   — what was implemented against the plan, what was deferred, and why
 - [evidence/historical/](evidence/historical/) — dated results, failed
-  experiments and superseded status narratives, preserved as record
+  experiments and superseded status narratives, preserved as record, including
+  [platform-audit-2026-08-24-findings.md](evidence/historical/platform-audit-2026-08-24-findings.md)
+  (the August audit's observations, with its proposal backlog removed)
+- [evidence/2026-09-10/](evidence/2026-09-10/) — the September 10 review, its
+  verification bundle, and
+  [CODEX-6-HANDOFF.md](evidence/2026-09-10/CODEX-6-HANDOFF.md): what was
+  implemented against it, how, and what each correction still cannot claim
 - [evidence/history/WORK_LOG.md](evidence/history/WORK_LOG.md) — the running
   change log
+- [evidence/history/platform-audit-implementation-2026-09-08.md](evidence/history/platform-audit-implementation-2026-09-08.md)
+  — what was actually implemented and verified against the August audit
 - [evidence/contracts/](evidence/contracts/) — frozen experiment and policy
   contracts, including
   [profitability-policy-v1.3.md](evidence/contracts/profitability-policy-v1.3.md)
@@ -35,7 +43,9 @@ authorizes spending, or promotes a model.
 ## Reference (how things actually work)
 
 - [reference/model-governance-manual.md](reference/model-governance-manual.md)
-  — system contract, learning loop, news-verification rules
+  — system contract, learning loop, news-verification rules, and (section 18)
+  the model operations protocol, endpoints and release commands merged from the
+  former root `MODEL_OPERATIONS.md`
 - [reference/architecture/](reference/architecture/) — ownership map, folder
   companion, domain boundaries
 - [reference/betting/execution-slate.md](reference/betting/execution-slate.md)

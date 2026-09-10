@@ -302,3 +302,106 @@ off-policy ticket is always recordable, always labelled on its face, and settles
 authorized one does.
 
 **Test results** — 16 passed, 0 failed.
+
+---
+
+## Slice 4 — Repair learning and reporting (C04, C07, C08, C09, C10, C16, C17, C06)
+
+| Correction | What was wrong, and the fix |
+|---|---|
+| **C04** | Opponent EXPOSURE spanned every game in history while the EPA features it adjusts span two seasons — a team's 2016 opponents counted as exposure, then priced with 2024 defensive efficiency. Both windows now move together. The sparse-coverage floor (3 eligible opponents) is explicit rather than emerging from averaging one game. |
+| **C07** | The residual fit/score boundary was a row index. `Math.floor(n * 0.7)` lands inside a Sunday slate roughly six times out of seven, and games in one week share a week of common information. The boundary now falls between complete weeks; each component records which weeks trained its slope and which graded it. |
+| **C08** | Rule identity shelled out to `git ls-files` under `process.cwd()` and **failed open** — the catch returned null, and a missing hash was accepted as a pass. So the environments where the check could not run were exactly the environments where it silently did not. Now module-closure based, fail-closed, and enforced at **promotion** — the one moment a finding gains authority, and the one place the check was missing. |
+| **C09** | `pushes` was initialised and never incremented. A corrupt week was skipped in silence. A zero-bet week never entered coverage at all — precisely the week a weekly average must include. Min–max coverage could not tell "weeks 5–18" from "weeks 5–18 with 9 and 12 missing". Outcomes now aggregate from the authoritative picks and reconcile against the stored summary. |
+| **C10** | A sparse cutoff-safe calibration fell through to `PRIOR_VARIANCE`, fitted from every season on record. Reproduced: a 2016 forecast's standard error moved after changing only 2024 scores. The fallback is now a declared, versioned, never-refitted prior, and forecasts resting on it are labelled `insufficient_calibration_evidence`. |
+| **C16** | `featureContracts()` read `challenger_only` while the registry spells it `challengerOnly`, so the report saw **zero** challengers where nine exist. Both scoring paths scored an unconditional probability against a decided label: a 0.45/0.10/0.45 forecast on a decided win scored **0.303** instead of the proper conditional **0.25** — punishing exactly the models that got key numbers right. |
+| **C17** | `alwaysValidPValue` estimated sigma from the sequence under test, which breaks the martingale property the "always valid" label depends on. A declared sigma now yields `p_always_valid`; a plug-in estimate yields `p_fixed_sample_only` and says why. Decay watch, which runs repeatedly, carries the caveat in every sentence built from the number. |
+
+### C06 — the suite that only passed on one machine
+
+Under the review's own conditions the suite was **1,312 pass / 24 fail**. It is now
+**1,449 pass / 0 fail / 24 skip**.
+
+The 24 skips are not the 24 failures renamed. They split into two groups by an explicit rule:
+
+- **Logic tests** moved onto a deterministic seeded league (`test/helpers/seed-league-history.js`) —
+  a fixed-seed generator, because a flaky fixture failure is indistinguishable from a real
+  regression. All 7 preseason-blend failures were closed this way.
+- **Fitted-model validations** — "goal-line carries convert better than open-field ones", "every
+  season prices all 32 teams" — were **kept, not deleted**, and now name the history they need. A
+  fixture could be built to satisfy any of them, and would prove only that the fixture was tuned.
+  All 24 run and pass against the populated database.
+
+CI now **enforces** the offline claim it previously asserted in a comment, and points
+`GRIDIRON_DB_PATH` at a nonexistent file so the hosted job cannot read a real database by accident.
+
+---
+
+## Slice 5 — Connect the operation (C12)
+
+`cutoffBatches` and `sequentialCapacity` had test callers and nothing else — the review's phrase was
+"a GET packet route is not a scheduled collector."
+
+**The capacity defect.** The API took final slot states with no times attached, so a slot released
+at 12:10 wrongly freed capacity for a batch at 12:05 — a later fact changing an earlier decision.
+Releases now carry the instant they happened; a release with no recorded time is treated as **still
+held**, because "we do not know when it came free" must never resolve to "it was always free".
+
+**The runner.** `server/betting/nfl/strategy/t60-runner.js`, registered as `nfl_t60_runner` on the
+live scheduler tier. It opens a prospective observation before each cutoff, freezes the packet when
+the cutoff arrives, and marks anything still uncaptured afterwards as **missed**.
+
+That last part is the whole point. A system that only writes rows when it succeeds cannot tell a
+quiet week from a broken collector, and coverage computed from such rows is always 100%.
+
+**Test results** — 11 pass (runner) + 14 pass (protocol).
+
+---
+
+## Slice 6 — The shared dataset
+
+`research/betting/nfl/dataset.py`. `tree_lab.py` carried a comment saying the duplication out loud:
+*"everything above this line mirrors market_lab.build_dataset's setup"*. Two copies of a chronology
+is two chronologies; they agree today because someone kept them in step by hand, and the first time
+one is fixed and the other is not, two experiments quietly stop being comparable.
+
+Parity tests require the extraction to reproduce the labs' own publication instants and result
+history exactly. **12 pass.**
+
+---
+
+## Slice 9 — Reorganize and consolidate
+
+The repository root now contains **one** markdown file: `README.md`.
+
+| Was | Now | Treatment |
+|---|---|---|
+| `CODEX_SUGGESTIONS.md` (931 lines) | `docs/evidence/historical/platform-audit-2026-08-24-findings.md` | 73 lines of dated observations kept; **858 lines of proposal backlog and per-page roadmap removed**. §10.4 is explicit that relocating a queue is not consolidating it. |
+| `CLAUDE_FEEDBACK.md` | `docs/evidence/history/platform-audit-implementation-2026-09-08.md` | Verification record kept. |
+| `MODEL_OPERATIONS.md` | `docs/reference/model-governance-manual.md` §18 | Merged as operating reference, per "retain operational instructions in the reference manual". |
+
+`docs/evidence/historical/profitability-baselines.md` carried 24 unchecked boxes. Each is now
+resolved in a disposition table naming where it went — three to implemented corrections, three to
+partially-implemented ones, and four marked out of scope for a spreads-only mandate. **Zero open
+task lists remain anywhere outside the canonical plan.**
+
+Three stale code comments pointing at the relocated files were updated.
+
+**What was deliberately NOT done.** The `server/` ownership moves in §10.2 are not executed. §10.4
+requires packaging and path-resolution tests first, and `nfl-research-lab.js` still derives its root
+from `../..` while the DB default path depends on its module location — the exact traps that section
+names. Moving those files before those tests exist would be the "successful build alone does not
+test runtime file loading" failure the plan warns about.
+
+**Verification after consolidation:** typecheck, lint (574 files), build, and the real-server
+startup smoke test all pass. The folder map was recomputed against `fced8d9`: **820 dispositions,
+none undisposed.**
+
+---
+
+## Slice 10 — The decision record
+
+[`DECISION-RECORD.md`](DECISION-RECORD.md). The short version: **continue, no promotion, no wager
+authority.** The question "can this select profitable spread bets" is now *askable*, which it was
+not before — but it has not been asked, because no prospective observation exists. Slices 7 and 8
+stay closed because §9.1 stages them behind a frozen comparison that has not been run.

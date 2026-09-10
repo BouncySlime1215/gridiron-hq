@@ -32,7 +32,7 @@
  * faster than win rate: whether you beat the closing number is knowable in
  * a few hundred bets, whereas separating a 2% ROI edge from variance takes
  * thousands. Positive median CLV is the standard evidence that a model is
- * finding real mispricing, and `MODEL_OPERATIONS.md` already names it as the
+ * finding real mispricing, and the model governance manual (section 18) already names it as the
  * promotion requirement.
  */
 import { createHash } from 'node:crypto';

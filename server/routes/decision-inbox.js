@@ -1,5 +1,6 @@
 /**
- * The Decision Inbox — CODEX_SUGGESTIONS.md's global recommendation #1
+ * The Decision Inbox — the August 2026 platform audit's global recommendation #1
+ * (docs/evidence/historical/platform-audit-2026-08-24-findings.md)
  * ("Build a universal Decision Inbox", P1 design project). One table any
  * engine, fantasy or betting, can publish a normalized recommendation into,
  * so the Dashboard can be a ranked queue instead of a directory of links.

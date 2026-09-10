@@ -1,7 +1,7 @@
 export const name = '020_decision_recommendations';
 
 /**
- * The universal "Decision Inbox" (CODEX_SUGGESTIONS.md, global recommendation
+ * The universal "Decision Inbox" (the August 2026 platform audit's global recommendation
  * #1, P1 design project): one normalized table every engine — fantasy or
  * betting — can publish a recommendation into, so the Dashboard can be a
  * ranked queue instead of a directory of links.

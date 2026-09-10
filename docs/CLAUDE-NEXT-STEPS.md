@@ -61,7 +61,7 @@ Software test success alone never reaches `qualified`.
 | C03 populated 027 upgrade | tested | 445c878 | `test/migration-027-populated-upgrade.test.js` (10 pass) | Exercised against fixture databases only. No installation carrying real execution rows exists to upgrade — which is why this was never hit. |
 | C04 opponent strength window | tested | working tree | `test/ensemble-window-and-split.test.js` (8 pass) | The sparse-coverage floor is 3 eligible opponents — a stated judgement, not a measured one. |
 | C05 shopping probabilities / ranking | tested | working tree | `test/nfl-execution-edge.test.js` (20 pass) | The distribution is a no-forecast baseline implied by the market's own line. `qualified` is false everywhere; no sizing path may treat it as modelled profit. |
-| C06 test suite hermeticity | tested | working tree | `evidence/2026-09-10/` CI-condition run: 1,433 pass / 24 skip / 0 fail | 24 fitted-model checks skip on a clean checkout with a named disposition each; they run and pass against the populated database. The hosted Node 22 job has not been run. |
+| C06 test suite hermeticity | tested | working tree | [`evidence/2026-09-10/slice-final/`](evidence/2026-09-10/slice-final/) — 1,449 pass / 0 fail / 24 skip under CI conditions, from a 24-failure baseline | 24 fitted-model checks skip on a clean checkout with a named disposition each; they run and pass against the populated database. The hosted Node 22 job has not been run. |
 | C07 residual split leakage | tested | working tree | `test/ensemble-window-and-split.test.js` (8 pass) | The fit/score boundary is now week-complete, but it remains a single chronological split, not a rolling nested walk-forward. |
 | C08 findings provenance | tested | working tree | `test/nfl-candidate-findings.test.js` (20 pass) | Rule identity is git-free and cwd-free and fails closed. The T-60 approved set starting empty is enforced by there being no promoted findings, not by a check. |
 | C09 audit overview counting | tested | working tree | `test/audit-overview-counting.test.js` (8 pass, synthetic packets) | Run 32's spread record has not been independently reproduced; that needs the stored run. |
@@ -84,13 +84,29 @@ Software test success alone never reaches `qualified`.
 | 3 Correct probabilities and authority | tested | `test/nfl-execution-edge.test.js`, `test/nfl-execution-decision.test.js` (36 pass) | Probabilities are a no-forecast baseline; nothing is qualified. |
 | 4 Repair learning and reporting | tested | C04/C07/C08/C09/C10/C14/C16/C17 closed; C06 measured under CI conditions | Fitted-model checks that need real history skip with a named disposition rather than being deleted. |
 | 5 Connect operation | connected | `test/t60-runner.test.js` (11 pass); registered as `nfl_t60_runner` on the live tier | No real slate has run. The controlled end-to-end lifecycle fixture in §7.4 is not yet built, and no permitted paper observation exists. |
-| 6 Freeze simple comparison | open | — | — |
-| 7 Adapt requested families | open | — | — |
-| 8 Test the combination | open | — | — |
-| 9 Reorganize and consolidate | open | — | — |
-| 10 Prospective decision | open | — | — |
+| 6 Freeze simple comparison | implemented | `research/betting/nfl/dataset.py` + `test_dataset.py` (12 pass) | The shared cutoff-safe chronology is extracted and parity-tested. No comparison has been RUN: the frozen first experiment of §9.1 stage 2 is not started. |
+| 7 Adapt requested families | open | — | Not started. Requires slice 6's comparison first, per §9.1's staging. |
+| 8 Test the combination | open | — | Not started. Only families meeting the predeclared requirements may enter, and none has been qualified. |
+| 9 Reorganize and consolidate | implemented | Root reduced to `README.md`; folder map recomputed to 820 dispositions, none undisposed; typecheck, lint, build and start-smoke all pass | Document consolidation is complete and zero open task lists remain outside the plan. The `server/` ownership MOVES in §10.2 are deliberately NOT executed — §10.4 requires packaging and path-resolution tests first, and `nfl-research-lab.js` still derives its root from `../..`. |
+| 10 Prospective decision | implemented | [`evidence/2026-09-10/DECISION-RECORD.md`](evidence/2026-09-10/DECISION-RECORD.md) | A record of what the evidence supports, which is not a profitability verdict. No prospective observation has yet been made. |
 
-### 0.3 Reconciliation notes, 2026-09-10
+### 0.3 What Claude returned, 2026-09-10
+
+Section 12's nine required returns, and where each one is:
+
+| # | Required return | Where |
+|---|---|---|
+| 1 | The exact fixes for C01–C17 | [`evidence/2026-09-10/CODEX-6-HANDOFF.md`](evidence/2026-09-10/CODEX-6-HANDOFF.md), one section per slice, each naming the defect it reproduced first. |
+| 2 | Clean test results on the declared runtime, with explicit remaining skips | [`evidence/2026-09-10/slice-final/`](evidence/2026-09-10/slice-final/) — 1,449 pass / 0 fail / 24 skip under CI conditions, from a 24-failure baseline. **The hosted Node 22 job has still not been run**; local runtime is Node 25. |
+| 3 | Safe migration/restore evidence and the installed schema version | `test/migration-027-populated-upgrade.test.js` — populated 026 fixtures, byte-identical preservation, `foreign_key_check`, and a `VACUUM INTO` snapshot proven to restore. **No real installation carrying execution rows has been upgraded, because none exists.** |
+| 4 | One packet-to-decision trace showing a news fact's real numerical influence | **Not delivered.** No forecast consumes the frozen packet yet; every run records `unfrozen_live_tables`. This is C11's remaining half and the honest blocker on this item. |
+| 5 | Corrected family and audit reports preserving the old versions | C16 and C09. Old numbers preserved as `cover_brier_legacy_unconditional_vs_decided` and `clv_price_cents_v1_raw_american_difference`. No retroactive winning record: the 2021–2025 spread record is unchanged. |
+| 6 | A registry showing implemented vs active vs qualified | This table plus §0.1. **Nothing is `qualified`.** The highest state reached is `connected` (C12). |
+| 7 | The fixed experiment decision record | [`evidence/2026-09-10/DECISION-RECORD.md`](evidence/2026-09-10/DECISION-RECORD.md). It records that the question is now askable and has not been asked. |
+| 8 | Updated folder dispositions, with the plan and routes still working | [`reference/architecture/folder-map.csv`](reference/architecture/folder-map.csv) recomputed to 820 dispositions, none undisposed. Typecheck, lint, build and the real-server startup smoke all pass. |
+| 9 | A plain-language statement to Nick | The end of [`DECISION-RECORD.md`](evidence/2026-09-10/DECISION-RECORD.md) §1 and §4. |
+
+### 0.4 Reconciliation notes, 2026-09-10
 
 The review's "latest captured uncommitted source" — `nfl-t60-packet.js` v2, `server/db/schema/nfl-n-to-z.js`,
 migration `029_quote_tape_commence_index.js` and the packet tests — is **committed** at `bbcdae2`. Nothing was

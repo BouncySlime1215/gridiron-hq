@@ -34,6 +34,7 @@ import { researchLabStatus, researchMasterPlan } from '../services/nfl-research-
 import { runExecutionPipeline, settleExecutionOpportunities } from '../services/nfl-execution-pipeline.js';
 import { runProspectiveCollection } from '../services/nfl-prospective-collection.js';
 import { attemptAcceptance } from '../services/nfl-execution-decision.js';
+import { executionClvReport } from '../services/nfl-execution-clv.js';
 import { getOpportunity, listOpportunities, lifecycleFunnel } from '../services/nfl-execution-lifecycle.js';
 
 const r = Router();
@@ -379,6 +380,15 @@ r.post('/execution/:id/accept', requireModelPermission('model:execute'), (req, r
     });
     res.status(outcome.accepted ? 200 : 409).json(outcome);
   } catch (e) { next(e); }
+});
+
+/**
+ * Closing-line value over the ACCEPTED-ticket ledger (Codex audit finding
+ * E9). A read-only projection, so calling it repeatedly is idempotent by
+ * construction and a late-arriving close simply becomes gradeable.
+ */
+r.get('/execution/clv', requireModelPermission('model:execute'), (_req, res, next) => {
+  try { res.json(executionClvReport()); } catch (e) { next(e); }
 });
 
 /** Settle every accepted position whose game now has a real final score. Safe to call repeatedly — already-settled positions are simply skipped. */

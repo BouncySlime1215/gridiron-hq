@@ -1,5 +1,5 @@
 /**
- * The T−60 evidence packet (Codex plan section 6.3, second half).
+ * The T−60 evidence packet (Codex plan sections 6.1–6.3).
  *
  * "Collect ahead of T−60 and freeze records actually received by cutoff.
  *  Record computation start/end and forecast emission separately; never
@@ -27,51 +27,83 @@
  * what makes "we had no injury report for this game" a fact the evaluation
  * can see, instead of a silence indistinguishable from "the report said
  * nothing was wrong."
+ *
+ * And a row that exists but arrived LATE is neither. Section 6.1 asks to
+ * "distinguish historical provider snapshots, retrospectively reconstructed
+ * records, assumed availability, and real prospective observations" — four
+ * states this codebase previously collapsed into "the row is there." Every
+ * pre-2026 weather row in this database was fetched on 2026-09-02, years
+ * after the games it describes; counting it as knowable at a 2023 kickoff
+ * would be the single largest look-ahead available here.
  */
 import { rows } from '../db/index.js';
 import { decisionCutoff, T60_PROTOCOL_VERSION } from './nfl-t60-protocol.js';
 
-export const PACKET_VERSION = 'nfl-t60-packet-v1';
+export const PACKET_VERSION = 'nfl-t60-packet-v2';
 
 /**
  * How a value's availability is established. A prospective packet may only
- * contain `received_by_cutoff`; the others exist so a historical or
- * unqualified record is impossible to mistake for one.
+ * rest on `received_by_cutoff`; every other kind exists so that a weaker or
+ * disqualifying claim is impossible to mistake for one.
  */
 export const AVAILABILITY_CLAIMS = Object.freeze([
   /** This system recorded it before the cutoff. The only claim a real prospective decision may rest on. */
   'received_by_cutoff',
-  /** A source published it before the cutoff and that publication is independently evidenced. Historical replay only. */
+  /** A source published it before the cutoff and that is independently evidenced. Historical replay only. */
   'published_by_cutoff_evidenced',
+  /** The rows exist, but every one reached this system AFTER the cutoff. Never eligible, in any mode. */
+  'late_arrival_excluded',
   /** Present in the database, but with no trustworthy receipt or publication clock. Quarantined. */
   'availability_unknown',
+  /** Describes the outcome rather than the forecast. Never eligible in a pregame packet, in any mode. */
+  'oracle_excluded',
   /** Nothing was available at all. A recorded observation in its own right. */
   'missing'
 ]);
 
+/** The claims a packet may actually USE, by mode. Everything else is retained but ineligible. */
+const ELIGIBLE_BY_MODE = Object.freeze({
+  prospective: ['received_by_cutoff'],
+  historical: ['received_by_cutoff', 'published_by_cutoff_evidenced']
+});
+
+const beforeOrAt = (when, cutoffAt) =>
+  when != null && new Date(when).getTime() <= new Date(cutoffAt).getTime();
+
 /**
- * One source's contribution to a packet, with all three clocks preserved
- * rather than collapsed. `received_at` null with rows present is not an
- * oversight — it is the `availability_unknown` case, and it is reported
- * rather than assumed to be fine.
+ * One source's contribution, with all three clocks preserved rather than
+ * collapsed.
+ *
+ * `rowsByCutoff` counts what had actually arrived; `rowsTotal` counts what
+ * exists now. The gap between them is the late-arrival case, and reporting
+ * that as `missing` would hide a real look-ahead risk behind a word that
+ * sounds like an ordinary data gap.
  */
-function sourceEntry({ source, rowsFound, effectiveAt = null, publishedAt = null,
-  receivedAt = null, cutoffAt, missingReason = null }) {
-  if (!rowsFound) {
-    return { source, claim: 'missing', rows: 0, effective_at: null, published_at: null,
-      received_at: null, reason: missingReason ?? 'no rows for this source at or before the cutoff' };
-  }
-  const received = receivedAt && new Date(receivedAt).getTime() <= new Date(cutoffAt).getTime();
-  const published = publishedAt && new Date(publishedAt).getTime() <= new Date(cutoffAt).getTime();
-  const claim = received ? 'received_by_cutoff'
-    : published ? 'published_by_cutoff_evidenced'
-      : 'availability_unknown';
-  return { source, claim, rows: rowsFound,
+function sourceEntry({ source, rowsByCutoff = 0, rowsTotal = 0, effectiveAt = null, publishedAt = null,
+  receivedAt = null, cutoffAt, missingReason = null, oracle = false, note = null }) {
+  const base = { source, rows: rowsByCutoff, rows_now: rowsTotal,
     effective_at: effectiveAt ?? null, published_at: publishedAt ?? null, received_at: receivedAt ?? null,
-    reason: claim === 'availability_unknown'
-      ? 'rows exist but carry no receipt or evidenced publication clock at or before the cutoff — quarantined ' +
-        'rather than counted as knowable'
-      : null };
+    note: note ?? null };
+
+  if (oracle) {
+    return { ...base, claim: 'oracle_excluded', rows: 0,
+      reason: 'this source records what actually happened, not what was forecast. It can never enter a pregame ' +
+        'packet in any mode; a labeled oracle diagnostic is the only legitimate use.' };
+  }
+  if (!rowsTotal) {
+    return { ...base, claim: 'missing', rows: 0,
+      reason: missingReason ?? 'no rows for this source at or before the cutoff' };
+  }
+  if (beforeOrAt(receivedAt, cutoffAt)) return { ...base, claim: 'received_by_cutoff', reason: null };
+  if (beforeOrAt(publishedAt, cutoffAt)) return { ...base, claim: 'published_by_cutoff_evidenced', reason: null };
+  if (receivedAt != null) {
+    return { ...base, claim: 'late_arrival_excluded', rows: 0,
+      reason: `every row for this source reached this system at ${receivedAt}, after the ${cutoffAt} cutoff. ` +
+        'Backfilling an old fact today is not discovering when it first became known.' };
+  }
+  return { ...base, claim: 'availability_unknown',
+    reason: 'rows exist but carry no receipt or evidenced publication clock at or before the cutoff — ' +
+      'quarantined rather than counted as knowable' };
 }
 
 /**
@@ -85,59 +117,120 @@ function sourceEntry({ source, rowsFound, effectiveAt = null, publishedAt = null
  *   'historical'  — `published_by_cutoff_evidenced` is additionally eligible,
  *                   and the packet says so in its own `claim` field. This is
  *                   the labeled hypothetical, never a prospective record.
+ *
+ * Neither mode can admit an oracle or a late arrival. Section 6.3's
+ * acceptance requires that an attempt to inject tomorrow's injury status,
+ * postgame weather, next-week ranks or a revised record is "rejected or
+ * quarantined with an explicit reason" — that is a property of the claim
+ * taxonomy above, not of a caller remembering to filter.
  */
 export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVersion = null,
   mode = 'prospective', computationStartedAt = null, computationFinishedAt = null } = {}) {
   const cutoff = decisionCutoff(kickoff, { scheduleVersion });
   if (!cutoff) return { error: 'unresolvable kickoff — no cutoff, and therefore no packet' };
   const cutoffAt = cutoff.cutoff_at;
-
   const entries = [];
 
-  // Quote tape: the one source in this project with a genuine, per-row
-  // receipt clock, which is exactly why it is the only one that can support
-  // a real prospective claim today.
-  const quote = rows(`SELECT COUNT(*) n, MAX(q.snapshot_at) latest_snapshot, MAX(b.requested_at) latest_received
+  // Quote tape: the one source here with a genuine per-row receipt clock,
+  // which is exactly why it is the only one that can support a real
+  // prospective claim today.
+  // The kickoff is matched as a one-second RANGE rather than with
+  // `julianday(commence_time) = julianday(?)`. Wrapping the column in a
+  // function makes every index unusable, and this table holds 1.3M rows -- a
+  // full scan per game turns a season manifest into an hours-long job. The
+  // range also absorbs the two ISO spellings actually present in the column
+  // ("...:00Z" and "...:00.000Z"), which both sort inside it.
+  const kickoffAt = new Date(kickoff).getTime();
+  const kickoffFrom = new Date(kickoffAt).toISOString();
+  const kickoffTo = new Date(kickoffAt + 1000).toISOString();
+  const quote = rows(`SELECT
+      SUM(CASE WHEN b.requested_at <= ? THEN 1 ELSE 0 END) by_cutoff,
+      COUNT(*) total,
+      MAX(CASE WHEN b.requested_at <= ? THEN b.requested_at END) received_by_cutoff,
+      MAX(CASE WHEN b.requested_at <= ? THEN q.snapshot_at END) snapshot_by_cutoff,
+      MAX(b.requested_at) received_ever
     FROM nfl_quote_tape q JOIN nfl_quote_batches b ON b.batch_id = q.batch_id
-    WHERE julianday(q.commence_time)=julianday(?) AND b.requested_at <= ?`, kickoff, cutoffAt)[0];
-  entries.push(sourceEntry({ source: 'nfl_quote_tape', rowsFound: quote?.n ?? 0,
-    effectiveAt: quote?.latest_snapshot ?? null, receivedAt: quote?.latest_received ?? null, cutoffAt,
-    missingReason: 'no quote captured for this game before its cutoff — a missed capture, recorded as such' }));
+    WHERE q.commence_time >= ? AND q.commence_time < ?`,
+  cutoffAt, cutoffAt, cutoffAt, kickoffFrom, kickoffTo)[0];
+  entries.push(sourceEntry({ source: 'nfl_quote_tape',
+    rowsByCutoff: quote?.by_cutoff ?? 0, rowsTotal: quote?.total ?? 0,
+    effectiveAt: quote?.snapshot_by_cutoff ?? null,
+    receivedAt: quote?.received_by_cutoff ?? quote?.received_ever ?? null, cutoffAt,
+    missingReason: 'no quote was ever captured for this game — a missed capture, recorded as a missing ' +
+      'prospective observation rather than passed over in silence' }));
 
-  // Injuries: rows exist for most seasons, but their receipt clock is the
+  // Injuries. Rows exist for most seasons, but their receipt clock is the
   // known weak point (the audit's own finding: 2025 rows carry no
   // modified_at). Whatever clock exists is reported; where none does, the
   // entry is quarantined rather than counted.
-  const injuries = rows(`SELECT COUNT(*) n, MAX(modified_at) latest_modified
-    FROM nfl_injuries WHERE season=? AND week=?`, season, week)[0];
-  entries.push(sourceEntry({ source: 'nfl_injuries', rowsFound: injuries?.n ?? 0,
-    receivedAt: injuries?.latest_modified ?? null, cutoffAt,
-    missingReason: 'no injury rows for this season/week' }));
+  const injuries = rows(`SELECT
+      SUM(CASE WHEN modified_at <= ? THEN 1 ELSE 0 END) by_cutoff,
+      COUNT(*) total,
+      MAX(CASE WHEN modified_at <= ? THEN modified_at END) received_by_cutoff,
+      MAX(modified_at) received_ever
+    FROM nfl_injuries WHERE season = ? AND week = ?`, cutoffAt, cutoffAt, season, week)[0];
+  entries.push(sourceEntry({ source: 'nfl_injuries',
+    rowsByCutoff: injuries?.by_cutoff ?? 0, rowsTotal: injuries?.total ?? 0,
+    receivedAt: injuries?.received_by_cutoff ?? injuries?.received_ever ?? null, cutoffAt,
+    missingReason: 'no injury rows for this season and week' }));
 
-  // Typed news events: first_seen_time is an extraction timestamp, which is a
-  // receipt clock for THIS system even though it is not the article's
-  // publication time — both are carried so neither is mistaken for the other.
-  const news = rows(`SELECT COUNT(*) n, MAX(first_seen_time) latest_seen, MAX(published_at) latest_published
-    FROM nfl_news_events WHERE first_seen_time <= ?`, cutoffAt)[0];
-  entries.push(sourceEntry({ source: 'nfl_news_events', rowsFound: news?.n ?? 0,
-    publishedAt: news?.latest_published ?? null, receivedAt: news?.latest_seen ?? null, cutoffAt,
-    missingReason: 'no typed news event recorded before this cutoff' }));
+  // Typed news events. `first_seen_time` is an extraction timestamp — a
+  // receipt clock for THIS system, though not the article's publication time.
+  // Both are carried so neither is mistaken for the other.
+  const news = rows(`SELECT
+      SUM(CASE WHEN first_seen_time <= ? THEN 1 ELSE 0 END) by_cutoff,
+      COUNT(*) total,
+      MAX(CASE WHEN first_seen_time <= ? THEN first_seen_time END) received_by_cutoff,
+      MAX(CASE WHEN first_seen_time <= ? THEN published_at END) published_by_cutoff,
+      MAX(first_seen_time) received_ever
+    FROM nfl_news_events`, cutoffAt, cutoffAt, cutoffAt)[0];
+  entries.push(sourceEntry({ source: 'nfl_news_events',
+    rowsByCutoff: news?.by_cutoff ?? 0, rowsTotal: news?.total ?? 0,
+    publishedAt: news?.published_by_cutoff ?? null,
+    receivedAt: news?.received_by_cutoff ?? news?.received_ever ?? null, cutoffAt,
+    missingReason: 'no typed news event had been extracted by this cutoff' }));
 
-  // Team-week features (play-by-play derived). These are rebuilt in bulk from
-  // a full-season file with no per-row receipt clock at all, which is
-  // precisely why they quarantine rather than qualify: the data is real, the
-  // claim "we had it by Sunday 12:00" is not evidenced.
-  const features = rows(`SELECT COUNT(*) n FROM nfl_team_week_features
-    WHERE season=? AND week < ?`, season, week)[0];
-  entries.push(sourceEntry({ source: 'nfl_team_week_features', rowsFound: features?.n ?? 0, cutoffAt,
-    missingReason: 'no prior-week team features for this season' }));
+  // Weather forecast archive. Section 6.2: "Select the latest forecast
+  // actually available by the decision cutoff." In this database every
+  // pre-2026 row was fetched on 2026-09-02, so for a historical game this
+  // correctly reports late_arrival_excluded rather than handing a 2023
+  // decision a forecast retrieved in 2026.
+  const forecast = rows(`SELECT
+      SUM(CASE WHEN fetched_at <= ? THEN 1 ELSE 0 END) by_cutoff,
+      COUNT(*) total,
+      MAX(CASE WHEN fetched_at <= ? THEN fetched_at END) received_by_cutoff,
+      MAX(fetched_at) received_ever
+    FROM nfl_game_weather_forecast_history
+    WHERE season = ? AND week = ? AND home = ?`, cutoffAt, cutoffAt, season, week, home)[0];
+  entries.push(sourceEntry({ source: 'nfl_game_weather_forecast_history',
+    rowsByCutoff: forecast?.by_cutoff ?? 0, rowsTotal: forecast?.total ?? 0,
+    receivedAt: forecast?.received_by_cutoff ?? forecast?.received_ever ?? null, cutoffAt,
+    missingReason: 'no archived forecast for this game',
+    note: 'a retrospectively reconstructed provider archive. Eligible for a labeled historical replay only ' +
+      'where its receipt clock actually precedes the cutoff — it never becomes real prospective capture.' }));
 
-  const eligibleClaims = mode === 'historical'
-    ? ['received_by_cutoff', 'published_by_cutoff_evidenced']
-    : ['received_by_cutoff'];
+  // Realized kickoff weather. Section 6.2: "Remove realized kickoff weather
+  // from all pregame actionable experiments... Keep it only in a labeled
+  // oracle diagnostic." Listed rather than omitted, so the packet shows the
+  // source was considered and refused.
+  const realized = rows('SELECT COUNT(*) total FROM nfl_game_weather WHERE season=? AND week=? AND home=?',
+    season, week, home)[0];
+  entries.push(sourceEntry({ source: 'nfl_game_weather', oracle: true,
+    rowsTotal: realized?.total ?? 0, cutoffAt }));
+
+  // Team-week features (play-by-play derived), rebuilt in bulk from a
+  // full-season file with no per-row receipt clock. The data is real; the
+  // claim "we had it by Sunday noon" is not evidenced, so it quarantines.
+  const features = rows('SELECT COUNT(*) total FROM nfl_team_week_features WHERE season=? AND week < ?',
+    season, week)[0];
+  entries.push(sourceEntry({ source: 'nfl_team_week_features',
+    rowsByCutoff: features?.total ?? 0, rowsTotal: features?.total ?? 0, cutoffAt,
+    missingReason: 'no prior-week team features for this season',
+    note: 'rebuilt in bulk per season; no per-row receipt clock exists to evidence cutoff availability' }));
+
+  const eligibleClaims = ELIGIBLE_BY_MODE[mode] ?? ELIGIBLE_BY_MODE.prospective;
+  const by = claim => entries.filter(e => e.claim === claim).map(e => e.source);
   const eligible = entries.filter(e => eligibleClaims.includes(e.claim));
-  const quarantined = entries.filter(e => e.claim === 'availability_unknown');
-  const missing = entries.filter(e => e.claim === 'missing');
 
   return {
     packet_version: PACKET_VERSION, protocol_version: T60_PROTOCOL_VERSION,
@@ -145,13 +238,13 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
     kickoff: cutoff.kickoff, cutoff_at: cutoffAt, schedule_version: scheduleVersion,
     mode,
     claim: mode === 'historical'
-      ? 'LABELED HISTORICAL REPLAY: may use sources whose publication before the cutoff is independently ' +
-        'evidenced. This is not a record of what this system actually held at the time.'
+      ? 'LABELED HISTORICAL REPLAY: may additionally use sources whose publication before the cutoff is ' +
+        'independently evidenced. This is not a record of what this system actually held at the time.'
       : 'PROSPECTIVE: only sources this system had actually RECEIVED by the cutoff are eligible.',
     // Computation clocks kept apart from the cutoff, per section 6.3: a
     // forecast emitted after the cutoff may use the frozen packet, but the
-    // packet's contents are fixed at the cutoff and are never backfilled
-    // from anything that arrived afterward.
+    // packet's contents are fixed at the cutoff and are never backfilled from
+    // anything that arrived afterward.
     computation_started_at: computationStartedAt,
     computation_finished_at: computationFinishedAt,
     emitted_after_cutoff: computationFinishedAt
@@ -159,9 +252,124 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
     sources: entries,
     summary: {
       eligible: eligible.map(e => e.source),
-      quarantined: quarantined.map(e => e.source),
-      missing: missing.map(e => e.source),
+      late_arrival_excluded: by('late_arrival_excluded'),
+      quarantined: by('availability_unknown'),
+      oracle_excluded: by('oracle_excluded'),
+      missing: by('missing'),
       eligible_count: eligible.length, total_sources: entries.length
     }
   };
+}
+
+/**
+ * The decision-time dataset manifest (Codex plan section 13, item 4:
+ * "sources, availability rules, revision handling, coverage, quarantines,
+ * code/data hashes, and representative inspected packets").
+ *
+ * This freezes a packet for every scheduled game in the requested seasons and
+ * aggregates what the claims actually came out as. It is the honest answer to
+ * "what could this system have known at decision time," and for the historical
+ * seasons the answer is largely "nothing, and here is exactly why."
+ *
+ * Kickoff is reconstructed from `game_lines.gameday`/`gametime`, which are
+ * stored in US Eastern local time. The conversion below uses a fixed −04:00
+ * offset; a game in late season under standard time is therefore off by one
+ * hour. That is disclosed rather than hidden because it does not affect any
+ * conclusion here — the receipt gaps being measured are years wide, not hours
+ * — but it would matter for a real prospective cutoff and is flagged in the
+ * manifest's own `caveats`.
+ */
+export function decisionTimeManifest(seasons = [2021, 2022, 2023, 2024, 2025], { mode = 'prospective' } = {}) {
+  const games = rows(`SELECT season, week, team AS home, opponent AS away, gameday, gametime, div_game, rest_days
+    FROM game_lines
+    WHERE home = 1 AND season IN (${seasons.map(() => '?').join(',')}) AND gameday IS NOT NULL
+    ORDER BY season, week, gameday, gametime`, ...seasons);
+
+  const byClaim = new Map();
+  const bySource = new Map();
+  const perSeason = new Map();
+  const packets = [];
+
+  for (const g of games) {
+    const kickoff = `${g.gameday}T${g.gametime}:00-04:00`;
+    const packet = freezeT60Packet({ season: g.season, week: g.week, home: g.home, away: g.away, kickoff, mode });
+    if (packet.error) continue;
+    packets.push({ game: g, packet });
+
+    const season = perSeason.get(g.season) ?? { season: g.season, games: 0, any_eligible: 0 };
+    season.games++;
+    if (packet.summary.eligible_count > 0) season.any_eligible++;
+    perSeason.set(g.season, season);
+
+    for (const source of packet.sources) {
+      byClaim.set(source.claim, (byClaim.get(source.claim) ?? 0) + 1);
+      const entry = bySource.get(source.source) ?? { source: source.source, claims: {} };
+      entry.claims[source.claim] = (entry.claims[source.claim] ?? 0) + 1;
+      bySource.set(source.source, entry);
+    }
+  }
+
+  return {
+    packet_version: PACKET_VERSION, protocol_version: T60_PROTOCOL_VERSION,
+    seasons, mode, games: packets.length,
+    availability_rules: {
+      prospective: 'only sources this system had actually RECEIVED by the cutoff',
+      historical: 'additionally, sources whose publication before the cutoff is independently evidenced',
+      never_eligible: ['oracle_excluded (records the outcome, not a forecast)',
+        'late_arrival_excluded (every row reached this system after the cutoff)'],
+      revision_handling: 'the latest capture RECEIVED BY the cutoff is reported; later revisions are counted in ' +
+        'rows_now and excluded from what was knowable'
+    },
+    coverage: {
+      by_claim: Object.fromEntries([...byClaim].sort((a, b) => b[1] - a[1])),
+      by_source: [...bySource.values()].sort((a, b) => a.source.localeCompare(b.source)),
+      per_season: [...perSeason.values()].sort((a, b) => a.season - b.season)
+    },
+    caveats: [
+      'Kickoff is reconstructed from gameday/gametime at a fixed -04:00 Eastern offset; standard-time games are ' +
+        'one hour off. Immaterial to these results (the receipt gaps measured are years wide) and material to a ' +
+        'real prospective cutoff.',
+      'This manifest describes AVAILABILITY, not quality. A source eligible by cutoff may still be wrong.'
+    ],
+    packets
+  };
+}
+
+/**
+ * The five representative packets section 6.3's acceptance asks to inspect by
+ * hand: "a normal week, a quarterback scratch, a postponed/oddly timed game,
+ * a bye return, and an early-season game."
+ *
+ * Each case is SELECTED FROM REAL SCHEDULE DATA rather than constructed, so
+ * the inspection reports what the system actually holds for a real game.
+ */
+export function representativePackets(season = 2025) {
+  const pick = (label, sql, ...params) => {
+    const g = rows(sql, ...params)[0];
+    if (!g) return { case: label, error: 'no game in this database matches the case' };
+    const kickoff = `${g.gameday}T${g.gametime}:00-04:00`;
+    return { case: label, game: `${g.away} at ${g.home}`, season: g.season, week: g.week,
+      kickoff_local: `${g.gameday} ${g.gametime} ET`,
+      packet: freezeT60Packet({ season: g.season, week: g.week, home: g.home, away: g.away, kickoff }) };
+  };
+  const base = `SELECT season, week, team AS home, opponent AS away, gameday, gametime, rest_days
+    FROM game_lines WHERE home = 1 AND season = ? AND gameday IS NOT NULL`;
+  return [
+    // A midseason Sunday 13:00 game with ordinary rest: the baseline case.
+    pick('normal week', `${base} AND week BETWEEN 8 AND 12 AND gametime = '13:00' AND rest_days = 7
+      ORDER BY week LIMIT 1`, season),
+    // A quarterback scratch is an injury-report fact, so the case is a game
+    // whose week has an injury row designating a QB out.
+    pick('quarterback scratch', `${base} AND week = (
+        SELECT MIN(week) FROM nfl_injuries WHERE season = ? AND position = 'QB'
+          AND report_status IN ('Out','Doubtful'))
+      ORDER BY week LIMIT 1`, season, season),
+    // Oddly timed: anything outside the standard Sunday windows.
+    pick('oddly timed game', `${base} AND gametime NOT IN ('13:00','16:05','16:25')
+      ORDER BY week LIMIT 1`, season),
+    // A bye return shows up as extra rest days.
+    pick('bye return', `${base} AND rest_days > 7 ORDER BY week LIMIT 1`, season),
+    // Week 1: no prior-week features exist for the season at all.
+    pick('early-season game', `${base} AND week = 1 ORDER BY gametime LIMIT 1`, season)
+  ];
 }

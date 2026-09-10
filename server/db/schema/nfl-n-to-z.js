@@ -786,6 +786,13 @@ export function indexesAndTriggers(db) {
     ON nfl_quote_tape(provider_event_id,market,snapshot_at);
   CREATE INDEX IF NOT EXISTS idx_nfl_quote_match_time
     ON nfl_quote_tape(home_team,away_team,commence_time,snapshot_at);
+  -- Locating a game's quotes by kickoff alone. The two indexes above both lead
+  -- with a team or provider event id, so a lookup that knows only WHEN a game
+  -- starts -- which is what the T-60 evidence packet has, since the tape stores
+  -- full team names and the schedule stores abbreviations -- scanned all 1.3M
+  -- rows. That is fine once and ruinous per game across a season manifest.
+  CREATE INDEX IF NOT EXISTS idx_nfl_quote_commence
+    ON nfl_quote_tape(commence_time);
   CREATE TRIGGER IF NOT EXISTS nfl_quote_batches_no_update BEFORE UPDATE ON nfl_quote_batches
     BEGIN SELECT RAISE(ABORT, 'quote batches are immutable'); END;
   CREATE TRIGGER IF NOT EXISTS nfl_quote_batches_no_delete BEFORE DELETE ON nfl_quote_batches

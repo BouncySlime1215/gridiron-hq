@@ -41,10 +41,15 @@ export function auditOverview(runId) {
   const bySeason = new Map();
   const byMarket = {};
   const allBets = [];
-  let faults = 0;
+  // NOT error weeks: nfl-blind-audit.js writes a `fault_json` "outcome-visible
+  // fault pass" diagnostic (biggest player/betting misses) for essentially
+  // every normal week, by design (see its own 'no model mutation authorized'
+  // classification) -- a nonzero count here describes routine miss logging,
+  // never a failure of the run itself.
+  let weeksWithFaultLog = 0;
 
   for (const w of weeks) {
-    if (w.fault_json) faults++;
+    if (w.fault_json) weeksWithFaultLog++;
     let parsed;
     try { parsed = JSON.parse(w.result_json); } catch { continue; }
     const betting = parsed?.betting;
@@ -83,7 +88,7 @@ export function auditOverview(runId) {
 
   return {
     run_id: runId, status: runRow.status, label: runRow.label, created_at: runRow.created_at,
-    weeks_sealed: weeks.length, faulted_weeks: faults,
+    weeks_sealed: weeks.length, weeks_with_fault_log: weeksWithFaultLog,
     season_coverage: seasonCoverage,
     early_season_note: earlySeasonTested
       ? 'This run includes at least one season starting at week 4 or earlier.'

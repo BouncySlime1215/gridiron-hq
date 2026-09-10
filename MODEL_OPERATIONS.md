@@ -1,3 +1,10 @@
+> **Not an active work queue.** Superseded 2026-09-10. The single active plan is
+> [`docs/CLAUDE-NEXT-STEPS.md`](docs/CLAUDE-NEXT-STEPS.md). This file is retained only as the
+> dated record of what was observed and decided at the time. Its task lists, phase plans and
+> ranked recommendations are history, not instructions. Content extraction and relocation to
+> `docs/evidence/` and `docs/reference/` happen in slice 9 of the active plan, per the
+> disposition table in `docs/reference/architecture/FOLDER-REORGANIZATION.md`.
+
 # Model Operations Protocol
 
 Gridiron HQ treats the sportsbook market as the production baseline until a challenger proves incremental value on unseen data. Historical ROI alone cannot promote a model.

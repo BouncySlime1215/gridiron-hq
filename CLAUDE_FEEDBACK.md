@@ -1,3 +1,10 @@
+> **Not an active work queue.** Superseded 2026-09-10. The single active plan is
+> [`docs/CLAUDE-NEXT-STEPS.md`](docs/CLAUDE-NEXT-STEPS.md). This file is retained only as the
+> dated record of what was observed and decided at the time. Its task lists, phase plans and
+> ranked recommendations are history, not instructions. Content extraction and relocation to
+> `docs/evidence/` and `docs/reference/` happen in slice 9 of the active plan, per the
+> disposition table in `docs/reference/architecture/FOLDER-REORGANIZATION.md`.
+
 # Claude feedback — Codex platform audit (CODEX_SUGGESTIONS.md)
 
 Session: 2026-09-08. Verified against current code/DB before acting — several audit

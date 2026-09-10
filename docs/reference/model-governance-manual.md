@@ -808,7 +808,7 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
 
 ## 15. Immediate execution queue
 
-**Superseded 2026-09-08.** The live queue is [docs/PROFITABILITY_EXECUTION_PLAN.md](PROFITABILITY_EXECUTION_PLAN.md) — one status table with implementation/integration/evaluation/authority tracked separately per package, checked against the live database rather than carried forward. The items below are kept as the historical record of what this queue held before that; several are now stale (e.g. "keep staking authority at zero" is still true, but "capture 2026 decision/close pairs before kickoff" depends on `SCHEDULER_DISABLED` in `.env`, which the new document explains is currently blocking exactly that).
+**Superseded.** The live queue is [docs/CLAUDE-NEXT-STEPS.md](../CLAUDE-NEXT-STEPS.md). (This section previously pointed at `docs/PROFITABILITY_EXECUTION_PLAN.md`, which was itself consolidated away on 2026-09-10 and is preserved at [evidence/historical/execution-work-through-2026-09-08.md](../evidence/historical/execution-work-through-2026-09-08.md).) — one status table with implementation/integration/evaluation/authority tracked separately per package, checked against the live database rather than carried forward. The items below are kept as the historical record of what this queue held before that; several are now stale (e.g. "keep staking authority at zero" is still true, but "capture 2026 decision/close pairs before kickoff" depends on `SCHEDULER_DISABLED` in `.env`, which the new document explains is currently blocking exactly that).
 
 ### Now
 

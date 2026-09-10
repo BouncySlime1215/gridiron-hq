@@ -38,8 +38,19 @@
  */
 import { rows } from '../db/index.js';
 import { decisionCutoff, T60_PROTOCOL_VERSION } from './nfl-t60-protocol.js';
+import { teamCodeFor } from './team-codes.js';
 
-export const PACKET_VERSION = 'nfl-t60-packet-v2';
+export const PACKET_VERSION = 'nfl-t60-packet-v3-c11';
+
+/**
+ * The only contract this packet freezes evidence for. The active mandate is
+ * ordinary full-game pregame spreads; a first-half quote and a total are
+ * different contracts that settle differently, and letting either into a
+ * full-game spread's evidence is the "blending unlike contracts" the contract
+ * key module already refuses everywhere else.
+ */
+const PACKET_MARKET = 'spreads';
+const PACKET_PERIOD = 'full_game';
 
 /**
  * How a value's availability is established. A prospective packet may only
@@ -80,10 +91,14 @@ const beforeOrAt = (when, cutoffAt) =>
  * sounds like an ordinary data gap.
  */
 function sourceEntry({ source, rowsByCutoff = 0, rowsTotal = 0, effectiveAt = null, publishedAt = null,
-  receivedAt = null, cutoffAt, missingReason = null, oracle = false, note = null }) {
+  receivedAt = null, cutoffAt, missingReason = null, oracle = false, note = null, values = null }) {
   const base = { source, rows: rowsByCutoff, rows_now: rowsTotal,
     effective_at: effectiveAt ?? null, published_at: publishedAt ?? null, received_at: receivedAt ?? null,
-    note: note ?? null };
+    note: note ?? null,
+    // The actual values this source contributed, where the source can supply
+    // them. A count and a timestamp are a health summary; a forecast cannot be
+    // reconstructed from them, which is the whole of Codex correction C11.
+    values: values ?? null };
 
   if (oracle) {
     return { ...base, claim: 'oracle_excluded', rows: 0,
@@ -143,21 +158,90 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
   const kickoffAt = new Date(kickoff).getTime();
   const kickoffFrom = new Date(kickoffAt).toISOString();
   const kickoffTo = new Date(kickoffAt + 1000).toISOString();
-  const quote = rows(`SELECT
-      SUM(CASE WHEN b.requested_at <= ? THEN 1 ELSE 0 END) by_cutoff,
-      COUNT(*) total,
-      MAX(CASE WHEN b.requested_at <= ? THEN b.requested_at END) received_by_cutoff,
-      MAX(CASE WHEN b.requested_at <= ? THEN q.snapshot_at END) snapshot_by_cutoff,
-      MAX(b.requested_at) received_ever
+
+  // Codex correction C11, three separate defects in one query.
+  //
+  // (1) THE GAME. The predicate used to be the kickoff range alone. A kickoff
+  //     instant is not an event identity: the NFL runs up to nine games at
+  //     1:00pm Eastern, and every one of them matched. The audit's fixture
+  //     counted another game's quote as CAR-CHI's evidence. Migration 029 made
+  //     that lookup fast; speed was never the problem with it.
+  //
+  // (2) THE PERIOD AND MARKET. Omitted entirely, so a first-half spread or a
+  //     total could qualify a full-game spread forecast. Today's ingestion
+  //     writes 'full_game' for everything, which means this has been latent
+  //     rather than harmless -- the first first-half feed would have silently
+  //     started poisoning packets.
+  //
+  // (3) THE CLOCK. `b.requested_at` is stamped BEFORE the provider request
+  //     goes out. Since requested_at <= received_at, using it made every quote
+  //     look like it arrived earlier than it did, and a quote requested before
+  //     the cutoff but received after it counted as available AT the cutoff.
+  //
+  // The kickoff range still leads, because it is what the index can use and it
+  // narrows 1.3M rows to a handful; the canonical event is then resolved in JS,
+  // because the tape stores full team names while the schedule stores
+  // abbreviations and only `teamCodeFor` knows how to reconcile the two.
+  const kickoffWindow = rows(`SELECT q.quote_id, q.home_team, q.away_team, q.bookmaker_key,
+      q.market, q.period, q.side_key, q.line, q.american_price, q.snapshot_at, q.book_updated_at,
+      b.requested_at, b.received_at, b.receipt_clock_source
     FROM nfl_quote_tape q JOIN nfl_quote_batches b ON b.batch_id = q.batch_id
-    WHERE q.commence_time >= ? AND q.commence_time < ?`,
-  cutoffAt, cutoffAt, cutoffAt, kickoffFrom, kickoffTo)[0];
+    WHERE q.commence_time >= ? AND q.commence_time < ?
+      AND q.market = ? AND q.period = ?`,
+  kickoffFrom, kickoffTo, PACKET_MARKET, PACKET_PERIOD);
+
+  // Fail closed on an unresolvable team. `teamCodeFor` returns null for
+  // anything it cannot map, and null === null would make an unidentifiable
+  // game match EVERY row in the kickoff window -- reinstating the cross-game
+  // bug in a form that looks like it is scoping. An event that cannot be named
+  // canonically has no packet.
+  const homeCode = teamCodeFor(home), awayCode = teamCodeFor(away);
+  if (!homeCode || !awayCode) {
+    return { error: `unresolvable canonical event — home ${JSON.stringify(home)} resolved to `
+      + `${JSON.stringify(homeCode)}, away ${JSON.stringify(away)} to ${JSON.stringify(awayCode)}. `
+      + 'A packet cannot be scoped to a game this system cannot name.' };
+  }
+  const scopedQuotes = kickoffWindow.filter(q => {
+    const qHome = teamCodeFor(q.home_team), qAway = teamCodeFor(q.away_team);
+    return qHome != null && qAway != null && qHome === homeCode && qAway === awayCode;
+  });
+
+  // Only a real observed response-completion clock can support a prospective
+  // claim. A batch carrying `legacy_request_time_only` knows when it ASKED,
+  // not when it was answered, and the difference always errs toward admitting
+  // evidence too early -- so such rows are counted separately and never
+  // granted `received_by_cutoff`.
+  const realClock = scopedQuotes.filter(q => q.receipt_clock_source === 'response_completion');
+  const legacyClock = scopedQuotes.filter(q => q.receipt_clock_source !== 'response_completion');
+  const receivedByCutoff = realClock.filter(q => beforeOrAt(q.received_at, cutoffAt));
+  const latestReceipt = receivedByCutoff.reduce(
+    (max, q) => (max == null || q.received_at > max ? q.received_at : max), null);
+  const latestSnapshot = receivedByCutoff.reduce(
+    (max, q) => (max == null || q.snapshot_at > max ? q.snapshot_at : max), null);
+
   entries.push(sourceEntry({ source: 'nfl_quote_tape',
-    rowsByCutoff: quote?.by_cutoff ?? 0, rowsTotal: quote?.total ?? 0,
-    effectiveAt: quote?.snapshot_by_cutoff ?? null,
-    receivedAt: quote?.received_by_cutoff ?? quote?.received_ever ?? null, cutoffAt,
+    rowsByCutoff: receivedByCutoff.length, rowsTotal: scopedQuotes.length,
+    effectiveAt: latestSnapshot,
+    receivedAt: latestReceipt
+      ?? (realClock.length
+        ? realClock.reduce((max, q) => (max == null || q.received_at > max ? q.received_at : max), null)
+        : null),
+    cutoffAt,
     missingReason: 'no quote was ever captured for this game — a missed capture, recorded as a missing ' +
-      'prospective observation rather than passed over in silence' }));
+      'prospective observation rather than passed over in silence',
+    note: legacyClock.length
+      ? `${legacyClock.length} of ${scopedQuotes.length} quote rows for this game carry only a request `
+        + 'time, not an observed receipt. They are retained and reported, but cannot support a prospective '
+        + 'claim: a request time is a lower bound on receipt, and treating it as one admits prices the '
+        + 'decision did not yet hold.'
+      : null,
+    // The actual rows, not a count. C11: "It does not persist the actual rows,
+    // values, identities and fitted artifacts consumed by a forecast."
+    values: receivedByCutoff.map(q => ({ quote_id: q.quote_id, bookmaker_key: q.bookmaker_key,
+      market: q.market, period: q.period, side_key: q.side_key, line: q.line,
+      american_price: q.american_price, snapshot_at: q.snapshot_at,
+      book_updated_at: q.book_updated_at, received_at: q.received_at }))
+  }));
 
   // Injuries. Rows exist for most seasons, but their receipt clock is the
   // known weak point (the audit's own finding: 2025 rows carry no

@@ -40,8 +40,35 @@ function unwrap(payload, requestedAt) {
     mode: 'historical' };
 }
 
+/**
+ * Codex correction C11: `receivedAt` is when the provider's response actually
+ * COMPLETED and this system held the values, which is a different instant from
+ * `requestedAt` -- the moment just before the request went out.
+ *
+ * The ordering is always `requestedAt <= receivedAt`, so treating the request
+ * time as the receipt makes every quote look like it arrived earlier than it
+ * did. That is the direction that admits evidence into a decision that the
+ * decision could not have had: the audit's CAR-CHI fixture counted a quote
+ * requested before the T-60 cutoff and received after it as available at the
+ * cutoff. A look-ahead produced by a clock mislabel, not by anyone reaching
+ * for future data.
+ *
+ * A caller that cannot observe the completion instant must say so rather than
+ * pass the request time again. `receiptClockSource: 'legacy_request_time_only'`
+ * records that honestly, and the T-60 packet refuses to grant such a row a
+ * prospective claim.
+ */
 export function ingestQuoteSnapshot(payload, { provider = 'the-odds-api', requestedAt = new Date().toISOString(),
+  receivedAt = null, receiptClockSource = null,
   sourceRef = 'live_api', markets = 'spreads,totals,h2h' } = {}) {
+  const receipt = receivedAt ?? requestedAt;
+  const clockSource = receiptClockSource ?? (receivedAt ? 'response_completion' : 'legacy_request_time_only');
+  if (!['response_completion', 'legacy_request_time_only'].includes(clockSource)) {
+    throw new TypeError(`unknown receiptClockSource ${clockSource}`);
+  }
+  if (new Date(receipt).getTime() < new Date(requestedAt).getTime()) {
+    throw new RangeError('a response cannot complete before its request was issued');
+  }
   const packet = unwrap(payload, requestedAt);
   const rawHash = sha(payload), batchId = sha({ provider, snapshot: packet.snapshotAt, rawHash, markets });
   const existing = rows('SELECT * FROM nfl_quote_batches WHERE batch_id=?', batchId)[0];
@@ -74,9 +101,11 @@ export function ingestQuoteSnapshot(payload, { provider = 'the-odds-api', reques
   db.exec('BEGIN');
   try {
     run(`INSERT INTO nfl_quote_batches
-      (batch_id,provider,requested_at,snapshot_at,previous_snapshot_at,next_snapshot_at,mode,
+      (batch_id,provider,requested_at,received_at,receipt_clock_source,snapshot_at,
+       previous_snapshot_at,next_snapshot_at,mode,
        markets,source_ref,events,quotes,raw_hash,tape_version,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, batchId, provider, requestedAt, packet.snapshotAt,
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, batchId, provider, requestedAt, receipt, clockSource,
+    packet.snapshotAt,
     packet.previous, packet.next, packet.mode, markets, sourceRef, packet.events.length,
     pending.length, rawHash, QUOTE_TAPE_VERSION, createdAt);
     for (const quote of pending) run(`INSERT OR IGNORE INTO nfl_quote_tape
@@ -99,8 +128,13 @@ export async function captureCurrentQuoteTape({ markets = 'spreads,totals,h2h' }
   if (!hasKey()) return { skipped: true, reason: 'ODDS_API_KEY is optional and not configured' };
   const requestedAt = new Date().toISOString();
   const payload = await gameOdds({ markets, ttlMs: 0 });
+  // Stamped after the await resolves: this is the instant the response actually
+  // completed and this process held the prices. It is the only clock a
+  // prospective T-60 claim may rest on (Codex correction C11).
+  const receivedAt = new Date().toISOString();
   if (!payload) return { error: 'odds provider returned no current snapshot' };
-  return ingestQuoteSnapshot(payload, { requestedAt, markets, sourceRef: 'current_odds_endpoint' });
+  return ingestQuoteSnapshot(payload, { requestedAt, receivedAt,
+    receiptClockSource: 'response_completion', markets, sourceRef: 'current_odds_endpoint' });
 }
 
 async function fetchHistorical(date, { markets = 'spreads,totals,h2h', regions = 'us' } = {}) {
@@ -120,9 +154,15 @@ export async function backfillHistoricalQuoteTape({ dates, markets = 'spreads,to
   if (!Array.isArray(dates) || !dates.length) return { error: 'explicit ISO snapshot dates are required' };
   const results = [];
   for (const date of [...new Set(dates)].sort()) {
+    const requestedAt = new Date().toISOString();
     const payload = await fetchHistorical(date, { markets, regions });
     if (payload?.skipped) return payload;
-    results.push(ingestQuoteSnapshot(payload, { requestedAt: new Date().toISOString(), markets,
+    // A backfill genuinely receives these rows now, years after the games they
+    // describe. The clock is real and is recorded as such -- which is exactly
+    // what makes the T-60 packet refuse to treat them as knowable at an old
+    // kickoff, instead of silently doing so.
+    results.push(ingestQuoteSnapshot(payload, { requestedAt, receivedAt: new Date().toISOString(),
+      receiptClockSource: 'response_completion', markets,
       sourceRef: `${HISTORICAL_ENDPOINT}?date=${encodeURIComponent(date)}` }));
   }
   return { requested: dates.length, ingested: results.filter(item => !item.existing).length, results };

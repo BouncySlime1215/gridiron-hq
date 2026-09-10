@@ -24,6 +24,16 @@ const { db, run } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
+// Codex correction C11 scopes the quote lookup to the CANONICAL event, and
+// canonical team codes come from this table. Without it `teamCodeFor` returns
+// null for every name, and the packet refuses to build rather than letting
+// null === null match every game in the kickoff window.
+db.exec(`INSERT INTO nfl_teams (id,abbr,name,conference,division) VALUES
+  (1,'ATL','Atlanta Falcons','NFC','South'),
+  (2,'CAR','Carolina Panthers','NFC','South'),
+  (3,'CHI','Chicago Bears','NFC','North'),
+  (4,'DET','Detroit Lions','NFC','North')`);
+
 const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS } =
   await import('../server/services/nfl-t60-packet.js');
 
@@ -31,19 +41,38 @@ const KICKOFF = '2026-09-20T17:00:00Z';
 const CUTOFF = '2026-09-20T16:00:00.000Z';
 const GAME = { season: 2026, week: 3, home: 'ATL', away: 'CAR', kickoff: KICKOFF };
 
-/** A quote batch received at `requestedAt`, carrying one quote for our game. */
-function storeQuote(batchId, requestedAt, snapshotAt = requestedAt) {
+/**
+ * A quote batch for our game.
+ *
+ * `receivedAt` is the instant the provider's response actually COMPLETED, and
+ * is what a prospective claim rests on. It defaults to `requestedAt` here only
+ * because most of these fixtures do not care about the gap; the tests that DO
+ * care pass them separately, because Codex correction C11 turns on exactly
+ * that difference — `requested_at` is stamped before the request goes out, so
+ * using it as a receipt admits prices the decision did not yet hold.
+ *
+ * `clockSource` defaults to a real observed receipt. A batch that only ever
+ * recorded a request time must say `legacy_request_time_only`, and the packet
+ * then refuses to grant it a prospective claim at all.
+ */
+function storeQuote(batchId, requestedAt, snapshotAt = requestedAt, {
+  receivedAt = requestedAt, clockSource = 'response_completion',
+  homeTeam = 'Atlanta Falcons', awayTeam = 'Carolina Panthers',
+  commenceTime = KICKOFF, period = 'full_game', market = 'spreads',
+  line = -3.5, price = -110, eventId = 'evt-1'
+} = {}) {
   run(`INSERT INTO nfl_quote_batches
-    (batch_id,provider,requested_at,snapshot_at,mode,markets,source_ref,events,quotes,raw_hash,tape_version,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    batchId, 'testbook', requestedAt, snapshotAt, 'live', 'spreads', 'fixture', 1, 1,
+    (batch_id,provider,requested_at,received_at,receipt_clock_source,snapshot_at,mode,markets,
+     source_ref,events,quotes,raw_hash,tape_version,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    batchId, 'testbook', requestedAt, receivedAt, clockSource, snapshotAt, 'live', 'spreads', 'fixture', 1, 1,
     `hash-${batchId}`, 'v1', requestedAt);
   run(`INSERT INTO nfl_quote_tape
     (quote_id,batch_id,provider,provider_event_id,commence_time,snapshot_at,bookmaker_key,market,period,
      side_key,side_name,home_team,away_team,line,american_price,implied_probability,raw_json,tape_version,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    `q-${batchId}`, batchId, 'testbook', 'evt-1', KICKOFF, snapshotAt, 'testbook', 'spreads', 'full_game',
-    'ATL', 'Atlanta Falcons', 'ATL', 'CAR', -3.5, -110, 0.524, '{}', 'v1', requestedAt);
+    `q-${batchId}`, batchId, 'testbook', eventId, commenceTime, snapshotAt, 'testbook', market, period,
+    'home', homeTeam, homeTeam, awayTeam, line, price, 0.524, '{}', 'v1', requestedAt);
 }
 
 const sourceIn = (packet, name) => packet.sources.find(s => s.source === name);
@@ -243,4 +272,128 @@ test('the four injection attempts are each refused for a stated reason, never si
     assert.ok(source.reason && source.reason.length > 20,
       `${source.source} was excluded with no usable reason: ${source.reason}`);
   }
+});
+
+/* ======================================================================
+ * Codex correction C11 — "The T−60 packet is not yet a frozen game evidence
+ * packet." Its close-with list, one test per clause.
+ * ====================================================================== */
+
+test('C11: simultaneous kickoffs cannot cross-match', () => {
+  // The original predicate was the kickoff instant alone. The NFL runs up to
+  // nine games at 1:00pm Eastern; the audit's fixture counted another game's
+  // quote as CAR-CHI's evidence. Here CHI-DET kicks off at the same second.
+  const packet = freezeT60Packet({ season: 2026, week: 3, home: 'CHI', away: 'DET', kickoff: KICKOFF });
+  const before = sourceIn(packet, 'nfl_quote_tape').rows_now;
+
+  storeQuote('batch-other-game', '2026-09-20T15:00:00Z', '2026-09-20T15:00:00Z',
+    { homeTeam: 'Chicago Bears', awayTeam: 'Detroit Lions' });
+
+  const ours = sourceIn(freezeT60Packet(GAME), 'nfl_quote_tape');
+  const theirs = sourceIn(freezeT60Packet(
+    { season: 2026, week: 3, home: 'CHI', away: 'DET', kickoff: KICKOFF }), 'nfl_quote_tape');
+
+  assert.equal(theirs.rows_now, before + 1, 'the new quote belongs to CHI-DET');
+  assert.ok(ours.values.every(v => v.quote_id !== 'q-batch-other-game'),
+    "another game's quote must never appear in ATL-CAR's packet");
+});
+
+test('C11: a first-half quote cannot qualify a full-game spread', () => {
+  storeQuote('batch-first-half', '2026-09-20T15:00:00Z', '2026-09-20T15:00:00Z',
+    { period: 'first_half', line: -1.5, price: -200 });
+  const quote = sourceIn(freezeT60Packet(GAME), 'nfl_quote_tape');
+  assert.ok(quote.values.every(v => v.period === 'full_game'),
+    'a full-game spread settles differently from a first-half spread; they are different contracts');
+  assert.ok(quote.values.every(v => v.quote_id !== 'q-batch-first-half'));
+});
+
+test('C11: a totals quote cannot qualify a spread either', () => {
+  storeQuote('batch-total', '2026-09-20T15:00:00Z', '2026-09-20T15:00:00Z',
+    { market: 'totals', line: 44.5 });
+  const quote = sourceIn(freezeT60Packet(GAME), 'nfl_quote_tape');
+  assert.ok(quote.values.every(v => v.market === 'spreads'));
+});
+
+test('C11: requested BEFORE the cutoff but received AFTER it is excluded', () => {
+  // The exact CAR-CHI counterexample: the request went out at 15:59, one
+  // minute before the 16:00 cutoff, and the response completed at 16:02. The
+  // old predicate read `requested_at` and counted it as available.
+  storeQuote('batch-straddling', '2026-09-20T15:59:00Z', '2026-09-20T16:02:00Z',
+    { receivedAt: '2026-09-20T16:02:00Z' });
+  const quote = sourceIn(freezeT60Packet(GAME), 'nfl_quote_tape');
+
+  assert.ok(quote.values.every(v => v.quote_id !== 'q-batch-straddling'),
+    'a price this system did not yet hold at the cutoff is not evidence at the cutoff');
+  assert.ok(new Date(quote.received_at).getTime() <= new Date(CUTOFF).getTime());
+});
+
+test('C11: a batch carrying only a request time cannot support a prospective claim', () => {
+  const isolated = { season: 2026, week: 3, home: 'CHI', away: 'DET', kickoff: '2026-09-21T17:00:00Z' };
+  storeQuote('batch-legacy-clock', '2026-09-21T15:00:00Z', '2026-09-21T15:00:00Z', {
+    clockSource: 'legacy_request_time_only', commenceTime: '2026-09-21T17:00:00Z',
+    homeTeam: 'Chicago Bears', awayTeam: 'Detroit Lions', eventId: 'evt-legacy' });
+
+  const quote = sourceIn(freezeT60Packet(isolated), 'nfl_quote_tape');
+  assert.equal(quote.rows_now, 1, 'the row exists and is disclosed');
+  assert.equal(quote.rows, 0, 'but it counts for nothing at the cutoff');
+  assert.notEqual(quote.claim, 'received_by_cutoff');
+  assert.match(quote.note, /only a request time/);
+});
+
+test('C11: the packet persists actual values, not just counts', () => {
+  const quote = sourceIn(freezeT60Packet(GAME), 'nfl_quote_tape');
+  assert.ok(Array.isArray(quote.values) && quote.values.length > 0);
+  for (const value of quote.values) {
+    for (const field of ['quote_id', 'bookmaker_key', 'market', 'period', 'side_key',
+      'line', 'american_price', 'snapshot_at', 'received_at']) {
+      assert.ok(field in value, `a frozen quote must carry its ${field}`);
+    }
+    assert.equal(value.market, 'spreads');
+    assert.equal(value.period, 'full_game');
+    assert.ok(new Date(value.received_at).getTime() <= new Date(CUTOFF).getTime());
+  }
+  assert.equal(quote.values.length, quote.rows, 'the count and the values are the same fact');
+});
+
+test('C11: an event this system cannot name canonically has no packet at all', () => {
+  // Without this guard `teamCodeFor` returns null on both sides, null === null,
+  // and an unidentifiable game silently matches EVERY row in the kickoff window
+  // -- the cross-game bug wearing the costume of a scoped query.
+  const packet = freezeT60Packet({ ...GAME, home: 'Notateam', away: 'Alsonotateam' });
+  assert.match(packet.error, /unresolvable canonical event/);
+});
+
+test('C11: a reschedule keeps the event identity and moves the cutoff with it', () => {
+  const moved = '2026-09-20T20:15:00Z';
+  storeQuote('batch-rescheduled', '2026-09-20T18:00:00Z', '2026-09-20T18:00:00Z',
+    { commenceTime: moved, eventId: 'evt-1' });
+
+  const packet = freezeT60Packet({ ...GAME, kickoff: moved, scheduleVersion: 'sched-2' });
+  assert.equal(packet.cutoff_at, '2026-09-20T19:15:00.000Z', 'the cutoff follows the new kickoff');
+  assert.equal(packet.schedule_version, 'sched-2');
+  const quote = sourceIn(packet, 'nfl_quote_tape');
+  assert.ok(quote.values.some(v => v.quote_id === 'q-batch-rescheduled'),
+    'the same canonical event still owns its quotes after the move');
+});
+
+test('C11: an invalid mode fails explicitly rather than silently widening what is eligible', () => {
+  const packet = freezeT60Packet({ ...GAME, mode: 'whatever-i-feel-like' });
+  assert.ok(packet.error || !packet.summary.eligible.includes('nfl_game_weather'),
+    'an unknown mode must never grant more than prospective does');
+});
+
+test('C11: the corrected predicate is indexed, not merely correct', () => {
+  // Migration 029 indexed the OLD predicate — kickoff alone — which made the
+  // cross-game lookup fast rather than right. The corrected predicate leads
+  // with the kickoff range and then narrows by market and period, and
+  // migration 032 indexes that shape. Without an index this is a full scan of
+  // a table that holds over a million rows in the real database.
+  const plan = db.prepare(`EXPLAIN QUERY PLAN
+    SELECT q.quote_id FROM nfl_quote_tape q JOIN nfl_quote_batches b ON b.batch_id = q.batch_id
+     WHERE q.commence_time >= ? AND q.commence_time < ? AND q.market = ? AND q.period = ?`)
+    .all(KICKOFF, KICKOFF, 'spreads', 'full_game');
+  const detail = plan.map(step => step.detail).join(' | ');
+  assert.match(detail, /USING INDEX/, `the quote scan must use an index — plan was: ${detail}`);
+  assert.doesNotMatch(detail, /SCAN nfl_quote_tape\b(?!.*USING)/,
+    `nfl_quote_tape must not be table-scanned — plan was: ${detail}`);
 });

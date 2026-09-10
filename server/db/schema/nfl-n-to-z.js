@@ -364,6 +364,17 @@ export function tables(db) {
     batch_id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
     requested_at TEXT NOT NULL,
+    -- When the provider's response actually completed and this system held the
+    -- values. Codex correction C11: requested_at is stamped BEFORE the request
+    -- goes out, and requested_at <= received_at always, so using the request
+    -- time as a receipt makes every quote look like it arrived earlier than it
+    -- did -- the direction that admits evidence a decision could not have had.
+    received_at TEXT,
+    -- 'response_completion' (a real observed receipt, eligible to support a
+    -- prospective claim) or 'legacy_request_time_only' (only the request time
+    -- was ever recorded; received_at holds it as a lower bound and no
+    -- prospective claim may rest on it). See migration 032.
+    receipt_clock_source TEXT,
     snapshot_at TEXT NOT NULL,
     previous_snapshot_at TEXT,
     next_snapshot_at TEXT,

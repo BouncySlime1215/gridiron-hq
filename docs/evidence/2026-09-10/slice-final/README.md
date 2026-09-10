@@ -13,7 +13,7 @@ GRIDIRON_DB_PATH=/tmp/fixture.sqlite \
 | | Tests | Passed | Failed | Skipped |
 |---|---:|---:|---:|---:|
 | Before (`bbcdae2`, reproduces the review) | 1342 | 1312 | **24** | 6 |
-| After | 1473 | 1449 | **0** | 24 |
+| After | 1496 | 1472 | **0** | 24 |
 
 The 24 skips are not the 24 failures renamed. Each is a fitted-model validation that names the
 history it needs and why a synthetic fixture cannot honestly stand in for it; all 24 run and pass

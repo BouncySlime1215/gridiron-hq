@@ -21,17 +21,28 @@ export const NFL_PRODUCTION_POLICY = Object.freeze({
 });
 
 /**
- * The forward-evidence sample gates from PROFITABILITY_PLAN.md §2. One
- * definition: four services used to carry their own copies (250 in two of
- * them, 200 in the other two), so the same ledger could read "gate passed"
- * on one page and "accumulating" on another. The plan (v1.3) governs: 200
- * settled independent decisions overall before any aggregate CLV claim, 75
- * in a market before a market-specific claim.
+ * The forward-evidence sample gates, frozen as v1.3. One definition: four
+ * services used to carry their own copies (250 in two of them, 200 in the
+ * other two), so the same ledger could read "gate passed" on one page and
+ * "accumulating" on another. v1.3 governs: 200 settled independent decisions
+ * overall before any aggregate CLV claim, 75 in a market before a
+ * market-specific claim. These are declared OPERATIONAL MINIMUMS, not a
+ * universal statistical-sufficiency proof (see the frozen contract's own
+ * provenance note).
+ *
+ * SOURCE MOVED 2026-09-10 (Codex audit, folder-reorganization disposition):
+ * the numeric thresholds and their promotion discipline are unchanged from
+ * the original `PROFITABILITY_PLAN.md §2 Market-edge gates` (that document
+ * is superseded and removed from the working tree per Nick's "one active
+ * plan" instruction); the frozen contract now lives at
+ * docs/evidence/contracts/profitability-policy-v1.3.md, verbatim. A path
+ * cleanup must never silently change these values or claim a historical run
+ * used a different gate than it actually did.
  */
 export const FORWARD_SAMPLE_TARGETS = Object.freeze({
   overall: 200,
   per_market: 75,
-  source: 'PROFITABILITY_PLAN.md §2 Market-edge gates'
+  source: 'docs/evidence/contracts/profitability-policy-v1.3.md §Market-edge gates'
 });
 
 // Historical diagnostics grade the selector that existed before the current

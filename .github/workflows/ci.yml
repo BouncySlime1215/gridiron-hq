@@ -1,0 +1,76 @@
+name: CI
+
+# Codex CLAUDE-NEXT-STEPS.md section 16.3: the audited tracked-file inventory
+# contained no .github/workflows tree at all. This is the bounded workflow
+# that section asks for -- typecheck, lint, hermetic tests, build, and a
+# fresh-install startup smoke test, all against fixtures/isolated temp
+# databases, never against production data or paid services. It must never
+# require provider credentials, call a paid data/LLM API, or activate real
+# betting; nothing here can promote a model or place a wager.
+#
+# Third-party Actions are pinned to full commit hashes, not tags, per the
+# same section's explicit ask -- a tag can be moved by its publisher, a
+# commit hash cannot. Comments record which released version each hash is.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least-privilege by default: this workflow only reads the repository and
+# reports check results. It never needs to write to the repo, open issues,
+# or touch packages/deployments.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck, lint, test, build, smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        # Every *.test.js file in this repo builds its own isolated temp
+        # SQLite database via GRIDIRON_DB_PATH before importing app code
+        # (see any test/*.test.js header) and mocks or disables live
+        # collectors/schedulers -- no network credentials, provider keys, or
+        # paid API calls are required for this step, by construction of the
+        # test suite itself, not by anything this workflow adds.
+        run: npm test
+        env:
+          SCHEDULER_DISABLED: '1'
+
+      - name: Build client
+        run: npm run build
+
+      - name: Fresh-install startup smoke test
+        # Boots the real server against a brand-new isolated temp SQLite
+        # database (never the tracked/live one) and confirms one real
+        # endpoint answers -- this is what caught the fresh-install
+        # migration-ordering defect fixed earlier in this implementation
+        # brief (migrations now run after the port guard, before routes
+        # import modules that prepare statements against migrated tables).
+        run: npm run start:smoke
+        env:
+          SCHEDULER_DISABLED: '1'

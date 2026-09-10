@@ -230,3 +230,89 @@ test('timelineFromQuoteTape: ordinary silence for this book (no sibling evidence
   const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T13:00:05Z', delaySeconds: 3600, maxStalenessSeconds: 900 });
   assert.equal(result.outcome, 'stale_unknown', 'unexplained silence is unknown availability, never a confirmed removal');
 });
+
+/* ---- Codex audit finding E7: never claim what nobody looked at ---- */
+
+test('E7: a horizon past the last observation is labelled EXTRAPOLATED, not silently modeled as observed', () => {
+  const timeline = [quote('2026-09-10T10:00:00Z', -110)];
+  const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 600 });
+  assert.equal(result.availability_basis, 'carry_forward_extrapolated',
+    'nobody looked at +600s — the basis must say the availability was extrapolated, not observed');
+});
+
+test('E7: a horizon BETWEEN two observations is interpolated — a later look bounds the guess', () => {
+  const timeline = [quote('2026-09-10T10:00:00Z', -110), quote('2026-09-10T10:20:00Z', -110)];
+  const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 600 });
+  assert.equal(result.availability_basis, 'carry_forward_interpolated');
+  assert.equal(result.outcome, 'filled_as_decided');
+});
+
+test('E7: a direct observation at exactly the horizon is reported as such', () => {
+  const timeline = [quote('2026-09-10T10:00:00Z', -110), quote('2026-09-10T10:10:00Z', -110)];
+  const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 600 });
+  assert.equal(result.availability_basis, 'direct_observation');
+});
+
+test('E7 acceptance: timeline ends at the decision, +600s requested -> pending, never a confirmed fill', () => {
+  const timeline = [quote('2026-09-10T10:00:00Z', -110)];
+  const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 600,
+    observedThrough: '2026-09-10T10:00:00Z' });
+  assert.equal(result.outcome, 'pending');
+  assert.equal(result.availability_basis, 'unobserved');
+  assert.equal(result.obtained_stake_units, 0);
+  assert.equal(result.obtained_price, null);
+});
+
+test('E7 acceptance: a later unchanged DIRECT quote is observed survival, not an assumption', () => {
+  const timeline = [quote('2026-09-10T10:00:00Z', -110), quote('2026-09-10T10:10:00Z', -110)];
+  const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 600,
+    observedThrough: '2026-09-10T10:10:00Z' });
+  assert.equal(result.outcome, 'filled_as_decided');
+  assert.equal(result.availability_basis, 'direct_observation');
+});
+
+test('E7 acceptance: a later removed contract is a disappearance, distinct from an outage', () => {
+  const timeline = [quote('2026-09-10T10:00:00Z', -110),
+    { snapshot_at: '2026-09-10T10:10:00Z', type: 'removed' }];
+  const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 600,
+    observedThrough: '2026-09-10T10:10:00Z' });
+  assert.equal(result.outcome, 'disappeared');
+});
+
+test('E7 acceptance: a provider outage is unknown, never a fill and never a disappearance', () => {
+  const timeline = [quote('2026-09-10T10:00:00Z', -110)];
+  const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 3600,
+    maxStalenessSeconds: 300 });
+  assert.equal(result.outcome, 'stale_unknown');
+});
+
+test('E7 acceptance: post-kickoff samples cannot establish a PREGAME fill', () => {
+  const timeline = [quote('2026-09-10T10:00:00Z', -110), quote('2026-09-10T13:05:00Z', -110)];
+  const result = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 11100,
+    kickoffAt: '2026-09-10T13:00:00Z' });
+  assert.equal(result.outcome, 'post_kickoff_unknown');
+  assert.equal(result.availability_basis, 'unobservable');
+  assert.equal(result.obtained_stake_units, 0);
+  // A horizon BEFORE kickoff on the same timeline is unaffected.
+  const before = replayDelayedExecution({ timeline, decisionAt: '2026-09-10T10:00:00Z', delaySeconds: 600,
+    kickoffAt: '2026-09-10T13:00:00Z' });
+  assert.notEqual(before.outcome, 'post_kickoff_unknown');
+});
+
+test('E7 acceptance: the whole ladder is deterministic and time-shift invariant', () => {
+  const shift = ms => at => new Date(new Date(at).getTime() + ms).toISOString();
+  const base = [quote('2026-09-10T10:00:00Z', -110), quote('2026-09-10T10:20:00Z', -115)];
+  const plusDay = shift(86400000);
+  const shifted = base.map(q => ({ ...q, snapshot_at: plusDay(q.snapshot_at) }));
+
+  const a = replayDelayLadder({ timeline: base, decisionAt: '2026-09-10T10:00:00Z',
+    kickoffAt: '2026-09-10T13:00:00Z' });
+  const b = replayDelayLadder({ timeline: shifted, decisionAt: plusDay('2026-09-10T10:00:00Z'),
+    kickoffAt: plusDay('2026-09-10T13:00:00Z') });
+  assert.deepEqual(a.map(r => [r.delay_seconds, r.outcome, r.availability_basis]),
+    b.map(r => [r.delay_seconds, r.outcome, r.availability_basis]),
+    'shifting every timestamp by the same amount must not change any outcome');
+  // And the same inputs twice are byte-identical.
+  assert.deepEqual(replayDelayLadder({ timeline: base, decisionAt: '2026-09-10T10:00:00Z' }),
+    replayDelayLadder({ timeline: base, decisionAt: '2026-09-10T10:00:00Z' }));
+});

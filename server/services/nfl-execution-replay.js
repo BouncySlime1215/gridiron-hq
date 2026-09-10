@@ -34,6 +34,31 @@
  *                         proof it remained obtainable — see the availability
  *                         policy comment on `DEFAULT_MAX_STALENESS_SECONDS`.
  *
+ * Three more outcomes exist because a replay must never assert what nobody
+ * looked at (Codex audit finding E7 — "preview claims obtainability before
+ * the future has been observed"):
+ *
+ *   pending               the caller told us how far it has actually observed
+ *                         (`observedThrough`) and this horizon is past it.
+ *                         A live preview of "+600 seconds from now" is this,
+ *                         always: those 600 seconds have not happened.
+ *   post_kickoff_unknown  the horizon is at or after kickoff, where a PREGAME
+ *                         contract cannot be shown obtainable at all, whatever
+ *                         the tape happens to contain.
+ *
+ * And `availability_basis` is reported SEPARATELY from `outcome`, because how
+ * strong the evidence is and what the bet did are different facts — folding
+ * them together is what let a modeled guess read as a confirmed fill:
+ *
+ *   direct_observation           a sample exists at exactly that instant.
+ *   carry_forward_interpolated   a LATER observation confirms the contract was
+ *                                still there; the gap is bounded on both sides.
+ *   carry_forward_extrapolated   the horizon is past the last look anyone took.
+ *                                The freshness window bounds how wrong this can
+ *                                be; it is not evidence the price was offered.
+ *   unobserved                   `observedThrough` says this has not happened.
+ *   unobservable                 at or after kickoff.
+ *
  * The core function, `replayDelayedExecution`, is a pure function of its
  * arguments — no wall clock, no randomness — because Package H's own "done
  * when" bar is that the SAME frozen inputs reproduce the SAME decision every
@@ -130,7 +155,14 @@ const sortTimeline = timeline => [...timeline].sort((a, b) => a.snapshot_at.loca
  */
 export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
   requestedStakeUnits = 1, bookLimitUnits = DEFAULT_BOOK_LIMIT_UNITS,
-  maxStalenessSeconds = DEFAULT_MAX_STALENESS_SECONDS, observedThrough = null }) {
+  maxStalenessSeconds = DEFAULT_MAX_STALENESS_SECONDS, observedThrough = null,
+  // Codex audit finding E7: a sample taken at or after kickoff cannot
+  // establish that a PREGAME contract was still obtainable -- the market it
+  // describes is a different (in-play, or closed) market. Optional because a
+  // caller replaying a non-game contract legitimately has no kickoff; when
+  // supplied, any execution horizon at or past it is refused rather than
+  // filled.
+  kickoffAt = null }) {
   if (!Number.isFinite(requestedStakeUnits) || requestedStakeUnits <= 0) {
     throw new Error('requestedStakeUnits must be a positive number');
   }
@@ -177,12 +209,26 @@ export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
     requested_stake_units: requestedStakeUnits, availability_assumptions: assumptions
   };
 
+  // Codex audit finding E7: a pregame contract cannot be established as
+  // obtainable at or after kickoff. Checked before any availability
+  // reasoning, because no amount of quote freshness makes a post-kickoff
+  // instant a pregame fill.
+  if (kickoffAt != null && Number.isFinite(executionTime(kickoffAt))
+      && executionTime(executionAt) >= executionTime(kickoffAt)) {
+    return { ...base, outcome: 'post_kickoff_unknown', obtained_price: null, obtained_line: null,
+      obtained_stake_units: 0, availability_basis: 'unobservable',
+      kickoff_at: iso(kickoffAt),
+      reason: 'the execution horizon is at or after kickoff — a pregame contract cannot be shown obtainable there, ' +
+        'whatever the quote tape happens to contain' };
+  }
+
   if (observedThrough != null && (!Number.isFinite(executionTime(observedThrough))
       || executionTime(executionAt) > executionTime(observedThrough))) {
     return { ...base, outcome: 'pending', obtained_price: null, obtained_line: null,
       obtained_stake_units: 0, availability_basis: 'unobserved',
       reason: 'the execution horizon is beyond the observed timeline; a fresh quote is not a future fill' };
   }
+
   if (executionSample?.type === 'ambiguous') {
     return { ...base, outcome: 'ambiguous_quote', obtained_price: null, obtained_line: null,
       obtained_stake_units: 0, reason: 'conflicting exact-contract quotes at the observed instant' };
@@ -216,6 +262,7 @@ export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
         `time, past the ${maxStalenessSeconds}s trust window — treated as unknown, not as still available` };
   }
 
+
   const stakeUnits = Math.min(requestedStakeUnits, Number.isFinite(bookLimitUnits) ? bookLimitUnits : Infinity);
   const capped = Number.isFinite(bookLimitUnits) && stakeUnits < requestedStakeUnits;
   const priceChanged = executionSample.price !== decisionSample.price || executionSample.line !== decisionSample.line;
@@ -223,8 +270,27 @@ export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
   const executionBreakEven = breakEvenRate(executionSample.price);
 
   return {
+    // Codex audit finding E7 asks to "distinguish modeled carry-forward from
+    // directly observed availability." The old label was one generic
+    // 'carry_forward_model' for two materially different situations:
+    //
+    //   INTERPOLATED  a later observation exists and independently confirms
+    //                 the contract was still there on the other side of this
+    //                 horizon. Carrying the price across that gap is bounded
+    //                 by real evidence on both sides.
+    //   EXTRAPOLATED  the horizon is past the last look anyone took. The
+    //                 freshness window bounds how wrong the guess can be; it
+    //                 is NOT evidence the price was still offered. A live
+    //                 preview should never reach here at all -- it passes
+    //                 `observedThrough` and gets `pending` instead.
+    //
+    // Reported on `availability_basis`, separately from `outcome`, because
+    // the evidence policy and the bet result are different facts and folding
+    // them together is what let a modeled guess read as a confirmed fill.
     ...base, availability_basis: executionTime(executionSample.snapshot_at) === executionTime(executionAt)
-      ? 'direct_observation' : 'carry_forward_model',
+      ? 'direct_observation'
+      : (executionTime(executionAt) > executionTime(sorted.at(-1).snapshot_at)
+        ? 'carry_forward_extrapolated' : 'carry_forward_interpolated'),
     outcome: capped ? 'capped' : priceChanged ? 'repriced' : 'filled_as_decided',
     obtained_price: executionSample.price, obtained_line: executionSample.line,
     obtained_stake_units: r2(stakeUnits), capped, book_limit_units: Number.isFinite(bookLimitUnits) ? bookLimitUnits : null,
@@ -245,10 +311,11 @@ export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
  */
 export function replayDelayLadder({ timeline, decisionAt, requestedStakeUnits = 1,
   bookLimitUnits = DEFAULT_BOOK_LIMIT_UNITS, maxStalenessSeconds = DEFAULT_MAX_STALENESS_SECONDS,
-  delays = DEFAULT_DELAY_LADDER_SECONDS, observedThrough = null } = {}) {
+  delays = DEFAULT_DELAY_LADDER_SECONDS, observedThrough = null, kickoffAt = null } = {}) {
   return delays.map(delaySeconds => ({
     delay_seconds: delaySeconds,
-    ...replayDelayedExecution({ timeline, decisionAt, delaySeconds, requestedStakeUnits, bookLimitUnits, maxStalenessSeconds, observedThrough })
+    ...replayDelayedExecution({ timeline, decisionAt, delaySeconds, requestedStakeUnits, bookLimitUnits,
+      maxStalenessSeconds, observedThrough, kickoffAt })
   }));
 }
 

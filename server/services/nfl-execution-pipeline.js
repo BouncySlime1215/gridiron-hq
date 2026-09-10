@@ -168,7 +168,13 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
     const now = decisionAt;
     recordObserved(opened.id, { occurredAt: now, book: candidate.book, line: contract.line, price: basis.quote.price, quoteId: basis.quote.quote_id ?? null });
 
-    const replay = replayDelayLadder({ timeline: basis.timeline, decisionAt: now, observedThrough: now });
+    // Codex audit finding E7: the ladder is told BOTH how far we have
+    // actually observed (nothing past 'now' has happened yet) and when the
+    // game starts, so a future horizon comes back pending/censored rather
+    // than as a claimed fill, and no horizon at or past kickoff is ever
+    // reported as a pregame fill.
+    const replay = replayDelayLadder({ timeline: basis.timeline, decisionAt: now,
+      observedThrough: now, kickoffAt: kickoff.toISOString() });
     const decided = recordDecision(opened.id, { occurredAt: now, book: candidate.book, line: contract.line,
       price: basis.quote.price, quoteId: basis.quote.quote_id ?? null,
       detail: { pipeline_version: EXECUTION_PIPELINE_VERSION, quote_provenance: basis.provenance,
@@ -177,8 +183,10 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
         quote_received_at: basis.quote.received_at ?? null, decision_at: decisionAt,
         book_updated_at: basis.quote.book_updated_at ?? null, edge_points: candidate.edge_points,
         policy_id: policy.id, policy_version: policy.version, delayed_execution_preview: replay,
-        preview_note: 'Future delay buckets remain pending until observed. A quoted price is not a confirmed fill; ' +
-          'the decision-board fallback is a single observation, not multi-book history.'  } });
+        preview_note: 'Every delay bucket beyond the observed timeline is PENDING, not filled, and any bucket at ' +
+          'or after kickoff is unobservable for a pregame contract. A quoted price is never a confirmed fill; ' +
+          'the decision-board fallback is a single observation, not multi-book history. Buckets that do resolve ' +
+          'report availability_basis (direct_observation vs carry_forward_interpolated) separately from outcome.'  } });
 
     results.push({ matchup: candidate.matchup, contract_key: contract.key, opened: true,
       opportunity_id: decided.id, quote_provenance: basis.provenance, replay_preview: replay });

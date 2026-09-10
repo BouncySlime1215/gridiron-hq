@@ -237,7 +237,11 @@ test('incomplete, mismatched and not-yet-started results cannot settle; no close
 test('carry-forward replay is labeled as modeled and an unobserved live horizon is pending', () => {
   const input = { timeline: [{ snapshot_at: args.occurredAt, type: 'quote', line: -3.5, price: -110 }],
     decisionAt: args.occurredAt, delaySeconds: 30 };
-  assert.equal(replayDelayedExecution(input).availability_basis, 'carry_forward_model');
+  // The single generic 'carry_forward_model' label was split for Codex audit
+  // finding E7 into the two materially different cases it was covering. This
+  // timeline has ONE sample, so +30s is past the last look anyone took:
+  // extrapolated, not interpolated between two observations.
+  assert.equal(replayDelayedExecution(input).availability_basis, 'carry_forward_extrapolated');
   assert.equal(replayDelayedExecution({ ...input, observedThrough: args.occurredAt }).outcome, 'pending');
 });
 

@@ -142,6 +142,28 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
       const takingPoints = market === 'totals' ? /under/i.test(side) : true;
       const exec = bestExecution(quotes, { takingPoints });
       if (!exec) continue;
+
+      // Codex correction C05 gave `bestExecution` an explicit refusal: when no
+      // valid spread distribution exists, it returns `best: null` and a reason
+      // instead of ranking books by a number it could not compute. The side is
+      // still boarded -- dropping it would hide a coverage gap behind an empty
+      // list -- but it carries the refusal rather than a fabricated best book.
+      if (!exec.best) {
+        rowsOut.push({
+          event_id: ev.event_id, captured_at: ev.captured_at, market,
+          matchup: ev.away_team && ev.home_team ? `${ev.away_team} at ${ev.home_team}` : ev.event_id,
+          commence_time: ev.commence_time, side,
+          books_compared: exec.books_compared,
+          best_book: null, best_line: null, best_price: null, median_line: exec.median_line,
+          line_edge: null, price_edge: null,
+          win_probability: null, loss_probability: null, push_probability: null,
+          expected_net_return: null, qualified: false,
+          unpriceable_reason: exec.reason,
+          all: exec.all
+        });
+        continue;
+      }
+
       rowsOut.push({
         event_id: ev.event_id, captured_at: ev.captured_at, market,
         matchup: ev.away_team && ev.home_team ? `${ev.away_team} at ${ev.home_team}` : ev.event_id,
@@ -157,12 +179,31 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
         // probability from the ranking-only line_edge scalar.
         win_probability: exec.best.win_probability, loss_probability: exec.best.loss_probability,
         push_probability: exec.best.push_probability,
-        edge_vs_median: exec.edge_vs_median,
+        // Codex correction C05: the board now ranks by expected net return at
+        // the exact offered line AND price, under the same distribution that
+        // produced the probabilities above. The old `edge_vs_median` scalar
+        // was `line_edge * 2 + price_edge`, a heuristic that contradicted the
+        // economics attached to it -- it ranked +2.5/+100 above +3/-150 while
+        // its own expected returns were -0.1500 and -0.1417.
+        expected_net_return: exec.best.expected_net_return,
+        // NOT an edge over the market. These probabilities are implied by the
+        // market's own reference line, so a positive number here means a
+        // better obtainable contract than the median book, never a profitable
+        // bet. `qualified` stays false until a qualified forecast supplies the
+        // distribution.
+        qualified: exec.qualified === true,
         all: exec.all
       });
     }
   }
-  return rowsOut.sort((a, b) => (b.edge_vs_median ?? 0) - (a.edge_vs_median ?? 0)).slice(0, limit);
+  return rowsOut
+    .sort((a, b) => {
+      if (a.expected_net_return == null && b.expected_net_return == null) return 0;
+      if (a.expected_net_return == null) return 1;
+      if (b.expected_net_return == null) return -1;
+      return b.expected_net_return - a.expected_net_return;
+    })
+    .slice(0, limit);
 }
 
 /* ------------------------------------------------------------- middles */
@@ -348,19 +389,28 @@ export function bookHold({ market = null, sport = 'nfl' } = {}) {
 export function executionBoardSummary() {
   const spreads = shoppingBoard({ market: 'spreads', limit: 200 });
   const middles = findMiddles({ limit: 50 });
-  const positive = spreads.filter(r => (r.edge_vs_median ?? 0) > 0);
+  // "Shoppable" means this book's contract beats the median book's, measured
+  // as expected net return under one distribution. It is a statement about
+  // execution quality, not about beating the market.
+  const shoppable = spreads.filter(r => r.expected_net_return != null
+    && r.line_edge != null && (r.line_edge > 0 || (r.price_edge ?? 0) > 0));
   const captures = [...new Set(spreads.map(r => r.captured_at))].sort();
 
   return {
     sides_priced: spreads.length,
     events: new Set(spreads.map(r => r.event_id)).size,
-    shoppable_sides: positive.length,
+    shoppable_sides: shoppable.length,
     // Mean over the sides where shopping actually beats the median book. The
     // all-sides mean is the wrong number: half of any dispersion is by
-    // definition below median and is not an available edge.
-    mean_edge_when_shoppable: positive.length
-      ? r4(positive.reduce((s, r) => s + r.edge_vs_median, 0) / positive.length) : null,
-    best_edge: positive[0]?.edge_vs_median ?? null,
+    // definition below median and is not an available improvement.
+    mean_expected_return_when_shoppable: shoppable.length
+      ? r4(shoppable.reduce((s, r) => s + r.expected_net_return, 0) / shoppable.length) : null,
+    best_expected_return: spreads[0]?.expected_net_return ?? null,
+    // Nothing on this board is a qualified edge. Reported explicitly so a
+    // reader cannot infer profitability from a positive number above.
+    qualified: false,
+    qualification_note: 'expected returns here are computed against the market\'s own reference line. ' +
+      'They rank obtainable contracts and measure execution quality; they are not evidence of an edge.',
     middles_found: middles.length,
     positive_ev_middles: middles.filter(m => (m.ev_per_unit ?? 0) > 0).length,
     arbitrage_found: middles.filter(m => m.arbitrage).length,

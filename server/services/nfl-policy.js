@@ -7,7 +7,16 @@
  */
 export const NFL_PRODUCTION_POLICY = Object.freeze({
   id: 'nfl-spread-v1',
-  version: '1.1.0',
+  /**
+   * Codex correction C15: the expected-return gate was added at 1.1.0 without
+   * bumping the identity past it, so two materially different economics ran
+   * under one version. 1.2.0 is this correction: push semantics are explicit,
+   * thresholds are validated, and eligibility is re-checked at the refreshed
+   * offered price rather than only at selection time. A decision recorded
+   * under 1.1.0 was decided by different rules and must never be compared to
+   * one recorded under this version as though the policy had not changed.
+   */
+  version: '1.2.0',
   markets: Object.freeze(['spread']),
   minEdge: 3,
   maxDisagreement: 4.5,
@@ -135,6 +144,18 @@ export function normalizeNflPolicy(raw = {}) {
   const requireCalibratedAdvantage = raw.requireCalibratedAdvantage == null
     ? NFL_PRODUCTION_POLICY.requireCalibratedAdvantage
     : Boolean(raw.requireCalibratedAdvantage);
+
+  // Codex correction C15: "validate finite thresholds/haircut and their
+  // domains." A NEGATIVE haircut does not make the policy braver in some
+  // abstract sense -- it INCREASES the modelled win probability, which can
+  // flip a rejection into a selection. A haircut is a conservative
+  // adjustment by definition, and one that adds confidence is a
+  // configuration error, not a preference.
+  const probabilityHaircut = raw.probabilityHaircut == null
+    ? NFL_PRODUCTION_POLICY.probabilityHaircut : Number(raw.probabilityHaircut);
+  if (!Number.isFinite(probabilityHaircut) || probabilityHaircut < 0 || probabilityHaircut >= 1) {
+    throw new Error(`NFL policy probabilityHaircut must be a finite value in [0,1), got ${raw.probabilityHaircut}`);
+  }
   // `null` is a meaningful value here (the historical replay policy has no
   // executable-return gate, deliberately), so `?? default` would be wrong --
   // it would resurrect production's floor for exactly the policy that must
@@ -154,7 +175,8 @@ export function normalizeNflPolicy(raw = {}) {
   if (!Number.isFinite(maxPicksPerWeek) || maxPicksPerWeek > 20) throw new Error('NFL policy weekly cap outside safe range');
   return {
     ...NFL_PRODUCTION_POLICY, ...raw, markets: [...new Set(markets)],
-    minEdge, maxDisagreement, maxPicksPerWeek, requireCalibratedAdvantage, minExpectedReturn
+    minEdge, maxDisagreement, maxPicksPerWeek, requireCalibratedAdvantage, minExpectedReturn,
+    probabilityHaircut
   };
 }
 /**
@@ -188,14 +210,33 @@ export function applyNflPolicy(rawCandidates, rawPolicy = NFL_PRODUCTION_POLICY)
     // price can still lose money at the offered price. Reported separately
     // (never folded into edge_points, which is in game points, not money)
     // and applied last, so an abstention names the specific thing that failed.
-    const haircut = Number.isFinite(policy.probabilityHaircut) ? policy.probabilityHaircut : 0;
-    const expectedReturn = expectedNetReturn({
-      winProbability: candidate.model_probability == null ? null : candidate.model_probability - haircut,
+    const haircut = policy.probabilityHaircut;
+
+    // Codex correction C15: the board does not emit `push_probability`, so
+    // `candidate.push_probability ?? 0` silently priced every integer line as
+    // though a push were impossible. It is not: a -3 spread pushes on roughly
+    // one game in ten, and treating that mass as decided overstates both the
+    // win and the loss branch. An unknown push on an integer line is
+    // UNAVAILABLE, not zero.
+    //
+    // Half-point lines are the exception and are exact rather than assumed:
+    // integer final scores cannot land on a half, so their push mass is zero
+    // by arithmetic.
+    const halfPoint = candidate.line != null
+      && Math.abs(Math.abs(candidate.line % 1) - 0.5) < 1e-9;
+    const pushProbability = candidate.push_probability != null ? candidate.push_probability
+      : (halfPoint || candidate.market === 'moneyline' ? 0 : null);
+
+    const haircutProbability = candidate.model_probability == null
+      ? null : candidate.model_probability - haircut;
+    const expectedReturn = pushProbability == null ? null : expectedNetReturn({
+      winProbability: haircutProbability,
       americanPrice: candidate.american_price,
-      pushProbability: candidate.push_probability ?? 0
+      pushProbability
     });
     if (abstentionReason == null && policy.minExpectedReturn != null) {
-      if (expectedReturn == null) abstentionReason = 'expected_return_unknown';
+      if (pushProbability == null) abstentionReason = 'push_probability_unknown';
+      else if (expectedReturn == null) abstentionReason = 'expected_return_unknown';
       else if (expectedReturn < policy.minExpectedReturn) abstentionReason = 'negative_expected_return';
     }
 
@@ -205,6 +246,13 @@ export function applyNflPolicy(rawCandidates, rawPolicy = NFL_PRODUCTION_POLICY)
       // have been worth at its real price.
       expected_return: expectedReturn == null ? null : +expectedReturn.toFixed(5),
       expected_return_after_haircut_of: haircut || null,
+      // The push treatment this decision was actually made under, recorded
+      // rather than left to be inferred. `null` means the push mass was
+      // unknown on an integer line and the candidate was abstained, not that
+      // it was assumed to be zero.
+      push_probability: pushProbability,
+      push_treatment: pushProbability == null ? 'unknown_on_integer_line'
+        : (halfPoint ? 'zero_by_arithmetic_half_point' : 'supplied_estimate'),
       eligible: abstentionReason == null, abstention_reason: abstentionReason };
   });
 

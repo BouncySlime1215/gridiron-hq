@@ -46,6 +46,8 @@
  * requiring proven CLV before it may size anything at all.
  */
 import { rows } from '../db/index.js';
+import { fromMarginDistribution, expectedNetReturn, profitMultiple }
+  from '../betting/nfl/contracts/spread-probabilities.js';
 
 const dec = american => (american >= 0 ? 1 + american / 100 : 1 + 100 / -american);
 export const impliedProb = american => (american >= 0 ? 100 / (american + 100) : -american / (-american + 100));
@@ -168,75 +170,112 @@ export function lineMoveTransitions(worseLine, betterLine) {
 }
 
 /**
- * The three-state win/loss/push breakdown for a line treated AS the
- * no-skill coin-flip anchor itself (`NO_FORECAST_BASE` between decided
- * outcomes, plus whatever push mass the margin distribution actually
- * assigns to that exact number — zero for a half-point line). This is the
- * base case `coverProbabilities` migrates away from; exported on its own so
- * a caller asking about the reference/median line itself (no migration
- * needed) gets the identical computation, not a second, independently
- * written copy of the push-mass halving logic.
+ * The residual distribution: how far actual margins land from the number the
+ * market posted.
  *
- * The stored pmf is over |margin|, split symmetrically between +m and -m
- * (matching `lineMoveTransitions`' own `share = p/2` convention) except at
- * m=0, which is its own single point. A push at a NONZERO line requires
- * signed margin === -line specifically — only ONE of the two signed halves
- * of that magnitude's population, never the full magnitude's share.
+ * Codex correction C05. The previous baseline combined an assumed coin-flip
+ * anchor with the UNCONDITIONAL distribution of ABSOLUTE margins, and those two
+ * things do not describe the same random variable. Migrating mass between two
+ * distant lines under that mixture could remove more probability than the
+ * anchor had: `coverProbabilities(3, -10.5)` returned win -0.125, loss 1.125,
+ * push 0 on the preserved empirical fixture. A negative probability is not a
+ * number that needs clipping; it is a signal that the object producing it was
+ * never a distribution.
+ *
+ * What replaces it is one coherent object. For each completed game with both
+ * a score and a posted spread, the residual is
+ *
+ *     r = home margin + home spread
+ *
+ * -- zero when the game landed exactly on the number, positive when the home
+ * side beat it. This is a genuine signed distribution, and every handicap is
+ * then answered from it rather than from a separate anchoring assumption.
  */
-export function referenceCoverBaseline(line) {
-  if (!Number.isFinite(line)) return null;
-  const { pmf } = marginDistribution();
-  const pushAt = line === 0 ? (pmf.get(0) ?? 0) : (pmf.get(Math.abs(line)) ?? 0) / 2;
-  const decided = 1 - pushAt;
-  const win = NO_FORECAST_BASE * decided;
-  return { win: r4(win), loss: r4(decided - win), push: r4(pushAt) };
+let residualCache = null;
+export function marginResidualDistribution() {
+  if (residualCache) return residualCache;
+  const games = rows(`SELECT team_score, opp_score, spread FROM game_lines
+    WHERE team_score IS NOT NULL AND opp_score IS NOT NULL AND spread IS NOT NULL AND home = 1`);
+  const freq = new Map();
+  for (const g of games) {
+    const residual = (g.team_score - g.opp_score) + g.spread;
+    if (!Number.isFinite(residual)) continue;
+    freq.set(residual, (freq.get(residual) ?? 0) + 1);
+  }
+  const n = [...freq.values()].reduce((s, c) => s + c, 0);
+  residualCache = { n, pmf: n ? new Map([...freq].map(([r, c]) => [r, c / n])) : new Map() };
+  return residualCache;
+}
+
+/** Test-only: drop the cached residual distribution after changing fixtures. */
+export function resetMarginResidualCache() { residualCache = null; }
+
+/**
+ * The integer signed-margin distribution implied for ONE game, given the
+ * reference handicap the market has posted for the side being priced.
+ *
+ * A side quoted at `referenceLine` (bettor's convention, larger is better) is
+ * expected by the market to win by `-referenceLine`. Each historical residual
+ * is therefore a scenario for this game's margin, and the scenarios are binned
+ * onto integers because real margins ARE integers.
+ *
+ * The binning is what makes push behaviour correct without asserting it:
+ * because the support is integral, a half-point handicap can never be equalled
+ * and its push mass is zero by construction rather than by a special case. A
+ * scenario that falls exactly halfway between two integers has its mass split
+ * evenly between them -- the usual continuity correction, and the alternative
+ * (rounding half up) would bias every line in one direction.
+ */
+export function noForecastMarginDistribution(referenceLine) {
+  if (!Number.isFinite(referenceLine)) return { ok: false, reason: 'reference_line_not_finite' };
+  const { pmf, n } = marginResidualDistribution();
+  if (!pmf.size) {
+    return { ok: false, reason: 'no_qualified_distribution_available',
+      detail: 'no completed game in this database carries both a final score and a posted spread, so ' +
+        'there is no empirical residual distribution to price against' };
+  }
+  const expectedMargin = -referenceLine;
+  const margins = new Map();
+  const add = (k, mass) => margins.set(k, (margins.get(k) ?? 0) + mass);
+  for (const [residual, mass] of pmf) {
+    const scenario = expectedMargin + residual;
+    const low = Math.floor(scenario);
+    if (Math.abs(scenario - low - 0.5) < 1e-9) { add(low, mass / 2); add(low + 1, mass / 2); }
+    else add(Math.round(scenario), mass);
+  }
+  return { ok: true, margins, games: n, expected_margin: expectedMargin };
 }
 
 /**
- * Full three-state win/loss/push probabilities for backing a side at
- * `targetLine`, starting from `referenceCoverBaseline(referenceLine)` (the
- * median book — ALWAYS pass the actual reference first; this function is not
- * symmetric in its two arguments, see below). `lineMoveTransitions` then
- * moves exactly the right probability mass to or from `targetLine` —
- * whether it is better OR worse than the reference — so the three outputs
- * always sum to 1 and a push is never silently folded into a win or a loss.
+ * Full three-state win/push/loss probabilities for backing a side at
+ * `targetLine`, given the market's reference handicap for that side.
  *
- * NOT symmetric: `coverProbabilities(a, b)` treats `a` as the coin-flip
- * anchor and derives `b`'s numbers from it; `coverProbabilities(b, a)` would
- * instead treat `b` as the anchor and derive `a`'s numbers, which is a
- * different (and for this module's purpose, wrong) question. Every caller in
- * this codebase must pass the actual reference/median line first.
+ * Returns `{ ok: false, reason }` rather than a repaired triple when the
+ * inputs cannot support a valid distribution. C05 is explicit: "Invalid
+ * probabilities must fail validation; clipping them is not an adequate
+ * statistical repair."
  *
- * Returns `referenceCoverBaseline(referenceLine)` directly when the two
- * lines are equal (no migration to apply), and null only when an input is
- * not finite — never fabricates a number a caller could mistake for a
- * forecast.
+ * This is a NO-FORECAST baseline. It says what the market's own number
+ * implies, not what any Gridiron model believes, and callers are expected to
+ * treat it as a diagnostic until a qualified per-game distribution replaces it.
  */
 export function coverProbabilities(referenceLine, targetLine) {
   if (!Number.isFinite(referenceLine) || !Number.isFinite(targetLine)) return null;
-  const baseline = referenceCoverBaseline(referenceLine);
-  if (referenceLine === targetLine) return baseline;
-  const { win: winRef, loss: lossRef, push: pushAtReference } = baseline;
+  const built = noForecastMarginDistribution(referenceLine);
+  if (!built.ok) return null;
+  const result = fromMarginDistribution(built.margins, targetLine);
+  if (!result.ok) return null;
+  const { win, push, loss } = result.probabilities;
+  return { win: r4(win), loss: r4(loss), push: r4(push) };
+}
 
-  if (targetLine > referenceLine) {
-    // The target is the BETTER number: migrate mass forward, from the
-    // reference's loss/push buckets into the target's push/win buckets.
-    const { loss_to_win, loss_to_push, push_to_win } = lineMoveTransitions(referenceLine, targetLine);
-    return {
-      win: r4(winRef + loss_to_win + push_to_win),
-      loss: r4(lossRef - loss_to_win - loss_to_push),
-      push: r4(pushAtReference - push_to_win + loss_to_push)
-    };
-  }
-  // The target is the WORSE number: the reference is the better endpoint of
-  // the SAME transition computed the other way around, so the identical
-  // masses are subtracted back out to recover the worse line's numbers.
-  const { loss_to_win, loss_to_push, push_to_win } = lineMoveTransitions(targetLine, referenceLine);
-  return {
-    win: r4(winRef - loss_to_win - push_to_win),
-    loss: r4(lossRef + loss_to_win + loss_to_push),
-    push: r4(pushAtReference + push_to_win - loss_to_push)
-  };
+/**
+ * The reference line's own three-state breakdown. Kept as a named export
+ * because callers asking about the median book itself should get the identical
+ * computation rather than a second copy of it.
+ */
+export function referenceCoverBaseline(line) {
+  return coverProbabilities(line, line);
 }
 
 /** The classic key numbers, ranked by how much probability mass they carry. */
@@ -295,19 +334,66 @@ export function bestExecution(quotes, { takingPoints = true } = {}) {
     // exactly" by returning the reference baseline directly).
     const qSigned = bettorSigned(q.line);
     const probabilities = refSigned != null && qSigned != null ? coverProbabilities(refSigned, qSigned) : null;
-    return { ...q, line_edge: r4(lineEdge), price_edge: r4(priceEdge),
+
+    // Codex correction C05: rank by EXPECTED NET RETURN at this book's actual
+    // line AND actual price, under the same distribution, rather than by a
+    // points-versus-price heuristic.
+    //
+    // The heuristic was `line_edge * 2 + price_edge`, and it contradicted its
+    // own attached economics: on the audit's fixture it ranked +2.5/+100 above
+    // +3/-150 even though the expected returns it had already computed were
+    // -0.1500 and -0.1417 respectively. A ranking that disagrees with the
+    // arithmetic beside it is worse than no ranking, because it looks reasoned.
+    const expected = probabilities
+      ? expectedNetReturn({ win: probabilities.win, loss: probabilities.loss,
+        americanPrice: q.american_price })
+      : null;
+
+    return { ...q,
+      // Retained as DIAGNOSTICS. The plan: "Until qualified, present price/line
+      // improvement as a diagnostic, not modeled profit." They describe how
+      // this book differs from the median; they are not an edge over the
+      // market and must never be summed into one.
+      line_edge: r4(lineEdge), price_edge: r4(priceEdge),
       win_probability: probabilities?.win ?? null,
       loss_probability: probabilities?.loss ?? null,
       push_probability: probabilities?.push ?? null,
-      // A point of win probability is worth roughly 2x a point of return at
-      // even money, since it moves both the win and the loss branch.
-      total_edge: r4(lineEdge * 2 + priceEdge) };
-  }).sort((a, b) => b.total_edge - a.total_edge);
+      expected_net_return: r4(expected),
+      // The old field name, kept so nothing silently reads a different number
+      // under the same name: it is now null, because the quantity it used to
+      // hold was never a total edge.
+      total_edge: null };
+  }).sort((a, b) => {
+    // A quote we cannot price coherently never outranks one we can.
+    if (a.expected_net_return == null && b.expected_net_return == null) return 0;
+    if (a.expected_net_return == null) return 1;
+    if (b.expected_net_return == null) return -1;
+    return b.expected_net_return - a.expected_net_return;
+  });
+
+  const priced = scored.filter(q => q.expected_net_return != null);
+  if (!priced.length) {
+    // C05's "explicit refusal when no qualified distribution is available."
+    // Returning the first book with a null number beside it would let a caller
+    // treat an unpriceable slate as a ranked one.
+    return { best: null, median_line: refLine, median_price_decimal: r4(refPrice),
+      books_compared: usable.length, all: scored,
+      qualified: false,
+      reason: 'no_qualified_distribution — no book could be priced under a valid spread distribution, ' +
+        'so there is no expected return to rank by' };
+  }
 
   return {
     best: scored[0], median_line: refLine, median_price_decimal: r4(refPrice),
     books_compared: usable.length,
-    edge_vs_median: scored[0].total_edge,
+    expected_net_return: scored[0].expected_net_return,
+    // Explicitly NOT qualified: these probabilities come from the market's own
+    // posted number and an empirical residual distribution, not from a
+    // qualified Gridiron forecast. Sizing paths must refuse to treat this as
+    // modeled profit; it ranks obtainable prices, it does not claim an edge.
+    qualified: false,
+    qualification_note: 'no-forecast baseline: probabilities are implied by the reference line itself, ' +
+      'so the ranking identifies the best obtainable contract, never a positive expectation',
     all: scored
   };
 }

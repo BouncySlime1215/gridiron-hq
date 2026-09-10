@@ -1312,6 +1312,24 @@ export function modelCatalog() {
   };
 }
 
+/**
+ * Every registered component with its family's data contract.
+ *
+ * Codex correction C16: this used to spread only `{ id, name, family }` plus
+ * the family contract, dropping `challenger_only`. The family report reads
+ * this, so it concluded that every family had ZERO challengers -- while nine
+ * challenger-only components are registered. A report that cannot see nine of
+ * its own inputs is not measuring what it says it is.
+ *
+ * `base_margin_weight` comes along for the same reason: "report actual active
+ * consumers and weights", not merely which components exist.
+ */
 export function featureContracts() {
-  return MODELS.map(m => ({ id: m.id, name: m.name, family: m.family, ...FAMILY_CONTRACTS[m.family] }));
+  return MODELS.map(m => ({ id: m.id, name: m.name, family: m.family,
+    // `challengerOnly` is the registry's own spelling; `challenger_only` is
+    // what every consumer downstream reads. Reading the wrong one here is how
+    // the family report came to believe there were no challengers at all.
+    challenger_only: m.challengerOnly === true,
+    base_margin_weight: m.baseWeight ?? m.base_margin_weight ?? null,
+    ...FAMILY_CONTRACTS[m.family] }));
 }

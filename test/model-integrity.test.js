@@ -659,14 +659,18 @@ test('live and replay policy enforces the same eligibility rules and weekly cap'
   // A candidate that clears calibration must ALSO be worth taking at its
   // actual price -- so this one carries the probability a real proven
   // candidate would have (0.60 at -110 is comfortably positive EV).
-  const proven = applyNflPolicy([{ ...candidates[0], calibration_eligible: true, model_probability: 0.60 }],
-    NFL_PRODUCTION_POLICY);
+  // Codex correction C15: these candidates sit on an INTEGER line (3), which
+  // pushes. An unknown push mass is now unavailable rather than silently zero,
+  // so a candidate that expects to be priced must carry the estimate a real
+  // board would have frozen with it.
+  const proven = applyNflPolicy([{ ...candidates[0], calibration_eligible: true,
+    model_probability: 0.60, push_probability: 0.09 }], NFL_PRODUCTION_POLICY);
   assert.equal(proven.selected.length, 1);
   assert.ok(proven.selected[0].expected_return > 0);
   // And the same candidate at a price that cannot pay for itself does not
   // become eligible just because its forecast cleared calibration.
   const overpriced = applyNflPolicy([{ ...candidates[0], calibration_eligible: true,
-    model_probability: 0.51, american_price: -110 }], NFL_PRODUCTION_POLICY);
+    model_probability: 0.51, american_price: -110, push_probability: 0.09 }], NFL_PRODUCTION_POLICY);
   assert.equal(overpriced.selected.length, 0);
   assert.equal(overpriced.decisions[0].abstention_reason, 'negative_expected_return');
 });

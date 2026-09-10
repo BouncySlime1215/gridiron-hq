@@ -186,6 +186,11 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
       modelLine: candidate.feature_snapshot?.raw_forecast?.projected_margin ?? null,
       modelProbability: candidate.model_probability ?? null,
       marketLineAtDecision: candidate.feature_snapshot?.raw_forecast?.market_margin ?? null,
+      // Frozen from the policy's own evaluation, not recomputed here: the
+      // refreshed-price gate must re-price under the assumption the original
+      // decision was made with (Codex correction C15).
+      pushProbability: candidate.push_probability ?? null,
+      pushTreatment: candidate.push_treatment ?? null,
       // Codex audit finding E6: cite the exact immutable decision event this
       // opportunity came from, so every opened contract traces to one frozen
       // selection rather than to a mutable latest-view row that a later run

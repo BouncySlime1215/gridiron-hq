@@ -134,7 +134,14 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
   // Codex audit finding E6: the immutable decision event this opportunity
   // was opened from (nfl-decision-tape.js), so a contract always traces to
   // one frozen selection rather than a mutable latest-view row.
-  decisionEventId = null } = {}) {
+  decisionEventId = null,
+  // Codex correction C15: the push treatment this decision was actually made
+  // under, frozen alongside the forecast so the refreshed-price gate can
+  // recompute expected return under the ORIGINAL assumption rather than
+  // deriving a new one at acceptance time. A null push probability on an
+  // integer handicap means unknown, and the gate refuses rather than
+  // assuming zero.
+  pushProbability = null, pushTreatment = null } = {}) {
   if (!contract?.ok) throw new Error('openOpportunity requires a resolved contractKey() result');
   if (!decisionSource) throw new Error('decisionSource is required — an unattributed opportunity is not evidence');
   if (!Number.isFinite(executionTime(occurredAt))) throw executionInputError('occurredAt must be a timestamp');
@@ -159,14 +166,15 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
     run(`INSERT INTO nfl_execution_opportunities
          (id, contract_key, contract_hash, event_key, matchup, market, side, participant,
           decision_source, status, note, model_line, model_probability, market_line_at_decision,
-          decision_event_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          decision_event_id, push_probability, push_treatment)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     id, contract.key, contract.key_hash ?? null, contract.event_key ?? null, matchup,
     contract.market, contract.side, participant, decisionSource, 'offered', note,
     Number.isFinite(modelLine) ? modelLine : null,
     Number.isFinite(modelProbability) ? modelProbability : null,
     Number.isFinite(marketLineAtDecision) ? marketLineAtDecision : null,
-    Number.isFinite(decisionEventId) ? decisionEventId : null);
+    Number.isFinite(decisionEventId) ? decisionEventId : null,
+    Number.isFinite(pushProbability) ? pushProbability : null, pushTreatment);
     run(`INSERT INTO nfl_execution_lifecycle_events
          (opportunity_id, state, occurred_at, book, line, price, source, quote_id, actor, detail_json)
          VALUES (?,?,?,?,?,?,?,?,?,?)`,

@@ -157,3 +157,148 @@ decision made today is reproducible from stored inputs. C11 is what changes that
 Delegated to a parallel worker with the migration paths (`server/migrations/**`, `server/db/**`)
 reserved to it and migration number **030**; number **031** was reserved for C01/C02 so the two
 could not collide. Result recorded below when it lands.
+
+**Result.** The preflight repair, the injectable database, and both refusing `down()` functions were
+written by a parallel worker that died before writing any tests. Its code was reviewed line by line
+and kept — the SQLite reasoning is correct, including the detail that `PRAGMA foreign_keys` is
+silently ignored inside a transaction, which is why the repair cannot be a migration. The tests were
+written afterwards, here.
+
+| Path | Change |
+|---|---|
+| `server/db/preflight.js` | New. Versioned repairs that run BEFORE the migration runner, outside any transaction, where the foreign-key pragma still means something. Refuses loudly if it discovers it is inside a transaction. |
+| `server/db/migrate.js`, `server/db/index.js` | The database is now a parameter, so migrations can be driven against a fixture built at an older version. A test using the process connection can only ever exercise the empty case — the case that already worked. |
+| `server/migrations/027_decision_tape.js` | Refuses loudly if reached with a populated ledger by a path that skipped the repair. `down()` refuses rather than deleting terminal states 023 cannot represent. |
+| `server/migrations/028_settlement_corrections.js` | `down()` refuses rather than deleting settlement corrections. |
+| `test/migration-027-populated-upgrade.test.js` | New: 10 tests against real populated 026-era fixture databases. |
+
+**Test results** — 10 passed, 0 failed. Covering: the reproduction itself (027 applied the old way
+still aborts); populated 026 → current with byte-identical row-by-row preservation; already-past-027;
+fresh empty; idempotence; failure rollback; restart; `foreign_key_check`; a `VACUUM INTO` backup
+proven to restore; and both downgrade refusals.
+
+**Remaining limitation.** The repair is exercised against fixture databases only. No installation
+carrying real execution rows has been upgraded, because none exists — the developer's own database
+reached 028 with zero opportunity rows, which is why this was never hit in the first place.
+
+---
+
+## Slice 2 — Correct clocks and contracts (C11, C13, C14)
+
+### C11 — the packet identified a game by kickoff and a receipt by request time
+
+Three defects in one query, all confirmed at HEAD before changing anything.
+
+**The game.** The predicate was the kickoff range alone. A kickoff instant is not an event identity —
+the NFL runs up to nine games at 1:00pm Eastern. Migration 029 had indexed that lookup; speed was
+never what was wrong with it. The fix keeps the kickoff range leading (it is what the index can use,
+and it narrows 1.3M rows to a handful) and then resolves the canonical event in JS, because the tape
+stores full team names while the schedule stores abbreviations.
+
+**Fail-closed on identity.** `teamCodeFor` returns null for anything it cannot map, and `null === null`
+would have made an unidentifiable game match *every* row in the window — the cross-game bug wearing
+the costume of a scoped query. An event that cannot be named canonically now has no packet.
+
+**The period and market.** Absent entirely. Today's ingestion writes `full_game` for everything, so
+this was latent rather than harmless: the first first-half feed would have started poisoning packets
+silently.
+
+**The clock.** `requested_at` is stamped *before* the request goes out. Since `requested_at <= received_at`
+always, using it made every quote look like it arrived earlier than it did. Migration 032 adds the
+real clock and deliberately does **not** backfill it — one line would have kept every historical
+packet working, and that is the defect written into the data instead of the query. Legacy batches are
+marked `legacy_request_time_only` and cannot support a prospective claim.
+
+The honest consequence: **existing quote history is no longer prospective evidence.** It remains fully
+usable for labeled historical work.
+
+The packet now carries the actual rows — quote ids, books, lines, prices, receipt times — not counts
+and a latest timestamp.
+
+**Test results** — 24 passed, 0 failed (`test/nfl-t60-packet.test.js`), including the query-plan check
+Codex asks for.
+
+### C13 / C14 — closing-line grading
+
+Done together because they are the same function and the same sign convention; splitting them across
+two slices would have meant editing one function twice and merging against myself.
+
+**C13.** The close is now scoped to the canonical event and full-game period, deduplicated to the
+latest quote *per book* (the old rule kept only rows sharing one snapshot instant, which dropped books
+that had stopped updating), and drawn from a declared bookmaker set an independent reference can use
+to exclude the book we bet at. Handicap movement and price movement became separate measurements with
+separate denominators: the plan is explicit that a method requiring the exact accepted line
+"naturally returns zero point movement and cannot stand in for a moving main-line benchmark."
+
+**C14.** Accepted −110 against a −120 close returned −10 while the code's own comment said positive was
+better. Price CLV is now measured in probability space, where that case is **+0.0089**. Prices are
+averaged by converting to decimal return first — American odds are discontinuous across the ±100
+boundary, so the median of raw American numbers that defined the closing price was not a price. The old
+field is kept under a name stating what it is, so an older exported number still reconciles.
+
+**Test results** — 18 passed, 0 failed.
+
+### The shared probability contract
+
+`server/betting/nfl/contracts/spread-probabilities.js` — the single probability and payout authority
+§10.3 asks for, with §5.1's mathematics stated once.
+
+Its property tests, written against an independent oracle, **found two real bugs in it before anything
+consumed it**: `isHalfPoint(-3)` returned true (the test was whether `h*2` is a whole number, equally
+true of integers), and the away-side conversion negated both the margin and the handicap, which scores
+an away +3 as an away −3.
+
+**Test results** — 15 passed, 0 failed.
+
+---
+
+## Slice 3 — Correct probabilities and authority (C05, C15)
+
+### C05 — impossible probabilities, and a ranking that contradicted its own economics
+
+`coverProbabilities(3, -10.5)` returned **win −0.125, loss 1.125, push 0**. The cause was combining an
+assumed coin-flip anchor with the unconditional distribution of *absolute* margins — two things that do
+not describe the same random variable. Migrating mass between distant lines under that mixture could
+remove more probability than the anchor had.
+
+A negative probability is not a number that needs clipping; it means the object producing it was never
+a distribution. So the mixture is gone, replaced by one coherent signed object: the empirical residual
+`r = home margin + home spread`, binned onto integers relative to the line being priced. Push behaviour
+then falls out rather than being asserted — a half-point line cannot be equalled by an integer margin,
+so its push mass is zero by construction.
+
+The ranking was `line_edge * 2 + price_edge`, which contradicted the economics printed beside it: it
+ranked +2.5/+100 above +3/−150 while its own expected returns were −0.1500 and −0.1417. Ranking is now
+by expected net return at the actual line and price, under the same distribution. `line_edge` and
+`price_edge` survive as **diagnostics**, and nothing on the board claims to be a qualified edge —
+these probabilities come from the market's own posted number.
+
+`bestExecution` now refuses explicitly when no valid distribution exists, and `nfl-shopping-board.js`
+reports that refusal instead of crashing on a null best book.
+
+**Test results** — 20 passed, 0 failed.
+
+### C15 — the policy gate was incomplete at price refresh
+
+Policy identity bumped to **1.2.0**: the expected-return gate had been added at 1.1.0 without moving
+past it, so two materially different economics ran under one version.
+
+**Push semantics.** The board never emitted `push_probability`, and `?? 0` priced every integer line as
+though a push were impossible. A −3 spread pushes on roughly one game in ten. An unknown push on an
+integer line is now `push_probability_unknown` and abstains; a half-point line is zero *by arithmetic*,
+not by assumption. Migration 033 freezes the push treatment onto the opportunity so the refreshed gate
+re-prices under the assumption the original decision was made with.
+
+**Negative haircut.** A negative haircut *increases* the modelled win probability and can flip a
+rejection into a selection. Rejected as a configuration error.
+
+**The refresh gate itself.** `attemptAcceptance` now re-checks expected return at the price actually
+being accepted. A changed handicap refuses rather than reusing a probability that describes a different
+contract. Missing forecast provenance refuses the *recommendation*.
+
+**Off-policy tickets.** A bet Nick actually placed is a fact about the world. Refusing to record it does
+not un-place it — it removes a real loss from the ledger and quietly improves the record. So an
+off-policy ticket is always recordable, always labelled on its face, and settles exactly as an
+authorized one does.
+
+**Test results** — 16 passed, 0 failed.

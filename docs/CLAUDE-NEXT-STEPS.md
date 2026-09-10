@@ -58,19 +58,19 @@ Software test success alone never reaches `qualified`.
 |---|---|---|---|---|
 | C01 decision identity | tested | working tree | [`slice1/`](evidence/2026-09-10/slice1/) · `test/nfl-decision-tape.test.js`, `test/nfl-decision-identity-pipeline.test.js` (32 pass) | Every run records `data_identity_status: unfrozen_live_tables` — no decision is yet reproducible from stored inputs. C11 closes that. |
 | C02 partial writes / empty-run delete | tested | working tree | [`slice1/`](evidence/2026-09-10/slice1/) · same two test files | Legacy half-written runs are invalidated by append; none exist in the live DB to exercise that path against real data. |
-| C03 populated 027 upgrade | open | — | — | Confirmed by source: 027 drops the opportunity parent while the child cascade and its append-only delete trigger are live. |
+| C03 populated 027 upgrade | tested | 445c878 | `test/migration-027-populated-upgrade.test.js` (10 pass) | Exercised against fixture databases only. No installation carrying real execution rows exists to upgrade — which is why this was never hit. |
 | C04 opponent strength window | open | — | — | Not yet re-verified at HEAD. |
-| C05 shopping probabilities / ranking | open | — | — | Confirmed: `coverProbabilities` and `bestExecution` unchanged at HEAD. |
+| C05 shopping probabilities / ranking | tested | working tree | `test/nfl-execution-edge.test.js` (20 pass) | The distribution is a no-forecast baseline implied by the market's own line. `qualified` is false everywhere; no sizing path may treat it as modelled profit. |
 | C06 test suite hermeticity | open | — | — | The local suite passes only against the developer database; see 0.3. |
 | C07 residual split leakage | open | — | — | Not yet re-verified at HEAD. |
 | C08 findings provenance | open | — | — | Confirmed: `trainingAuditCodeHash` shells to `git ls-files` under `process.cwd()`. |
 | C09 audit overview counting | open | — | — | Confirmed: `by_market` initializes `pushes` and never adds to it; coverage is min/max only. |
 | C10 preseason sparse fallback | open | — | — | Not yet re-verified at HEAD. |
-| C11 frozen T-60 packet | open | — | — | Committed v2 (`bbcdae2`) is reviewed but the identity/receipt defect is unfixed. |
+| C11 frozen T-60 packet | tested | 1bbe43d | `test/nfl-t60-packet.test.js` (24 pass) | Quote scoping, period and receipt clock are corrected and the packet carries actual rows. The persisted packet artifact and forecast consumption remain open; no forecast reads the packet yet. |
 | C12 sequential capacity path | open | — | — | Confirmed: `cutoffBatches`/`sequentialCapacity` have test callers only, no production caller. |
-| C13 closing-line grading | open | — | — | Confirmed: the closing query filters market, side and kickoff, omitting event and period. |
-| C14 price CLV sign | open | — | — | Confirmed: raw American-odds median in `closingQuoteForContract`. |
-| C15 policy gate at refresh | open | — | — | Confirmed: policy still `1.1.0`; `push_probability ?? 0` with no board field to supply it. |
+| C13 closing-line grading | tested | 1bbe43d | `test/nfl-execution-clv.test.js` (18 pass) | Declared bookmaker set defaults to every book in the tape; no independent reference set has been chosen. |
+| C14 price CLV sign | tested | 1bbe43d | `test/nfl-execution-clv.test.js` (18 pass) | Done in slice 2 rather than slice 4: same function, same sign convention as C13. |
+| C15 policy gate at refresh | tested | working tree | `test/nfl-execution-decision.test.js` (16 pass) | A changed handicap refuses outright, because no stored distribution can answer the new number. That is correct today and becomes a real re-evaluation once a per-game distribution is frozen. |
 | C16 family report scope | open | — | — | Confirmed: `featureContracts()` drops `challenger_only`. |
 | C17 sequential inference claims | open | — | — | Confirmed: `alwaysValidPValue` still consumed by `decay-watch.js`. |
 
@@ -79,9 +79,9 @@ Software test success alone never reaches `qualified`.
 | Slice | State | Exit evidence | Remaining limitation |
 |---|---|---|---|
 | 0 Reconcile | implemented | [`evidence/2026-09-10/slice0/SOURCE-MANIFEST.md`](evidence/2026-09-10/slice0/SOURCE-MANIFEST.md) | Findings marked "not yet re-verified" in 0.1 are verified inside their own slice, not here. |
-| 1 Protect evidence | open | — | — |
-| 2 Correct clocks and contracts | open | — | — |
-| 3 Correct probabilities and authority | open | — | — |
+| 1 Protect evidence | tested | `test/nfl-decision-tape.test.js`, `test/nfl-decision-identity-pipeline.test.js`, `test/migration-027-populated-upgrade.test.js` (42 pass) | No real installation with execution rows has been upgraded; no decision is yet reproducible from stored inputs. |
+| 2 Correct clocks and contracts | tested | `test/nfl-t60-packet.test.js`, `test/nfl-execution-clv.test.js`, `test/spread-probabilities.test.js` (57 pass) | Existing quote history can no longer support a prospective claim, by design. No forecast consumes the packet yet. |
+| 3 Correct probabilities and authority | tested | `test/nfl-execution-edge.test.js`, `test/nfl-execution-decision.test.js` (36 pass) | Probabilities are a no-forecast baseline; nothing is qualified. |
 | 4 Repair learning and reporting | open | — | — |
 | 5 Connect operation | open | — | — |
 | 6 Freeze simple comparison | open | — | — |

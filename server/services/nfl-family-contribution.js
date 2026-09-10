@@ -97,6 +97,7 @@ export function familyConsumers() {
  */
 export function scoreOver(decisionsByKey, keys) {
   const marginErrors = [], marketErrors = [], coverBrier = [];
+  const legacyCoverBrier = [], threeStateBrier = [];
   let pushPredicted = 0, pushActual = 0, coverScored = 0;
   const units = [];
   for (const key of keys) {
@@ -119,15 +120,17 @@ export function scoreOver(decisionsByKey, keys) {
       const homeSpread = -d.market_margin;
       const homeMargin = d.actual_margin + homeSpread;
       pushPredicted += pd.push_probability ?? 0;
-      if (homeMargin === 0) {
-        pushActual += 1;
-      } else {
-        // Brier is scored on the DECIDED outcome only: a push is neither a
-        // cover nor a failure to cover, and scoring it as either would
-        // penalise a well-calibrated model for an outcome it separately and
-        // correctly assigned mass to.
-        const homeCovered = homeMargin > 0 ? 1 : 0;
-        coverBrier.push((pd.home_cover_probability - homeCovered) ** 2);
+      const scores = spreadProperScores({ homeCoverProbability: pd.home_cover_probability,
+        pushProbability: pd.push_probability ?? 0, homeMargin });
+      if (homeMargin === 0) pushActual += 1;
+      if (scores?.three_state != null) threeStateBrier.push(scores.three_state);
+      if (scores?.conditional != null) {
+        // Conditional on the game being DECIDED, which is the question this
+        // denominator asks. Scoring the unconditional probability against a
+        // decided label -- what this did before -- penalises a model for the
+        // push mass it correctly predicted.
+        coverBrier.push(scores.conditional);
+        legacyCoverBrier.push(scores.legacy_unconditional_vs_decided);
         coverScored++;
       }
     }
@@ -147,7 +150,14 @@ export function scoreOver(decisionsByKey, keys) {
     market_margin_mae: avgOrNull(marketErrors),
     margin_beats_market: marginErrors.length && marketErrors.length
       ? mean(marginErrors) < mean(marketErrors) : null,
+    // Conditional on a decided game. The corrected score.
     cover_brier: avgOrNull(coverBrier),
+    // The whole distribution, pushes included. Null when no forecast in this
+    // universe claimed push mass to be scored on.
+    cover_brier_three_state: avgOrNull(threeStateBrier),
+    // Exactly what the previous report computed, retained so an earlier
+    // published number can be reconciled instead of silently reinterpreted.
+    cover_brier_legacy_unconditional_vs_decided: avgOrNull(legacyCoverBrier),
     cover_scored: coverScored,
     // A Brier of 0.25 is what a constant 0.5 forecast scores. Anything at or
     // above it carries no information about which side covers.
@@ -160,6 +170,61 @@ export function scoreOver(decisionsByKey, keys) {
   };
 }
 
+
+/**
+ * Proper scores for one three-state spread forecast (Codex correction C16).
+ *
+ * The defect: both scoring paths discarded pushes from the DENOMINATOR but
+ * then scored the UNCONDITIONAL win probability against the decided binary
+ * label. Those two choices are inconsistent. A 0.45 win / 0.10 push / 0.45
+ * loss forecast on a decided win scored (0.45 - 1)^2 = 0.3025, when the
+ * forecast it is actually being asked about -- "given this game was decided,
+ * did the home side cover?" -- is 0.45 / 0.90 = 0.50, which scores 0.25.
+ *
+ * The model was being penalised for the push mass it separately and correctly
+ * assigned. Worse, the penalty scales with how much push mass a model
+ * predicts, so a model that gets key numbers RIGHT looks worse than one that
+ * ignores them.
+ *
+ * Both scores are returned, because they answer different questions:
+ *
+ *   conditional  -- among decided games, was the cover call good? Comparable
+ *                   with any classifier that excludes pushes, which is what
+ *                   this project's cover calibrator produces.
+ *   three_state  -- was the whole distribution good, pushes included? The
+ *                   proper score when a forecast actually claims push mass.
+ *
+ * `legacy_unconditional_vs_decided` preserves exactly what the previous
+ * report computed, so an earlier number can be reconciled rather than
+ * silently reinterpreted.
+ */
+export function spreadProperScores({ homeCoverProbability, pushProbability = 0, homeMargin }) {
+  if (homeCoverProbability == null || homeMargin == null) return null;
+  const push = Number.isFinite(pushProbability) ? Math.min(Math.max(pushProbability, 0), 1) : 0;
+  const decidedMass = 1 - push;
+  const pushed = homeMargin === 0;
+  const covered = homeMargin > 0 ? 1 : 0;
+
+  // Three-state Brier: the sum of squared errors across all three outcomes.
+  const loss = Math.max(1 - homeCoverProbability - push, 0);
+  const threeState = (homeCoverProbability - (pushed ? 0 : covered)) ** 2
+    + (push - (pushed ? 1 : 0)) ** 2
+    + (loss - (pushed || covered ? 0 : 1)) ** 2;
+
+  if (pushed) {
+    // A pushed game has no conditional cover question to answer.
+    return { conditional: null, three_state: threeState,
+      legacy_unconditional_vs_decided: null, pushed: true };
+  }
+  const conditionalWin = decidedMass > 1e-9 ? homeCoverProbability / decidedMass : null;
+  return {
+    conditional: conditionalWin == null ? null : (conditionalWin - covered) ** 2,
+    three_state: threeState,
+    legacy_unconditional_vs_decided: (homeCoverProbability - covered) ** 2,
+    pushed: false
+  };
+}
+
 /** Metric values needed by the paired bootstrap, per game, so a resample is cheap. */
 export function perGameMetrics(decisionsByKey, keys) {
   return keys.map(key => {
@@ -169,7 +234,11 @@ export function perGameMetrics(decisionsByKey, keys) {
     let brier = null;
     if (pd?.home_cover_probability != null && d.actual_margin != null && d.market_margin != null) {
       const homeMargin = d.actual_margin + (-d.market_margin);
-      if (homeMargin !== 0) brier = (pd.home_cover_probability - (homeMargin > 0 ? 1 : 0)) ** 2;
+      // The SAME conditional score the summary uses. Two independently written
+      // copies of a proper score is how a bootstrap comes to resample a
+      // different metric from the one it reports.
+      brier = spreadProperScores({ homeCoverProbability: pd.home_cover_probability,
+        pushProbability: pd.push_probability ?? 0, homeMargin })?.conditional ?? null;
     }
     return {
       week: `${d.season}-${d.week}`,

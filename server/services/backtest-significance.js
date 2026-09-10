@@ -183,12 +183,44 @@ export function alignedCrps(samplesA, samplesB, truth, { field = 'points', minGa
  * there. Tests below use a fixed, known sigma to verify the anytime-validity
  * property against ground truth rather than this practical shortcut.
  */
+/**
+ * CORRECTED 2026-09-10 (Codex correction C17): "A plug-in variance estimate
+ * from the same evaluated sequence is insufficient justification for an
+ * 'always valid' label."
+ *
+ * The martingale argument above needs sigma^2 to be KNOWN, or at least fixed
+ * before the sequence is looked at. Estimating it from the very sequence under
+ * test makes Lambda_n a function of the data in a way the derivation does not
+ * allow: it is no longer a martingale under H0, and Ville's inequality no
+ * longer applies to it. The number that comes out may be perfectly reasonable,
+ * but it is not anytime-valid, and calling it `p_always_valid` invited exactly
+ * the behaviour the plan forbids -- "do not repeatedly inspect conventional
+ * p-values and stop at a favourable one."
+ *
+ * So the label now depends on whether the assumption actually holds:
+ *
+ *   sigma declared in advance -> `p_always_valid`, `anytime_valid: true`.
+ *                                Check it as often as the sequence grows.
+ *   sigma estimated from this
+ *   sequence                 -> `p_fixed_sample_only`, `anytime_valid: false`.
+ *                                Valid at ONE declared endpoint. Checking it
+ *                                repeatedly and stopping when it looks good
+ *                                inflates the false-positive rate, and this
+ *                                result says so on its face.
+ *
+ * The field name changes deliberately. A caller that reads `p_always_valid`
+ * and gets `undefined` has to look at what it is doing, which is the point; a
+ * caller that silently kept reading a number whose meaning had quietly
+ * narrowed would be worse off than one that breaks.
+ */
 export function alwaysValidPValue(sequence, { tau, sigma } = {}) {
   const xs = sequence.filter(Number.isFinite);
   const n = xs.length;
   if (n < 5) return { error: `too few observations (${n}) for an always-valid sequential test` };
   const mean_ = xs.reduce((s, x) => s + x, 0) / n;
-  const sigma2 = Number.isFinite(sigma) && sigma > 0 ? sigma * sigma
+
+  const sigmaDeclared = Number.isFinite(sigma) && sigma > 0;
+  const sigma2 = sigmaDeclared ? sigma * sigma
     : Math.max(1e-9, xs.reduce((s, x) => s + (x - mean_) ** 2, 0) / Math.max(1, n - 1));
   // Default prior scale: "a plausible true effect is on the order of one
   // observation's own noise" — a weakly-informative default, overridable.
@@ -196,12 +228,26 @@ export function alwaysValidPValue(sequence, { tau, sigma } = {}) {
   const denom = sigma2 + n * tau2;
   const logLambda = 0.5 * Math.log(sigma2 / denom) + (n * n * tau2 * mean_ * mean_) / (2 * sigma2 * denom);
   const p = Math.min(1, Math.exp(-logLambda));
-  return {
+
+  const base = {
     n, mean: +mean_.toFixed(4), sigma: +Math.sqrt(sigma2).toFixed(4), tau: +Math.sqrt(tau2).toFixed(4),
-    log_lambda: +logLambda.toFixed(4), p_always_valid: +p.toFixed(6),
-    note: 'Valid to check at this or any other sample size within the same growing sequence without ' +
-      "inflating the false-positive rate (Johari, Pekelis & Walsh 2022's mSPRT construction)."
+    log_lambda: +logLambda.toFixed(4),
+    variance_source: sigmaDeclared ? 'declared_in_advance' : 'plugin_from_evaluated_sequence',
+    anytime_valid: sigmaDeclared
   };
+
+  if (sigmaDeclared) {
+    return { ...base, p_always_valid: +p.toFixed(6),
+      note: 'Valid to check at this or any other sample size within the same growing sequence without ' +
+        "inflating the false-positive rate (Johari, Pekelis & Walsh 2022's mSPRT construction), because " +
+        'sigma was declared in advance rather than estimated from this sequence.' };
+  }
+  return { ...base, p_fixed_sample_only: +p.toFixed(6),
+    note: 'NOT anytime-valid. sigma was estimated from the sequence under test, so the mixture likelihood ' +
+      'ratio is not a martingale under H0 and Ville\'s inequality does not apply. Interpret this at ONE ' +
+      'declared evaluation endpoint. Repeatedly checking it as the sequence grows and stopping at a ' +
+      'favourable value inflates the false-positive rate. Supply sigma from a hold-out sample to obtain ' +
+      'an anytime-valid result.' };
 }
 
 /**
@@ -215,7 +261,8 @@ export function alwaysValidPath(sequence, opts = {}) {
   const path = [];
   for (let n = 5; n <= xs.length; n++) {
     const r = alwaysValidPValue(xs.slice(0, n), opts);
-    path.push(r.error ? null : r.p_always_valid);
+    // Either field, whichever this call was entitled to produce.
+    path.push(r.error ? null : (r.p_always_valid ?? r.p_fixed_sample_only));
   }
   return path;
 }

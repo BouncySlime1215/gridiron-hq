@@ -210,7 +210,14 @@ export async function runAudit(auditId, producer) {
     const av = alwaysValidPValue(sequence, { tau: result?.always_valid_tau, sigma: result?.always_valid_sigma });
     if (!av.error) alwaysValid = av;
   }
-  const alwaysValidSignificant = alwaysValid ? alwaysValid.p_always_valid < correctedAlpha : null;
+  // Codex correction C17: the sequential p-value is only anytime-valid when
+  // sigma was declared in advance. When it is a plug-in estimate from the
+  // evaluated sequence, the number is still reported and still gates -- an
+  // audit is sealed on first run and never re-run, so a single look is exactly
+  // the regime a fixed-sample p-value is valid in -- but it is no longer
+  // LABELLED as something it is not.
+  const alwaysValidP = alwaysValid ? (alwaysValid.p_always_valid ?? alwaysValid.p_fixed_sample_only) : null;
+  const alwaysValidSignificant = alwaysValid ? alwaysValidP < correctedAlpha : null;
 
   // require_significance now demands BOTH gates. If the producer didn't
   // supply a sequence, the always-valid gate cannot be evaluated and the
@@ -229,7 +236,7 @@ export async function runAudit(auditId, producer) {
   JSON.stringify(result?.detail ?? null),
   dataMoved ? 'data signature changed since preregistration (result kept, flagged)' : null,
   significant == null ? null : (significant ? 1 : 0),
-  alwaysValid ? alwaysValid.p_always_valid : null,
+  alwaysValidP,
   alwaysValidSignificant == null ? null : (alwaysValidSignificant ? 1 : 0),
   alwaysValid ? alwaysValid.n : null,
   auditId);
@@ -242,7 +249,11 @@ export async function runAudit(auditId, producer) {
     significance_required: !!a.require_significance,
     significant, corrected_alpha: r4(correctedAlpha),
     always_valid: alwaysValid ? {
-      p_always_valid: alwaysValid.p_always_valid, n: alwaysValid.n,
+      p_always_valid: alwaysValid.p_always_valid ?? null,
+      p_fixed_sample_only: alwaysValid.p_fixed_sample_only ?? null,
+      anytime_valid: alwaysValid.anytime_valid === true,
+      variance_source: alwaysValid.variance_source,
+      n: alwaysValid.n,
       significant: alwaysValidSignificant, sigma: alwaysValid.sigma, tau: alwaysValid.tau,
       note: alwaysValid.note
     } : (a.require_significance ? {

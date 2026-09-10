@@ -39,7 +39,8 @@ function simulateOnce(seed, trueMean) {
     const m = prefix.reduce((s, x) => s + x, 0) / n;
     if (twoSidedZP(m, n, SIGMA) < ALPHA) naiveRejected = true;
     const av = alwaysValidPValue(prefix, { sigma: SIGMA, tau: SIGMA });
-    if (!av.error && av.p_always_valid < ALPHA) alwaysValidRejected = true;
+    const avP = av.p_always_valid ?? av.p_fixed_sample_only;
+    if (!av.error && avP < ALPHA) alwaysValidRejected = true;
   }
   return { naiveRejected, alwaysValidRejected };
 }
@@ -101,7 +102,12 @@ test('output stays within [0, 1] and reports the inputs used', () => {
   withRandomSeed(99, () => { for (let i = 0; i < 40; i++) xs.push(SIGMA * randn()); });
   const result = alwaysValidPValue(xs);
   assert.equal(result.error, undefined);
-  assert.ok(result.p_always_valid >= 0 && result.p_always_valid <= 1);
+  // Codex correction C17: with no declared sigma this is a fixed-sample
+  // p-value, not an anytime-valid one, and it says so.
+  const p = result.p_always_valid ?? result.p_fixed_sample_only;
+  assert.ok(p >= 0 && p <= 1);
+  assert.equal(result.anytime_valid, false);
+  assert.equal(result.variance_source, 'plugin_from_evaluated_sequence');
   assert.equal(result.n, 40);
   assert.ok(Number.isFinite(result.sigma));
   assert.ok(Number.isFinite(result.tau));

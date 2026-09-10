@@ -33,6 +33,7 @@ import { availableLeaderboardKeys, teamStatBucket } from './nfl-rolling-leaders.
 import { availabilityDeficit } from './nfl-availability.js';
 import { teamNewsSignals } from './nfl-news-signal.js';
 import { teamEventVector } from './nfl-event-archive.js';
+import { codeIdentity } from '../platform/code-identity.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
@@ -967,19 +968,40 @@ export function trainingIteration(seasons, config = {}) {
 // once-per-audit training-provenance use, so spawning `git` on every single
 // candidate bet would be wasteful. A restart is what picks up a real code
 // change anyway, which is exactly when this should be recomputed.
+/**
+ * The identity of the code that defines a candidate-finding predicate.
+ *
+ * Codex correction C08: this used to shell out to `git ls-files` under
+ * `process.cwd()`, and three separate things were wrong with that.
+ *
+ *   1. IT DEPENDED ON GIT. A packaged install has no `.git` directory, so the
+ *      call threw there and the catch below returned null.
+ *   2. IT FAILED OPEN. A null hash meant "no provenance", and `assertRuleUnchanged`
+ *      accepted a missing hash as a pass. So the environments where the check
+ *      could not run were exactly the environments where it silently did not.
+ *   3. IT DEPENDED ON THE WORKING DIRECTORY. Launching the server from a
+ *      different directory changed -- or erased -- the identity of the model.
+ *
+ * It now uses the module-closure identity in server/platform/code-identity.js,
+ * which reads the actual source files from paths resolved off this module's own
+ * location. No git, no cwd, and it THROWS rather than returning null when a
+ * declared source file is missing: an identity that quietly means "most of the
+ * predicate" is worse than no identity, because it still looks authoritative.
+ *
+ * The closure is followed rather than listed, so editing documentation, a
+ * fantasy screen or an unrelated MLB service does not change the predicate's
+ * identity -- C08's "unrelated docs edits do not change predicate identity."
+ */
 let _trainingAuditCodeHashCache;
 function trainingAuditCodeHash() {
   if (_trainingAuditCodeHashCache !== undefined) return _trainingAuditCodeHashCache;
-  try {
-    const cwd = process.cwd();
-    const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z',
-      '--', 'server/services/nfl-replay.js', 'server/services/stats-util.js', 'server/services/nfl-policy.js'],
-      { cwd, encoding: 'utf8' }).split('\0').filter(Boolean).sort();
-    const content = createHash('sha256');
-    for (const path of files) { try { content.update(path).update('\0').update(readFileSync(resolve(cwd, path))); } catch { /* skip */ } }
-    return (_trainingAuditCodeHashCache = content.digest('hex'));
-  } catch { return (_trainingAuditCodeHashCache = null); }
+  return (_trainingAuditCodeHashCache = codeIdentity([
+    'services/nfl-replay.js', 'services/stats-util.js', 'services/nfl-policy.js'
+  ], 'nfl-candidate-finding-predicate').id);
 }
+
+/** Test-only: drop the cache so a fixture can re-measure after changing a file. */
+export function resetTrainingAuditCodeHash() { _trainingAuditCodeHashCache = undefined; }
 
 function trainingAuditDataHash(seasons) {
   const data = rows(`SELECT season, week, team, opponent, team_score, opp_score, spread, total

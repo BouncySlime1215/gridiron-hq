@@ -70,11 +70,15 @@ test('strong challenger diagnostics remain visible but cannot enter champion wei
 
 test('v7 persisted weights cannot be reused after the authority repair', () => {
   const artifact = rows('SELECT * FROM nfl_ensemble_fit_artifacts WHERE artifact_key LIKE ?', '%champion-inputs%')[0];
-  assert.match(artifact.model_version, /^nfl-ensemble-fit-v9-/);
+  // Codex corrections C04 and C07 are both methodology changes, so the fit
+  // version moved to v10. An artifact fitted under any earlier version
+  // describes a different estimator and must not be reusable, which is exactly
+  // what this test checks -- only the version string it checks against moves.
+  assert.match(artifact.model_version, /^nfl-ensemble-fit-v10-/);
   const poisoned = JSON.parse(artifact.result_json);
   poisoned.models.forEach(m => { m.residual_weight = m.challenger_only ? 1 : 0; });
   run('UPDATE nfl_ensemble_fit_artifacts SET artifact_key=?, model_version=?, result_json=? WHERE artifact_key=?',
-    artifact.artifact_key.replace('v9-residual-oof-split', 'v8-challenger-authority'),
+    artifact.artifact_key.replace('v10-aligned-opponent-window-week-split', 'v8-challenger-authority'),
     'nfl-ensemble-fit-v8-challenger-authority', JSON.stringify(poisoned), artifact.artifact_key);
   invalidateEnsembleCaches();
   assert.equal(fitEnsemble(fitOptions).models.find(m => m.id === 'roster_strength').residual_weight, 0);

@@ -59,20 +59,20 @@ Software test success alone never reaches `qualified`.
 | C01 decision identity | tested | working tree | [`slice1/`](evidence/2026-09-10/slice1/) · `test/nfl-decision-tape.test.js`, `test/nfl-decision-identity-pipeline.test.js` (32 pass) | Every run records `data_identity_status: unfrozen_live_tables` — no decision is yet reproducible from stored inputs. C11 closes that. |
 | C02 partial writes / empty-run delete | tested | working tree | [`slice1/`](evidence/2026-09-10/slice1/) · same two test files | Legacy half-written runs are invalidated by append; none exist in the live DB to exercise that path against real data. |
 | C03 populated 027 upgrade | tested | 445c878 | `test/migration-027-populated-upgrade.test.js` (10 pass) | Exercised against fixture databases only. No installation carrying real execution rows exists to upgrade — which is why this was never hit. |
-| C04 opponent strength window | open | — | — | Not yet re-verified at HEAD. |
+| C04 opponent strength window | tested | working tree | `test/ensemble-window-and-split.test.js` (8 pass) | The sparse-coverage floor is 3 eligible opponents — a stated judgement, not a measured one. |
 | C05 shopping probabilities / ranking | tested | working tree | `test/nfl-execution-edge.test.js` (20 pass) | The distribution is a no-forecast baseline implied by the market's own line. `qualified` is false everywhere; no sizing path may treat it as modelled profit. |
-| C06 test suite hermeticity | open | — | — | The local suite passes only against the developer database; see 0.3. |
-| C07 residual split leakage | open | — | — | Not yet re-verified at HEAD. |
-| C08 findings provenance | open | — | — | Confirmed: `trainingAuditCodeHash` shells to `git ls-files` under `process.cwd()`. |
-| C09 audit overview counting | open | — | — | Confirmed: `by_market` initializes `pushes` and never adds to it; coverage is min/max only. |
-| C10 preseason sparse fallback | open | — | — | Not yet re-verified at HEAD. |
+| C06 test suite hermeticity | tested | working tree | `evidence/2026-09-10/` CI-condition run: 1,433 pass / 24 skip / 0 fail | 24 fitted-model checks skip on a clean checkout with a named disposition each; they run and pass against the populated database. The hosted Node 22 job has not been run. |
+| C07 residual split leakage | tested | working tree | `test/ensemble-window-and-split.test.js` (8 pass) | The fit/score boundary is now week-complete, but it remains a single chronological split, not a rolling nested walk-forward. |
+| C08 findings provenance | tested | working tree | `test/nfl-candidate-findings.test.js` (20 pass) | Rule identity is git-free and cwd-free and fails closed. The T-60 approved set starting empty is enforced by there being no promoted findings, not by a check. |
+| C09 audit overview counting | tested | working tree | `test/audit-overview-counting.test.js` (8 pass, synthetic packets) | Run 32's spread record has not been independently reproduced; that needs the stored run. |
+| C10 preseason sparse fallback | tested | working tree | `test/preseason-blend-cutoff.test.js` (5 pass) | The prespecified fallback is a declared prior, not an estimate. Any forecast resting on it is labelled insufficient evidence. |
 | C11 frozen T-60 packet | tested | 1bbe43d | `test/nfl-t60-packet.test.js` (24 pass) | Quote scoping, period and receipt clock are corrected and the packet carries actual rows. The persisted packet artifact and forecast consumption remain open; no forecast reads the packet yet. |
-| C12 sequential capacity path | open | — | — | Confirmed: `cutoffBatches`/`sequentialCapacity` have test callers only, no production caller. |
+| C12 sequential capacity path | connected | working tree | `test/t60-runner.test.js` (11 pass), `test/nfl-t60-protocol.test.js` (14 pass) | Registered on the live scheduler tier but never yet run against a real slate — nothing is `observed`. |
 | C13 closing-line grading | tested | 1bbe43d | `test/nfl-execution-clv.test.js` (18 pass) | Declared bookmaker set defaults to every book in the tape; no independent reference set has been chosen. |
 | C14 price CLV sign | tested | 1bbe43d | `test/nfl-execution-clv.test.js` (18 pass) | Done in slice 2 rather than slice 4: same function, same sign convention as C13. |
 | C15 policy gate at refresh | tested | working tree | `test/nfl-execution-decision.test.js` (16 pass) | A changed handicap refuses outright, because no stored distribution can answer the new number. That is correct today and becomes a real re-evaluation once a per-game distribution is frozen. |
-| C16 family report scope | open | — | — | Confirmed: `featureContracts()` drops `challenger_only`. |
-| C17 sequential inference claims | open | — | — | Confirmed: `alwaysValidPValue` still consumed by `decay-watch.js`. |
+| C16 family report scope | tested | 8d950b0 | `test/family-contribution-scoring.test.js` (7 pass) | Conditional and three-state scoring corrected; runtime cost is still inferred rather than measured, and refit-vs-removal is not yet distinguished. |
+| C17 sequential inference claims | tested | working tree | `test/always-valid-significance.test.js`, `test/audit-registry-always-valid.test.js` (10 pass) | Callers that supply no sigma now get a fixed-sample p-value that says so. No confidence-sequence method was adopted. |
 
 ### 0.2 Slices
 
@@ -82,8 +82,8 @@ Software test success alone never reaches `qualified`.
 | 1 Protect evidence | tested | `test/nfl-decision-tape.test.js`, `test/nfl-decision-identity-pipeline.test.js`, `test/migration-027-populated-upgrade.test.js` (42 pass) | No real installation with execution rows has been upgraded; no decision is yet reproducible from stored inputs. |
 | 2 Correct clocks and contracts | tested | `test/nfl-t60-packet.test.js`, `test/nfl-execution-clv.test.js`, `test/spread-probabilities.test.js` (57 pass) | Existing quote history can no longer support a prospective claim, by design. No forecast consumes the packet yet. |
 | 3 Correct probabilities and authority | tested | `test/nfl-execution-edge.test.js`, `test/nfl-execution-decision.test.js` (36 pass) | Probabilities are a no-forecast baseline; nothing is qualified. |
-| 4 Repair learning and reporting | open | — | — |
-| 5 Connect operation | open | — | — |
+| 4 Repair learning and reporting | tested | C04/C07/C08/C09/C10/C14/C16/C17 closed; C06 measured under CI conditions | Fitted-model checks that need real history skip with a named disposition rather than being deleted. |
+| 5 Connect operation | connected | `test/t60-runner.test.js` (11 pass); registered as `nfl_t60_runner` on the live tier | No real slate has run. The controlled end-to-end lifecycle fixture in §7.4 is not yet built, and no permitted paper observation exists. |
 | 6 Freeze simple comparison | open | — | — |
 | 7 Adapt requested families | open | — | — |
 | 8 Test the combination | open | — | — |

@@ -714,6 +714,14 @@ async function refreshNflDecisionLedger() {
  * the underlying data actually changes — a schedule shifts hourly during a
  * slate, box scores only settle after games end, and NFL lines move all week.
  */
+/**
+ * The experiment this runner's observations belong to. Declared here rather
+ * than generated per pass, because a prospective observation's identity has to
+ * be stable across restarts -- an experiment id that changed on every boot
+ * would make every pass look like a new experiment with no history.
+ */
+const T60_EXPERIMENT_ID = 'nfl-spread-t60-prospective-v1';
+
 export const JOBS = {
   mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, tier: 'live', label: 'MLB schedule and results' },
   mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'MLB player game logs' },
@@ -759,6 +767,35 @@ export const JOBS = {
   // re-log an unchanged comparison.
   nfl_pick_watch: { run: refreshPickWatch, maxAgeMinutes: 5, tier: 'live',
     label: 'Re-shop every open pick against the live market and log the result (monitoring only, see nfl-pick-watch.js)' },
+  /**
+   * The durable T-60 operation (Codex plan section 7, correction C12).
+   *
+   * The correction's finding was that `cutoffBatches`/`sequentialCapacity` had
+   * no production caller at all -- "a GET packet route is not a scheduled
+   * collector." This is the caller. It runs on the LIVE tier because a cutoff
+   * is a moment: a pass that arrives thirty minutes late has missed every
+   * cutoff in between, and the runner will correctly record those as missed
+   * prospective observations rather than capture them late.
+   *
+   * It reads the schedule, opens an observation ahead of each cutoff, freezes
+   * the packet when the cutoff arrives, and marks anything still uncaptured
+   * afterwards as missed. It does NOT place bets and does not grant any
+   * forecast authority; it records what was knowable and when.
+   */
+  nfl_t60_runner: {
+    run: async () => {
+      const [m, { currentNflWeek }] = await Promise.all([
+        import('../betting/nfl/strategy/t60-runner.js'),
+        import('./weekly-learning.js')
+      ]);
+      const { season, week } = currentNflWeek();
+      if (!Number.isFinite(season) || !Number.isFinite(week)) {
+        return { skipped: 'no current NFL week resolved' };
+      }
+      return m.runT60Pass({ season, week, experimentId: T60_EXPERIMENT_ID });
+    },
+    maxAgeMinutes: 5, tier: 'live',
+    label: 'T-60 prospective capture: open, freeze and account for every scheduled game\'s cutoff' },
   // Polymarket's own published limits (Gamma ~400 req/s, CLOB ~900 req/s —
   // docs.polymarket.com/api-reference/rate-limits) leave enormous headroom
   // over a poll this infrequent; tightened from 15 to 3 minutes so a real
@@ -1016,7 +1053,7 @@ export function startScheduler({
     'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'nfl_forward_settle',
     'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
     'nfl_book_feeds_fast', 'nfl_book_feeds_slow', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free',
-    'polymarket_line_watch', 'beat_the_close', 'nfl_pick_watch'];
+    'polymarket_line_watch', 'beat_the_close', 'nfl_pick_watch', 'nfl_t60_runner'];
   setTimeout(() => {
     (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
   }, bootDelayMs);

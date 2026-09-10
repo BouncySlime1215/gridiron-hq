@@ -81,25 +81,54 @@ export const SLOT_STATES = Object.freeze(['reserved', 'committed', 'released']);
  * Run one week's cutoff batches through the sequential capacity policy.
  *
  * `batches` come from `cutoffBatches`. Each batch's `candidates` are the
- * eligible candidates known AT that batch's cutoff — nothing later. `outcomes`
- * optionally maps a candidate id to 'committed' or 'released', standing in
- * for what the refresh/acceptance step later reported.
+ * eligible candidates known AT that batch's cutoff -- nothing later.
  *
- * Returns every decision in chronological order, including the ones excluded
- * for capacity, because "preserve exclusions after capacity is reached" is
- * the whole reason a sequential policy can be evaluated at all.
+ * `outcomes` maps a candidate id to what later became of its slot. Codex
+ * correction C12 changed its shape, and the change is the whole point:
+ *
+ *     BEFORE   outcomes[id] = 'released'
+ *     AFTER    outcomes[id] = { state: 'released', at: '2026-09-13T12:10:00Z' }
+ *
+ * A final state with no time attached is not enough to decide anything. The
+ * audit's counterexample: with one weekly slot, A reserves at 12:00 and is
+ * released at 12:10. B's batch runs at 12:05. Handed A's FINAL state of
+ * `released`, the old code saw a free slot and let B in -- but at 12:05 that
+ * slot was still held, and no operator standing at 12:05 could have known it
+ * would come free five minutes later. That is a look-ahead: a later fact
+ * changing an earlier decision.
+ *
+ * A slot now returns to the pool only for batches whose cutoff is at or after
+ * the release instant. A plain string outcome is still accepted for backward
+ * compatibility and is treated as a release of UNKNOWN time, which is the
+ * conservative reading: the slot stays held for every subsequent batch, since
+ * "we do not know when it came free" must never mean "it was always free".
  */
 export function sequentialCapacity(batches, { weeklySlots = 5, outcomes = {} } = {}) {
   const decisions = [];
   const slots = [];
   let released = 0;
 
+  /** The declared outcome for a candidate, normalized to { state, at }. */
+  const outcomeFor = id => {
+    const raw = outcomes[id];
+    if (raw == null) return { state: 'reserved', at: null };
+    if (typeof raw === 'string') {
+      return { state: SLOT_STATES.includes(raw) ? raw : 'reserved', at: null, time_unknown: true };
+    }
+    const state = SLOT_STATES.includes(raw.state) ? raw.state : 'reserved';
+    return { state, at: raw.at ?? null, time_unknown: state === 'released' && raw.at == null };
+  };
+
   for (const batch of batches ?? []) {
-    // Capacity available to THIS batch: the weekly cap minus slots still
-    // reserved or already committed. A slot released by an earlier batch
-    // returns to the pool here — for LATER batches only, never retroactively
-    // to the earlier batch that was already excluded.
-    const held = slots.filter(s => s.state === 'reserved' || s.state === 'committed').length;
+    // Capacity available to THIS batch, judged at THIS batch's cutoff. A slot
+    // counts as held unless it was released at or before this cutoff -- a
+    // release that happens later has not happened yet.
+    const held = slots.filter(slot => {
+      if (slot.state === 'committed' || slot.state === 'reserved') return true;
+      if (slot.state !== 'released') return false;
+      if (slot.released_at == null) return true; // unknown release time: still held
+      return slot.released_at > batch.cutoff_at;
+    }).length;
     let available = Math.max(0, weeklySlots - held);
 
     // Rank only within the batch. Candidates in a later batch do not exist
@@ -110,13 +139,17 @@ export function sequentialCapacity(batches, { weeklySlots = 5, outcomes = {} } =
 
     for (const candidate of ranked) {
       if (available > 0) {
-        const outcome = outcomes[candidate.id] ?? 'reserved';
-        const state = SLOT_STATES.includes(outcome) ? outcome : 'reserved';
-        slots.push({ id: candidate.id, cutoff_at: batch.cutoff_at, state });
-        if (state === 'released') released++;
+        const outcome = outcomeFor(candidate.id);
+        slots.push({ id: candidate.id, cutoff_at: batch.cutoff_at, state: outcome.state,
+          reserved_at: batch.cutoff_at,
+          released_at: outcome.state === 'released' ? outcome.at : null });
+        if (outcome.state === 'released') released++;
         available -= 1;
         decisions.push({ ...candidate, cutoff_at: batch.cutoff_at, selected: true,
-          slot_state: state, exclusion_reason: null });
+          slot_state: outcome.state,
+          slot_released_at: outcome.state === 'released' ? outcome.at : null,
+          release_time_unknown: outcome.time_unknown === true ? true : undefined,
+          exclusion_reason: null });
       } else {
         decisions.push({ ...candidate, cutoff_at: batch.cutoff_at, selected: false,
           slot_state: null, exclusion_reason: 'weekly_capacity_exhausted_at_this_cutoff' });

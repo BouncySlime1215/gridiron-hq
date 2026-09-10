@@ -48,36 +48,109 @@ export function auditOverview(runId) {
   // never a failure of the run itself.
   let weeksWithFaultLog = 0;
 
+  // Codex correction C09. Four separate counting defects, all here:
+  //
+  //   1. `pushes` was initialised and never added to, so every market reported
+  //      zero pushes however many actually occurred.
+  //   2. A week whose result JSON failed to parse was skipped SILENTLY, so a
+  //      corrupt week shrank the denominator invisibly.
+  //   3. A week with a betting section but zero bets never entered `bySeason`,
+  //      so zero-bet weeks vanished from coverage entirely -- and they are
+  //      exactly the weeks a weekly economic average must include.
+  //   4. Coverage was reported as min-max, which cannot distinguish "weeks 5
+  //      through 18" from "weeks 5 through 18 with 9 and 12 missing".
+  //
+  // Outcomes are aggregated from the PICKS, which are the authoritative
+  // pick-level record, rather than from the per-week `by_market` summary. The
+  // summary is a claim; the picks are the fact, and the two are reconciled
+  // below so a disagreement is reported instead of silently preferred.
+  const corruptWeeks = [];
+  const presentWeeks = new Map();
+
   for (const w of weeks) {
     if (w.fault_json) weeksWithFaultLog++;
     let parsed;
-    try { parsed = JSON.parse(w.result_json); } catch { continue; }
+    try {
+      parsed = JSON.parse(w.result_json);
+    } catch (error) {
+      corruptWeeks.push({ season: w.season, week: w.week, ordinal: w.ordinal, reason: error.message });
+      continue;
+    }
     const betting = parsed?.betting;
-    if (!betting) continue;
 
-    const coverage = bySeason.get(w.season) ?? { min_week: w.week, max_week: w.week };
+    // Recorded BEFORE the betting check: a week that ran and bet nothing is a
+    // real, complete week with a zero result, not a gap.
+    const seasonWeeks = presentWeeks.get(w.season) ?? new Set();
+    seasonWeeks.add(w.week);
+    presentWeeks.set(w.season, seasonWeeks);
+
+    const coverage = bySeason.get(w.season) ?? { min_week: w.week, max_week: w.week, weeks: new Set() };
     coverage.min_week = Math.min(coverage.min_week, w.week);
     coverage.max_week = Math.max(coverage.max_week, w.week);
+    coverage.weeks.add(w.week);
     bySeason.set(w.season, coverage);
 
+    if (!betting) continue;
+
     for (const [market, m] of Object.entries(betting.metrics?.by_market ?? {})) {
-      const t = byMarket[market] ??= { bets: 0, wins: 0, losses: 0, pushes: 0, units: 0 };
-      t.bets += m.bets ?? 0; t.wins += m.wins ?? 0; t.losses += m.losses ?? 0; t.units += m.units ?? 0;
+      const t = byMarket[market] ??= { bets: 0, wins: 0, losses: 0, pushes: 0, units: 0,
+        summary_bets: 0, summary_units: 0 };
+      // The per-week summary, kept only to reconcile against the picks.
+      t.summary_bets += m.bets ?? 0;
+      t.summary_units += m.units ?? 0;
     }
     for (const pick of betting.picks ?? []) {
-      allBets.push({ season: w.season, week: w.week, market: pick.market, result: pick.result, units: pick.units ?? 0 });
+      const market = pick.market;
+      const t = byMarket[market] ??= { bets: 0, wins: 0, losses: 0, pushes: 0, units: 0,
+        summary_bets: 0, summary_units: 0 };
+      t.bets += 1;
+      // Explicit unknown/void states. A missing result is NOT a loss and a
+      // missing unit figure is NOT zero: both are unknowns, and folding them
+      // into a real outcome is how a denominator quietly improves.
+      if (pick.result === 'won') t.wins += 1;
+      else if (pick.result === 'lost') t.losses += 1;
+      else if (pick.result === 'push') t.pushes += 1;
+      else if (pick.result === 'void') t.voids = (t.voids ?? 0) + 1;
+      else t.unknown_results = (t.unknown_results ?? 0) + 1;
+      if (pick.units == null) t.missing_units = (t.missing_units ?? 0) + 1;
+      else t.units += pick.units;
+
+      allBets.push({ season: w.season, week: w.week, market, result: pick.result,
+        units: pick.units ?? 0, units_known: pick.units != null });
     }
   }
 
   for (const market of Object.keys(byMarket)) {
     const t = byMarket[market];
+    // Win rate excludes pushes and voids from its denominator, which is what
+    // "win rate" means for a bet that can return the stake.
     t.win_rate = t.wins + t.losses ? r2(t.wins / (t.wins + t.losses)) : null;
     t.roi = t.bets ? r2(t.units / t.bets) : null;
+    // Reconciliation between the authoritative pick-level count and the
+    // per-week summary the run also wrote. A mismatch is reported, never
+    // resolved silently in favour of whichever number is nearer to hand.
+    t.summary_reconciles = t.summary_bets === t.bets
+      && Math.abs(t.summary_units - t.units) < 1e-6;
+    t.summary_units = r2(t.summary_units);
     t.units = r2(t.units);
   }
 
+  // Coverage names the exact weeks present and the exact weeks missing inside
+  // the observed span. `5-18` cannot distinguish a complete cohort from one
+  // with holes in it, and a hole is precisely what a weekly economic average
+  // needs to know about.
   const seasonCoverage = [...bySeason.entries()].sort((a, b) => a[0] - b[0])
-    .map(([season, c]) => ({ season, weeks: `${c.min_week}-${c.max_week}` }));
+    .map(([season, c]) => {
+      const expected = [];
+      for (let week = c.min_week; week <= c.max_week; week++) expected.push(week);
+      const missing = expected.filter(week => !c.weeks.has(week));
+      return { season,
+        weeks: `${c.min_week}-${c.max_week}`,
+        weeks_present: c.weeks.size,
+        weeks_expected_in_span: expected.length,
+        missing_weeks: missing,
+        complete: missing.length === 0 };
+    });
   const earlySeasonTested = seasonCoverage.some(c => Number(c.weeks.split('-')[0]) <= 4);
 
   const spreadBets = allBets.filter(b => b.market === 'spread');
@@ -90,6 +163,10 @@ export function auditOverview(runId) {
     run_id: runId, status: runRow.status, label: runRow.label, created_at: runRow.created_at,
     weeks_sealed: weeks.length, weeks_with_fault_log: weeksWithFaultLog,
     season_coverage: seasonCoverage,
+    // Codex correction C09: a week whose result JSON will not parse used to be
+    // skipped in silence, shrinking the denominator invisibly. It is now named.
+    corrupt_weeks: corruptWeeks,
+    coverage_complete: seasonCoverage.every(s => s.complete) && corruptWeeks.length === 0,
     early_season_note: earlySeasonTested
       ? 'This run includes at least one season starting at week 4 or earlier.'
       : 'This run does NOT test weeks 1-4 of any season. The early-season preseason/in-season Bayesian blend ' +

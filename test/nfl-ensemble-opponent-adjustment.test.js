@@ -81,6 +81,16 @@ run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,team_sc
   VALUES (2024,1,'SUBJ_B','STRONG1',1,-2,44,27,20)`);
 run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,team_score,opp_score)
   VALUES (2024,2,'SUBJ_B','STRONG2',1,-2,44,27,20)`);
+// A third meeting each. Codex correction C04 defines an explicit
+// sparse-coverage floor: below three eligible opponents the schedule is too
+// thin to say anything about strength faced, and the component falls back to
+// the league average rather than averaging one or two games into a confident
+// adjustment. A real team at week 5 has played four; this fixture previously
+// gave each subject two, which is below any honest threshold.
+run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,team_score,opp_score)
+  VALUES (2024,3,'SUBJ_A','WEAK1',1,-2,44,27,20)`);
+run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,team_score,opp_score)
+  VALUES (2024,3,'SUBJ_B','STRONG1',1,-2,44,27,20)`);
 for (let week = 1; week <= 4; week++) {
   for (let pair = 0; pair < 4; pair++) {
     const h = FILLER_TEAMS[pair], a = FILLER_TEAMS[7 - pair];
@@ -116,4 +126,21 @@ test('opp_adjusted falls back gracefully (no crash, relative-to-league) when a t
   const comp = line.models?.find?.(m => m.id === 'opp_adjusted');
   if (line.error) return; // acceptable if week 1 alone doesn't clear the history floor
   assert.ok(comp === undefined || comp.margin === null || Number.isFinite(comp.margin));
+});
+
+test('C04: below the sparse-coverage floor the adjustment falls back instead of guessing', async () => {
+  // SUBJ_A and SUBJ_B each have three eligible opponents at week 5, which
+  // clears the floor. At week 3 they have only one apiece — genuinely too
+  // little to characterise a schedule — and the component must then read as
+  // league-relative rather than as a confident adjustment built from one game.
+  const { __testables } = await import('../server/services/nfl-ensemble.js');
+  const hist = [
+    { season: 2024, week: 1, home: 'SUBJ_A', away: 'WEAK1' },
+    { season: 2024, week: 2, home: 'SUBJ_A', away: 'WEAK2' },
+    { season: 2024, week: 3, home: 'SUBJ_A', away: 'WEAK1' }
+  ];
+  const atWeek2 = __testables.scheduleFaced(hist, { season: 2024, week: 2 });
+  const atWeek5 = __testables.scheduleFaced(hist, { season: 2024, week: 5 });
+  assert.equal((atWeek2.get('SUBJ_A') ?? []).length, 1, 'one opponent by week 2');
+  assert.equal((atWeek5.get('SUBJ_A') ?? []).length, 3, 'three by week 5, which clears the floor');
 });

@@ -89,23 +89,37 @@ test('a PUSH is excluded from the Brier score rather than graded as a failure to
   assert.equal(score.predicted_pushes, 0.08,
     'the push is still counted where it belongs — against the push probability, not the cover probability');
 
-  // Scored as a loss it would have cost (0.9 - 0)^2 = 0.81, the single worst
-  // possible contribution, for an outcome the model separately called.
+  // Scored as a loss the push would have cost (0.9 - 0)^2 = 0.81, the single
+  // worst possible contribution, for an outcome the model separately called.
+  //
+  // CORRECTED 2026-09-10 (Codex correction C16): the decided game's own score
+  // is now CONDITIONAL on the game being decided, which is the question this
+  // denominator asks. With a 0.02 push mass the conditional cover probability
+  // is 0.9 / 0.98 = 0.918367, so a failure to cover scores 0.918367^2 = 0.843,
+  // not 0.81. The old figure scored the UNCONDITIONAL probability against a
+  // decided label, which quietly penalised the model for push mass it had
+  // separately and correctly assigned.
   const decided = decision({ week: 2, marketMargin: 3, actualMargin: 2, coverProb: 0.9 });
   const both = scoreOver(mapOf([push, decided]), [gameKey(push), gameKey(decided)]);
   assert.equal(both.cover_scored, 1);
-  assert.equal(both.cover_brier, 0.81, 'only the decided game contributes, and it contributes its own error');
+  assert.equal(both.cover_brier, 0.843, 'only the decided game contributes, and it contributes its own error');
+  assert.equal(both.cover_brier_legacy_unconditional_vs_decided, 0.81,
+    'and the number the previous report published is preserved, so it can be reconciled');
 });
 
 test('cover probability is reconciled to the home side, not assumed to match the backed side', () => {
   // Home is favoured by 3 and wins by 7: the home side covered. A 0.8 home
   // cover probability was mostly right, and must score as mostly right.
+  // Conditional on the game being decided (Codex correction C16): with a 0.02
+  // push mass, 0.8 / 0.98 = 0.816327, so covering scores (1 - 0.816327)^2 =
+  // 0.0337 and failing scores 0.816327^2 = 0.666.
   const covered = decision({ marketMargin: 3, actualMargin: 7, coverProb: 0.8 });
-  assert.equal(scoreOver(mapOf([covered]), [gameKey(covered)]).cover_brier, 0.04);
+  assert.equal(scoreOver(mapOf([covered]), [gameKey(covered)]).cover_brier, 0.034);
+  assert.equal(scoreOver(mapOf([covered]), [gameKey(covered)]).cover_brier_legacy_unconditional_vs_decided, 0.04);
 
   // Same forecast, home fails to cover: the same 0.8 is now mostly wrong.
   const failed = decision({ marketMargin: 3, actualMargin: 1, coverProb: 0.8 });
-  assert.equal(scoreOver(mapOf([failed]), [gameKey(failed)]).cover_brier, 0.64);
+  assert.equal(scoreOver(mapOf([failed]), [gameKey(failed)]).cover_brier, 0.666);
 });
 
 test('margin error is reported against the market error on the SAME games', () => {

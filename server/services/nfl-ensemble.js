@@ -505,16 +505,22 @@ const MODELS = [
       // A team that faced tougher-than-average defenses (lower def_epa allowed
       // = better defense) has its raw offensive EPA adjusted UP relative to a
       // team with an easier schedule, and symmetrically for defense.
+      // Codex correction C04: below MIN_OPPONENTS_FOR_ADJUSTMENT the schedule is
+      // too thin to say anything about strength faced, and the component falls
+      // back to the league average -- which is the same as making no adjustment
+      // at all, stated explicitly rather than arrived at by averaging one game.
       const adjOff = t => {
         const f = c.feat.get(t); if (!f || f.off_epa == null) return null;
         const opponents = opponentsOf(t).filter(o => c.feat.get(o).def_epa != null);
-        const avgOppDef = opponents.length ? avg(opponents.map(o => c.feat.get(o).def_epa)) : leagueDef;
+        const avgOppDef = opponents.length >= MIN_OPPONENTS_FOR_ADJUSTMENT
+          ? avg(opponents.map(o => c.feat.get(o).def_epa)) : leagueDef;
         return (f.off_epa - league) - (avgOppDef - leagueDef);
       };
       const adjDef = t => {
         const f = c.feat.get(t); if (!f || f.def_epa == null) return null;
         const opponents = opponentsOf(t).filter(o => c.feat.get(o).off_epa != null);
-        const avgOppOff = opponents.length ? avg(opponents.map(o => c.feat.get(o).off_epa)) : league;
+        const avgOppOff = opponents.length >= MIN_OPPONENTS_FOR_ADJUSTMENT
+          ? avg(opponents.map(o => c.feat.get(o).off_epa)) : league;
         return (f.def_epa - leagueDef) - (avgOppOff - league);
       };
       const homeOff = adjOff(c.home), homeDef = adjDef(c.home);
@@ -696,12 +702,81 @@ function marketRegression(hist) {
  * silently reducing to unadjusted net EPA the way it did before the Codex
  * audit's M13 finding.
  */
-function scheduleFaced(hist) {
+function scheduleFaced(hist, { season, week } = {}) {
   const m = new Map();
   const add = (t, opp) => { if (!m.has(t)) m.set(t, []); m.get(t).push(opp); };
-  for (const g of hist) { add(g.home, g.away); add(g.away, g.home); }
+
+  // Codex correction C04: this used to consume EVERY game in `hist`, while the
+  // EPA features it is adjusting come from `featureAggregates`, which spans
+  // only the current season's earlier weeks plus the immediately previous one.
+  // Opponent EXPOSURE therefore ran over a decade while opponent QUALITY ran
+  // over two seasons, and the adjustment mixed them.
+  //
+  // The audit measured what that costs: adding 2016 schedule rows moved the
+  // isolated 2024 component from -23.400 to +16.714 with the 2024 features
+  // completely unchanged. A team's 2016 opponents were being counted as
+  // exposure, then priced with 2024 defensive efficiency.
+  //
+  // The window below is the SAME one featureAggregates uses. Both must move
+  // together; narrowing only one of them reintroduces the mismatch pointing
+  // the other way.
+  const eligible = Number.isFinite(season) && Number.isFinite(week)
+    ? hist.filter(g => (g.season === season ? g.week < week : g.season === season - 1))
+    : hist;
+  for (const g of eligible) { add(g.home, g.away); add(g.away, g.home); }
   return m;
 }
+
+/**
+ * How much schedule a team actually has inside the eligible window.
+ *
+ * C04 asks for the sparse-coverage fallback to be DEFINED and REPORTED rather
+ * than left implicit. Week 1 of a season with no prior-season rows genuinely
+ * has zero opponents, and the honest answer there is the league average, not a
+ * confident adjustment computed from one game.
+ */
+const MIN_OPPONENTS_FOR_ADJUSTMENT = 3;
+
+
+const RESIDUAL_FIT_FRACTION = 0.7;
+
+/**
+ * Where to cut the residual sequence, on a COMPLETE-WEEK boundary.
+ *
+ * Codex correction C07: `Math.floor(length * 0.7)` cuts at a row index, which
+ * lands in the middle of a Sunday slate roughly six times out of seven. The
+ * games either side of that cut share a week of common information -- the same
+ * market state, the same injury cycle, the same weather -- so a score block
+ * containing half of a week whose other half trained the slope is not out of
+ * fold in any meaningful sense.
+ *
+ * This walks forward to the first index at which the week CHANGES, so every
+ * week lands entirely on one side. It returns 0 -- no split at all -- when
+ * there is no honest boundary to find, rather than inventing one: a single
+ * week's worth of rows cannot be divided into a fit block and an out-of-fold
+ * score block, and pretending otherwise is the defect.
+ */
+export function completeWeekSplit(weekKeys) {
+  if (weekKeys.length < 2) return 0;
+  const target = Math.floor(weekKeys.length * RESIDUAL_FIT_FRACTION);
+  let index = target;
+  while (index < weekKeys.length && weekKeys[index] === weekKeys[target]) index++;
+  if (index >= weekKeys.length) {
+    // The target week runs to the end of the sequence: fall back to the start
+    // of that week instead, so the score block is never empty.
+    index = target;
+    while (index > 0 && weekKeys[index - 1] === weekKeys[target]) index--;
+  }
+  return index > 0 && index < weekKeys.length ? index : 0;
+}
+
+/**
+ * Internals exposed for the chronology tests that Codex corrections C04 and
+ * C07 close with. They are pure functions over their arguments; exporting them
+ * lets a fixture assert the window and the split boundary directly, rather
+ * than inferring them from a fitted artifact.
+ */
+export const __testables = { scheduleFaced, completeWeekSplit };
 
 /** Builds the context object every model reads, from games strictly earlier. */
 const _sharedContextCache = new Map();
@@ -713,7 +788,7 @@ function sharedContext(g, hist) {
   for (const [t, a] of agg) recent.set(t, a.margins);
   const shared = {
     hfa: 2 * (avg(hist.map(x => (x.home_score - x.away_score) / 2)) ?? 1.1),
-    agg, recent, schedule: scheduleFaced(hist),
+    agg, recent, schedule: scheduleFaced(hist, { season: g.season, week: g.week }),
     massey: massey(hist), colley: colley(hist), melo: meloRatings(hist), dynamic: dynamicStrength(hist),
     feat: featureAggregates(g.season, g.week),
     // Injury availability. The forecasting model has never had this — seventeen
@@ -942,7 +1017,7 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // keep the only error that matters after a market quote exists: did its
   // departure from the market explain the eventual market residual?  These are
   // still walk-forward predictions, and are cut off at the requested game.
-  const residuals = Object.fromEntries(MODELS.map(m => [m.id, { signal: [], actual: [] }]));
+  const residuals = Object.fromEntries(MODELS.map(m => [m.id, { signal: [], actual: [], week: [] }]));
   // Weight fitting is part of the model, not part of grading. A historical
   // prediction must therefore derive its weights only from games that were final
   // before that prediction. The old global fit used 2022-2025 outcomes even while
@@ -1001,6 +1076,13 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
         if (p?.margin != null && marketMargin != null && Number.isFinite(p.margin)) {
           residuals[m.id].signal.push(p.margin - marketMargin);
           residuals[m.id].actual.push(actualMargin - marketMargin);
+          // Codex correction C07: the week each residual belongs to, so the
+          // fit/score boundary can be placed BETWEEN weeks. A row-index split
+          // cuts a Sunday slate in half roughly six times out of seven, and
+          // the games either side of that cut share a week of common
+          // information -- the same market state, the same injury cycle, the
+          // same weather -- so the "out-of-fold" block was not out of fold.
+          residuals[m.id].week.push(key);
         }
         if (rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`) && p?.total != null && Number.isFinite(p.total)) {
           errs[m.id].total.push((p.total - actualTotal) ** 2);
@@ -1027,13 +1109,14 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // (that would mean refitting the slope before every scored game) -- a
   // bounded, real fix for "fits and grades on the same rows," not a claim of
   // maximal statistical rigor.
-  const RESIDUAL_FIT_FRACTION = 0.7;
   const scored = MODELS.map(m => {
     const mm = errs[m.id].margin, tt = errs[m.id].total;
     const rs = residuals[m.id];
-    const splitIdx = Math.floor(rs.signal.length * RESIDUAL_FIT_FRACTION);
+    const splitIdx = completeWeekSplit(rs.week);
     const fitSignal = rs.signal.slice(0, splitIdx), fitActual = rs.actual.slice(0, splitIdx);
     const scoreSignal = rs.signal.slice(splitIdx), scoreActual = rs.actual.slice(splitIdx);
+    const fitWeeks = new Set(rs.week.slice(0, splitIdx));
+    const scoreWeeks = new Set(rs.week.slice(splitIdx));
     const denominator = fitSignal.reduce((s, x) => s + x * x, 0);
     // No intercept: zero incremental signal must remain exactly the market.
     const slope = denominator > 0 ? fitSignal.reduce((s, x, i) => s + x * fitActual[i], 0) / denominator : 0;
@@ -1061,7 +1144,12 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
       // The size of the OUT-OF-FOLD score block, not the total pool -- this is
       // the sample size the gate below actually requires 250 of.
       residual_n: scoreActual.length,
-      residual_fit_n: fitActual.length
+      residual_fit_n: fitActual.length,
+      // The membership manifest C07 asks to be stored: which complete weeks
+      // trained the slope, and which graded it. No week may appear in both.
+      residual_fit_weeks: fitWeeks.size,
+      residual_score_weeks: scoreWeeks.size,
+      residual_week_overlap: [...scoreWeeks].filter(w => fitWeeks.has(w)).length
     };
   });
 

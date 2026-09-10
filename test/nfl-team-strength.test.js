@@ -22,6 +22,21 @@ import { featureContracts } from '../server/services/model-governance.js';
 // path is unchanged. If this ever fails, the challenger has started editing the
 // champion's training data, and every historical GBM number in the docs is
 // describing a model that no longer exists.
+
+/*
+ * Codex correction C06: "The full test suite still depends on private
+ * development history." The checks below are FITTED-MODEL validations — they
+ * assert that a model trained on real data behaves sensibly — so they name the
+ * history they need and report an explicit disposition when it is absent,
+ * rather than failing with a bare assertion on a clean checkout. They are not
+ * deleted and not silently skipped; see test/helpers/requires-real-history.js
+ * for why a synthetic fixture is not an honest substitute here.
+ */
+const { rows: __rows } = await import('../server/db/index.js');
+const { realHistoryDisposition } = await import('./helpers/requires-real-history.js');
+const NEEDS_HISTORY = realHistoryDisposition(__rows, ['nfl_player_week_features', 'nfl_team_week_features'],
+  'These checks assert that a team-strength panel built from real multi-season usage covers all 32 franchises, resolves aliases, and keeps market-derived columns out.');
+
 test('buildGbmDataset without extraFeatures is byte-identical to the champion panel', () => {
   const a = buildGbmDataset({ fromSeason: 2018, throughSeason: 2025 });
   const b = buildGbmDataset({ fromSeason: 2018, throughSeason: 2025, extraFeatures: null });
@@ -59,14 +74,14 @@ test('a challenger hook returning a wrong-length row drops the game rather than 
 
 /* ------------------------------------------------------------- no look-ahead */
 
-test('every evaluated season resolves teams from a pre-Week-1 source, not season-T usage', () => {
+test('every evaluated season resolves teams from a pre-Week-1 source, not season-T usage', { skip: NEEDS_HISTORY }, () => {
   for (const c of teamStrengthCoverage()) {
     assert.ok(['depth', 'roster_snapshot'].includes(c.roster_source),
       `${c.season} fell back to '${c.roster_source}', which reads where players actually played`);
   }
 });
 
-test('no market-derived column is exposed to the market model', () => {
+test('no market-derived column is exposed to the market model', { skip: NEEDS_HISTORY }, () => {
   // The implied-total effect is the one place the offseason model touched market
   // data and it failed (0.995, CI 0.951-1.044). Re-feeding it to a model whose
   // inputs already include the spread and the total would be circular.
@@ -78,7 +93,7 @@ test('no market-derived column is exposed to the market model', () => {
   assert.deepEqual(Object.keys(row).sort(), ['season', 'team', ...TEAM_STRENGTH_KEYS].sort());
 });
 
-test('the preseason projection column is absent exactly where no prior-trained fit exists', () => {
+test('the preseason projection column is absent exactly where no prior-trained fit exists', { skip: NEEDS_HISTORY }, () => {
   const byYear = new Map(teamStrengthCoverage().map(c => [c.season, c]));
   // preseason-model.js fits on graded seasons from 2022 onward, so 2021 and 2022
   // have no projection-backed column at all. Asserting the gap rather than
@@ -93,7 +108,7 @@ test('the preseason projection column is absent exactly where no prior-trained f
 
 /* ------------------------------------------------------------ the aggregates */
 
-test('every season covers exactly the 32 canonical teams, with no alias double-count', () => {
+test('every season covers exactly the 32 canonical teams, with no alias double-count', { skip: NEEDS_HISTORY }, () => {
   for (const season of TEAM_STRENGTH_SEASONS) {
     const teams = [...teamStrength(season).keys()];
     assert.equal(teams.length, 32, `${season} produced ${teams.length} teams`);
@@ -105,7 +120,7 @@ test('every season covers exactly the 32 canonical teams, with no alias double-c
   }
 });
 
-test('the Rams keep their QB1 QBR delta rather than stranding it on the LA alias', () => {
+test('the Rams keep their QB1 QBR delta rather than stranding it on the LA alias', { skip: NEEDS_HISTORY }, () => {
   const lar = teamStrength(2023).get('LAR');
   assert.ok(Number.isFinite(lar.qb1_qbr_delta),
     'LAR lost its QBR delta to the LA alias — the team-code join regressed');
@@ -131,7 +146,7 @@ test('shares are real shares and projected points are on a plausible season scal
 
 /* ------------------------------------------------ missing behaviour and gates */
 
-test('a season outside the panel shrinks to the league prior and differences to zero', () => {
+test('a season outside the panel shrinks to the league prior and differences to zero', { skip: NEEDS_HISTORY }, () => {
   const hook = teamStrengthGbmFeatures();
   // 2018 predates the depth-chart feed entirely. The contract says "shrink to
   // league prior", and a prior is the same for both teams, so the differential

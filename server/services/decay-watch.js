@@ -174,20 +174,39 @@ function assess(key, finding, seq, { minN, alpha } = {}) {
     return { ...base, status: 'insufficient_data', flag: false, approved_at: seq.approvedAt, n, min_n: minN,
       reason: av.error };
   }
-  const significant = av.p_always_valid < alpha;
+  // Codex correction C17: this call supplies no sigma, so the variance is a
+  // plug-in estimate from the very sequence being evaluated and the result is
+  // NOT anytime-valid. Decay watch runs repeatedly as observations accumulate,
+  // which is precisely the pattern that inflates a fixed-sample p-value.
+  //
+  // The number is still the best available signal and is still reported. What
+  // changes is that it no longer claims a guarantee it does not have: the
+  // qualifier travels with every sentence built from it, so a reader cannot
+  // pick up "always-valid p=0.03" from a report and treat it as one.
+  const pValue = av.p_always_valid ?? av.p_fixed_sample_only;
+  const label = av.anytime_valid ? 'always-valid p' : 'repeated-look p (NOT anytime-valid)';
+  const significant = pValue < alpha;
   const holding = significant && av.mean > 0;
   const reversed = significant && av.mean <= 0;
   const status = holding ? 'holding' : reversed ? 'reversed' : 'decayed';
   return {
     ...base, status, flag: status !== 'holding',
     approved_at: seq.approvedAt, n, min_n: minN,
-    mean_post_approval_effect: r4(av.mean), p_always_valid: av.p_always_valid,
+    mean_post_approval_effect: r4(av.mean),
+    p_always_valid: av.p_always_valid ?? null,
+    p_fixed_sample_only: av.p_fixed_sample_only ?? null,
+    anytime_valid: av.anytime_valid === true,
+    variance_source: av.variance_source,
     sigma: av.sigma, tau: av.tau,
+    inference_caveat: av.anytime_valid ? null
+      : 'sigma is estimated from the evaluated sequence, so this p-value is valid at ONE declared endpoint '
+        + 'only. Decay watch is run repeatedly, so treat a threshold crossing as a prompt to look, never as '
+        + 'a controlled false-positive rate.',
     reason: status === 'holding'
-      ? `post-approval mean effect ${r4(av.mean)} over ${n} fresh observations, always-valid p=${av.p_always_valid} — the approved edge still holds`
+      ? `post-approval mean effect ${r4(av.mean)} over ${n} fresh observations, ${label}=${pValue} — the approved edge still holds`
       : status === 'reversed'
-        ? `post-approval mean effect ${r4(av.mean)} over ${n} fresh observations, always-valid p=${av.p_always_valid} — significantly WORSE than the pre-finding baseline, not merely flat`
-        : `post-approval mean effect ${r4(av.mean)} over ${n} fresh observations is not distinguishable from zero (always-valid p=${av.p_always_valid}) — the approved edge has not reproduced out-of-sample`
+        ? `post-approval mean effect ${r4(av.mean)} over ${n} fresh observations, ${label}=${pValue} — significantly WORSE than the pre-finding baseline, not merely flat`
+        : `post-approval mean effect ${r4(av.mean)} over ${n} fresh observations is not distinguishable from zero (${label}=${pValue}) — the approved edge has not reproduced out-of-sample`
   };
 }
 

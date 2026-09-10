@@ -136,6 +136,38 @@ const CALIBRATED = calibratePreseasonBlend();
 export const PER_GAME_VARIANCE = CALIBRATED.per_game_variance ?? 181.5;
 export const PRIOR_VARIANCE = CALIBRATED.prior_variance ?? 36.5;
 
+/**
+ * The PRESPECIFIED fallback, used when a cutoff-safe calibration has too
+ * little eligible history to estimate a variance.
+ *
+ * Codex correction C10: the fallback used to be `?? PRIOR_VARIANCE` -- the
+ * module-level constant fitted from EVERY season on record, including seasons
+ * after the one being predicted. Isolated testing measured the consequence: a
+ * 2016 prediction's standard error moved from 5.756 to 12.286 after changing
+ * only 2024 scores, because the sparse 2016 calibration fell through to a
+ * number that 2024 had helped fit. That is a future-fitted substitute wearing
+ * a default's clothing, and it is the specific thing the correction forbids:
+ * "no globally future-fitted substitute."
+ *
+ * These numbers are declared here, in advance, and never re-fitted. They are
+ * deliberately round: they are a stated prior, not an estimate, and a precise
+ * figure would imply evidence that does not exist. Any forecast resting on
+ * them is labelled `insufficient_calibration_evidence` so it can be excluded
+ * from evaluation rather than quietly averaged in with calibrated ones.
+ *
+ * Versioned, because changing them changes every forecast that used them, and
+ * an artifact produced under one set must never be compared with one produced
+ * under another as though nothing had changed.
+ */
+export const PRESPECIFIED_FALLBACK = Object.freeze({
+  version: 'nfl-preseason-fallback-v1-prespecified',
+  // A 14-point single-game standard deviation and a 6-point year-over-year
+  // team-quality standard deviation: both round, both stated in advance, and
+  // both broadly consistent with published NFL margin dispersion.
+  per_game_variance: 196,
+  prior_variance: 36
+});
+
 // Cutoff-safe calibration cache: one entry per asOfSeason actually requested,
 // so a walk-forward replay across many seasons/weeks doesn't re-run the
 // pooling query on every single call. Keyed by season number; the "current"
@@ -222,9 +254,29 @@ export function teamChurnMultiplier(season, team) {
  * stays visible even in a caller that only wants the point estimate.
  */
 export function blendedTeamRating(season, team, week, { priorMargin = null, asOfSeason = season } = {}) {
+  // Codex correction C10: "an explicitly later `asOfSeason` is not rejected."
+  // A cutoff after the season being predicted is not a configuration choice,
+  // it is a request to calibrate a forecast with its own future.
+  if (asOfSeason != null && Number.isFinite(asOfSeason) && Number.isFinite(season) && asOfSeason > season) {
+    throw new RangeError(
+      `preseason blend: asOfSeason ${asOfSeason} is later than the season being predicted (${season}). ` +
+      'A forecast cannot be calibrated with data from after the thing it forecasts.');
+  }
+
   const calibration = calibrationAsOf(asOfSeason);
-  const perGameVariance = calibration.per_game_variance ?? PER_GAME_VARIANCE;
-  const basePriorVariance = calibration.prior_variance ?? PRIOR_VARIANCE;
+  // The fallback is the PRESPECIFIED pair, never the globally-fitted constants:
+  // those were fitted across every season on record, so falling through to
+  // them lets a later season change an earlier forecast.
+  const usedFallback = calibration.per_game_variance == null || calibration.prior_variance == null;
+  const perGameVariance = calibration.per_game_variance ?? PRESPECIFIED_FALLBACK.per_game_variance;
+  const basePriorVariance = calibration.prior_variance ?? PRESPECIFIED_FALLBACK.prior_variance;
+  const calibrationEvidence = usedFallback
+    ? { status: 'insufficient_calibration_evidence', fallback_version: PRESPECIFIED_FALLBACK.version,
+      as_of_season: asOfSeason ?? null,
+      note: 'too little eligible history to estimate a variance at this cutoff; a prespecified prior was ' +
+        'used. Exclude this forecast from calibration evaluation rather than averaging it in.' }
+    : { status: 'calibrated', as_of_season: asOfSeason ?? null,
+      prior_pairs: calibration.prior_pairs ?? null, games_pooled: calibration.games_pooled ?? null };
 
   const resolvedPrior = priorMargin ?? priorSeasonAverageMargin(season, team);
   const played = rows(`
@@ -243,16 +295,19 @@ export function blendedTeamRating(season, team, week, { priorMargin = null, asOf
   if (resolvedPrior == null && inSeasonMean == null) {
     return { season, team, week, games_played: 0, prior: null, in_season: null, blended: null,
       weight_on_prior: null, posterior_se: null, churn_multiplier: churnMultiplier,
+      calibration_evidence: calibrationEvidence,
       note: 'No prior-season data and no games played yet -- nothing to blend.' };
   }
   if (resolvedPrior == null) {
     return { season, team, week, games_played: gamesPlayed, prior: null, in_season: r3(inSeasonMean),
       blended: r3(inSeasonMean), weight_on_prior: 0, posterior_se: r3(Math.sqrt(perGameVariance / Math.max(1, gamesPlayed))),
-      churn_multiplier: churnMultiplier, note: 'No prior-season rating available (e.g. an expansion team or a promoted-from-nothing roster) -- reporting the in-season number alone, not a fabricated prior.' };
+      churn_multiplier: churnMultiplier, calibration_evidence: calibrationEvidence,
+      note: 'No prior-season rating available (e.g. an expansion team or a promoted-from-nothing roster) -- reporting the in-season number alone, not a fabricated prior.' };
   }
   if (gamesPlayed === 0) {
     return { season, team, week, games_played: 0, prior: r3(resolvedPrior), in_season: null, blended: r3(resolvedPrior),
       weight_on_prior: 1, posterior_se: r3(Math.sqrt(priorVariance)), churn_multiplier: churnMultiplier,
+      calibration_evidence: calibrationEvidence,
       note: 'No games played yet this season -- full weight on the prior, maximum uncertainty.' };
   }
 
@@ -272,6 +327,7 @@ export function blendedTeamRating(season, team, week, { priorMargin = null, asOf
     prior: r3(resolvedPrior), in_season: r3(inSeasonMean), blended: r3(blended),
     weight_on_prior: r3(weightOnPrior), posterior_se: r3(Math.sqrt(posteriorVariance)),
     churn_multiplier: churnMultiplier,
+    calibration_evidence: calibrationEvidence,
     note: churnMultiplier == null
       ? 'No roster-churn comparison available for this offseason yet (Phase 1 tracking only began mid-2026) -- using the league-baseline prior variance.'
       : null

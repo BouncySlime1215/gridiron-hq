@@ -111,9 +111,15 @@ test('a RELEASED slot returns capacity to later batches only, never retroactivel
   // Thursday's bet fails its refresh and releases its slot. Two Sunday-early
   // games are committed. With 2 weekly slots: Thursday reserves then
   // releases, so Sunday-early gets the freed capacity.
+  // Codex correction C12: a release now carries the instant it happened.
+  // Thursday's slot comes free on the Thursday night, long before Sunday's
+  // 16:00 cutoff, so Sunday genuinely does inherit that capacity.
   const result = sequentialCapacity(batchesOf(WEEK), {
     weeklySlots: 2,
-    outcomes: { thu: 'released', 'sun-early-a': 'committed' }
+    outcomes: {
+      thu: { state: 'released', at: '2026-09-17T00:30:00Z' },
+      'sun-early-a': { state: 'committed' }
+    }
   });
   assert.equal(result.summary.released, 1);
   const selected = result.decisions.filter(d => d.selected).map(d => d.id);
@@ -147,4 +153,74 @@ test('an empty week produces an empty, honest result rather than throwing', () =
   assert.equal(result.summary.selected, 0);
   assert.deepEqual(cutoffBatches([]), []);
   assert.deepEqual(cutoffBatches(null), []);
+});
+
+/* ======================================================================
+ * Codex correction C12 — "Sequential capacity exists as a helper, not a
+ * durable decision path." Its close-with list begins with the release-time
+ * counterexample, which is the defect the API shape made possible.
+ * ====================================================================== */
+
+test('C12: a slot released AFTER a later batch\'s cutoff is still held at that cutoff', () => {
+  // The audit's exact counterexample, at the scale it describes: one slot,
+  // A reserved at its cutoff, released ten minutes later, B's cutoff five
+  // minutes after A's. Handed A's FINAL state, the old code saw a free slot
+  // and let B in -- but nobody standing at B's cutoff could have known the
+  // slot would come free five minutes afterwards.
+  const twoGames = [
+    game('A', '2026-09-20T13:00:00Z', 9),   // cutoff 12:00
+    game('B', '2026-09-20T13:05:00Z', 8)    // cutoff 12:05
+  ];
+  const refused = sequentialCapacity(batchesOf(twoGames), {
+    weeklySlots: 1,
+    outcomes: { A: { state: 'released', at: '2026-09-20T12:10:00Z' } }
+  });
+  const b = refused.decisions.find(d => d.id === 'B');
+  assert.equal(b.selected, false,
+    'at 12:05 the only slot was still held; a 12:10 release cannot reach backwards');
+  assert.equal(b.exclusion_reason, 'weekly_capacity_exhausted_at_this_cutoff');
+
+  // Released BEFORE B's cutoff, the capacity is genuinely available.
+  const allowed = sequentialCapacity(batchesOf(twoGames), {
+    weeklySlots: 1,
+    outcomes: { A: { state: 'released', at: '2026-09-20T12:02:00Z' } }
+  });
+  assert.equal(allowed.decisions.find(d => d.id === 'B').selected, true);
+});
+
+test('C12: a release with NO recorded time is treated as still held', () => {
+  // "We do not know when it came free" must never resolve to "it was always
+  // free". The conservative reading is the only safe one, and it is reported
+  // so a caller can see that a legacy outcome shape was involved.
+  const twoGames = [
+    game('A', '2026-09-20T13:00:00Z', 9),
+    game('B', '2026-09-20T13:05:00Z', 8)
+  ];
+  const result = sequentialCapacity(batchesOf(twoGames), {
+    weeklySlots: 1, outcomes: { A: 'released' }
+  });
+  assert.equal(result.decisions.find(d => d.id === 'B').selected, false);
+  assert.equal(result.decisions.find(d => d.id === 'A').release_time_unknown, true);
+});
+
+test('C12: a same-cutoff tie is broken deterministically, by edge then by id', () => {
+  const tied = [
+    game('zebra', '2026-09-20T13:00:00Z', 7),
+    game('alpha', '2026-09-20T13:00:00Z', 7),
+    game('mid', '2026-09-20T13:00:00Z', 9)
+  ];
+  const a = sequentialCapacity(batchesOf(tied), { weeklySlots: 2 });
+  const b = sequentialCapacity(batchesOf(tied), { weeklySlots: 2 });
+  assert.deepEqual(a.decisions.map(d => d.id), b.decisions.map(d => d.id));
+  assert.deepEqual(a.decisions.filter(d => d.selected).map(d => d.id), ['mid', 'alpha'],
+    'highest edge first, then the canonical id — never insertion order');
+});
+
+test('C12: a later game can never influence an earlier batch, whatever its edge', () => {
+  // The Monday game has the biggest edge in the week. It must not displace a
+  // Thursday selection, because on Thursday it has not been considered yet.
+  const result = sequentialCapacity(batchesOf(WEEK), { weeklySlots: 1 });
+  const selected = result.decisions.filter(d => d.selected).map(d => d.id);
+  assert.deepEqual(selected, ['thu'], 'the first cutoff takes the only slot');
+  assert.equal(result.decisions.find(d => d.id === 'mon').selected, false);
 });

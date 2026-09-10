@@ -8,7 +8,28 @@ import { createHash } from 'node:crypto';
 // disjoint block, instead of fitting and scoring the same rows -- a real
 // methodology change, so no artifact fit under the old (v8 and earlier)
 // same-rows formula may ever be reused as if it reflected this one.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v9-residual-oof-split';
+//
+// v10 (2026-09-10, Codex corrections C04 and C07): two more methodology
+// changes, both of which alter what the same input data produces.
+//
+//   C04 -- opponent EXPOSURE now uses the same season window as the EPA
+//          features it adjusts. It previously spanned every game in history
+//          while the features spanned two seasons, so a team's 2016 opponents
+//          were counted as exposure and then priced with 2024 defensive
+//          efficiency. The audit measured the cost directly: adding 2016
+//          schedule rows moved the isolated 2024 component from -23.400 to
+//          +16.714 with the 2024 features unchanged. The sparse-coverage
+//          fallback is now explicit rather than emerging from averaging one
+//          game.
+//
+//   C07 -- the residual fit/score boundary now falls between COMPLETE WEEKS.
+//          A row-index split cut a Sunday slate in half roughly six times out
+//          of seven, and games in one week share a week of common information,
+//          so the score block was not out of fold.
+//
+// A weight, slope or calibration fitted under v9 describes a different
+// estimator and may not be reused as though it reflected this one.
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v10-aligned-opponent-window-week-split';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

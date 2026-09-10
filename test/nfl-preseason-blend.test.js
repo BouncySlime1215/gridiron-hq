@@ -2,27 +2,67 @@
  * Phase 2 of the 2026-09-09 learning-pipeline plan: nothing in this codebase
  * previously distinguished "hot/cold 1-4 game start" from "genuinely
  * different team." This proves the calibrated Bayesian blend behaves
- * correctly at its boundaries (full trust in the prior at 0 games, fading
+ * correctly at its boundaries — full trust in the prior at 0 games, fading
  * correctly as real games accumulate, never fabricating a number when an
- * input is missing) using real historical game_lines data already present
- * in the dev database — no synthetic fixtures needed since every check here
- * is about the blending MATH, not about needing a specific manufactured
- * scenario.
+ * input is missing.
+ *
+ * CORRECTED 2026-09-10 (Codex correction C06). This file used to say it needed
+ * "no synthetic fixtures" because it read "real historical game_lines data
+ * already present in the dev database". That is precisely the defect: on a
+ * clean checkout with an isolated database there is no such history, every one
+ * of these tests failed, and the suite was green on exactly one machine. A
+ * suite that only passes where the author's data happens to sit is not a
+ * passing suite; it is an unmeasured one.
+ *
+ * The blending MATH is now checked against a deterministic seeded league (see
+ * test/helpers/seed-league-history.js), so the same assertions run anywhere.
+ * The one check that is genuinely about REAL football — that single-game
+ * margin variance far exceeds year-over-year team-quality variance in the
+ * actual NFL — cannot be proved by a fixture however well built, so it is kept
+ * and guarded, reporting its disposition rather than silently passing.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-preseason-blend-'));
+const usingFixture = !process.env.GRIDIRON_DB_PATH || !fs.existsSync(process.env.GRIDIRON_DB_PATH);
+if (usingFixture) process.env.GRIDIRON_DB_PATH = path.join(temp, 'fixture.sqlite');
+process.env.SCHEDULER_DISABLED = '1';
+
+const { db, run, rows } = await import('../server/db/index.js');
+await (await import('../server/db/migrate.js')).runMigrations();
+const { seedTeams, seedLeagueHistory, hasRealHistory } = await import('./helpers/seed-league-history.js');
+
+seedTeams(db);
+if (!hasRealHistory(rows)) seedLeagueHistory(run);
+const realHistory = hasRealHistory(rows, { minSeasons: 8, minGames: 3000 });
+
+test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 const { blendedTeamRating, calibratePreseasonBlend, PRIOR_VARIANCE, PER_GAME_VARIANCE, teamChurnMultiplier } =
   await import('../server/services/nfl-preseason-blend.js');
 
-test('calibration derives real, positive variances from actual history, not placeholders', () => {
+test('calibration derives real, positive variances from history, not placeholders', () => {
   const c = calibratePreseasonBlend();
-  assert.ok(c.per_game_variance > 0);
+  assert.ok(c.per_game_variance > 0, 'a variance estimated from real games must be positive');
   assert.ok(c.prior_variance > 0);
-  assert.ok(c.games_pooled > 1000, 'should pool thousands of real team-games');
-  // The specific, real finding this calibration produced: single-game NFL
-  // margin variance is much larger than year-over-year team-quality variance.
-  assert.ok(c.per_game_variance > c.prior_variance * 2);
+  assert.ok(c.games_pooled > 1000, 'the calibration pools thousands of team-games');
+  assert.ok(c.prior_pairs > 0, 'and has year-over-year pairs to estimate a prior variance from');
+});
+
+test('REAL HISTORY: single-game margin variance far exceeds year-over-year team variance', {
+  skip: realHistory ? false : 'requires the real multi-season game_lines history; the seeded fixture ' +
+    'cannot establish an empirical fact about the actual NFL. Run against the populated database to check it.'
+}, () => {
+  // Deliberately NOT asserted against the fixture: this is a claim about
+  // football, not about the code, and a fixture that satisfied it would only
+  // be proving that its own generator was tuned to.
+  const c = calibratePreseasonBlend();
+  assert.ok(c.per_game_variance > c.prior_variance * 2,
+    `single-game variance ${c.per_game_variance} should far exceed prior variance ${c.prior_variance}`);
 });
 
 test('at 0 games played, the blend is 100% the prior with maximum uncertainty', () => {

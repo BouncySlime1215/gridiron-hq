@@ -38,8 +38,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
+          # Pinned. Codex correction C06 asks to "validate the pinned CI Node
+          # version and record results": the local development runtime is Node
+          # 25, so a suite that only ever runs locally proves nothing about
+          # this one.
           node-version: '22'
           cache: 'npm'
+
+      - name: Record the runtime this suite actually ran on
+        run: |
+          echo "node $(node --version)"
+          echo "npm $(npm --version)"
 
       - name: Install dependencies
         run: npm ci
@@ -54,12 +63,23 @@ jobs:
         # Every *.test.js file in this repo builds its own isolated temp
         # SQLite database via GRIDIRON_DB_PATH before importing app code
         # (see any test/*.test.js header) and mocks or disables live
-        # collectors/schedulers -- no network credentials, provider keys, or
-        # paid API calls are required for this step, by construction of the
-        # test suite itself, not by anything this workflow adds.
+        # collectors/schedulers.
+        #
+        # Codex correction C06: that used to be the whole story, and it was an
+        # assertion about the suite rather than a property of the run -- a test
+        # that quietly reached a provider would have passed. The guard below
+        # ENFORCES it: any fetch to a non-localhost host throws and names the
+        # host. Localhost is exempted explicitly, because several tests boot the
+        # real server and talk to it over a real socket.
+        #
+        # GRIDIRON_DB_PATH points somewhere that does not exist, so the two
+        # fitted-model suites that need real history report their explicit
+        # disposition here instead of silently reading a developer database.
         run: npm test
         env:
           SCHEDULER_DISABLED: '1'
+          NODE_OPTIONS: '--import ./test/offline-guard.mjs'
+          GRIDIRON_DB_PATH: '${{ runner.temp }}/gridiron-ci-fixture.sqlite'
 
       - name: Build client
         run: npm run build

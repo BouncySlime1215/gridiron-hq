@@ -47,7 +47,20 @@ function assertRuleUnchanged(finding) {
   const segment = { dimension: finding.dimension, segment: finding.segment,
     win_rate: finding.direction === 'weak' ? 0.4 : 0.6 };
   const current = segmentRuleHash(segment);
-  if (finding.rule_definition_hash && current !== finding.rule_definition_hash) {
+
+  // Codex correction C08: this used to read `if (finding.rule_definition_hash && ...)`,
+  // so a finding with NO stored hash passed silently. That is failing open, and
+  // it failed open in exactly the situations that mattered: the old identity
+  // helper shelled out to git and returned null wherever git was unavailable,
+  // which is every packaged install. A finding whose predicate identity was
+  // never recorded cannot be shown to still test what it was validated on, and
+  // "we do not know" must never read the same as "unchanged".
+  if (!finding.rule_definition_hash) {
+    throw new Error(`finding ${finding.id} ('${finding.segment_key}') carries no predicate identity, so there ` +
+      'is no way to establish that it still tests what it was validated against. It must be re-discovered ' +
+      'under the current implementation rather than trusted.');
+  }
+  if (current !== finding.rule_definition_hash) {
     throw new Error(`finding ${finding.id} ('${finding.segment_key}') was frozen against a different predicate ` +
       `implementation (stored hash ${finding.rule_definition_hash}, current ${current}) -- the segment logic has ` +
       `changed since discovery; this finding must be re-discovered under a new segment_key, not reused`);
@@ -300,6 +313,7 @@ export function promotedFindingVeto(bet) {
   if (!promoted.length) return { vetoed: false };
   const ctx = gameContext();
   const betSegments = new Set(segmentsFor(bet, ctx).map(([dim, val]) => `${dim}|${val}`));
+  const stale = [];
   for (const finding of promoted) {
     if (!betSegments.has(finding.segment_key)) continue;
     // Codex audit finding M12/E12: the live path must FAIL SAFE, not crash
@@ -310,13 +324,21 @@ export function promotedFindingVeto(bet) {
     // must stop the automatic pipeline outright instead of quietly no-op'ing.
     try {
       assertRuleUnchanged(finding);
-    } catch (e) {
+    } catch (error) {
+      // Codex correction C08: "Isolate one stale finding's failure rather than
+      // aborting unrelated evaluation" AND "stale status is visible". Skipping
+      // is right -- a drifted predicate must never veto -- but skipping
+      // SILENTLY is how a finding stops working and nobody notices, since the
+      // absence of a veto looks exactly like a healthy bet. It is reported.
+      stale.push({ finding_id: finding.id, segment_key: finding.segment_key,
+        reason: error.message });
       continue;
     }
     return { vetoed: true, finding_id: finding.id, segment_key: finding.segment_key,
+      stale_findings: stale.length ? stale : undefined,
       reason: `Matches promoted finding '${finding.segment_key}' — proven unreliable across ${JSON.parse(finding.discovery_seasons_json ?? '[]').length}+ seasons of validation.` };
   }
-  return { vetoed: false };
+  return { vetoed: false, stale_findings: stale.length ? stale : undefined };
 }
 
 /**
@@ -353,6 +375,12 @@ export function promoteFindingToShrink(findingId, { actor, reason } = {}) {
       `the model currently wins in. A 'strong' finding needs its own separately designed and evaluated mechanism, never this one.`);
   }
   if (!actor) throw new Error('promoteFindingToShrink requires an explicit actor — this is never called automatically');
+  // Codex correction C08: "Promotion does not enforce the same identity check."
+  // Discovery and the holdout tests both verify that the predicate is still the
+  // one that was validated; promotion -- the single moment a finding gains
+  // authority over live decisions -- did not. Granting authority is the last
+  // place that check should be missing.
+  assertRuleUnchanged(finding);
   run(`UPDATE nfl_candidate_findings SET state='promoted', resolved_at=datetime('now'), resolved_by=?, resolution_note=? WHERE id=?`,
     actor, reason ?? null, finding.id);
   return row(`SELECT * FROM nfl_candidate_findings WHERE id=?`, finding.id);

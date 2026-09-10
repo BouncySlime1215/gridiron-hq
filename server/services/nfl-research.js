@@ -8,10 +8,28 @@ import { pregameSnapshotCoverage } from './nfl-pregame.js';
 import { closingLineValue } from './line-shopping.js';
 import { allPickResults } from './nfl-auto-picks.js';
 import { featureContracts, registry, recordGateAudit, gateAudits, evidenceManifests, updateRegistry } from './model-governance.js';
+import { featureContracts as ensembleFeatureContracts } from './nfl-ensemble.js';
 import { nflIntelligence } from './model-intelligence.js';
 import { nflEvidenceCoverage } from './nfl-evidence.js';
 
-const FAMILIES = ['Rating systems', 'Efficiency', 'Context', 'Market'];
+/**
+ * The ensemble's REAL family list, read from the model catalog rather than
+ * restated here (Codex audit finding, main plan section 8.6).
+ *
+ * This was a hardcoded four-element array: 'Rating systems', 'Efficiency',
+ * 'Context', 'Market'. The ensemble actually has FIVE families — the missing
+ * one being 'Roster availability', which is precisely the
+ * "availability/roster" group section 8.6 asks to test. Because `families`
+ * acts as a WHITELIST in `ensembleLine`, every `without:X` configuration was
+ * silently dropping roster availability TOO, so every ablation delta ever
+ * produced by this harness measured the removal of two families while
+ * reporting one. Deriving the list from `nflFeatureFamilies()` means a family
+ * added to the ensemble can never again be silently omitted from its own
+ * ablation.
+ */
+function ablationFamilies() {
+  return [...new Set(ensembleFeatureContracts().map(m => m.family))].filter(Boolean).sort();
+}
 const r3 = x => x == null || !Number.isFinite(x) ? null : +x.toFixed(3);
 const mean = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
 const mae = (a, key) => r3(mean(a.map(x => Math.abs(x.actual - x[key]))));
@@ -99,16 +117,30 @@ export function refreshNflResidualAudit() {
 }
 
 export function runNflFeatureAblations(seasons = [2021, 2022, 2023, 2024, 2025]) {
+  const families = ablationFamilies();
+  // How many models each family actually contributes. A family with none is
+  // reported as having NO NUMERICAL CONSUMER rather than being run and
+  // reported as a zero-effect scientific result -- section 8.6 asks for that
+  // distinction explicitly.
+  const modelsByFamily = ensembleFeatureContracts().reduce((acc, m) => {
+    acc[m.family] = (acc[m.family] ?? 0) + 1; return acc;
+  }, {});
   const configs = [
     { id: 'all', families: null },
-    ...FAMILIES.map(f => ({ id: `only:${f}`, families: [f] })),
-    ...FAMILIES.map(f => ({ id: `without:${f}`, families: FAMILIES.filter(x => x !== f) }))
+    ...families.map(f => ({ id: `only:${f}`, families: [f] })),
+    ...families.map(f => ({ id: `without:${f}`, families: families.filter(x => x !== f) }))
   ];
   const results = configs.map(c => {
     const result = trainingIteration(seasons, { modelOptions: { weighting: 'exponential', families: c.families } });
     return { ...c, overall: result.overall, per_season: result.per_season };
   });
-  const policy = { kind: 'diagnostic_only', note: 'Ablations explain contribution; this opened period cannot promote a tuned family set.' };
+  const policy = { kind: 'diagnostic_only',
+    families_tested: families, models_per_family: modelsByFamily,
+    ablation_kind: 'refit_leave_one_family_out',
+    ablation_note: 'Each configuration REFITS the ensemble over the remaining families rather than zeroing a ' +
+      'trained input, so this is a true leave-one-family-out ablation and not a sensitivity test that pushes ' +
+      'the model outside its training distribution (main plan section 8.6).',
+    note: 'Ablations explain contribution; this opened period cannot promote a tuned family set.' };
   run(`INSERT INTO nfl_feature_ablation_audits (created_at,seasons_json,policy_json,results_json)
        VALUES (datetime('now'),?,?,?)`, JSON.stringify(seasons), JSON.stringify(policy), JSON.stringify(results));
   return latestNflFeatureAblations();

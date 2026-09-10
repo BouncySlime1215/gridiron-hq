@@ -1,3 +1,14 @@
+> **Historical evidence. Not a work queue.**
+>
+> Relocated 2026-09-10 from `docs/MODEL_ARCHITECTURE_ASSESSMENT_2026_09_08.md` per the disposition table in
+> `docs/reference/architecture/FOLDER-REORGANIZATION.md`. The single active
+> work-order plan is **`docs/CLAUDE-NEXT-STEPS.md`** — nothing in this file
+> establishes task priority, spending, or model promotion, and any "next
+> steps", phase lists or ranked recommendations below are a record of what
+> was planned AT THE TIME, not instructions to execute now. Measured results,
+> source URLs, retrieval dates and frozen contracts here remain valid
+> evidence and are preserved verbatim.
+
 # Gridiron HQ vs. a proposed quant architecture: line-by-line assessment
 
 Prepared 2026-09-08. Audience: an advanced model (or engineer) picking up this

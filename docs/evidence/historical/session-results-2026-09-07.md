@@ -1,3 +1,14 @@
+> **Historical evidence. Not a work queue.**
+>
+> Relocated 2026-09-10 from `docs/PLAN_2026_09_07.md` per the disposition table in
+> `docs/reference/architecture/FOLDER-REORGANIZATION.md`. The single active
+> work-order plan is **`docs/CLAUDE-NEXT-STEPS.md`** — nothing in this file
+> establishes task priority, spending, or model promotion, and any "next
+> steps", phase lists or ranked recommendations below are a record of what
+> was planned AT THE TIME, not instructions to execute now. Measured results,
+> source URLs, retrieval dates and frozen contracts here remain valid
+> evidence and are preserved verbatim.
+
 # Gridiron HQ — the plan, where it stands, and what's still missing (2026-09-07)
 
 Rewritten the day of the Matta–Kodsi draft (Mon Sep 7, 7:00 PM ET, 8-team PPR, slot 2),

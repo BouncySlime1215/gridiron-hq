@@ -1,3 +1,14 @@
+> **Historical evidence. Not a work queue.**
+>
+> Relocated 2026-09-10 from `docs/BUILD_ORDER.md` per the disposition table in
+> `docs/reference/architecture/FOLDER-REORGANIZATION.md`. The single active
+> work-order plan is **`docs/CLAUDE-NEXT-STEPS.md`** — nothing in this file
+> establishes task priority, spending, or model promotion, and any "next
+> steps", phase lists or ranked recommendations below are a record of what
+> was planned AT THE TIME, not instructions to execute now. Measured results,
+> source URLs, retrieval dates and frozen contracts here remain valid
+> evidence and are preserved verbatim.
+
 # Build Order
 
 Companion to `docs/MODEL_ROADMAP.md`. Sequenced by **dependency first, then

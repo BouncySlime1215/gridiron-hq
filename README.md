@@ -9,16 +9,19 @@ draft room, X's-and-O's breakdowns for all 32 NFL teams, and ESPN/Sleeper league
 Everything runs on your own machine. No hosting, no accounts, no telemetry — data lives in a
 local SQLite file.
 
-For AI agents and model researchers, the living system contract, current audit truth, learning
-loop, and news-verification rules are in
-[docs/AI_MODEL_OPERATING_MANUAL.md](docs/AI_MODEL_OPERATING_MANUAL.md).
-**The active execution queue is [docs/PROFITABILITY_EXECUTION_PLAN.md](docs/PROFITABILITY_EXECUTION_PLAN.md)** —
-one status table (implementation / integration / evaluation / authority, kept against live
-database checks, not carried-forward counts) and one critical path.
-[docs/PROFITABILITY_PLAN.md](docs/PROFITABILITY_PLAN.md) is the prior queue and remains as
-historical record of what was tried and found; its evidence is not erased, only superseded.
+**There is exactly one active work-order plan: [docs/CLAUDE-NEXT-STEPS.md](docs/CLAUDE-NEXT-STEPS.md).**
+Every other document is evidence or reference and sets no priorities — see
+[docs/README.md](docs/README.md) for the index. The older planning queues
+(`PROFITABILITY_EXECUTION_PLAN.md`, `PROFITABILITY_PLAN.md`, `BUILD_ORDER.md` and the rest) were
+consolidated on 2026-09-10 per that plan's folder companion: their measured results and frozen
+contracts are preserved under `docs/evidence/`, their work-queue authority is not. Git history
+retains the originals.
+
+For AI agents and model researchers, the system contract, audit truth, learning loop and
+news-verification rules are in
+[docs/reference/model-governance-manual.md](docs/reference/model-governance-manual.md).
 The exact recovered Audit 8 identity and results are in
-[docs/NFL_AUDIT_RUN_8_MANIFEST.json](docs/NFL_AUDIT_RUN_8_MANIFEST.json).
+[docs/evidence/NFL_AUDIT_RUN_8_MANIFEST.json](docs/evidence/NFL_AUDIT_RUN_8_MANIFEST.json).
 
 ---
 

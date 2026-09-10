@@ -1,3 +1,14 @@
+> **Frozen experiment contract. Not a work queue.**
+>
+> Relocated 2026-09-10 from `docs/BEAT_THE_CLOSE_PLAN.md` per the disposition table in
+> `docs/reference/architecture/FOLDER-REORGANIZATION.md`. The single active
+> work-order plan is **`docs/CLAUDE-NEXT-STEPS.md`** — nothing in this file
+> establishes task priority, spending, or model promotion, and any "next
+> steps", phase lists or ranked recommendations below are a record of what
+> was planned AT THE TIME, not instructions to execute now. Measured results,
+> source URLs, retrieval dates and frozen contracts here remain valid
+> evidence and are preserved verbatim.
+
 # Beat the close — the program layered on top of the current model
 
 Written 2026-09-02. The current model stays exactly as it is: it keeps

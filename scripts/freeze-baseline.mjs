@@ -91,7 +91,10 @@ const report = {
     ' — checkout the pinned commit first if HEAD has since moved.'
 };
 
-const dir = join(ROOT, 'docs', 'baselines');
+// Relocated 2026-09-10 with the documentation consolidation (see
+// docs/reference/architecture/FOLDER-REORGANIZATION.md): baselines are frozen
+// evidence and live under docs/evidence/ with the rest of it.
+const dir = join(ROOT, 'docs', 'evidence', 'baselines');
 mkdirSync(dir, { recursive: true });
 const path = join(dir, `${season}-baseline.json`);
 writeFileSync(path, JSON.stringify(report, null, 2) + '\n');

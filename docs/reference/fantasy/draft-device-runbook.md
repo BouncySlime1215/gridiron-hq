@@ -1,3 +1,14 @@
+> **Operating reference. Not a work queue.**
+>
+> Relocated 2026-09-10 from `docs/DRAFT_ON_PHONE.md` per the disposition table in
+> `docs/reference/architecture/FOLDER-REORGANIZATION.md`. The single active
+> work-order plan is **`docs/CLAUDE-NEXT-STEPS.md`** — nothing in this file
+> establishes task priority, spending, or model promotion, and any "next
+> steps", phase lists or ranked recommendations below are a record of what
+> was planned AT THE TIME, not instructions to execute now. Measured results,
+> source URLs, retrieval dates and frozen contracts here remain valid
+> evidence and are preserved verbatim.
+
 # Draft night: where you actually sit, and what the phone is for
 
 **Written for the Matta-Kodsi Annual draft, Mon 7 Sep 2026, 7:00 PM ET — 8 teams,

@@ -1,3 +1,14 @@
+> **Operating reference. Not a work queue.**
+>
+> Relocated 2026-09-10 from `docs/RESEARCH_OPEN_SOURCE_FANTASY.md` per the disposition table in
+> `docs/reference/architecture/FOLDER-REORGANIZATION.md`. The single active
+> work-order plan is **`docs/CLAUDE-NEXT-STEPS.md`** — nothing in this file
+> establishes task priority, spending, or model promotion, and any "next
+> steps", phase lists or ranked recommendations below are a record of what
+> was planned AT THE TIME, not instructions to execute now. Measured results,
+> source URLs, retrieval dates and frozen contracts here remain valid
+> evidence and are preserved verbatim.
+
 # Open-source sweep: projections, ensembles, draft strategy, platforms, data, agents, betting
 
 Researched 2026-09-07; stars/last-push from the GitHub API that day, endpoints called live.

@@ -29,8 +29,15 @@ mock.module('../server/services/nfl-engine-registry.js', { namedExports: { nflEn
 mock.module('../server/services/nfl-signal-reliability.js', { namedExports: {
   signalReliabilityFor: () => ({ version: 'fixture', multipliers: {}, adjusted: [] })
 } });
+// Weeks run 1-36 (double a real NFL season) purely to give the residual-skill
+// gate's chronological fit/score split (M05 fix, nfl-ensemble.js) enough
+// out-of-fold games in its scored (later 30%) block to clear its 250-game
+// floor -- the gate now genuinely holds out data rather than grading on the
+// same rows it fit on, so this synthetic fixture needs proportionally more
+// history than the old same-rows version required to prove the same point
+// (a deliberately overwhelming challenger signal DOES clear the gate).
 for (let season = 2015; season <= 2023; season++) {
-  for (let week = 1; week <= 18; week++) {
+  for (let week = 1; week <= 36; week++) {
     const order = teams.map((_, i) => (i + week) % teams.length);
     for (let pair = 0; pair < 4; pair++) {
       const h = order[pair], a = order[7 - pair];
@@ -63,12 +70,12 @@ test('strong challenger diagnostics remain visible but cannot enter champion wei
 
 test('v7 persisted weights cannot be reused after the authority repair', () => {
   const artifact = rows('SELECT * FROM nfl_ensemble_fit_artifacts WHERE artifact_key LIKE ?', '%champion-inputs%')[0];
-  assert.match(artifact.model_version, /^nfl-ensemble-fit-v8-/);
+  assert.match(artifact.model_version, /^nfl-ensemble-fit-v9-/);
   const poisoned = JSON.parse(artifact.result_json);
   poisoned.models.forEach(m => { m.residual_weight = m.challenger_only ? 1 : 0; });
   run('UPDATE nfl_ensemble_fit_artifacts SET artifact_key=?, model_version=?, result_json=? WHERE artifact_key=?',
-    artifact.artifact_key.replace('v8-challenger-authority', 'v7-consistent-historical-market'),
-    'nfl-ensemble-fit-v7-consistent-historical-market', JSON.stringify(poisoned), artifact.artifact_key);
+    artifact.artifact_key.replace('v9-residual-oof-split', 'v8-challenger-authority'),
+    'nfl-ensemble-fit-v8-challenger-authority', JSON.stringify(poisoned), artifact.artifact_key);
   invalidateEnsembleCaches();
   assert.equal(fitEnsemble(fitOptions).models.find(m => m.id === 'roster_strength').residual_weight, 0);
 });

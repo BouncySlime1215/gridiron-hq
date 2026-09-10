@@ -3,7 +3,12 @@ import { createHash } from 'node:crypto';
 // Shared by fitted artifacts, calibration construction and the serving board.
 // This binds algorithm/configuration and information regime. It is not yet a
 // frozen T−60 packet or a hash of each historical dataset / learned parameter.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v8-challenger-authority';
+// v9 (2026-09-10, Codex audit finding M05): the residual-skill gate's slope
+// is now fit on an earlier chronological block and graded on a later,
+// disjoint block, instead of fitting and scoring the same rows -- a real
+// methodology change, so no artifact fit under the old (v8 and earlier)
+// same-rows formula may ever be reused as if it reflected this one.
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v9-residual-oof-split';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

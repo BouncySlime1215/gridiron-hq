@@ -962,7 +962,16 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   const rawWeightKeys = new Set(eligible.map(g => `${g.season}|${g.week}|${g.home}`));
   const scoreGames = [...new Map([...eligible, ...residualEligible]
     .map(g => [`${g.season}|${g.week}|${g.home}`, g])).values()];
-  const weeks = [...new Set(scoreGames.map(g => `${g.season}|${g.week}`))];
+  // CORRECTED 2026-09-10 (Codex audit finding M05): the residual-skill gate
+  // below needs its slope FIT on strictly earlier games than the ones it is
+  // GRADED on -- that requires this loop to actually visit weeks in
+  // chronological order. The old `[...new Set(...)]` derived its order from
+  // Map insertion order of two concatenated, overlapping-but-not-identical
+  // eligibility windows, which is not reliably chronological. An explicit
+  // sort makes every component's residuals[].signal/.actual arrays land in
+  // true (season, week) order, which the split below depends on.
+  const weeks = [...new Set(scoreGames.map(g => `${g.season}|${g.week}`))]
+    .sort((a, b) => { const [sa, wa] = a.split('|').map(Number), [sb, wb] = b.split('|').map(Number); return sa - sb || wa - wb; });
 
   for (const key of weeks) {
     const [season, week] = key.split('|').map(Number);
@@ -1002,15 +1011,35 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
 
   // Score every component on cutoff-safe held-out predictions before assigning
   // performance weights.
+  //
+  // CORRECTED 2026-09-10 (Codex audit finding M05): `slope` used to be fit on
+  // every residual pair, and `residualMse`/`residualT`/`residual_n` were then
+  // computed on those SAME pairs -- so "does this component's deviation from
+  // the market explain the eventual market residual" was graded on the exact
+  // rows used to choose the coefficient that explains them, which is
+  // optimistic by construction, not evidence of real skill. `residuals[m.id]`
+  // now arrives in true chronological order (the `weeks` sort above), so it
+  // is split into an EARLIER fit block and a LATER, strictly out-of-fold
+  // score block: the slope is fit only on the fit block, and every reported
+  // statistic (RMSE, gain, paired t) is computed only on the score block,
+  // which never contributed to the slope it is grading. This is a single
+  // chronological train/test split, not a fully rolling nested walk-forward
+  // (that would mean refitting the slope before every scored game) -- a
+  // bounded, real fix for "fits and grades on the same rows," not a claim of
+  // maximal statistical rigor.
+  const RESIDUAL_FIT_FRACTION = 0.7;
   const scored = MODELS.map(m => {
     const mm = errs[m.id].margin, tt = errs[m.id].total;
     const rs = residuals[m.id];
-    const denominator = rs.signal.reduce((s, x) => s + x * x, 0);
+    const splitIdx = Math.floor(rs.signal.length * RESIDUAL_FIT_FRACTION);
+    const fitSignal = rs.signal.slice(0, splitIdx), fitActual = rs.actual.slice(0, splitIdx);
+    const scoreSignal = rs.signal.slice(splitIdx), scoreActual = rs.actual.slice(splitIdx);
+    const denominator = fitSignal.reduce((s, x) => s + x * x, 0);
     // No intercept: zero incremental signal must remain exactly the market.
-    const slope = denominator > 0 ? rs.signal.reduce((s, x, i) => s + x * rs.actual[i], 0) / denominator : 0;
-    const baselineMse = rs.actual.length ? mean(rs.actual.map(x => x ** 2)) : null;
-    const residualMse = rs.actual.length ? mean(rs.actual.map((x, i) => (x - slope * rs.signal[i]) ** 2)) : null;
-    const paired = rs.actual.map((x, i) => (x - slope * rs.signal[i]) ** 2 - x ** 2);
+    const slope = denominator > 0 ? fitSignal.reduce((s, x, i) => s + x * fitActual[i], 0) / denominator : 0;
+    const baselineMse = scoreActual.length ? mean(scoreActual.map(x => x ** 2)) : null;
+    const residualMse = scoreActual.length ? mean(scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2)) : null;
+    const paired = scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2 - x ** 2);
     const pairedMean = paired.length ? mean(paired) : null;
     const pairedSd = paired.length > 1
       ? Math.sqrt(paired.reduce((sum, x) => sum + (x - pairedMean) ** 2, 0) / (paired.length - 1)) : null;
@@ -1024,12 +1053,15 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
       margin_rmse: mm.length ? +Math.sqrt(mean(mm)).toFixed(3) : null,
       total_rmse: tt.length ? +Math.sqrt(mean(tt)).toFixed(3) : null,
       margin_n: mm.length, total_n: tt.length,
-      residual_slope: rs.actual.length >= 100 ? r2(slope) : null,
+      residual_slope: fitActual.length >= 100 ? r2(slope) : null,
       residual_rmse: residualMse == null ? null : r2(Math.sqrt(residualMse)),
       market_residual_rmse: baselineMse == null ? null : r2(Math.sqrt(baselineMse)),
       residual_rmse_gain: r2(residualGain),
       residual_paired_t: r2(residualT),
-      residual_n: rs.actual.length
+      // The size of the OUT-OF-FOLD score block, not the total pool -- this is
+      // the sample size the gate below actually requires 250 of.
+      residual_n: scoreActual.length,
+      residual_fit_n: fitActual.length
     };
   });
 
@@ -1053,10 +1085,15 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   for (const m of scored) {
     m.margin_weight = mW ? +(rawWeight(m, 'margin_rmse') / mW).toFixed(4) : 0;
     m.total_weight = tW ? +(rawWeight(m, 'total_rmse') / tW).toFixed(4) : 0;
-    // These are development diagnostics: the slope and its apparent gain are
-    // fitted on the same residual observations. They do not establish held-out
-    // skill or grant production promotion. Excluded challengers have no weight
-    // in either normalization, even when their diagnostic score is strong.
+    // Since the M05 fix above, the slope is fit on an earlier chronological
+    // block and this gain/t-statistic is graded on a later, disjoint block --
+    // a real (if single-split, not fully rolling) out-of-fold test, not a
+    // same-rows diagnostic. It still does not by itself grant production
+    // promotion: this is one internal split within one walk-forward cutoff's
+    // available history, not the repository's stronger week-clustered,
+    // multi-season OOF-1 standard used elsewhere (e.g. nfl-cover-calibration.js's
+    // forward gate). Excluded challengers have no weight in either
+    // normalization, even when their score is strong.
     m.residual_diagnostic_passed = m.residual_n >= 250
       && m.residual_rmse_gain >= 0.03 && m.residual_paired_t <= -1.645;
     m.residual_gate_passed = (includeChallengers || !m.challenger_only)

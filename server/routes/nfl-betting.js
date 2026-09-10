@@ -1399,11 +1399,52 @@ r.get('/research/:topic', async (req, res, next) => {
         const m = await import('../services/nfl-context-heads.js');
         return res.json(m.auditContextHeads(String(req.query.metric ?? 'rec_yds'), {}));
       }
+      case 'family-consumers': {
+        // The "actual consumer" column of the section 8.6 table, on its own:
+        // which models read each family, and whether any of them reaches a
+        // production forecast. Instant, and the honest answer to "is this
+        // family even wired up" without running an ablation to find out.
+        const m = await import('../services/nfl-family-contribution.js');
+        return res.json({ families: m.contributionFamilies(), consumers: m.familyConsumers() });
+      }
+      case 'family-contribution': {
+        // The full section 8.6 comparison. This REFITS the ensemble once per
+        // family per season, so it defaults to a single season; five seasons
+        // takes several minutes and belongs in a script, not a request.
+        const m = await import('../services/nfl-family-contribution.js');
+        const seasons = String(req.query.seasons ?? season).split(',')
+          .map(x => Number(x.trim())).filter(Number.isFinite);
+        return res.json(m.familyContributionReport(seasons));
+      }
       default:
         return res.status(404).json({ error: `unknown research topic "${topic}"`,
           available: ['coaches', 'opponent', 'rookies', 'scheme', 'competition', 'offseason',
-            'passing', 'prop-grades', 'prop-replay', 'specialists', 'context-heads'] });
+            'passing', 'prop-grades', 'prop-replay', 'specialists', 'context-heads',
+            'family-consumers', 'family-contribution'] });
     }
+  } catch (e) { next(e); }
+});
+
+/**
+ * What was actually knowable about one game at its T-60 cutoff (Codex plan
+ * section 6.3). Read-only: it freezes a view of existing records, writes
+ * nothing, and answers with the availability CLAIM behind each source rather
+ * than a bare row count.
+ */
+r.get('/t60/packet', async (req, res, next) => {
+  try {
+    const { kickoff, home, away } = req.query;
+    if (!kickoff) return res.status(400).json({ error: 'kickoff is required; there is no cutoff without one' });
+    const m = await import('../services/nfl-t60-packet.js');
+    const packet = m.freezeT60Packet({
+      season: Number(req.query.season) || SEASON,
+      week: Number(req.query.week) || null,
+      home: home ? String(home) : null, away: away ? String(away) : null,
+      kickoff: String(kickoff),
+      scheduleVersion: req.query.schedule_version ? String(req.query.schedule_version) : null,
+      mode: req.query.mode === 'historical' ? 'historical' : 'prospective'
+    });
+    return packet.error ? res.status(400).json(packet) : res.json(packet);
   } catch (e) { next(e); }
 });
 

@@ -81,7 +81,14 @@ function assertTransition(currentStatus, nextState) {
  * has not already been observed to have been offered somewhere.
  */
 export function openOpportunity({ contract, matchup = null, participant = null, decisionSource,
-  occurredAt, book, line = null, price, quoteId = null, source = 'quote_tape', note = null } = {}) {
+  occurredAt, book, line = null, price, quoteId = null, source = 'quote_tape', note = null,
+  // Codex audit finding E4: the model's own forecast at decision time,
+  // frozen here so attemptAcceptance's corridor/suspect-price gates can read
+  // authoritative values later instead of trusting whatever a caller (or a
+  // UI that never sends them) happens to supply at acceptance time. All
+  // three are optional -- an uncalibrated market (this codebase abstains
+  // rather than fabricates a probability) legitimately has none of them.
+  modelLine = null, modelProbability = null, marketLineAtDecision = null } = {}) {
   if (!contract?.ok) throw new Error('openOpportunity requires a resolved contractKey() result');
   if (!decisionSource) throw new Error('decisionSource is required — an unattributed opportunity is not evidence');
   if (!Number.isFinite(executionTime(occurredAt))) throw executionInputError('occurredAt must be a timestamp');
@@ -105,10 +112,13 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
   try {
     run(`INSERT INTO nfl_execution_opportunities
          (id, contract_key, contract_hash, event_key, matchup, market, side, participant,
-          decision_source, status, note)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+          decision_source, status, note, model_line, model_probability, market_line_at_decision)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     id, contract.key, contract.key_hash ?? null, contract.event_key ?? null, matchup,
-    contract.market, contract.side, participant, decisionSource, 'offered', note);
+    contract.market, contract.side, participant, decisionSource, 'offered', note,
+    Number.isFinite(modelLine) ? modelLine : null,
+    Number.isFinite(modelProbability) ? modelProbability : null,
+    Number.isFinite(marketLineAtDecision) ? marketLineAtDecision : null);
     run(`INSERT INTO nfl_execution_lifecycle_events
          (opportunity_id, state, occurred_at, book, line, price, source, quote_id, actor, detail_json)
          VALUES (?,?,?,?,?,?,?,?,?,?)`,

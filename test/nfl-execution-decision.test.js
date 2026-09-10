@@ -29,11 +29,18 @@ function dayBefore(isoDate, hhmmss) {
   return `${d.toISOString().slice(0, 10)}T${hhmmss}Z`;
 }
 
-function decidedOpportunity({ commenceDate, price = -110, line = -3.5 }) {
+// modelLine/modelProbability/marketLineAtDecision are frozen on the
+// opportunity itself now (Codex audit finding E4) -- attemptAcceptance reads
+// them from the persisted opportunity, never from its own caller options, so
+// any test that wants the corridor/suspect-price gates to have evidence to
+// check must supply them here, at open time, not at accept time.
+function decidedOpportunity({ commenceDate, price = -110, line = -3.5,
+  modelLine = null, modelProbability = null, marketLineAtDecision = null }) {
   const c = contractKey({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: `${commenceDate}T00:20:00Z`, market: 'spreads', side: 'home', line });
   const opp = openOpportunity({ contract: c, decisionSource: 'test',
-    occurredAt: dayBefore(commenceDate, '10:00:00'), book: 'draftkings', line, price });
+    occurredAt: dayBefore(commenceDate, '10:00:00'), book: 'draftkings', line, price,
+    modelLine, modelProbability, marketLineAtDecision });
   recordObserved(opp.id, { occurredAt: dayBefore(commenceDate, '10:00:05'), book: 'draftkings', line, price });
   recordDecision(opp.id, { occurredAt: dayBefore(commenceDate, '10:05:00'), book: 'draftkings', line, price });
   return { opp, eventKey: c.event_key };
@@ -68,10 +75,10 @@ test('acceptance is blocked when it would breach the game exposure budget', () =
 });
 
 test('acceptance is blocked when the model line is outside the market line corridor, unless explicitly acknowledged', () => {
-  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-01' });
+  // 16.5 points off the frozen decision-time market line — well past the 11.5-point corridor.
+  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-01', modelLine: -3.5, marketLineAtDecision: -20 });
   const blocked = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
-    occurredAt: '2026-09-30T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
-    eventKey, modelLine: -3.5, marketLine: -20 // 16.5 points off — well past the 11.5-point corridor
+    occurredAt: '2026-09-30T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1, eventKey
   });
   assert.equal(blocked.accepted, false);
   assert.equal(blocked.blocked_reason, 'market_line_corridor');
@@ -80,17 +87,16 @@ test('acceptance is blocked when the model line is outside the market line corri
 
   const acknowledged = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-09-30T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
-    eventKey, modelLine: -3.5, marketLine: -20, acknowledgeCorridorBreach: true
+    eventKey, acknowledgeCorridorBreach: true
   });
   assert.equal(acknowledged.accepted, true);
   assert.equal(acknowledged.corridor.verdict, 'needs_review');
 });
 
 test('a model line inside the market line corridor is reported but never blocks acceptance', () => {
-  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-08' });
+  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-08', modelLine: -3.5, marketLineAtDecision: -4 });
   const outcome = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
-    occurredAt: '2026-10-07T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
-    eventKey, modelLine: -3.5, marketLine: -4
+    occurredAt: '2026-10-07T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1, eventKey
   });
   assert.equal(outcome.accepted, true);
   assert.equal(outcome.corridor.verdict, 'inside_corridor');
@@ -106,10 +112,9 @@ test('acceptance without a model/market line pair proceeds with the corridor rep
 });
 
 test('acceptance is blocked when the fair-price EV is suspiciously extreme, unless explicitly acknowledged', () => {
-  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-09-24', price: 900 });
+  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-09-24', price: 900, modelProbability: 0.5 });
   const blocked = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
-    occurredAt: '2026-09-23T10:05:30Z', book: 'draftkings', price: 900, stakeUnits: 1,
-    eventKey, fairProbability: 0.5
+    occurredAt: '2026-09-23T10:05:30Z', book: 'draftkings', price: 900, stakeUnits: 1, eventKey
   });
   assert.equal(blocked.accepted, false);
   assert.equal(blocked.blocked_reason, 'suspect_price');
@@ -117,7 +122,7 @@ test('acceptance is blocked when the fair-price EV is suspiciously extreme, unle
 
   const acknowledged = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-09-23T10:05:30Z', book: 'draftkings', price: 900, stakeUnits: 1,
-    eventKey, fairProbability: 0.5, acknowledgeSuspectPrice: true
+    eventKey, acknowledgeSuspectPrice: true
   });
   assert.equal(acknowledged.accepted, true);
 });
@@ -170,4 +175,26 @@ test('the exposure check is computed from the PERSISTED opportunity\'s identity,
   // exposure was used, which is only possible if event_key came from the
   // persisted opportunity and not from what the caller passed in.
   assert.equal(secondOutcome.exposure.game_units_after, 1);
+});
+
+test('Codex audit finding E4: modelLine/marketLine/fairProbability passed to attemptAcceptance itself are IGNORED — only the frozen opportunity counts', () => {
+  // The opportunity is opened with NO model forecast recorded at all. A
+  // caller then tries to supply a wildly-off modelLine/marketLine and a
+  // suspicious fairProbability directly to attemptAcceptance, exactly the
+  // shape the request body used to forward from an untrusted client. If
+  // these were still read from the call options, this would either block
+  // the acceptance (corridor breach) or flag a suspect price -- it must do
+  // neither, because the persisted opportunity itself has no forecast.
+  // Placed last in this file and given a generous isolated budget so it does
+  // not perturb the cumulative shared-database exposure any earlier test
+  // in this file depends on (see the isolatedBudget comment above).
+  const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-22' });
+  const outcome = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
+    occurredAt: '2026-10-21T10:05:30Z', book: 'draftkings', price: 900, stakeUnits: 1, eventKey,
+    modelLine: -3.5, marketLine: -50, fairProbability: 0.5,
+    budget: { ...DEFAULT_EXPOSURE_BUDGET, max_units_total: 100000 }
+  });
+  assert.equal(outcome.accepted, true, 'caller-supplied analytical fields must have zero effect on the outcome');
+  assert.equal(outcome.corridor, null, 'the corridor check must still read not_evaluated -- the opportunity itself has no frozen market line');
+  assert.equal(outcome.suspect, null, 'the suspect-price check must still read not_evaluated -- the opportunity itself has no frozen model probability');
 });

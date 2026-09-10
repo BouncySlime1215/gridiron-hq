@@ -364,11 +364,17 @@ r.post('/execution/:id/accept', requireModelPermission('model:execute'), (req, r
     if (!Number.isFinite(body.stakeUnits) || body.stakeUnits <= 0) {
       return res.status(400).json({ error: 'stakeUnits must be a positive number' });
     }
+    // Codex audit finding E4: modelLine/marketLine/fairProbability are no
+    // longer accepted from the request body at all -- attemptAcceptance now
+    // derives them itself, authoritatively, from the persisted opportunity's
+    // frozen decision-time forecast. acknowledgeCorridorBreach/
+    // acknowledgeSuspectPrice remain client-supplied because they represent
+    // a real human action (choosing to proceed past a warning), not an
+    // analytical input a client could otherwise use to bypass the gate.
     const outcome = attemptAcceptance(req.params.id, {
       occurredAt: new Date().toISOString(), book: body.book, line: body.line ?? null,
       price: body.price, stakeUnits: body.stakeUnits, note: body.note ?? null,
-      fairProbability: body.fairProbability ?? null, modelLine: body.modelLine ?? null,
-      marketLine: body.marketLine ?? null, acknowledgeCorridorBreach: Boolean(body.acknowledgeCorridorBreach),
+      acknowledgeCorridorBreach: Boolean(body.acknowledgeCorridorBreach),
       acknowledgeSuspectPrice: Boolean(body.acknowledgeSuspectPrice)
     });
     res.status(outcome.accepted ? 200 : 409).json(outcome);

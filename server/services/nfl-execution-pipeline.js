@@ -125,9 +125,18 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
     // enum for both provenance paths: it distinguishes a system-observed
     // price from a user-recorded or settlement one, not provenance quality.
     // Quality is disclosed separately, in `quote_provenance` below.
+    // Codex audit finding E4: freeze the model's own forecast here, at the
+    // exact moment the opportunity is opened, so attemptAcceptance's
+    // corridor/suspect-price gates have real evidence to check against later
+    // instead of trusting a client-supplied number (or silently skipping the
+    // checks because nothing was ever supplied). candidate.feature_snapshot
+    // is the same decision-board record nfl-auto-picks.js persists.
     const opened = openOpportunity({ contract, matchup: candidate.matchup, decisionSource: EXECUTION_PIPELINE_VERSION,
       occurredAt: basis.quote.snapshot_at, book: candidate.book, line: contract.line, price: basis.quote.price,
-      quoteId: basis.quote.quote_id ?? null, source: 'quote_tape' });
+      quoteId: basis.quote.quote_id ?? null, source: 'quote_tape',
+      modelLine: candidate.feature_snapshot?.raw_forecast?.projected_margin ?? null,
+      modelProbability: candidate.model_probability ?? null,
+      marketLineAtDecision: candidate.feature_snapshot?.raw_forecast?.market_margin ?? null });
     const now = decisionAt;
     recordObserved(opened.id, { occurredAt: now, book: candidate.book, line: contract.line, price: basis.quote.price, quoteId: basis.quote.quote_id ?? null });
 

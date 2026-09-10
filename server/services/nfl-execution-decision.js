@@ -19,24 +19,24 @@
  * All three gates return the reason they blocked rather than throwing,
  * because a blocked acceptance is a normal, expected outcome here — this
  * module's job is to make blocking the easy path, not an exception to catch.
- * Both the corridor and suspect-price gates are OPTIONAL inputs (a caller
- * that supplies neither `modelLine` nor `fairProbability` gets an ordinary
- * acceptance with those checks reported `not_evaluated` / absent) — this
- * module never manufactures a review it has no evidence for.
+ * Both the corridor and suspect-price gates are OPTIONAL evidence (an
+ * opportunity opened with no calibrated model line/probability at decision
+ * time gets an ordinary acceptance with those checks reported
+ * `not_evaluated` / absent) — this module never manufactures a review it has
+ * no evidence for.
  *
- * `eventKey` and `participant` used to be caller-supplied options here, the
- * same way `modelLine`/`fairProbability` legitimately are. They are not
- * analytical inputs, though — they are the identity the exposure-budget gate
- * uses to decide whether accepting THIS bet would cross a per-game or
- * per-player cap, and the persisted opportunity already carries its own
- * `event_key`/`participant` from `openOpportunity()`'s contract. A caller
- * that passed a mismatched value — a copy/paste from a different game, a
- * stale variable reused across a loop — would have had the exposure check
- * silently run against the wrong game or the wrong player, with no way for
- * this function to notice, because it never looked at what was actually
- * being accepted. Both are now read from `getOpportunity(opportunityId)`
- * instead, so the exposure check is provably about the contract being
- * accepted, not about whatever the caller happened to pass.
+ * CORRECTED 2026-09-10 (Codex audit finding E4): `modelLine`, `marketLine`
+ * and `fairProbability` used to be plain caller-supplied options here, the
+ * same shape as `eventKey`/`participant` were before an earlier fix moved
+ * those to the persisted opportunity instead. The actual UI never sent them
+ * at all, so both safety gates silently reported `not_evaluated` on every
+ * real acceptance — a missing input read exactly like a passing check. All
+ * three are now read from `getOpportunity(opportunityId)` (populated at
+ * `openOpportunity()` time from the frozen decision-board candidate, see
+ * nfl-execution-pipeline.js and migration 026) instead of trusted from the
+ * request body, for the identical reason `eventKey`/`participant` already
+ * are: a caller cannot bypass a safety gate merely by omitting a field, and
+ * the check is provably about the actual contract being accepted.
  */
 import { recordAcceptance, openExposure, getOpportunity } from './nfl-execution-lifecycle.js';
 import { checkExposureBudget, DEFAULT_EXPOSURE_BUDGET } from './nfl-execution-exposure.js';
@@ -44,9 +44,9 @@ import { challengeExtremePrice } from './nfl-execution-attribution.js';
 import { marketLineCorridorCheck, MARKET_LINE_CORRIDOR_POINTS } from './nfl-execution-corridor.js';
 
 export function attemptAcceptance(opportunityId, { occurredAt, book, line = null, price, stakeUnits,
-  actor = 'user:nick', note = null, fairProbability = null,
+  actor = 'user:nick', note = null,
   budget = DEFAULT_EXPOSURE_BUDGET, acknowledgeSuspectPrice = false,
-  modelLine = null, marketLine = null, corridorPoints = MARKET_LINE_CORRIDOR_POINTS,
+  corridorPoints = MARKET_LINE_CORRIDOR_POINTS,
   acknowledgeCorridorBreach = false } = {}) {
   const opportunity = getOpportunity(opportunityId);
   if (!opportunity) {
@@ -54,6 +54,9 @@ export function attemptAcceptance(opportunityId, { occurredAt, book, line = null
       reason: `no persisted opportunity ${opportunityId} — an acceptance must be against a real, ` +
         'previously opened opportunity, never a bare identifier the caller asserts facts about' };
   }
+  const modelLine = opportunity.model_line;
+  const marketLine = opportunity.market_line_at_decision;
+  const fairProbability = opportunity.model_probability;
 
   const exposure = checkExposureBudget({
     openExposures: openExposure(),

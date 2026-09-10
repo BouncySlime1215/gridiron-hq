@@ -67,7 +67,7 @@ async function migrationsThrough(through) {
  * opportunity with no events at all. `settled` rows carry a realized P&L so
  * that "content preserved" means something economic and not just a row count.
  */
-function populate(database) {
+function populate(database, { incompleteRun = false } = {}) {
   const states = ['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled'];
   let eventId = 0;
   for (const [index, status] of states.entries()) {
@@ -133,11 +133,60 @@ function populate(database) {
       (run_id, matchup, market, selection, line, american_price, book, eligible, abstention_reason)
       VALUES (?,?,?,?,?,?,?,?,?)`).run(
       'run-legacy-1', 'SEA at SF', 'spread', 'SF', -2.5, -110, 'draftkings', 0, 'edge_below_threshold');
+
+    // A run whose header claims more decisions than the tape ever wrote. The
+    // v1 tape had no atomic boundary, so a crash between the header and the
+    // last event left exactly this. It is written this way rather than UPDATEd
+    // into this state because 027's trigger forbids the UPDATE — the same
+    // immutability the migrations have to work around, and a fixture may not
+    // pretend it is absent.
+    if (incompleteRun) {
+      database.prepare(`INSERT INTO nfl_decision_runs
+        (id, season, week, policy_id, policy_version, board_hash, decided_at,
+         decision_count, selected_count, engine_mode, note)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+        'run-legacy-2', 2026, 2, 'nfl-spread-v1', '1.1.0', 'legacy-board-hash-2',
+        '2026-09-08T00:00:00Z', 5, 2, 'champion', 'header claims five; two were written');
+      database.prepare(`INSERT INTO nfl_decision_events
+        (run_id, matchup, market, selection, line, american_price, book, eligible, abstention_reason)
+        VALUES (?,?,?,?,?,?,?,?,?)`).run(
+        'run-legacy-2', 'GB at CHI', 'spread', 'GB', -6.5, -110, 'draftkings', 1, null);
+      database.prepare(`INSERT INTO nfl_decision_events
+        (run_id, matchup, market, selection, line, american_price, book, eligible, abstention_reason)
+        VALUES (?,?,?,?,?,?,?,?,?)`).run(
+        'run-legacy-2', 'NYJ at BUF', 'spread', 'BUF', -3.5, -110, 'draftkings', 1, null);
+    }
+  }
+
+  // QUOTE BATCHES written before the receipt clock existed.
+  //
+  // The same omission as the decision run above, one table over, and it cost a
+  // second review cycle. Migration 032 backfills `received_at` and
+  // `receipt_clock_source` onto legacy batches with an UPDATE, and
+  // `nfl_quote_batches` carries an append-only BEFORE UPDATE trigger. With no
+  // batch in the fixture the UPDATE matched nothing and 032 passed; the
+  // developer's real database holds 1,152 batches, so every boot aborted with
+  // "quote batches are immutable" before a single route was mounted.
+  //
+  // Two migrations in one batch, the same defect, hidden by the same gap: a
+  // fixture that creates a table and never puts a row in it does not test the
+  // migrations that touch it.
+  if (database.prepare(`SELECT COUNT(*) n FROM sqlite_master
+      WHERE type='table' AND name='nfl_quote_batches'`).get().n) {
+    for (const [index, batch] of ['batch-legacy-1', 'batch-legacy-2'].entries()) {
+      database.prepare(`INSERT INTO nfl_quote_batches
+        (batch_id, provider, requested_at, snapshot_at, mode, markets, source_ref,
+         events, quotes, raw_hash, tape_version, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        batch, 'the-odds-api', `2026-09-0${index + 1}T17:00:00Z`, `2026-09-0${index + 1}T17:00:00Z`,
+        'live', 'spreads,totals,h2h', `legacy-ref-${index + 1}`, 14, 210,
+        `legacy-raw-hash-${index + 1}`, 'nfl-quote-tape-v1', `2026-09-0${index + 1}T17:00:01Z`);
+    }
   }
 }
 
 /** A fixture database at exactly `through`, optionally populated. */
-async function fixtureAt(through, { populated = true, name = through } = {}) {
+async function fixtureAt(through, { populated = true, name = through, incompleteRun = false } = {}) {
   const file = path.join(temp, `${name}-${Math.random().toString(36).slice(2)}.sqlite`);
   const database = new DatabaseSync(file);
   open.push(database);
@@ -148,7 +197,7 @@ async function fixtureAt(through, { populated = true, name = through } = {}) {
     mod.up(database);
     database.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(mod.name ?? f.replace(/\.js$/, ''));
   }
-  if (populated) populate(database);
+  if (populated) populate(database, { incompleteRun });
   return { database, file };
 }
 
@@ -422,22 +471,105 @@ test('C03/C01: a database holding a LEGACY DECISION RUN upgrades — 031 must no
   assert.deepEqual(database.prepare(`PRAGMA foreign_key_check`).all(), []);
 });
 
+test('C03/C11: a database holding LEGACY QUOTE BATCHES upgrades — 032 must not trip the immutability trigger', async () => {
+  // The identical regression, one migration later. `nfl_quote_batches` is
+  // append-only; 032 backfills the receipt clock onto legacy batches with an
+  // UPDATE. On the developer's database — 1,152 batches — this aborted the
+  // whole migration, and since runMigrations() is awaited before any route
+  // module imports, the application could not start at all.
+  const { database, file } = await fixtureAt('029_quote_tape_commence_index', { name: 'legacy-batches' });
+  const before = database.prepare(
+    `SELECT batch_id, requested_at, raw_hash, quotes FROM nfl_quote_batches ORDER BY batch_id`).all();
+  assert.equal(before.length, 2, 'the fixture really does hold legacy batches');
+  assert.equal(database.prepare(
+    `SELECT COUNT(*) n FROM nfl_quote_batches WHERE receipt_clock_source IS NULL`).get().n, 2,
+  'and they predate the receipt clock, which is what makes the backfill fire');
+
+  const applied = await runMigrations(database, file);
+  assert.ok(applied.includes('032_quote_receipt_clock'), '032 applied rather than aborting the boot');
+
+  // The backfill states the weaker claim, and states it explicitly.
+  for (const row of database.prepare(`SELECT * FROM nfl_quote_batches ORDER BY batch_id`).all()) {
+    assert.equal(row.receipt_clock_source, 'legacy_request_time_only',
+      'a legacy batch is labelled as holding only a request time');
+    assert.equal(row.received_at, row.requested_at,
+      'and received_at holds that time as a LOWER BOUND, never as an observed receipt');
+  }
+
+  // Nothing recorded about the quotes themselves moved.
+  assert.deepEqual(database.prepare(
+    `SELECT batch_id, requested_at, raw_hash, quotes FROM nfl_quote_batches ORDER BY batch_id`).all(),
+  before, 'the captured evidence is byte-identical — only the clock columns were assigned');
+
+  // The protection is back, both halves of it.
+  assert.throws(
+    () => database.prepare(`UPDATE nfl_quote_batches SET quotes = 0 WHERE batch_id='batch-legacy-1'`).run(),
+    /immutable/, 'the update trigger was restored after the backfill');
+  assert.throws(
+    () => database.prepare(`DELETE FROM nfl_quote_batches WHERE batch_id='batch-legacy-1'`).run(),
+    /immutable/, 'and the delete trigger 032 never touched is still there');
+});
+
+test('C03: no migration writes to an append-only table without restoring its guard', async () => {
+  // 031 and 032 were the same defect found twice, three days apart, by two
+  // different readers. This test is the generalisation: it reads every
+  // migration and every trigger the schema and migrations install, and fails on
+  // any UPDATE or DELETE against a protected table that does not lift and
+  // restore that exact trigger. A third instance should be caught here rather
+  // than by a boot failure on someone's populated database.
+  const roots = ['server/db/schema', 'server/migrations'];
+  const sources = [];
+  for (const root of roots) {
+    for (const f of fs.readdirSync(path.join(process.cwd(), root)).filter(f => f.endsWith('.js'))) {
+      sources.push({ file: `${root}/${f}`, text: fs.readFileSync(path.join(process.cwd(), root, f), 'utf8') });
+    }
+  }
+  const protectedTables = new Set();
+  for (const { text } of sources) {
+    for (const m of text.matchAll(/BEFORE (?:UPDATE|DELETE) ON ([a-z_]+)/g)) protectedTables.add(m[1]);
+  }
+  assert.ok(protectedTables.has('nfl_quote_batches') && protectedTables.has('nfl_decision_runs'),
+    'the scan found the tables this test exists to protect');
+
+  const offences = [];
+  for (const { file, text } of sources.filter(s => s.file.startsWith('server/migrations'))) {
+    const body = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/--.*$/gm, '');
+    for (const m of body.matchAll(/\b(UPDATE|DELETE FROM)\s+([a-z_]+)/g)) {
+      const [, verb, table] = m;
+      if (!protectedTables.has(table)) continue;
+      const guard = `${table}_no_${verb === 'UPDATE' ? 'update' : 'delete'}`;
+      if (!body.includes(`DROP TRIGGER IF EXISTS ${guard}`)) offences.push(`${file}: ${verb} ${table} (needs ${guard} lifted and restored)`);
+      else if (!body.includes(`CREATE TRIGGER IF NOT EXISTS ${guard}`)) offences.push(`${file}: lifts ${guard} and never restores it`);
+    }
+  }
+  assert.deepEqual(offences, [], `migrations write to append-only tables unguarded:\n${offences.join('\n')}`);
+});
+
 test('C03/C01: a legacy run whose events do not match its header is INVALIDATED, not rewritten', async () => {
-  const { database, file } = await fixtureAt('029_quote_tape_commence_index', { name: 'incomplete-run' });
-  // Header claims 2, and the fixture wrote 2 — make it claim 5 so it is incomplete.
-  database.prepare(`UPDATE nfl_decision_runs SET decision_count = 5 WHERE id='run-legacy-1'`).run();
+  const { database, file } = await fixtureAt('029_quote_tape_commence_index',
+    { name: 'incomplete-run', incompleteRun: true });
+  assert.equal(database.prepare(
+    `SELECT decision_count FROM nfl_decision_runs WHERE id='run-legacy-2'`).get().decision_count, 5,
+  'the fixture holds a run whose header claims five decisions');
+  assert.equal(database.prepare(
+    `SELECT COUNT(*) n FROM nfl_decision_events WHERE run_id='run-legacy-2'`).get().n, 2,
+  'and only two were ever written');
 
   await runMigrations(database, file);
 
   const invalidations = database.prepare(
-    `SELECT * FROM nfl_decision_run_invalidations WHERE run_id='run-legacy-1'`).all();
+    `SELECT * FROM nfl_decision_run_invalidations WHERE run_id='run-legacy-2'`).all();
   assert.equal(invalidations.length, 1, 'an invalidation was appended');
   assert.match(invalidations[0].reason, /incomplete legacy run/);
   assert.equal(invalidations[0].actor, '031_decision_identity');
 
   // The run itself is untouched — that is the whole point of appending.
-  const run = database.prepare(`SELECT * FROM nfl_decision_runs WHERE id='run-legacy-1'`).get();
+  const run = database.prepare(`SELECT * FROM nfl_decision_runs WHERE id='run-legacy-2'`).get();
   assert.equal(run.decision_count, 5, 'the header still says what it said');
   assert.equal(database.prepare(
-    `SELECT COUNT(*) n FROM nfl_decision_events WHERE run_id='run-legacy-1'`).get().n, 2);
+    `SELECT COUNT(*) n FROM nfl_decision_events WHERE run_id='run-legacy-2'`).get().n, 2);
+
+  // The complete run alongside it was backfilled normally, not tarred with it.
+  assert.equal(database.prepare(
+    `SELECT COUNT(*) n FROM nfl_decision_run_invalidations WHERE run_id='run-legacy-1'`).get().n, 0);
 });

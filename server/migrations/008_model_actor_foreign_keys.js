@@ -20,8 +20,25 @@ export function up(db) {
       WHERE promoted_by IS NOT NULL AND EXISTS (SELECT 1 FROM users WHERE id=CAST(promoted_by AS INTEGER));
     UPDATE model_promotion_history SET actor_user_id=CAST(actor_id AS INTEGER)
       WHERE EXISTS (SELECT 1 FROM users WHERE id=CAST(actor_id AS INTEGER));
+  `);
+
+  // 007 makes `model_audit_log` append-only, so this backfill has to lift its
+  // update guard and put it straight back — the same shape as 031 and 032.
+  //
+  // Unlike those two this one has never fired in practice: 007 and 008 ship
+  // together, so on every real installation the log was empty when 008 ran.
+  // That is luck, not design. An installation that reached 007 with audit rows
+  // and upgraded later would abort here with "model audit log is append-only",
+  // and would abort on every boot after that. Fixed for the same reason the
+  // other two were, and covered by the same scan that found it.
+  db.exec(`DROP TRIGGER IF EXISTS model_audit_log_no_update`);
+  db.exec(`
     UPDATE model_audit_log SET actor_user_id=CAST(actor_id AS INTEGER)
       WHERE EXISTS (SELECT 1 FROM users WHERE id=CAST(actor_id AS INTEGER));
+  `);
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS model_audit_log_no_update
+      BEFORE UPDATE ON model_audit_log BEGIN SELECT RAISE(ABORT, 'model audit log is append-only'); END;
   `);
 }
 

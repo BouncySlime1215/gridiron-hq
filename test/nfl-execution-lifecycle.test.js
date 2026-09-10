@@ -15,7 +15,7 @@ const { contractKey } = await import('../server/services/nfl-contract-key.js');
 const {
   openOpportunity, recordObserved, recordDecision, recordRefresh, recordAcceptance,
   settleOpportunity, getOpportunity, listOpportunities, openExposure, lifecycleFunnel, allowedNextStates,
-  recordTerminalOutcome
+  recordTerminalOutcome, correctSettlement, netRealizedUnits
 } = await import('../server/services/nfl-execution-lifecycle.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -116,7 +116,10 @@ test('the state machine refuses an out-of-order transition, both in JS and at th
   assert.deepEqual(allowedNextStates('offered'), ['observed', 'passed', 'expired', 'cancelled']);
   assert.deepEqual(allowedNextStates('decision'), ['refreshed', 'accepted', 'passed', 'expired', 'cancelled']);
   assert.deepEqual(allowedNextStates('accepted'), ['settled']);
-  assert.deepEqual(allowedNextStates('settled'), []);
+  // Settlement stopped being a dead end for Codex audit finding E8: a
+  // provider score correction appends a compensating event rather than
+  // mutating the original grade, which the append-only triggers refuse.
+  assert.deepEqual(allowedNextStates('settled'), ['settlement_correction']);
 });
 
 test('an ACCEPTED record must actually be source=user_recorded — recordAcceptance always sets it', async () => {
@@ -217,7 +220,9 @@ function decidedOpportunity({ commenceDate }) {
     homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: `${commenceDate}T00:20:00Z`, market: 'spreads', side: 'home', line: -3.5
   });
-  const before = `${commenceDate.slice(0, 8)}${String(Number(commenceDate.slice(8)) - 1).padStart(2, '0')}`;
+  const beforeDate = new Date(`${commenceDate}T00:00:00Z`);
+  beforeDate.setUTCDate(beforeDate.getUTCDate() - 1);
+  const before = beforeDate.toISOString().slice(0, 10);
   const opp = openOpportunity({ contract: c, decisionSource: 'test',
     occurredAt: `${before}T10:00:00Z`, book: 'draftkings', line: -3.5, price: -110 });
   recordObserved(opp.id, { occurredAt: `${before}T10:00:05Z`, book: 'draftkings', line: -3.5, price: -110 });
@@ -264,4 +269,91 @@ test('every pre-acceptance state can end terminally, but an ACCEPTED bet can onl
   }
   // Real exposure exists once accepted; the only honest ending is settlement.
   assert.deepEqual(allowedNextStates('accepted'), ['settled']);
+});
+
+/* ---- Codex audit finding E8: finality basis and settlement corrections ---- */
+
+/** One opportunity walked all the way to ACCEPTED, ready to settle. */
+function acceptedOpportunity({ commenceDate, price = -110, stakeUnits = 1 }) {
+  const c = contractKey({
+    homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
+    commenceTime: `${commenceDate}T00:20:00Z`, market: 'spreads', side: 'home', line: -3.5
+  });
+  // Real date arithmetic, not string surgery: subtracting 1 from the day
+  // digits produces "2027-02-00" for the 1st of a month.
+  const before = new Date(`${commenceDate}T00:00:00Z`);
+  before.setUTCDate(before.getUTCDate() - 1);
+  const day = before.toISOString().slice(0, 10);
+  const opp = openOpportunity({ contract: c, decisionSource: 'test',
+    occurredAt: `${day}T10:00:00Z`, book: 'draftkings', line: -3.5, price });
+  recordObserved(opp.id, { occurredAt: `${day}T10:00:05Z`, book: 'draftkings', line: -3.5, price });
+  recordDecision(opp.id, { occurredAt: `${day}T10:05:00Z`, book: 'draftkings', line: -3.5, price });
+  recordAcceptance(opp.id, { occurredAt: `${day}T10:06:00Z`, book: 'draftkings', line: -3.5, price, stakeUnits });
+  return { opp, settleAt: `${commenceDate}T04:00:00Z` };
+}
+
+test('E8: a settlement records HOW it knows the game is final, and refuses an unlabeled claim', () => {
+  const { opp, settleAt } = acceptedOpportunity({ commenceDate: '2027-01-04' });
+  const settled = settleOpportunity(opp.id, { occurredAt: settleAt, result: 'won' });
+  const event = settled.events.find(e => e.state === 'settled');
+  // The honest default: this project has no provider status field, so
+  // finality is inferred -- and says so rather than implying confirmation.
+  assert.equal(event.detail.finality.basis, 'inferred_from_scores_and_elapsed_kickoff');
+  assert.equal(event.detail.finality.source, 'game_lines');
+
+  const other = acceptedOpportunity({ commenceDate: '2027-01-11' });
+  assert.throws(() => settleOpportunity(other.opp.id, { occurredAt: other.settleAt, result: 'won',
+    finality: { basis: 'because it looked finished', source: 'vibes' } }), /finality basis must be one of/);
+});
+
+test('E8: a provider score correction appends a compensating event and never mutates the original grade', () => {
+  const { opp, settleAt } = acceptedOpportunity({ commenceDate: '2027-01-18', price: -110, stakeUnits: 1 });
+  const settled = settleOpportunity(opp.id, { occurredAt: settleAt, result: 'won' });
+  const original = settled.events.find(e => e.state === 'settled');
+  const originalFrozen = JSON.stringify(original);
+  assert.ok(original.realized_pnl_units > 0);
+  assert.ok(Math.abs(netRealizedUnits(opp.id) - original.realized_pnl_units) < 1e-9);
+
+  // The provider corrects the score: this was actually a loss.
+  const corrected = correctSettlement(opp.id, { occurredAt: `${settleAt.slice(0, 10)}T12:00:00Z`,
+    result: 'lost', reason: 'provider issued a corrected final score', actor: 'user:nick' });
+
+  const afterOriginal = corrected.events.find(e => e.state === 'settled');
+  assert.equal(JSON.stringify(afterOriginal), originalFrozen,
+    'the original settled row must remain byte-identical — corrections append, never rewrite');
+
+  // The NET is exactly the corrected figure: a 1u loss, not a win plus a loss.
+  assert.ok(Math.abs(netRealizedUnits(opp.id) - -1) < 1e-9,
+    `net should be exactly -1 unit after the correction, got ${netRealizedUnits(opp.id)}`);
+  const correction = corrected.events.find(e => e.state === 'settlement_correction');
+  assert.equal(correction.result, 'lost');
+  assert.equal(correction.detail.previous_result, 'won');
+  assert.equal(correction.detail.reason, 'provider issued a corrected final score');
+  assert.equal(correction.detail.corrects_event_id, original.id);
+});
+
+test('E8: a correction can itself be corrected, and the net still reconciles exactly', () => {
+  const { opp, settleAt } = acceptedOpportunity({ commenceDate: '2027-01-25' });
+  settleOpportunity(opp.id, { occurredAt: settleAt, result: 'lost' });
+  correctSettlement(opp.id, { occurredAt: `${settleAt.slice(0, 10)}T12:00:00Z`, result: 'won',
+    reason: 'first correction: scoring change', actor: 'user:nick' });
+  correctSettlement(opp.id, { occurredAt: `${settleAt.slice(0, 10)}T18:00:00Z`, result: 'push',
+    reason: 'second correction: league voided the disputed points', actor: 'user:nick' });
+  assert.ok(Math.abs(netRealizedUnits(opp.id) - 0) < 1e-9,
+    `a push nets exactly zero however many corrections preceded it, got ${netRealizedUnits(opp.id)}`);
+});
+
+test('E8: a correction requires both a reason and a named actor, and a prior settlement to correct', () => {
+  const { opp, settleAt } = acceptedOpportunity({ commenceDate: '2027-02-01' });
+  // Nothing settled yet.
+  assert.throws(() => correctSettlement(opp.id, { occurredAt: settleAt, result: 'won',
+    reason: 'x', actor: 'user:nick' }), /settlement that never happened/);
+
+  settleOpportunity(opp.id, { occurredAt: settleAt, result: 'won' });
+  assert.throws(() => correctSettlement(opp.id, { occurredAt: settleAt, result: 'lost', actor: 'user:nick' }),
+    /requires a reason/);
+  assert.throws(() => correctSettlement(opp.id, { occurredAt: settleAt, result: 'lost', reason: 'x' }),
+    /requires an explicit actor/);
+  assert.throws(() => correctSettlement(opp.id, { occurredAt: settleAt, result: 'maybe',
+    reason: 'x', actor: 'user:nick' }), /corrected result must be one of/);
 });

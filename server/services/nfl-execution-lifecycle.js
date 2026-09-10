@@ -38,7 +38,7 @@ import { assertExecutionPrice, assertExecutionStake, assertSpreadLine,
   executionInputError, executionTime } from './nfl-execution-validation.js';
 
 export const STATES = Object.freeze(['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled',
-  'passed', 'expired', 'cancelled']);
+  'passed', 'expired', 'cancelled', 'settlement_correction']);
 /**
  * Codex audit finding E6, last paragraph: an opportunity that never became a
  * bet used to have nowhere to go -- it sat at `decision` forever, which both
@@ -57,8 +57,20 @@ export const STATES = Object.freeze(['offered', 'observed', 'decision', 'refresh
  * measurable denominator rather than an absence.
  */
 export const TERMINAL_OUTCOMES = Object.freeze(['passed', 'expired', 'cancelled']);
+
+/**
+ * How a settlement knows the game is over (Codex audit finding E8). There is
+ * no provider status field in `game_lines` to read, so the honest default is
+ * the inference this system actually makes -- labeled as an inference. A real
+ * provider-finality observation can be cited the moment one exists.
+ */
+export const FINALITY_BASES = Object.freeze([
+  'inferred_from_scores_and_elapsed_kickoff',
+  'provider_confirmed_final',
+  'user_confirmed_final'
+]);
 const ORDER_INDEX = Object.freeze({ offered: 0, observed: 1, decision: 2, refreshed: 2, accepted: 3, settled: 4,
-  passed: 5, expired: 5, cancelled: 5 });
+  passed: 5, expired: 5, cancelled: 5, settlement_correction: 6 });
 const SOURCES = Object.freeze(['quote_tape', 'user_recorded', 'replay_synthetic', 'settlement_result']);
 const RESULTS = Object.freeze(['won', 'lost', 'push', 'void']);
 
@@ -79,7 +91,12 @@ export function allowedNextStates(currentStatus) {
     case 'decision': return ['refreshed', 'accepted', ...TERMINAL_OUTCOMES];
     case 'refreshed': return ['refreshed', 'accepted', ...TERMINAL_OUTCOMES];
     case 'accepted': return ['settled'];
-    case 'settled': return [];
+    // Settlement is no longer a dead end: a provider score correction, a
+    // mis-keyed ticket or a later book ruling appends a compensating
+    // correction (E8) rather than mutating the original grade. Corrections
+    // may themselves be corrected.
+    case 'settled': return ['settlement_correction'];
+    case 'settlement_correction': return ['settlement_correction'];
     case 'passed': case 'expired': case 'cancelled': return [];
     default: return ['offered'];
   }
@@ -209,7 +226,14 @@ export function recordState(opportunityId, state, { occurredAt, book = null, lin
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     opportunityId, state, new Date(executionTime(occurredAt)).toISOString(), book, line, price, stakeUnits, source,
     quoteId, actor, detail == null ? null : JSON.stringify(detail), result, r4(realizedPnlUnits));
-    run('UPDATE nfl_execution_opportunities SET status=? WHERE id=?', state, opportunityId);
+    // A settlement CORRECTION does not move the opportunity to a new
+    // lifecycle stage -- the bet is still settled, it is the RESULT that was
+    // restated (Codex audit finding E8). Advancing the materialized status
+    // here would invent a stage that does not exist, and would make a
+    // corrected bet look like it had left settlement.
+    if (state !== 'settlement_correction') {
+      run('UPDATE nfl_execution_opportunities SET status=? WHERE id=?', state, opportunityId);
+    }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
   return getOpportunity(opportunityId);
@@ -285,7 +309,18 @@ export function recordAcceptance(opportunityId, { occurredAt, book, line = null,
  * settlement row and contributes exactly zero to any P&L sum, not an
  * estimate of zero.
  */
-export function settleOpportunity(opportunityId, { occurredAt, result, actor = 'system', note = null } = {}) {
+export function settleOpportunity(opportunityId, { occurredAt, result, actor = 'system', note = null,
+  // Codex audit finding E8: WHY this game is believed final. This project has
+  // no provider status field to read (`game_lines` carries scores and a
+  // kickoff time, and nothing that says "the provider marked this final"), so
+  // in practice finality is INFERRED from "kickoff has passed and both scores
+  // are present." That inference is almost always right and is not the
+  // problem; presenting it as a provider's confirmation would be. The basis
+  // is recorded on the settlement event so a reader can tell the two apart,
+  // and a real provider-finality observation can be cited here the moment one
+  // is actually available.
+  finality = { basis: 'inferred_from_scores_and_elapsed_kickoff', source: 'game_lines', observed_at: null }
+} = {}) {
   const accepted = row(`SELECT * FROM nfl_execution_lifecycle_events
     WHERE opportunity_id=? AND state='accepted'`, opportunityId);
   if (!accepted) {
@@ -293,17 +328,88 @@ export function settleOpportunity(opportunityId, { occurredAt, result, actor = '
     error.code = 'not_accepted';
     throw error;
   }
+  if (!FINALITY_BASES.includes(finality?.basis)) {
+    throw executionInputError(`settlement finality basis must be one of ${FINALITY_BASES.join(', ')} — ` +
+      'an unlabeled finality claim is exactly what makes an inferred result look confirmed');
+  }
   // Legacy rows can predate the boundary checks; never turn their invalid payout into null P&L.
   assertExecutionPrice(accepted.price);
   assertExecutionStake(accepted.stake_units, accepted.price);
-  const pnl = result === 'won' ? accepted.stake_units * payoutPerUnit(accepted.price)
-    : result === 'lost' ? -accepted.stake_units
-      : 0; // push and void both return the stake — zero net, by rule, not by estimate
+  const pnl = realizedPnlFor(result, accepted);
   return recordState(opportunityId, 'settled', {
     occurredAt, book: accepted.book, line: accepted.line, price: accepted.price,
     stakeUnits: accepted.stake_units, source: 'settlement_result', actor, result,
-    realizedPnlUnits: pnl, detail: note ? { note } : null
+    realizedPnlUnits: pnl, detail: { ...(note ? { note } : {}), finality }
   });
+}
+
+/** Realized units for one graded result against the accepted stake and price. */
+function realizedPnlFor(result, accepted) {
+  return result === 'won' ? accepted.stake_units * payoutPerUnit(accepted.price)
+    : result === 'lost' ? -accepted.stake_units
+      : 0; // push and void both return the stake — zero net, by rule, not by estimate
+}
+
+/**
+ * Correct an already-settled result WITHOUT touching the original grade
+ * (Codex audit finding E8).
+ *
+ * Settlement is terminal and this ledger is append-only, so before this
+ * existed a provider score correction, a mis-keyed ticket or a later book
+ * ruling had nowhere to go: the only options were to mutate history (which
+ * the database triggers correctly refuse) or leave a known-wrong result
+ * standing. This appends a compensating event carrying the corrected result
+ * and the P&L DELTA against what was previously recorded, so:
+ *
+ *   - the original settled row stays byte-identical forever;
+ *   - realized economics are the NET of ledger events, never "whatever the
+ *     last row says" (see `netRealizedUnits`), so a correction can never
+ *     double-count a win or leave phantom exposure;
+ *   - corrections may themselves be corrected, each one appending again.
+ *
+ * `reason` and `actor` are both required: an unattributed rewrite of a
+ * financial result is precisely the thing this is designed to prevent.
+ */
+export function correctSettlement(opportunityId, { occurredAt, result, reason, actor,
+  source = 'settlement_result', note = null } = {}) {
+  if (!RESULTS.includes(result)) throw executionInputError(`corrected result must be one of ${RESULTS.join(', ')}`);
+  if (typeof reason !== 'string' || !reason.trim()) {
+    throw executionInputError('a settlement correction requires a reason — an unexplained restatement of a ' +
+      'financial result is not evidence');
+  }
+  if (typeof actor !== 'string' || !actor.trim()) {
+    throw executionInputError('a settlement correction requires an explicit actor');
+  }
+  const accepted = row(`SELECT * FROM nfl_execution_lifecycle_events
+    WHERE opportunity_id=? AND state='accepted'`, opportunityId);
+  if (!accepted) throw executionInputError('cannot correct a settlement for an opportunity that was never accepted');
+  const settled = row(`SELECT * FROM nfl_execution_lifecycle_events
+    WHERE opportunity_id=? AND state='settled'`, opportunityId);
+  if (!settled) throw executionInputError('cannot correct a settlement that never happened');
+
+  const priorNet = netRealizedUnits(opportunityId);
+  const corrected = realizedPnlFor(result, accepted);
+  const delta = corrected - priorNet;
+  return recordState(opportunityId, 'settlement_correction', {
+    occurredAt, book: accepted.book, line: accepted.line, price: accepted.price,
+    stakeUnits: accepted.stake_units, source, actor, result,
+    // The DELTA, not the absolute figure: netRealizedUnits sums the ledger,
+    // so storing the absolute number here would double-count the original.
+    realizedPnlUnits: r4(delta),
+    detail: { ...(note ? { note } : {}), reason, corrects_event_id: settled.id,
+      previous_result: settled.result, previous_net_units: r4(priorNet), corrected_net_units: r4(corrected) }
+  });
+}
+
+/**
+ * The authoritative realized figure for one opportunity: the NET of every
+ * settlement and correction event, never the last row alone. This is what
+ * makes a correction reconcile exactly rather than duplicating a win.
+ */
+export function netRealizedUnits(opportunityId) {
+  const events = rows(`SELECT realized_pnl_units FROM nfl_execution_lifecycle_events
+    WHERE opportunity_id=? AND state IN ('settled','settlement_correction')`, opportunityId);
+  return events.reduce((sum, e) => sum + (Number.isFinite(e.realized_pnl_units) ? e.realized_pnl_units : 0), 0);
 }
 
 /** One opportunity with its full, ordered event history. */

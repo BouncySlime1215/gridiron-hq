@@ -34,6 +34,26 @@
 import { rows, row, run } from '../db/index.js';
 import { replaySeason, analyzeErrors, proposeAdjustment, segmentRuleHash, segmentsFor, gameContext } from './nfl-replay.js';
 
+/**
+ * Codex audit finding M12/E12: verifies a finding's stored
+ * `rule_definition_hash` still matches what `segmentRuleHash` would compute
+ * for its predicate RIGHT NOW. `segmentRuleHash` folds in this codebase's own
+ * content hash (see nfl-replay.js), so this fails the instant `segmentsFor`'s
+ * actual implementation of the predicate has changed since the finding was
+ * frozen -- a rule change must create a new finding/version, never silently
+ * inherit an old confirmation for a redefinition of what it tests.
+ */
+function assertRuleUnchanged(finding) {
+  const segment = { dimension: finding.dimension, segment: finding.segment,
+    win_rate: finding.direction === 'weak' ? 0.4 : 0.6 };
+  const current = segmentRuleHash(segment);
+  if (finding.rule_definition_hash && current !== finding.rule_definition_hash) {
+    throw new Error(`finding ${finding.id} ('${finding.segment_key}') was frozen against a different predicate ` +
+      `implementation (stored hash ${finding.rule_definition_hash}, current ${current}) -- the segment logic has ` +
+      `changed since discovery; this finding must be re-discovered under a new segment_key, not reused`);
+  }
+}
+
 const REQUIRED_HOLDOUT_CONFIRMATIONS = 3;
 
 const segmentKeyFor = s => `${s.dimension}|${s.segment}`;
@@ -173,6 +193,7 @@ export function nextHoldoutState(currentState, holdoutRows) {
  */
 function recordHoldoutTest(finding, season, config = {}) {
   assertSeasonRoleAvailable(finding.id, season, 'holdout');
+  assertRuleUnchanged(finding);
   const discoverySeasons = JSON.parse(finding.discovery_seasons_json);
   const segment = { dimension: finding.dimension, segment: finding.segment, win_rate: finding.direction === 'weak' ? 0.4 : 0.6 };
   let result;
@@ -222,15 +243,28 @@ export function runCandidateFindingsForSeasonEnd(season, config = {}) {
     discoveryActions.push(recordDiscoveryFlag(segment, season));
   }
 
-  // Every OTHER already-discovered-or-later finding not touched by this
-  // season's OWN discovery flags gets this season offered as a holdout test
-  // — this is how a season a finding never flagged in accumulates evidence
-  // against it too, not just seasons that happened to re-flag it.
-  const flaggedKeysThisSeason = new Set(discoveryActions.map(a => a.segment_key));
+  // CORRECTED 2026-09-10 (Codex audit finding E11 / M12): every already-
+  // discovered-or-validating finding gets this season offered as a holdout
+  // test exactly once, regardless of whether this season's OWN discovery
+  // scan happened to re-flag the same pattern. An earlier version excluded
+  // any finding whose segment_key appeared ANYWHERE in this season's
+  // discovery actions -- including `already_past_discovery` (a no-op that
+  // writes no row to nfl_candidate_finding_seasons at all) -- which meant a
+  // segment that kept re-triggering the discovery search every single year
+  // got a real holdout test in NONE of those years: whether a season counted
+  // as evidence silently depended on the search result, the exact "outcome-
+  // based skipped years" defect the audit named. The DB itself is now the
+  // only source of truth for "did this season already play a role for this
+  // finding" (`alreadyUsed` below) -- for the two discovery actions that
+  // actually consume a database row this cycle (`first_flag`, which leaves
+  // the finding in `pending_confirmation` and so outside `eligibleForHoldout`
+  // below anyway, and `independently_reconfirmed`, which inserts a discovery
+  // row for this exact season before this query runs), `alreadyUsed`
+  // already catches them correctly without a second, independently-buggy
+  // tracking set.
   const eligibleForHoldout = rows(`SELECT * FROM nfl_candidate_findings WHERE state IN ('discovered','validating')`);
   const holdoutActions = [];
   for (const finding of eligibleForHoldout) {
-    if (flaggedKeysThisSeason.has(finding.segment_key)) continue; // this season already played discovery's role for it this cycle
     const alreadyUsed = row(`SELECT 1 ok FROM nfl_candidate_finding_seasons WHERE finding_id=? AND season=?`, finding.id, season);
     if (alreadyUsed) continue;
     holdoutActions.push(recordHoldoutTest(finding, season, config));
@@ -267,10 +301,20 @@ export function promotedFindingVeto(bet) {
   const ctx = gameContext();
   const betSegments = new Set(segmentsFor(bet, ctx).map(([dim, val]) => `${dim}|${val}`));
   for (const finding of promoted) {
-    if (betSegments.has(finding.segment_key)) {
-      return { vetoed: true, finding_id: finding.id, segment_key: finding.segment_key,
-        reason: `Matches promoted finding '${finding.segment_key}' — proven unreliable across ${JSON.parse(finding.discovery_seasons_json ?? '[]').length}+ seasons of validation.` };
+    if (!betSegments.has(finding.segment_key)) continue;
+    // Codex audit finding M12/E12: the live path must FAIL SAFE, not crash
+    // the whole decision board, if a promoted finding's predicate has
+    // drifted from the implementation that actually validated it -- so this
+    // stays a no-veto (never trust a stale confirmation) rather than a throw.
+    // The same check throws loudly in recordHoldoutTest, where a stale rule
+    // must stop the automatic pipeline outright instead of quietly no-op'ing.
+    try {
+      assertRuleUnchanged(finding);
+    } catch (e) {
+      continue;
     }
+    return { vetoed: true, finding_id: finding.id, segment_key: finding.segment_key,
+      reason: `Matches promoted finding '${finding.segment_key}' — proven unreliable across ${JSON.parse(finding.discovery_seasons_json ?? '[]').length}+ seasons of validation.` };
   }
   return { vetoed: false };
 }
@@ -280,12 +324,33 @@ export function promotedFindingVeto(bet) {
  * invoked by a person, mirroring model-governance.js's promoteEligibleAudit.
  * From this moment, `promotedFindingVeto` above (wired into the live
  * decision board) will abstain on any bet matching this segment.
+ *
+ * CORRECTED 2026-09-10 (Codex audit finding M12): this function's name and
+ * its one consumer (`promotedFindingVeto`) both mean exactly one thing --
+ * STOP betting this segment. That is the correct, conservative action for a
+ * `weak` finding (a segment where the model systematically loses). It is the
+ * WRONG action for a `strong` finding (a segment where the model has
+ * systematically won): dropping those bets would remove the model's best
+ * results, not its worst ones, which the function's own name and behavior
+ * would silently misrepresent as a safety improvement. This codebase's
+ * standing shrink-only convention (nfl-signal-reliability.js) also never
+ * auto-BOOSTS confidence from backtested performance -- a `strong` finding
+ * discovered by this same search is exactly the kind of apparent overfit
+ * this project is built to distrust, not to lean into. So a `strong`
+ * finding can never be promoted through THIS function; it stays visible at
+ * `flagged_for_review` for a human to consider through a separately
+ * designed, separately evaluated mechanism (never this veto).
  */
 export function promoteFindingToShrink(findingId, { actor, reason } = {}) {
   const finding = row(`SELECT * FROM nfl_candidate_findings WHERE id=?`, Number(findingId));
   if (!finding) throw new Error('candidate finding not found');
   if (finding.state !== 'flagged_for_review') {
     throw new Error(`a finding can only be promoted from 'flagged_for_review' (current state: '${finding.state}')`);
+  }
+  if (finding.direction === 'strong') {
+    throw new Error(`finding ${finding.id} ('${finding.segment_key}') is a 'strong' (apparently profitable) segment -- ` +
+      `promoteFindingToShrink only ever installs a veto (stop betting here), which is the wrong action for a segment ` +
+      `the model currently wins in. A 'strong' finding needs its own separately designed and evaluated mechanism, never this one.`);
   }
   if (!actor) throw new Error('promoteFindingToShrink requires an explicit actor — this is never called automatically');
   run(`UPDATE nfl_candidate_findings SET state='promoted', resolved_at=datetime('now'), resolved_by=?, resolution_note=? WHERE id=?`,
@@ -308,4 +373,4 @@ export function candidateFindingsStatus() {
     seasons: seasonsForFinding(f.id), discovery_seasons_json: undefined }));
 }
 
-export const __test = { singleSeasonFindings, recordDiscoveryFlag, recordHoldoutTest, assertSeasonRoleAvailable };
+export const __test = { singleSeasonFindings, recordDiscoveryFlag, recordHoldoutTest, assertSeasonRoleAvailable, assertRuleUnchanged };

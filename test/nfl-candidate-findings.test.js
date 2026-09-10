@@ -68,6 +68,58 @@ test('a finding already past discovery ignores further discovery flags rather th
   assert.equal(third.action, 'already_past_discovery');
 });
 
+// --- Codex audit finding E11 (2026-09-10): repeated re-flagging must not censor holdout years ---
+
+test('E11 fix: a season where rediscovery re-flags an already-discovered finding writes NO season row for it', () => {
+  // This is the exact mechanism the season-end orchestrator now relies on
+  // instead of the removed (buggy) flaggedKeysThisSeason set: if
+  // already_past_discovery truly writes nothing, that season stays eligible
+  // for a real holdout test rather than being silently excluded because the
+  // discovery search happened to re-flag the same pattern.
+  recordDiscoveryFlag(segment('humidity', 'humid games'), 2021);
+  const found = recordDiscoveryFlag(segment('humidity', 'humid games'), 2022); // -> discovered
+  const repeat = recordDiscoveryFlag(segment('humidity', 'humid games'), 2023);
+  assert.equal(repeat.action, 'already_past_discovery');
+  const rowsFor2023 = db.prepare(`SELECT * FROM nfl_candidate_finding_seasons WHERE finding_id=? AND season=2023`).all(found.finding_id);
+  assert.equal(rowsFor2023.length, 0, 'a no-op discovery re-flag must not consume 2023 in any role, leaving it free for a real holdout test');
+});
+
+// --- Codex audit finding M12/E12 (2026-09-10): a stale predicate hash must be caught, not silently reused ---
+
+test('assertRuleUnchanged accepts a finding whose stored hash still matches the live predicate implementation', () => {
+  const found = registerManuallyObservedFinding(segment('weather', 'freezing rain', 0.4), [2021, 2022]);
+  const finding = db.prepare(`SELECT * FROM nfl_candidate_findings WHERE id=?`).get(found.finding_id);
+  assert.doesNotThrow(() => __test.assertRuleUnchanged(finding));
+});
+
+test('assertRuleUnchanged throws once the stored hash no longer matches the current implementation fingerprint', () => {
+  const found = registerManuallyObservedFinding(segment('weather', 'sleet games', 0.4), [2021, 2022]);
+  const finding = db.prepare(`SELECT * FROM nfl_candidate_findings WHERE id=?`).get(found.finding_id);
+  const tampered = { ...finding, rule_definition_hash: 'not-the-real-hash-anymore' };
+  assert.throws(() => __test.assertRuleUnchanged(tampered), /different predicate implementation/);
+});
+
+test('promotedFindingVeto fails safe (no veto) rather than throwing when a promoted finding has a stale hash', () => {
+  const found = registerManuallyObservedFinding(segment('weather', 'blizzard games', 0.4), [2021, 2022]);
+  db.prepare(`UPDATE nfl_candidate_findings SET state='flagged_for_review' WHERE id=?`).run(found.finding_id);
+  promoteFindingToShrink(found.finding_id, { actor: 'nick', reason: 'test' });
+  db.prepare(`UPDATE nfl_candidate_findings SET rule_definition_hash='stale-hash' WHERE id=?`).run(found.finding_id);
+  const bet = { season: 2026, week: 1, home: 'AAA', away: 'BBB', market: 'spread', side: 'AAA', line: -1, edge: 1, disagreement: 2 };
+  assert.doesNotThrow(() => promotedFindingVeto(bet));
+  assert.equal(promotedFindingVeto(bet).vetoed, false, 'a promoted finding with a stale predicate hash must never veto, and must never crash the live path either');
+});
+
+// --- Codex audit finding M12 (2026-09-10): a 'strong' finding can never be promoted through the shrink-only veto ---
+
+test('promoteFindingToShrink refuses a "strong" (apparently profitable) finding -- vetoing it would drop the model\'s best bets', () => {
+  const found = registerManuallyObservedFinding(segment('weather', 'domes', 0.6), [2021, 2022]); // win_rate 0.6 -> direction 'strong'
+  db.prepare(`UPDATE nfl_candidate_findings SET state='flagged_for_review' WHERE id=?`).run(found.finding_id);
+  assert.throws(() => promoteFindingToShrink(found.finding_id, { actor: 'nick', reason: 'looks good' }),
+    /'strong'.*promoteFindingToShrink only ever installs a veto/s);
+  const finding = db.prepare(`SELECT state FROM nfl_candidate_findings WHERE id=?`).get(found.finding_id);
+  assert.equal(finding.state, 'flagged_for_review', 'a refused promotion must leave the finding exactly where it was');
+});
+
 test('Rule 1 (hard invariant): a season already used as discovery cannot later be used as holdout, and vice versa', () => {
   recordDiscoveryFlag(segment('spread size', 'big spread (7+)'), 2021);
   const finding = recordDiscoveryFlag(segment('spread size', 'big spread (7+)'), 2022);

@@ -83,11 +83,11 @@ const unitsFor = (won, pushed, price) => {
  * The primary grade above compares the pick to the CLOSING line -- a number
  * that does not exist yet at any point a real bet could have been placed.
  * "Beat the market" against it answers "beat the final number", not "beat
- * what was actually obtainable". This computes the same edge/cover call
- * against the OPENING line instead (`game_lines.open_spread`), which is a
- * real, obtainable decision-time price, and reports it as a separate,
- * clearly-labeled field rather than replacing the closing-line grade --
- * the same disclose-both pattern nfl-blind-audit.js already uses for its
+ * what was actually obtainable". The two function pairs below compute
+ * against the OPENING line instead (`game_lines.open_spread`/`open_total`),
+ * a real, obtainable decision-time price, and report it as separate,
+ * clearly-labeled fields rather than replacing the closing-line grade --
+ * the same disclose-both pattern `nfl-blind-audit.js` already uses for its
  * beat-the-close shadow decisions.
  *
  * There is no stored opening PRICE (no `open_spread_odds` column, only the
@@ -95,8 +95,22 @@ const unitsFor = (won, pushed, price) => {
  * line number against the actual margin -- no price is needed for that --
  * and this never feeds `units`/staking, which still settle at the one price
  * that was ever actually obtainable: the closing odds.
+ *
+ * CORRECTED 2026-09-10 (Codex audit, main plan section 3 task 4 / evidence
+ * finding M07): `spreadOpenerSideReselectedCounterfactual` derives a NEW
+ * side from the opener edge — it does not preserve the side the closing-line
+ * selector actually bet. An earlier version of this file's summary called
+ * that "Same picks," which is false whenever the opener disagrees with the
+ * close about which side to take (23 of 153 spreads and 22 of 48 totals in
+ * run 27). Renamed and clarified below; paired with
+ * {@link spreadSameSideOpenerRegrade}, which keeps the ORIGINAL selected
+ * side fixed and is the honest "same bet, graded at a different number"
+ * comparison. Neither is a real opening-time replay: both still use a model
+ * number computed with the full closing-time feature set (see
+ * `docs/CLAUDE-NEXT-STEPS.md` section 6.3 for what an actual T-60
+ * decision-time protocol requires).
  */
-function spreadDecisionTimeReference(openSpread, projectedMargin, actualMargin, closeBackHome) {
+export function spreadOpenerSideReselectedCounterfactual(openSpread, projectedMargin, actualMargin, closeBackHome) {
   if (openSpread == null) return { available: false };
   const openMarketMargin = -openSpread;
   const openEdge = projectedMargin - openMarketMargin;
@@ -107,12 +121,29 @@ function spreadDecisionTimeReference(openSpread, projectedMargin, actualMargin, 
     available: true, line: openSpread, edge: r2(openEdge),
     side: backHome ? 'home' : 'away',
     result: pushed ? 'Push' : covered ? 'Won' : 'Lost',
-    same_side_as_close: backHome === closeBackHome
+    differs_from_close_selected_side: backHome !== closeBackHome
   };
 }
 
-/** Total-market counterpart of {@link spreadDecisionTimeReference}, against `game_lines.open_total`. */
-function totalDecisionTimeReference(openTotal, projectedTotal, actualTotal, closeOver) {
+/**
+ * The honest "same bet, different number" diagnostic: the side actually
+ * selected at the close is held FIXED and simply re-graded against the
+ * opening line. No side is re-derived, so this can never disagree with what
+ * was actually bet — only with what it would have paid or covered at the
+ * earlier number.
+ */
+export function spreadSameSideOpenerRegrade(openSpread, closeBackHome, actualMargin) {
+  if (openSpread == null) return { available: false };
+  const pushed = actualMargin + openSpread === 0;
+  const covered = closeBackHome ? actualMargin + openSpread > 0 : actualMargin + openSpread < 0;
+  return {
+    available: true, line: openSpread, side: closeBackHome ? 'home' : 'away',
+    result: pushed ? 'Push' : covered ? 'Won' : 'Lost'
+  };
+}
+
+/** Total-market counterpart of {@link spreadOpenerSideReselectedCounterfactual}, against `game_lines.open_total`. */
+export function totalOpenerSideReselectedCounterfactual(openTotal, projectedTotal, actualTotal, closeOver) {
   if (openTotal == null) return { available: false };
   const openEdge = projectedTotal - openTotal;
   const over = openEdge > 0;
@@ -122,7 +153,18 @@ function totalDecisionTimeReference(openTotal, projectedTotal, actualTotal, clos
     available: true, line: openTotal, edge: r2(openEdge),
     side: over ? 'Over' : 'Under',
     result: pushed ? 'Push' : won ? 'Won' : 'Lost',
-    same_side_as_close: over === closeOver
+    differs_from_close_selected_side: over !== closeOver
+  };
+}
+
+/** Total-market counterpart of {@link spreadSameSideOpenerRegrade}: the selected Over/Under is held fixed. */
+export function totalSameSideOpenerRegrade(openTotal, closeOver, actualTotal) {
+  if (openTotal == null) return { available: false };
+  const pushed = actualTotal === openTotal;
+  const won = closeOver ? actualTotal > openTotal : actualTotal < openTotal;
+  return {
+    available: true, line: openTotal, side: closeOver ? 'Over' : 'Under',
+    result: pushed ? 'Push' : won ? 'Won' : 'Lost'
   };
 }
 
@@ -205,7 +247,8 @@ export function replaySeason(season, {
           actual_margin: actualMargin, actual_total: actualTotal,
           result: pushed ? 'Push' : covered ? 'Won' : 'Lost',
           won: covered, pushed, book: g.source ?? null, quote_source: g.source ?? null, quote_at: g.fetched_at ?? null,
-          decision_time_reference: spreadDecisionTimeReference(g.home_open_spread, e.projected_margin, actualMargin, backHome),
+          opener_side_reselected_counterfactual: spreadOpenerSideReselectedCounterfactual(g.home_open_spread, e.projected_margin, actualMargin, backHome),
+          same_side_opener_regrade: spreadSameSideOpenerRegrade(g.home_open_spread, backHome, actualMargin),
           feature_snapshot: {
             margin_models_active: e.models_contributing_margin ?? null,
             predictive_distribution: e.distribution ?? null,
@@ -232,7 +275,8 @@ export function replaySeason(season, {
           actual_margin: actualMargin, actual_total: actualTotal,
           result: pushed ? 'Push' : won ? 'Won' : 'Lost',
           won, pushed, book: g.source ?? null, quote_source: g.source ?? null, quote_at: g.fetched_at ?? null,
-          decision_time_reference: totalDecisionTimeReference(g.open_total, e.projected_total, actualTotal, over),
+          opener_side_reselected_counterfactual: totalOpenerSideReselectedCounterfactual(g.open_total, e.projected_total, actualTotal, over),
+          same_side_opener_regrade: totalSameSideOpenerRegrade(g.open_total, over, actualTotal),
           feature_snapshot: { total_models_active: e.models_contributing_total ?? null }
         });
     }
@@ -304,27 +348,61 @@ export function replaySeason(season, {
         .map(reason => [reason, decisions.filter(d => d.abstention_reason === reason).length]))
     },
     uncertainty: uncertainty(bets),
-    vs_open_line: vsOpenLineSummary(bets)
+    // CORRECTED 2026-09-10 (Codex audit finding M07 / main plan section 3
+    // task 4): a single `vs_open_line` field previously called this "Same
+    // picks" even when the reported diagnostic actually reselected the side
+    // using the opener edge. Two distinctly named, non-executable diagnostics
+    // now replace it -- neither is a forward opening-time replay (see
+    // opener_diagnostics.note on each) and neither is kept for backward
+    // compatibility under the old misleading name/shape.
+    opener_diagnostics: {
+      same_side_regrade: sameSideOpenerRegradeSummary(bets),
+      side_reselected_counterfactual: openerSideReselectedCounterfactualSummary(bets)
+    }
   };
   return { summary, bets, decisions };
 }
 
 /**
- * Discloses the same win/loss grade using the opening line instead of the
- * closing line -- see {@link spreadDecisionTimeReference} for why this
- * exists and why it never touches `units`. Only spread/total bets carry a
- * `decision_time_reference` (moneyline has no stored opening price at all);
- * `coverage` says what share of this run's actual bets could be checked
- * this way, so a thin sample reads as thin rather than as certainty.
+ * The side actually selected at the close, held fixed, re-graded against the
+ * opening line. This is the only one of the two opener diagnostics that
+ * describes the SAME bet the closing-line selector made. Still not an
+ * executable opening-time strategy: there is no stored opening price to
+ * settle `units` at, and the side was chosen using closing-time information
+ * -- it only asks "how would this exact pick have graded at the earlier
+ * number," not "what would the model have bet knowing only the opener."
  */
-function vsOpenLineSummary(bets) {
-  const checkable = bets.filter(b => b.decision_time_reference?.available);
-  const wins = checkable.filter(b => b.decision_time_reference.result === 'Won').length;
-  const losses = checkable.filter(b => b.decision_time_reference.result === 'Lost').length;
-  const flippedSide = checkable.filter(b => b.decision_time_reference.same_side_as_close === false).length;
+export function sameSideOpenerRegradeSummary(bets) {
+  const checkable = bets.filter(b => b.same_side_opener_regrade?.available);
+  const wins = checkable.filter(b => b.same_side_opener_regrade.result === 'Won').length;
+  const losses = checkable.filter(b => b.same_side_opener_regrade.result === 'Lost').length;
   return {
-    note: 'Same picks, graded against the obtainable opening line instead of the closing line. ' +
-      'Payout units are unaffected -- there is no stored opening price to settle at, only the closing one.',
+    note: 'The SAME selected side and game, re-graded against the opening line instead of the closing line -- ' +
+      'no side is reselected. Payout units are unaffected: there is no stored opening price to settle at.',
+    coverage: bets.length ? r2(checkable.length / bets.length) : null,
+    bets: checkable.length, wins, losses,
+    win_rate: wins + losses ? r2(wins / (wins + losses)) : null
+  };
+}
+
+/**
+ * A DIFFERENT diagnostic that reselects which side to back using the
+ * model-vs-opener edge instead of the model-vs-close edge. This changes the
+ * bet on any game where the market moved enough between open and close to
+ * flip which side the model prefers -- `picks_that_flip_side_at_open` says
+ * how often that happened. It is a counterfactual about a different
+ * selection policy, not a regrade of the picks this run actually made, and
+ * still is not an executable opening-time replay (see module header).
+ */
+export function openerSideReselectedCounterfactualSummary(bets) {
+  const checkable = bets.filter(b => b.opener_side_reselected_counterfactual?.available);
+  const wins = checkable.filter(b => b.opener_side_reselected_counterfactual.result === 'Won').length;
+  const losses = checkable.filter(b => b.opener_side_reselected_counterfactual.result === 'Lost').length;
+  const flippedSide = checkable.filter(b => b.opener_side_reselected_counterfactual.differs_from_close_selected_side).length;
+  return {
+    note: 'A DIFFERENT selection: the side is reselected using the model-vs-opener edge, not the model-vs-close ' +
+      'edge that actually chose these bets. This is NOT the same cohort of bets as the closing-line selector made ' +
+      'whenever picks_that_flip_side_at_open is nonzero, and is not an executable opening-time strategy.',
     coverage: bets.length ? r2(checkable.length / bets.length) : null,
     bets: checkable.length, wins, losses,
     win_rate: wins + losses ? r2(wins / (wins + losses)) : null,
@@ -746,13 +824,41 @@ export function validateAdjustment({ discoverySeasons, holdoutSeasons, adjust, c
   };
 }
 
-/** Content hash of a segment's exact predicate — frozen the moment a finding
+/**
+ * Content hash of a segment's exact predicate — frozen the moment a finding
  * is proposed, so nothing downstream can quietly redefine what is being
  * tested after seeing how it does on a holdout (see Phase 3 of the
- * 2026-09-09 learning-pipeline plan: a rule is frozen at discovery, forever). */
+ * 2026-09-09 learning-pipeline plan: a rule is frozen at discovery, forever).
+ *
+ * CORRECTED 2026-09-10 (Codex audit finding M12/E12): this previously hashed
+ * only the dimension/segment/direction LABELS -- if `segmentsFor`'s actual
+ * implementation of what "divisional" or "big spread" MEANS ever changed,
+ * the nominal hash stayed identical, so a holdout test or the live veto
+ * consumer could silently keep applying an old confirmation to a predicate
+ * that no longer matches what was actually validated. The hash now also
+ * folds in {@link candidateFindingsCodeHash} (this file's own content hash,
+ * the same reproducibility discipline `saveTrainingAudit` already uses) --
+ * any edit to the predicate implementation changes this hash, so a stored
+ * `rule_definition_hash` becomes provably stale and callers
+ * (`recordHoldoutTest`, `promotedFindingVeto` in nfl-candidate-findings.js)
+ * can detect and refuse to reuse a confirmation for a predicate that has
+ * since changed, exactly as the audit asked.
+ */
 export function segmentRuleHash(segment) {
   return sha256Hex(JSON.stringify({ dimension: segment.dimension, segment: segment.segment,
-    direction: segment.win_rate < 0.5 ? 'weak' : 'strong' }));
+    direction: segment.win_rate < 0.5 ? 'weak' : 'strong', implementation: candidateFindingsCodeHash() }));
+}
+
+/**
+ * Exported so `nfl-candidate-findings.js` can independently recompute
+ * exactly the same implementation fingerprint `segmentRuleHash` uses, to
+ * verify a stored hash is still current before trusting it (see that
+ * function's docstring). Deliberately the SAME helper `saveTrainingAudit`
+ * already trusts for this file's own reproducibility claim -- one content-
+ * addressing mechanism, not two independently-maintained ones.
+ */
+export function candidateFindingsCodeHash() {
+  return trainingAuditCodeHash();
 }
 
 function sha256Hex(value) {
@@ -855,7 +961,15 @@ export function trainingIteration(seasons, config = {}) {
  * proves a stronger, week-by-week no-leak guarantee this tool doesn't need)
  * — a purpose-built equivalent for this tool's own reproducibility claim.
  */
+// Memoized: the running process's own source files do not change without a
+// restart, and this is now called on every live promoted-finding veto check
+// (nfl-candidate-findings.js's assertRuleUnchanged) as well as the original
+// once-per-audit training-provenance use, so spawning `git` on every single
+// candidate bet would be wasteful. A restart is what picks up a real code
+// change anyway, which is exactly when this should be recomputed.
+let _trainingAuditCodeHashCache;
 function trainingAuditCodeHash() {
+  if (_trainingAuditCodeHashCache !== undefined) return _trainingAuditCodeHashCache;
   try {
     const cwd = process.cwd();
     const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z',
@@ -863,8 +977,8 @@ function trainingAuditCodeHash() {
       { cwd, encoding: 'utf8' }).split('\0').filter(Boolean).sort();
     const content = createHash('sha256');
     for (const path of files) { try { content.update(path).update('\0').update(readFileSync(resolve(cwd, path))); } catch { /* skip */ } }
-    return content.digest('hex');
-  } catch { return null; }
+    return (_trainingAuditCodeHashCache = content.digest('hex'));
+  } catch { return (_trainingAuditCodeHashCache = null); }
 }
 
 function trainingAuditDataHash(seasons) {

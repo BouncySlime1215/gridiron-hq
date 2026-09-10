@@ -32,7 +32,7 @@ The stored 855-game residual audit shows market margin MAE **9.786**, residual-m
 
 ### 1.2 Recent development has not changed what the main replay bets
 
-The first 51 completed weeks of run 31 reproduced **all 395 stored selections exactly** from the same portion of run 27, including its **113 spread selections**, with unchanged side, line, projected number, edge, result and units. This comparison is a fixed observation during an ongoing run, not its final result. The newer offseason collection, diagnostics, and promotion machinery should not be described as a proven predictive improvement.
+The initial 51-week inspection found all 395 stored selections identical, including 113 spreads. Run 31 subsequently completed all 70 weeks before source editing began. The full read-only comparison confirmed **all 545 stored selections identical to run 27, including all 153 spreads**, with unchanged side, line, projected number, edge, result and units. Preserve the original prefix inspection as dated evidence; use the completed comparison for current status. The newer offseason collection, diagnostics, and promotion machinery should not be described as a proven predictive improvement.
 
 There are separate learning paths. The main pick board uses the ensemble; the expert council/coordinator is another path. A diagnostic can identify a pattern without changing a forecast. A promoted finding can veto a pick without retraining the ensemble's parameters. The new preseason blend is explicitly staged outside the main production prediction. Make these distinctions visible in code contracts and in explanations to Nick.
 
@@ -79,7 +79,7 @@ Suggested effort allocation for this milestone: 50% correctness, data timing, an
 
 Nick explicitly directed implementation on the Claude-local **main branch**. Work began from clean `969d501e5d318f8ff650d7e239d8647f8b75eb84`; fetching origin confirmed seven local-only commits and no remote-only commits. This current instruction supersedes isolated source-branch/worktree recommendations elsewhere in the original brief. Tests and diagnostics must still use temporary databases and disabled/mocked collection. No live schema change, model fit, provider purchase, wager or promotion was performed in this slice.
 
-The active plan and appendices are installed in this repository; README and the existing `/api/nfl-market/research-lab/plan` endpoint now point here. **Document extraction/deletion and physical folder moves are not complete.** The 761-row map remains the baseline proposal; add new implementation files to the live migration inventory before executing moves. This is still the only governing work queue.
+The active plan and appendices are installed in this repository; README and the existing `/api/nfl-market/research-lab/plan` endpoint now point here. **Document extraction/deletion and physical folder moves are not complete.** The folder map now accounts for all 761 baseline paths plus the nine files added by repair commit `fcf7e1f` (770 total); continue reconciling additions before executing moves. This is still the only governing work queue.
 
 Completed and verified in the first integrity slice:
 

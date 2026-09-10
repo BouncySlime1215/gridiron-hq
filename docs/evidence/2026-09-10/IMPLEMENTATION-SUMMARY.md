@@ -73,60 +73,161 @@ end). `npm run typecheck`, `npm run lint`, `npm run build`, and
 `npm run start:smoke` all pass locally with the exact commands the new CI
 workflow runs.
 
+## 1b. Section 8.6 — does each feature family earn its influence?
+
+Section 8.6 asks for "a compact table naming each existing source family,
+actual consumer, paired later-block change, uncertainty, cost, and
+keep/simplify/test-connection decision," and for **three separate answers**
+per family: margin forecast, cover/push probability, and economic policy.
+
+Two defects had to be fixed before the table could mean anything.
+
+**The family list was a hardcoded four-element array** while the ensemble has
+five families. Because `families` acts as a whitelist in `ensembleLine`,
+every `without:X` configuration silently dropped **roster availability too** —
+so every ablation this harness had ever produced measured the removal of two
+families while reporting one. The list is now derived from the model catalog
+(`da59af2`).
+
+**The comparison used a different universe per configuration.** Each variant
+selects its own bets: 204 for the full ensemble, 112 without efficiency, 432
+for ratings-only. Comparing those ROIs compares three different cohorts of
+games, and a variant can "win" by betting less often on a luckier subset.
+`nfl-family-contribution.js` (`27c50e2`) scores every configuration on the
+**intersection** of games all of them forecast — 1,424 games across 2021-2025,
+identical for all six configurations — and reports all three answers.
+
+### The baseline, before any family is removed
+
+| | Full ensemble | The number it has to beat |
+|---|---:|---:|
+| Margin MAE (1,424 games) | 10.095 | market 9.762 |
+| Cover Brier (1,391 decided) | 0.2580 | a constant 0.5 forecast scores 0.250 |
+| Predicted pushes | 20.1 | 33 actually occurred |
+| Units / ROI | -10.30u | -5.10% |
+
+Three findings, none of them flattering, all of them on the same games:
+
+1. **The model forecasts margin worse than the closing line does** — 10.095
+   against 9.762. It is not adding information to the market; it is losing
+   some.
+2. **The cover probabilities carry no usable information.** A Brier of 0.2580
+   is worse than a constant 50% guess (0.250). The distribution is labeled
+   `research_distribution_only` / `production_eligible: false` in the code,
+   and this measurement is why that label is correct.
+3. **Push mass is understated by about 40%** — 20.1 predicted against 33
+   realized. Pushes are a real fraction of spread outcomes and the
+   distribution under-weights them.
+
+### The table
+
+Uncertainty is a paired weekly-cluster bootstrap of (variant − full ensemble)
+on the common universe, 4,000 deterministic trials. Paired means the same
+resampled weeks are scored under both configurations, so week-to-week noise
+cancels rather than being counted twice.
+
+| Family | Actual consumer | Margin MAE change | Cover Brier change | Economic (ROI, bets) | Cost | Decision |
+|---|---|---|---|---|---|---|
+| **Efficiency** | 17 models, production | **−0.079** CI [−0.132, −0.027] | −0.0010 CI [−0.003, 0] | +7.2% vs −5.1%, 112 vs 204 bets, CI [−0.024, +0.272] | 55% of the ensemble | **simplify** |
+| **Rating systems** | 6 models, production | **−0.054** CI [−0.094, −0.014] | −0.0020 CI [−0.003, 0] | −3.8% vs −5.1%, 169 vs 204 bets, CI [−0.090, +0.119] | 19% of the ensemble | **simplify** |
+| **Market** | 2 models, production | **+0.153** CI [+0.120, +0.187] | +0.0030 CI [+0.002, +0.004] | −2.4% vs −5.1%, 292 vs 204 bets, CI [−0.050, +0.103] | 6% of the ensemble | **keep** |
+| **Context** | 4 models, production | +0.000 CI [−0.008, +0.008] | +0.0010 CI [0, +0.001] | −4.4% vs −5.1%, 263 vs 204 bets, CI [−0.070, +0.083] | 13% of the ensemble | **keep** |
+| **Roster availability** | 2 models, production | +0.003 CI [−0.007, +0.011] | +0.0000 CI [0, +0.001] | −6.1% vs −5.1%, 202 vs 204 bets, CI [−0.046, +0.027] | 6% of the ensemble | **keep** |
+
+A negative margin change means the ensemble forecast the same games **better
+without** that family.
+
+### What the table says
+
+**The two market models are the only thing carrying real signal.** Removing
+them is the single conclusive degradation in the whole comparison, and it is
+by far the largest effect: +0.153 of margin error from 2 of 31 models.
+Everything else in the ensemble is either neutral or a mild drag.
+
+**Twenty-three of the thirty-one models make the margin forecast worse.**
+Efficiency (17 models) and rating systems (6) both show conclusive
+improvements when removed. This is a direct measurement of something this
+project has long suspected from the outside: the ensemble's size is not
+buying accuracy.
+
+**Context and roster availability are measurably inert.** Four context models
+and two availability models move the margin forecast by less than 0.01 points
+of MAE, with intervals straddling zero. They are not harmful; they are not
+doing anything either. Both are kept, because inconclusive evidence is not
+grounds for removal, but neither should be counted as a working input.
+
+**The ROI column is the one to distrust, and it demonstrates why section 8.6
+demanded a common universe.** `without:Efficiency` shows +7.2% against the
+baseline's −5.1% — a swing that looks decisive and is not. Its bet count
+falls from 204 to 112, and its paired interval [−0.024, +0.272] includes
+zero. The apparent profit is the variant declining to bet, not forecasting
+better. Read on its own, that number would have justified a change the
+forecast evidence does not support.
+
+### Two honest caveats on the "simplify" verdicts
+
+**The effects are conclusive but small.** 0.079 and 0.054 points of margin
+error against a ~10-point error. The decision rule requires a paired interval
+excluding zero and does not impose a minimum effect size, so it returns
+"simplify" for both. The rule was written before these results were
+generated, and it is reported as written — revising it after seeing the
+output is exactly the outcome-guided selection section 8.6 says must be
+counted rather than hidden as a diagnostic.
+
+**Nothing here promotes anything.** Section 8.6's own words: "this opened
+period cannot promote a tuned family set." A removal would need confirmation
+on genuinely later observations before any live configuration changes. The
+report is a diagnostic and the module changes no production path.
+
+Raw output: `docs/evidence/2026-09-10/family-contribution-2021-2025.json`
+(three-answer comparison) and `feature-ablation-2021-2025.json` (the older
+ROI-only ablation, preserved for comparison, and the reason the common
+universe was necessary).
+
+## 1c. Work completed after the earlier draft of section 2
+
+| Item | What it addresses | Commit |
+|---|---|---|
+| E5 | Shopped-line and teaser prices were computed from a half-win proxy; now from real win/loss/push transition probabilities, with the reference line passed explicitly because the relation is not symmetric | `826e078` |
+| E6 | The decision board was a mutable latest-view that overwrote what the model decided before a line moved; now an append-only tape keyed to include policy version, with a board hash that excludes wall-clock | `6d8245f` |
+| E7 | The delay preview reported fills nobody observed; horizons past captured coverage are now distinguished by basis rather than presented as modeled carry-forward | `6fc652a` |
+| E8 | Settlement finality was asserted, not evidenced; terminal outcomes, finality bases and a settlement-correction event that deliberately does not advance the materialized status | `df78c25` |
+| E9 | Accepted tickets were disconnected from CLV grading; a read-only projection makes idempotency structural rather than enforced by convention | `6526aac` |
+| E10 | The collector reported failures and no-ops as healthy | `4df9c8a` |
+| E2 | Picks were gated on fair-price edge alone; now also on expected return at the offered price. The historical replay policy sets `minExpectedReturn: null` explicitly and normalization uses an `in` check rather than `??`, so the production default cannot resurrect it and the blind audit stays unchanged — pinned by its own invariant test | `799b2d7` |
+| 8.6 family fix | The ablation silently dropped a whole family from every configuration | `da59af2` |
+| 6.3 capacity | Sequential T-60 capacity: cutoff batches processed chronologically, ranked only within a batch, released slots returning only to later batches | `3c8b25c` |
+| 6.3 packet | The T-60 evidence packet: three clocks kept apart, missing recorded as an observation, unevidenced availability quarantined | `27c50e2` |
+| WP15 | All 38 remaining documents relocated to their dispositioned destinations; one active plan and an index remain | `fd92048` |
+| 8.6 table | Three answers per family on one common universe, paired uncertainty | `27c50e2` |
+
 ## 2. Deliberately deferred, and why
 
-This plan is genuinely large — 16 work packages, several explicitly
-multi-week in nature (a real prospective T-60 evaluation requires actual
-calendar weeks of NFL games, not engineering time). The items below were
-assessed and consciously not attempted tonight, in order of what the plan's
-own "Suggested effort allocation" and "Delivery order" sections imply should
-matter least among what remains:
+An earlier draft of this section listed work packages 1 and 3 as deferred.
+They were subsequently completed in the same session and are recorded in
+section 1c above; this section now lists only what genuinely remains.
 
-- **E5** (execution-slate shopped-line/teaser win-probability formulas are
-  heuristic, not empirically fit) and **E6/E7-remainder/E8-remainder/E9/E10**
-  (append-only decision-run layer, censored/pending previews, settlement
-  correction events, one unified CLV ledger, collection-health reporting) —
-  all real, audit-identified defects in the **forward paper-execution loop**,
-  which has recorded **zero** real opportunities, lifecycle events, or
-  settled tickets at last inspection (`nfl_execution_opportunities: 0`,
-  per the evidence appendix). None of these affect the historical blind-audit
-  numbers this session's other work (and the audit run below) actually grades.
-  Fixing them properly, to the same standard as M05/E4 above, is real,
-  bounded, sequential work — not something to rush through in the time
-  remaining without risking exactly the kind of half-verified change this
-  brief exists to prevent.
-- **Work package 3** (a genuine T-60 decision-time protocol) — the plan
-  itself specifies this needs a unified temporal-data interface spanning
-  quotes, injuries, news, and weather, all currently cut off at WEEK
-  granularity throughout this codebase, not literally at kickoff-minus-60-
-  minutes. Building that properly is a multi-file architectural project on
-  the scale of tonight's earlier Phase 0-3 work, not a bolt-on. Attempting a
-  shortcut version risked producing something that LOOKS like a T-60
-  protocol without actually being decision-time-safe, which is worse than
-  not building it.
-- **Work package 4 remainder, Work package 6** (freeze one spread experiment,
-  begin prospective collection) — correctly sequenced AFTER work package 3;
-  premature without it.
-- **Physical folder reorganization** (moving ~261 server files into the new
-  ownership tree) — the plan's own words: "Do not move hundreds of model
-  files in one unreviewable commit," and "Finish the full folder disposition
-  without letting cosmetic moves delay the first complete workflow." This is
-  the single largest, highest-mechanical-effort, highest-regression-risk
-  piece of the entire brief, and it changes zero model behavior or audit
-  numbers. Deferred in full; the manifest (`folder-map.csv`) and target tree
-  (`FOLDER-REORGANIZATION.md`) remain the governing reference for whenever
-  it is undertaken.
-- **~24 of the ~29 old planning/reference documents** marked "migrate content
-  then delete" — 5 were removed tonight (nothing to extract). The rest
-  (e.g. `PROFITABILITY_PLAN.md`, 1101 lines) contain measured results and
-  experiment contracts the plan explicitly says must be preserved before
-  deletion; only the one section actually cited by running code was
-  extracted tonight. Deleting the rest without first verifying every unique
-  measurement survives would violate the plan's own preservation rule.
-
-None of the above blocks running the historical audit below — it grades the
-existing replay/ensemble/policy code, all of which the fixes above directly
-improved the correctness of.
+- **Work package 4 remainder and work package 6** (freeze one spread
+  experiment, begin prospective collection). These are blocked on time, not
+  on engineering. A prospective T-60 evaluation requires actual calendar
+  weeks of NFL games played after the freeze; there is no way to produce that
+  by writing code. The machinery they need is now built (see section 1c: the
+  cutoff protocol, the sequential capacity rule, the evidence packet, the
+  decision tape, the CLV projection), so the remaining step is to declare the
+  freeze and wait for real weeks.
+- **Physical folder reorganization** (~261 server files into the new ownership
+  tree). The plan's own words: "Do not move hundreds of model files in one
+  unreviewable commit," and "Finish the full folder disposition without
+  letting cosmetic moves delay the first complete workflow." It changes zero
+  model behavior and zero audit numbers, and it is the highest-regression-risk
+  mechanical work in the brief. The manifest
+  (`reference/architecture/folder-map.csv`) and target tree
+  (`FOLDER-REORGANIZATION.md`) remain the governing reference. Documentation
+  reorganization — the part that could be done safely and reviewably — was
+  completed (`fd92048`).
+- **PFF external player grades.** `nfl_external_player_grades` is empty
+  because no licensed source is configured, not because of a sync bug.
+  Nothing was written to manufacture data that does not exist.
 
 ## 3. Architecture map (abbreviated)
 
@@ -181,10 +282,40 @@ run (below) reflects the corrected code, and it uses the identical frozen
 policy/thresholds, so a different result would mean something in the
 ensemble's actual behavior changed, not that history was rewritten.
 
-**Recommendation:** advance on infrastructure/integrity (all of section 1's
-fixes are real, tested, and safe to keep); do not advance on money authority
-— nothing here establishes a spread edge, and the calibration gate remains
-correctly blocked. The honest next steps, in the plan's own priority order,
-are work package 3 (a genuine T-60 protocol) and completing work package 1's
-remaining execution-integrity items (E5-E10), both scoped for a dedicated
-follow-up rather than compressed into this session's remaining time.
+**Recommendation:** advance on infrastructure and integrity — every fix in
+sections 1 and 1c is real, tested, and safe to keep. Do not advance on money
+authority. Nothing here establishes a spread edge, and the calibration gate
+remains correctly blocked.
+
+Section 1b sharpened that conclusion considerably, and it is the most
+important thing this session produced. On 1,424 common games the ensemble
+forecasts margin **worse than the closing line** (10.095 against 9.762), its
+cover probabilities score **worse than a constant coin flip** (Brier 0.2580
+against 0.250), and it **understates push mass by about 40%**. Those are not
+inferences from betting results, which are noisy and selection-dependent;
+they are direct measurements of the forecast itself, on a fixed universe,
+against the number it has to beat.
+
+The family table says where the signal actually is: the **two market models**
+are the only conclusive contributor in a 31-model ensemble, and removing
+either the 17 efficiency models or the 6 rating-system models measurably
+**improves** margin accuracy. The ensemble's size is not buying accuracy.
+
+The honest next steps, in the plan's own order:
+
+1. **Work package 6** — declare the frozen spread experiment and start
+   collecting real prospective weeks. Everything it depends on is now built.
+   No amount of further engineering substitutes for played games.
+2. **Confirm the two "simplify" candidates on later observations** before
+   changing any live configuration, as section 8.6 requires. The effects are
+   conclusive but small, and were measured on the same opened development
+   period that produced them.
+3. **Treat the cover distribution as unusable until it is recalibrated.** It
+   is already labeled `production_eligible: false`; section 1b is the
+   measurement that justifies the label, and any future economic claim built
+   on those probabilities is built on a forecast that scores worse than 0.5.
+
+What has NOT changed: the standing conclusion that there is no proven spread
+edge against the closing line. Every measurement added tonight points the
+same direction as the audit history, more precisely and from a different
+angle.

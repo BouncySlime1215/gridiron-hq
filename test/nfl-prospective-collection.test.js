@@ -56,7 +56,13 @@ test('with no Odds API key and an empty news_items table, both halves skip hones
   assert.equal(result.news_extraction?.skipped, true);
   assert.match(result.news_extraction.reason, /Anthropic/);
   assert.equal(result.errors.length, 0);
-  assert.equal(result.status, 'ok');
+  // Codex audit finding E10: both halves skipped is NOT 'ok'. Nothing ran and
+  // nothing was collected; reporting that as success is how a silent
+  // collection outage looks healthy on a status page. It is 'blocked', and it
+  // leaves no successful-data watermark behind.
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.last_successful_data_at, null);
+  assert.deepEqual(result.half_status, { quote_capture: 'skipped', news_extraction: 'skipped' });
 });
 
 test('the restart limitation is stated on every result, not left implicit', async () => {
@@ -70,9 +76,10 @@ test('a real heartbeat lands in sync_log every run, readable the same way every 
   await runProspectiveCollection({ newsLimit: 5 });
   const record = lastRun(PROSPECTIVE_COLLECTION_SOURCE);
   assert.ok(record?.last_run_at, 'sync_log must show a real run timestamp');
-  assert.equal(record.last_status, 'ok');
+  assert.equal(record.last_status, 'blocked', 'a run where nothing ran must not be recorded as ok');
   const detail = JSON.parse(record.last_detail);
   assert.equal(detail.quote_capture.skipped, true);
+  assert.equal(detail.last_successful_data_at, null);
 });
 
 test('this source is registered so it actually surfaces on the Data Health page, not only reachable by calling the function directly', () => {
@@ -84,6 +91,52 @@ test('this source is registered so it actually surfaces on the Data Health page,
 
 test('an unusual newsLimit/sinceDays does not throw, whichever path the extractor actually takes', async () => {
   const result = await runProspectiveCollection({ newsLimit: 3, sinceDays: 1 });
-  assert.equal(result.status, 'ok');
+  // Whatever path it takes, the status must be one of the honest ones -- and
+  // in this keyless test environment both halves skip, so it is 'blocked'.
+  assert.ok(['ok', 'empty', 'partial', 'blocked', 'error'].includes(result.status));
+  assert.equal(result.status, 'blocked');
   assert.ok(result.news_extraction);
+});
+
+/* ---- Codex audit finding E10: a returned error is a failure, not an 'ok' ---- */
+
+/**
+ * The defect these cover: both halves can fail by RETURNING `{ error }`
+ * rather than throwing (a provider returning no snapshot, for instance), and
+ * the old status logic only inspected thrown exceptions -- so those runs
+ * reported `ok` and advanced a heartbeat as though data had been collected.
+ * `classifyRun` is the pure decision the module now makes, exercised here
+ * directly so every combination is covered without spending real API money.
+ */
+const { __test } = await import('../server/services/nfl-prospective-collection.js');
+
+test('E10: a half that RETURNS an error object is classified as an error, never ok', () => {
+  assert.equal(__test.classifyHalf({ error: 'odds provider returned no current snapshot' }, () => 0), 'error');
+  assert.equal(__test.classifyHalf(null, () => 0), 'error', 'a missing result is not a success either');
+});
+
+test('E10: skipped, empty and productive halves are three different answers', () => {
+  assert.equal(__test.classifyHalf({ skipped: true, reason: 'no key' }, () => 0), 'skipped');
+  assert.equal(__test.classifyHalf({ accepted: 0 }, r => r.accepted), 'empty');
+  assert.equal(__test.classifyHalf({ accepted: 3 }, r => r.accepted), 'ok');
+});
+
+test('E10 acceptance: one half failing is partial, both failing is error, both skipped is blocked', () => {
+  assert.equal(__test.overallStatus(['error', 'error']), 'error');
+  assert.equal(__test.overallStatus(['skipped', 'skipped']), 'blocked');
+  assert.equal(__test.overallStatus(['error', 'skipped']), 'error',
+    'nothing was collected and something broke — that is not a partial success');
+  assert.equal(__test.overallStatus(['error', 'ok']), 'partial');
+  assert.equal(__test.overallStatus(['skipped', 'ok']), 'partial');
+  assert.equal(__test.overallStatus(['empty', 'empty']), 'empty');
+  assert.equal(__test.overallStatus(['empty', 'ok']), 'partial');
+  assert.equal(__test.overallStatus(['ok', 'ok']), 'ok');
+});
+
+test('E10 acceptance: only a genuinely productive run may set a successful-data watermark', () => {
+  assert.equal(__test.watermarkFor(['skipped', 'skipped'], 'T'), null);
+  assert.equal(__test.watermarkFor(['empty', 'empty'], 'T'), null,
+    'a successful run that found nothing did not produce data, and must not look like it did');
+  assert.equal(__test.watermarkFor(['error', 'empty'], 'T'), null);
+  assert.equal(__test.watermarkFor(['ok', 'skipped'], 'T'), 'T');
 });

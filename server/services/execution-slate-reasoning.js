@@ -71,36 +71,41 @@
  * ---------------------------------------------------------------------------
  * AN HONEST RESULT THAT FALLS OUT OF THE SIZING, WORTH READING BEFORE THE CODE
  *
- * A shopped line's win probability here is NO_FORECAST_BASE (0.500) plus the
- * measured line edge, because a de-vigged spread is a coin flip by construction
- * and this module claims no forecasting skill whatsoever. That has a
- * consequence people find surprising: a bet whose only advantage is a better
- * PRICE sizes to exactly zero. A coin flip at -105 is still a losing bet. Best
- * price selection lowers the hurdle from ~52.38% to ~51.1%; it does not clear
- * it. Only a book disagreeing about the NUMBER by enough to matter — which in
- * practice means crossing 3 or 7, where the margin mass actually sits — makes a
- * shopped side standalone +EV.
+ * A shopped line's win probability here is NO_FORECAST_BASE (0.500) applied to
+ * the DECIDED portion of outcomes at the reference (median) line, migrated to
+ * this book's own number by the exact win/loss/push transitions that number
+ * produces (`nfl-execution-edge.js#coverProbabilities`) — because a de-vigged
+ * spread is a coin flip by construction and this module claims no forecasting
+ * skill whatsoever. CORRECTED 2026-09-10 (Codex audit finding E5): an earlier
+ * version blended a push transition into "half a win" and folded that
+ * directly into the probability fed to Kelly sizing — a defensible RANKING
+ * proxy (see `lineMoveValue`'s own docstring) but not an accurate probability,
+ * since a loss-to-push transition (worth a full "avoid the loss") and a
+ * push-to-win transition (worth a full win) are not the same size in dollar
+ * terms and neither is "half a win." `win_probability` below is now the
+ * genuine CONDITIONAL win probability (win / (win+loss), excluding push —
+ * the standard, correct way to run Kelly staking when the bet can void), and
+ * `push_probability` is reported explicitly rather than absorbed into it.
+ * That has a consequence people find surprising: a bet whose only advantage
+ * is a better PRICE sizes to exactly zero. A coin flip at -105 is still a
+ * losing bet. Best price selection lowers the hurdle from ~52.38% to ~51.1%;
+ * it does not clear it. Only a book disagreeing about the NUMBER by enough to
+ * matter — which in practice means crossing 3 or 7, where the margin mass
+ * actually sits — makes a shopped side standalone +EV.
  *
  * That is not a defect of the implementation. It is the measurement stated
  * correctly, and it is why most live shopping rows arrive here with a zero
  * ceiling and are shown to the reasoning step as context rather than as bets.
  */
 import { withRandomSeed, cholesky, correlatedNormals, probit, quantile } from './stats-util.js';
-import { stakeFor, impliedProb } from './nfl-execution-edge.js';
+import { stakeFor, impliedProb, coverProbabilities, NO_FORECAST_BASE } from './nfl-execution-edge.js';
 import { estimateBetCorrelation } from './staking.js';
+
+export { NO_FORECAST_BASE };
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 const dec = american => (american >= 0 ? 1 + american / 100 : 1 + 100 / -american);
-
-/**
- * A de-vigged spread is a coin flip. This module has no forecast and says so
- * with a constant rather than by omission — every shopped-line win probability
- * is this number plus a MEASURED line edge, and nothing else is ever added to
- * it. If a future version wants to move this, it needs a proven forecast, which
- * is the thing 21 models failed to produce against 15,096 closing lines.
- */
-export const NO_FORECAST_BASE = 0.5;
 
 /**
  * The closed enum. A kind maps to a staking source; anything unrecognised maps
@@ -147,12 +152,31 @@ export const SLATE_STATUS = {
  * `line_edge` is `bestExecution`'s valuation of this book's number against the
  * median book, priced over the empirical margin distribution — so a half point
  * across 3 is worth an order of magnitude more than one across 5, which is the
- * entire reason line shopping beats price shopping.
+ * entire reason line shopping beats price shopping. It remains a display/
+ * ranking field (see its own docstring in nfl-execution-edge.js) — the actual
+ * `win_probability` returned here comes from `rowIn.win_probability`/
+ * `loss_probability` when present (Codex audit finding E5): the real,
+ * three-state cover-probability breakdown `bestExecution` now attaches,
+ * converted to the CONDITIONAL win probability among decided outcomes
+ * (win/(win+loss), excluding push) that Kelly staking requires when a bet can
+ * void. `push_probability` is reported explicitly in `measured` rather than
+ * absorbed into win_probability the way an earlier version's "half a win"
+ * approximation did.
+ *
+ * Falls back to the older `NO_FORECAST_BASE + lineEdge` estimate only when a
+ * row does not carry the three-state fields at all (e.g. a hand-built
+ * fixture in a test) — this fallback is intentionally the less precise path,
+ * kept for compatibility, not the one real `shoppingBoard()` rows take.
  */
 export function shoppedLineOpportunity(rowIn) {
   if (!rowIn || !Number.isFinite(rowIn.best_price)) return null;
   const lineEdge = Number.isFinite(rowIn.line_edge) ? rowIn.line_edge : 0;
-  const winProbability = NO_FORECAST_BASE + lineEdge;
+  const hasCoverBreakdown = Number.isFinite(rowIn.win_probability) && Number.isFinite(rowIn.loss_probability);
+  const pushProbability = hasCoverBreakdown && Number.isFinite(rowIn.push_probability) ? rowIn.push_probability : 0;
+  const decided = hasCoverBreakdown ? rowIn.win_probability + rowIn.loss_probability : null;
+  const winProbability = hasCoverBreakdown && decided > 0
+    ? rowIn.win_probability / decided
+    : NO_FORECAST_BASE + lineEdge;
   if (!(winProbability > 0 && winProbability < 1)) return null;
   return {
     id: `shop:${rowIn.event_id}:${rowIn.market}:${rowIn.side}`,
@@ -166,13 +190,16 @@ export function shoppedLineOpportunity(rowIn) {
     // makes two of them correlated.
     games: [{ event_id: rowIn.event_id, matchup: rowIn.matchup ?? null }],
     measured: {
-      basis: 'execution dispersion across books, measured at bet time',
+      basis: hasCoverBreakdown
+        ? 'exact win/loss/push cover probabilities at this book\'s line, migrated from the median book by the empirical margin distribution'
+        : 'execution dispersion across books, measured at bet time (legacy line_edge-only estimate — no three-state breakdown on this row)',
       line_edge: r4(lineEdge),
       price_edge: r4(rowIn.price_edge ?? 0),
+      push_probability: r4(pushProbability),
       books_compared: rowIn.books_compared ?? null,
       median_line: rowIn.median_line ?? null,
       note: lineEdge > 0
-        ? `This book's number is worth ${(lineEdge * 100).toFixed(2)}pp of win probability against the median book.`
+        ? `This book's number is worth ${(lineEdge * 100).toFixed(2)}pp of win probability against the median book${pushProbability > 0 ? ` (push probability ${(pushProbability * 100).toFixed(2)}%, excluded from the conditional win probability above, not folded into it)` : ''}.`
         : 'No line advantage against the median book — price advantage alone does not beat the vig.'
     }
   };

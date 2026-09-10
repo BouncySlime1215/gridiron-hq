@@ -51,6 +51,16 @@ const dec = american => (american >= 0 ? 1 + american / 100 : 1 + 100 / -america
 export const impliedProb = american => (american >= 0 ? 100 / (american + 100) : -american / (-american + 100));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
+/**
+ * A de-vigged spread is a coin flip. Neither this module nor
+ * execution-slate-reasoning.js (which re-exports this exact binding) has a
+ * forecast and both say so with a constant rather than by omission — moved
+ * here from execution-slate-reasoning.js so `coverProbabilities` below can
+ * use it directly without a circular import (that module already imports
+ * FROM this one).
+ */
+export const NO_FORECAST_BASE = 0.5;
+
 /* ------------------------------------------------- key-number distribution */
 
 let marginCache = null;
@@ -109,6 +119,126 @@ export function lineMoveValue(from, to) {
   return r4(mass);
 }
 
+/**
+ * Codex audit finding E5 (2026-09-10): `lineMoveValue` above folds a push
+ * transition into a flat "half a win" scalar -- a defensible RANKING proxy
+ * (it is not dollar-accurate, but it orders numbers correctly for "which
+ * book's line is worth more") that is wrong to feed directly into a win
+ * probability used for staking, because a loss-to-push transition (worth a
+ * full "avoid the loss," i.e. +1 unit of return relative to losing) and a
+ * push-to-win transition (worth a full win, i.e. +profit-multiple units) are
+ * NOT the same size in dollar terms, and neither is "half a win."
+ *
+ * This exposes the three states separately instead of blending them, so a
+ * caller that actually knows the price (and therefore the real profit
+ * multiple) can compute exact EV as `p_win*profitMultiple - p_loss` (pushes
+ * contribute exactly zero, never an approximated half-win), per the audit's
+ * own fix instruction. `lineMoveValue` is kept unchanged for its existing
+ * ranking-only consumers (nfl-execution.js, nfl-espn-line-watch.js,
+ * polymarket-lines.js) -- this is an additive, more precise sibling for the
+ * one consumer (`bestExecution` below) that actually stakes money on the
+ * result.
+ *
+ * `betterLine` must be the more favorable number to the bettor's own side
+ * (the caller already knows this from its own takingPoints logic — this
+ * function no longer re-derives direction from raw magnitude, which is what
+ * let an earlier version of the sibling function collapse sign on a
+ * zero-crossing move).
+ */
+export function lineMoveTransitions(worseLine, betterLine) {
+  if (!Number.isFinite(worseLine) || !Number.isFinite(betterLine) || worseLine >= betterLine) {
+    return { loss_to_win: 0, loss_to_push: 0, push_to_win: 0 };
+  }
+  const { pmf } = marginDistribution();
+  const lo = worseLine, hi = betterLine;
+  let lossToWin = 0, lossToPush = 0, pushToWin = 0;
+  for (const [absMargin, p] of pmf) {
+    const signed = absMargin === 0 ? [0] : [absMargin, -absMargin];
+    const share = absMargin === 0 ? p : p / 2;
+    for (const m of signed) {
+      // A signed margin m covers a bet taking `line` points when m > -line,
+      // pushes when m === -line, loses when m < -line (bettor's own side,
+      // already signed consistently by the caller).
+      if (m > -hi && m < -lo) lossToWin += share;       // loss at worseLine, win at betterLine
+      else if (m === -lo) pushToWin += share;           // push at worseLine, win at betterLine
+      else if (m === -hi) lossToPush += share;           // loss at worseLine, push at betterLine
+    }
+  }
+  return { loss_to_win: r4(lossToWin), loss_to_push: r4(lossToPush), push_to_win: r4(pushToWin) };
+}
+
+/**
+ * The three-state win/loss/push breakdown for a line treated AS the
+ * no-skill coin-flip anchor itself (`NO_FORECAST_BASE` between decided
+ * outcomes, plus whatever push mass the margin distribution actually
+ * assigns to that exact number — zero for a half-point line). This is the
+ * base case `coverProbabilities` migrates away from; exported on its own so
+ * a caller asking about the reference/median line itself (no migration
+ * needed) gets the identical computation, not a second, independently
+ * written copy of the push-mass halving logic.
+ *
+ * The stored pmf is over |margin|, split symmetrically between +m and -m
+ * (matching `lineMoveTransitions`' own `share = p/2` convention) except at
+ * m=0, which is its own single point. A push at a NONZERO line requires
+ * signed margin === -line specifically — only ONE of the two signed halves
+ * of that magnitude's population, never the full magnitude's share.
+ */
+export function referenceCoverBaseline(line) {
+  if (!Number.isFinite(line)) return null;
+  const { pmf } = marginDistribution();
+  const pushAt = line === 0 ? (pmf.get(0) ?? 0) : (pmf.get(Math.abs(line)) ?? 0) / 2;
+  const decided = 1 - pushAt;
+  const win = NO_FORECAST_BASE * decided;
+  return { win: r4(win), loss: r4(decided - win), push: r4(pushAt) };
+}
+
+/**
+ * Full three-state win/loss/push probabilities for backing a side at
+ * `targetLine`, starting from `referenceCoverBaseline(referenceLine)` (the
+ * median book — ALWAYS pass the actual reference first; this function is not
+ * symmetric in its two arguments, see below). `lineMoveTransitions` then
+ * moves exactly the right probability mass to or from `targetLine` —
+ * whether it is better OR worse than the reference — so the three outputs
+ * always sum to 1 and a push is never silently folded into a win or a loss.
+ *
+ * NOT symmetric: `coverProbabilities(a, b)` treats `a` as the coin-flip
+ * anchor and derives `b`'s numbers from it; `coverProbabilities(b, a)` would
+ * instead treat `b` as the anchor and derive `a`'s numbers, which is a
+ * different (and for this module's purpose, wrong) question. Every caller in
+ * this codebase must pass the actual reference/median line first.
+ *
+ * Returns `referenceCoverBaseline(referenceLine)` directly when the two
+ * lines are equal (no migration to apply), and null only when an input is
+ * not finite — never fabricates a number a caller could mistake for a
+ * forecast.
+ */
+export function coverProbabilities(referenceLine, targetLine) {
+  if (!Number.isFinite(referenceLine) || !Number.isFinite(targetLine)) return null;
+  const baseline = referenceCoverBaseline(referenceLine);
+  if (referenceLine === targetLine) return baseline;
+  const { win: winRef, loss: lossRef, push: pushAtReference } = baseline;
+
+  if (targetLine > referenceLine) {
+    // The target is the BETTER number: migrate mass forward, from the
+    // reference's loss/push buckets into the target's push/win buckets.
+    const { loss_to_win, loss_to_push, push_to_win } = lineMoveTransitions(referenceLine, targetLine);
+    return {
+      win: r4(winRef + loss_to_win + push_to_win),
+      loss: r4(lossRef - loss_to_win - loss_to_push),
+      push: r4(pushAtReference - push_to_win + loss_to_push)
+    };
+  }
+  // The target is the WORSE number: the reference is the better endpoint of
+  // the SAME transition computed the other way around, so the identical
+  // masses are subtracted back out to recover the worse line's numbers.
+  const { loss_to_win, loss_to_push, push_to_win } = lineMoveTransitions(targetLine, referenceLine);
+  return {
+    win: r4(winRef - loss_to_win - push_to_win),
+    loss: r4(lossRef + loss_to_win + loss_to_push),
+    push: r4(pushAtReference + push_to_win - loss_to_push)
+  };
+}
+
 /** The classic key numbers, ranked by how much probability mass they carry. */
 export function keyNumbers(limit = 8) {
   const { pmf } = marginDistribution();
@@ -139,6 +269,17 @@ export function bestExecution(quotes, { takingPoints = true } = {}) {
   const prices = usable.map(q => dec(q.american_price)).sort((a, b) => a - b);
   const refPrice = prices[Math.floor(prices.length / 2)];
 
+  // Codex audit finding E5: transform each raw quoted line into the bettor's
+  // OWN signed convention, where a LARGER value is always more favorable
+  // (matching the "covers when margin > -line" formula lineMoveTransitions/
+  // coverProbabilities are built on) -- takingPoints=true means the raw line
+  // already is that convention (spreads, and totals' Under side); false
+  // means it is inverted (totals' Over side, which wants a SMALLER raw
+  // number). Computed once here so win/loss/push and line_edge use the
+  // identical direction, rather than two independently-maintained branches.
+  const bettorSigned = line => (Number.isFinite(line) ? (takingPoints ? line : -line) : null);
+  const refSigned = bettorSigned(refLine);
+
   const scored = usable.map(q => {
     // Value of this book's line versus the median line, in win probability.
     const lineEdge = refLine != null && Number.isFinite(q.line)
@@ -147,7 +288,17 @@ export function bestExecution(quotes, { takingPoints = true } = {}) {
       : 0;
     // Value of this book's price versus the median price, as a return premium.
     const priceEdge = (dec(q.american_price) / refPrice) - 1;
+    // Codex audit finding E5: the exact three-state breakdown for THIS book's
+    // number, instead of folding a push into line_edge's "half a win" ranking
+    // proxy. null only when there is no reference line to migrate from at all
+    // (coverProbabilities itself handles "this book matches the reference
+    // exactly" by returning the reference baseline directly).
+    const qSigned = bettorSigned(q.line);
+    const probabilities = refSigned != null && qSigned != null ? coverProbabilities(refSigned, qSigned) : null;
     return { ...q, line_edge: r4(lineEdge), price_edge: r4(priceEdge),
+      win_probability: probabilities?.win ?? null,
+      loss_probability: probabilities?.loss ?? null,
+      push_probability: probabilities?.push ?? null,
       // A point of win probability is worth roughly 2x a point of return at
       // even money, since it moves both the win and the loss branch.
       total_edge: r4(lineEdge * 2 + priceEdge) };

@@ -151,6 +151,12 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
         best_line: exec.best.line, best_price: exec.best.american_price,
         median_line: exec.median_line,
         line_edge: exec.best.line_edge, price_edge: exec.best.price_edge,
+        // Codex audit finding E5: the exact three-state breakdown behind
+        // line_edge, so a downstream consumer (execution-slate-reasoning.js)
+        // can compute real price-aware EV instead of re-deriving a
+        // probability from the ranking-only line_edge scalar.
+        win_probability: exec.best.win_probability, loss_probability: exec.best.loss_probability,
+        push_probability: exec.best.push_probability,
         edge_vs_median: exec.edge_vs_median,
         all: exec.all
       });

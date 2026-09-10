@@ -3,7 +3,7 @@
  *
  * The Odds API is metered and this project's month is gone by Week 1. The
  * books' own sites, and one aggregator, publish the same numbers through
- * public JSON endpoints that cost nothing and need no account. Four are read
+ * public JSON endpoints that cost nothing and need no account. Five are read
  * here, each isolated so one failing never blocks the others:
  *
  *   oddstrader  – the aggregator sbrscrape (github.com/nkgilley/sbrscrape)
@@ -15,6 +15,13 @@
  *                 API's `eu` region at 4 credits a call.
  *   kambi       – the platform behind BetRivers (US); spreads, totals, ML.
  *   bovada      – Bovada's coupon endpoint; spreads, totals, ML.
+ *   fanduel     – FanDuel's own sportsbook API (the `sbapi.<state>` host the
+ *                 web app reads its NFL page from, keyed by the public `_ak`
+ *                 embedded in that page). The largest US book by handle,
+ *                 previously reachable only second-hand through Rotowire and
+ *                 the OddsTrader aggregator. Spreads, totals, ML for every
+ *                 NFL game on the board (this week and next). No headers
+ *                 required as of 2026-09-10 — a bare GET returns the page.
  *
  * Everything lands in `nfl_line_snapshots` in exactly the row shape
  * line-shopping.js writes (book, market, side, line, price) plus `provider`
@@ -79,7 +86,7 @@ const ODDSTRADER_BOOKS = Object.freeze({
 });
 const ODDSTRADER_PAIDS = Object.keys(ODDSTRADER_BOOKS).join(',');
 // Direct feeds outrank the aggregator's copy of the same book.
-const PROVIDER_PRIORITY = { pinnacle: 0, bovada: 1, kambi: 2, oddstrader: 3 };
+const PROVIDER_PRIORITY = { pinnacle: 0, fanduel: 1, bovada: 1, kambi: 2, oddstrader: 3 };
 
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const american = v => { const n = num(String(v ?? '').replace('+', '')); return n; };
@@ -232,6 +239,60 @@ export function parseBovada(payload, resolve = teamResolver()) {
   return out;
 }
 
+const FANDUEL_MARKETS = Object.freeze({
+  'MATCH_HANDICAP_(2-WAY)': 'spreads', 'TOTAL_POINTS_(OVER/UNDER)': 'totals', MONEY_LINE: 'h2h'
+});
+
+/**
+ * FanDuel's content-managed page: `attachments.events` (id → event) and
+ * `attachments.markets` (id → market with `runners`). Game events are named
+ * "Away @ Home"; each runner carries `result.type` HOME/AWAY/OVER/UNDER, a
+ * `handicap` (the spread from that side's perspective, or the total) and
+ * American odds. Futures, season props and SGP-only markets share the same
+ * payload and are skipped by market type; a suspended runner or market is
+ * skipped rather than written with a dead price.
+ */
+export function parseFanduel(payload, resolve = teamResolver()) {
+  const out = [];
+  const events = payload?.attachments?.events ?? {};
+  for (const m of Object.values(payload?.attachments?.markets ?? {})) {
+    const market = FANDUEL_MARKETS[m.marketType];
+    if (!market || (m.marketStatus && m.marketStatus !== 'OPEN') || m.inPlay) continue;
+    const ev = events[String(m.eventId)];
+    const [awayName, homeName] = String(ev?.name ?? '').split(/\s+@\s+/);
+    const h = resolve(homeName), a = resolve(awayName);
+    if (!h || !a) continue;
+    const base = { home: h.abbr, away: a.abbr, commence_time: ev.openDate ?? m.marketTime ?? null,
+      book: 'fanduel', book_updated_at: null };
+    for (const r of m.runners ?? []) {
+      if (r.runnerStatus && r.runnerStatus !== 'ACTIVE') continue;
+      const price = num(r.winRunnerOdds?.americanDisplayOdds?.americanOdds);
+      if (price == null) continue;
+      const type = r.result?.type;
+      if (market === 'totals') {
+        const side = type === 'OVER' ? 'Over' : type === 'UNDER' ? 'Under' : null;
+        const line = num(r.handicap);
+        if (side && line != null) out.push({ ...base, market, side, line, price });
+        continue;
+      }
+      const side = type === 'HOME' ? h.abbr : type === 'AWAY' ? a.abbr : resolve(r.runnerName)?.abbr ?? null;
+      if (!side) continue;
+      if (market === 'spreads') {
+        const line = num(r.handicap);
+        if (line != null) out.push({ ...base, market, side, line, price });
+      } else {
+        out.push({ ...base, market, side, line: null, price });
+      }
+    }
+  }
+  return out;
+}
+
+// The state subdomain only changes which regulated board is shown; the NFL
+// lines are the same book-wide. FANDUEL_STATE overrides (nj, pa, ny, …).
+const FANDUEL_URL = `https://sbapi.${process.env.FANDUEL_STATE || 'nj'}.sportsbook.fanduel.com/api/content-managed-page` +
+  '?page=CUSTOM&customPageId=nfl&pbHorizontal=false&_ak=FhMFpcPWXMeyZxOx&timezone=America%2FNew_York';
+
 const PROVIDERS = {
   oddstrader: async () => {
     const ts = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
@@ -249,8 +310,10 @@ const PROVIDERS = {
   kambi: async () => parseKambi(await getJson(
     'https://eu-offering-api.kambicdn.com/offering/v2018/rsiusny/listView/american_football/nfl/all/all/matches.json?lang=en_US&market=US&useCombined=true')),
   bovada: async () => parseBovada(await getJson(
-    'https://www.bovada.lv/services/sports/event/coupon/events/A/description/football/nfl?marketFilterId=def&preMatchOnly=true&eventsLimit=50&lang=en'))
+    'https://www.bovada.lv/services/sports/event/coupon/events/A/description/football/nfl?marketFilterId=def&preMatchOnly=true&eventsLimit=50&lang=en')),
+  fanduel: async () => parseFanduel(await getJson(FANDUEL_URL, { headers: { Referer: 'https://sportsbook.fanduel.com/' } }))
 };
+
 
 /* ------------------------------------------------------- provider backoff */
 
@@ -264,7 +327,7 @@ const PROVIDERS = {
  * consecutive failure, and forgets the moment a capture succeeds again — a
  * transient blip costs one skipped cycle, not a standing outage.
  *
- * Bounded by construction: at most one entry per key in PROVIDERS (four),
+ * Bounded by construction: at most one entry per key in PROVIDERS (five),
  * never per request, so this cannot grow across a multi-day run.
  */
 const BACKOFF_BASE_MS = 2 * 60 * 1000;
@@ -370,10 +433,10 @@ export function bookFeedStatus() {
   return { enabled: ENABLED, providers: Object.keys(PROVIDERS), recent_captures: latest, by_provider: byProvider,
     backoff: bookFeedBackoffStatus(),
     note: 'Public book endpoints. Pinnacle/OddsTrader poll every 5 minutes (API-like, high published rate limits); ' +
-      'Kambi/Bovada poll hourly (undocumented scrapes, no published limit — kept conservative). A failing provider ' +
+      'Kambi/Bovada/FanDuel poll hourly (undocumented scrapes, no published limit — kept conservative). A failing provider ' +
       'backs off instead of retrying immediately; see backoff above. Set FREE_BOOK_FEEDS=0 to disable. These feed the ' +
       'same snapshot table and quote tape as the Odds API and cost nothing.' };
 }
 
-export const __test = { parseOddstrader, parsePinnacle, parseKambi, parseBovada, mergeQuotes, eventKey,
+export const __test = { parseOddstrader, parsePinnacle, parseKambi, parseBovada, parseFanduel, mergeQuotes, eventKey,
   inBackoff, recordProviderFailure, recordProviderSuccess, backoffRemainingMs };

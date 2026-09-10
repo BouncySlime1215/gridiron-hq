@@ -84,6 +84,35 @@ test('Pinnacle guest feed yields the full-game straight markets only', () => {
   assert.equal(larSf.filter(q => q.market === 'spreads').length, 2);
 });
 
+test('FanDuel content page parses spreads, totals and moneylines and skips futures', () => {
+  const quotes = feeds.__test.parseFanduel(fixture('fanduel-nfl.json'));
+  assert.equal(quotes.length, 12, `two games x six quotes, got ${quotes.length}`);
+  assert.ok(quotes.every(q => q.book === 'fanduel' && q.book_updated_at === null));
+  const sfLar = quotes.filter(q => q.home === 'LAR' && q.away === 'SF');
+  assert.equal(sfLar.length, 6);
+  assert.deepEqual(sfLar.find(q => q.market === 'spreads' && q.side === 'LAR'), {
+    home: 'LAR', away: 'SF', commence_time: '2026-09-11T00:35:00.000Z', book: 'fanduel', book_updated_at: null,
+    market: 'spreads', side: 'LAR', line: -3.5, price: -112 });
+  assert.equal(sfLar.find(q => q.market === 'spreads' && q.side === 'SF').line, 3.5);
+  assert.equal(sfLar.find(q => q.market === 'totals' && q.side === 'Under').price, -115);
+  assert.equal(sfLar.find(q => q.market === 'totals' && q.side === 'Over').line, 48.5);
+  assert.equal(sfLar.find(q => q.market === 'h2h' && q.side === 'SF').price, 164);
+  assert.equal(sfLar.find(q => q.market === 'h2h' && q.side === 'LAR').line, null);
+  const wasPhi = quotes.filter(q => q.home === 'PHI' && q.away === 'WAS');
+  assert.equal(wasPhi.find(q => q.market === 'spreads' && q.side === 'PHI').line, -5.5);
+  assert.equal(wasPhi.find(q => q.market === 'h2h' && q.side === 'WAS').price, 205);
+  // The Super Bowl futures market in the same payload must not leak in as a game quote.
+  assert.ok(!quotes.some(q => q.home === 'BUF' || q.away === 'BUF'));
+});
+
+test('the direct FanDuel feed outranks the aggregator copy of the same FanDuel line', () => {
+  const direct = feeds.__test.parseFanduel(fixture('fanduel-nfl.json'));
+  const aggregated = direct.map(q => ({ ...q, line: q.line == null ? null : q.line + 1, price: -999 }));
+  const merged = feeds.__test.mergeQuotes({ oddstrader: aggregated, fanduel: direct });
+  assert.equal(merged.length, direct.length);
+  assert.ok(merged.every(q => q.provider === 'fanduel' && q.price !== -999));
+});
+
 test('OddsTrader aggregator maps its provider ids to book keys and keeps the change timestamp', () => {
   const quotes = feeds.__test.parseOddstrader(fixture('oddstrader-nfl.json'));
   const seaNe = quotes.filter(q => q.home === 'SEA' && q.away === 'NE');

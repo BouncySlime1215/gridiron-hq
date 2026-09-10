@@ -1,0 +1,724 @@
+{
+ "layout": {},
+ "attachments": {
+  "eventTypes": {
+   "6423": {
+    "name": "American Football",
+    "eventTypeId": 6423
+   }
+  },
+  "competitions": {
+   "11212658": {
+    "name": "NFL - Draft Markets",
+    "competitionId": 11212658,
+    "eventTypeId": 6423,
+    "eventId": 28201235
+   },
+   "11379418": {
+    "name": "NFL Player Specials",
+    "competitionId": 11379418,
+    "eventTypeId": 6423,
+    "eventId": 28297422
+   },
+   "12282733": {
+    "name": "NFL",
+    "competitionId": 12282733,
+    "eventTypeId": 6423,
+    "eventId": 28041972
+   },
+   "12721217": {
+    "name": "NFL Futures",
+    "competitionId": 12721217,
+    "eventTypeId": 6423,
+    "eventId": 34100802
+   }
+  },
+  "events": {
+   "34100802": {
+    "eventId": 34100802,
+    "name": "NFL Futures",
+    "eventTypeId": 6423,
+    "competitionId": 12721217,
+    "countryCode": "US",
+    "openDate": "2026-03-06T18:48:05.000Z",
+    "videoAvailable": false,
+    "statsAvailable": false
+   },
+   "35596960": {
+    "eventId": 35596960,
+    "name": "San Francisco 49ers @ Los Angeles Rams",
+    "eventTypeId": 6423,
+    "competitionId": 12282733,
+    "countryCode": "GB",
+    "openDate": "2026-09-11T00:35:00.000Z",
+    "videoAvailable": true,
+    "statsAvailable": true
+   },
+   "35609293": {
+    "eventId": 35609293,
+    "name": "Washington Commanders @ Philadelphia Eagles",
+    "eventTypeId": 6423,
+    "competitionId": 12282733,
+    "countryCode": "GB",
+    "openDate": "2026-09-13T20:25:00.000Z",
+    "videoAvailable": false,
+    "statsAvailable": true
+   }
+  },
+  "markets": {
+   "734.168585746": {
+    "marketId": "734.168585746",
+    "eventTypeId": 6423,
+    "competitionId": 12282733,
+    "eventId": 35596960,
+    "exchangeMarketId": "1.260888444",
+    "marketName": "Total Points",
+    "marketTime": "2026-09-11T00:35:00.000Z",
+    "marketType": "TOTAL_POINTS_(OVER/UNDER)",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 2,
+    "numberOfActiveRunners": 2,
+    "numberOfWinners": 1,
+    "sortPriority": -880,
+    "bettingType": "MOVING_HANDICAP",
+    "marketStatus": "OPEN",
+    "marketLevels": [
+     "AVB_EVENT"
+    ],
+    "runners": [
+     {
+      "selectionId": 7017916,
+      "handicap": 48.5,
+      "runnerName": "Over",
+      "sortPriority": 1,
+      "result": {
+       "type": "OVER"
+      },
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -105,
+        "americanOddsInt": -105
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.952380952380952
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 105
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     },
+     {
+      "selectionId": 7017917,
+      "handicap": 48.5,
+      "runnerName": "Under",
+      "sortPriority": 2,
+      "result": {
+       "type": "UNDER"
+      },
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -115,
+        "americanOddsInt": -115
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.869565217391304
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 115
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     }
+    ],
+    "canTurnInPlay": true,
+    "associatedMarkets": [
+     {
+      "eventId": 35596960,
+      "eventTypeId": 6423,
+      "externalMarketId": "42.577896062"
+     }
+    ],
+    "isSuperSubEnabled": false,
+    "isBetProtectEligible": false,
+    "shouldDisplayStatsInRunner": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION"
+    ]
+   },
+   "734.168966313": {
+    "marketId": "734.168966313",
+    "eventTypeId": 6423,
+    "competitionId": 12282733,
+    "eventId": 35609293,
+    "exchangeMarketId": "1.260890820",
+    "marketName": "Total Points",
+    "marketTime": "2026-09-13T20:25:00.000Z",
+    "marketType": "TOTAL_POINTS_(OVER/UNDER)",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 2,
+    "numberOfActiveRunners": 2,
+    "numberOfWinners": 1,
+    "sortPriority": -880,
+    "bettingType": "MOVING_HANDICAP",
+    "marketStatus": "OPEN",
+    "marketLevels": [
+     "AVB_EVENT"
+    ],
+    "runners": [
+     {
+      "selectionId": 7017916,
+      "handicap": 44.5,
+      "runnerName": "Over",
+      "sortPriority": 1,
+      "result": {
+       "type": "OVER"
+      },
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -110,
+        "americanOddsInt": -110
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.909090909090909
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 110
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     },
+     {
+      "selectionId": 7017917,
+      "handicap": 44.5,
+      "runnerName": "Under",
+      "sortPriority": 2,
+      "result": {
+       "type": "UNDER"
+      },
+      "runnerStatus": "ACTIVE",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -110,
+        "americanOddsInt": -110
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.909090909090909
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 110
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     }
+    ],
+    "canTurnInPlay": true,
+    "associatedMarkets": [
+     {
+      "eventId": 35609293,
+      "eventTypeId": 6423,
+      "externalMarketId": "42.578584083"
+     }
+    ],
+    "isSuperSubEnabled": false,
+    "isBetProtectEligible": false,
+    "shouldDisplayStatsInRunner": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION"
+    ]
+   },
+   "734.168585743": {
+    "marketId": "734.168585743",
+    "eventTypeId": 6423,
+    "competitionId": 12282733,
+    "eventId": 35596960,
+    "exchangeMarketId": "1.260888341",
+    "marketName": "Moneyline",
+    "marketTime": "2026-09-11T00:35:00.000Z",
+    "marketType": "MONEY_LINE",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 2,
+    "numberOfActiveRunners": 2,
+    "numberOfWinners": 1,
+    "sortPriority": -900,
+    "bettingType": "ODDS",
+    "marketStatus": "OPEN",
+    "marketLevels": [
+     "AVB_EVENT"
+    ],
+    "runners": [
+     {
+      "selectionId": 43010249,
+      "handicap": 0,
+      "runnerName": "San Francisco 49ers",
+      "sortPriority": 1,
+      "result": {
+       "type": "AWAY"
+      },
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/san_francisco_49ers.png",
+      "nameAbbr": "SF 49ers",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": 164,
+        "americanOddsInt": 164
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 2.64
+        },
+        "fractionalOdds": {
+         "numerator": 164,
+         "denominator": 100
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     },
+     {
+      "selectionId": 10782388,
+      "handicap": 0,
+      "runnerName": "Los Angeles Rams",
+      "sortPriority": 2,
+      "result": {
+       "type": "HOME"
+      },
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/los_angeles_rams.png",
+      "nameAbbr": "LA Rams",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -196,
+        "americanOddsInt": -196
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.510204081632653
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 196
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     }
+    ],
+    "canTurnInPlay": true,
+    "associatedMarkets": [
+     {
+      "eventId": 35596960,
+      "eventTypeId": 6423,
+      "externalMarketId": "42.577896059"
+     }
+    ],
+    "isSuperSubEnabled": false,
+    "isBetProtectEligible": false,
+    "shouldDisplayStatsInRunner": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION"
+    ]
+   },
+   "734.168966312": {
+    "marketId": "734.168966312",
+    "eventTypeId": 6423,
+    "competitionId": 12282733,
+    "eventId": 35609293,
+    "exchangeMarketId": "1.260890717",
+    "marketName": "Moneyline",
+    "marketTime": "2026-09-13T20:25:00.000Z",
+    "marketType": "MONEY_LINE",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 2,
+    "numberOfActiveRunners": 2,
+    "numberOfWinners": 1,
+    "sortPriority": -900,
+    "bettingType": "ODDS",
+    "marketStatus": "OPEN",
+    "marketLevels": [
+     "AVB_EVENT"
+    ],
+    "runners": [
+     {
+      "selectionId": 42568622,
+      "handicap": 0,
+      "runnerName": "Washington Commanders",
+      "sortPriority": 1,
+      "result": {
+       "type": "AWAY"
+      },
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/washington_commanders.png",
+      "nameAbbr": "WAS Commanders",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": 205,
+        "americanOddsInt": 205
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 3.05
+        },
+        "fractionalOdds": {
+         "numerator": 205,
+         "denominator": 100
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     },
+     {
+      "selectionId": 50186,
+      "handicap": 0,
+      "runnerName": "Philadelphia Eagles",
+      "sortPriority": 2,
+      "result": {
+       "type": "HOME"
+      },
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/philadelphia_eagles.png",
+      "nameAbbr": "PHI Eagles",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -250,
+        "americanOddsInt": -250
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.4
+        },
+        "fractionalOdds": {
+         "numerator": 10,
+         "denominator": 25
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     }
+    ],
+    "canTurnInPlay": true,
+    "associatedMarkets": [
+     {
+      "eventId": 35609293,
+      "eventTypeId": 6423,
+      "externalMarketId": "42.578584080"
+     }
+    ],
+    "isSuperSubEnabled": false,
+    "isBetProtectEligible": false,
+    "shouldDisplayStatsInRunner": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION"
+    ]
+   },
+   "734.168966315": {
+    "marketId": "734.168966315",
+    "eventTypeId": 6423,
+    "competitionId": 12282733,
+    "eventId": 35609293,
+    "exchangeMarketId": "1.260890718",
+    "marketName": "Spread",
+    "marketTime": "2026-09-13T20:25:00.000Z",
+    "marketType": "MATCH_HANDICAP_(2-WAY)",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 2,
+    "numberOfActiveRunners": 2,
+    "numberOfWinners": 1,
+    "sortPriority": -890,
+    "bettingType": "MOVING_HANDICAP",
+    "marketStatus": "OPEN",
+    "marketLevels": [
+     "AVB_EVENT"
+    ],
+    "runners": [
+     {
+      "selectionId": 42568622,
+      "handicap": 5.5,
+      "runnerName": "Washington Commanders",
+      "sortPriority": 1,
+      "result": {
+       "type": "AWAY"
+      },
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/washington_commanders.png",
+      "nameAbbr": "WAS Commanders",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -110,
+        "americanOddsInt": -110
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.909090909090909
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 110
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     },
+     {
+      "selectionId": 50186,
+      "handicap": -5.5,
+      "runnerName": "Philadelphia Eagles",
+      "sortPriority": 2,
+      "result": {
+       "type": "HOME"
+      },
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/philadelphia_eagles.png",
+      "nameAbbr": "PHI Eagles",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -110,
+        "americanOddsInt": -110
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.909090909090909
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 110
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     }
+    ],
+    "canTurnInPlay": true,
+    "associatedMarkets": [
+     {
+      "eventId": 35609293,
+      "eventTypeId": 6423,
+      "externalMarketId": "42.578584081"
+     }
+    ],
+    "isSuperSubEnabled": false,
+    "isBetProtectEligible": false,
+    "shouldDisplayStatsInRunner": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION"
+    ]
+   },
+   "734.168585745": {
+    "marketId": "734.168585745",
+    "eventTypeId": 6423,
+    "competitionId": 12282733,
+    "eventId": 35596960,
+    "exchangeMarketId": "1.260888342",
+    "marketName": "Spread",
+    "marketTime": "2026-09-11T00:35:00.000Z",
+    "marketType": "MATCH_HANDICAP_(2-WAY)",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 2,
+    "numberOfActiveRunners": 2,
+    "numberOfWinners": 1,
+    "sortPriority": -890,
+    "bettingType": "MOVING_HANDICAP",
+    "marketStatus": "OPEN",
+    "marketLevels": [
+     "AVB_EVENT"
+    ],
+    "runners": [
+     {
+      "selectionId": 43010249,
+      "handicap": 3.5,
+      "runnerName": "San Francisco 49ers",
+      "sortPriority": 1,
+      "result": {
+       "type": "AWAY"
+      },
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/san_francisco_49ers.png",
+      "nameAbbr": "SF 49ers",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -108,
+        "americanOddsInt": -108
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.925925925925926
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 108
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     },
+     {
+      "selectionId": 10782388,
+      "handicap": -3.5,
+      "runnerName": "Los Angeles Rams",
+      "sortPriority": 2,
+      "result": {
+       "type": "HOME"
+      },
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/los_angeles_rams.png",
+      "nameAbbr": "LA Rams",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": -112,
+        "americanOddsInt": -112
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 1.892857142857143
+        },
+        "fractionalOdds": {
+         "numerator": 100,
+         "denominator": 112
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     }
+    ],
+    "canTurnInPlay": true,
+    "associatedMarkets": [
+     {
+      "eventId": 35596960,
+      "eventTypeId": 6423,
+      "externalMarketId": "42.577896060"
+     }
+    ],
+    "isSuperSubEnabled": false,
+    "isBetProtectEligible": false,
+    "shouldDisplayStatsInRunner": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION"
+    ]
+   },
+   "734.154525715": {
+    "marketId": "734.154525715",
+    "eventTypeId": 6423,
+    "competitionId": 12721217,
+    "eventId": 34100802,
+    "exchangeMarketId": "1.253840981",
+    "marketName": "Super Bowl LXI Winner",
+    "marketTime": "2027-02-14T23:35:00.000Z",
+    "marketType": "SUPER_BOWL_WINNER_SGP",
+    "bspMarket": false,
+    "sgmMarket": true,
+    "inPlay": false,
+    "numberOfRunners": 32,
+    "numberOfActiveRunners": 32,
+    "numberOfWinners": 1,
+    "sortPriority": 10,
+    "bettingType": "ODDS",
+    "marketStatus": "OPEN",
+    "marketLevels": [
+     "COMPETITION"
+    ],
+    "runners": [
+     {
+      "selectionId": 10782388,
+      "handicap": 0,
+      "runnerName": "Los Angeles Rams",
+      "sortPriority": 1,
+      "result": {},
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/los_angeles_rams.png",
+      "nameAbbr": "LA Rams",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": 550,
+        "americanOddsInt": 550
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 6.5
+        },
+        "fractionalOdds": {
+         "numerator": 55,
+         "denominator": 10
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     },
+     {
+      "selectionId": 50203,
+      "handicap": 0,
+      "runnerName": "Buffalo Bills",
+      "sortPriority": 2,
+      "result": {},
+      "runnerStatus": "ACTIVE",
+      "logo": "https://assets.sportsbook.fanduel.com/images/team/nfl/buffalo_bills.png",
+      "nameAbbr": "BUF Bills",
+      "winRunnerOdds": {
+       "americanDisplayOdds": {
+        "americanOdds": 1000,
+        "americanOddsInt": 1000
+       },
+       "trueOdds": {
+        "decimalOdds": {
+         "decimalOdds": 11
+        },
+        "fractionalOdds": {
+         "numerator": 10,
+         "denominator": 1
+        }
+       }
+      },
+      "previousWinRunnerOdds": []
+     }
+    ],
+    "canTurnInPlay": false,
+    "associatedMarkets": [
+     {
+      "eventId": 34100802,
+      "eventTypeId": 6423,
+      "externalMarketId": "42.553393066"
+     }
+    ],
+    "isSuperSubEnabled": false,
+    "isBetProtectEligible": false,
+    "shouldDisplayStatsInRunner": true,
+    "eachwayAvailable": false,
+    "legTypes": [
+     "SIMPLE_SELECTION"
+    ]
+   }
+  }
+ }
+}

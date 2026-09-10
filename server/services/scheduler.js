@@ -324,7 +324,7 @@ async function refreshBookFeedsFast() {
 /** The fragile-scrape half of the free book feeds — see refreshBookFeedsFast's header. */
 async function refreshBookFeedsSlow() {
   const { captureBookFeeds } = await import('./book-feeds.js');
-  return captureBookFeeds({ providers: ['kambi', 'bovada'] });
+  return captureBookFeeds({ providers: ['kambi', 'bovada', 'fanduel'] });
 }
 
 /** Rotowire (incl. Circa) and SBR game lines — the only free Circa source. */
@@ -755,7 +755,7 @@ export const JOBS = {
   nfl_book_feeds_fast: { run: refreshBookFeedsFast, maxAgeMinutes: 5, tier: 'live',
     label: 'Free multi-book quotes (API-like, polled fast): Pinnacle, OddsTrader (11 books)' },
   nfl_book_feeds_slow: { run: refreshBookFeedsSlow, maxAgeMinutes: 60, tier: 'live',
-    label: 'Free multi-book quotes (undocumented scrapes, kept conservative): BetRivers (Kambi), Bovada' },
+    label: 'Free multi-book quotes (undocumented scrapes, kept conservative): BetRivers (Kambi), Bovada, FanDuel (direct)' },
   nfl_qbr_weather: { run: refreshQbrAndWeather, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Weekly ESPN QBR and kickoff-hour weather for the current and prior season' },
   beat_the_close: { run: refreshBeatTheClose, maxAgeMinutes: 60, tier: 'live',

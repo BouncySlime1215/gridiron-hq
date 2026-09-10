@@ -135,5 +135,106 @@
     "immutable abstention/decision history",
     "full document consolidation and folder moves",
     "hermetic fixtures for 21 existing data-dependent failures"
-  ]
+  ],
+  "record_scope": "Original fields preserve the first integrity repair verification. Later slices appear under dated slice keys and do not replace that historical record.",
+  "model_repair_slice_2026_09_10": {
+    "source_base": "cbf66ced9781e0c623ff61a55179d6fe22aadb34",
+    "source_commit": "3f19e257cdd44271bd77a6fa164bbb494e3ca277",
+    "branch": "main",
+    "recorded_at": "2026-09-10T06:32:33.198572+00:00",
+    "changes": [
+      "Challenger exclusion in residual fit normalization and serving; fit cache version v8",
+      "Family ablations use the common blend and predictive distribution path with distinct cache identities",
+      "Graph-bound cover calibration and common Shin no-vig calculation; historical closing and live unfrozen regimes kept separate",
+      "Decision board records graph identity, calibration reason, raw margin forecasts and actual base component authority"
+    ],
+    "targeted_regressions": {
+      "tests": 251,
+      "passed": 251,
+      "failed": 0,
+      "new_tests": 14
+    },
+    "final_trace_adjustment": {
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "syntax_check": "passed"
+    },
+    "checks": {
+      "typecheck": "passed",
+      "build": "passed",
+      "syntax_lint": "passed: 536 JavaScript files"
+    },
+    "mutation_checks": [
+      {
+        "variant": "control",
+        "exit_code": 0,
+        "failed_tests": []
+      },
+      {
+        "variant": "fit_exclusion_removed",
+        "exit_code": 1,
+        "failed_tests": [
+          "\u2716 strong challenger diagnostics remain visible but cannot enter champion weight normalization (415.853583ms)",
+          "\u2716 v7 persisted weights cannot be reused after the authority repair (327.086625ms)",
+          "\u2716 strong challenger diagnostics remain visible but cannot enter champion weight normalization (415.853583ms)",
+          "\u2716 v7 persisted weights cannot be reused after the authority repair (327.086625ms)"
+        ]
+      },
+      {
+        "variant": "serving_exclusion_removed",
+        "exit_code": 1,
+        "failed_tests": [
+          "\u2716 serving refuses excluded challenger authority even if a loaded artifact has a nonzero weight (33.420958ms)",
+          "\u2716 changing an excluded challenger cannot change champion forecast, confidence or distribution (86.689583ms)",
+          "\u2716 serving refuses excluded challenger authority even if a loaded artifact has a nonzero weight (33.420958ms)",
+          "\u2716 changing an excluded challenger cannot change champion forecast, confidence or distribution (86.689583ms)"
+        ]
+      },
+      {
+        "variant": "old_family_shortcut",
+        "exit_code": 1,
+        "failed_tests": [
+          "\u2716 explicit candidate mode can hear the roster challenger, while champion roster-only falls back to market (35.739708ms)",
+          "\u2716 family ablations match equivalent model exclusions including distribution, for both blend modes (458.9165ms)",
+          "\u2716 explicit candidate mode can hear the roster challenger, while champion roster-only falls back to market (35.739708ms)",
+          "\u2716 family ablations match equivalent model exclusions including distribution, for both blend modes (458.9165ms)"
+        ]
+      }
+    ],
+    "generated_cases": {
+      "seed": 9021026,
+      "challenger_forecast_perturbations": 40
+    },
+    "environment": "Node v25.9.0; temporary databases; disabled scheduler; offline regression fetch guard. Synthetic historical fixtures and mocked provider/feature producers; actual ensemble fitting, serving and calibration/board wiring exercised.",
+    "files_sha256": {
+      "server/services/nfl-auto-picks.js": "8c6760cadfd1207701fba662c5391e1c45474711bb20219e3d5191962d718af7",
+      "server/services/nfl-coordination-audit.js": "d77687a0f1cb489f9862c702cb4e49169b090cb2f01c8cd6b8594077c73d61ce",
+      "server/services/nfl-cover-calibration.js": "8ded66c85c56bb88fccba1c2eb9c9abfd935f691d4b768238efd74cd0b1d8c01",
+      "server/services/nfl-ensemble.js": "9c7827c03e70ad2309a6d4da212bc2a150d1b3d91adb7442ff9a6417a694a5cc",
+      "server/services/nfl-forecast-identity.js": "f82555e866dc2180bb0c7e701df1959096f87c1a776b06d1e47b2a04a0c10a31",
+      "test/nfl-cover-identity.test.js": "d38697bd3df2a116ba137513cb4f28b3b04dc9682d47fe7354a782332a056937",
+      "test/nfl-ensemble-authority.test.js": "e85863771e3227064999ae1b121b172c0fe0de0ac77e87d6a13c7f11f9387ddc"
+    },
+    "log_sha256": {
+      "implementation-model-regression-tests.txt": "da6b7dd1a0dd4561b499c0a76ca5f5fd0a30bd1e21008181c2a0839e78c71513",
+      "implementation-cover-identity-final-tests.txt": "aeb5ac629c63484bd45e79fe2b3848aae0d416b3f5302a8d63f47f800cdd2869",
+      "implementation-model-lint.txt": "969beee5b1c36df753918fa9384c56fd726f94f7315e8a56080c4209c1d404f9",
+      "implementation-model-build.txt": "5eb54bec86c958933fdf66bb9950dbad8e1606bc4bb337c792f03fad9dea2941"
+    },
+    "limitations": [
+      "The full suite was not repeated; its 21 previously reproduced data-dependent failures remain unresolved.",
+      "The identity binds algorithm/configuration and information regime, not complete dataset, learned-parameter, artifact or publication-time manifests.",
+      "Historical residual slope selection still uses in-sample residual diagnostics; chronological out-of-fold selection remains pending.",
+      "Historical calibration remains selected nonpush cover research, not all-game decision-time or prospective validation. No live calibration was trained.",
+      "Frozen T-60 forecasts, complete cache invalidation, push-aware positive EV, provider finality and immutable operating records remain pending.",
+      "No live database writes, provider calls, historical economic reruns, wagers, promotion, folder moves or pushes were performed."
+    ],
+    "next_work": [
+      "Build and persist the frozen T-60 all-game research packet, including explicit missing-input abstentions and learned-artifact/input hashes.",
+      "Finish finality, changed-line child contracts and the complete fixed-stake paper lifecycle.",
+      "Replace in-sample residual selection with chronological out-of-fold evidence; qualify calibration on the matching timing graph.",
+      "Finish plan extraction/deletion and behavior-preserving folder migration using the maintained inventory."
+    ]
+  }
 }

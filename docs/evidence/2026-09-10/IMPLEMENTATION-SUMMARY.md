@@ -8,6 +8,45 @@ an honest recommendation. It supplements — does not replace — the plan
 (`docs/CLAUDE-NEXT-STEPS.md`) and its evidence appendix
 (`docs/evidence/2026-09-09/AUDIT-EVIDENCE.md`).
 
+## 0. Run 32 — the same protocol, post-fix, run to completion
+
+After every fix in section 1 was committed and the tree verified clean,
+blind-audit run 32 (`nfl-blind-week-chain-v1`, weeks 5-18 of 2021-2025,
+identical protocol/policy/thresholds to runs 27 and 31) was preregistered
+and run to completion. It sealed all 70 weeks with no failures.
+
+| | Run 27 (audited baseline) | Run 32 (post-fix) |
+|---|---:|---:|
+| Spread | 153 bets, 72-78-3, **-11.855u, -7.75% ROI** (48.0%) | 156 bets, 74-79-3, **-11.088u, -7.11% ROI** (48.4%) |
+| Total | 48 bets, 23-24-1, -2.945u, -6.13% ROI | 48 bets, 23-24, -2.945u, -6.10% ROI (unchanged — `opp_adjusted` only touches margin, never total) |
+| Moneyline | 344 bets, 108-236, -40.615u, -11.81% ROI | 346 bets, 110-236, -33.868u, -9.79% ROI |
+| **Combined** | 545 bets, 203-338-4, **-55.414u, -10.17% ROI** | 550 bets, 207-339, **-47.901u, -8.71% ROI** |
+
+`compareAuditRuns(27, 32)` confirms all 70 overlapping weeks **differ** (0
+unchanged) — unlike run 31, which was byte-identical to run 27 because no
+code changed between them. This is the expected, honest signature of a real
+code change: the blind audit replays with `blendMode: 'raw'` (its long-
+standing default, per finding M06 — it does **not** exercise the
+`market_residual` blend's residual-skill gate at all), so the fix that
+actually moved these numbers is **M13**'s `opp_adjusted` repair — a real
+component margin changed for real games. M01, M05, E4, E11/M12 are
+correctness/integrity fixes that are either not wired into production
+(M01), gate a mode this replay doesn't use (M05), or govern data this replay
+never touches (E4, findings governance) — they were not expected to move
+these numbers, and did not.
+
+**Read this correctly:** a ~0.6-percentage-point spread ROI improvement on
+one 70-week replay is well within the noise this project's own bootstrap
+intervals already established (run 27's spread-only 95% ROI interval:
+[-23.2%, +7.4%]; run 32's: [-22.1%, +8.0%] — nearly identical width and
+center) — it is a mechanically explained, small, likely-coincidental movement
+from
+fixing one duplicate/broken component, **not evidence of a newly discovered
+edge**. The spread record is still solidly negative, the interval still
+spans zero, and the calibration gate that would ever authorize a real bet
+remains correctly blocked. Nothing here changes the standing conclusion:
+no proven spread edge against the closing line.
+
 ## 1. What changed, and the evidence for each
 
 | # | Finding | File(s) | What changed | Regression test | Commit |

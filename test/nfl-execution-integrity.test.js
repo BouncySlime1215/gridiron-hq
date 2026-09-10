@@ -206,8 +206,13 @@ test('the actual pipeline route retains the selected quote ID and future delay b
   ingest('2026-09-12T10:00:00Z');
   ingest('2026-09-12T10:06:00Z', { price: -115 });
   mock.timers.setTime(Date.parse(decisionAt));
+  // `eligible` and `abstention_reason` are not decoration: applyNflPolicy sets
+  // them on every candidate it evaluates, and Codex correction C01 makes the
+  // decision tape validate the board before writing it, so a fixture that
+  // omits them is no longer a realistic board.
   selected = [{ market: 'spread', home_team: 'KC', away_team: 'BAL', selection: 'KC', matchup: 'BAL @ KC',
-    book: 'draftkings', line: -3.5, american_price: -110, quote_at: args.occurredAt, edge_points: 4 }];
+    book: 'draftkings', line: -3.5, american_price: -110, quote_at: args.occurredAt, edge_points: 4,
+    eligible: true, abstention_reason: null, policy_rank: 1 }];
   const response = await request('/execution/run', { season: 2026, week: 1 });
   assert.equal(response.status, 200);
   const opened = response.body.results[0]; assert.equal(opened.opened, true);
@@ -249,6 +254,6 @@ test('the existing research plan endpoint serves the installed spread plan', asy
   const response = await fetch(base + '/research-lab/plan');
   assert.equal(response.status, 200);
   const body = await response.text();
-  assert.match(body, /Current scope: ordinary NFL full-game pregame point spreads only/);
+  assert.match(body, /Scope: ordinary full-game, pregame NFL spreads/);
   assert.equal(body, fs.readFileSync(new URL('../docs/CLAUDE-NEXT-STEPS.md', import.meta.url), 'utf8'));
 });

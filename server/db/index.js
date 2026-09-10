@@ -32,16 +32,25 @@ db.exec(`
  * from those files. `schema_migrations` (above) and `db_health_checks` (below)
  * are the two exceptions that must still be created here, because they
  * bootstrap the mechanism that applies everything else.
+ *
+ * `database` defaults to this process's one open connection, which is what
+ * every caller in the application passes (that is, none of them pass
+ * anything). It is a parameter so that a test can build a fixture database at
+ * an arbitrary version — a populated 026-era file, say — and drive the real
+ * migration machinery against it in-process, rather than against the one
+ * database the rest of the process is already using. Migration behaviour on a
+ * populated database is otherwise only observable on a real installation,
+ * which is exactly where nobody wants to discover it.
  */
-export function migrate(name, fn) {
-  if (db.prepare('SELECT 1 FROM schema_migrations WHERE name = ?').get(name)) return;
-  db.exec('BEGIN IMMEDIATE');
+export function migrate(name, fn, database = db) {
+  if (database.prepare('SELECT 1 FROM schema_migrations WHERE name = ?').get(name)) return;
+  database.exec('BEGIN IMMEDIATE');
   try {
     fn();
-    db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(name);
-    db.exec('COMMIT');
+    database.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(name);
+    database.exec('COMMIT');
   } catch (error) {
-    db.exec('ROLLBACK');
+    database.exec('ROLLBACK');
     throw error;
   }
 }
@@ -67,15 +76,15 @@ export const LEGACY_SCHEMA_MIGRATION = '000_legacy_schema';
  * recovery after a bad migration is worth more than the disk they cost, and
  * this project already leaves manual reset backups in place for the same reason.
  */
-export function backupBeforeMigration(reason = 'migrations') {
-  const prior = db.prepare('SELECT COUNT(*) n FROM schema_migrations WHERE name <> ?')
+export function backupBeforeMigration(reason = 'migrations', database = db, databasePath = DB_PATH) {
+  const prior = database.prepare('SELECT COUNT(*) n FROM schema_migrations WHERE name <> ?')
     .get(LEGACY_SCHEMA_MIGRATION)?.n ?? 0;
-  if (!prior || !DB_PATH || DB_PATH === ':memory:') return null;
+  if (!prior || !databasePath || databasePath === ':memory:') return null;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupPath = `${DB_PATH}.pre-migration-${stamp}.bak`;
+  const backupPath = `${databasePath}.pre-migration-${stamp}.bak`;
   const startedAt = Date.now();
-  console.log(`[db] backing up ${DB_PATH} to ${backupPath} before ${reason}…`);
-  db.prepare(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`).run();
+  console.log(`[db] backing up ${databasePath} to ${backupPath} before ${reason}…`);
+  database.prepare(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`).run();
   console.log(`[db] backup complete in ${Date.now() - startedAt}ms`);
   return backupPath;
 }

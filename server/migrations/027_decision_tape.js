@@ -38,7 +38,35 @@ export const name = '027_decision_tape';
  * `decision` forever and quietly suppressing future matching opportunities.
  * SQLite cannot ALTER a CHECK constraint, so both execution tables are
  * rebuilt with their rows, indexes and append-only triggers preserved.
+ *
+ * ONE OF THOSE TWO REBUILDS CANNOT BE DONE FROM HERE. Dropping the lifecycle
+ * child is safe — nothing references it, so nothing cascades. Dropping the
+ * opportunity parent is not: with foreign keys on, DROP TABLE implicitly
+ * deletes every row first, each delete cascades into the lifecycle child, and
+ * the child's append-only trigger aborts the migration. Suspending foreign
+ * keys is the standard fix and is unavailable inside migrate()'s transaction,
+ * where PRAGMA foreign_keys is silently ignored. So the parent rebuild is
+ * performed before the runner starts, by the versioned repair in
+ * server/db/preflight.js, and the guard below finds that half already done and
+ * skips it. On a fresh or empty database nothing has to be repaired and this
+ * file does both rebuilds itself, exactly as it always did.
  */
+
+/**
+ * How many lifecycle events a parent-table rebuild would have to cascade
+ * through. Answers zero when the ledger has not been created yet, which is
+ * the fresh-install case.
+ */
+function lifecycleEventCount(db) {
+  const exists = db.prepare(`SELECT COUNT(*) AS n FROM sqlite_master
+    WHERE type='table' AND name='nfl_execution_lifecycle_events'`).get()?.n ?? 0;
+  if (!exists) return 0;
+  return db.prepare(`SELECT COUNT(*) AS n FROM nfl_execution_lifecycle_events`).get()?.n ?? 0;
+}
+
+/** Everything 023 allowed. Rows outside it are the evidence a downgrade to 023's schema cannot carry. */
+const ORIGINAL_VOCABULARY = ['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled'];
+const ORIGINAL_LIST = ORIGINAL_VOCABULARY.map(state => `'${state}'`).join(',');
 export function up(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS nfl_decision_runs (
@@ -109,6 +137,21 @@ export function up(db) {
 
   const statusSql = db.prepare(`SELECT sql FROM sqlite_master WHERE name='nfl_execution_opportunities'`).get()?.sql ?? '';
   if (statusSql && !statusSql.includes("'passed'")) {
+    // Reaching here with a populated ledger means the preflight repair did not
+    // run — this file was applied directly, or through some path that bypasses
+    // server/db/migrate.js. Proceeding would abort inside SQLite with the
+    // append-only trigger's message, which says nothing about why a migration
+    // was touching that trigger at all; on a database whose trigger has been
+    // dropped it would instead cascade the evidence away and report success.
+    // Neither is an acceptable outcome for a rebuild that has a correct path
+    // available, so refuse and name it.
+    const stranded = lifecycleEventCount(db);
+    if (stranded) {
+      throw new Error(`027_decision_tape cannot rebuild nfl_execution_opportunities while ${stranded} `
+        + `append-only lifecycle event(s) cascade from it. That rebuild needs foreign keys suspended, which is `
+        + `impossible inside a migration transaction; run migrations through server/db/migrate.js so the `
+        + `preflight repair in server/db/preflight.js widens the table first.`);
+    }
     db.exec(`
       DROP INDEX IF EXISTS idx_execution_opp_contract;
       DROP INDEX IF EXISTS idx_execution_opp_status;
@@ -195,7 +238,50 @@ export function up(db) {
   }
 }
 
+/**
+ * Restore the narrower state vocabulary — but only where doing so costs
+ * nothing.
+ *
+ * Both rebuilds below copy rows through a `WHERE state IN (…)` filter, and
+ * anything outside 023's vocabulary simply does not survive the copy. That is
+ * a silent, permanent deletion of the exact evidence 027 was written to start
+ * recording: an opportunity marked `passed` is the record of a candidate the
+ * policy considered and declined, and once it is gone the denominator is
+ * unrecoverable. A downgrade is a convenience; the evidence is not. So this
+ * refuses instead, and says which rows are in the way.
+ *
+ * The second refusal is a limitation rather than a policy. Undoing the widened
+ * vocabulary means rebuilding the opportunity parent, and that runs into the
+ * same cascade this migration's up() has the preflight repair to get around —
+ * except that rollbackMigration() has no equivalent, and a rollback is not
+ * something the application does on its own at startup. Rather than abort deep
+ * inside SQLite with a message about append-only triggers, say plainly that a
+ * populated execution ledger cannot be downgraded in place and point at the
+ * pre-migration snapshot that db/index.js takes before every upgrade.
+ */
 export function down(db) {
+  const events = lifecycleEventCount(db);
+  const strandedEvents = events
+    ? db.prepare(`SELECT COUNT(*) AS n FROM nfl_execution_lifecycle_events
+        WHERE state NOT IN (${ORIGINAL_LIST})`).get()?.n ?? 0
+    : 0;
+  const strandedOpportunities = db.prepare(`SELECT COUNT(*) AS n FROM sqlite_master
+    WHERE type='table' AND name='nfl_execution_opportunities'`).get()?.n
+    ? db.prepare(`SELECT COUNT(*) AS n FROM nfl_execution_opportunities
+        WHERE status NOT IN (${ORIGINAL_LIST})`).get()?.n ?? 0
+    : 0;
+  if (strandedEvents || strandedOpportunities) {
+    throw new Error(`rollback refused: ${strandedEvents} lifecycle event(s) and ${strandedOpportunities} `
+      + `opportunity row(s) hold terminal states 023's schema cannot represent `
+      + `(${ORIGINAL_VOCABULARY.join(', ')} only). Rolling back would delete that evidence rather than `
+      + `downgrade it. Restore the pre-migration snapshot instead.`);
+  }
+  if (events) {
+    throw new Error(`rollback refused: rebuilding nfl_execution_opportunities would cascade into ${events} `
+      + `append-only lifecycle event(s), and a rollback cannot suspend foreign keys from inside its own `
+      + `transaction. Restore the pre-migration snapshot instead.`);
+  }
+
   // Restore the narrower state vocabulary, preserving rows that still fit it.
   const eventSql = db.prepare(`SELECT sql FROM sqlite_master WHERE name='nfl_execution_lifecycle_events'`).get()?.sql ?? '';
   if (eventSql.includes("'passed'")) {

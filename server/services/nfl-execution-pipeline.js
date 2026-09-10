@@ -93,7 +93,10 @@ function resolveQuoteBasis(candidate, contract, { decisionAt = new Date().toISOS
  * candidate set, and never opened against real exposure by anything that
  * calls this function with it.
  */
-export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLICY) {
+export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLICY, {
+  observation = null
+} = {}) {
+  const computationStartedAt = new Date().toISOString();
   const board = autoPickDecisionBoard(season, week, policy);
   const results = [];
   const decisionAt = new Date().toISOString();
@@ -102,10 +105,35 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
   // every abstention reason -- on the append-only tape BEFORE looking at
   // which candidates were selected. This runs unconditionally, so a run that
   // selects nothing still leaves a complete denominator behind instead of no
-  // evidence at all, and an identical re-run is idempotent rather than a
-  // second copy (nfl-decision-tape.js content-addresses the board).
+  // evidence at all.
+  //
+  // Codex correction C01: the tape now requires an explicit declared
+  // observation, because "which observation is this?" and "what did it
+  // decide?" are different questions and the old single board hash answered
+  // only the second. A caller that does not supply one -- an ad-hoc manual
+  // invocation, a diagnostic -- gets an observation identity that says exactly
+  // that, keyed by the wall clock so two manual runs stay distinct. It is
+  // deliberately NOT labelled as a scheduled T-60 capture: only the durable
+  // runner (C12, slice 5) may claim that horizon, and a run that merely
+  // happens to occur an hour before kickoff is not a prospective observation.
+  const observationIdentity = observation ?? {
+    experimentId: 'unscheduled-manual-invocation',
+    horizon: 'unspecified_on_demand',
+    cutoffAt: decisionAt,
+    jobId: `manual:${EXECUTION_PIPELINE_VERSION}`,
+    observationId: `manual:${season}:${week}:${policy.id}:${policy.version}:${decisionAt}`,
+    attempt: 1
+  };
+
   const tape = recordDecisionRun(season, week, board, {
+    observation: observationIdentity,
     policyId: policy.id, policyVersion: policy.version, decidedAt: decisionAt,
+    computationStartedAt, computationEndedAt: decisionAt,
+    // The board reads mutable tables at compute time; no artifact can
+    // reproduce exactly what it saw. Recorded as a permanent property of this
+    // evidence rather than left to be assumed stronger later. C11 replaces
+    // this with a real frozen packet hash.
+    dataIdentityStatus: 'unfrozen_live_tables',
     note: `execution pipeline ${EXECUTION_PIPELINE_VERSION}`
   });
 
@@ -162,8 +190,16 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
       // opportunity came from, so every opened contract traces to one frozen
       // selection rather than to a mutable latest-view row that a later run
       // could have overwritten.
+      // Codex correction C01: the link is resolved by the FULL contract, not
+      // by matchup/market/selection alone. Two candidates on the same side of
+      // the same game at different lines or different books are different
+      // contracts, and the old lookup resolved that ambiguity by silently
+      // taking the lowest row id -- so an opportunity opened at +3.5 could
+      // cite the decision actually made about +2.5. `findDecisionEvent` now
+      // throws instead of guessing when a link is ambiguous.
       decisionEventId: findDecisionEvent(tape.run_id, {
-        matchup: candidate.matchup, market: candidate.market, selection: candidate.selection
+        matchup: candidate.matchup, market: candidate.market, selection: candidate.selection,
+        line: candidate.line, book: candidate.book, americanPrice: candidate.american_price
       })?.id ?? null });
     const now = decisionAt;
     recordObserved(opened.id, { occurredAt: now, book: candidate.book, line: contract.line, price: basis.quote.price, quoteId: basis.quote.quote_id ?? null });

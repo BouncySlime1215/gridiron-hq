@@ -67,9 +67,30 @@ export function up(db) {
   `);
 }
 
+/**
+ * Narrow the vocabulary again — unless a correction has actually been
+ * recorded.
+ *
+ * The rebuild below copies rows through `WHERE state <> 'settlement_correction'`,
+ * so every correction is deleted on the way past. A correction is the only
+ * record that a settled result was later found to be wrong: the original
+ * settled row still stands, byte-identical, saying the old thing, and deleting
+ * the compensating event does not restore an earlier truth — it reinstates a
+ * known-wrong one and silently changes realized economics, which are computed
+ * from the net of ledger events. That is a data loss dressed as a schema
+ * change, so this refuses and names the count. An uncorrected ledger
+ * downgrades exactly as before.
+ */
 export function down(db) {
   const sql = db.prepare(`SELECT sql FROM sqlite_master WHERE name='nfl_execution_lifecycle_events'`).get()?.sql ?? '';
   if (!sql.includes("'settlement_correction'")) return;
+  const corrections = db.prepare(`SELECT COUNT(*) AS n FROM nfl_execution_lifecycle_events
+    WHERE state = 'settlement_correction'`).get()?.n ?? 0;
+  if (corrections) {
+    throw new Error(`rollback refused: ${corrections} settlement correction(s) exist, and 027's schema cannot `
+      + `represent them. Rolling back would delete the record that a settled result was corrected and leave the `
+      + `superseded result standing as the ledger's answer. Restore the pre-migration snapshot instead.`);
+  }
   db.exec(`
     DROP TRIGGER IF EXISTS nfl_execution_lifecycle_events_no_update;
     DROP TRIGGER IF EXISTS nfl_execution_lifecycle_events_no_delete;

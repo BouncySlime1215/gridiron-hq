@@ -37,13 +37,28 @@ function fairAmerican(probability) {
     : (100 * (1 - probability)) / probability);
 }
 
+/**
+ * The latest REACHABLE price per book.
+ *
+ * The `reachable = 1` filter is load-bearing and was missing. Without it this
+ * took MAX(id) per book unconditionally, so recording a later unreachable
+ * observation — a price seen but not offered to this account, which is exactly
+ * the kind of row an honest capture process produces — would silently shadow a
+ * good standing price and block the book with "the recorded teaser price was
+ * not marked reachable". The most recent row is the right answer only among
+ * rows that could actually have been bet.
+ *
+ * An unreachable row is still worth recording; it just is not a price you can
+ * act on, and it should not be able to veto one you can.
+ */
 export function latestTeaserPrices({ points = 6, legs = 2 } = {}) {
   return rows(`SELECT p.* FROM nfl_teaser_price_ledger p
-    WHERE p.teaser_points = ? AND p.legs = ?
+    WHERE p.teaser_points = ? AND p.legs = ? AND p.reachable = 1
       AND p.id = (SELECT MAX(p2.id) FROM nfl_teaser_price_ledger p2
                   WHERE lower(replace(replace(p2.book,' ',''),'-','')) =
                         lower(replace(replace(p.book,' ',''),'-',''))
-                    AND p2.teaser_points = p.teaser_points AND p2.legs = p.legs)
+                    AND p2.teaser_points = p.teaser_points AND p2.legs = p.legs
+                    AND p2.reachable = 1)
     ORDER BY p.american_price DESC, p.book`, points, legs);
 }
 
@@ -286,6 +301,29 @@ export function settleTeaserExecution(id, input = {}) {
     graded.push({ ...leg, team_score: teamScore, opponent_score: opponentScore,
       result: coverMargin > 0 ? 'won' : coverMargin < 0 ? 'lost' : 'push' });
   }
+  // GRADING, AND THE ASSUMPTION IT MAKES ABOUT PUSHES.
+  //
+  // Any losing leg loses the ticket. All legs winning wins it. The remaining
+  // case -- one leg pushes and the other wins -- is where books differ, and
+  // this grades it as a stake refund (profit 0).
+  //
+  // That is NOT the rule the owner's book uses. DraftKings removes the pushed
+  // leg and reduces the ticket to a single, which pays something rather than
+  // nothing. Grading it at 0 is therefore deliberately CONSERVATIVE: it
+  // understates a real ticket's return rather than crediting a payout this
+  // system cannot verify.
+  //
+  // It is conservative rather than correct because the reduced-single price is
+  // not knowable from anything recorded here. A one-leg six-point teaser prices
+  // somewhere around -450 to -600, and until that price is captured per book
+  // there is no honest number to multiply by. `push_rule` on the price ledger
+  // records which rule the book applies; when a reduced-single price is
+  // recorded alongside it, this branch should pay
+  // `stake * payoutPerUnit(reducedSinglePrice)` and this comment should go.
+  //
+  // Push mass is small but not negligible: it is exactly zero on the four
+  // half-point legs and 0.7%-2.5% on the four integer legs, so a ticket built
+  // from half-points cannot reach this branch at all.
   const status = graded.some(leg => leg.result === 'lost') ? 'lost'
     : graded.every(leg => leg.result === 'won') ? 'won' : 'push';
   const profit = status === 'won' ? execution.stake_units * payoutPerUnit(execution.american_price)

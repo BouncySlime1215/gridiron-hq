@@ -52,7 +52,22 @@ export function recordTeaserPrice(input = {}) {
   if (!book || !Number.isFinite(teaserPoints) || !Number.isInteger(legs) || !Number.isInteger(price)) {
     return { error: 'book, teaser_points, integer legs, and integer american_price are required' };
   }
-  if (teaserPoints < 5 || teaserPoints > 8 || legs < 2 || legs > 6 || price < -400 || price > 300) {
+  // A ONE-LEG price is a real thing to record, and it used to be unrecordable.
+  //
+  // Books that reduce a teaser on a push turn a two-team ticket into a
+  // one-team ticket, and that reduced ticket pays at the book's one-leg price.
+  // Without that number the push branch of the ticket EV has nothing to
+  // multiply by, and settlement has to grade a push-and-win at zero — which
+  // understates a real return. So `legs = 1` is accepted.
+  //
+  // It needs its own floor. A one-leg six-point teaser prices around -450 to
+  // -600, well below the -400 bound that is right for a multi-leg ticket, and
+  // applying one floor to both would either reject every real single or admit
+  // absurd multi-leg prices. The bound is per-shape for that reason, not to be
+  // permissive.
+  const priceFloor = legs === 1 ? -800 : -400;
+  if (teaserPoints < 5 || teaserPoints > 8 || legs < 1 || legs > 6
+      || price < priceFloor || price > 300) {
     return { error: 'teaser configuration is outside the supported validation range' };
   }
   const capturedAt = input.captured_at ? new Date(input.captured_at).toISOString() : new Date().toISOString();

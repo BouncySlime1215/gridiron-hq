@@ -121,6 +121,31 @@ export function up(db) {
   // actually addressed by, which is the true content address under the old
   // (weaker) definition. `data_identity_status` is `unfrozen_live_tables`
   // because that is unambiguously how they were computed.
+  // Migration 027 installed `nfl_decision_runs_no_update`, which aborts ANY
+  // update to this table. The backfill below is an update, so on a database
+  // holding even one decision run it raised
+  //
+  //     decision runs are immutable — a changed board is a new run
+  //
+  // and took the whole migration with it. `runMigrations()` is awaited before
+  // any route module imports, so that is not a bad row — it is an application
+  // that cannot start, and cannot start again on the next boot either. It was
+  // invisible only because the live database happens to hold zero decision
+  // runs; any installation that recorded one, and any restore from a snapshot
+  // taken after the pipeline ran, would have been bricked by it.
+  //
+  // The trigger is therefore lifted for the backfill and put back immediately,
+  // inside the same transaction the migration runner already holds. Nothing
+  // else can observe the gap: SQLite gives this connection the write lock for
+  // the duration, and a failure anywhere in between rolls back both the data
+  // and the dropped trigger together.
+  //
+  // Lifting it is legitimate here in a way it would never be at runtime. These
+  // rows predate the observation contract; the backfill assigns them the
+  // identity columns that contract requires and changes no decision, no
+  // number, and no hash that was ever used to address one. Immutability
+  // protects recorded evidence from being rewritten, and this rewrites none.
+  db.exec(`DROP TRIGGER IF EXISTS nfl_decision_runs_no_update`);
   db.exec(`
     UPDATE nfl_decision_runs SET
       content_hash = COALESCE(content_hash, board_hash),
@@ -135,6 +160,14 @@ export function up(db) {
       data_identity_status = COALESCE(data_identity_status, 'unfrozen_live_tables'),
       tape_version = COALESCE(tape_version, 'nfl-decision-tape-v1-legacy')
     WHERE content_hash IS NULL OR observation_key IS NULL;
+  `);
+  // Restored immediately, with 027's exact definition. A migration that lifts a
+  // protection and forgets to replace it is worse than one that never had it,
+  // because everything afterwards looks protected and is not.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS nfl_decision_runs_no_update
+      BEFORE UPDATE ON nfl_decision_runs
+      BEGIN SELECT RAISE(ABORT, 'decision runs are immutable — a changed board is a new run'); END;
   `);
 
   // A legacy run whose events do not match its header count was written by the

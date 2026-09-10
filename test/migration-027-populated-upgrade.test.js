@@ -103,6 +103,37 @@ function populate(database) {
     'opp-childless', '2026-09-07T00:00:00Z',
     'nfl|2026-09-14|SEA@SF|spreads|full_game|-|away|+2.5|ot_included|margin_vs_line',
     'spreads', 'away', 'fixture', 'offered');
+
+  // A DECISION RUN written by the v1 tape.
+  //
+  // This was missing, and its absence hid a startup-fatal defect for a whole
+  // review cycle. Migration 031 backfills the observation-identity columns onto
+  // legacy runs with an UPDATE, and 027 installs a trigger that aborts every
+  // UPDATE on that table. With no run in the fixture the UPDATE matched nothing,
+  // the trigger never fired, and the migration passed. On any real installation
+  // holding one run it raised "decision runs are immutable" and took the whole
+  // migration with it — and since runMigrations() is awaited before any route
+  // imports, that is an application that cannot start, on every subsequent boot.
+  //
+  // The lesson is the fixture's, not the migration's: a table that exists in the
+  // schema and is empty in the test is a table whose migration is untested.
+  if (database.prepare(`SELECT COUNT(*) n FROM sqlite_master
+      WHERE type='table' AND name='nfl_decision_runs'`).get().n) {
+    database.prepare(`INSERT INTO nfl_decision_runs
+      (id, season, week, policy_id, policy_version, board_hash, decided_at,
+       decision_count, selected_count, engine_mode, note)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+      'run-legacy-1', 2026, 1, 'nfl-spread-v1', '1.1.0', 'legacy-board-hash-1',
+      '2026-09-01T00:00:00Z', 2, 1, 'champion', 'written by the v1 tape');
+    database.prepare(`INSERT INTO nfl_decision_events
+      (run_id, matchup, market, selection, line, american_price, book, eligible, abstention_reason)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(
+      'run-legacy-1', 'BAL at KC', 'spread', 'KC', -3.5, -110, 'draftkings', 1, null);
+    database.prepare(`INSERT INTO nfl_decision_events
+      (run_id, matchup, market, selection, line, american_price, book, eligible, abstention_reason)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run(
+      'run-legacy-1', 'SEA at SF', 'spread', 'SF', -2.5, -110, 'draftkings', 0, 'edge_below_threshold');
+  }
 }
 
 /** A fixture database at exactly `through`, optionally populated. */
@@ -358,4 +389,55 @@ test('C03: 027 refuses to downgrade away terminal evidence, and refuses a popula
   assert.equal(database.prepare(
     `SELECT COUNT(*) n FROM nfl_execution_lifecycle_events WHERE state='expired'`).get().n, 1,
   'the terminal evidence survived the refusal');
+});
+
+test('C03/C01: a database holding a LEGACY DECISION RUN upgrades — 031 must not trip 027\'s trigger', async () => {
+  // The regression this file previously could not catch. 027 protects
+  // nfl_decision_runs against UPDATE; 031 backfills identity columns with an
+  // UPDATE. Fixtures with no runs never noticed.
+  const { database, file } = await fixtureAt('029_quote_tape_commence_index', { name: 'legacy-run' });
+  assert.equal(database.prepare(`SELECT COUNT(*) n FROM nfl_decision_runs`).get().n, 1,
+    'the fixture really does hold a legacy run');
+
+  const applied = await runMigrations(database, file);
+  assert.ok(applied.includes('031_decision_identity'), '031 applied rather than aborting the boot');
+
+  // The backfill did what its comment claims.
+  const run = database.prepare(`SELECT * FROM nfl_decision_runs WHERE id='run-legacy-1'`).get();
+  assert.equal(run.content_hash, 'legacy-board-hash-1', 'content address preserved from the board hash');
+  assert.equal(run.observation_key, 'legacy:run-legacy-1', 'given a distinct legacy observation identity');
+  assert.equal(run.data_identity_status, 'unfrozen_live_tables');
+  assert.equal(run.tape_version, 'nfl-decision-tape-v1-legacy');
+  assert.equal(run.decision_count, 2, 'and nothing about the recorded decision changed');
+
+  // The protection is BACK. A migration that lifts a guard and forgets to
+  // replace it is worse than one that never had it.
+  assert.throws(
+    () => database.prepare(`UPDATE nfl_decision_runs SET note='tampered' WHERE id='run-legacy-1'`).run(),
+    /immutable/, 'the immutability trigger was restored after the backfill');
+  assert.throws(
+    () => database.prepare(`DELETE FROM nfl_decision_runs WHERE id='run-legacy-1'`).run(),
+    /immutable/, 'and 031 added the delete protection 027 never had');
+
+  assert.deepEqual(database.prepare(`PRAGMA foreign_key_check`).all(), []);
+});
+
+test('C03/C01: a legacy run whose events do not match its header is INVALIDATED, not rewritten', async () => {
+  const { database, file } = await fixtureAt('029_quote_tape_commence_index', { name: 'incomplete-run' });
+  // Header claims 2, and the fixture wrote 2 — make it claim 5 so it is incomplete.
+  database.prepare(`UPDATE nfl_decision_runs SET decision_count = 5 WHERE id='run-legacy-1'`).run();
+
+  await runMigrations(database, file);
+
+  const invalidations = database.prepare(
+    `SELECT * FROM nfl_decision_run_invalidations WHERE run_id='run-legacy-1'`).all();
+  assert.equal(invalidations.length, 1, 'an invalidation was appended');
+  assert.match(invalidations[0].reason, /incomplete legacy run/);
+  assert.equal(invalidations[0].actor, '031_decision_identity');
+
+  // The run itself is untouched — that is the whole point of appending.
+  const run = database.prepare(`SELECT * FROM nfl_decision_runs WHERE id='run-legacy-1'`).get();
+  assert.equal(run.decision_count, 5, 'the header still says what it said');
+  assert.equal(database.prepare(
+    `SELECT COUNT(*) n FROM nfl_decision_events WHERE run_id='run-legacy-1'`).get().n, 2);
 });

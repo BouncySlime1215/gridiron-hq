@@ -31,9 +31,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rows } from '../db/index.js';
 import { contractKey, eventKey, QUARANTINE_REASONS, CONTRACT_KEY_VERSION } from './nfl-contract-key.js';
+import { PROJECT_ROOT } from '../platform/paths.js';
 
 export const DATASET_VERSION = 'nfl-evidence-dataset-v1';
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+// Codex plan section 10.4: this used to derive the project root by resolving
+// two directories up from this file's own location. That silently means a
+// DIFFERENT directory once the file moves -- imports still resolve, the build
+// still succeeds, and at runtime it reads nothing. PROJECT_ROOT is resolved
+// from server/platform/paths.js's own location instead, so this file can be
+// relocated by the section 10.2 ownership moves without changing what it reads.
+const root = PROJECT_ROOT;
 const OUTPUT_DIR = path.join(root, 'server/data/evidence-datasets');
 
 /** American prices live outside (-100, 100). Anything inside it is a parsing artefact. */

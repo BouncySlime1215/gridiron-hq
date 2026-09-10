@@ -459,3 +459,27 @@ be inferred from a green suite:
    path-resolution tests first, and `paths.js` is the prerequisite that now exists for them.
 6. **The historical record is unchanged and must stay that way.** 153 spread bets, −11.85 units,
    −7.75% ROI. A repaired strategy gets a new identity and a new evaluation.
+
+
+## A second defect this work introduced, found by importing rather than checking
+
+While wiring `PROJECT_ROOT` into its consumers, an import was inserted into the middle of a
+multi-line import specifier in `role-scenario-lab.js`:
+
+```js
+import {
+import { PROJECT_ROOT } from '../platform/paths.js';   // <- here
+  ROLE_SCENARIO_ENGINE_VERSION, buildPlayerScenarios,
+} from './role-scenario-engine.js';
+```
+
+**`node --check` passed on that file.** It does not validate ES module import placement. Only
+actually importing the module surfaced it — which is precisely the shape of failure §10.4 warns
+about in a different context: *"A successful build alone does not test runtime file loading."*
+
+Two things came out of it. Every module changed in this work is now import-checked, not
+syntax-checked (44 of them, all clean). And `test/platform-paths.test.js` — §10.3's own acceptance,
+*"Test launch from another working directory and installed/packaged mode"* — now includes both a
+real `chdir` test and a guard that fails if any service goes back to deriving the project root from
+its own location. That guard immediately found a fourth offender, `nfl-evidence-dataset.js`, that
+the original grep had missed.

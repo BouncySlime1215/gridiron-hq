@@ -37,8 +37,28 @@ import { payoutPerUnit } from './nfl-execution.js';
 import { assertExecutionPrice, assertExecutionStake, assertSpreadLine,
   executionInputError, executionTime } from './nfl-execution-validation.js';
 
-export const STATES = Object.freeze(['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled']);
-const ORDER_INDEX = Object.freeze({ offered: 0, observed: 1, decision: 2, refreshed: 2, accepted: 3, settled: 4 });
+export const STATES = Object.freeze(['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled',
+  'passed', 'expired', 'cancelled']);
+/**
+ * Codex audit finding E6, last paragraph: an opportunity that never became a
+ * bet used to have nowhere to go -- it sat at `decision` forever, which both
+ * lost the REASON it was not taken and let a stale open opportunity suppress
+ * a later matching one (`nfl-execution-pipeline.js` skips a contract that
+ * already has a non-settled opportunity). These three are terminal, mutually
+ * exclusive, and each records a different fact:
+ *
+ *   passed     a human looked at it and declined it.
+ *   expired    the window closed before anyone acted (kickoff, or the
+ *              declared decision-to-acceptance window elapsed).
+ *   cancelled  the underlying contract stopped existing (postponement, a
+ *              book pulling the market).
+ *
+ * They exist so "how many opportunities did not become bets, and why" is a
+ * measurable denominator rather than an absence.
+ */
+export const TERMINAL_OUTCOMES = Object.freeze(['passed', 'expired', 'cancelled']);
+const ORDER_INDEX = Object.freeze({ offered: 0, observed: 1, decision: 2, refreshed: 2, accepted: 3, settled: 4,
+  passed: 5, expired: 5, cancelled: 5 });
 const SOURCES = Object.freeze(['quote_tape', 'user_recorded', 'replay_synthetic', 'settlement_result']);
 const RESULTS = Object.freeze(['won', 'lost', 'push', 'void']);
 
@@ -50,12 +70,17 @@ const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
  */
 export function allowedNextStates(currentStatus) {
   switch (currentStatus) {
-    case 'offered': return ['observed'];
-    case 'observed': return ['decision'];
-    case 'decision': return ['refreshed', 'accepted'];
-    case 'refreshed': return ['refreshed', 'accepted'];
+    // A contract can stop being available at ANY point before acceptance --
+    // the book pulls it, the game is postponed, kickoff arrives, or a person
+    // simply passes. Once accepted, real exposure exists and the only honest
+    // ending is settlement, so the terminal outcomes are not offered there.
+    case 'offered': return ['observed', ...TERMINAL_OUTCOMES];
+    case 'observed': return ['decision', ...TERMINAL_OUTCOMES];
+    case 'decision': return ['refreshed', 'accepted', ...TERMINAL_OUTCOMES];
+    case 'refreshed': return ['refreshed', 'accepted', ...TERMINAL_OUTCOMES];
     case 'accepted': return ['settled'];
     case 'settled': return [];
+    case 'passed': case 'expired': case 'cancelled': return [];
     default: return ['offered'];
   }
 }
@@ -88,7 +113,11 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
   // UI that never sends them) happens to supply at acceptance time. All
   // three are optional -- an uncalibrated market (this codebase abstains
   // rather than fabricates a probability) legitimately has none of them.
-  modelLine = null, modelProbability = null, marketLineAtDecision = null } = {}) {
+  modelLine = null, modelProbability = null, marketLineAtDecision = null,
+  // Codex audit finding E6: the immutable decision event this opportunity
+  // was opened from (nfl-decision-tape.js), so a contract always traces to
+  // one frozen selection rather than a mutable latest-view row.
+  decisionEventId = null } = {}) {
   if (!contract?.ok) throw new Error('openOpportunity requires a resolved contractKey() result');
   if (!decisionSource) throw new Error('decisionSource is required — an unattributed opportunity is not evidence');
   if (!Number.isFinite(executionTime(occurredAt))) throw executionInputError('occurredAt must be a timestamp');
@@ -112,13 +141,15 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
   try {
     run(`INSERT INTO nfl_execution_opportunities
          (id, contract_key, contract_hash, event_key, matchup, market, side, participant,
-          decision_source, status, note, model_line, model_probability, market_line_at_decision)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          decision_source, status, note, model_line, model_probability, market_line_at_decision,
+          decision_event_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     id, contract.key, contract.key_hash ?? null, contract.event_key ?? null, matchup,
     contract.market, contract.side, participant, decisionSource, 'offered', note,
     Number.isFinite(modelLine) ? modelLine : null,
     Number.isFinite(modelProbability) ? modelProbability : null,
-    Number.isFinite(marketLineAtDecision) ? marketLineAtDecision : null);
+    Number.isFinite(marketLineAtDecision) ? marketLineAtDecision : null,
+    Number.isFinite(decisionEventId) ? decisionEventId : null);
     run(`INSERT INTO nfl_execution_lifecycle_events
          (opportunity_id, state, occurred_at, book, line, price, source, quote_id, actor, detail_json)
          VALUES (?,?,?,?,?,?,?,?,?,?)`,
@@ -197,6 +228,31 @@ export function recordDecision(opportunityId, args) {
 /** REFRESHED — the price was re-checked before acceptance. May recur. */
 export function recordRefresh(opportunityId, args) {
   return recordState(opportunityId, 'refreshed', { ...args, source: args.source ?? 'quote_tape' });
+}
+
+/**
+ * PASSED / EXPIRED / CANCELLED — this opportunity ended without becoming a
+ * bet, and says which of the three reasons applies (Codex audit finding E6).
+ * Terminal: nothing follows, and an opportunity in one of these states no
+ * longer blocks a later matching contract from being opened.
+ *
+ * A `reason` is required rather than optional. The entire point of these
+ * states is that "did not bet" stops being an absence and becomes a
+ * measurable, attributed outcome; a terminal row with no reason would
+ * reintroduce exactly the gap this closes.
+ */
+export function recordTerminalOutcome(opportunityId, outcome, { occurredAt, reason,
+  actor = 'system', source = 'quote_tape', detail = null } = {}) {
+  if (!TERMINAL_OUTCOMES.includes(outcome)) {
+    throw executionInputError(`unknown terminal outcome "${outcome}" — expected one of ${TERMINAL_OUTCOMES.join(', ')}`);
+  }
+  if (typeof reason !== 'string' || !reason.trim()) {
+    throw executionInputError(`recording "${outcome}" requires a reason — an unattributed non-execution is not evidence`);
+  }
+  return recordState(opportunityId, outcome, {
+    occurredAt, actor, source,
+    detail: { ...(detail ?? {}), outcome, reason }
+  });
 }
 
 /**

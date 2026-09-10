@@ -14,7 +14,8 @@ await runMigrations();
 const { contractKey } = await import('../server/services/nfl-contract-key.js');
 const {
   openOpportunity, recordObserved, recordDecision, recordRefresh, recordAcceptance,
-  settleOpportunity, getOpportunity, listOpportunities, openExposure, lifecycleFunnel, allowedNextStates
+  settleOpportunity, getOpportunity, listOpportunities, openExposure, lifecycleFunnel, allowedNextStates,
+  recordTerminalOutcome
 } = await import('../server/services/nfl-execution-lifecycle.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -108,8 +109,13 @@ test('the state machine refuses an out-of-order transition, both in JS and at th
     occurredAt: '2026-09-10T10:01:00Z', book: 'caesars', price: -110, source: 'quote_tape'
   }), /cannot record/);
 
-  assert.deepEqual(allowedNextStates('offered'), ['observed']);
-  assert.deepEqual(allowedNextStates('decision'), ['refreshed', 'accepted']);
+  // The forward path, plus the terminal non-execution outcomes added for
+  // Codex audit finding E6 (an opportunity can stop being available at any
+  // point before acceptance; after acceptance real exposure exists and the
+  // only honest ending is settlement).
+  assert.deepEqual(allowedNextStates('offered'), ['observed', 'passed', 'expired', 'cancelled']);
+  assert.deepEqual(allowedNextStates('decision'), ['refreshed', 'accepted', 'passed', 'expired', 'cancelled']);
+  assert.deepEqual(allowedNextStates('accepted'), ['settled']);
   assert.deepEqual(allowedNextStates('settled'), []);
 });
 
@@ -201,4 +207,61 @@ test('listOpportunities filters by status', () => {
   const settledList = listOpportunities({ status: 'settled' });
   assert.ok(settledList.length >= 3);
   assert.ok(settledList.every(o => o.status === 'settled'));
+});
+
+/* ---- Codex audit finding E6: terminal non-execution outcomes ---- */
+
+/** One opportunity walked as far as DECISION, on its own distinct kickoff. */
+function decidedOpportunity({ commenceDate }) {
+  const c = contractKey({
+    homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
+    commenceTime: `${commenceDate}T00:20:00Z`, market: 'spreads', side: 'home', line: -3.5
+  });
+  const before = `${commenceDate.slice(0, 8)}${String(Number(commenceDate.slice(8)) - 1).padStart(2, '0')}`;
+  const opp = openOpportunity({ contract: c, decisionSource: 'test',
+    occurredAt: `${before}T10:00:00Z`, book: 'draftkings', line: -3.5, price: -110 });
+  recordObserved(opp.id, { occurredAt: `${before}T10:00:05Z`, book: 'draftkings', line: -3.5, price: -110 });
+  recordDecision(opp.id, { occurredAt: `${before}T10:05:00Z`, book: 'draftkings', line: -3.5, price: -110 });
+  return { opp };
+}
+
+test('an opportunity that never becomes a bet records WHY, as a terminal state', () => {
+  const { opp } = decidedOpportunity({ commenceDate: '2026-12-03' });
+  const passed = recordTerminalOutcome(opp.id, 'passed', {
+    occurredAt: '2026-12-02T11:00:00Z', reason: 'nick declined at review', actor: 'user:nick'
+  });
+  assert.equal(passed.status, 'passed');
+  const event = passed.events.at(-1);
+  assert.equal(event.state, 'passed');
+  assert.equal(event.detail.reason, 'nick declined at review');
+  // Terminal: nothing may follow.
+  assert.deepEqual(allowedNextStates('passed'), []);
+  assert.throws(() => recordTerminalOutcome(opp.id, 'expired', {
+    occurredAt: '2026-12-02T12:00:00Z', reason: 'too late'
+  }), /cannot record/);
+});
+
+test('a terminal outcome without a reason is refused — an unattributed non-execution is not evidence', () => {
+  const { opp } = decidedOpportunity({ commenceDate: '2026-12-10' });
+  assert.throws(() => recordTerminalOutcome(opp.id, 'expired', { occurredAt: '2026-12-09T11:00:00Z' }),
+    /requires a reason/);
+  assert.throws(() => recordTerminalOutcome(opp.id, 'expired', { occurredAt: '2026-12-09T11:00:00Z', reason: '  ' }),
+    /requires a reason/);
+});
+
+test('an unknown terminal outcome is refused rather than written as a novel state', () => {
+  const { opp } = decidedOpportunity({ commenceDate: '2026-12-17' });
+  assert.throws(() => recordTerminalOutcome(opp.id, 'forgotten', {
+    occurredAt: '2026-12-16T11:00:00Z', reason: 'x'
+  }), /unknown terminal outcome/);
+});
+
+test('every pre-acceptance state can end terminally, but an ACCEPTED bet can only settle', () => {
+  for (const status of ['offered', 'observed', 'decision', 'refreshed']) {
+    for (const outcome of ['passed', 'expired', 'cancelled']) {
+      assert.ok(allowedNextStates(status).includes(outcome), `${status} -> ${outcome}`);
+    }
+  }
+  // Real exposure exists once accepted; the only honest ending is settlement.
+  assert.deepEqual(allowedNextStates('accepted'), ['settled']);
 });

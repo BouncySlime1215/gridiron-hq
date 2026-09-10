@@ -9,9 +9,13 @@ import { contractKey } from './nfl-contract-key.js';
 import { teamResolver } from './team-codes.js';
 import { nflKickoffDate } from './date-util.js';
 import { autoPickDecisionBoard } from './nfl-auto-picks.js';
+import { recordDecisionRun, findDecisionEvent } from './nfl-decision-tape.js';
 import { NFL_PRODUCTION_POLICY } from './nfl-policy.js';
 import { openOpportunity, recordObserved, recordDecision, settleOpportunity,
-  listOpportunities } from './nfl-execution-lifecycle.js';
+  listOpportunities, TERMINAL_OUTCOMES } from './nfl-execution-lifecycle.js';
+
+/** A terminally-ended opportunity no longer occupies its contract. */
+const TERMINAL_STATUSES = new Set([...TERMINAL_OUTCOMES, 'settled']);
 import { replayDelayLadder, timelineFromQuoteTape, DEFAULT_MAX_STALENESS_SECONDS } from './nfl-execution-replay.js';
 import { executionTime, validAmericanPrice, spreadContractTerms } from './nfl-execution-validation.js';
 
@@ -93,6 +97,18 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
   const board = autoPickDecisionBoard(season, week, policy);
   const results = [];
   const decisionAt = new Date().toISOString();
+
+  // Codex audit finding E6: record the WHOLE board -- every candidate and
+  // every abstention reason -- on the append-only tape BEFORE looking at
+  // which candidates were selected. This runs unconditionally, so a run that
+  // selects nothing still leaves a complete denominator behind instead of no
+  // evidence at all, and an identical re-run is idempotent rather than a
+  // second copy (nfl-decision-tape.js content-addresses the board).
+  const tape = recordDecisionRun(season, week, board, {
+    policyId: policy.id, policyVersion: policy.version, decidedAt: decisionAt,
+    note: `execution pipeline ${EXECUTION_PIPELINE_VERSION}`
+  });
+
   for (const candidate of board.selected) {
     if (candidate.market !== PIPELINE_MARKET) continue; // this phase scopes to spreads only
 
@@ -113,8 +129,13 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
       commenceTime: kickoff.toISOString(), market: 'spreads', side, line: candidate.line });
     if (!contract.ok) { results.push({ matchup: candidate.matchup, error: `contract resolution failed: ${contract.reason}` }); continue; }
 
+    // Codex audit finding E6: a terminally-ended opportunity (passed,
+    // expired, cancelled) must NOT block a later matching contract the way a
+    // still-live one does -- "we already looked at this and declined it three
+    // weeks ago" is not a reason to refuse to look again. Only genuinely open
+    // states suppress a new opportunity.
     const open = listOpportunities({ eventKey: contract.event_key, market: contract.market })
-      .find(o => o.contract_key === contract.key && o.status !== 'settled');
+      .find(o => o.contract_key === contract.key && !TERMINAL_STATUSES.has(o.status));
     if (open) { results.push({ matchup: candidate.matchup, contract_key: contract.key, skipped: 'already_open', opportunity_id: open.id }); continue; }
 
     const basis = resolveQuoteBasis(candidate, contract, { decisionAt, allowHistorical: policy.authority === 'diagnostic_only' });
@@ -136,7 +157,14 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
       quoteId: basis.quote.quote_id ?? null, source: 'quote_tape',
       modelLine: candidate.feature_snapshot?.raw_forecast?.projected_margin ?? null,
       modelProbability: candidate.model_probability ?? null,
-      marketLineAtDecision: candidate.feature_snapshot?.raw_forecast?.market_margin ?? null });
+      marketLineAtDecision: candidate.feature_snapshot?.raw_forecast?.market_margin ?? null,
+      // Codex audit finding E6: cite the exact immutable decision event this
+      // opportunity came from, so every opened contract traces to one frozen
+      // selection rather than to a mutable latest-view row that a later run
+      // could have overwritten.
+      decisionEventId: findDecisionEvent(tape.run_id, {
+        matchup: candidate.matchup, market: candidate.market, selection: candidate.selection
+      })?.id ?? null });
     const now = decisionAt;
     recordObserved(opened.id, { occurredAt: now, book: candidate.book, line: contract.line, price: basis.quote.price, quoteId: basis.quote.quote_id ?? null });
 
@@ -156,7 +184,9 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
       opportunity_id: decided.id, quote_provenance: basis.provenance, replay_preview: replay });
   }
   return { season, week, policy_id: policy.id, policy_version: policy.version,
-    pipeline_version: EXECUTION_PIPELINE_VERSION, candidates_selected: board.selected.length, results };
+    pipeline_version: EXECUTION_PIPELINE_VERSION, candidates_selected: board.selected.length,
+    // The full denominator, recorded whether or not anything was selected.
+    decision_run: tape, results };
 }
 
 /** 'nfl|2026-09-13|CHI@CAR' -> { gameDate, away, home }. */

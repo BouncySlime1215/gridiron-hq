@@ -36,9 +36,17 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { rows } from '../db/index.js';
 import { normalizeToken } from './team-codes.js';
+import { PROJECT_ROOT } from '../platform/paths.js';
 
 export const IMPACT_MODEL_VERSION = 'nfl-news-event-impact-v1';
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+// Codex plan section 10.4: this used to be
+//   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+// which silently means a DIFFERENT directory once this file moves -- imports
+// still resolve, the build still succeeds, and at runtime it reads nothing.
+// PROJECT_ROOT is resolved from server/platform/paths.js's own location, so
+// this file can be relocated by the section 10.2 ownership moves without
+// changing what it reads.
+const root = PROJECT_ROOT;
 const OUTPUT_DIR = path.join(root, 'server/data/news-event-impact');
 const MIN_ROWS_FOR_MODELING = 20;
 

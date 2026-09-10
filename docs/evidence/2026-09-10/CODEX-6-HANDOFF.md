@@ -405,3 +405,57 @@ none undisposed.**
 authority.** The question "can this select profitable spread bets" is now *askable*, which it was
 not before — but it has not been asked, because no prospective observation exists. Slices 7 and 8
 stay closed because §9.1 stages them behind a frozen comparison that has not been run.
+
+---
+
+## The §10.3 additions, and the two that were missing
+
+Section 10.3 lists the boundaries the plan says to add, with the standing warning that these "are
+proposed interfaces, not permission to duplicate current services."
+
+| Proposed addition | Built? | Why |
+|---|---|---|
+| `server/platform/paths.js` | **Yes** | §10.4 says to do this *first*. Three services derived the project root by walking `../..` from their own file — which works, is invisible, and silently means a different directory the moment the file moves. Imports still resolve, the build still succeeds, and at runtime it reads nothing. All three now import `PROJECT_ROOT`. |
+| `contracts/forecast-packet.js` | **Yes** | §4.1's eight contract groups as one validated schema authority. A packet carrying counts instead of values is refused; so is one claiming prospective status on a request-time clock, and one whose evidence arrived after its own cutoff. |
+| `contracts/spread-probabilities.js` | **Yes** | The single probability and payout authority. |
+| `strategy/t60-runner.js` | **Yes** | The durable orchestration C12 found had no caller. |
+| `research/betting/nfl/dataset.py` | **Yes** | The chronology the two labs duplicate. |
+| `strategy/capacity-ledger.js` | **No** | §10.3 says "needed only if existing lifecycle cannot own reservation events cleanly." Migration 034's `nfl_capacity_events` sits alongside the existing ledger with one transaction authority. A second position ledger is what that row warns against. |
+| `forecast/spread-family-adapters.js` | **No** | Slice 7 work, and slice 7 is correctly not started. |
+| `research/.../market_surface.py`, `lineup_lab.py` | **No** | Explicitly conditional on §8's adoption gates, and §10.3's own instruction: "Do not create empty scaffolds and call the family delivered." |
+
+## A defect this work introduced, found by the real data
+
+The C09 rewrite aggregated outcomes from the authoritative picks rather than the stored per-week
+summary — correct, and it passed eight synthetic tests. Against the real database it reported
+**153 spread bets and a null win rate**, because the stored runs write `"Won"`/`"Lost"` while the
+comparison was lower-case. Every historical pick fell through to `unknown_results`.
+
+It did not throw. It produced a confident report with the right denominator and no outcomes — the
+exact failure mode C09 is about, reintroduced while fixing C09.
+
+Corrected, run 27 now reproduces independently from the picks: **153 bets, 72 wins, 78 losses,
+3 pushes, −11.855 units, −7.75% ROI** — matching §1.2's table exactly. Two regression tests cover
+the case handling and the per-week rounding tolerance.
+
+The lesson is the one the plan states in §12: *"'Already done' without a caller and test is not
+closure."* Eight passing synthetic tests were not enough; the real data was.
+
+## What is still not true
+
+Stated plainly, because the plan asks for it and because these are the things that would otherwise
+be inferred from a green suite:
+
+1. **No decision is reproducible from stored inputs.** Every run records `unfrozen_live_tables`.
+   The packet is correct and the contract exists; nothing consumes it. This blocks §12's return
+   item 4 outright.
+2. **Nothing is qualified.** No model, no family, no combination. The highest state any correction
+   reached is `connected`.
+3. **No prospective observation exists.** The T-60 runner is built, tested and registered on the
+   live tier. It has never run against a real slate.
+4. **The hosted CI job has not been run.** Everything here was measured on Node 25 locally; CI
+   pins Node 22.
+5. **The `server/` ownership moves are not executed.** Deliberately — §10.4 requires packaging and
+   path-resolution tests first, and `paths.js` is the prerequisite that now exists for them.
+6. **The historical record is unchanged and must stay that way.** 153 spread bets, −11.85 units,
+   −7.75% ROI. A repaired strategy gets a new identity and a new evaluation.

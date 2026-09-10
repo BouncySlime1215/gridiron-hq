@@ -107,15 +107,22 @@ export function auditOverview(runId) {
       // Explicit unknown/void states. A missing result is NOT a loss and a
       // missing unit figure is NOT zero: both are unknowns, and folding them
       // into a real outcome is how a denominator quietly improves.
-      if (pick.result === 'won') t.wins += 1;
-      else if (pick.result === 'lost') t.losses += 1;
-      else if (pick.result === 'push') t.pushes += 1;
-      else if (pick.result === 'void') t.voids = (t.voids ?? 0) + 1;
+      //
+      // Case-normalized because the stored runs actually write 'Won'/'Lost'
+      // while newer code writes 'won'/'lost'. A case-sensitive comparison
+      // silently classified every historical pick as an unknown result, which
+      // is precisely the failure mode this correction is about: it did not
+      // throw, it produced a confident report with a null win rate.
+      const result = typeof pick.result === 'string' ? pick.result.trim().toLowerCase() : null;
+      if (result === 'won' || result === 'win') t.wins += 1;
+      else if (result === 'lost' || result === 'loss') t.losses += 1;
+      else if (result === 'push') t.pushes += 1;
+      else if (result === 'void') t.voids = (t.voids ?? 0) + 1;
       else t.unknown_results = (t.unknown_results ?? 0) + 1;
       if (pick.units == null) t.missing_units = (t.missing_units ?? 0) + 1;
       else t.units += pick.units;
 
-      allBets.push({ season: w.season, week: w.week, market, result: pick.result,
+      allBets.push({ season: w.season, week: w.week, market, result,
         units: pick.units ?? 0, units_known: pick.units != null });
     }
   }
@@ -129,8 +136,18 @@ export function auditOverview(runId) {
     // Reconciliation between the authoritative pick-level count and the
     // per-week summary the run also wrote. A mismatch is reported, never
     // resolved silently in favour of whichever number is nearer to hand.
+    //
+    // The unit tolerance is not cosmetic. Each week's stored summary rounds its
+    // own total before this sums them, so a sum-of-rounded and a rounded-sum
+    // differ by a fraction of a unit across a season -- run 27's spread book
+    // reconciles to -11.855 from the picks and -11.854 from the summaries.
+    // That is display rounding, not disagreement. A tolerance of half a unit
+    // is far below any real bookkeeping error (one bet is one unit) and far
+    // above accumulated rounding, and the exact delta is reported either way
+    // so nobody has to take the boolean's word for it.
+    t.summary_units_delta = r2(t.summary_units - t.units);
     t.summary_reconciles = t.summary_bets === t.bets
-      && Math.abs(t.summary_units - t.units) < 1e-6;
+      && Math.abs(t.summary_units - t.units) < 0.5;
     t.summary_units = r2(t.summary_units);
     t.units = r2(t.units);
   }
@@ -154,9 +171,14 @@ export function auditOverview(runId) {
   const earlySeasonTested = seasonCoverage.some(c => Number(c.weeks.split('-')[0]) <= 4);
 
   const spreadBets = allBets.filter(b => b.market === 'spread');
-  const spreadWins = spreadBets.filter(b => b.result === 'Won').length;
-  const spreadLosses = spreadBets.filter(b => b.result === 'Lost').length;
-  const spreadPushes = spreadBets.filter(b => b.result === 'Push').length;
+  // `allBets` now carries the case-normalized result, so these read the same
+  // vocabulary the market aggregation above uses. They previously compared
+  // against 'Won'/'Lost'/'Push' directly, which happened to match the stored
+  // runs but would have silently returned zeros for anything written in the
+  // newer lower-case spelling -- two vocabularies for one fact.
+  const spreadWins = spreadBets.filter(b => b.result === 'won').length;
+  const spreadLosses = spreadBets.filter(b => b.result === 'lost').length;
+  const spreadPushes = spreadBets.filter(b => b.result === 'push').length;
   const spreadUnits = spreadBets.reduce((s, b) => s + (b.units ?? 0), 0);
 
   return {

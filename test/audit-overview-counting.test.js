@@ -193,3 +193,37 @@ test('C09: a metadata-only difference is not an economic difference', () => {
   assert.deepEqual(oa.season_coverage, ob.season_coverage);
   assert.notEqual(oa.label, ob.label);
 });
+
+test('C09: a stored result is classified whatever case it was written in', () => {
+  // Found against the real database, not in a fixture: the stored runs write
+  // 'Won'/'Lost'/'Push' while newer code writes lower case. A case-sensitive
+  // comparison classified every historical pick as an unknown result -- and it
+  // did not throw. It produced a confident report with 153 bets and a null win
+  // rate, which is exactly the failure mode this correction is about.
+  const runId = syntheticRun([
+    { season: 2026, week: 1, picks: [
+      pick({ result: 'Won' }), pick({ result: 'Lost', units: -1 }), pick({ result: 'Push', units: 0 }),
+      pick({ result: 'won' }), pick({ result: 'lost', units: -1 }), pick({ result: 'push', units: 0 })
+    ] }
+  ]);
+  const spread = auditOverview(runId).by_market.spread;
+  assert.equal(spread.wins, 2, 'Won and won are the same outcome');
+  assert.equal(spread.losses, 2);
+  assert.equal(spread.pushes, 2);
+  assert.equal(spread.unknown_results, undefined, 'nothing fell through to unknown');
+});
+
+test('C09: per-week display rounding is not reported as a bookkeeping disagreement', () => {
+  // Each week's stored summary rounds its own total before the overview sums
+  // them, so a sum-of-rounded and a rounded-sum differ by a fraction of a unit
+  // across a season. Run 27 reconciles to -11.855 from the picks and -11.854
+  // from the summaries. That is rounding; a real disagreement is at least one
+  // whole bet.
+  const runId = syntheticRun(Array.from({ length: 8 }, (_, i) => ({
+    season: 2026, week: i + 1, picks: [pick({ units: 0.9091 })]
+  })));
+  const spread = auditOverview(runId).by_market.spread;
+  assert.equal(spread.summary_reconciles, true);
+  assert.ok(Math.abs(spread.summary_units_delta) < 0.5,
+    'accumulated display rounding stays far below one bet');
+});

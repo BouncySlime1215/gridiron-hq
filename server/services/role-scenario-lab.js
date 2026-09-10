@@ -16,12 +16,20 @@ import { rows } from '../db/index.js';
 import { buildPlayerWeekEngine, teamWeekEventExpectations } from './player-week-engine.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import {
+import { PROJECT_ROOT } from '../platform/paths.js';
   ROLE_SCENARIO_ENGINE_VERSION, buildPlayerScenarios, conservedTeamVolume,
   evaluateChangepointDetectors, auditCascadeConservation
 } from './role-scenario-engine.js';
 
 export const ROLE_SCENARIO_LAB_VERSION = 'role-scenario-lab-v1.0.0';
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+// Codex plan section 10.4: this used to be
+//   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+// which silently means a DIFFERENT directory once this file moves -- imports
+// still resolve, the build still succeeds, and at runtime it reads nothing.
+// PROJECT_ROOT is resolved from server/platform/paths.js's own location, so
+// this file can be relocated by the section 10.2 ownership moves without
+// changing what it reads.
+const root = PROJECT_ROOT;
 const OUTPUT_DIR = path.join(root, 'server/data/role-scenario-lab');
 
 /**

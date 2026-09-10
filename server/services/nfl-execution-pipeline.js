@@ -1,52 +1,8 @@
 /**
- * Phase 2 of the profitability execution brief: one strategy, connected all
- * the way from a quote through to a settled, exact-contract ledger row with
- * real realized P&L — for the one market this phase scopes to, same-line
- * NFL spreads.
- *
- * This module does not decide anything. `nfl-auto-picks.js#autoPickDecisionBoard`
- * already runs the frozen policy (`nfl-policy.js`) over the week's ensemble
- * and records every candidate AND every abstention with its reason — that is
- * the "frozen policy evaluated -> candidate or abstention recorded" step, and
- * rebuilding it here would be exactly the duplicate-system risk the plan
- * warns against ("provide adapters ... rather than creating a parallel
- * system"). What that system was never built to answer, because its own
- * `units_staked` is deliberately fixed at zero pending the forward gates
- * (see nfl-auto-picks.js's header), is the three things Package H exists
- * for: exact contract identity, a genuine delayed-execution obtainability
- * check, and a real ACCEPT/SETTLE path with actual realized P&L. This module
- * is the connector.
- *
- * The pipeline, per selected candidate:
- *   1. Resolve the exact contract (nfl-contract-key.js) from the candidate's
- *      matchup, market and line. A candidate whose contract cannot be
- *      resolved is reported as an error, never silently dropped.
- *   2. Look for an OPEN (not yet settled) opportunity already addressed by
- *      that exact contract key. If one exists, this run is idempotent —
- *      nothing is re-opened.
- *   3. Otherwise, determine the quote this opportunity is OFFERED and
- *      OBSERVED against. `nfl_quote_tape` (the multi-book, per-poll archive)
- *      is tried first, because it is the honest source with real
- *      market-status history (see nfl-execution-replay.js). It currently
- *      spans one real week (2026-09-02 to 09-07 — see
- *      docs/PROFITABILITY_EXECUTION_PLAN.md), so most weeks fall back to the
- *      single price the decision board itself captured from `game_lines`.
- *      Both paths are labeled on the result (`quote_provenance`); a reader
- *      must never mistake a single-sample fallback for real multi-book
- *      history.
- *   4. Record OFFERED, OBSERVED and DECISION with that provenance.
- *   5. Run a delayed-execution replay (nfl-execution-replay.js) against
- *      whatever timeline was actually available and attach it to the
- *      DECISION event's detail — the "paper execution assessment" the plan
- *      asks for, computed automatically and BEFORE any human decides
- *      whether to accept, never after.
- *
- * Acceptance is deliberately NOT automatic. `nfl-execution-decision.js`'s
- * `attemptAcceptance` — exposure budget, market-line corridor, suspect-price
- * — requires a real stake size a human supplies; this pipeline only ever
- * gets an opportunity to DECISION and stops. See `server/routes/nfl-market.js`
- * for the accept endpoint that calls attemptAcceptance directly against a
- * pipeline-opened opportunity id.
+ * Connect the existing selected spread candidates to exact-contract execution records.
+ * Resolve one scheduled provider event and the latest usable decision-time quote.
+ * Live delay previews stay pending; this connector does not confirm a fill.
+ * Full abstention persistence and T−60 forecast freezing remain separate work packages.
  */
 import { row, rows } from '../db/index.js';
 import { contractKey } from './nfl-contract-key.js';
@@ -56,9 +12,10 @@ import { autoPickDecisionBoard } from './nfl-auto-picks.js';
 import { NFL_PRODUCTION_POLICY } from './nfl-policy.js';
 import { openOpportunity, recordObserved, recordDecision, settleOpportunity,
   listOpportunities } from './nfl-execution-lifecycle.js';
-import { replayDelayLadder, timelineFromQuoteTape } from './nfl-execution-replay.js';
+import { replayDelayLadder, timelineFromQuoteTape, DEFAULT_MAX_STALENESS_SECONDS } from './nfl-execution-replay.js';
+import { executionTime, validAmericanPrice, spreadContractTerms } from './nfl-execution-validation.js';
 
-export const EXECUTION_PIPELINE_VERSION = 'nfl-execution-pipeline-v1';
+export const EXECUTION_PIPELINE_VERSION = 'nfl-execution-pipeline-v2';
 export const PIPELINE_MARKET = 'spread'; // nfl-auto-picks.js's own convention (singular); contractKey() normalizes to 'spreads'.
 
 /** 'home' or 'away', from whichever team the candidate actually selected. */
@@ -78,31 +35,47 @@ function sideFor(candidate) {
  * and `contract.market` already resolve to, since contractKey() normalizes
  * onto the identical vocabulary.
  */
-function resolveQuoteBasis(candidate, contract) {
-  // nfl_quote_tape stores whatever team names the Odds API sent ("Kansas City
-  // Chiefs"); contract.home/away are always the resolved abbreviation
-  // ("KC") -- contractKey()'s own event identity, per nfl-contract-key.js.
-  // Comparing the raw strings would never match; both sides are resolved
-  // through the same team-codes.js resolver every other cross-source join in
-  // this codebase already uses (see odds-archive.js).
+function resolveQuoteBasis(candidate, contract, { decisionAt = new Date().toISOString(),
+  maxStalenessSeconds = DEFAULT_MAX_STALENESS_SECONDS, allowHistorical = false } = {}) {
+  const decisionTime = executionTime(decisionAt);
+  if (!Number.isFinite(decisionTime) || typeof candidate.book !== 'string' || !candidate.book.trim()) return null;
   const resolve = teamResolver();
-  const candidateEvents = rows(`SELECT DISTINCT provider_event_id, home_team, away_team FROM nfl_quote_tape`);
-  const matchedEvent = candidateEvents.find(e =>
-    resolve(e.home_team)?.abbr === contract.home && resolve(e.away_team)?.abbr === contract.away);
-  const providerEventId = matchedEvent?.provider_event_id ?? null;
-  if (providerEventId) {
-    const timeline = timelineFromQuoteTape({ providerEventId, market: contract.market,
-      sideKey: contract.side, book: candidate.book, line: contract.line });
-    if (timeline.length) {
-      return { timeline, provenance: 'quote_tape', provider_event_id: providerEventId,
-        quote: timeline.find(t => t.type === 'quote') ?? null };
-    }
+  const matches = rows(`SELECT DISTINCT provider,provider_event_id,home_team,away_team
+    FROM nfl_quote_tape WHERE julianday(commence_time)=julianday(?)`, contract.kickoff)
+    .filter(e => resolve(e.home_team)?.abbr === contract.home && resolve(e.away_team)?.abbr === contract.away);
+  const identities = new Map(matches.map(e => [`${e.provider}|${e.provider_event_id}`, e]));
+  if (identities.size > 1) return { error: 'ambiguous_provider_event' };
+  const event = [...identities.values()][0];
+  let timeline, provenance, providerEventId = null;
+  if (event) {
+    providerEventId = event.provider_event_id;
+    timeline = timelineFromQuoteTape({ providerEventId, provider: event.provider,
+      commenceTime: contract.kickoff, period: contract.period,
+      market: contract.market, sideKey: contract.side, book: candidate.book, line: contract.line,
+      clock: allowHistorical ? 'snapshot' : 'received', mode: allowHistorical ? null : 'current' });
+    provenance = allowHistorical ? 'quote_tape_historical_diagnostic' : 'quote_tape';
+    // Covered event with no matching book/period/clock is a gap, not permission to use a fallback.
+    if (!timeline.length) return { error: 'no_compatible_quote_history' };
+  } else {
+    if (!validAmericanPrice(candidate.american_price) || !Number.isFinite(executionTime(candidate.quote_at))) return null;
+    const at = new Date(executionTime(candidate.quote_at)).toISOString();
+    timeline = [{ snapshot_at: at, type: 'quote', price: candidate.american_price,
+      line: contract.line, quote_id: null }];
+    provenance = 'decision_board_single_sample';
   }
-  if (!Number.isFinite(candidate.american_price) || !candidate.quote_at) return null;
-  const snapshotAt = new Date(candidate.quote_at.includes('T') ? candidate.quote_at
-    : `${candidate.quote_at.replace(' ', 'T')}Z`).toISOString();
-  const single = { snapshot_at: snapshotAt, type: 'quote', price: candidate.american_price, line: contract.line };
-  return { timeline: [single], provenance: 'decision_board_single_sample', provider_event_id: null, quote: single };
+  const eligible = timeline.filter(q => executionTime(q.snapshot_at) <= decisionTime);
+  const latestAt = eligible.at(-1)?.snapshot_at;
+  const latest = eligible.filter(q => q.snapshot_at === latestAt);
+  if (latest.length > 1 && new Set(latest.map(q => `${q.type}|${q.line}|${q.price}`)).size > 1) {
+    return { error: 'ambiguous_decision_quote' };
+  }
+  const quote = latest.at(-1);
+  if (!quote || quote.type !== 'quote') return { error: quote ? 'contract_unavailable' : 'no_decision_quote' };
+  if (!validAmericanPrice(quote.price)) return { error: 'invalid_decision_price' };
+  if (quote.book_updated_at && (!Number.isFinite(executionTime(quote.book_updated_at))
+      || executionTime(quote.book_updated_at) > decisionTime)) return { error: 'invalid_book_update_time' };
+  if ((decisionTime - executionTime(quote.snapshot_at)) / 1000 > maxStalenessSeconds) return { error: 'stale_decision_quote' };
+  return { timeline: eligible, quote, provenance, provider_event_id: providerEventId };
 }
 
 /**
@@ -119,14 +92,19 @@ function resolveQuoteBasis(candidate, contract) {
 export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLICY) {
   const board = autoPickDecisionBoard(season, week, policy);
   const results = [];
+  const decisionAt = new Date().toISOString();
   for (const candidate of board.selected) {
     if (candidate.market !== PIPELINE_MARKET) continue; // this phase scopes to spreads only
 
     const homeRow = row(`SELECT gameday, gametime FROM game_lines
-      WHERE season=? AND week=? AND team=? AND home=1`, season, week, candidate.home_team);
+      WHERE season=? AND week=? AND team=? AND opponent=? AND home=1`, season, week, candidate.home_team, candidate.away_team);
     if (!homeRow) { results.push({ matchup: candidate.matchup, error: 'no scheduled game row for kickoff lookup' }); continue; }
     const kickoff = nflKickoffDate(homeRow.gameday, homeRow.gametime);
     if (!kickoff) { results.push({ matchup: candidate.matchup, error: 'could not resolve kickoff time' }); continue; }
+
+    if (policy.authority !== 'diagnostic_only' && kickoff.getTime() <= executionTime(decisionAt)) {
+      results.push({ matchup: candidate.matchup, error: 'not_pregame' }); continue;
+    }
 
     const side = sideFor(candidate);
     if (!side) { results.push({ matchup: candidate.matchup, error: 'selection matches neither home nor away team' }); continue; }
@@ -139,7 +117,8 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
       .find(o => o.contract_key === contract.key && o.status !== 'settled');
     if (open) { results.push({ matchup: candidate.matchup, contract_key: contract.key, skipped: 'already_open', opportunity_id: open.id }); continue; }
 
-    const basis = resolveQuoteBasis(candidate, contract);
+    const basis = resolveQuoteBasis(candidate, contract, { decisionAt, allowHistorical: policy.authority === 'diagnostic_only' });
+    if (basis?.error) { results.push({ matchup: candidate.matchup, contract_key: contract.key, error: basis.error }); continue; }
     if (!basis) { results.push({ matchup: candidate.matchup, contract_key: contract.key, error: 'no usable quote to open against' }); continue; }
 
     // 'quote_tape' is the closest fit in nfl-execution-lifecycle.js's SOURCES
@@ -148,21 +127,21 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
     // Quality is disclosed separately, in `quote_provenance` below.
     const opened = openOpportunity({ contract, matchup: candidate.matchup, decisionSource: EXECUTION_PIPELINE_VERSION,
       occurredAt: basis.quote.snapshot_at, book: candidate.book, line: contract.line, price: basis.quote.price,
-      source: 'quote_tape' });
-    const now = new Date().toISOString();
-    recordObserved(opened.id, { occurredAt: now, book: candidate.book, line: contract.line, price: basis.quote.price });
+      quoteId: basis.quote.quote_id ?? null, source: 'quote_tape' });
+    const now = decisionAt;
+    recordObserved(opened.id, { occurredAt: now, book: candidate.book, line: contract.line, price: basis.quote.price, quoteId: basis.quote.quote_id ?? null });
 
-    const replay = replayDelayLadder({ timeline: basis.timeline, decisionAt: now });
+    const replay = replayDelayLadder({ timeline: basis.timeline, decisionAt: now, observedThrough: now });
     const decided = recordDecision(opened.id, { occurredAt: now, book: candidate.book, line: contract.line,
-      price: basis.quote.price,
+      price: basis.quote.price, quoteId: basis.quote.quote_id ?? null,
       detail: { pipeline_version: EXECUTION_PIPELINE_VERSION, quote_provenance: basis.provenance,
-        provider_event_id: basis.provider_event_id, edge_points: candidate.edge_points,
+        provider_event_id: basis.provider_event_id, quote_id: basis.quote.quote_id ?? null,
+        quote_snapshot_at: basis.quote.source_snapshot_at ?? basis.quote.snapshot_at,
+        quote_received_at: basis.quote.received_at ?? null, decision_at: decisionAt,
+        book_updated_at: basis.quote.book_updated_at ?? null, edge_points: candidate.edge_points,
         policy_id: policy.id, policy_version: policy.version, delayed_execution_preview: replay,
-        preview_note: basis.provenance === 'decision_board_single_sample'
-          ? 'Single captured price, not a real multi-book timeline — every delay bucket above trivially ' +
-            'reads filled_as_decided because there is no later sample to diverge from. This is an honest ' +
-            'absence of data, not evidence the price would have held.'
-          : 'Computed against the real multi-book quote tape for this event.' } });
+        preview_note: 'Future delay buckets remain pending until observed. A quoted price is not a confirmed fill; ' +
+          'the decision-board fallback is a single observation, not multi-book history.'  } });
 
     results.push({ matchup: candidate.matchup, contract_key: contract.key, opened: true,
       opportunity_id: decided.id, quote_provenance: basis.provenance, replay_preview: replay });
@@ -186,7 +165,7 @@ function parseEventKey(eventKey) {
  * identically whether it is read from the auto-picks board or this ledger —
  * two definitions of "won" for the same market would be its own bug.
  */
-export function settleExecutionOpportunities() {
+export function settleExecutionOpportunities({ occurredAt = new Date().toISOString() } = {}) {
   const open = listOpportunities({ status: 'accepted', market: 'spreads', limit: 5000 });
   const settled = [], skipped = [];
   for (const opp of open) {
@@ -194,10 +173,30 @@ export function settleExecutionOpportunities() {
     if (!parsed) { skipped.push({ id: opp.id, reason: 'unparseable_event_key' }); continue; }
     const selectionTeam = opp.side === 'home' ? parsed.home : opp.side === 'away' ? parsed.away : null;
     if (!selectionTeam) { skipped.push({ id: opp.id, reason: 'unresolved_side' }); continue; }
-    const g = row(`SELECT team_score, opp_score FROM game_lines WHERE gameday=? AND team=?`, parsed.gameDate, selectionTeam);
-    if (!g || g.team_score == null) { skipped.push({ id: opp.id, reason: 'game_not_final' }); continue; }
+    const terms = spreadContractTerms(opp.contract_key);
+    if (!terms || terms.period !== 'full_game' || terms.overtime !== 'ot_included' || terms.side !== opp.side) {
+      skipped.push({ id: opp.id, reason: 'unsupported_settlement_contract' }); continue;
+    }
+    const opponent = opp.side === 'home' ? parsed.away : parsed.home;
+    const games = rows(`SELECT * FROM game_lines WHERE gameday=? AND team=? AND opponent=? AND home=?`,
+      parsed.gameDate, selectionTeam, opponent, opp.side === 'home' ? 1 : 0);
+    if (games.length !== 1) { skipped.push({ id: opp.id, reason: games.length ? 'ambiguous_game_result' : 'game_not_final' }); continue; }
+    const g = games[0];
+    const other = row(`SELECT * FROM game_lines WHERE season=? AND week=? AND gameday=? AND team=? AND opponent=? AND home=?`,
+      g.season, g.week, parsed.gameDate, opponent, selectionTeam, opp.side === 'home' ? 0 : 1);
+    const scores = [g.team_score, g.opp_score, other?.team_score, other?.opp_score];
+    if (!scores.every(x => Number.isInteger(x) && x >= 0)) {
+      skipped.push({ id: opp.id, reason: 'game_not_final' }); continue;
+    }
+    if (g.team_score !== other.opp_score || g.opp_score !== other.team_score) {
+      skipped.push({ id: opp.id, reason: 'conflicting_game_result' }); continue;
+    }
+    const kickoff = nflKickoffDate(g.gameday, g.gametime);
+    if (!kickoff || kickoff.getTime() >= executionTime(occurredAt)) {
+      skipped.push({ id: opp.id, reason: 'game_not_final' }); continue;
+    }
     const accepted = rows(`SELECT line FROM nfl_execution_lifecycle_events WHERE opportunity_id=? AND state='accepted'`, opp.id)[0];
-    if (!accepted || !Number.isFinite(accepted.line)) { skipped.push({ id: opp.id, reason: 'no_accepted_line' }); continue; }
+    if (!accepted || !Number.isFinite(accepted.line) || accepted.line !== terms.line) { skipped.push({ id: opp.id, reason: 'no_accepted_line' }); continue; }
     const margin = g.team_score - g.opp_score;
     const pushed = margin === -accepted.line;
     const covered = margin > -accepted.line;
@@ -205,7 +204,7 @@ export function settleExecutionOpportunities() {
     // settleOpportunity (not a hand-rolled recordState call) is what actually
     // computes realized P&L -- from the price genuinely recorded as ACCEPTED,
     // never a number re-derived here that could quietly drift from it.
-    const record = settleOpportunity(opp.id, { occurredAt: new Date().toISOString(), result });
+    const record = settleOpportunity(opp.id, { occurredAt, result });
     settled.push({ id: opp.id, result, realized_pnl_units: record.events.find(e => e.state === 'settled')?.realized_pnl_units ?? null });
   }
   return { settled, skipped };

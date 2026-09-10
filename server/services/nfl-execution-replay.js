@@ -43,6 +43,7 @@
  */
 import { rows } from '../db/index.js';
 import { breakEvenRate } from './nfl-execution.js';
+import { executionTime } from './nfl-execution-validation.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const iso = v => new Date(v).toISOString();
@@ -129,7 +130,7 @@ const sortTimeline = timeline => [...timeline].sort((a, b) => a.snapshot_at.loca
  */
 export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
   requestedStakeUnits = 1, bookLimitUnits = DEFAULT_BOOK_LIMIT_UNITS,
-  maxStalenessSeconds = DEFAULT_MAX_STALENESS_SECONDS }) {
+  maxStalenessSeconds = DEFAULT_MAX_STALENESS_SECONDS, observedThrough = null }) {
   if (!Number.isFinite(requestedStakeUnits) || requestedStakeUnits <= 0) {
     throw new Error('requestedStakeUnits must be a positive number');
   }
@@ -176,6 +177,16 @@ export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
     requested_stake_units: requestedStakeUnits, availability_assumptions: assumptions
   };
 
+  if (observedThrough != null && (!Number.isFinite(executionTime(observedThrough))
+      || executionTime(executionAt) > executionTime(observedThrough))) {
+    return { ...base, outcome: 'pending', obtained_price: null, obtained_line: null,
+      obtained_stake_units: 0, availability_basis: 'unobserved',
+      reason: 'the execution horizon is beyond the observed timeline; a fresh quote is not a future fill' };
+  }
+  if (executionSample?.type === 'ambiguous') {
+    return { ...base, outcome: 'ambiguous_quote', obtained_price: null, obtained_line: null,
+      obtained_stake_units: 0, reason: 'conflicting exact-contract quotes at the observed instant' };
+  }
   if (!executionSample || executionSample.type === 'removed') {
     return { ...base, outcome: 'disappeared', obtained_price: null, obtained_line: null,
       obtained_stake_units: 0, reason: 'the book no longer quotes this exact contract by execution time' };
@@ -212,7 +223,9 @@ export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
   const executionBreakEven = breakEvenRate(executionSample.price);
 
   return {
-    ...base, outcome: capped ? 'capped' : priceChanged ? 'repriced' : 'filled_as_decided',
+    ...base, availability_basis: executionTime(executionSample.snapshot_at) === executionTime(executionAt)
+      ? 'direct_observation' : 'carry_forward_model',
+    outcome: capped ? 'capped' : priceChanged ? 'repriced' : 'filled_as_decided',
     obtained_price: executionSample.price, obtained_line: executionSample.line,
     obtained_stake_units: r2(stakeUnits), capped, book_limit_units: Number.isFinite(bookLimitUnits) ? bookLimitUnits : null,
     // Positive means the price got WORSE (a higher required win rate) by the time it was actually taken.
@@ -232,10 +245,10 @@ export function replayDelayedExecution({ timeline, decisionAt, delaySeconds,
  */
 export function replayDelayLadder({ timeline, decisionAt, requestedStakeUnits = 1,
   bookLimitUnits = DEFAULT_BOOK_LIMIT_UNITS, maxStalenessSeconds = DEFAULT_MAX_STALENESS_SECONDS,
-  delays = DEFAULT_DELAY_LADDER_SECONDS } = {}) {
+  delays = DEFAULT_DELAY_LADDER_SECONDS, observedThrough = null } = {}) {
   return delays.map(delaySeconds => ({
     delay_seconds: delaySeconds,
-    ...replayDelayedExecution({ timeline, decisionAt, delaySeconds, requestedStakeUnits, bookLimitUnits, maxStalenessSeconds })
+    ...replayDelayedExecution({ timeline, decisionAt, delaySeconds, requestedStakeUnits, bookLimitUnits, maxStalenessSeconds, observedThrough })
   }));
 }
 
@@ -266,26 +279,44 @@ export function replayDelayLadder({ timeline, decisionAt, requestedStakeUnits = 
  * check in `replayDelayedExecution` is what turns a long enough absence into
  * an honest `stale_unknown` rather than a manufactured `disappeared`.
  */
-export function timelineFromQuoteTape({ providerEventId, market, sideKey, book, line = null }) {
-  const exactArgs = [providerEventId, market, sideKey, book];
-  let exactWhere = 'provider_event_id=? AND market=? AND side_key=? AND bookmaker_key=?';
-  if (line != null) { exactWhere += ' AND line=?'; exactArgs.push(line); }
-  const quotes = rows(`SELECT snapshot_at, line, american_price FROM nfl_quote_tape
-    WHERE ${exactWhere} ORDER BY snapshot_at`, ...exactArgs)
-    .map(q => ({ snapshot_at: q.snapshot_at, type: 'quote', price: q.american_price, line: q.line }));
-
-  const siblingArgs = [providerEventId, market, book];
-  let excludeExact = 'side_key=?'; siblingArgs.push(sideKey);
-  if (line != null) { excludeExact += ' AND line=?'; siblingArgs.push(line); }
-  const siblingBatches = rows(`SELECT DISTINCT snapshot_at FROM nfl_quote_tape
-    WHERE provider_event_id=? AND market=? AND bookmaker_key=? AND NOT (${excludeExact})
-    ORDER BY snapshot_at`, ...siblingArgs);
-  const quotedAt = new Set(quotes.map(q => q.snapshot_at));
-  const removed = siblingBatches
-    .filter(b => !quotedAt.has(b.snapshot_at))
-    .map(b => ({ snapshot_at: b.snapshot_at, type: 'removed' }));
-
-  return [...quotes, ...removed].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
+export function timelineFromQuoteTape({ providerEventId, market, sideKey, book, line = null,
+  provider = null, commenceTime = null, period = null, clock = 'snapshot', mode = null }) {
+  if (!['snapshot', 'received'].includes(clock)) throw new Error('unknown quote timeline clock');
+  const args = [providerEventId, market, book];
+  const filters = ['q.provider_event_id=?', 'q.market=?', 'q.bookmaker_key=?'];
+  if (provider) { filters.push('q.provider=?'); args.push(provider); }
+  if (commenceTime) { filters.push('julianday(q.commence_time)=julianday(?)'); args.push(commenceTime); }
+  if (period) { filters.push('q.period=?'); args.push(period); }
+  if (mode) { filters.push('b.mode=?'); args.push(mode); }
+  const records = rows(`SELECT q.quote_id,q.batch_id,q.snapshot_at,q.book_updated_at,q.created_at,
+      q.side_key,q.line,q.american_price,b.requested_at,b.mode
+    FROM nfl_quote_tape q JOIN nfl_quote_batches b ON b.batch_id=q.batch_id
+    WHERE ${filters.join(' AND ')} ORDER BY q.snapshot_at,q.quote_id`, ...args);
+  const batches = new Map();
+  for (const q of records) {
+    const receipt = Math.max(executionTime(q.created_at), executionTime(q.requested_at), executionTime(q.snapshot_at));
+    const at = clock === 'received' ? receipt : executionTime(q.snapshot_at);
+    if (!Number.isFinite(at)) continue;
+    const batch = batches.get(q.batch_id) ?? { at, quotes: [] };
+    batch.at = Math.max(batch.at, at);
+    if (q.side_key === sideKey && (line == null || q.line === line)) batch.quotes.push(q);
+    batches.set(q.batch_id, batch);
+  }
+  const timeline = [];
+  for (const [batchId, batch] of batches) {
+    const common = { snapshot_at: new Date(batch.at).toISOString(), batch_id: batchId };
+    if (!batch.quotes.length) { timeline.push({ ...common, type: 'removed' }); continue; }
+    // Conflicting duplicate exact quotes are not a price we may arbitrarily choose.
+    const terms = new Set(batch.quotes.map(q => `${q.line}|${q.american_price}`));
+    if (terms.size !== 1) { timeline.push({ ...common, type: 'ambiguous' }); continue; }
+    const q = batch.quotes[0];
+    const receivedAt = Math.max(executionTime(q.created_at), executionTime(q.requested_at), executionTime(q.snapshot_at));
+    timeline.push({ ...common, type: 'quote', price: q.american_price, line: q.line,
+      quote_id: q.quote_id, source_snapshot_at: q.snapshot_at, book_updated_at: q.book_updated_at,
+      received_at: Number.isFinite(receivedAt) ? new Date(receivedAt).toISOString() : null,
+      capture_mode: q.mode, clock });
+  }
+  return timeline.sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at) || a.batch_id.localeCompare(b.batch_id));
 }
 
 /**

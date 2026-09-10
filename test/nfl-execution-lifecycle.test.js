@@ -83,7 +83,7 @@ test('ACCEPTED is a user-recorded claim, never a sportsbook fill — fill_confir
     book: 'fanduel', line: -3.5, price: -115 });
   recordObserved(opp.id, { occurredAt: '2026-09-10T10:00:05Z', book: 'fanduel', line: -3.5, price: -115 });
   recordDecision(opp.id, { occurredAt: '2026-09-10T10:05:00Z', book: 'fanduel', line: -3.5, price: -115 });
-  recordAcceptance(opp.id, { occurredAt: '2026-09-10T10:05:30Z', book: 'fanduel', price: -115, stakeUnits: 1 });
+  recordAcceptance(opp.id, { occurredAt: '2026-09-10T10:05:30Z', book: 'fanduel', line: -3.5, price: -115, stakeUnits: 1 });
 
   // Every row this ledger has ever written — not just this one — is pinned at
   // the database level, so there is no code path anywhere that could produce
@@ -122,10 +122,10 @@ test('an ACCEPTED record must actually be source=user_recorded — recordAccepta
   recordDecision(opp.id, { occurredAt: '2026-09-10T10:05:00Z', book: 'betmgm', price: -110 });
 
   assert.throws(() => recordState(opp.id, 'accepted', {
-    occurredAt: '2026-09-10T10:05:30Z', book: 'betmgm', price: -110, stakeUnits: 1, source: 'quote_tape'
+    occurredAt: '2026-09-10T10:05:30Z', book: 'betmgm', line: -3.5, price: -110, stakeUnits: 1, source: 'quote_tape'
   }), /user_recorded/);
 
-  const accepted = recordAcceptance(opp.id, { occurredAt: '2026-09-10T10:05:30Z', book: 'betmgm',
+  const accepted = recordAcceptance(opp.id, { occurredAt: '2026-09-10T10:05:30Z', book: 'betmgm', line: -3.5,
     price: -110, stakeUnits: 1 });
   const acceptedEvent = accepted.events.find(e => e.state === 'accepted');
   assert.equal(acceptedEvent.source, 'user_recorded');

@@ -41,7 +41,7 @@ function decidedOpportunity({ commenceDate, price = -110, line = -3.5 }) {
 
 test('a normal acceptance within budget, with an ordinary price, is allowed', () => {
   const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-09-10' });
-  const outcome = attemptAcceptance(opp.id, {
+  const outcome = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-09-09T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
     eventKey, fairProbability: 0.5
   });
@@ -51,14 +51,14 @@ test('a normal acceptance within budget, with an ordinary price, is allowed', ()
 
 test('acceptance is blocked when it would breach the game exposure budget', () => {
   const first = decidedOpportunity({ commenceDate: '2026-09-17', line: -3.5 });
-  const firstOutcome = attemptAcceptance(first.opp.id, {
+  const firstOutcome = attemptAcceptance(first.opp.id, { line: getOpportunity(first.opp.id)?.events[0].line,
     occurredAt: '2026-09-16T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 2.5,
     eventKey: first.eventKey
   });
   assert.equal(firstOutcome.accepted, true);
 
   const second = decidedOpportunity({ commenceDate: '2026-09-17', line: -3 });
-  const secondOutcome = attemptAcceptance(second.opp.id, {
+  const secondOutcome = attemptAcceptance(second.opp.id, { line: getOpportunity(second.opp.id)?.events[0].line,
     occurredAt: '2026-09-16T10:06:00Z', book: 'fanduel', price: -110, stakeUnits: 1,
     eventKey: first.eventKey // same game
   });
@@ -69,7 +69,7 @@ test('acceptance is blocked when it would breach the game exposure budget', () =
 
 test('acceptance is blocked when the model line is outside the market line corridor, unless explicitly acknowledged', () => {
   const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-01' });
-  const blocked = attemptAcceptance(opp.id, {
+  const blocked = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-09-30T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
     eventKey, modelLine: -3.5, marketLine: -20 // 16.5 points off — well past the 11.5-point corridor
   });
@@ -78,7 +78,7 @@ test('acceptance is blocked when the model line is outside the market line corri
   assert.equal(blocked.corridor.verdict, 'needs_review');
   assert.equal(getOpportunity(opp.id).status, 'decision', 'a blocked acceptance must not advance the state');
 
-  const acknowledged = attemptAcceptance(opp.id, {
+  const acknowledged = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-09-30T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
     eventKey, modelLine: -3.5, marketLine: -20, acknowledgeCorridorBreach: true
   });
@@ -88,7 +88,7 @@ test('acceptance is blocked when the model line is outside the market line corri
 
 test('a model line inside the market line corridor is reported but never blocks acceptance', () => {
   const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-08' });
-  const outcome = attemptAcceptance(opp.id, {
+  const outcome = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-10-07T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1,
     eventKey, modelLine: -3.5, marketLine: -4
   });
@@ -98,7 +98,7 @@ test('a model line inside the market line corridor is reported but never blocks 
 
 test('acceptance without a model/market line pair proceeds with the corridor reported as not evaluated, never as a silent pass', () => {
   const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-10-15' });
-  const outcome = attemptAcceptance(opp.id, {
+  const outcome = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-10-14T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1, eventKey
   });
   assert.equal(outcome.accepted, true);
@@ -107,7 +107,7 @@ test('acceptance without a model/market line pair proceeds with the corridor rep
 
 test('acceptance is blocked when the fair-price EV is suspiciously extreme, unless explicitly acknowledged', () => {
   const { opp, eventKey } = decidedOpportunity({ commenceDate: '2026-09-24', price: 900 });
-  const blocked = attemptAcceptance(opp.id, {
+  const blocked = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-09-23T10:05:30Z', book: 'draftkings', price: 900, stakeUnits: 1,
     eventKey, fairProbability: 0.5
   });
@@ -115,7 +115,7 @@ test('acceptance is blocked when the fair-price EV is suspiciously extreme, unle
   assert.equal(blocked.blocked_reason, 'suspect_price');
   assert.equal(blocked.suspect.suspect, true);
 
-  const acknowledged = attemptAcceptance(opp.id, {
+  const acknowledged = attemptAcceptance(opp.id, { line: getOpportunity(opp.id)?.events[0].line,
     occurredAt: '2026-09-23T10:05:30Z', book: 'draftkings', price: 900, stakeUnits: 1,
     eventKey, fairProbability: 0.5, acknowledgeSuspectPrice: true
   });
@@ -123,7 +123,7 @@ test('acceptance is blocked when the fair-price EV is suspiciously extreme, unle
 });
 
 test('acceptance fails closed on an opportunity that does not exist, rather than running checks against a phantom identity', () => {
-  const outcome = attemptAcceptance('00000000-0000-0000-0000-000000000000', {
+  const outcome = attemptAcceptance('00000000-0000-0000-0000-000000000000', { line: getOpportunity('00000000-0000-0000-0000-000000000000')?.events[0].line,
     occurredAt: '2026-09-09T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 1
   });
   assert.equal(outcome.accepted, false);
@@ -140,7 +140,7 @@ test('the exposure check is computed from the PERSISTED opportunity\'s identity,
 
   // Two real games. The first opens the game exposure right up to the cap.
   const first = decidedOpportunity({ commenceDate: '2026-11-05', line: -3.5 });
-  const firstOutcome = attemptAcceptance(first.opp.id, {
+  const firstOutcome = attemptAcceptance(first.opp.id, { line: getOpportunity(first.opp.id)?.events[0].line,
     occurredAt: '2026-11-04T10:05:30Z', book: 'draftkings', price: -110, stakeUnits: 2.5, eventKey: first.eventKey,
     budget: isolatedBudget
   });
@@ -158,7 +158,7 @@ test('the exposure check is computed from the PERSISTED opportunity\'s identity,
   // worse, in the opposite direction -- silently exempt a bet from its own
   // game's real exposure by attributing it elsewhere. Neither may happen:
   // the persisted opportunity's own event_key is what must be used.
-  const secondOutcome = attemptAcceptance(second.opp.id, {
+  const secondOutcome = attemptAcceptance(second.opp.id, { line: getOpportunity(second.opp.id)?.events[0].line,
     occurredAt: '2026-11-11T10:06:00Z', book: 'fanduel', price: -110, stakeUnits: 1, eventKey: first.eventKey,
     budget: isolatedBudget
   });

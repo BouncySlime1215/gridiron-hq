@@ -1,0 +1,139 @@
+{
+  "targeted_execution": {
+    "tests": 147,
+    "passed": 147,
+    "failed": 0
+  },
+  "full_suite": {
+    "tests": 1207,
+    "passed": 1185,
+    "failed": 21,
+    "skipped": 1
+  },
+  "baseline_comparison": {
+    "source_commit": "969d501e5d318f8ff650d7e239d8647f8b75eb84",
+    "same_failure_names": true,
+    "failures": [
+      {
+        "file": "test/gridiron-model.test.js",
+        "test": "a capability with a failed sealed audit is retired regardless of what it claims"
+      },
+      {
+        "file": "test/gridiron-model.test.js",
+        "test": "a retired capability refuses every purpose, including merely informing"
+      },
+      {
+        "file": "test/gridiron-model.test.js",
+        "test": "line shopping is authoritative \u2014 the one thing measured positive on outcomes"
+      },
+      {
+        "file": "test/nfl-drive-tape.test.js",
+        "test": "sample game tape carries auditable score, clock, formation and possession state"
+      },
+      {
+        "file": "test/nfl-preseason-blend.test.js",
+        "test": "calibration derives real, positive variances from actual history, not placeholders"
+      },
+      {
+        "file": "test/nfl-preseason-blend.test.js",
+        "test": "at 0 games played, the blend is 100% the prior with maximum uncertainty"
+      },
+      {
+        "file": "test/nfl-preseason-blend.test.js",
+        "test": "weight on the prior strictly decreases as more real games accumulate"
+      },
+      {
+        "file": "test/nfl-preseason-blend.test.js",
+        "test": "posterior uncertainty"
+      },
+      {
+        "file": "test/nfl-preseason-blend.test.js",
+        "test": "PRIOR_VARIANCE and PER_GAME_VARIANCE constants match a fresh calibration"
+      },
+      {
+        "file": "test/nfl-team-strength.test.js",
+        "test": "every evaluated season resolves teams from a pre-Week-1 source, not season-T usage"
+      },
+      {
+        "file": "test/nfl-team-strength.test.js",
+        "test": "no market-derived column is exposed to the market model"
+      },
+      {
+        "file": "test/nfl-team-strength.test.js",
+        "test": "the preseason projection column is absent exactly where no prior-trained fit exists"
+      },
+      {
+        "file": "test/nfl-team-strength.test.js",
+        "test": "every season covers exactly the 32 canonical teams, with no alias double-count"
+      },
+      {
+        "file": "test/nfl-team-strength.test.js",
+        "test": "the Rams keep their QB1 QBR delta rather than stranding it on the LA alias"
+      },
+      {
+        "file": "test/nfl-team-strength.test.js",
+        "test": "a season outside the panel shrinks to the league prior and differences to zero"
+      },
+      {
+        "file": "test/td-regression.test.js",
+        "test": "rates were fitted on real exposure, not left at their seeds"
+      },
+      {
+        "file": "test/td-regression.test.js",
+        "test": "quarterbacks are priced separately from running backs at the goal line"
+      },
+      {
+        "file": "test/td-regression.test.js",
+        "test": "the board reports both directions and never claims everyone is unlucky"
+      },
+      {
+        "file": "test/td-regression.test.js",
+        "test": "expected touchdowns are never negative and scale with opportunity"
+      },
+      {
+        "file": "test/td-regression.test.js",
+        "test": "the minimum-opportunity filter actually filters"
+      },
+      {
+        "file": "test/td-regression.test.js",
+        "test": "the gap is expressed in the same points-per-week unit as the rest of the app"
+      }
+    ]
+  },
+  "checks": {
+    "typecheck": "passed",
+    "build": "passed",
+    "syntax_lint": "passed",
+    "fresh_database_startup": "passed after correcting migration/import order",
+    "port_guard": "passed"
+  },
+  "runtime": "Node v25.9.0",
+  "environment": "Temporary databases, scheduler disabled, external fetch blocked; provider-dependent tests use fixtures/mocks",
+  "limitations": "Full suite is not green. Existing real-data-dependent model tests fail without their external development dataset. No live DB migration or model training was run.",
+  "source_base": "969d501e5d318f8ff650d7e239d8647f8b75eb84",
+  "branch": "main",
+  "files_sha256": {
+    "package.json": "875682b1bc8b20d39ea2015d70726b207b383e425844edbdc3a0f742c019e5e5",
+    "package-lock.json": "3278cf48e6632d0769620655993a4f63f0d5e5c36a04824f3877ad1a545a2ff9",
+    "server/index.js": "c11914a228a999f1b937939b3ad0537b3105b2857427e3e41a72d20113d2144f",
+    "server/routes/nfl-market.js": "648ee3b925894e60872d5b72c50151bdb61c9f3c83923fccf344067241098dec",
+    "server/services/nfl-execution-lifecycle.js": "f2f23823ed55b10905ae13990a3216295d939d1115fdc0d79b66823b2ba5f3e0",
+    "server/services/nfl-execution-pipeline.js": "99ee9c0eff14ba1182d5ebf1303df430e15f6cf10f1b1c6658d469c351b37849",
+    "server/services/nfl-execution-replay.js": "e8bb68d9f3e17d79ea045066a93155c939dc4b31f7e0df876737989d657835cf",
+    "server/services/nfl-execution-validation.js": "f4ae0ba4007890107f90ab291ed1a0e85c9e602b0b9ba87b578b59cb0820a132",
+    "server/services/nfl-research-lab.js": "8c1da592f28b8dbbabc0dd01791dbc0bc00bc256ccd74f1e7f1ef156da77c991",
+    "test/nfl-execution-decision.test.js": "e8d6d6b6eac2845ec9d9f7854fdfc7c1f7170354cc743c23291756f6e226b422",
+    "test/nfl-execution-lifecycle.test.js": "9f896767f364509ac717f8348a78d54c4e003598becb0de0e5fd3aaa72817df5",
+    "test/nfl-execution-pipeline.test.js": "6e9c73a8eaebb42646ad6b7855580b453e64bea82c5f2023e32d516a582fb547",
+    "test/nfl-execution-integrity.test.js": "4656265108b6dc8a11a4499d43a3928f6eb3b3d80b2bd758573a2a7d1520222e"
+  },
+  "remaining_work": [
+    "explicit provider-finality observations and settlement corrections",
+    "changed-line child opportunity and complete off-policy ticket adapter",
+    "positive-EV and trusted recommendation gates",
+    "forecast/calibrator identity and T-60 capture",
+    "immutable abstention/decision history",
+    "full document consolidation and folder moves",
+    "hermetic fixtures for 21 existing data-dependent failures"
+  ]
+}

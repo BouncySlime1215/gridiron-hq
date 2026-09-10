@@ -34,6 +34,8 @@
 import crypto from 'node:crypto';
 import { db, rows, row, run } from '../db/index.js';
 import { payoutPerUnit } from './nfl-execution.js';
+import { assertExecutionPrice, assertExecutionStake, assertSpreadLine,
+  executionInputError, executionTime } from './nfl-execution-validation.js';
 
 export const STATES = Object.freeze(['offered', 'observed', 'decision', 'refreshed', 'accepted', 'settled']);
 const ORDER_INDEX = Object.freeze({ offered: 0, observed: 1, decision: 2, refreshed: 2, accepted: 3, settled: 4 });
@@ -82,9 +84,10 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
   occurredAt, book, line = null, price, quoteId = null, source = 'quote_tape', note = null } = {}) {
   if (!contract?.ok) throw new Error('openOpportunity requires a resolved contractKey() result');
   if (!decisionSource) throw new Error('decisionSource is required — an unattributed opportunity is not evidence');
-  if (!occurredAt || !Number.isFinite(new Date(occurredAt).getTime())) throw new Error('occurredAt must be a timestamp');
-  if (!book) throw new Error('book is required for the OFFERED state');
-  if (!Number.isFinite(price)) throw new Error('price must be a finite American price');
+  if (!Number.isFinite(executionTime(occurredAt))) throw executionInputError('occurredAt must be a timestamp');
+  if (typeof book !== 'string' || !book.trim()) throw executionInputError('book is required for the OFFERED state');
+  assertExecutionPrice(price);
+  if (contract.market === 'spreads') assertSpreadLine(contract.key, line);
   if (!SOURCES.includes(source)) throw new Error(`unknown source: ${source}`);
 
   const id = crypto.randomUUID();
@@ -109,7 +112,7 @@ export function openOpportunity({ contract, matchup = null, participant = null, 
     run(`INSERT INTO nfl_execution_lifecycle_events
          (opportunity_id, state, occurred_at, book, line, price, source, quote_id, actor, detail_json)
          VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    id, 'offered', new Date(occurredAt).toISOString(), book, line, price, source, quoteId, 'system',
+    id, 'offered', new Date(executionTime(occurredAt)).toISOString(), book, line, price, source, quoteId, 'system',
     JSON.stringify({ settlement_rules: settlementRules }));
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -129,10 +132,20 @@ export function recordState(opportunityId, state, { occurredAt, book = null, lin
   result = null, realizedPnlUnits = null } = {}) {
   if (!STATES.includes(state)) throw new Error(`unknown state: ${state}`);
   if (!SOURCES.includes(source)) throw new Error(`unknown source: ${source}`);
-  if (!occurredAt || !Number.isFinite(new Date(occurredAt).getTime())) throw new Error('occurredAt must be a timestamp');
+  if (!Number.isFinite(executionTime(occurredAt))) throw executionInputError('occurredAt must be a timestamp');
   const opp = row('SELECT * FROM nfl_execution_opportunities WHERE id=?', opportunityId);
   if (!opp) throw new Error(`no opportunity ${opportunityId}`);
   assertTransition(opp.status, state);
+  const previous = row('SELECT * FROM nfl_execution_lifecycle_events WHERE opportunity_id=? ORDER BY id DESC LIMIT 1', opportunityId);
+  if (previous && executionTime(occurredAt) < executionTime(previous.occurred_at)) {
+    throw executionInputError('occurredAt cannot precede the previous lifecycle event');
+  }
+  if (price != null || state === 'accepted') assertExecutionPrice(price);
+  if (state === 'accepted') {
+    if (typeof book !== 'string' || !book.trim()) throw executionInputError('book is required for acceptance');
+    assertExecutionStake(stakeUnits, price);
+  }
+  if (opp.market === 'spreads' && (line != null || state === 'accepted')) assertSpreadLine(opp.contract_key, line);
 
   if (state === 'accepted' && source !== 'user_recorded') {
     throw new Error('an ACCEPTED state must be source="user_recorded" — this ledger never records a ' +
@@ -144,6 +157,7 @@ export function recordState(opportunityId, state, { occurredAt, book = null, lin
   if (state === 'settled') {
     if (!RESULTS.includes(result)) throw new Error(`settled state requires a result in ${RESULTS.join(', ')}`);
     if (source !== 'settlement_result') throw new Error('a SETTLED state must be source="settlement_result"');
+    if (!Number.isFinite(realizedPnlUnits)) throw executionInputError('settlement P&L must be finite');
   }
 
   db.exec('BEGIN IMMEDIATE');
@@ -152,7 +166,7 @@ export function recordState(opportunityId, state, { occurredAt, book = null, lin
          (opportunity_id, state, occurred_at, book, line, price, stake_units, source, quote_id,
           actor, detail_json, result, realized_pnl_units)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    opportunityId, state, new Date(occurredAt).toISOString(), book, line, price, stakeUnits, source,
+    opportunityId, state, new Date(executionTime(occurredAt)).toISOString(), book, line, price, stakeUnits, source,
     quoteId, actor, detail == null ? null : JSON.stringify(detail), result, r4(realizedPnlUnits));
     run('UPDATE nfl_execution_opportunities SET status=? WHERE id=?', state, opportunityId);
     db.exec('COMMIT');
@@ -213,6 +227,9 @@ export function settleOpportunity(opportunityId, { occurredAt, result, actor = '
     error.code = 'not_accepted';
     throw error;
   }
+  // Legacy rows can predate the boundary checks; never turn their invalid payout into null P&L.
+  assertExecutionPrice(accepted.price);
+  assertExecutionStake(accepted.stake_units, accepted.price);
   const pnl = result === 'won' ? accepted.stake_units * payoutPerUnit(accepted.price)
     : result === 'lost' ? -accepted.stake_units
       : 0; // push and void both return the stake — zero net, by rule, not by estimate

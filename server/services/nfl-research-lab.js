@@ -269,5 +269,5 @@ export async function researchLabStatus() {
 }
 
 export async function researchMasterPlan() {
-  return fs.readFile(path.join(root, 'docs/NFL_RESEARCH_MASTER_PLAN_2026_09_08.md'), 'utf8');
+  return fs.readFile(path.join(root, 'docs/CLAUDE-NEXT-STEPS.md'), 'utf8');
 }

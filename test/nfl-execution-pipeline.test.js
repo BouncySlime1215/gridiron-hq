@@ -70,17 +70,18 @@ test('resolveQuoteBasis: prefers the real multi-book quote tape when this event 
   const contract = contractKey({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: '2026-09-13T17:00:00Z', market: 'spreads', side: 'home', line: -3.5 });
   const candidate = { book: 'draftkings', american_price: -110, quote_at: '2026-09-11 09:00:00' };
-  const basis = resolveQuoteBasis(candidate, contract);
+  const basis = resolveQuoteBasis(candidate, contract, { decisionAt: '2026-09-12T10:07:00Z' });
   assert.equal(basis.provenance, 'quote_tape');
   assert.equal(basis.timeline.length, 2, 'both real polls should be in the timeline, not just the candidate\'s own single price');
   assert.equal(basis.provider_event_id, 'espn-pipeline-1');
+  assert.equal(basis.quote.price, -120, 'latest usable quote, not the first poll');
 });
 
 test('resolveQuoteBasis: falls back to the decision board\'s own single captured price when the tape has nothing for this event, and labels it as a single sample', () => {
   const contract = contractKey({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: '2026-11-01T18:00:00Z', market: 'spreads', side: 'home', line: -2.5 }); // an event the tape never saw
   const candidate = { book: 'espn', american_price: -105, quote_at: '2026-10-31 19:09:49' };
-  const basis = resolveQuoteBasis(candidate, contract);
+  const basis = resolveQuoteBasis(candidate, contract, { decisionAt: '2026-10-31T19:10:00Z' });
   assert.equal(basis.provenance, 'decision_board_single_sample');
   assert.equal(basis.timeline.length, 1);
   assert.equal(basis.timeline[0].price, -105);
@@ -111,7 +112,7 @@ test('settleExecutionOpportunities: a covered home favorite settles WON with rea
   const id = acceptedOpportunity({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: '2026-09-20T17:00:00Z', side: 'home', line: -3.5, price: -110, stakeUnits: 1 });
 
-  const { settled, skipped } = settleExecutionOpportunities();
+  const { settled, skipped } = settleExecutionOpportunities({ occurredAt: '2026-12-01T00:00:00Z' });
   assert.equal(skipped.length, 0);
   const mine = settled.find(s => s.id === id);
   assert.ok(mine, 'this opportunity should have been settled');
@@ -128,7 +129,7 @@ test('settleExecutionOpportunities: an away underdog that lost by less than the 
   const id = acceptedOpportunity({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: '2026-09-27T17:00:00Z', side: 'away', line: 3.5, price: -110, stakeUnits: 1 });
 
-  const { settled } = settleExecutionOpportunities();
+  const { settled } = settleExecutionOpportunities({ occurredAt: '2026-12-01T00:00:00Z' });
   const mine = settled.find(s => s.id === id);
   assert.equal(mine.result, 'won');
 });
@@ -140,7 +141,7 @@ test('settleExecutionOpportunities: an exact push settles at precisely zero, and
   const id = acceptedOpportunity({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: '2026-10-04T17:00:00Z', side: 'home', line: -3, price: -110, stakeUnits: 1 });
 
-  const first = settleExecutionOpportunities();
+  const first = settleExecutionOpportunities({ occurredAt: '2026-12-01T00:00:00Z' });
   const mine = first.settled.find(s => s.id === id);
   assert.equal(mine.result, 'push');
   assert.equal(mine.realized_pnl_units, 0);
@@ -149,7 +150,7 @@ test('settleExecutionOpportunities: an exact push settles at precisely zero, and
   // it again as an open, acceptable position -- proving this is safe to call
   // repeatedly (e.g. from a manual "run settlement now" action) rather than
   // exactly once.
-  const second = settleExecutionOpportunities();
+  const second = settleExecutionOpportunities({ occurredAt: '2026-12-01T00:00:00Z' });
   assert.equal(second.settled.find(s => s.id === id), undefined);
 });
 
@@ -160,7 +161,7 @@ test('settleExecutionOpportunities: an accepted position whose game has not fini
   const id = acceptedOpportunity({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: '2026-10-11T17:00:00Z', side: 'home', line: -2.5, price: -110, stakeUnits: 1 });
 
-  const { settled, skipped } = settleExecutionOpportunities();
+  const { settled, skipped } = settleExecutionOpportunities({ occurredAt: '2026-12-01T00:00:00Z' });
   assert.equal(settled.find(s => s.id === id), undefined);
   assert.ok(skipped.find(s => s.id === id && s.reason === 'game_not_final'));
 });

@@ -361,12 +361,12 @@ r.get('/execution/funnel', (req, res, next) => {
 r.post('/execution/:id/accept', requireModelPermission('model:execute'), (req, res, next) => {
   try {
     const body = req.body ?? {};
-    if (!Number.isFinite(Number(body.stakeUnits)) || Number(body.stakeUnits) <= 0) {
+    if (!Number.isFinite(body.stakeUnits) || body.stakeUnits <= 0) {
       return res.status(400).json({ error: 'stakeUnits must be a positive number' });
     }
     const outcome = attemptAcceptance(req.params.id, {
       occurredAt: new Date().toISOString(), book: body.book, line: body.line ?? null,
-      price: Number(body.price), stakeUnits: Number(body.stakeUnits), note: body.note ?? null,
+      price: body.price, stakeUnits: body.stakeUnits, note: body.note ?? null,
       fairProbability: body.fairProbability ?? null, modelLine: body.modelLine ?? null,
       marketLine: body.marketLine ?? null, acknowledgeCorridorBreach: Boolean(body.acknowledgeCorridorBreach),
       acknowledgeSuspectPrice: Boolean(body.acknowledgeSuspectPrice)

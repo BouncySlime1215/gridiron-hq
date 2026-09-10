@@ -1,5 +1,7 @@
 # Gridiron HQ — 2026 Fantasy Football Command Center
 
+Current implementation work is governed by [the NFL spreads plan](docs/CLAUDE-NEXT-STEPS.md). Its evidence and folder inventory are supporting references. Older planning documents are pending the checked consolidation described there and do not set current priorities.
+
 A local full-stack fantasy dashboard: a trade engine that finds and prices deals across your
 league, weekly matchup analytics built from four seasons of real boxscores, a rankings and mock
 draft room, X's-and-O's breakdowns for all 32 NFL teams, and ESPN/Sleeper league sync.

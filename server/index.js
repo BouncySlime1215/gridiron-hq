@@ -16,6 +16,9 @@ try {
 // crash still ran migrations, seed reconciliation and schedulers first.
 const { default: express } = await import('express');
 const { runMigrations } = await import('./db/migrate.js');
+// Route dependencies prepare statements at import time against migrated tables.
+// A fresh install must finish migrations before importing any of those consumers.
+await runMigrations();
 const { seedIfEmpty } = await import('./db/seed/index.js');
 const { default: teamsRouter } = await import('./routes/teams.js');
 const { default: playersRouter } = await import('./routes/players.js');
@@ -51,7 +54,6 @@ const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-acc
 const app = express();
 app.use(express.json());
 
-await runMigrations();
 seedIfEmpty();
 
 // Nothing in this project used to refresh on its own, which is how the MLB board

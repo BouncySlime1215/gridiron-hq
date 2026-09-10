@@ -13,8 +13,9 @@ import { promotedFindingVeto } from './nfl-candidate-findings.js';
 import { pregameSnapshotFor } from './nfl-pregame.js';
 import { onlineNeuralPrediction } from './nfl-online-neural.js';
 import { shinNoVig } from './nfl-devig.js';
+import { spreadForecastIdentity } from './nfl-forecast-identity.js';
 
-const COORDINATED_DECISION_VERSION = 'coordinated-market-residual-v1';
+const COORDINATED_DECISION_VERSION = 'coordinated-market-residual-v2-graph-bound';
 
 // nfl_auto_picks and nfl_pick_decisions come from
 // server/migrations/000_legacy_schema.js, along with the policy/quote/void
@@ -100,7 +101,8 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
   for (const game of ensembleWeek(season, week, modelOptions)) {
     const e = game.ensemble;
     const neural = onlineNeuralPrediction(game);
-    const neuralUsed = modelOptions.includeChallengers || neural.production_eligible === true;
+    const neuralUsed = Boolean((modelOptions.includeChallengers || neural.production_eligible === true)
+      && Number.isFinite(neural.predicted_margin));
     const marketMargin = e.market_spread == null ? null : -e.market_spread;
     const projectedMargin = neuralUsed && neural.predicted_margin != null
       ? neural.predicted_margin : e.projected_margin;
@@ -110,13 +112,12 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
     const quote = prices.get(selection);
     const opposite = prices.get(home ? game.away : game.home);
     const implied = noVigProbability(quote?.spread_odds, opposite?.spread_odds);
-    // Look the calibration up under the version the calibrator actually writes.
-    // Asking for the coordinated-head version string matched no row ever, so the
-    // stored walk-forward audit was never consulted and every abstention read
-    // "calibration_not_proven" for the wrong reason. The decision-head version is
-    // still recorded in the frozen snapshot below.
+    const forecastIdentity = spreadForecastIdentity({ modelOptions,
+      informationRegime: 'live_weekly_unfrozen',
+      neuralVersion: neuralUsed ? (neural.version ?? 'unknown-neural-version') : null,
+      reliabilityVersion: game.reliability_controller?.version ?? null });
     const calibrated = calibratedCoverProbability({ season, marketProbability: implied,
-      edgePoints: edge == null ? null : Math.abs(edge) });
+      edgePoints: edge == null ? null : Math.abs(edge), forecastIdentity });
     const modelProbability = calibrated.probability;
     const incremental = modelProbability == null || implied == null ? null : modelProbability - implied;
     // Do not let an uncalibrated forecast masquerade as a betting signal. A
@@ -136,7 +137,11 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
       edge: edge ?? 0, disagreement: e.model_disagreement_margin
     });
     const calibrationEligible = !veto.vetoed && modelProbability != null && incremental != null && incremental > 0;
-    const activeModels = game.models.filter(m => m.margin != null && m.margin_weight > 0);
+    const audibleModels = game.models.filter(m => (modelOptions.includeChallengers || !m.challenger_only) && m.margin != null);
+    const weightedModels = audibleModels.filter(m => e.blend_mode === 'market_residual'
+      ? m.residual_weight > 0 && m.residual_slope != null : m.margin_weight > 0);
+    const activeModels = e.blend_mode === 'raw' && !weightedModels.length ? audibleModels : weightedModels;
+    const activeModelIds = new Set(activeModels.map(m => m.id));
     const pregame = pregameSnapshotFor(season, week, selection);
     out.push({
       market: 'spread', home_team: game.home, away_team: game.away,
@@ -149,18 +154,24 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
       implied_probability: implied,
       probability_difference: incremental,
       calibration_eligible: calibrationEligible,
+      calibration_status: calibrated.reason,
       promoted_finding_veto: veto.vetoed ? { segment_key: veto.segment_key, reason: veto.reason } : null,
       detail: `Ensemble edge ${edge > 0 ? '+' : ''}${edge} · disagreement ${e.model_disagreement_margin}`,
       edge_points: edge == null ? null : Math.abs(edge), disagreement: e.model_disagreement_margin,
       book: quote?.source ?? null, quote_source: quote?.source ?? null, quote_at: quote?.fetched_at ?? null,
       feature_snapshot: {
+        forecast_identity: forecastIdentity,
+        calibration_status: calibrated.reason,
+        raw_forecast: { base_projected_margin: e.projected_margin, projected_margin: projectedMargin,
+          market_margin: marketMargin, signed_edge_points: edge },
         margin_models_active: activeModels.length,
         margin_models_available: game.models.length,
         active_model_ids: activeModels.map(m => m.id),
-        unavailable_model_ids: game.models.filter(m => m.margin == null || !(m.margin_weight > 0)).map(m => m.id),
+        unavailable_model_ids: game.models.filter(m => !activeModelIds.has(m.id)).map(m => m.id),
         cover_calibration: calibrated.calibration
           ? `${calibrated.calibration.model_version}:${calibrated.calibration.trained_from}-${calibrated.calibration.trained_through}` : null,
         predictive_distribution: e.distribution ?? null,
+        predictive_distribution_scope: 'base_ensemble_research_only',
         coordinated_decision_head: {
           version: COORDINATED_DECISION_VERSION,
           target: 'actual margin minus pregame market margin', base_blend: e.blend_mode,
@@ -174,7 +185,9 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
           challenger_only: model.challenger_only, margin: model.margin, total: model.total,
           base_margin_weight: model.base_margin_weight,
           reliability_multiplier: model.reliability_multiplier,
-          margin_weight: model.margin_weight, total_weight: model.total_weight })),
+          margin_weight: model.margin_weight, total_weight: model.total_weight,
+          residual_weight: model.residual_weight, residual_slope: model.residual_slope,
+          contributes_to_base_margin: activeModelIds.has(model.id) })),
         player_availability_shadow: e.player_availability ?? null,
         pregame_snapshot_at: pregame?.captured_at ?? null,
         pregame_context: pregame?.feature_coverage ?? null

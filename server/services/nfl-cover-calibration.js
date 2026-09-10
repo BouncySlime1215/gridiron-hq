@@ -1,18 +1,15 @@
 /** Price-aware cover calibration, trained only on earlier seasons. */
 import { rows, run } from '../db/index.js';
 import { replaySeason } from './nfl-replay.js';
+import { spreadForecastIdentity, coverCalibrationVersion } from './nfl-forecast-identity.js';
+import { shinNoVig } from './nfl-devig.js';
 
 // nfl_cover_calibrations comes from server/migrations/000_legacy_schema.js.
 
-const VERSION = 'cover-logit-v2';
 const r4 = v => v == null || !Number.isFinite(v) ? null : +v.toFixed(4);
 const sigmoid = x => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x))));
 const logit = p => Math.log(Math.max(1e-5, Math.min(1 - 1e-5, p)) / Math.max(1e-5, 1 - Math.min(1 - 1e-5, p)));
-const implied = o => o == null ? null : o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100);
-const noVig = (a, b) => {
-  const pa = implied(a), pb = implied(b);
-  return pa != null && pb != null && pa + pb > 0 ? pa / (pa + pb) : null;
-};
+const noVig = shinNoVig;
 
 /**
  * Fit the market-anchored offset, with the shrinkage strength as a parameter.
@@ -275,10 +272,16 @@ function blendSweep(samples, seasons) {
         : 'No blend weight beats the market on this sample.' };
 }
 
-export function buildCoverCalibration({ fromSeason = 2021, throughSeason = 2025 } = {}) {
+export function buildCoverCalibration({ fromSeason = 2021, throughSeason = 2025, modelOptions = {} } = {}) {
+  modelOptions = { blendMode: 'market_residual', ...modelOptions };
+  // replaySeason does not apply the board's neural override. Candidate dynamic
+  // controllers require per-row graph provenance before this builder can fit them.
+  if (modelOptions.includeChallengers) throw new TypeError('candidate calibration requires per-forecast controller provenance');
+  const forecastIdentity = spreadForecastIdentity({ modelOptions, informationRegime: 'historical_weekly_closing' });
+  const modelVersion = coverCalibrationVersion(forecastIdentity);
   const samples = [];
   for (let season = fromSeason; season <= throughSeason; season++) {
-    const replay = replaySeason(season, { minEdge: 0, maxDisagreement: null, maxPicksPerWeek: 20, markets: ['spread'] });
+    const replay = replaySeason(season, { minEdge: 0, maxDisagreement: null, maxPicksPerWeek: 20, markets: ['spread'], modelOptions });
     if (replay.error) continue;
     for (const b of replay.bets) {
       if (!['Won', 'Lost'].includes(b.result)) continue;
@@ -309,6 +312,9 @@ export function buildCoverCalibration({ fromSeason = 2021, throughSeason = 2025 
   const scored = score(samples, fit);
   const wf = summarize(walkForward);
   const metrics = {
+    forecast_identity: forecastIdentity,
+    evidence_class: 'historical_closing_research',
+    prospective_qualified: false,
     blend_sweep: sweep.grid,
     any_lambda_beats_market: sweep.any_lambda_beats_market,
     blend_verdict: sweep.verdict,
@@ -366,9 +372,9 @@ export function buildCoverCalibration({ fromSeason = 2021, throughSeason = 2025 
     ON CONFLICT(model_version,trained_from,trained_through) DO UPDATE SET
       created_at=excluded.created_at,sample_size=excluded.sample_size,intercept=excluded.intercept,
       edge_slope=excluded.edge_slope,metrics_json=excluded.metrics_json,reliability_json=excluded.reliability_json`,
-    VERSION, fromSeason, throughSeason, samples.length, fit.intercept, fit.edgeSlope,
+    modelVersion, fromSeason, throughSeason, samples.length, fit.intercept, fit.edgeSlope,
     JSON.stringify(metrics), JSON.stringify(wf.buckets));
-  return latestCoverCalibration(throughSeason + 1);
+  return latestCoverCalibration(throughSeason + 1, modelVersion);
 }
 
 export function latestCoverCalibration(beforeSeason = 9999, modelVersion = null) {
@@ -380,13 +386,28 @@ export function latestCoverCalibration(beforeSeason = 9999, modelVersion = null)
     metrics_json: undefined, reliability_json: undefined };
 }
 
-export function calibratedCoverProbability({ season, marketProbability, edgePoints, modelVersion = VERSION }) {
-  const fit = latestCoverCalibration(season, modelVersion);
-  if (!fit || !fit.metrics?.forward_gate_passed || marketProbability == null || edgePoints == null) {
-    return { probability: null, calibration: fit };
+export function calibratedCoverProbability({ season, marketProbability, edgePoints, modelVersion = null,
+  forecastIdentity = null }) {
+  // A generic logistic version says nothing about the forecast it calibrated.
+  // Legacy rows remain readable research evidence; they cannot authorize a
+  // different graph, neural override, family ablation or information horizon.
+  if (!forecastIdentity) return { probability: null, calibration: null, reason: 'forecast_identity_missing' };
+  const expectedVersion = coverCalibrationVersion(forecastIdentity);
+  if (modelVersion != null && modelVersion !== expectedVersion) {
+    return { probability: null, calibration: null, reason: 'calibration_identity_mismatch' };
+  }
+  const fit = latestCoverCalibration(season, expectedVersion);
+  if (!fit) return { probability: null, calibration: null, reason: 'matching_calibration_missing' };
+  if (JSON.stringify(fit.metrics?.forecast_identity) !== JSON.stringify(forecastIdentity)) {
+    return { probability: null, calibration: fit, reason: 'calibration_identity_mismatch' };
+  }
+  if (!fit.metrics?.forward_gate_passed) return { probability: null, calibration: fit, reason: 'calibration_not_proven' };
+  if (!Number.isFinite(marketProbability) || marketProbability <= 0 || marketProbability >= 1 ||
+    !Number.isFinite(edgePoints) || edgePoints < 0 || !Number.isFinite(fit.intercept) || !Number.isFinite(fit.edge_slope)) {
+    return { probability: null, calibration: fit, reason: 'invalid_calibration_input' };
   }
   return {
     probability: r4(sigmoid(logit(marketProbability) + fit.intercept + fit.edge_slope * (edgePoints / 7))),
-    calibration: fit
+    calibration: fit, reason: null
   };
 }

@@ -25,6 +25,7 @@ import { rows, run } from '../db/index.js';
 import { availabilityDeficit } from './nfl-availability.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { mean } from './stats-util.js';
+import { ENSEMBLE_FIT_VERSION } from './nfl-forecast-identity.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
 import { rosterStrengthWeek } from './nfl-roster-strength.js';
@@ -33,7 +34,7 @@ import { signalReliabilityFor } from './nfl-signal-reliability.js';
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
 const EVAL_FROM = 2022;    // frozen calibration boundary retained for the established ensemble
 const WEIGHT_FIT_FROM = 2018; // discovery history available before the opened 2021-2025 audit
-const FIT_ARTIFACT_VERSION = 'nfl-ensemble-fit-v7-consistent-historical-market';
+const FIT_ARTIFACT_VERSION = ENSEMBLE_FIT_VERSION;
 export const CHALLENGER_SIGNAL_VERSION = 'nfl-challenger-signals-v2';
 
 // nfl_ensemble_fit_artifacts comes from
@@ -1008,11 +1009,14 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   for (const m of scored) {
     m.margin_weight = mW ? +(rawWeight(m, 'margin_rmse') / mW).toFixed(4) : 0;
     m.total_weight = tW ? +(rawWeight(m, 'total_rmse') / tW).toFixed(4) : 0;
-    // A microscopic in-sample inequality is not an edge. A component earns
-    // residual authority only after a material gain and one-sided paired test
-    // on the cutoff-safe replay. The market remains the prediction otherwise.
-    m.residual_gate_passed = m.residual_n >= 250
+    // These are development diagnostics: the slope and its apparent gain are
+    // fitted on the same residual observations. They do not establish held-out
+    // skill or grant production promotion. Excluded challengers have no weight
+    // in either normalization, even when their diagnostic score is strong.
+    m.residual_diagnostic_passed = m.residual_n >= 250
       && m.residual_rmse_gain >= 0.03 && m.residual_paired_t <= -1.645;
+    m.residual_gate_passed = (includeChallengers || !m.challenger_only)
+      && m.residual_diagnostic_passed;
     m.residual_weight = m.residual_gate_passed ? Math.exp(-0.7 * m.residual_rmse) : 0;
   }
   const residualWeightSum = scored.reduce((s, m) => s + m.residual_weight, 0);
@@ -1053,39 +1057,10 @@ export function ensembleLine(season, week, home, away, {
     : { version: 'production-unchanged', multipliers: {}, adjusted: [], result: null };
   const excludedKey = [...excludeModels].sort().join(',');
   const excluded = new Set(excludeModels);
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|${includeEvidence ? 'evidence' : 'forecast'}`;
-  // Family ablations are projections of the same frozen per-model line. Build
-  // that expensive context once, then re-blend only the requested families.
-  // This changes no prediction and makes a nine-cut audit minutes faster.
-  if (families?.length) {
-    const base = _lineCache.get(lineKey) ?? ensembleLine(season, week, home, away, {
-      weighting, families: null, blendMode, includeEvidence, includeChallengers, excludeModels
-    });
-    if (base.error) return base;
-    const allowed = new Set(families);
-    const perModel = base.models.filter(m => allowed.has(m.family));
-    const audible = perModel.filter(m => includeChallengers || !m.challenger_only);
-    const blend = (key, wKey) => {
-      const predicted = audible.filter(m => m[key] != null);
-      const usable = predicted.filter(m => m[wKey] > 0);
-      const weightSum = usable.reduce((s, m) => s + m[wKey], 0);
-      return weightSum > 0 ? usable.reduce((s, m) => s + m[key] * m[wKey], 0) / weightSum
-        : predicted.length ? mean(predicted.map(m => m[key])) : null;
-    };
-    const sd = values => values.length > 1 ? Math.sqrt(mean(values.map(v => (v - mean(values)) ** 2))) : null;
-    const marginValues = audible.filter(m => m.margin != null).map(m => m.margin);
-    const totalValues = audible.filter(m => m.total != null).map(m => m.total);
-    const margin = blend('margin', 'margin_weight'), total = blend('total', 'total_weight');
-    const marketMargin = base.ensemble.market_spread == null ? null : -base.ensemble.market_spread;
-    return { ...base, ensemble: { ...base.ensemble,
-      projected_spread: margin == null ? null : r2(-margin), projected_margin: r2(margin), projected_total: r2(total),
-      spread_edge: margin != null && marketMargin != null ? r2(margin - marketMargin) : null,
-      total_edge: total != null && base.ensemble.market_total != null ? r2(total - base.ensemble.market_total) : null,
-      model_disagreement_margin: r2(sd(marginValues)), model_disagreement_total: r2(sd(totalValues)),
-      models_contributing_margin: marginValues.length, models_contributing_total: totalValues.length,
-      confidence: confidenceFrom(sd(marginValues), margin, marketMargin)
-    }, models: perModel };
-  }
+  const familyKey = families?.length ? [...new Set(families)].sort().join(',') : '*';
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|families:${familyKey}|${includeEvidence ? 'evidence' : 'forecast'}`;
+  // Every family ablation follows the same blend and distribution path as the
+  // full model. Shared contexts and fitted artifacts remain cached below.
   if (_lineCache.has(lineKey)) return _lineCache.get(lineKey);
   // This cutoff is what makes season replay genuinely walk-forward. Live games
   // naturally use every completed game before their kickoff; historical games
@@ -1144,13 +1119,14 @@ export function ensembleLine(season, week, home, away, {
   const rawMargin = blend('margin', 'margin_weight');
   const total = blend('total', 'total_weight');
   const marketMargin = g.home_spread != null ? -g.home_spread : null;
-  const residualModels = perModel.filter(m => m.margin != null && m.residual_weight > 0 && m.residual_slope != null);
+  const residualModels = perModel.filter(m => (includeChallengers || !m.challenger_only) && m.margin != null && m.residual_weight > 0 && m.residual_slope != null);
   const residualWeight = residualModels.reduce((s, m) => s + m.residual_weight, 0);
   const residualMargin = marketMargin != null && residualWeight > 0
     ? marketMargin + residualModels.reduce((s, m) => s + m.residual_weight * m.residual_slope * (m.margin - marketMargin), 0) / residualWeight
     : marketMargin;
-  // The residual mode can only move away from the market with independently
-  // earned residual skill.  Its no-signal fallback is precisely the spread.
+  // Only permitted components may move this research forecast away from the
+  // market. The in-sample residual diagnostic is not proof of independent skill.
+  // The no-signal fallback is precisely the spread.
   const margin = blendMode === 'market_residual' ? residualMargin : rawMargin;
   const disagreementMargin = sd(marginVals);
   const distribution = predictiveDistribution(hist, { margin, total, homeSpread: g.home_spread,

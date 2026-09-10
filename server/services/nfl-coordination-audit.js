@@ -1,14 +1,20 @@
 /** Machine-readable audit of what actually reaches the NFL betting decision. */
-import { latestCoverCalibration } from './nfl-cover-calibration.js';
+import { calibratedCoverProbability } from './nfl-cover-calibration.js';
+import { spreadForecastIdentity } from './nfl-forecast-identity.js';
 import { nflOnlineNeuralStatus } from './nfl-online-neural.js';
 import { nflRiskLabStatus } from './nfl-risk-lab.js';
 import { signalReliabilityStatus } from './nfl-signal-reliability.js';
 
-const DECISION_VERSION = 'coordinated-market-residual-v1';
+const DECISION_VERSION = 'coordinated-market-residual-v2-graph-bound';
 
 export function nflCoordinationAudit() {
   const neural = nflOnlineNeuralStatus();
-  const calibration = latestCoverCalibration(9999, DECISION_VERSION);
+  const forecastIdentity = spreadForecastIdentity({ informationRegime: 'live_weekly_unfrozen',
+    neuralVersion: neural.production_eligible ? (neural.version ?? 'unknown-neural-version') : null });
+  const calibrationCheck = calibratedCoverProbability({ season: new Date().getUTCFullYear(),
+    marketProbability: 0.5, edgePoints: 0, forecastIdentity });
+  const calibration = calibrationCheck.calibration;
+  const calibrationQualified = calibrationCheck.probability != null;
   const risk = nflRiskLabStatus();
   const reliability = signalReliabilityStatus();
   const components = [
@@ -28,7 +34,7 @@ export function nflCoordinationAudit() {
     { id: 'verified_news', target: 'typed availability and role context', connection: 'indirect_connected',
       influence: 'Feeds the neural vector only after source verification; quarantined prose has zero numeric authority.' },
     { id: 'cover_calibration', target: 'price-aware cover probability',
-      connection: calibration?.metrics?.forward_gate_passed ? 'production_connected' : 'missing_for_decision_version',
+      connection: calibrationQualified ? 'production_connected' : 'missing_for_decision_version',
       influence: calibration ? 'Version-matched calibration exists.'
         : 'The old raw-ensemble calibration is intentionally rejected because it does not match the coordinated residual head.' },
     { id: 'reasoning_ai', target: 'human explanation', connection: 'post_decision_only',
@@ -38,6 +44,7 @@ export function nflCoordinationAudit() {
     .includes(item.connection));
   return {
     version: DECISION_VERSION,
+    forecast_identity: forecastIdentity, calibration_status: calibrationCheck.reason,
     verdict: 'The system is now routed through one market-residual decision head, but it does not yet have a version-matched profitable probability calibration or a promoted adaptive learner.',
     hard_truths: [
       'The prior engine registry coordinated version labels, not inference. Several registered heads never reached the betting decision.',
@@ -50,7 +57,7 @@ export function nflCoordinationAudit() {
     canonical_flow: ['verified pregame evidence', 'component forecasts', 'market-residual base',
       'gated adaptive residual', 'version-matched cover probability', 'frozen policy',
       'immutable shadow/forward ledger', 'post-decision explanation'],
-    production_state: calibration?.metrics?.forward_gate_passed && neural.production_eligible
+    production_state: calibrationQualified && neural.production_eligible
       ? 'review_eligible' : 'abstain_no_proven_edge'
   };
 }

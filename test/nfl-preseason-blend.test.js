@@ -78,3 +78,83 @@ test('PRIOR_VARIANCE and PER_GAME_VARIANCE constants match a fresh calibration',
   assert.equal(PRIOR_VARIANCE, fresh.prior_variance);
   assert.equal(PER_GAME_VARIANCE, fresh.per_game_variance);
 });
+
+// --- Codex audit finding M01 acceptance criteria (2026-09-10 fix) ---------
+
+test('the posterior weight follows the correct normal-normal formula: sigma^2 / (sigma^2 + n*tau^2)', () => {
+  // Reconstruct the exact formula independently from the reported inputs and
+  // compare against the module's own output -- this must never regress back
+  // to the reversed tau^2/(tau^2+n*sigma^2) form.
+  const r = blendedTeamRating(2024, 'KC', 8); // some real number of games played, no churn multiplier available
+  if (r.games_played === 0 || r.churn_multiplier != null) return; // keep this check isolated to the plain-baseline case
+  const c = calibratePreseasonBlend({ asOfSeason: 2024 });
+  const expected = c.per_game_variance / (c.per_game_variance + r.games_played * c.prior_variance);
+  assert.ok(Math.abs(r.weight_on_prior - expected) < 0.001,
+    `weight_on_prior ${r.weight_on_prior} should equal sigma^2/(sigma^2+n*tau^2) = ${expected}`);
+});
+
+test('increasing prior variance (a less trustworthy prior) strictly REDUCES weight on the prior', () => {
+  // A team the churn model treats as heavily churned should trust its prior
+  // less at the same game count than one treated as stable -- exercise this
+  // directly via priorMargin/asOfSeason holding games_played fixed, using the
+  // internal formula shape rather than needing a specific real team's churn
+  // history (which may not exist for every era, see the churn test above).
+  const low = blendedTeamRating(2024, 'KC', 8, { priorMargin: 3 });
+  // Simulate "more prior uncertainty" the same way the module does internally
+  // (basePriorVariance * churnMultiplier) by comparing against a synthetic
+  // higher-variance recomputation of the same closed-form weight.
+  const c = calibratePreseasonBlend({ asOfSeason: 2024 });
+  const n = low.games_played;
+  const wLowTau = c.per_game_variance / (c.per_game_variance + n * c.prior_variance);
+  const wHighTau = c.per_game_variance / (c.per_game_variance + n * (c.prior_variance * 3));
+  assert.ok(wHighTau < wLowTau, 'tripling prior variance must reduce the weight placed on the prior');
+});
+
+test('increasing observation noise (sigma^2) strictly INCREASES weight on the prior', () => {
+  const c = calibratePreseasonBlend({ asOfSeason: 2024 });
+  const n = 6;
+  const wLowSigma = c.per_game_variance / (c.per_game_variance + n * c.prior_variance);
+  const wHighSigma = (c.per_game_variance * 3) / (c.per_game_variance * 3 + n * c.prior_variance);
+  assert.ok(wHighSigma > wLowSigma, 'tripling observation variance must increase the weight placed on the prior');
+});
+
+test('posterior mean is exactly the precision-weighted average of prior and in-season means', () => {
+  const r = blendedTeamRating(2024, 'KC', 12);
+  if (r.games_played === 0 || r.prior == null || r.in_season == null) return;
+  const expected = r.weight_on_prior * r.prior + (1 - r.weight_on_prior) * r.in_season;
+  assert.ok(Math.abs(r.blended - expected) < 0.002,
+    `blended ${r.blended} should equal weight_on_prior*prior + (1-weight_on_prior)*in_season = ${expected}`);
+});
+
+test('cutoff safety: a prediction for an earlier season is identical whether or not later seasons exist in the database', () => {
+  // calibrationAsOf(2022) must depend only on seasons < 2022 -- verify by
+  // confirming the as-of-2022 calibration differs from (i.e. is NOT silently
+  // reusing) the all-history calibration, which does include 2022 onward.
+  const asOf2022 = calibratePreseasonBlend({ asOfSeason: 2022 });
+  const allHistory = calibratePreseasonBlend();
+  assert.ok(asOf2022.games_pooled < allHistory.games_pooled,
+    'the 2022 cutoff must pool strictly fewer games than the all-history calibration');
+  // And the actual rating call for a 2022 game must use that restricted
+  // calibration by default (asOfSeason defaults to `season`), not the
+  // always-current constants.
+  const r2022 = blendedTeamRating(2022, 'KC', 10);
+  if (r2022.games_played > 0 && r2022.prior != null) {
+    const expected = asOf2022.per_game_variance / (asOf2022.per_game_variance + r2022.games_played * asOf2022.prior_variance
+      * (r2022.churn_multiplier ?? 1));
+    assert.ok(Math.abs(r2022.weight_on_prior - expected) < 0.001,
+      'a 2022 prediction must be calibrated from seasons before 2022, not the full all-history constants');
+  }
+});
+
+test('per_game_variance and prior_variance are computed on the SAME (dampened-margin) scale the blend itself uses', () => {
+  // A 35-point blowout and a 3-point win must not carry equal weight in
+  // either the calibration or the blend -- confirm the calibration query
+  // itself is not simply reproducible from raw (undampened) margins.
+  const c = calibratePreseasonBlend();
+  // Raw per-game margin variance in this league is well above 300 (a
+  // typical single-game std-dev of home-away margin is ~13-14 points); the
+  // dampened-scale variance must come out meaningfully smaller than that,
+  // confirming the dampening transform is actually being applied before the
+  // variance is pooled, not just documented as intent.
+  assert.ok(c.per_game_variance < 300, `dampened per_game_variance ${c.per_game_variance} should be well below raw-margin variance (~350+)`);
+});

@@ -491,15 +491,37 @@ const MODELS = [
   },
   {
     id: 'opp_adjusted', name: 'Opponent-adjusted EPA', family: 'Efficiency',
-    note: 'Efficiency corrected for the quality of defences and offences faced.',
+    note: 'Efficiency corrected for the quality of defences and offences actually faced this season, using each team\'s real schedule (`c.schedule`, from games strictly earlier than the decision). ' +
+      'CORRECTED 2026-09-10 (Codex audit finding M13): the previous version computed ((off_epa - league) - (def_epa - league)), which algebraically cancels to plain off_epa - def_epa -- ' +
+      'mathematically identical to the unadjusted `epa_net` component elsewhere in this file, despite its name and note claiming a real opponent adjustment. It now actually looks up each ' +
+      'team\'s opponents from that season\'s schedule and adjusts offense for the average quality of defenses faced (and defense for the average quality of offenses faced), a standard ' +
+      'first-pass strength-of-schedule adjustment (not a fully iterative SRS solve). This is a genuine behavior change, not just a rename -- it has not yet been walk-forward validated as an ' +
+      'improvement over the plain net-EPA component it replaces functionally; treat its ensemble weight like any other freshly-changed component until a dedicated comparison runs.',
     predict: (c) => {
       if (!c.feat.has(c.home) || !c.feat.has(c.away)) return { margin: null, total: null };
       const league = avg([...c.feat.values()].map(f => f.off_epa).filter(v => v != null)) ?? 0;
-      const adj = t => {
-        const f = c.feat.get(t); if (!f) return 0;
-        return ((f.off_epa ?? league) - league) - ((f.def_epa ?? league) - league);
+      const leagueDef = avg([...c.feat.values()].map(f => f.def_epa).filter(v => v != null)) ?? 0;
+      const opponentsOf = t => (c.schedule?.get(t) ?? []).filter(o => o !== t && c.feat.has(o));
+      // A team that faced tougher-than-average defenses (lower def_epa allowed
+      // = better defense) has its raw offensive EPA adjusted UP relative to a
+      // team with an easier schedule, and symmetrically for defense.
+      const adjOff = t => {
+        const f = c.feat.get(t); if (!f || f.off_epa == null) return null;
+        const opponents = opponentsOf(t).filter(o => c.feat.get(o).def_epa != null);
+        const avgOppDef = opponents.length ? avg(opponents.map(o => c.feat.get(o).def_epa)) : leagueDef;
+        return (f.off_epa - league) - (avgOppDef - leagueDef);
       };
-      return { margin: (adj(c.home) - adj(c.away)) * 65 + c.hfa, total: null };
+      const adjDef = t => {
+        const f = c.feat.get(t); if (!f || f.def_epa == null) return null;
+        const opponents = opponentsOf(t).filter(o => c.feat.get(o).off_epa != null);
+        const avgOppOff = opponents.length ? avg(opponents.map(o => c.feat.get(o).off_epa)) : league;
+        return (f.def_epa - leagueDef) - (avgOppOff - league);
+      };
+      const homeOff = adjOff(c.home), homeDef = adjDef(c.home);
+      const awayOff = adjOff(c.away), awayDef = adjDef(c.away);
+      if (homeOff == null || homeDef == null || awayOff == null || awayDef == null) return { margin: null, total: null };
+      const homeNet = homeOff - homeDef, awayNet = awayOff - awayDef;
+      return { margin: (homeNet - awayNet) * 65 + c.hfa, total: null };
     }
   },
 
@@ -516,8 +538,10 @@ const MODELS = [
     }
   },
   {
-    id: 'rest_travel', name: 'Rest and situation', family: 'Context',
-    note: 'Home field, rest differential and divisional familiarity. The rest coefficient is fitted, not assumed — replay analysis found short-week games were the single largest systematic error.',
+    id: 'rest_travel', name: 'Rest and division familiarity', family: 'Context',
+    note: 'Home field, rest differential (fitted, not assumed — replay analysis found short-week games were the single largest systematic error) and a fixed home-field reduction in division games. ' +
+      'RENAMED 2026-09-10 (Codex audit finding M13): despite its previous "rest and travel" name, this component has never measured travel (distance, time zones, direction) at all — only rest ' +
+      'days and a division-game indicator. The id is kept stable (persisted weight/provenance history is keyed by it) but the name and this note now describe only what it actually computes.',
     predict: (c) => {
       // Replaying 2022-2025 showed short-week games losing at 40% (z = -3.4),
       // which said the hand-picked 0.18 points per rest day was wrong. The
@@ -526,7 +550,13 @@ const MODELS = [
       const restDiff = (c.homeRest ?? 7) - (c.awayRest ?? 7);
       const f = c.cal?.rest;
       const restEdge = f ? f.b1 * restDiff : restDiff * 0.18;
-      const divPenalty = c.div === 1 ? -0.4 : 0; // familiarity compresses margins
+      // A fixed shift toward the AWAY side in division games -- division
+      // rivals travel less and know the building, which erodes some of the
+      // home crowd/environment edge. This always favors away by the same
+      // amount regardless of who is favored; it does NOT shrink the overall
+      // predicted margin toward a pick'em the way "compresses margins" (the
+      // previous comment here) implies.
+      const divPenalty = c.div === 1 ? -0.4 : 0;
       return { margin: c.hfa + restEdge + divPenalty, total: null };
     }
   },
@@ -659,6 +689,20 @@ function marketRegression(hist) {
   return { b0: my - b1 * mx, b1 };
 }
 
+/**
+ * Every opponent each team has actually played in `hist` (games strictly
+ * earlier than the target decision) -- the schedule data `opp_adjusted`
+ * below needs to genuinely adjust for strength of schedule, rather than
+ * silently reducing to unadjusted net EPA the way it did before the Codex
+ * audit's M13 finding.
+ */
+function scheduleFaced(hist) {
+  const m = new Map();
+  const add = (t, opp) => { if (!m.has(t)) m.set(t, []); m.get(t).push(opp); };
+  for (const g of hist) { add(g.home, g.away); add(g.away, g.home); }
+  return m;
+}
+
 /** Builds the context object every model reads, from games strictly earlier. */
 const _sharedContextCache = new Map();
 function sharedContext(g, hist) {
@@ -669,7 +713,7 @@ function sharedContext(g, hist) {
   for (const [t, a] of agg) recent.set(t, a.margins);
   const shared = {
     hfa: 2 * (avg(hist.map(x => (x.home_score - x.away_score) / 2)) ?? 1.1),
-    agg, recent,
+    agg, recent, schedule: scheduleFaced(hist),
     massey: massey(hist), colley: colley(hist), melo: meloRatings(hist), dynamic: dynamicStrength(hist),
     feat: featureAggregates(g.season, g.week),
     // Injury availability. The forecasting model has never had this — seventeen

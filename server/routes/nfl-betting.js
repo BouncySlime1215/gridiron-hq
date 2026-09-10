@@ -51,6 +51,7 @@ import {
   blindAuditProtocol, blindAuditStatus, listBlindAudits,
   preregisterBlindAudit, runNextBlindAuditWeek
 } from '../services/nfl-blind-audit.js';
+import { auditOverview, compareAuditRuns } from '../services/nfl-audit-overview.js';
 import { weeklyLearningStatus } from '../services/weekly-learning.js';
 import { tdCalibrationCatalog } from '../services/nfl-prop-calibration.js';
 import { signalQualityCatalog } from '../services/model-signal-quality.js';
@@ -374,6 +375,23 @@ r.get('/blind-audits/:id', (req, res, next) => {
     if (!audit) return res.status(404).json({ error: 'blind audit not found' });
     res.json(audit);
   } catch (e) { next(e); }
+});
+
+// Work package 0 (Codex CLAUDE-NEXT-STEPS.md, 2026-09-10): the corrected,
+// market-split scoreboard generated from saved records -- never a fresh
+// replay, never a pooled cross-market win rate.
+r.get('/blind-audits/:id/overview', (req, res, next) => {
+  try {
+    const overview = auditOverview(req.params.id);
+    if (overview.error) return res.status(404).json(overview);
+    res.json(overview);
+  } catch (e) { next(e); }
+});
+
+// Compares two completed runs' saved per-week result hashes -- no replay.
+r.get('/blind-audits/:idA/compare/:idB', (req, res, next) => {
+  try { res.json(compareAuditRuns(req.params.idA, req.params.idB)); }
+  catch (e) { next(e); }
 });
 
 r.post('/blind-audits', (req, res, next) => {

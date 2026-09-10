@@ -641,8 +641,13 @@ test('live and replay policy enforces the same eligibility rules and weekly cap'
   candidates.push({ market: 'spread', matchup: 'low at edge', selection: 'low', line: 2,
     american_price: -110, edge_points: 2.9, disagreement: 2 });
   // This test isolates the shared edge/ranking/cap mechanics. Calibration is
-  // separately gated in production and needs real walk-forward evidence.
-  const result = applyNflPolicy(candidates, { ...NFL_PRODUCTION_POLICY, requireCalibratedAdvantage: false });
+  // separately gated in production and needs real walk-forward evidence, and
+  // the executable-return gate (Codex audit finding E2) is likewise separate:
+  // these candidates carry no probability, so pricing them is impossible by
+  // construction. Both are disabled here so a failure means the ranking/cap
+  // mechanics broke, not that an unrelated gate fired.
+  const result = applyNflPolicy(candidates,
+    { ...NFL_PRODUCTION_POLICY, requireCalibratedAdvantage: false, minExpectedReturn: null });
   assert.equal(result.selected.length, 5);
   assert.deepEqual(result.selected.map(x => x.edge_points), [8, 7.5, 7, 6.5, 6]);
   assert.equal(result.decisions.filter(x => x.abstention_reason === 'weekly_capacity').length, 3);
@@ -651,8 +656,19 @@ test('live and replay policy enforces the same eligibility rules and weekly cap'
   const unproven = applyNflPolicy([candidates[0]], NFL_PRODUCTION_POLICY);
   assert.equal(unproven.selected.length, 0);
   assert.equal(unproven.decisions[0].abstention_reason, 'calibration_not_proven');
-  const proven = applyNflPolicy([{ ...candidates[0], calibration_eligible: true }], NFL_PRODUCTION_POLICY);
+  // A candidate that clears calibration must ALSO be worth taking at its
+  // actual price -- so this one carries the probability a real proven
+  // candidate would have (0.60 at -110 is comfortably positive EV).
+  const proven = applyNflPolicy([{ ...candidates[0], calibration_eligible: true, model_probability: 0.60 }],
+    NFL_PRODUCTION_POLICY);
   assert.equal(proven.selected.length, 1);
+  assert.ok(proven.selected[0].expected_return > 0);
+  // And the same candidate at a price that cannot pay for itself does not
+  // become eligible just because its forecast cleared calibration.
+  const overpriced = applyNflPolicy([{ ...candidates[0], calibration_eligible: true,
+    model_probability: 0.51, american_price: -110 }], NFL_PRODUCTION_POLICY);
+  assert.equal(overpriced.selected.length, 0);
+  assert.equal(overpriced.decisions[0].abstention_reason, 'negative_expected_return');
 });
 
 test('NFL replay uncertainty resamples weekly clusters deterministically', () => {

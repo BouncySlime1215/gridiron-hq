@@ -17,7 +17,34 @@ export const NFL_PRODUCTION_POLICY = Object.freeze({
   // A large forecast-to-market gap is not evidence by itself.  The current
   // NFL calibration has to demonstrate an out-of-sample improvement over the
   // no-vig market before a live candidate can be published as a pick.
-  requireCalibratedAdvantage: true
+  requireCalibratedAdvantage: true,
+  /**
+   * Codex audit finding E2: beating the no-vig FAIR probability is not the
+   * same as beating the OFFERED price, and this policy previously only
+   * checked the former. A 51% forecast against a fair 50% is a genuine
+   * forecasting improvement and still loses 2.636 cents per dollar at -110.
+   * Nothing anywhere in the chain computed expected return at the actual
+   * quoted odds, so an improvement over fair could become a published pick
+   * while being negative-EV to take.
+   *
+   * This is the executable-economics floor, applied to the real price:
+   * required net return per unit staked, after the slippage/cost buffer
+   * below. Deliberately ABOVE zero — a bet whose expected value is
+   * epsilon-positive is not worth taking once price movement between
+   * selection and acceptance is real, and this project has measured
+   * exactly zero forward CLV to justify assuming otherwise.
+   */
+  minExpectedReturn: 0.01,
+  /**
+   * Subtracted from the modeled win probability before computing expected
+   * return: a conservative haircut standing in for price deterioration
+   * between selection and acceptance, and for the fact that a calibrated
+   * probability is itself an estimate. Not a measured constant — this
+   * project has no forward CLV history to derive one from — so it is small,
+   * explicit, and disclosed on every decision rather than hidden in a
+   * formula.
+   */
+  probabilityHaircut: 0.01
 });
 
 /**
@@ -53,9 +80,48 @@ export const NFL_HISTORICAL_REPLAY_POLICY = Object.freeze({
   id: 'nfl-spread-historical-replay-v1',
   version: '1.0.0',
   requireCalibratedAdvantage: false,
+  // Explicitly NOT inherited from production. The whole point of this policy
+  // is to grade the selector that historically existed, and that selector had
+  // no executable-return gate; silently applying today's (Codex audit finding
+  // E2) would change what every historical replay bets and make the blind
+  // audit's numbers incomparable to every previous run. A diagnostic replay
+  // has no calibrated probability to price with either.
+  minExpectedReturn: null,
   authority: 'diagnostic_only',
   note: 'Grades the historical selector; it is not the current production publication gate.'
 });
+
+/**
+ * Expected net return per unit staked, at the ACTUAL offered price (Codex
+ * audit finding E2).
+ *
+ *   EV = p_win * profit_multiple - p_loss        (pushes return the stake)
+ *
+ * `winProbability` is CONDITIONAL on the bet being decided — which is what
+ * this project's cover calibrator actually produces, since it discards
+ * pushes when building its binary labels (`nfl-cover-calibration.js`). Push
+ * mass is therefore applied separately here rather than being folded into
+ * the probability: it scales the magnitude of the expected return (a bet
+ * that pushes some of the time risks less and wins less) without changing
+ * its sign.
+ *
+ * Returns null rather than a number when the inputs cannot support the
+ * calculation — an unpriceable bet is not a zero-EV bet.
+ */
+export function expectedNetReturn({ winProbability, americanPrice, pushProbability = 0 } = {}) {
+  // Reject null/undefined BEFORE Number(): `Number(null)` is 0, which would
+  // price a missing probability as a certain loss rather than refusing to
+  // price it at all — an unknown is not a zero.
+  if (winProbability == null || americanPrice == null) return null;
+  const p = Number(winProbability);
+  const push = Number.isFinite(pushProbability) ? Math.min(Math.max(pushProbability, 0), 1) : 0;
+  if (!Number.isFinite(p) || p < 0 || p > 1) return null;
+  const price = Number(americanPrice);
+  if (!Number.isFinite(price) || Math.abs(price) < 100) return null;
+  const profitMultiple = price > 0 ? price / 100 : 100 / Math.abs(price);
+  const decided = 1 - push;
+  return decided * (p * profitMultiple - (1 - p));
+}
 
 export function normalizeNflPolicy(raw = {}) {
   const markets = (raw.markets ?? NFL_PRODUCTION_POLICY.markets)
@@ -69,6 +135,17 @@ export function normalizeNflPolicy(raw = {}) {
   const requireCalibratedAdvantage = raw.requireCalibratedAdvantage == null
     ? NFL_PRODUCTION_POLICY.requireCalibratedAdvantage
     : Boolean(raw.requireCalibratedAdvantage);
+  // `null` is a meaningful value here (the historical replay policy has no
+  // executable-return gate, deliberately), so `?? default` would be wrong --
+  // it would resurrect production's floor for exactly the policy that must
+  // not have one. Only an ABSENT key falls back.
+  const minExpectedReturn = !('minExpectedReturn' in raw)
+    ? NFL_PRODUCTION_POLICY.minExpectedReturn
+    : (raw.minExpectedReturn == null ? null : Number(raw.minExpectedReturn));
+  if (minExpectedReturn != null && (!Number.isFinite(minExpectedReturn)
+      || minExpectedReturn < 0 || minExpectedReturn > 1)) {
+    throw new Error('NFL policy minExpectedReturn outside safe range');
+  }
   if (!markets.length) throw new Error('NFL policy requires a supported market');
   if (!Number.isFinite(minEdge) || minEdge < 0 || minEdge > 14) throw new Error('NFL policy minEdge outside safe range');
   if (maxDisagreement != null && (!Number.isFinite(maxDisagreement) || maxDisagreement < 0 || maxDisagreement > 20)) {
@@ -77,7 +154,7 @@ export function normalizeNflPolicy(raw = {}) {
   if (!Number.isFinite(maxPicksPerWeek) || maxPicksPerWeek > 20) throw new Error('NFL policy weekly cap outside safe range');
   return {
     ...NFL_PRODUCTION_POLICY, ...raw, markets: [...new Set(markets)],
-    minEdge, maxDisagreement, maxPicksPerWeek, requireCalibratedAdvantage
+    minEdge, maxDisagreement, maxPicksPerWeek, requireCalibratedAdvantage, minExpectedReturn
   };
 }
 /**
@@ -104,7 +181,31 @@ export function applyNflPolicy(rawCandidates, rawPolicy = NFL_PRODUCTION_POLICY)
     else if (policy.maxDisagreement != null && candidate.disagreement > policy.maxDisagreement) {
       abstentionReason = 'model_disagreement';
     }
-    return { ...candidate, input_index: inputIndex, eligible: abstentionReason == null, abstention_reason: abstentionReason };
+
+    // Codex audit finding E2: forecast skill, calibration eligibility and
+    // BET PROFITABILITY are three separate conditions, and only the first two
+    // were ever checked. A calibrated probability that beats the no-vig fair
+    // price can still lose money at the offered price. Reported separately
+    // (never folded into edge_points, which is in game points, not money)
+    // and applied last, so an abstention names the specific thing that failed.
+    const haircut = Number.isFinite(policy.probabilityHaircut) ? policy.probabilityHaircut : 0;
+    const expectedReturn = expectedNetReturn({
+      winProbability: candidate.model_probability == null ? null : candidate.model_probability - haircut,
+      americanPrice: candidate.american_price,
+      pushProbability: candidate.push_probability ?? 0
+    });
+    if (abstentionReason == null && policy.minExpectedReturn != null) {
+      if (expectedReturn == null) abstentionReason = 'expected_return_unknown';
+      else if (expectedReturn < policy.minExpectedReturn) abstentionReason = 'negative_expected_return';
+    }
+
+    return { ...candidate, input_index: inputIndex,
+      // The economic condition, always reported even when this policy does
+      // not gate on it, so a diagnostic replay still shows what a bet would
+      // have been worth at its real price.
+      expected_return: expectedReturn == null ? null : +expectedReturn.toFixed(5),
+      expected_return_after_haircut_of: haircut || null,
+      eligible: abstentionReason == null, abstention_reason: abstentionReason };
   });
 
   const ranked = evaluated.filter(x => x.eligible)

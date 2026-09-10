@@ -78,7 +78,13 @@ test('normalizeNflPolicy accepts moneyline instead of silently discarding it', (
 test('a moneyline candidate is never abstained for a line it was never supposed to have', () => {
   const candidate = {
     market: 'moneyline', line: null, american_price: -150, edge_points: 5,
-    disagreement: 1, calibration_eligible: true
+    disagreement: 1, calibration_eligible: true,
+    // A real, priceable probability: -150 needs better than 60% to be worth
+    // taking, and the executable-return gate added for Codex audit finding
+    // E2 correctly refuses a candidate it cannot price at all. This test is
+    // about the LINE check, so the candidate is given the probability a real
+    // moneyline candidate would carry rather than dodging the new gate.
+    model_probability: 0.70
   };
   const result = applyNflPolicy([candidate], { ...NFL_PRODUCTION_POLICY, markets: ['moneyline'], requireCalibratedAdvantage: false });
   assert.equal(result.decisions[0].abstention_reason, null,

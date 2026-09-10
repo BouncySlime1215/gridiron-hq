@@ -43,3 +43,11 @@ research/catboost_info/
 # Neither is source; both otherwise make every `git status` look dirty.
 .claude/worktrees/
 scratchpad/
+
+# Guard against a backup path that evaluated to a bare string (2026-09-10):
+# a shell quoting mistake made VACUUM INTO write a 9.3 GB database to a file
+# literally named "undefined", and `git add -A` committed it. The real fix was
+# the quoting; this is the seatbelt.
+undefined
+*.sqlite.bak
+*.pre-migration-*.bak

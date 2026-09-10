@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { statSync, statfsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { up as applyLegacySchema } from '../migrations/000_legacy_schema.js';
@@ -72,14 +73,32 @@ export const LEGACY_SCHEMA_MIGRATION = '000_legacy_schema';
  * nothing there yet that a failed first migration could lose, and it is what
  * keeps every test's fresh temp database from paying for a snapshot of an
  * empty file on every run. Once real schema history exists, every migration
- * after it is preceded by one. Snapshots are not pruned automatically —
- * recovery after a bad migration is worth more than the disk they cost, and
- * this project already leaves manual reset backups in place for the same reason.
+ * after it is preceded by one.
+ *
+ * DISK GUARD, added 2026-09-10. The reasoning above — "recovery after a bad
+ * migration is worth more than the disk they cost" — is right, and it quietly
+ * assumed the disk had room. On 2026-09-10 this database was 9.0 GB, eight
+ * accumulated snapshots held 57.3 GB, and the volume was at 97% with 15 GB
+ * free. The next migration would have attempted a 9 GB `VACUUM INTO` into
+ * 15 GB of headroom.
+ *
+ * A snapshot that fills the disk is not protection; it is a second failure on
+ * top of the one it was insuring against, and a half-written backup next to a
+ * migration that then cannot complete is the worst state this code can produce.
+ * So the check below REFUSES rather than proceeds. A refusal is recoverable in
+ * one command; a full disk during a schema change may not be.
+ *
+ * Snapshots are still never pruned automatically. Deleting a recovery point is
+ * a judgement about what history is worth keeping, and that belongs to a person
+ * who knows what is in it — this only declines to create one it cannot finish.
  */
 export function backupBeforeMigration(reason = 'migrations', database = db, databasePath = DB_PATH) {
   const prior = database.prepare('SELECT COUNT(*) n FROM schema_migrations WHERE name <> ?')
     .get(LEGACY_SCHEMA_MIGRATION)?.n ?? 0;
   if (!prior || !databasePath || databasePath === ':memory:') return null;
+
+  assertRoomForSnapshot(databasePath);
+
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const backupPath = `${databasePath}.pre-migration-${stamp}.bak`;
   const startedAt = Date.now();
@@ -87,6 +106,45 @@ export function backupBeforeMigration(reason = 'migrations', database = db, data
   database.prepare(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`).run();
   console.log(`[db] backup complete in ${Date.now() - startedAt}ms`);
   return backupPath;
+}
+
+/**
+ * How much headroom a snapshot needs beyond its own size.
+ *
+ * `VACUUM INTO` writes a compacted copy, so the snapshot is usually a little
+ * SMALLER than the source — but not reliably, and a migration still needs room
+ * to work in afterwards. Requiring the database's full size plus 2 GB is
+ * deliberately generous: the cost of being wrong in the cautious direction is
+ * one clear error message, and the cost of being wrong the other way is a
+ * schema change onto a full disk.
+ */
+const SNAPSHOT_HEADROOM_BYTES = 2 * 1024 ** 3;
+
+/** Refuse to start a snapshot the disk cannot finish. */
+export function assertRoomForSnapshot(databasePath = DB_PATH) {
+  let needed, free, total;
+  try {
+    needed = statSync(databasePath).size + SNAPSHOT_HEADROOM_BYTES;
+    const fs = statfsSync(path.dirname(path.resolve(databasePath)));
+    free = fs.bavail * fs.bsize;
+    total = fs.blocks * fs.bsize;
+  } catch {
+    // If the platform will not answer, do not invent a reason to block a
+    // migration. An unmeasurable disk is not the same as a full one.
+    return { checked: false };
+  }
+  if (free >= needed) {
+    return { checked: true, ok: true, free_bytes: free, needed_bytes: needed };
+  }
+  const gb = bytes => (bytes / 1024 ** 3).toFixed(1);
+  throw new Error(
+    `Refusing to migrate: a pre-migration snapshot of ${gb(needed - SNAPSHOT_HEADROOM_BYTES)} GB ` +
+    `needs about ${gb(needed)} GB free, and ${gb(free)} GB is available of ${gb(total)} GB.\n\n` +
+    'A snapshot that fills the disk is not protection — it is a second failure on top of the one it ' +
+    'was insuring against. Free space and start again.\n\n' +
+    `Old snapshots sit beside the database as ${path.basename(databasePath)}.pre-migration-*.bak. ` +
+    'They are never deleted automatically: choosing which recovery point to give up is a judgement ' +
+    'about what history is worth keeping, and it belongs to someone who knows what is in it.');
 }
 
 /**

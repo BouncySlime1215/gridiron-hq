@@ -497,7 +497,9 @@ test('the four season endpoints delegate verbatim once the module lands', async 
     export function wongSettings() { return { source: 'fixture', bankroll_units: 40 }; }
     export function saveWongSettings(body) { return { saved: true, got: body }; }
     export function wongSeason({ season }) { return { source: 'fixture', season }; }
-    export function bestTicketSet({ book, maxTickets }) { return { source: 'fixture', book, maxTickets }; }
+    export function bestTicketSet({ candidates, maxTickets }) {
+      return { source: 'fixture', candidate_count: Array.isArray(candidates) ? candidates.length : null, maxTickets };
+    }
   `);
   const original = seasonModuleSource.path;
   seasonModuleSource.path = `file://${fixture}`;
@@ -508,10 +510,57 @@ test('the four season endpoints delegate verbatim once the module lands', async 
       { saved: true, got: { bankroll_units: 12 } });
     assert.deepEqual(await (await get('/api/betting/wong/season?season=2026')).json(),
       { source: 'fixture', season: 2026 });
-    assert.deepEqual(await (await get('/api/betting/wong/combos?book=draftkings&maxTickets=4')).json(),
-      { source: 'fixture', book: 'draftkings', maxTickets: 4 });
+    // The route scans the board itself and hands bestTicketSet CANDIDATES, so
+    // the stub sees an array rather than a book name. It still carries the
+    // board's own identity and refusals back out, which is what lets a caller
+    // tell "no legs" apart from "no price".
+    const combos = await (await get('/api/betting/wong/combos?book=draftkings&maxTickets=4')).json();
+    assert.equal(combos.source, 'fixture');
+    assert.equal(combos.maxTickets, 4);
+    assert.equal(typeof combos.candidate_count, 'number',
+      'candidates were passed through as an array, not a book name');
+    assert.equal(combos.book, 'draftkings');
+    assert.ok('blocked_reasons' in combos, 'the board\'s refusals ride along');
     assert.equal((await get('/api/betting/wong/combos?maxTickets=999')).status, 400);
   } finally { seasonModuleSource.path = original; }
+});
+
+test('GET /combos returns a real non-overlapping set from the live board', async () => {
+  // The seam this exists to hold. `bestTicketSet` solves a matching over
+  // candidates and knows nothing about books; the route used to pass it a book
+  // name and nothing else, so `candidates` defaulted to [] and it answered
+  // "no legal pair of legs on this board" against a board holding 36 of them.
+  // Nothing threw and nothing logged — the UI simply showed an empty tab.
+  seedBoard();
+  const res = await get('/api/betting/wong/combos?book=draftkings&maxTickets=4');
+  assert.equal(res.status, 200);
+  const set = await res.json();
+
+  assert.ok(set.ticket_count >= 1, `a board with qualifying legs yields tickets, got ${set.ticket_count}`);
+  assert.equal(set.disjoint, true);
+  assert.deepEqual(set.blocked_reasons, [], 'nothing blocked this board');
+  assert.equal(set.book, 'draftkings');
+  assert.ok(set.qualifying_legs >= 2, 'the board identity came back with the set');
+
+  // Every leg is used at most once across the whole set — the property the
+  // whole feature exists for.
+  const used = set.tickets.flatMap(ticket => ticket.legs.map(leg => `${leg.event_id}|${leg.team}`));
+  assert.equal(new Set(used).size, used.length, 'no leg appears in two tickets');
+  for (const ticket of set.tickets) {
+    assert.notEqual(ticket.legs[0].event_id, ticket.legs[1].event_id, 'a ticket is never one game twice');
+  }
+});
+
+test('GET /combos reports WHY it is empty rather than going quiet', async () => {
+  // An empty set has two very different causes and the set alone cannot say
+  // which. Without a price, the board refuses and the reason must survive.
+  clearBoard();
+  game(JAX, 'Jacksonville Jaguars', 'Cleveland Browns', -7.5, { book: 'draftkings' });
+  game(NYJ, 'Tennessee Titans', 'New York Jets', -1.5, { book: 'draftkings', commence: LATER });
+  const set = await (await get('/api/betting/wong/combos?book=draftkings')).json();
+  assert.equal(set.ticket_count, 0);
+  assert.ok(set.blocked_reasons.length >= 1, 'the refusal is reported');
+  assert.match(set.blocked_reasons.join(' '), /price/i);
 });
 
 /* ------------------------------------------------------------- the refresh */

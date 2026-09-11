@@ -25,7 +25,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { db, row } from '../db/index.js';
 import {
-  DEFAULT_WONG_BOOKS, scanAllBooks, sourceForBook, legProbabilities,
+  DEFAULT_WONG_BOOKS, scanAllBooks, scanTeaserBoard, sourceForBook, legProbabilities,
 } from '../betting/nfl/strategy/teaser-scan.js';
 import {
   CROSS_BOTH_LINES, TEASER_POINTS, familyRate, ticketEV, ticketProbabilities,
@@ -312,10 +312,30 @@ r.get('/combos', async (req, res, next) => {
     if (Number.isNaN(maxTickets) || (maxTickets != null && (maxTickets < 1 || maxTickets > 50))) {
       return res.status(400).json({ error: 'maxTickets must be a whole number between 1 and 50' });
     }
-    res.json(mod.bestTicketSet({
-      book: req.query.book ? String(req.query.book) : undefined,
+    // `bestTicketSet` solves a matching over candidates; it does not know what
+    // a book is and never scans. This route used to hand it `book` and nothing
+    // else, so `candidates` defaulted to [] and it answered "no legal pair of
+    // legs on this board" against a board holding 36 of them — a seam between
+    // two modules whose contracts were written separately.
+    const book = req.query.book ? String(req.query.book) : 'draftkings';
+    const board = scanTeaserBoard({ book });
+    const set = mod.bestTicketSet({
+      candidates: board.candidates ?? [],
       maxTickets: maxTickets ?? undefined,
-    }));
+    });
+    // Carry the board's own refusal through. A caller seeing an empty set needs
+    // to know whether there were no legs or no price, and the set alone cannot
+    // say which.
+    res.json({
+      ...set,
+      book: board.book,
+      provenance: board.provenance,
+      board_captured_at: board.board_captured_at,
+      qualifying_legs: board.qualifying_legs,
+      stale_legs: board.stale_legs,
+      price: board.price ?? null,
+      blocked_reasons: board.blocked_reasons ?? [],
+    });
   } catch (e) { next(e); }
 });
 

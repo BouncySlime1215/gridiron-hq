@@ -76,14 +76,29 @@ test('the implied home spread and total come from the ladder, in home perspectiv
 });
 
 test('pollPolymarketLines logs a first sighting, ignores noise, and logs a material move once', () => {
-  const ins = db.prepare(`INSERT INTO polymarket_markets (condition_id,question,event_title,kind,end_date) VALUES (?,?,?,'other','2026-09-10T00:20:00Z')`);
-  ins.run('s1', 'Spread: Seahawks (-2.5)', 'Patriots vs. Seahawks');
-  ins.run('s2', 'Spread: Seahawks (-3.5)', 'Patriots vs. Seahawks');
-  ins.run('s3', 'Spread: Seahawks (-4.5)', 'Patriots vs. Seahawks');
-  ins.run('t1', 'Patriots vs. Seahawks: O/U 43.5', 'Patriots vs. Seahawks');
-  ins.run('t2', 'Patriots vs. Seahawks: O/U 45.5', 'Patriots vs. Seahawks');
+  // The kickoff and the captures are RELATIVE to now, and that is the point.
+  //
+  // This fixture used to hardcode an end_date of 2026-09-10T00:20:00Z. The
+  // poller keeps only games whose end_date is inside the last 24 hours or still
+  // ahead (`polymarket-lines.js:187`), so the test passed until the wall clock
+  // crossed 2026-09-11T00:20Z and then began failing with `games` 0 — a
+  // silently expiring test, which is worse than one that never worked, because
+  // it fails long after the change that appears to have broken it.
+  const kickoff = new Date(Date.now() + 36 * 3600e3).toISOString();
+  const ins = db.prepare(`INSERT INTO polymarket_markets (condition_id,question,event_title,kind,end_date) VALUES (?,?,?,'other',?)`);
+  ins.run('s1', 'Spread: Seahawks (-2.5)', 'Patriots vs. Seahawks', kickoff);
+  ins.run('s2', 'Spread: Seahawks (-3.5)', 'Patriots vs. Seahawks', kickoff);
+  ins.run('s3', 'Spread: Seahawks (-4.5)', 'Patriots vs. Seahawks', kickoff);
+  ins.run('t1', 'Patriots vs. Seahawks: O/U 43.5', 'Patriots vs. Seahawks', kickoff);
+  ins.run('t2', 'Patriots vs. Seahawks: O/U 45.5', 'Patriots vs. Seahawks', kickoff);
   const q = db.prepare(`INSERT INTO polymarket_quotes (captured_at,condition_id,mid_yes) VALUES (?,?,?)`);
-  const at = (h) => `2026-09-01T${String(h).padStart(2, '0')}:00:00.000Z`;
+  // The base instant is pinned ONCE. `at()` is called five times per capture
+  // and must return the identical string each time: the poller groups quotes
+  // into captures by exact `captured_at`, so a helper that re-read the clock
+  // per call would split one five-leg ladder into five one-leg captures and
+  // silently detect no moves at all.
+  const base = Date.now();
+  const at = (h) => new Date(base - (14 - h) * 3600e3).toISOString();
   // capture 1: market at -3.5 / 44.5
   for (const [c, p] of [['s1', 0.56], ['s2', 0.50], ['s3', 0.44], ['t1', 0.55], ['t2', 0.45]]) q.run(at(10), c, p);
   // capture 2: tiny noise, no material change

@@ -13,6 +13,7 @@ import './line-shopping.js';
 import './nfl-profitability.js';
 import { simultaneousQuotes } from './nfl-shopping-board.js';
 import { teaserEV, wongHistory, wongLeg } from './nfl-teasers.js';
+import { ticketProbabilities } from '../betting/nfl/strategy/teaser-leg-rates.js';
 import { payoutPerUnit } from './nfl-execution.js';
 
 export const TEASER_POLICY = Object.freeze({
@@ -70,8 +71,19 @@ export function compileTeaserRoutes({ events = [], prices = [], history,
   // with no games in the measurement window yields ticketProbability = 0, every
   // price fails the break-even gate, and the board reports "no candidates" as
   // though the market were the problem.
+  // The same correction as `findTeaserLegs`: `history.win_rate` is conditional
+  // on the leg being DECIDED, so raising it to the leg count answers "all legs
+  // win given none pushed". The break-even price this gate compares against
+  // must come from the ticket's real win probability, which includes the
+  // reduced-push bucket. Pooled push share is used here because this compiler
+  // prices the family before it knows which pair a caller will take; a pair's
+  // own push exposure is applied downstream where the legs are known.
   const measured = Number.isFinite(history?.win_rate) && (history?.legs ?? 0) > 0;
-  const ticketProbability = measured ? Math.pow(history.win_rate, policy.legs) : 0;
+  const pushShare = measured ? (history.push_share ?? 0) : 0;
+  const perLeg = { w: (1 - pushShare) * history?.win_rate, t: pushShare };
+  const ticketProbability = measured && policy.legs === 2
+    ? ticketProbabilities([perLeg, perLeg]).win
+    : measured ? Math.pow(history.win_rate, policy.legs) : 0;
   const mathematicalBreakEvenPrice = fairAmerican(ticketProbability);
   const pricesByBook = new Map(prices.map(price => [bookKey(price.book), price]));
   const byBook = new Map();

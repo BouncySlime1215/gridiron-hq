@@ -242,7 +242,19 @@ function scanFromBoard(board, { now = new Date(), priceFloor = -115,
   }
 
   const candidates = [];
-  if (price && !blocked.length) {
+  // A STALE LEG IS NOT A BROKEN SCAN.
+  //
+  // `stale` was pushed onto `blocked`, and candidate-building required
+  // `!blocked.length` — so ONE leg past its freshness budget zeroed the entire
+  // board while perfectly fresh legs sat in `usable`. With the hourly
+  // aggregator's observed worst capture gap (123 min) already above its budget
+  // (120 min), a single missed capture blanked DraftKings for the week.
+  //
+  // Staleness is a property of a leg; a missing or bad price is a property of
+  // the scan. Only the second can stop it. The stale count is still reported,
+  // because a board quietly dropping legs is its own failure.
+  const scanBlocked = blocked.filter(reason => !/older than \d+ minutes/.test(reason));
+  if (price && !scanBlocked.length && usable.length >= 2) {
     for (let i = 0; i < usable.length; i++) {
       for (let j = i + 1; j < usable.length; j++) {
         const a = usable[i]; const b = usable[j];

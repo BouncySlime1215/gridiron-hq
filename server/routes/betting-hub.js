@@ -201,12 +201,43 @@ function plainCalibration(cal) {
   const slope = m.walk_forward_calibration_slope;
   const mine = m.walk_forward_calibrated_brier;
   const mkt = m.walk_forward_market_brier;
-  const numbers = `Calibration slope ${slope ?? '—'} (needs to land between 0.7 and 1.3). ` +
+  const slopeSe = m.walk_forward_calibration_slope_se;
+  const numbers = `Calibration slope ${slope ?? '—'}` +
+    (slopeSe != null ? ` ± ${slopeSe}` : '') + ` (needs to land between 0.7 and 1.3). ` +
     `Model error ${mine ?? '—'} vs the betting line's ${mkt ?? '—'} — lower is better.`;
+
+  // A DIRECTION MAY ONLY BE STATED IF THE SLOPE CAN CARRY ONE.
+  //
+  // `walk_forward_calibration_slope_estimable` is computed and stored by
+  // nfl-cover-calibration.js, and `forward_gate_passed` already honours it.
+  // This function did not read it, and so printed a confident direction off a
+  // slope of 1.37 whose own standard error is 1.17 — a 95% interval of
+  // [-0.93, 3.67], indistinguishable from perfectly calibrated AND from no
+  // information at all.
+  //
+  // Measured on a sample 4.8x larger than the stored artifact's (5,162 decided
+  // games against 1,110), the slope is **0.29** — which would have printed the
+  // OPPOSITE sentence, "the model is overconfident". The sign of the claim
+  // flips with the sample.
+  //
+  // And a Monte Carlo drawing outcomes from the forecasts themselves — so
+  // perfectly calibrated by construction — prints a miscalibration verdict
+  // about **70% of the time** at the artifact's sample size, splitting almost
+  // evenly between the two opposite directions. The stored 1.37 sits at the
+  // 70th percentile of pure noise.
+  //
+  // So the sentence was not a finding. It was the estimator's variance,
+  // rendered as prose, on the page where the owner reads what to believe.
+  const estimable = m.walk_forward_calibration_slope_estimable === true;
 
   let plain;
   if (m.forward_gate_passed) {
     plain = 'The model\'s confidence now matches how often it is actually right, so it is allowed to size real bets.';
+  } else if (!estimable) {
+    plain = 'There is not enough settled history to say whether the model is over- or under-confident — ' +
+      'the calibration slope\'s own error bar is wider than the gap between "well calibrated" and "no ' +
+      'information at all", so any direction stated here would be noise. It stays on fake money until ' +
+      'the sample can answer the question.';
   } else if (slope != null && slope < 0.7) {
     plain = 'The model is overconfident. When it says a team wins 70% of the time, it happens closer to ' +
       `${Math.round(50 + 20 * slope)}%. Betting on numbers that overstate themselves is how a bankroll goes to zero, so it stays on fake money.`;

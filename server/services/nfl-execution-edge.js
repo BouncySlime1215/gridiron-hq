@@ -49,8 +49,29 @@ import { rows } from '../db/index.js';
 import { fromMarginDistribution, expectedNetReturn, profitMultiple }
   from '../betting/nfl/contracts/spread-probabilities.js';
 
-const dec = american => (american >= 0 ? 1 + american / 100 : 1 + 100 / -american);
-export const impliedProb = american => (american >= 0 ? 100 / (american + 100) : -american / (-american + 100));
+/**
+ * An American price below 100 in magnitude is a parsing failure, not a price.
+ *
+ * `profitMultiple` in the probability contract has refused these since it was
+ * written — "how a malformed feed stops rather than silently becoming a huge
+ * edge" — and `riskModes` throws on them. The two functions that actually SIZE
+ * MONEY did not, and they disagreed with the contract on the same input:
+ * `impliedProb(-50)` returned 0.333 while `profitMultiple(-50)` returned null.
+ *
+ * What that bought: at -1, `dec()` returns 100, so a coin flip sized to the
+ * 3-unit cap. The cap's only practical function was bounding the blast radius
+ * of a bad feed. Now the feed stops instead.
+ */
+function assertRealPrice(american) {
+  if (!Number.isFinite(american) || Math.abs(american) < 100) {
+    throw new TypeError(`american price ${JSON.stringify(american)} is below 100 in magnitude — ` +
+      'that is a parsing failure, not a very short price, and it must not reach a stake');
+  }
+  return american;
+}
+const dec = american => (assertRealPrice(american) >= 0 ? 1 + american / 100 : 1 + 100 / -american);
+export const impliedProb = american =>
+  (assertRealPrice(american) >= 0 ? 100 / (american + 100) : -american / (-american + 100));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
 
 /**

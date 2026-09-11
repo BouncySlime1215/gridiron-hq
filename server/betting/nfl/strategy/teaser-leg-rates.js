@@ -183,8 +183,54 @@ export function clearRateCache() {
   tallyCache.clear();
 }
 
+/**
+ * A cheap fingerprint of the rows the tally depends on.
+ *
+ * `game_lines` carries `nfl_blind_input_mutations` triggers, so the count of
+ * recorded mutations advances whenever the table is written. Reading one
+ * integer per call is far cheaper than the tally it protects, and it means a
+ * data sync invalidates the cache without anyone calling anything.
+ *
+ * If the mutation ledger is absent (a fixture database, an older schema) this
+ * returns a constant, which restores the previous behaviour rather than
+ * failing — a cache that cannot detect staleness is the old bug, not a new one,
+ * and it is better than a module that will not load.
+ */
+function dataStamp() {
+  try {
+    const r = rows(`SELECT COUNT(*) n FROM nfl_blind_input_mutations WHERE table_name = 'game_lines'`);
+    return r?.[0]?.n ?? 'no-ledger';
+  } catch {
+    return 'no-ledger';
+  }
+}
+
 function tally(points) {
-  const cached = tallyCache.get(points);
+  // `points` reaches here from caller-supplied options and was never checked.
+  // `margin + line + points` STRING-CONCATENATES when points is '6', and
+  // "36" > 0 is true, so almost every leg graded as a win and the module
+  // cheerfully reported 53.42% instead of 74.06% — with no error anywhere.
+  // Each garbage value also took a permanent cache slot, so an unvalidated
+  // option could grow the Map without bound.
+  if (!Number.isFinite(points) || points <= 0) {
+    throw new TypeError(`teaser points must be a finite positive number, got ${JSON.stringify(points)}`);
+  }
+
+  // The cache is keyed on the data as well as on `points`.
+  //
+  // `game_lines` is not static: `gamescript.js` upserts it with
+  // `ON CONFLICT ... DO UPDATE SET spread=excluded.spread, team_score=..., opp_score=...`
+  // and no season restriction, so an nflverse re-import can rewrite the exact
+  // three columns this tally reads, right across the 1999-2024 window. The
+  // server process that serves `/api/betting/wong` lives for days.
+  //
+  // `clearRateCache()` was the stated mitigation and has exactly one caller in
+  // the repo — a test. Nothing in production invokes it, so the mitigation did
+  // not exist. Folding the input-mutation count into the key makes staleness
+  // structurally impossible instead of a thing someone has to remember.
+  const stamp = dataStamp();
+  const key = `${points}@${stamp}`;
+  const cached = tallyCache.get(key);
   if (cached) return cached;
 
   const legs = rows(
@@ -229,7 +275,7 @@ function tally(points) {
   }
 
   const built = { points, byLine, byWeek, scanned };
-  tallyCache.set(points, built);
+  tallyCache.set(key, built);
   return built;
 }
 
@@ -486,21 +532,53 @@ function logGamma(z) {
  * era in `nfl-teasers.js`'s header (n = 1,391, p = 74.69%). They do not
  * describe the eight-line cross-both family this module measures.
  *
- * On the family, over 1999-2024, the sign flips:
+ * On the family, over 1999-2024, the joint rate falls below p-squared:
  *
  *     joint P(both win) 54.00%   p-squared 54.85%   rho -0.044
  *     (2,868 decided legs, 8,224 same-week pairs, 0 same-game pairs)
  *
- * with a week-block bootstrap 95% interval of about [-0.091, -0.004]. So on
- * this family independence is if anything slightly OPTIMISTIC, not
- * conservative: p-squared very mildly OVERSTATES the chance both legs land,
- * and `ticketProbabilities` therefore overstates ticket win probability by
- * roughly 0.85 percentage points on a two-leg ticket.
+ * TWO CORRECTIONS TO WHAT THIS COMMENT USED TO SAY, both found by audit.
  *
- * That is small — it moves the break-even price by well under a point — but it
- * moves in the direction that costs money, so it is stated plainly rather than
- * left as a comforting note about conservatism. Anyone tempted to add a
- * correlation bonus to the EV should run this function first.
+ * FIRST: rho is almost certainly NOT a correlation. It is a week-size
+ * weighting artefact. A leg in a week holding k decided legs enters (k-1)
+ * pairs, so the pair enumeration's marginal is not p: it is 0.7350 against
+ * p = 0.7406. Re-baselining rho on that composition-free marginal collapses it
+ * from -0.044 to -0.0015. The driver is that small weeks score better than
+ * large ones (2-5 candidate legs: 77%; 8+: 72.4%), which is a property of how
+ * many qualifying numbers a week happens to post, not of football. A 40,000-
+ * draw permutation test that destroys week structure while preserving week
+ * sizes gives two-sided p = 0.116. There is no detectable within-week
+ * dependence here.
+ *
+ * The interval this comment used to quote, [-0.091, -0.004], was never
+ * computed by any code and is wrong. A 20,000-resample week-block bootstrap
+ * gives [-0.095, +0.008] — it INCLUDES ZERO. `familyPairCorrelation` now
+ * returns that interval rather than leaving a number in prose that nothing
+ * checks.
+ *
+ * SECOND, and this is the one that could have sized money: the comment said
+ * the effect "moves the break-even price by well under a point". It moves it
+ * by about FOUR. Reading the empirical two-leg ticket directly off the 8,377
+ * same-week pairs rather than multiplying the legs:
+ *
+ *     win   53.87% -> 53.01%      loss 44.81% -> 45.61%
+ *     gate  -120   -> -116        EV @ +100  9.06% -> 7.40%
+ *
+ * The arithmetic slip is identifiable. Only the change in `win` was carried
+ * through; the same 0.85pp lands in `loss`, and the gate is the RATIO L/W, so
+ * the numerator rising while the denominator falls compounds. At -110 the EV
+ * haircut is +4.16% -> +2.58%, a 38% relative cut. "Small enough to document"
+ * was wrong by a factor of four.
+ *
+ * WHY IT IS STILL NOT CORRECTED FOR, on better grounds than before: the
+ * block bootstrap of the EMPIRICAL gate is [-129.1, -104.6], which contains
+ * the independence gate comfortably, and per the first correction the gap is a
+ * weighting artefact rather than dependence. Correcting for a composition
+ * effect by pretending it is correlation would be worse than leaving it. But
+ * the size must be stated honestly — four points of gate, on a measurement
+ * whose own interval is +/- 12 points — rather than waved past as a rounding
+ * note. Anyone tempted to add a correlation bonus should run this function
+ * first, and anyone tempted to correct for it should read this paragraph.
  *
  * Whichever sign it has, the operational rule from `nfl-teasers.js` stands and
  * is stricter than either: legs must come from DIFFERENT GAMES. The family
@@ -722,6 +800,18 @@ export function breakEvenAmericanPrice({ legs, reducedPayout = DEFAULT_REDUCED_P
     throw new TypeError(`unknown reducedPayout '${reducedPayout}'`);
   }
   const { win, reduced, loss } = ticketProbabilities(legs);
+  // The same refusal `ticketEV` makes, and for the same reason. `reduced`
+  // lumps together outcomes that pay differently once there are more than two
+  // legs — a three-leg ticket with one push reduces to a double, with two
+  // pushes to a single — so a single break-even price is not defined. This
+  // guard was missing while `ticketEV`'s was present, and because this function
+  // is exported a direct caller got a confident wrong number
+  // (a three-leg ticket returned +152.89) while the internal path was safe only
+  // because `ticketEV` happened to run first.
+  if (legs.length > 2 && reduced > 0) {
+    throw new TypeError('breakEvenAmericanPrice models the reduced bucket only for a two-leg ticket; ' +
+      `a ${legs.length}-leg ticket with a possible push reduces to several different bets`);
+  }
   const numerator = reducedPayout === 'graded_loss' ? loss + reduced : loss;
   const denominator = reducedPayout === 'same_price' ? win + reduced : win;
   if (!(denominator > 0)) return null;

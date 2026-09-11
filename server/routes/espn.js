@@ -47,7 +47,7 @@ export async function syncPlayersFromESPN() {
     // sync uses to find cookies, so there's one real source for them, not two.
     const { s2, swid } = espnCookies();
     if (s2 && swid) headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
-    const resp = await fetch(url, { headers });
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
     if (!resp.ok) throw new Error(`ESPN players API ${resp.status}`);
     const data = await resp.json();
     const players = data.players ?? [];
@@ -235,7 +235,7 @@ export async function syncTeamNewsFeed(abbr) {
     const espnId = abbrToEspnId[abbr];
     if (!team || !espnId) throw new Error(`unknown team ${abbr}`);
     const resp = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?team=${espnId}&limit=20`,
-      { headers: { Accept: 'application/json' } });
+      { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
     if (!resp.ok) throw new Error(`ESPN team news API ${resp.status}`);
     const added = insertArticles((await resp.json()).articles ?? [], teams, team.id);
     recordSync('espn_news_team', 'ok', { abbr, added });
@@ -247,7 +247,7 @@ export async function syncGeneralNews() {
   try {
     const teams = rows('SELECT id, abbr, name FROM nfl_teams');
     const resp = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=50',
-      { headers: { Accept: 'application/json' } });
+      { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
     if (!resp.ok) throw new Error(`ESPN news API ${resp.status}`);
     const added = insertArticles((await resp.json()).articles ?? [], teams);
     recordSync('espn_news_general', 'ok', { added });

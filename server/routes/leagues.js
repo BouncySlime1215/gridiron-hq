@@ -122,7 +122,7 @@ async function fetchEspn(lg, season) {
     + `?scoringPeriodId=1&view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
   const headers = { ...BROWSER_HEADERS };
   if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
-  const resp = await fetch(url, { headers });
+  const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
   if (!resp.ok) throw new Error(`ESPN API ${resp.status}`);
   return resp.json();
 }
@@ -153,7 +153,7 @@ export async function syncEspnLeague(lg) {
 
 export async function syncSleeperLeague(lg) {
   const j = async p => {
-    const resp = await fetch(`${SLEEPER_BASE}${p}`, { headers: { Accept: 'application/json' } });
+    const resp = await fetch(`${SLEEPER_BASE}${p}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
     if (!resp.ok) throw new Error(`Sleeper API ${resp.status} on ${p}`);
     return resp.json();
   };

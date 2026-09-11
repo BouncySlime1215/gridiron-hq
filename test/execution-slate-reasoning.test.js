@@ -10,10 +10,14 @@ import {
 
 /* ------------------------------------------------------------------ fixtures */
 
+// `qualified: true` is stated explicitly because the gate now requires it.
+// These fixtures exist to exercise pairing, allocation and briefing mechanics,
+// and a row that cannot size exercises none of them. The refusal itself is
+// tested separately below, on a row that says what the real board says.
 const shopRow = (over = {}) => ({
   event_id: 'ev1', market: 'spreads', side: 'Jets', matchup: 'Jets at Bills',
   best_book: 'pinnacle', best_price: -110, best_line: 3.5, median_line: 2.5,
-  line_edge: 0.075, price_edge: 0.01, books_compared: 6, ...over
+  line_edge: 0.075, price_edge: 0.01, books_compared: 6, qualified: true, ...over
 });
 
 const teaserCandidate = (over = {}) => ({
@@ -27,6 +31,37 @@ const teaserCandidate = (over = {}) => ({
 });
 
 /* --------------------------------------------------- the anti-laundering gate */
+
+test('an UNQUALIFIED shopped line cannot size, which is what the real board sends', () => {
+  // Every row `shoppingBoard()` emits carries `qualified: false`, because its
+  // probability is `coverProbabilities` — the empirical cover rate of the
+  // posted number over twenty years, not a forward-validated forecast. That
+  // rate carries the historical underdog bias: +6.5 measures 53.53% against a
+  // 52.38% break-even, so every dog cleared the bar by construction and was
+  // sized by quarter Kelly under the label "execution edge".
+  //
+  // The flag was written in six places and read in none, and
+  // `shoppedLineOpportunity` stripped it besides, so nothing downstream could
+  // have enforced it even if it tried.
+  const opp = shoppedLineOpportunity(shopRow({ qualified: false }));
+  assert.equal(opp.qualified, false, 'the flag survives into the opportunity');
+  const { offered, blocked } = gateOpportunities([opp]);
+  assert.equal(offered.length, 0, 'an unqualified probability sizes nothing');
+  assert.equal(blocked.length, 1);
+  assert.equal(blocked[0].ceiling_units, 0);
+  assert.match(blocked[0].gate_reason, /not qualified/);
+  assert.match(blocked[0].gate_reason, /underdog bias/);
+});
+
+test('a row with no qualified flag at all is treated as unqualified', () => {
+  // A sizing gate that defaults to permitting is not a gate.
+  const row = shopRow();
+  delete row.qualified;
+  const { offered, blocked } = gateOpportunities([shoppedLineOpportunity(row)]);
+  assert.equal(offered.length, 0);
+  assert.equal(blocked.length, 1);
+});
+
 
 test('an unrecognised opportunity kind maps to the model source and stakes zero', () => {
   const { offered, blocked } = gateOpportunities([{

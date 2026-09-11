@@ -934,6 +934,9 @@ export const JOBS = {
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */
+/** The budget a job gets before the tier abandons it. Overridable per job. */
+const DEFAULT_JOB_TIMEOUT_MS = 120_000;
+
 export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
@@ -942,7 +945,35 @@ export async function runIfStale(name, { force = false } = {}) {
     return { job: name, skipped: true, age_minutes: Math.round(age), max_age_minutes: job.maxAgeMinutes };
   }
   try {
-    const detail = await job.run();
+    // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
+    //
+    // The live tier runs 26 jobs SEQUENTIALLY in one `for ... await` loop.
+    // `nfl_t60_runner` — the prospective capture whose evidence cannot be
+    // recreated — is 14th. Job 4 is `player_rosters`, which fetches ESPN's
+    // fantasy API; undici applies no response timeout of its own, so a server
+    // that accepts the socket and then stalls holds that promise forever.
+    //
+    // And the failure is self-perpetuating rather than transient. `record()`
+    // runs only AFTER `job.run()` returns, so a hung job never records, stays
+    // stale, and is re-run on the next tick — hanging again at position 4,
+    // never reaching 14. `sync_log` meanwhile still shows `nfl_t60_runner: ok`
+    // from its last good run, because a job that stopped being CALLED looks
+    // identical to a healthy one.
+    //
+    // So one stalled ESPN request on a Sunday afternoon silently ends the
+    // capture for the life of the process. A timeout converts that into a
+    // recorded error and lets the loop reach the jobs behind it.
+    const timeoutMs = job.timeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
+    let timer;
+    const detail = await Promise.race([
+      job.run(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          `job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned so the ` +
+          'rest of the tier could run')), timeoutMs);
+        timer.unref?.();
+      })
+    ]).finally(() => clearTimeout(timer));
     // A job that chose not to do its work (reserve hold, no key, no due window)
     // is not healthy; recording it as 'ok' told every freshness view that a
     // capture happened when nothing did.
@@ -951,7 +982,14 @@ export async function runIfStale(name, { force = false } = {}) {
   } catch (e) {
     // A failed refresh must never take a page down — the stale data is still
     // servable, and the failure is recorded so it is visible rather than silent.
-    record(name, 'error', e.message);
+    //
+    // The record itself is a database write, and on a 9.8 GB WAL file with a
+    // live server and concurrent readers it can exceed the busy timeout. If it
+    // throws here it escapes runIfStale, escapes the tier loop, and is
+    // swallowed by the timer's `.catch(() => {})` — killing the remainder of
+    // the pass with no output at all. The recording of a failure must not be
+    // able to cause a larger one.
+    try { record(name, 'error', e.message); } catch { /* the pass continues */ }
     return { job: name, ran: true, error: e.message };
   }
 }
@@ -1070,15 +1108,36 @@ export function startScheduler({
   const growth = jobsInTier('growth');
   const heavy = process.env.AUTO_HEAVY_SYNC === '1' ? jobsInTier('heavy') : [];
 
-  liveTimer = setInterval(() => {
-    (async () => { for (const j of live) await runIfStale(j); })().catch(() => {});
-  }, liveIntervalSeconds * 1000);
-  liveTimer.unref?.();
+  // A TIER NEVER RUNS ON TOP OF ITSELF.
+  //
+  // `setInterval` fires on schedule whether or not the previous pass finished.
+  // With 26 sequential live jobs on a 90-second timer, a pass that runs long
+  // used to have a second pass start behind it, then a third, each re-entering
+  // the same jobs — multiplying load precisely when something is already slow,
+  // and interleaving two passes over the same `sync_log` rows.
+  //
+  // The guard also gives the swallowed rejection a voice. `.catch(() => {})`
+  // was hiding tier-level failures completely; a pass that dies now says so
+  // once, which is the difference between a job that is failing and a job that
+  // has silently stopped being called.
+  const tier = (label, jobs, everyMs) => {
+    let inFlight = false;
+    const handle = setInterval(() => {
+      if (inFlight) {
+        console.warn(`[scheduler] ${label} tier still running when its next pass was due — skipping this one`);
+        return;
+      }
+      inFlight = true;
+      (async () => { for (const j of jobs) await runIfStale(j); })()
+        .catch(e => console.error(`[scheduler] ${label} tier pass failed:`, e?.message ?? e))
+        .finally(() => { inFlight = false; });
+    }, everyMs);
+    handle.unref?.();   // never hold the process open just for this
+    return handle;
+  };
 
-  timer = setInterval(() => {
-    (async () => { for (const j of [...growth, ...metered, ...heavy]) await runIfStale(j); })().catch(() => {});
-  }, intervalMinutes * 60000);
-  timer.unref?.();  // never hold the process open just for this
+  liveTimer = tier('live', live, liveIntervalSeconds * 1000);
+  timer = tier('background', [...growth, ...metered, ...heavy], intervalMinutes * 60000);
 
   return { started: true, interval_minutes: intervalMinutes,
     live_interval_seconds: liveIntervalSeconds,

@@ -12,6 +12,7 @@
  * a human decided to make.
  */
 import { Router } from 'express';
+import { requireModelPermission } from '../modeling/authz.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { shoppingBoard } from '../services/nfl-shopping-board.js';
 import { teaserExecutionBoard } from '../services/nfl-teaser-execution.js';
@@ -56,7 +57,7 @@ export function liveOpportunities({ market = 'spreads', limit = 40 } = {}) {
   return { ...gateOpportunities(candidates), wong_history: history };
 }
 
-r.post('/recommend', async (req, res) => {
+r.post('/recommend', requireModelPermission('model:execute'), async (req, res) => {
   try {
     const { offered, blocked, wong_history } = liveOpportunities({
       market: req.body?.market ?? 'spreads',

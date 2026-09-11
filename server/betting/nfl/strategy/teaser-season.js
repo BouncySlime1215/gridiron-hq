@@ -557,39 +557,59 @@ export function seasonPaceClock({ season, now = new Date() } = {}) {
 /* --------------------------------------------- the forward rate prior ---- */
 
 /**
- * THE HONESTY THAT MATTERS MOST IN THIS FILE.
+ * The spread of the forward leg rate around its measured value.
  *
- * The measured family rate is 74.06% of decided legs on n = 2,868. Its SAMPLING
- * standard error is 0.81pp, so a naive 95% interval is [72.5%, 75.7%]. Running
- * the projection off that interval would be a lie of a specific and expensive
- * kind: it treats 26 seasons of a non-stationary market as if they were 2,868
- * draws from a fixed urn.
+ * WHAT THIS USED TO SAY, AND WHY IT WAS WRONG.
  *
- * They are not. Between 1999 and 2024 the market's key-number habits moved, the
- * scoring environment moved, and books learned what a Wong teaser is. The
- * forward rate is not the historical rate plus sampling noise; it is the
- * historical rate plus sampling noise plus drift, and the drift term is bigger.
+ * The previous value was 0.023, justified as "the historical rate plus
+ * sampling noise plus drift, and the drift term is bigger". The drift term is
+ * measurably ZERO. Across the 26 measured seasons of the cross-both family:
  *
- * So the projection draws the leg rate itself from Beta(alpha, beta) with the
- * measured mean and a standard deviation of 2.3pp — roughly a 95% forward
- * interval of [69.6%, 78.5%], i.e. the 70-79% a sceptical operator would
- * actually quote. In pseudo-sample terms that beta is worth about 360 legs, not
- * 2,868: it deliberately discounts the historical sample eightfold, which is
- * the numerical form of "the past is informative about the future, but not
- * eight times more informative than a single season would be".
+ *     raw across-season SD      3.76pp
+ *     expected binomial SD      4.17pp   (at ~110 decided legs a season)
+ *     Cochran Q                 20.56 on 25 df   (expected 25)
+ *     I-squared                 0%       DerSimonian-Laird tau = 0
  *
- * Beta rather than a normal for the obvious reason (it cannot wander past 1)
- * and one non-obvious one: it is the conjugate form, so the pseudo-sample size
- * `alpha + beta` is directly readable as "how much evidence am I claiming",
- * which is the number a reader should argue with. Argue with 360.
+ * The seasons are LESS dispersed than independent binomial sampling alone
+ * would produce. There is no detectable between-season drift in this dataset.
+ * The 2.17pp figure that was folded in came from the SD of OVERLAPPING
+ * three-season rolling rates — a statistic dominated by the sampling noise of
+ * a 330-leg window and inflated by the overlap. It was never a drift estimate.
  *
- * `projectRemainingSeason` returns BOTH the at-the-point-estimate run and the
- * with-rate-uncertainty run, and `wongSeason` marks the second as the headline.
- * That is on purpose: a caller that shows only one number should be made to
- * show the honest one, and a caller that wants the flattering one has to
- * reach past a field called `optimistic_ignores_rate_uncertainty` to get it.
+ * The data cannot rule drift out either: inverting Q against chi-square(25)
+ * puts a one-sided 95% ceiling on the between-season SD at about 2.95pp. So a
+ * widened prior remains the right call — it just has to be argued as a
+ * judgement under near-zero power, not presented as a measurement.
+ *
+ * WHAT IT IS NOW, AND WHY IT IS WIDER RATHER THAN NARROWER.
+ *
+ * Three components, combined in quadrature:
+ *
+ *     sampling error on the pooled rate           0.82pp   (measured, n = 2,868)
+ *     between-season variation                    2.17pp   (a ceiling-informed
+ *                                                           judgement, not a
+ *                                                           measurement; the
+ *                                                           95% ceiling is 2.95pp)
+ *     line-source mismatch                        1.60pp
+ *     ------------------------------------------------------
+ *     combined                                    2.82pp
+ *
+ * The line-source term is the one the old value dropped, and it is the one
+ * component here that is structurally unavoidable rather than speculative. The
+ * rate is measured on historical `game_lines` closing spreads with 2025 and
+ * 2026 EXCLUDED as corrupt — see EXCLUSION_REASON — while the forward legs are
+ * taken off live DraftKings quotes that arrive second-hand through an hourly
+ * aggregator. Those are different line sources by construction, not by
+ * hypothesis, and a forward projection that ignores the difference is claiming
+ * a precision the measurement cannot support.
+ *
+ * The cost of being honest here is small and worth stating so nobody is
+ * tempted to trim it back: over 72 remaining tickets at 1u and +100, moving
+ * 2.30pp -> 2.82pp moves p05 by one unit ($100) and raises the stated chance
+ * of a losing season from 22.9% to 24.2%. The pseudo-sample falls from 362
+ * legs to 241, discounting the 2,868 measured legs by about 12x rather than 8x.
  */
-export const FORWARD_RATE_SD = 0.023;
+export const FORWARD_RATE_SD = 0.0282;
 
 export function forwardRatePrior({ mean, sd = FORWARD_RATE_SD } = {}) {
   if (!Number.isFinite(mean) || mean <= 0 || mean >= 1) {

@@ -401,7 +401,15 @@ export function clearTokenOwnerCache() { distinctiveTokens = null; }
 
 export function contradictingToken(name, team, { database = db } = {}) {
   const owners = tokenOwners({ database });
-  for (const token of String(name ?? '').toLowerCase().split(/\s+/).filter(Boolean)) {
+  // Tokenise the way `teamResolver` normalises, not on whitespace.
+  //
+  // The resolver strips non-alphanumerics before matching; this guard split on
+  // whitespace and compared raw tokens, so any punctuation stuck to the
+  // offending word slipped past it: "Cleveland, Broncos" resolved to DENVER
+  // and was accepted, as were "Chicago, Chiefs" and "Dallas: Giants". Two
+  // different notions of "word" between a resolver and its guard is all it
+  // takes.
+  for (const token of String(name ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)) {
     const abbr = owners.get(token);
     if (abbr && abbr !== team.abbr) return { token, abbr };
   }

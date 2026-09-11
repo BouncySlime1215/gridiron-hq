@@ -157,7 +157,8 @@ export function wongHistory({ seasons = null, points = 6 } = {}) {
  * Legs are assumed independent, which requires them to be in different games —
  * enforced by the caller, and flagged in `assumptions` rather than left silent.
  */
-export function teaserEV({ americanPrice = -110, legRate = null, standardError = null, legs = 2 } = {}) {
+export function teaserEV({ americanPrice = -110, legRate = null, standardError = null, legs = 2,
+  pushShare = null } = {}) {
   // Only recompute history when the caller didn't already have it — but a
   // caller supplying legRate without standardError still needs it for z, so
   // fetch history for the SE whenever it wasn't explicitly provided too.
@@ -183,20 +184,42 @@ export function teaserEV({ americanPrice = -110, legRate = null, standardError =
   // The push share is taken from the measured history rather than assumed,
   // and `ticketEV` grades the reduced bucket conservatively (stake back) since
   // what a reduced ticket actually pays is book-specific and unobserved here.
-  const pushShare = hist?.push_share ?? wongHistory().push_share ?? 0;
-  const perLeg = { w: (1 - pushShare) * p, t: pushShare };
-  const priced = legs === 2
-    ? ticketEV({ legs: [perLeg, perLeg], americanPrice })
-    : null;
-  const ev = priced ? priced.ev : Math.pow(p, legs) * payout - 1;
+  // PUSH SHARE IS A PROPERTY OF THE POSTED NUMBER, NOT OF THE FAMILY.
+  //
+  // The four half-point lines cannot push at all; the four integer lines push
+  // 0.7%-2.5% of the time. Pricing a ticket of two half-point legs with the
+  // pooled 0.9% invents a reduced bucket that physically cannot occur, and
+  // pricing two -7 legs with it understates the one that can.
+  //
+  // Measured across all 36 unordered pairs at -110 the error runs from -0.97pp
+  // to +0.55pp of EV — a 1.52pp spread, and 3.54 points of break-even price. At
+  // a quoted -119 the pooled figure calls a ticket +EV that is, on two -7 legs,
+  // actually negative. So a caller that knows which legs it holds should pass
+  // their share; the pooled value is the fallback for a caller pricing the
+  // family in the abstract, and it is labelled as such in the return.
+  const pooledPushShare = hist?.push_share ?? wongHistory().push_share ?? 0;
+  const effectivePushShare = Number.isFinite(pushShare) ? pushShare : pooledPushShare;
+  const perLeg = { w: (1 - effectivePushShare) * p, t: effectivePushShare };
+  // A ticket with more than two legs is REFUSED rather than silently priced by
+  // the two-state formula this function exists to replace. A three-leg ticket
+  // with one push reduces to a double and with two pushes to a single, and
+  // those pay differently; one scalar cannot say which happened.
+  if (legs !== 2) {
+    return { error: `teaserEV models the reduced-push bucket only for a two-leg ticket; ` +
+      `a ${legs}-leg ticket with a possible push reduces to several different bets`,
+    price: americanPrice, legs };
+  }
+  const priced = ticketEV({ legs: [perLeg, perLeg], americanPrice });
+  const ev = priced.ev;
 
   return {
     price: americanPrice, legs, leg_rate: r4(p),
     breakeven_leg_rate: r4(need),
     ev_per_bet: r4(ev),
-    push_share: r4(pushShare),
-    probabilities: priced?.probabilities ?? null,
-    reduced_payout: priced?.reduced_payout ?? null,
+    push_share: r4(effectivePushShare),
+    push_share_source: Number.isFinite(pushShare) ? 'caller_legs' : 'family_pooled',
+    probabilities: priced.probabilities,
+    reduced_payout: priced.reduced_payout,
     reduced_payout_verified: false,
     z: z == null ? null : r4(z),
     verdict: ev <= 0 ? 'negative EV — do not bet at this price'
@@ -229,8 +252,24 @@ export function findTeaserLegs(games, { americanPrice = -110, points = 6,
     return leg?.qualifies ? { ...g, teaser: leg } : null;
   }).filter(Boolean);
 
+  // STAKE ON THE TICKET'S ACTUAL WIN PROBABILITY, NOT THE SQUARED LEG RATE.
+  //
+  // `hist.win_rate` is a rate CONDITIONAL ON THE LEG BEING DECIDED, so squaring
+  // it answers "both legs win given neither pushed" — not "this ticket wins".
+  // The real probability is `ev.probabilities.win`, which is computed two lines
+  // above and was being ignored.
+  //
+  // Measured: 0.548488 against a true 0.538660, overstated by 0.98pp. Through
+  // quarter-Kelly at -110 on a 100u bankroll that is **1.30u where the correct
+  // figure stakes 0.78u — 67% over**. At -118 and -120 it stakes 0.39u and
+  // 0.17u where the correct probability refuses the bet outright.
+  //
+  // This line predates the commit that split the push out of `win_rate`; that
+  // commit corrected the EV and left the staking input on the superseded
+  // number. Correcting EV and leaving the stake behind is the more dangerous
+  // half to miss, because EV is read by a person and the stake is not.
   const staking = priceOk && ev.ev_per_bet > 0
-    ? stakeFor({ winProbability: Math.pow(hist.win_rate, 2), americanPrice,
+    ? stakeFor({ winProbability: ev.probabilities.win, americanPrice,
       source: 'execution', bankrollUnits })
     : { units: 0, blocked: true,
       reason: !priceOk

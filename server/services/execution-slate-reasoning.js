@@ -181,6 +181,11 @@ export function shoppedLineOpportunity(rowIn) {
   return {
     id: `shop:${rowIn.event_id}:${rowIn.market}:${rowIn.side}`,
     kind: 'shopped_line',
+    // Carried, not stripped. The gate below refuses an unqualified shopped
+    // line, and it cannot refuse what never reaches it — this field used to be
+    // dropped here, which is why `qualified: false` was unenforceable no matter
+    // who tried to read it downstream.
+    qualified: rowIn.qualified === true,
     label: `${rowIn.side} ${rowIn.best_line ?? ''} ${rowIn.market} at ${rowIn.best_book}`.replace(/\s+/g, ' ').trim(),
     matchup: rowIn.matchup ?? null,
     book: rowIn.best_book ?? null,
@@ -255,6 +260,54 @@ export function gateOpportunities(candidates, { policy = SLATE_POLICY } = {}) {
   const offered = [], blocked = [];
   for (const c of candidates ?? []) {
     if (!c?.id) continue;
+
+    // `qualified: false` now REFUSES instead of being decoration.
+    //
+    // The flag was written in six places and read in none. Every comment
+    // attached to it stated the contract — "sizing paths must refuse to treat
+    // this as modeled profit" — and no sizing path refused anything, so an
+    // unqualified probability reached a stake on every shopped-line row.
+    //
+    // The probability it was flagging is not a market-implied coin flip. It is
+    // `coverProbabilities`, an empirical cover rate fitted to twenty years of
+    // posted lines, and it carries the well-known underdog bias: +6.5 measures
+    // 53.53%, +10 measures 55.28% conditional, against a 52.38% break-even at
+    // -110. So EVERY dog cleared the bar by construction, before any line or
+    // price advantage existed, and was sized by quarter Kelly at up to 2.17
+    // units under the label "execution edge". That is a twenty-year in-sample
+    // backtest sizing money, roughly half a standard error from break-even, and
+    // ranked for selection by the same noisy statistic that sized it.
+    //
+    // A candidate that says it is not qualified does not get a stake. If the
+    // flag is absent the candidate is treated as unqualified: a sizing gate
+    // that defaults to permitting is not a gate.
+    // The refusal is scoped to the path whose probability is the problem.
+    //
+    // A shopped line's probability comes from `coverProbabilities`, and that is
+    // NOT the coin flip its own docstring claims. It is the empirical cover
+    // rate of the posted number over twenty years, so it carries the historical
+    // underdog bias: +6.5 measures 53.53% and +10 measures 55.28% conditional
+    // against a 52.38% break-even at -110. Fourteen of fifty-seven lines clear
+    // the bar on historical noise alone, before any line or price advantage
+    // exists, and were sized by quarter Kelly to as much as the 3-unit cap
+    // under the label "execution edge".
+    //
+    // A teaser's probability is a different object and keeps its stake: it is a
+    // measured rate over a declared leg family with its push mass modelled, and
+    // `qualified` was never about it.
+    //
+    // So the gate asks the shopped-line path to prove it is qualified, and a
+    // missing flag counts as unqualified — a sizing gate that defaults to
+    // permitting is not a gate.
+    if (c.kind === 'shopped_line' && c.qualified !== true) {
+      blocked.push({ ...c, staking_source: SOURCE_OF_KIND[c.kind] ?? 'model',
+        ceiling_units: 0, blocked: true,
+        gate_reason: 'Shopped-line probability is not qualified. It is a historical cover rate, not a '
+          + 'forward-validated forecast, and it carries the underdog bias that makes every dog clear '
+          + 'break-even by construction. It may be displayed and compared; it may not size a bet.' });
+      continue;
+    }
+
     // Derived from the kind. Never read off the candidate.
     const source = SOURCE_OF_KIND[c.kind] ?? 'model';
     const stake = stakeFor({

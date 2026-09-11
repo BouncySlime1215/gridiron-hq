@@ -65,9 +65,15 @@ test('route compiler blocks stale quotes and payouts that destroy the edge', () 
 
 test('validated tickets persist both legs and settle into a forward leg rate', () => {
   // Give wongHistory() a measured rate in this isolated database.
+  //
+  // The season matters now and did not used to. wongHistory() defaults to
+  // 1999-2024 because game_lines.spread is corrupted for 2025 and 2026, so a
+  // fixture seeded at 2025 measures nothing, wongHistory returns {legs: 0}, and
+  // every downstream gate fails for a reason that has nothing to do with what
+  // this test is checking. Seed inside the window.
   const insertGame = db.prepare(`INSERT INTO game_lines
     (season,week,team,opponent,home,spread,team_score,opp_score)
-    VALUES (2025,?,?,?,0,2,?,?)`);
+    VALUES (2024,?,?,?,0,2,?,?)`);
   for (let i = 0; i < 100; i++) insertGame.run(i + 1, `HIST${i}`, `OPP${i}`,
     i < 75 ? 21 : 10, i < 75 ? 20 : 20);
 

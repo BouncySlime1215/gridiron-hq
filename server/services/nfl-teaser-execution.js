@@ -66,7 +66,12 @@ export function latestTeaserPrices({ points = 6, legs = 2 } = {}) {
 export function compileTeaserRoutes({ events = [], prices = [], history,
   now = new Date(), policy = TEASER_POLICY } = {}) {
   const clock = now instanceof Date ? now : new Date(now);
-  const ticketProbability = Math.pow(history?.win_rate ?? 0, policy.legs);
+  // An unmeasured history is a refusal, not a zero. Without this, a database
+  // with no games in the measurement window yields ticketProbability = 0, every
+  // price fails the break-even gate, and the board reports "no candidates" as
+  // though the market were the problem.
+  const measured = Number.isFinite(history?.win_rate) && (history?.legs ?? 0) > 0;
+  const ticketProbability = measured ? Math.pow(history.win_rate, policy.legs) : 0;
   const mathematicalBreakEvenPrice = fairAmerican(ticketProbability);
   const pricesByBook = new Map(prices.map(price => [bookKey(price.book), price]));
   const byBook = new Map();
@@ -107,6 +112,10 @@ export function compileTeaserRoutes({ events = [], prices = [], history,
     const priceWithinPolicy = price && price.american_price >= policy.operating_price_floor;
     const priceEligible = Boolean(priceReachable && priceFresh && priceWithinMath && priceWithinPolicy);
     const bookReasons = [];
+    if (!measured) {
+      bookReasons.push('No measured leg history — the qualifying window has no scored games in the ' +
+        'measurement seasons, so no price can be judged against break-even.');
+    }
     if (!price) bookReasons.push('Record this book\'s current two-team, six-point teaser price.');
     else {
       if (!priceReachable) bookReasons.push('The recorded teaser price was not marked reachable.');

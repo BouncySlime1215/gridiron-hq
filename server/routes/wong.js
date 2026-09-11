@@ -276,11 +276,38 @@ r.post('/refresh', async (req, res, next) => {
 
 /* ---------------------------------------------- delegated season endpoints */
 
+/**
+ * The settings, plus a check nobody would think to run.
+ *
+ * `reduced_payout` says how this hub GRADES a ticket where one leg pushes.
+ * `push_rule` on the recorded price says how the BOOK actually grades it. They
+ * are allowed to disagree — grading a reduced ticket at stake-back when the
+ * book really pays out a single is deliberately conservative, because the
+ * one-leg price that would let us pay it correctly has never been observed.
+ *
+ * What is not acceptable is disagreeing silently. A reader comparing the
+ * staking panel with the price they recorded would have no way to tell whether
+ * the mismatch was a considered choice or a bug, so it is named.
+ */
 r.get('/settings', async (_req, res, next) => {
   try {
     const mod = await seasonModule(res, 'wongSettings');
     if (!mod) return;
-    res.json(mod.wongSettings());
+    const settings = mod.wongSettings();
+    const price = row(`SELECT book, push_rule FROM nfl_teaser_price_ledger
+      WHERE teaser_points = 6 AND legs = 2 AND reachable = 1 AND push_rule IS NOT NULL
+      ORDER BY captured_at DESC, id DESC LIMIT 1`);
+    const bookReduces = price?.push_rule === 'push_removes_leg_reduces_to_single';
+    const gradesAsRefund = settings.reduced_payout === 'stake_back';
+    res.json({
+      ...settings,
+      book_push_rule: price?.push_rule ?? null,
+      push_rule_note: bookReduces && gradesAsRefund
+        ? `${price.book} reduces a pushed ticket to a single, but this hub grades that case as a stake refund. `
+          + 'That is deliberate and conservative: paying a reduced single correctly needs the book\'s one-leg '
+          + 'teaser price, and no such price has been recorded. Record one and this can be graded properly.'
+        : null,
+    });
   } catch (e) { next(e); }
 });
 

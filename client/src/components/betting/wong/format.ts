@@ -149,6 +149,10 @@ export function formatLooseValue(key: string, value: unknown): string {
   if (/rate|percent|probability|roi|share/.test(name)) return pct(value, 1);
   if (/dollar|_usd|bankroll_dollars/.test(name)) return dollars(value);
   if (/unit/.test(name)) return signedUnits(value);
+  // A year is an identifier, not a quantity. `toLocaleString()` renders 2026 as
+  // "2,026", which reads as a count of something and is the kind of detail that
+  // makes a panel look machine-generated.
+  if (/^season$|year|week1?$/.test(name)) return String(value);
   if (Number.isInteger(value)) return value.toLocaleString();
   return value.toFixed(2);
 }

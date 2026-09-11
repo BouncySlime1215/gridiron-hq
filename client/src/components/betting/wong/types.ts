@@ -150,9 +150,22 @@ export interface WongProjectionDollars extends WongProjectionBlock {
   with_rate_uncertainty?: WongProjectionBlock;
 }
 
+/** Each statistic arrives as `{ units, dollars }`; older shapes send a number. */
+export interface WongProjectionServerBlock {
+  mean?: { units?: number; dollars?: number } | number | null;
+  median?: { units?: number; dollars?: number } | number | null;
+  p05?: { units?: number; dollars?: number } | number | null;
+  p95?: { units?: number; dollars?: number } | number | null;
+  probability_of_losing_season?: number | null;
+}
+
 export interface WongProjection {
-  point_estimate?: WongProjectionBlock | null;
-  with_rate_uncertainty?: WongProjectionBlock | null;
+  /** The server's name for the optimistic block; it says what the assumption costs. */
+  optimistic_ignores_rate_uncertainty?: WongProjectionServerBlock | null;
+  /** Accepted as an alias so an older server shape still renders. */
+  point_estimate?: WongProjectionServerBlock | null;
+  with_rate_uncertainty?: WongProjectionServerBlock | null;
+  headline?: string | null;
   dollars?: WongProjectionDollars | null;
 }
 

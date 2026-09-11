@@ -504,8 +504,13 @@ test('the four season endpoints delegate verbatim once the module lands', async 
   const original = seasonModuleSource.path;
   seasonModuleSource.path = `file://${fixture}`;
   try {
-    assert.deepEqual(await (await get('/api/betting/wong/settings')).json(),
-      { source: 'fixture', bankroll_units: 40 });
+    // The route now decorates the module's settings with the price ledger's
+    // push rule, so the delegation is asserted on the delegated fields rather
+    // than on the whole object.
+    const settings = await (await get('/api/betting/wong/settings')).json();
+    assert.equal(settings.source, 'fixture');
+    assert.equal(settings.bankroll_units, 40);
+    assert.ok('book_push_rule' in settings, 'the ledger cross-check rides along');
     assert.deepEqual(await (await put('/api/betting/wong/settings', { bankroll_units: 12 })).json(),
       { saved: true, got: { bankroll_units: 12 } });
     assert.deepEqual(await (await get('/api/betting/wong/season?season=2026')).json(),
@@ -561,6 +566,25 @@ test('GET /combos reports WHY it is empty rather than going quiet', async () => 
   assert.equal(set.ticket_count, 0);
   assert.ok(set.blocked_reasons.length >= 1, 'the refusal is reported');
   assert.match(set.blocked_reasons.join(' '), /price/i);
+});
+
+test('GET /settings names a disagreement between how the book grades a push and how we do', async () => {
+  // Grading a reduced ticket as a stake refund when the book pays a single is
+  // deliberately conservative — the one-leg price needed to pay it correctly
+  // has never been recorded. Being conservative silently is the part that is
+  // not acceptable, because a reader cannot tell it apart from a bug.
+  clearBoard();
+  recordPrice(100, { book: 'draftkings' });
+  db.prepare(`UPDATE nfl_teaser_price_ledger SET push_rule='push_removes_leg_reduces_to_single'`).run();
+  const flagged = await (await get('/api/betting/wong/settings')).json();
+  assert.equal(flagged.book_push_rule, 'push_removes_leg_reduces_to_single');
+  assert.match(flagged.push_rule_note ?? '', /conservative/);
+  assert.match(flagged.push_rule_note ?? '', /one-leg/);
+
+  // When they agree, there is nothing to say and nothing is said.
+  db.prepare(`UPDATE nfl_teaser_price_ledger SET push_rule='push_refunds_ticket'`).run();
+  const quiet = await (await get('/api/betting/wong/settings')).json();
+  assert.equal(quiet.push_rule_note, null, 'no note when the two agree');
 });
 
 /* ------------------------------------------------------------- the refresh */

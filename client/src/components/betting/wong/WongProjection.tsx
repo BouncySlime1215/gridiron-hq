@@ -1,6 +1,6 @@
 import { Panel } from './shared';
 import { dollars as money, pct, signedUnits } from './format';
-import type { WongProjection, WongProjectionBlock } from './types';
+import type { WongProjection, WongProjectionBlock, WongProjectionServerBlock } from './types';
 
 /**
  * Season projection.
@@ -15,13 +15,20 @@ import type { WongProjection, WongProjectionBlock } from './types';
 export function WongProjectionPanel({ projection, unitSizeDollars }: {
   projection: WongProjection | null | undefined; unitSizeDollars: number | null;
 }) {
-  const uncertain = projection?.with_rate_uncertainty ?? null;
-  const point = projection?.point_estimate ?? null;
+  // The server reports each statistic as `{ units, dollars }` and names the
+  // optimistic block `optimistic_ignores_rate_uncertainty`, which is a better
+  // name than `point_estimate` because it says what the assumption costs. This
+  // component was written against a flat `{ mean: number }` and the other name,
+  // so every figure rendered as an em dash while the probability beside it —
+  // the one field that happens to be a bare number — rendered fine. A contract
+  // mismatch that looks like missing data rather than an error.
+  const uncertain = splitUnits(projection?.with_rate_uncertainty);
+  const point = splitUnits(projection?.optimistic_ignores_rate_uncertainty ?? projection?.point_estimate);
   const dollarBlock = projection?.dollars ?? null;
-  const uncertainDollars = dollarBlock?.with_rate_uncertainty ?? stripNested(dollarBlock);
-  const pointDollars = dollarBlock?.point_estimate ?? null;
+  const uncertainDollars = uncertain.dollars ?? dollarBlock?.with_rate_uncertainty ?? stripNested(dollarBlock);
+  const pointDollars = point.dollars ?? dollarBlock?.point_estimate ?? null;
 
-  if (!uncertain && !point) {
+  if (!uncertain.units && !point.units) {
     return <Panel title="Season projection" description="Where this season lands if you keep taking the qualifying tickets.">
       <div className="p-5 text-sm text-slate-500">
         No projection yet. It needs a settled sample to project from — take and settle some tickets first.
@@ -43,14 +50,14 @@ export function WongProjectionPanel({ projection, unitSizeDollars }: {
         headline
         title="With rate uncertainty"
         note="Carries the error bar on the leg rate itself. This is the number to plan around."
-        block={uncertain ?? point}
-        dollarsBlock={uncertainDollars ?? (uncertain ? null : pointDollars)}
+        block={uncertain.units ?? point.units}
+        dollarsBlock={uncertainDollars ?? (uncertain.units ? null : pointDollars)}
         unitSizeDollars={unitSizeDollars}
       />
       <ProjectionColumn
         title="Point estimate"
         note="Assumes the measured leg rate is exactly the true rate. Optimistically narrow."
-        block={point}
+        block={point.units}
         dollarsBlock={pointDollars}
         unitSizeDollars={unitSizeDollars}
       />
@@ -110,6 +117,30 @@ function ProjectionColumn({ title, note, block, dollarsBlock, unitSizeDollars, h
       </div>
     </div>
   </div>;
+}
+
+/**
+ * Flatten `{ mean: { units, dollars } }` into the two flat blocks this
+ * component renders, tolerating a server that already sends flat numbers.
+ */
+function splitUnits(block: WongProjectionServerBlock | null | undefined):
+{ units: WongProjectionBlock | null; dollars: WongProjectionBlock | null } {
+  if (!block) return { units: null, dollars: null };
+  const units: WongProjectionBlock = {};
+  const dollars: WongProjectionBlock = {};
+  let sawNested = false;
+  for (const key of ['mean', 'median', 'p05', 'p95'] as const) {
+    const value = block[key];
+    if (value && typeof value === 'object') {
+      sawNested = true;
+      if (typeof value.units === 'number') units[key] = value.units;
+      if (typeof value.dollars === 'number') dollars[key] = value.dollars;
+    } else if (typeof value === 'number') {
+      units[key] = value;
+    }
+  }
+  units.probability_of_losing_season = block.probability_of_losing_season ?? null;
+  return { units, dollars: sawNested ? dollars : null };
 }
 
 function ColumnHeading({ title, note, headline }: { title: string; note: string; headline: boolean }) {

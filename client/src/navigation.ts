@@ -43,6 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { label: 'Betting', question: 'Track the market', items: [
     { to: '/betting', label: 'Betting Desk', icon: 'B', end: true },
     { to: '/betting/nfl', label: 'NFL', icon: 'N' },
+    { to: '/betting/nfl/wong', label: 'NFL Wong', icon: 'W', live: true },
     { to: '/betting/mlb/auto', label: 'MLB', icon: 'M' }
   ]},
   { label: 'Lab', question: 'Verify the model', items: [
@@ -68,6 +69,7 @@ const NAV_NOTES: Record<string, string> = {
   '/matchups': 'Opponent history and weekly projections',
   '/betting': 'Path to profit across NFL and MLB',
   '/betting/nfl': 'Board, execution, live games and one engine',
+  '/betting/nfl/wong': "Six-point teasers: this week's board, one-click tracking, season projection",
   '/betting/mlb/auto': 'Slate, forward capture and evidence ledger',
   '/model': 'What the model believes and why',
   '/lab': 'Backtests, promotion gates and registry',

@@ -35,6 +35,7 @@ const NflMarketBoard = lazy(() => import('./pages/NflMarketBoard'));
 const BettingHome = lazy(() => import('./pages/betting/BettingHome'));
 const MlbHub = lazy(() => import('./pages/betting/MlbHub'));
 const NflAutoPicks = lazy(() => import('./pages/betting/NflAutoPicks'));
+const NflWongHub = lazy(() => import('./pages/betting/NflWongHub'));
 const DataHealth = lazy(() => import('./pages/DataHealth'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
@@ -138,6 +139,7 @@ export default function App() {
           <Route path="/betting/nfl/research" element={<NflMarketBoard initialTool="research" />} />
           <Route path="/betting/nfl/watch" element={<NflMarketBoard initialTool="watch" />} />
           <Route path="/betting/nfl/ledger" element={<NflMarketBoard initialTool="ledger" />} />
+          <Route path="/betting/nfl/wong" element={<NflWongHub />} />
           <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} /><Route path="/betting/training" element={<NflMarketBoard initialTool="training" />} /><Route path="/betting/catalog" element={<NflMarketBoard initialTool="variables" />} />
           {/* One MLB hub instead of six routes, two of which were named "legacy"
               and all of which were reachable with nothing saying which was current. */}

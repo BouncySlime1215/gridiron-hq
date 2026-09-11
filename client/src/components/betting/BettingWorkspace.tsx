@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useApi } from '../../api';
 import { NOT_PROVEN_MESSAGE } from '../../pages/betting/copy';
 
@@ -40,6 +40,7 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
   actions?: ReactNode; children: ReactNode;
 }) {
   const { data: status } = useApi<HubStatus>('/betting/status');
+  const inWong = useLocation().pathname.startsWith('/betting/nfl/wong');
   const teaser = status?.edges.find(edge => edge.id === 'teasers');
   const evidenceLabel = status?.model.sizing_allowed
     ? 'Model staking eligible'
@@ -49,9 +50,13 @@ export function BettingWorkspace({ sport, title, description, activeStage, actio
     <section className="overflow-hidden rounded-[26px] border border-slate-800 bg-slate-950 text-white shadow-[0_24px_70px_rgba(15,23,42,.18)]">
       <div className="flex items-center gap-1 border-b border-white/10 p-2">
         {[
-          ['/betting', 'Command'], ['/betting/nfl', 'NFL'], ['/betting/mlb/auto', 'MLB']
+          ['/betting', 'Command'], ['/betting/nfl', 'NFL'], ['/betting/nfl/wong', 'NFL Wong'], ['/betting/mlb/auto', 'MLB']
+          // NFL Wong lives under /betting/nfl, so a plain prefix match lights up
+          // BOTH tabs there. The NFL tab stays a prefix match for every other
+          // /betting/nfl/* subview (research, ledger, props …) and steps aside
+          // only for the one route that owns its own tab.
         ].map(([to, label]) => <NavLink key={to} to={to} end={to === '/betting'}
-          className={({ isActive }) => `rounded-lg px-3 py-2 text-xs font-black transition ${isActive ? 'bg-white text-slate-950' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}>{label}</NavLink>)}
+          className={({ isActive }) => `rounded-lg px-3 py-2 text-xs font-black transition ${isActive && !(to === '/betting/nfl' && inWong) ? 'bg-white text-slate-950' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}>{label}</NavLink>)}
         <div className="ml-auto hidden items-center gap-1 lg:flex">{stages.map((stage, index) => <div key={stage.id} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${stage.id === activeStage ? 'bg-emerald-400 text-slate-950' : 'text-slate-500'}`}><span>{index + 1}</span><span>{stage.label}</span></div>)}</div>
       </div>
       <div className="flex flex-col gap-5 px-5 py-6 sm:px-7 lg:flex-row lg:items-end lg:justify-between">

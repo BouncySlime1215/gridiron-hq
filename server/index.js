@@ -45,6 +45,7 @@ const { default: mlbRouter } = await import('./routes/mlb.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
+const { default: wongRouter } = await import('./routes/wong.js');
 const { default: localAuthRouter } = await import('./routes/local-auth.js');
 const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
@@ -103,6 +104,7 @@ app.use('/api/decision-inbox', decisionInboxRouter);
 app.use('/api/mlb', mlbRouter);
 app.use('/api/nfl-market', nflMarketRouter);
 app.use('/api/nfl-betting', nflBettingRouter);
+app.use('/api/betting/wong', wongRouter);
 app.use('/api/betting', bettingHubRouter);
 app.use('/api/execution-slate', executionSlateRouter);
 

@@ -483,3 +483,156 @@ syntax-checked (44 of them, all clean). And `test/platform-paths.test.js` — §
 real `chdir` test and a guard that fails if any service goes back to deriving the project root from
 its own location. That guard immediately found a fourth offender, `nfl-evidence-dataset.js`, that
 the original grep had missed.
+
+---
+
+## Addendum — the five-agent Wong × model investigation (2026-09-10)
+
+**Question asked:** can the spread model and the Wong teaser window be combined
+into something profitable?
+
+**Answer: no, and the reason is specific rather than disappointing.** The two
+things do not compose, because the model has no information about the quantity
+a teaser leg depends on.
+
+### The five deep dives
+
+| # | question | verdict |
+|---|---|---|
+| 1 | volume, obtainable price, bankroll | 15–33 tickets/season; **zero teaser prices have ever been recorded** |
+| 2 | is the edge decaying | **no** (trend +0.0073/yr, z=+0.99); but `game_lines.spread` is corrupted for 2025–2026 |
+| 3 | other key-number windows | 4,060 candidates searched, **none survive**; SE correction lowers z to 1.80 |
+| 4 | does model info select legs | corr(edge, ATS residual) = **−0.007**, p=0.72, n=2,761; 20/21 is noise |
+| 5 | do model inputs predict close games | 501 hypotheses, **0 survive** BH q<0.10 |
+
+### The 20/21 finding is dead, and it is worth knowing how
+
+Three independent kills, any one of which is sufficient:
+
+1. **It exceeds the perfect-model ceiling.** Shifting the dog-window residual
+   pool by the backed legs' full mean edge (3.66 pts) — i.e. assuming the model
+   is 100% right — caps the achievable leg rate at **83.3%**. The observation
+   was 95.24%. A true 95.24% would need a *15.5-point* real edge. It is above
+   what a perfect model could produce, which makes it a statement about the
+   sample rather than about the model.
+2. **It does not replicate.** Discovery (2021–25) 89.3% vs 76.0% rest, p=0.020.
+   Holdout (2016–20) 80.0% vs 77.9%, p=0.41. Cleanest holdout (2018–20, after
+   the cold-start era) is **−1.2pp — negative**.
+3. **It does not exist often enough to matter.** Only **2 of 70 audit weeks**
+   produced ≥2 model-backed legs, and a 2-team teaser needs two. That is once
+   every three seasons. Confirming the most generous possible version needs 173
+   backed legs ≈ **41 years**.
+
+Multiplicity: ~37 trials across both passes. Bonferroni threshold 0.0014. Holm
+step-down over the nine primary tests: **nothing passes**, best p = 0.135.
+
+### Why nothing downstream could have worked
+
+Two structural facts, measured independently, that close the question:
+
+- **σ(margin − spread) ≈ 12.7 and does not move with the line.** Fitted log-σ
+  slope on |spread|, 2016–2022: −0.0008, p = 0.86. σ is 12.73 at a 1-point
+  spread and 12.64 at a 10-point spread. The single most informative variable
+  in the system carries **zero** dispersion information.
+- **`model_margin = 0.744 + 0.647 × market_margin`** (r = 0.87), and
+  corr(market_margin, edge) = −0.70. The model is a shrunk copy of the market,
+  so its "edge" is mechanically a dog preference — which is why 52 of 410 policy
+  picks land in a Wong dog window and **zero** land in a favourite window.
+
+A teased leg's outcome is a deterministic function of the margin. A signal with
+no information about the margin residual cannot select legs. Everything else
+follows from that.
+
+### Three corrections to numbers this project has been quoting
+
+1. **z is 1.80, not 1.99.** Same-week legs in different games are positively
+   correlated (joint 57.75% vs p² = 55.79%, ρ ≈ +0.082; a cross-week placebo
+   gives +0.06pp, which validates the measurement). The cluster-robust SE is
+   **1.29pp, not 1.17pp**. One-sided p = 0.036. Still clears the bar, less
+   comfortably than the docstring claims.
+2. **EV at −110 is nearer +9% than +6.5%.** The same correlation that widens
+   the SE *helps* an all-must-win ticket, so `p^n` understates the payoff. The
+   two corrections pull in opposite directions and both should be applied.
+3. **The disagreement-inflation term is decoration.**
+   `server/services/nfl-ensemble.js:220` widens the predictive interval by
+   `1 + min(0.25, disagreement/30)`. On the clean 2016–2022 panel the log-σ
+   slope of component disagreement is **−0.64% per SD, p = 0.70** — the wrong
+   sign. On the deep panel it reads −2.1%/SD in discovery and **+8.4%/SD in
+   holdout**, a sign flip. There is no stable relationship. Not a bug; not a
+   measurement either.
+
+### Two findings that are not about Wong at all
+
+**`game_lines.spread` is corrupted for 2025 and 2026, and 2026 is live.**
+Integer share of closing spreads: 2021 49.5%, 2022 51.1%, 2023 48.4%, 2024
+47.7%, **2025 24.9%, 2026 16.2%** (verified directly against the live database,
+not only by the agent). Against `nfl_odds_archive`'s 10 real books, `game_lines`
+is off by exactly 0.5 in **57.1% of 2025 games** where the real close is an
+integer, versus ~30% in 2022–24. Integers −1, −2, −4, −5, −8, −9, −12, −13, −15
+are **entirely absent** from 2025 while the archive holds all of them; only −3,
+−6, −7, −10, −14 survive. The 2026 ESPN feed shows the identical
+missing-integer signature. Ten books agree with each other; `game_lines` is the
+outlier.
+
+Consequence: 2025's 99 qualifying legs — the largest count in 27 years — is
+partly manufactured; real lines give 68–70. It barely moves the 27-year headline
+(74.69% → 74.52%) but it makes every *season-level* read of 2025 unusable, and
+it will mis-classify live 2026 legs. `nfl_odds_archive` is the reference.
+
+**No teaser price has ever been recorded, anywhere.** `nfl_teaser_price_ledger`:
+0 rows. Its only writer, `recordTeaserPrice()` at
+`server/services/nfl-profitability.js:47`, has never been called. All 1,153
+quote batches requested `spreads,totals,h2h` only. Zero of 1,382,936
+`nfl_quote_tape` rows contain the string "teaser". The `−115` floor in
+`findTeaserLegs` has never once been checked against a real quote.
+
+This is the single number that decides the answer, and it is the only one that
+was assumed rather than measured:
+
+| price | break-even | P(edge > 0) | EV/ticket |
+|---|---|---|---|
+| −110 | 72.37% | 0.78 | +6.7% |
+| −115 | 73.14% | 0.70 | +4.5% |
+| −120 | 73.85% | 0.61 | +2.4% |
+| −130 | 75.18% | 0.44 | −1.1% |
+
+The code already knows. `compileTeaserRoutes` gates every candidate on a fresh
+reachable ledger price, so with an empty ledger the system emits **zero**
+executable candidates today and says so.
+
+### What the business case actually looks like
+
+At the point estimate and −110, 30 tickets/season on a 100u bankroll: **+3.48u
+per season**, sd 9.25, **32% of seasons finish red**, median in-season drawdown
+7.8u, and **27 seasons before the P&L is distinguishable from zero**. At the
+95% lower bound the staking rule collapses the stake to 0.03u at −110 and to
+*zero* at −115 — the pessimistic case is not "you lose money," it is "you did
+all this for a 0.00% return."
+
+### The one thing worth adding
+
+**The cross-both rule**, derived from the mechanism rather than searched: the
+exact set of lines where six points strictly crosses both 3 and 7 is favourites
+**−7.0 to −8.5** and dogs **+1.5 to +3.0**. The classic window omits −7.0 and
++3.0. It yields 3,015 legs at 73.90% against the classic 1,391 at 74.69% —
+**more than double the supply at a slightly lower rate**, which matters when the
+classic window's median is 3 legs a week and only 36% of weeks offer four.
+Use it for volume, not for edge; at −120 it is a coin flip while the classic
+still shows +0.84pp.
+
+Two agents independently found the same execution trap: **shopping −7.0 into
+−7.5 is a downgrade** (74.95% → 74.23%), and it is the single most common
+shop-in (35 of 115 cases). Shop by measured teased-line rate, never by "does it
+qualify."
+
+### Standing recommendation
+
+Bet the classic window opportunistically at **−110 or better**, hard stop at
+−115, unconditionally — do **not** let the model pick the legs. Do not build
+infrastructure for it. The one measurement that would change any of this is
+twenty rows of real two-team six-point teaser prices in
+`nfl_teaser_price_ledger`; the write path and the routing layer are both already
+built and waiting.
+
+**Rigor note:** across the five agents, roughly 4,600 formal tests were run.
+The only p < 0.05 survivors of any multiplicity correction were none.

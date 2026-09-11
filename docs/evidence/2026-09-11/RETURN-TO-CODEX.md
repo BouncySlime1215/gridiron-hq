@@ -190,3 +190,35 @@ and it was assumed rather than measured for the entire life of the module.
 
 That is the same class of error as the clock mislabel in C11 and the case-sensitivity in C09: **a confident
 number resting on an input nobody had checked.** It belongs in the register as a pattern, not as a result.
+
+---
+
+## 7. Addendum, later the same day: the first prospective observation exists
+
+§5 above says C12 is still `connected` and that the T−60 runner has never run against a real slate. **That stopped being true a few hours after it was written**, and the correction is worth making precisely because it is the only state advance in this document that is evidential rather than administrative.
+
+On 2026-09-10 the runner executed against the live Thursday game and froze a packet at a real cutoff:
+
+```
+event_key            nfl|2026-09-10|SF@LAR
+kickoff_at           2026-09-11T00:35:00.000Z
+cutoff_at            2026-09-10T23:35:00.000Z   (T−60)
+capture_started_at   2026-09-10T23:37:32.161Z
+capture_finished_at  2026-09-10T23:37:33.148Z
+state                frozen
+packet_hash          e2bcd98ffa8c863488a37ce2ee8ac3c2bd1aa34cc48e861e8348f6ef772259f4
+last_error           (none)
+```
+
+Every number this project has ever produced before this row was retrospective. This one is not.
+
+**What it does not establish, stated before anyone reads it as more than it is:**
+
+- `decision_run_id` is **empty**. No forecast consumed the packet. This is evidence that a packet can be frozen on time against a real slate, not that anything used it. Required return #4 remains undelivered and this does not touch it.
+- It is **one game**. Coverage for week 1 is 1 of 16; the fifteen Sunday games are correctly held `beyond_scheduling_horizon` until T−24h and will open on Saturday.
+- The capture finished **2 minutes 32 seconds after the cutoff instant**. That is the runner noticing the cutoff on its 5-minute tier, not a late freeze of a stale packet — but the lag is real and should be measured across a full slate rather than assumed benign from n=1.
+- It depends on an ordinary process staying alive. **A restart across a cutoff loses that game permanently**, and there is no backfill that can honestly recreate it.
+
+The meaningful test is Sunday: fifteen cutoffs, and the first coverage numbers this project will have — how often a packet actually freezes, how often a quote is there, how often a capture is missed. Those are the numbers §4's power analysis says nothing else can substitute for.
+
+C12 and slice 5 advance `connected → observed` in the register on the strength of this row, and on nothing else.

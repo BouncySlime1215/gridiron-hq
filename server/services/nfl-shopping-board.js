@@ -186,6 +186,12 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
         // economics attached to it -- it ranked +2.5/+100 above +3/-150 while
         // its own expected returns were -0.1500 and -0.1417.
         expected_net_return: exec.best.expected_net_return,
+        // How this row was ranked. `price_only` means the module could not
+        // value the NUMBER on this contract and compared prices at the most
+        // common one instead — true for moneylines (no number) and totals (a
+        // total is not a margin).
+        ranked_by: exec.ranked_by ?? 'expected_net_return',
+        compared_at_line: exec.compared_at_line ?? null,
         // NOT an edge over the market. These probabilities are implied by the
         // market's own reference line, so a positive number here means a
         // better obtainable contract than the median book, never a profitable

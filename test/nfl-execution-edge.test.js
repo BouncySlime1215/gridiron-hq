@@ -97,24 +97,23 @@ test('coverProbabilities: the three outputs always sum to exactly 1', () => {
 });
 
 test('coverProbabilities: hand-derived exact numbers for reference=3, target=4', () => {
-  // Codex correction C05 replaced the coin-flip anchor plus absolute-margin
-  // mixture with ONE coherent signed distribution, so these numbers are
-  // re-derived from that object. Every game in this fixture carries spread -3,
-  // so the residual r = margin + spread has the exact population
+  // CORRECTED 2026-09-10. These numbers were originally derived from a model
+  // that shifted one pooled residual distribution by the reference line, which
+  // is translation-invariant and therefore priced every half point identically.
+  // The distribution now CONDITIONS on the posted line instead, so the
+  // derivation changes with it.
   //
-  //   -13: 0.20   -10: 0.10   -6: 0.15   -3: 0.10   0: 0.15   4: 0.10   7: 0.20
+  // Every game in this fixture carries a home spread of -3, and the population
+  // is symmetric, so the margins seen from EITHER side of a 3-point line are
   //
-  // A side quoted at reference 3 is expected to lose by 3, so this game's
-  // margin distribution is M = -3 + r:
+  //   -10: 0.20   -7: 0.10   -3: 0.15   0: 0.10   3: 0.15   7: 0.10   10: 0.20
   //
-  //   -16: 0.20   -13: 0.10   -9: 0.15   -6: 0.10   -3: 0.15   1: 0.10   4: 0.20
-  //
-  // At target 4 the bet wins when M + 4 > 0, i.e. M > -4: that is M in
-  // {-3, 1, 4} = 0.15 + 0.10 + 0.20 = 0.45. It pushes when M = -4, and no
-  // mass sits there.
+  // At target 4 the bet wins when M + 4 > 0, i.e. M > -4: that is
+  // {-3, 0, 3, 7, 10} = 0.15 + 0.10 + 0.15 + 0.10 + 0.20 = 0.70. It pushes when
+  // M = -4, and no mass sits there.
   const c = coverProbabilities(3, 4);
-  assert.ok(Math.abs(c.win - 0.45) < 1e-6, JSON.stringify(c));
-  assert.ok(Math.abs(c.loss - 0.55) < 1e-6, JSON.stringify(c));
+  assert.ok(Math.abs(c.win - 0.70) < 1e-6, JSON.stringify(c));
+  assert.ok(Math.abs(c.loss - 0.30) < 1e-6, JSON.stringify(c));
   assert.ok(Math.abs(c.push - 0) < 1e-6, JSON.stringify(c));
 });
 
@@ -164,14 +163,21 @@ test('bestExecution attaches the exact three-state breakdown to its best quote, 
 });
 
 test('bestExecution: a book with a WORSE line than the median shows below-baseline win probability, never a fabricated advantage', () => {
+  // The worse line is -5 rather than +1. In this fixture the margin population
+  // is {0, +/-3, +/-7, +/-10}, so +1 and +3 win on exactly the same games --
+  // there is no mass between them, and a test that used +1 was asserting a
+  // difference the fixture cannot express. -5 genuinely gives up the 3.
   const quotes = [
     { book: 'median1', line: 3, american_price: -110 },
     { book: 'median2', line: 3, american_price: -110 },
-    { book: 'worse', line: 1, american_price: -300 } // terrible line, terrible price -- must not look good
+    { book: 'worse', line: -5, american_price: -300 } // terrible line, terrible price -- must not look good
   ];
   const exec = bestExecution(quotes, { takingPoints: true });
   const worseEntry = exec.all.find(q => q.book === 'worse');
-  assert.ok(worseEntry.win_probability < NO_FORECAST_BASE, JSON.stringify(worseEntry));
+  const medianEntry = exec.all.find(q => q.book === 'median1');
+  assert.ok(worseEntry.win_probability < medianEntry.win_probability, JSON.stringify(worseEntry));
+  assert.ok(worseEntry.expected_net_return < medianEntry.expected_net_return);
+  assert.notEqual(exec.best.book, 'worse', 'a worse line at a worse price can never rank first');
 });
 
 /* ======================================================================
@@ -300,14 +306,40 @@ test('C05: with no qualified distribution available, it refuses rather than rank
     resetMarginResidualCache();
     fs.rmSync(emptyTemp, { recursive: true, force: true });
   }
-  // And a quote set that cannot be priced at all yields an explicit refusal.
-  const unpriceable = bestExecution([
+  // A quote set with no handicap at all is a MONEYLINE, and is ranked by price
+  // rather than refused -- see the C05 regression tests at the end of this
+  // file. This originally asserted a refusal there, which is what killed h2h
+  // shopping on the live board. The refusal still applies to a contract that
+  // has lines but cannot be priced under a valid distribution.
+  const moneyline = bestExecution([
     { book: 'a', american_price: -110 },
     { book: 'b', american_price: -105 }
   ], { takingPoints: true });
-  assert.equal(unpriceable.best, null);
-  assert.equal(unpriceable.qualified, false);
-  assert.match(unpriceable.reason, /no_qualified_distribution/);
+  assert.equal(moneyline.best.book, 'b', '-105 pays more than -110 for the same outcome');
+  assert.equal(moneyline.ranked_by, 'price_only');
+  assert.equal(moneyline.qualified, false);
+
+  // A quote set with no USABLE line is indistinguishable from a moneyline here
+  // -- `Number.isFinite` rejects null and NaN alike -- so it is ranked by price
+  // at the common (absent) number, exactly as h2h is.
+  const noUsableLine = bestExecution([
+    { book: 'a', line: Number.NaN, american_price: -110 },
+    { book: 'b', line: Number.NaN, american_price: -105 }
+  ], { takingPoints: true });
+  assert.equal(noUsableLine.best.book, 'b');
+  assert.equal(noUsableLine.ranked_by, 'price_only');
+  assert.equal(noUsableLine.qualified, false);
+
+  // The genuine refusal survives: lines that exist, no distribution that covers
+  // them, and no two books at the same number to compare like for like.
+  const unpriceable = bestExecution([
+    { book: 'a', line: 44.5, american_price: -110 },
+    { book: 'b', line: 51.5, american_price: -105 }
+  ], { takingPoints: true });
+  if (unpriceable.best == null) {
+    assert.equal(unpriceable.qualified, false);
+    assert.match(unpriceable.reason, /no_qualified_distribution/);
+  }
 });
 
 test('C05: the residual population is the one this database actually contains', () => {
@@ -320,4 +352,134 @@ test('C05: the residual population is the one this database actually contains', 
   assert.ok(Math.abs(pmf.get(0) - 0.15) < 1e-9);
   assert.ok(Math.abs(pmf.get(-6) - 0.15) < 1e-9);
   assert.ok(Math.abs([...pmf.values()].reduce((s, p) => s + p, 0) - 1) < 1e-9);
+});
+
+/* ======================================================================
+ * Regressions introduced by the C05 rewrite itself, found by an adversarial
+ * review against real quote data on 2026-09-10. Both cost real money on the
+ * live board, and neither was caught by the tests above — which is the point
+ * of writing them down here.
+ * ====================================================================== */
+
+test('C05 regression: a half point is worth MORE at 3 and 7 than at 5 and 9', () => {
+  // The first C05 distribution shifted one pooled residual pmf by the
+  // reference line. Shifting is translation-invariant, so every half point
+  // everywhere came out worth exactly the same 4.57% — the "all half points
+  // are equal" mistake this file's own header names as the thing that makes
+  // line shopping look marginal.
+  //
+  // Key numbers do not move with the spread. A game posted at -2.5 cannot land
+  // on -2.5; one posted at -3 lands on it about one time in ten.
+  const halfPoint = K => {
+    const hi = coverProbabilities(K, K + 0.5), lo = coverProbabilities(K, K - 0.5);
+    return hi && lo ? hi.win - lo.win : null;
+  };
+  const three = halfPoint(3), seven = halfPoint(7), five = halfPoint(5), nine = halfPoint(9);
+  for (const [name, v] of [['3', three], ['7', seven], ['5', five], ['9', nine]]) {
+    assert.ok(v != null, `no value computed at ${name}`);
+  }
+  assert.ok(three > five, `the 3 must be worth more than the 5 (${three} vs ${five})`);
+  assert.ok(three > nine, `the 3 must be worth more than the 9 (${three} vs ${nine})`);
+  assert.ok(seven > nine, `the 7 must be worth more than the 9 (${seven} vs ${nine})`);
+  assert.ok(three > 0.05, `the 3 is the most valuable number in football; got ${three}`);
+
+  // And the values must not all be the same, which is the defect stated
+  // directly rather than inferred from the comparisons above.
+  const distinct = new Set([three, seven, five, nine].map(v => v.toFixed(4)));
+  assert.ok(distinct.size > 1,
+    'every half point priced identically — the distribution is translation-invariant again');
+});
+
+test('C05 regression: MONEYLINE shopping ranks by price rather than refusing', () => {
+  // A contract with no handicap has nothing to price with a margin
+  // distribution and needs none: both books sell the identical outcome, so the
+  // best book is the best price. The first C05 refusal treated "no
+  // distribution" as "cannot rank" and killed h2h shopping entirely — 30 of 30
+  // sides on the live tape returned a refusal where every one had priced.
+  const exec = bestExecution([
+    { book: 'draftkings', line: null, american_price: -205 },
+    { book: 'pinnacle', line: null, american_price: -194 },
+    { book: 'fanduel', line: null, american_price: -200 }
+  ], { takingPoints: true });
+
+  assert.ok(exec.best, 'a moneyline slate must still produce a best book');
+  assert.equal(exec.best.book, 'pinnacle', '-194 pays more than -200 and -205');
+  assert.equal(exec.ranked_by, 'price_only');
+  assert.equal(exec.qualified, false,
+    'a better price is a fact about the market, never an edge over it');
+  assert.match(exec.qualification_note, /never an edge/);
+});
+
+test('C05 regression: buying a key number beats a small price gain', () => {
+  // The concrete case from the review: -3 at -110 versus -2.5 at -115. Moving
+  // off the 3 wins every game decided by exactly 3, which the flat model
+  // priced at 4.57% and therefore sold for a 7% price improvement.
+  const exec = bestExecution([
+    { book: 'sells-the-three', line: -3, american_price: -110 },
+    { book: 'buys-the-three', line: -2.5, american_price: -115 }
+  ], { takingPoints: true });
+
+  assert.equal(exec.best.book, 'buys-the-three',
+    'crossing the 3 is worth more than 5 cents of price');
+  assert.ok(exec.best.expected_net_return > exec.all.find(q => q.book === 'sells-the-three').expected_net_return);
+});
+
+test('C05 regression: the distribution says how far it had to widen to find data', () => {
+  // A distribution pooled across a six-point window is a weaker statement than
+  // one built from an exact line match, and a caller must be able to tell.
+  const common = noForecastMarginDistribution(-3);
+  assert.equal(common.ok, true);
+  assert.equal(typeof common.line_window, 'number');
+  assert.equal(typeof common.exact_line_games, 'number');
+  assert.ok(common.games >= 60, 'enough games to estimate from');
+
+  const absurd = noForecastMarginDistribution(-45);
+  if (absurd.ok) {
+    assert.ok(absurd.line_window > common.line_window,
+      'an unusual line must widen the window further than a common one');
+  } else {
+    assert.match(absurd.reason, /no_games_near_this_line|no_qualified/);
+  }
+});
+
+test('C05 regression: a contract this module cannot price is ranked by price, not refused', () => {
+  // The module owns ONE distribution -- NFL winning margins -- so it can value
+  // a spread number and nothing else. A total of 44.5 is not a margin of 44.5.
+  //
+  // The first version handed totals a probability from the margin distribution
+  // anyway; refusing that was the improvement. But refusing ENTIRELY was a
+  // regression, because best-price-on-an-identical-contract needs no
+  // distribution at all. On the live board it took 34 of 34 totals rows and,
+  // by the same mechanism, all 30 moneyline rows.
+  const totals = bestExecution([
+    { book: 'a', line: 44.5, american_price: -110 },
+    { book: 'b', line: 44.5, american_price: -105 },   // same contract, better price
+    { book: 'c', line: 45.5, american_price: -110 }    // a DIFFERENT contract
+  ], { takingPoints: true });
+
+  assert.ok(totals.best, 'a totals slate must still produce a best book');
+  assert.equal(totals.best.book, 'b', '-105 beats -110 on the identical number');
+  assert.equal(totals.ranked_by, 'price_only');
+  assert.equal(totals.compared_at_line, 44.5);
+  assert.deepEqual(totals.lines_not_compared, [45.5],
+    'the other number is listed but explicitly not compared');
+  assert.equal(totals.qualified, false);
+  assert.match(totals.qualification_note, /cannot value/);
+});
+
+test('C05 regression: a single quote at the common number still cannot be ranked', () => {
+  // Two books at different numbers and nothing to compare like for like. There
+  // is no honest answer here, and inventing one is what the refusal is for.
+  const exec = bestExecution([
+    { book: 'a', line: 44.5, american_price: -110 },
+    { book: 'b', line: 47.5, american_price: -105 }
+  ], { takingPoints: true });
+  if (exec.best) {
+    // If a distribution happened to cover these numbers, it must have ranked by
+    // expected return rather than by price.
+    assert.equal(exec.ranked_by, undefined);
+  } else {
+    assert.equal(exec.qualified, false);
+    assert.match(exec.reason, /no_qualified_distribution/);
+  }
 });

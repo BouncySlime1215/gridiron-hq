@@ -19,7 +19,14 @@ interface Clv { available: boolean; snapshots?: number; captures?: number; track
 interface BoardSide {
   event_id: string; matchup: string; side: string; captured_at: string;
   books_compared: number; best_book: string; best_line: number | null; best_price: number;
-  median_line: number | null; line_edge: number | null; price_edge: number | null; edge_vs_median: number;
+  median_line: number | null; line_edge: number | null; price_edge: number | null;
+  // Renamed 2026-09-10: the board now ranks by expected net return at the exact
+  // line AND price, under one distribution. The old `edge_vs_median` scalar was
+  // `line_edge * 2 + price_edge`, a heuristic that contradicted the economics
+  // printed beside it. `qualified` is false on every row -- these probabilities
+  // come from the market's own posted line, so a positive number means a better
+  // obtainable contract, never an edge over the market.
+  expected_net_return: number | null; qualified?: boolean; unpriceable_reason?: string;
 }
 interface Middle {
   matchup: string; width: number; hit_probability: number; push_probability: number;
@@ -37,7 +44,7 @@ interface BoardResp {
   hold: BookHold;
   summary: {
     sides_priced: number; events: number; shoppable_sides: number;
-    mean_edge_when_shoppable: number | null; best_edge: number | null;
+    mean_expected_return_when_shoppable: number | null; best_expected_return: number | null;
     middles_found: number; positive_ev_middles: number; arbitrage_found: number;
     latest_capture: string | null; stale: boolean; note: string;
   };
@@ -183,9 +190,9 @@ export default function LineShop() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
               {[['Shoppable sides', `${board.summary.shoppable_sides}/${board.summary.sides_priced}`,
                  `across ${board.summary.events} games`],
-                ['Avg price improvement when shoppable', spct(board.summary.mean_edge_when_shoppable),
+                ['Avg expected return when shoppable', spct(board.summary.mean_expected_return_when_shoppable),
                  'vs the median book'],
-                ['Best single price improvement', spct(board.summary.best_edge), 'top of the board'],
+                ['Best expected return on the board', spct(board.summary.best_expected_return), 'top of the board'],
                 ['+EV middles', `${board.summary.positive_ev_middles}/${board.summary.middles_found}`,
                  board.summary.arbitrage_found ? `${board.summary.arbitrage_found} true arb` : 'most lose to vig']
               ].map(([k, v, d]) => (
@@ -274,8 +281,8 @@ export default function LineShop() {
                       </div>
                       <div>
                         <div className="text-[10px] font-bold uppercase text-slate-400">Price improvement</div>
-                        <div className={`text-sm font-black ${s.edge_vs_median > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
-                          {spct(s.edge_vs_median)}
+                        <div className={`text-sm font-black ${(s.expected_net_return ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                          {spct(s.expected_net_return)}
                         </div>
                         <div className="text-[10px] text-slate-400">
                           line {spct(s.line_edge)} · px {spct(s.price_edge)}

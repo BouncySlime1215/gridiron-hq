@@ -176,9 +176,23 @@ export function auditOverview(runId) {
   // against 'Won'/'Lost'/'Push' directly, which happened to match the stored
   // runs but would have silently returned zeros for anything written in the
   // newer lower-case spelling -- two vocabularies for one fact.
-  const spreadWins = spreadBets.filter(b => b.result === 'won').length;
-  const spreadLosses = spreadBets.filter(b => b.result === 'lost').length;
+  // Codex correction C09, second pass. These read the same vocabulary
+  // `by_market` accepts, which is wider than 'won'/'lost': the stored runs also
+  // write 'win'/'loss'. A review demonstrated the gap on four picks -- by_market
+  // reported 2-1-1 with a 66.7% win rate while spread_only reported 0-0-1 with
+  // a NULL win rate, from one call, without throwing. That is the identical
+  // shape of the defect this correction exists to close, reached through a
+  // spelling `by_market` itself declares valid, in the block the file says
+  // exists "so a reader never has to reconstruct the spread-only picture".
+  const isWin = r => r === 'won' || r === 'win';
+  const isLoss = r => r === 'lost' || r === 'loss';
+  const spreadWins = spreadBets.filter(b => isWin(b.result)).length;
+  const spreadLosses = spreadBets.filter(b => isLoss(b.result)).length;
   const spreadPushes = spreadBets.filter(b => b.result === 'push').length;
+  // Anything the vocabulary does not recognise is neither a win nor a loss, and
+  // must be visible rather than silently absent from the denominator.
+  const spreadUnknown = spreadBets.filter(b =>
+    !isWin(b.result) && !isLoss(b.result) && b.result !== 'push' && b.result !== 'void').length;
   const spreadUnits = spreadBets.reduce((s, b) => s + (b.units ?? 0), 0);
 
   return {
@@ -201,6 +215,7 @@ export function auditOverview(runId) {
     // read as a spread accuracy number.
     spread_only: {
       bets: spreadBets.length, wins: spreadWins, losses: spreadLosses, pushes: spreadPushes,
+      unknown_results: spreadUnknown || undefined,
       win_rate: spreadWins + spreadLosses ? r2(spreadWins / (spreadWins + spreadLosses)) : null,
       units: r2(spreadUnits), roi: spreadBets.length ? r2(spreadUnits / spreadBets.length) : null,
       uncertainty: spreadBets.length ? uncertainty(spreadBets) : null

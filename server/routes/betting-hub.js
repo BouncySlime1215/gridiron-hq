@@ -264,7 +264,7 @@ r.get('/status', (req, res, next) => {
       edges: [
         { id: 'execution', label: 'Shop for the best price', live: !board.stale && board.shoppable_sides > 0,
           headline: board.shoppable_sides > 0
-            ? `${board.shoppable_sides} bets where one book pays more · best is ${(board.best_edge * 100).toFixed(1)}% better`
+            ? `${board.shoppable_sides} bets where one book pays more · best is ${(board.best_expected_return * 100).toFixed(1)}% better`
             : 'No current prices to compare',
           detail: board.stale
             ? 'The saved prices are old. Comparing books only works if every price was read at the same moment, so this needs a fresh pull.'

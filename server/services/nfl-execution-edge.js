@@ -207,44 +207,136 @@ export function marginResidualDistribution() {
   return residualCache;
 }
 
-/** Test-only: drop the cached residual distribution after changing fixtures. */
-export function resetMarginResidualCache() { residualCache = null; }
+/**
+ * The empirical margin distribution for games actually posted NEAR a line.
+ *
+ * CORRECTED 2026-09-10, after an adversarial review measured what the first
+ * version cost. That version shifted ONE pooled residual distribution by the
+ * reference line. Shifting is translation-invariant by construction, so the
+ * shape never changed and every half point everywhere came out worth exactly
+ * the same 4.57%:
+ *
+ *     K    half point at K, old model    actually lands on K
+ *     3          4.57%                        10.21%   (n=656)
+ *     5          4.57%                         0.00%
+ *     7          4.57%                         9.03%
+ *     4          4.57%                         0.88%
+ *
+ * That is precisely "treating all half points as equal" -- the mistake this
+ * file's own header calls out as the one that makes line shopping look
+ * marginal. Key numbers do not move with the spread. A game posted at -2.5
+ * cannot land on -2.5; a game posted at -3 lands on it one time in ten. The
+ * spikes sit at absolute margins, and shifting a pooled shape drags them to
+ * wherever the line happens to be.
+ *
+ * Measured cost on 40 real sides from the live tape: the best-book pick
+ * changed on 15 of them, and the old ranking was better on 12 of those 15 --
+ * about 1.88% per changed bet, against a total measured execution edge of
+ * 2.566%. It sold the 3 for a 7% price gain more than once.
+ *
+ * The fix is not to go back. The old `coverProbabilities` really could return
+ * negative probabilities, and the old ranking really did contradict its own
+ * economics. What this does instead is condition on the line rather than
+ * translate: it takes the margins of games that were actually POSTED at or
+ * near this number, so the key-number structure appears where the data puts
+ * it, and the location comes from the market's own estimate.
+ *
+ * The window widens only as far as it must to reach `MIN_GAMES_FOR_LINE`,
+ * and the result reports how far it had to go, because a distribution built
+ * from a 6-point window is a weaker statement than one built from an exact
+ * match and should not be able to pretend otherwise.
+ */
+const MIN_GAMES_FOR_LINE = 60;
+const MAX_LINE_WINDOW = 6;
+
+let marginByLineCache = null;
+function marginsByPostedLine() {
+  if (marginByLineCache) return marginByLineCache;
+  const games = rows(`SELECT team_score, opp_score, spread FROM game_lines
+    WHERE team_score IS NOT NULL AND opp_score IS NOT NULL AND spread IS NOT NULL AND home = 1`);
+
+  // BOTH sides of every game, each from its own point of view.
+  //
+  // A game posted at home -3 is two contracts: the home side at -3 with a
+  // margin of +m, and the away side at +3 with a margin of -m. Indexing only
+  // the home row would answer every away question with home numbers.
+  //
+  // That was a real defect, not a hypothetical: a review found
+  // `coverProbabilities` returning the SAME win probability for both sides of
+  // one game, so home win + away win + push summed to 0.983 rather than 1, and
+  // `reconcileOppositeSides` -- which the contract module ships precisely to
+  // catch this -- was never called. Every away side received the home side's
+  // answer, and `execution-slate-reasoning.js` turned that into the conditional
+  // probability Kelly staking consumes.
+  //
+  // Building both perspectives here fixes it at the source: the two are exact
+  // mirror images, so the pair reconciles by construction rather than by a
+  // check somebody has to remember to run.
+  const byLine = new Map();
+  const add = (line, margin) => {
+    if (!Number.isFinite(line) || !Number.isFinite(margin)) return;
+    if (!byLine.has(line)) byLine.set(line, []);
+    byLine.get(line).push(margin);
+  };
+  for (const g of games) {
+    const margin = g.team_score - g.opp_score;
+    add(g.spread, margin);    // the home side, at its own posted number
+    add(-g.spread, -margin);  // the away side, at its own posted number
+  }
+  marginByLineCache = byLine;
+  return byLine;
+}
 
 /**
- * The integer signed-margin distribution implied for ONE game, given the
- * reference handicap the market has posted for the side being priced.
+ * The integer signed-margin distribution implied for one game, given the
+ * reference handicap posted for the side being priced.
  *
- * A side quoted at `referenceLine` (bettor's convention, larger is better) is
- * expected by the market to win by `-referenceLine`. Each historical residual
- * is therefore a scenario for this game's margin, and the scenarios are binned
- * onto integers because real margins ARE integers.
- *
- * The binning is what makes push behaviour correct without asserting it:
- * because the support is integral, a half-point handicap can never be equalled
- * and its push mass is zero by construction rather than by a special case. A
- * scenario that falls exactly halfway between two integers has its mass split
- * evenly between them -- the usual continuity correction, and the alternative
- * (rounding half up) would bias every line in one direction.
+ * `referenceLine` is in the BACKED side's convention (larger is better), so
+ * the equivalent posted home spread for that side is `referenceLine` itself
+ * when the side is home. Margins are collected from that side's perspective.
  */
 export function noForecastMarginDistribution(referenceLine) {
   if (!Number.isFinite(referenceLine)) return { ok: false, reason: 'reference_line_not_finite' };
-  const { pmf, n } = marginResidualDistribution();
-  if (!pmf.size) {
+  const byLine = marginsByPostedLine();
+  if (!byLine.size) {
     return { ok: false, reason: 'no_qualified_distribution_available',
       detail: 'no completed game in this database carries both a final score and a posted spread, so ' +
-        'there is no empirical residual distribution to price against' };
+        'there is no empirical distribution to price against' };
   }
-  const expectedMargin = -referenceLine;
-  const margins = new Map();
-  const add = (k, mass) => margins.set(k, (margins.get(k) ?? 0) + mass);
-  for (const [residual, mass] of pmf) {
-    const scenario = expectedMargin + residual;
-    const low = Math.floor(scenario);
-    if (Math.abs(scenario - low - 0.5) < 1e-9) { add(low, mass / 2); add(low + 1, mass / 2); }
-    else add(Math.round(scenario), mass);
+
+  // Widen symmetrically until there is enough to estimate from. A team posted
+  // at -3 and one posted at -3.5 are close enough to pool; one posted at -3
+  // and one at -10 are not, and the window stops long before that.
+  const margins = [];
+  let window = 0;
+  for (; window <= MAX_LINE_WINDOW; window += 0.5) {
+    margins.length = 0;
+    for (const [line, values] of byLine) {
+      if (Math.abs(line - referenceLine) <= window) margins.push(...values);
+    }
+    if (margins.length >= MIN_GAMES_FOR_LINE) break;
   }
-  return { ok: true, margins, games: n, expected_margin: expectedMargin };
+  if (!margins.length) {
+    return { ok: false, reason: 'no_games_near_this_line', reference_line: referenceLine };
+  }
+
+  const counts = new Map();
+  for (const m of margins) counts.set(m, (counts.get(m) ?? 0) + 1);
+  const total = margins.length;
+  const pmf = new Map([...counts].map(([m, c]) => [m, c / total]));
+  return {
+    ok: true, margins: pmf, games: total,
+    reference_line: referenceLine,
+    // How far the window had to open to find enough games. Reported because a
+    // distribution pooled across +/-6 points is a weaker statement than one
+    // built from an exact match, and a caller should be able to tell.
+    line_window: window,
+    exact_line_games: (byLine.get(referenceLine) ?? []).length
+  };
 }
+
+/** Test-only: drop the cached distributions after changing fixtures. */
+export function resetMarginResidualCache() { residualCache = null; marginByLineCache = null; }
 
 /**
  * Full three-state win/push/loss probabilities for backing a side at
@@ -283,6 +375,14 @@ export function keyNumbers(limit = 8) {
   const { pmf } = marginDistribution();
   return [...pmf.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)
     .map(([margin, p]) => ({ margin, share: r4(p) }));
+}
+
+/** The most common line in a quote set; ties broken toward the value nearest zero. */
+function modeOfLines(lines) {
+  const counts = new Map();
+  for (const l of lines) if (Number.isFinite(l)) counts.set(l, (counts.get(l) ?? 0) + 1);
+  if (!counts.size) return null;
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || Math.abs(a[0]) - Math.abs(b[0]))[0][0];
 }
 
 /* ---------------------------------------------------------- best execution */
@@ -373,9 +473,61 @@ export function bestExecution(quotes, { takingPoints = true } = {}) {
 
   const priced = scored.filter(q => q.expected_net_return != null);
   if (!priced.length) {
-    // C05's "explicit refusal when no qualified distribution is available."
-    // Returning the first book with a null number beside it would let a caller
-    // treat an unpriceable slate as a ranked one.
+    // A contract with NO handicap -- a moneyline -- has nothing to price with a
+    // margin distribution, and needs none. Both books are selling the identical
+    // outcome; the only thing that differs is what they pay for it, so the best
+    // book is simply the best price. That is the purest form of the execution
+    // edge measured here, and it requires no forecast whatsoever.
+    //
+    // CORRECTED 2026-09-10. The first version of this refusal treated "no
+    // distribution" as "cannot rank", which killed moneyline shopping outright:
+    // an adversarial review found all 30 h2h sides on the live tape returning a
+    // refusal where every one had previously produced a best book. Refusing to
+    // guess at a probability is right; refusing to compare two prices for the
+    // same outcome is not.
+    //
+    // The same applies to any contract this module cannot price. It owns ONE
+    // distribution -- NFL winning margins -- so it can value a spread line and
+    // nothing else. A total of 44.5 is not a margin of 44.5, and the first
+    // version of this refusal quietly handed totals a probability drawn from
+    // the margin distribution anyway. Refusing was the improvement; refusing
+    // ENTIRELY was a regression, because best-price-on-an-identical-contract
+    // needs no distribution at all.
+    //
+    // So: compare only like for like. Quotes at the same number are the same
+    // contract and the better price is simply better. Quotes at different
+    // numbers are different contracts, and this module says so rather than
+    // guessing what the difference is worth.
+    const withLine = usable.filter(q => Number.isFinite(q.line));
+    const noLines = withLine.length === 0;
+    const modalLine = noLines ? null : modeOfLines(withLine.map(q => q.line));
+    const comparable = noLines ? scored : scored.filter(q => q.line === modalLine);
+
+    if (comparable.length >= 2) {
+      const byPrice = [...comparable].sort((a, b) => dec(b.american_price) - dec(a.american_price));
+      const others = scored.filter(q => !comparable.includes(q));
+      return {
+        best: byPrice[0], median_line: refLine, median_price_decimal: r4(refPrice),
+        books_compared: usable.length, all: [...byPrice, ...others],
+        // Still not a qualified edge -- it says nothing about who wins. It says
+        // this book pays more than that one for the SAME contract, which is a
+        // fact about the market rather than a forecast about the game.
+        qualified: false,
+        ranked_by: 'price_only',
+        compared_at_line: modalLine,
+        lines_not_compared: [...new Set(others.map(q => q.line))].filter(l => l != null).sort((a, b) => a - b),
+        qualification_note: noLines
+          ? 'no handicap on this contract, so the books differ only in price. Ranked by payout alone; ' +
+            'this identifies the best obtainable price, never an edge over the market.'
+          : `this module prices NFL margins and cannot value a ${modalLine} on this market, so books are ` +
+            'ranked by price at the most common number only. Quotes at other numbers are listed but not ' +
+            'compared — pricing them against each other would require a distribution this module does ' +
+            'not have.'
+      };
+    }
+    // Anything else genuinely cannot be ranked: returning the first book with a
+    // null number beside it would let a caller treat an unpriceable slate as a
+    // ranked one.
     return { best: null, median_line: refLine, median_price_decimal: r4(refPrice),
       books_compared: usable.length, all: scored,
       qualified: false,

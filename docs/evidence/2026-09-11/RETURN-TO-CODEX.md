@@ -104,13 +104,28 @@ line movement from ~1.0 to ~5.3 points per game. **Any analysis using `open_spre
 garbage.** Repairing it (negate the away row) validates against `nfl_odds_archive` openers at median
 |difference| = 0.00, 100% within one point, n = 347.
 
-**`closing_spread`, `closing_total` and `book_count` are NULL for every season except 2026.** Verified
-directly: 0 non-null in 2022–2025, 542 of 544 in 2026. `game_lines.spread` *is* the closing spread.
+**`closing_spread` and `closing_total` are NULL outside 2026** — 0 non-null in 2022–2025, 542 of 544 in 2026.
+`game_lines.spread` *is* the closing spread.
 
-**`nfl_odds_archive` carries ~2.68% junk rows** — 1,198 of 44,742 sit more than 3 points from the same-phase
-cross-book median, and 20.8% of those are exact sign flips (a 2022 PIT line of −7.0 against a +7.0 consensus).
-All 11 books affected; worst are `mybookieag` and `bodog`. This was material: it manufactured the one apparently
-significant result in §4 below.
+**Correction, found by auditing this document rather than the code.** An earlier revision grouped `book_count`
+with those two and asserted it was present in 2026. That is false: `book_count` is NULL in **all 15,096 rows of
+every season, 2026 included**, and the claim was flagged "verified directly" while being wrong. The query that
+produced it did show `has_bookcount = 0` for 2026; the error was in reading the output, not in running it. It is
+corrected here rather than quietly fixed because a false statement carrying a verification label is the most
+damaging kind in a document whose subject is whether the numbers can be trusted.
+
+**`nfl_odds_archive` carries ~2.6% junk rows** — 1,198 rows sit more than 3 points from the same-phase
+cross-book median (2.64% of 45,386, or 2.68% of 44,742 if groups with fewer than three books are excluded; both
+denominators are defensible and the document previously stated only the second). All 11 books affected; worst
+are `mybookieag` (361) and `bodog` (203).
+
+Of those far rows, **20.8% sit within a point of the exact mirror of the consensus** — a 2022 PIT line of −7.0
+against a +7.0 consensus is the canonical shape. An earlier revision called these "exact sign flips"; exact
+mirrors are only about 6.8%, and the 20.8% figure reproduces only under the near-mirror definition. The
+distinction matters because a sign-flip diagnosis implies a specific parsing bug, while a near-mirror population
+is consistent with several causes.
+
+This was material: it manufactured the one apparently significant result in §4 below.
 
 **DraftKings is absent from `nfl_quote_tape` for the 2026 season.** Zero rows; the newest DK row is from
 January. Its live board is in `nfl_line_snapshots`, scraped hourly and second-hand. Separately,
@@ -126,21 +141,38 @@ The plan's §9.1 stages family adaptation behind a frozen first comparison. That
 run. What *has* been run is the narrower question of whether any existing signal selects bets, and the answer is
 uniformly negative:
 
-| Question | Result |
-|---|---|
-| Does the ensemble's edge predict how games land vs the spread? | **r = −0.007**, p = 0.72, n = 2,761 |
-| Do game features predict margin dispersion? | 87 features × 6 targets = **501 hypotheses**, 0 survive BH q<0.10 |
-| Is there a better key-number window than the classic one? | **4,060** searched; best max-z 2.87 against a bootstrapped ceiling of 4.26 |
-| Do market-structure signals separate qualifying legs? | **6 pre-registered** hypotheses, discovery/holdout split, all null, Holm p ≥ 0.99 |
+| Question | Result | Reproducible today? | How much it establishes |
+|---|---|---|---|
+| Does the ensemble's edge predict how games land vs the spread? | **r = −0.007**, p = 0.72, n = 2,761 | **No** | The universe is real (2,761 is exactly the scored-with-spread count for 2016–2025) but the per-game edge series was never persisted — `nfl_ensemble_fit_artifacts` stores model-level weights only, `nfl_replay_bets` is empty, and the four v10 artifacts that exist cover 2026 weeks 1–2. Not recomputable without a fresh multi-hour walk-forward, which would not reproduce this number anyway. |
+| Do game features predict margin dispersion? | 522 feature×target pairs, **501 tested**, 0 survive BH q<0.10 | No | **The strongest of the four.** Not because of the BH result — zero survivors is the modal outcome under a true null at m=501 — but because the raw p-histogram is indistinguishable from uniform: 25 below 0.05 against 25.05 expected, the 50th percentile of the null. (An earlier revision wrote "87 × 6 = 501". It is 522; 21 pairs were dropped for coverage.) |
+| Is there a better key-number window than the classic one? | **4,060** searched; best max-z **2.87** | No | Safe regardless of the bootstrap: 2.87 is below the naive Bonferroni threshold of 4.22 before any allowance for dependence. The previously quoted ceiling of **4.26 is suspect as a 95% quantile** — for 4,060 independent one-sided tests that quantile is 4.44, and positive correlation can only push it down, so 4.26 would imply more effective independent tests than were run. It is plausible as a 99% quantile. The figure is withdrawn pending the script; the conclusion does not depend on it. |
+| Do market-structure signals separate qualifying legs? | **6 pre-registered** hypotheses, discovery/holdout, all null, Holm p ≥ 0.99 | No | **Nearly uninformative, and previously overstated here.** The holdout could only detect 3.35–9.86pp of leg rate. The entire edge over break-even is 3.35pp at +100 and 1.69pp at −110. A test with no power across the whole economically relevant range cannot license acting as though selection is absent; Holm p ≥ 0.99 was close to guaranteed either way. |
 
-Roughly **4,600 formal tests; zero survivors of multiple-comparison correction.**
+**The aggregate previously reported here — "~4,600 formal tests, zero survivors" — is withdrawn.** Four disjoint
+families were each corrected within themselves and never jointly; summing their counts implies a family-wise
+statement nobody computed, which makes the headline *less* rigorous than its parts rather than more. It also
+averages one genuinely informative null, one safe null, and one uninformative null into a single number that
+hides exactly the difference a reviewer needs.
+
+**A coincidence this document cannot resolve.** The stated MDE floor of 3.35pp equals, to three significant
+figures, the family's own margin over break-even at +100 (74.06% − 70.71% = 3.35pp). Separately, a 3.35pp MDE
+needs roughly 5,400 legs at an even split, while the cross-both family holds 2,894 in total — a
+discovery/holdout split leaves 1,000–1,400 in holdout, implying 6.6–7.8pp. Either the MDE was computed on a much
+larger universe than the teaser family, or the margin-over-break-even was mistakenly reported as an MDE floor.
+The script does not exist, so it cannot be settled from here. **Treat the 3.35pp figure as unverified.**
 
 Two findings from that work are worth carrying forward independently of any conclusion:
 
-**σ(margin − spread) ≈ 12.7 and does not move with the line at all.** Log-σ slope on |spread|, 2016–2022:
-−0.0008, p = 0.86. σ is 12.73 at a 1-point spread and 12.64 at a 10-point spread. The single most informative
-variable in the system carries *zero* dispersion information. That is the strongest available prior for why
-nothing downstream of it does either.
+**σ(margin − spread) ≈ 12.7 with no detectable dependence on the line.** Gaussian-MLE log-σ slope on
+|spread|, 2016–2022: −0.0008, p = 0.86 (independently reproduced at −0.000816, p = 0.80, n = 1,906). σ is 12.73
+at a 1-point spread and 12.64 at a 10-point spread.
+
+An earlier revision said the spread carries *zero* dispersion information and used that affirmatively. **That
+is too strong for what a null establishes.** The 95% CI on the slope is [−0.0071, +0.0055], which across the
+usable range admits σ anywhere from about 11.5 to 13.7. Propagated to a teased dog leg (+2.5 → +8.5) that is a
+2.9pp swing in leg rate — against a total edge of 3.35pp. The data are consistent with a dispersion effect large
+enough to consume nearly the whole edge. This is an absence of detected signal, not a demonstration of zero
+information, and it cannot carry the weight of "the strongest available prior".
 
 **The shipped disagreement-inflation term has no support.** `nfl-ensemble.js:220` widens the predictive
 interval by `1 + min(0.25, disagreement/30)`. Measured: −0.64% per SD, p = 0.70 — wrong sign — and it flips sign
@@ -157,6 +189,28 @@ do not establish absence; they establish that the question is unanswerable at an
 have. That argues against acting on a *future* significant result from this family too.
 
 ---
+
+## 4a. A provenance problem the reviewer should weigh before anything in §4
+
+Of the five measurement claims in §4, **four have no stored artifact of any kind** — no script, no JSON, no
+database row, no clone on disk. They exist only as prose in this document and in the September 10 handoff. The
+analyses were run by agents whose working directories were not preserved.
+
+That is not a claim that the numbers are wrong. Two claims that *can* be checked (the dispersion slope, and the
+data defects in §3) reproduce essentially to the digit, which is some evidence the others were produced
+carefully. But it does mean **§4 cannot be audited by rerunning it**, and a reviewer is entitled to weight it
+accordingly.
+
+One detail sharpens this. The most specific figures — max-z 2.87, the 4.26 ceiling, the six pre-registered
+hypotheses, Holm ≥ 0.99, the 3.35–9.86pp MDE range, the 60,317-leg power figure — appear for the first time in
+*this* reviewer-facing document, with no predecessor in the handoff it summarises. The handoff says only "4,060
+candidates searched, none survive." Given that an agent in this project has already been caught stating a
+confident falsehood about the database (that DraftKings data was in `nfl_quote_tape`; there is none for the 2026
+season), that provenance pattern is worth naming rather than leaving for the reviewer to discover.
+
+**The fix is not to rerun the analyses.** It is that any future analysis whose result is meant to survive must
+persist its script and its intermediate output as evidence, in the same way the code corrections persist tests.
+An analysis that cannot be rerun is a memory, not a measurement.
 
 ## 5. What has not moved
 

@@ -1,4 +1,4 @@
-export const name = '036_execution_opportunity_frozen_columns';
+export const name = '037_execution_opportunity_frozen_columns';
 
 /**
  * a6-money-path: `nfl_execution_opportunities` has exactly one legitimate

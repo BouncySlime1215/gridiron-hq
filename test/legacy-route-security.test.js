@@ -18,6 +18,23 @@ const { default: playersRouter } = await import('../server/routes/players.js');
 const { default: tradelabRouter } = await import('../server/routes/tradelab.js');
 const { default: tradesRouter } = await import('../server/routes/trades.js');
 const { default: devRouter } = await import('../server/routes/dev.js');
+// The 13 route families that used to mount with no auth at all
+// (server/index.js:77-107, Giant Plan section 5.1 item 3) — teams, rankings,
+// espn, aggregates, analysis, nfldata ("/api/nfl"), stats, accolades, edge,
+// props, props-tickets, decision-inbox and wong ("/api/betting/wong").
+const { default: teamsRouter } = await import('../server/routes/teams.js');
+const { default: rankingsRouter } = await import('../server/routes/rankings.js');
+const { default: espnRouter } = await import('../server/routes/espn.js');
+const { default: aggregatesRouter } = await import('../server/routes/aggregates.js');
+const { default: analysisRouter } = await import('../server/routes/analysis.js');
+const { default: nfldataRouter } = await import('../server/routes/nfldata.js');
+const { default: statsRouter } = await import('../server/routes/stats.js');
+const { default: accoladesRouter } = await import('../server/routes/accolades.js');
+const { default: edgeRouter } = await import('../server/routes/edge.js');
+const { default: propsRouter } = await import('../server/routes/props.js');
+const { default: propsTicketsRouter } = await import('../server/routes/props-tickets.js');
+const { default: decisionInboxRouter } = await import('../server/routes/decision-inbox.js');
+const { default: wongRouter } = await import('../server/routes/wong.js');
 
 const app = express();
 app.use(express.json());
@@ -27,6 +44,19 @@ app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/dev', ...legacyAdmin, devRouter);
+app.use('/api/teams', ...legacyAuthenticated, teamsRouter);
+app.use('/api/rankings', ...legacyAuthenticated, rankingsRouter);
+app.use('/api/espn', ...legacyAuthenticated, espnRouter);
+app.use('/api/aggregates', ...legacyAuthenticated, aggregatesRouter);
+app.use('/api/analysis', ...legacyAuthenticated, analysisRouter);
+app.use('/api/nfl', ...legacyAuthenticated, nfldataRouter);
+app.use('/api/stats', ...legacyAuthenticated, statsRouter);
+app.use('/api/accolades', ...legacyAuthenticated, accoladesRouter);
+app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
+app.use('/api/props', ...legacyAuthenticated, propsRouter);
+app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
+app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
+app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
 
 before(async () => {
   await runMigrations();
@@ -54,6 +84,14 @@ async function request(path, token) {
 
 test('legacy league/news/trade/player/dev route families reject anonymous callers', async () => {
   for (const path of ['/api/leagues', '/api/news', '/api/tradelab/1/scout', '/api/trades/1/scout', '/api/players', '/api/dev/status']) {
+    assert.equal((await request(path)).status, 401, path);
+  }
+});
+
+test('the 13 previously-ungated route families now reject anonymous callers', async () => {
+  for (const path of ['/api/teams', '/api/rankings', '/api/espn', '/api/aggregates', '/api/analysis',
+    '/api/nfl', '/api/stats', '/api/accolades', '/api/edge', '/api/props', '/api/props-tickets',
+    '/api/decision-inbox', '/api/betting/wong']) {
     assert.equal((await request(path)).status, 401, path);
   }
 });

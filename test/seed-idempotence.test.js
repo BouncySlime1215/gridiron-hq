@@ -7,7 +7,7 @@ import fs from 'node:fs';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-seed-idem-test-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
-const { db, rows, run } = await import('../server/db/index.js');
+const { db, row, rows, run } = await import('../server/db/index.js');
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 const { normalizePlayerName } = await import('../server/services/player-identity.js');
 
@@ -88,4 +88,40 @@ test('legacy duplicate seed rows do not create another duplicate on boot', () =>
   seedIfEmpty();
   assert.equal(rows('SELECT id FROM players').length, before,
     'an ambiguous legacy duplicate group must reconcile in place instead of growing');
+});
+
+test('reseeding does not revert a user-edited team analysis write-up', () => {
+  // server/routes/teams.js and server/routes/analysis.js let a user hand-edit
+  // these columns. seedIfEmpty() used to run an ON CONFLICT(abbr) DO UPDATE on
+  // every boot, which silently reverted the edit back to the hardcoded seed text.
+  seedIfEmpty();
+  const team = rows(`SELECT abbr, ol_analysis FROM nfl_teams ORDER BY abbr LIMIT 1`)[0];
+  assert.ok(team);
+  const edited = 'User-edited O-line write-up that must survive a reboot.';
+  run(`UPDATE nfl_teams SET ol_analysis=? WHERE abbr=?`, edited, team.abbr);
+
+  seedIfEmpty();
+  seedIfEmpty();
+
+  assert.equal(row('SELECT ol_analysis FROM nfl_teams WHERE abbr=?', team.abbr).ol_analysis, edited,
+    'a live-edited team analysis column must not be reset by reseeding on the next boot');
+});
+
+test('reseeding does not revert a user re-rank of the default board', () => {
+  // rankings.js lets a user reorder/re-tier "My 2026 Board" directly. seedIfEmpty()
+  // used to run an ON CONFLICT(set_id, player_id) DO UPDATE on every boot, which
+  // silently reset every rank/tier back to the hardcoded consensus order.
+  seedIfEmpty();
+  const setId = row(`SELECT id FROM ranking_sets WHERE name='My 2026 Board' AND scoring='PPR'`).id;
+  const entry = rows('SELECT player_id, rank, tier FROM ranking_entries WHERE set_id=? ORDER BY rank LIMIT 1', setId)[0];
+  assert.ok(entry);
+  const newRank = entry.rank + 500;
+  run(`UPDATE ranking_entries SET rank=?, tier=6 WHERE set_id=? AND player_id=?`, newRank, setId, entry.player_id);
+
+  seedIfEmpty();
+  seedIfEmpty();
+
+  const after = row('SELECT rank, tier FROM ranking_entries WHERE set_id=? AND player_id=?', setId, entry.player_id);
+  assert.equal(after.rank, newRank, 'a user re-rank must not be reset by reseeding on the next boot');
+  assert.equal(after.tier, 6, 'a user re-tier must not be reset by reseeding on the next boot');
 });

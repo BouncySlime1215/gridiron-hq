@@ -51,3 +51,6 @@ scratchpad/
 undefined
 *.sqlite.bak
 *.pre-migration-*.bak
+*.pre-migration-*.bak-journal
+*.pre-migration-*.bak-wal
+*.pre-migration-*.bak-shm

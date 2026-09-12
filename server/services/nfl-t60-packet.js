@@ -255,12 +255,20 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
   // to a source that never recorded when THIS system actually saw the row.
   // Reported as `publishedAt` instead, so sourceEntry can grant at most the
   // weaker `published_by_cutoff_evidenced` (historical-replay-only) claim.
+  //
+  // G22 claimed this was already scoped by team/week; it was only scoped by
+  // season/week. `nfl_injuries` carries a report for every team playing that
+  // week, so without a team filter this game's packet absorbed every OTHER
+  // game's injury report for the same week too (the same cross-game bug C11
+  // fixed for the quote tape, here). `nfl-ai-replay.js`'s own injuries read
+  // already scopes this way — `team IN (?,?)` — this just matches it.
   const injuries = rows(`SELECT
       SUM(CASE WHEN modified_at <= ? THEN 1 ELSE 0 END) by_cutoff,
       COUNT(*) total,
       MAX(CASE WHEN modified_at <= ? THEN modified_at END) published_by_cutoff,
       MAX(modified_at) published_ever
-    FROM nfl_injuries WHERE season = ? AND week = ?`, cutoffAt, cutoffAt, season, week)[0];
+    FROM nfl_injuries WHERE season = ? AND week = ? AND team IN (?, ?)`,
+    cutoffAt, cutoffAt, season, week, homeCode, awayCode)[0];
   entries.push(sourceEntry({ source: 'nfl_injuries',
     rowsByCutoff: injuries?.by_cutoff ?? 0, rowsTotal: injuries?.total ?? 0,
     publishedAt: injuries?.published_by_cutoff ?? injuries?.published_ever ?? null, cutoffAt,
@@ -272,13 +280,31 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
   // Typed news events. `first_seen_time` is an extraction timestamp — a
   // receipt clock for THIS system, though not the article's publication time.
   // Both are carried so neither is mistaken for the other.
+  //
+  // G22: this query had NO WHERE clause of any kind — every typed news event
+  // ever extracted, for every team and every season, fed every game's packet.
+  // `nfl_news_events` (migration 019) carries no season/week column, so team
+  // plus a kickoff-anchored date window are the only scoping this table can
+  // offer; there is no exact "this game's week" join available. `team` is
+  // nullable — an event whose player entity did not resolve to a team is
+  // stored with no team at all — and excluding those outright would silently
+  // drop real evidence rather than admit unrelated evidence, so a null team
+  // still passes and is narrowed only by the date window. The window is
+  // deliberately generous (a week of pregame lead-in, two days past kickoff
+  // for same-day corrections) rather than tight, because the point is
+  // excluding OTHER seasons/weeks, not shaving this one.
+  const newsWindowFrom = new Date(kickoffAt - 8 * 86400000).toISOString();
+  const newsWindowTo = new Date(kickoffAt + 2 * 86400000).toISOString();
   const news = rows(`SELECT
       SUM(CASE WHEN first_seen_time <= ? THEN 1 ELSE 0 END) by_cutoff,
       COUNT(*) total,
       MAX(CASE WHEN first_seen_time <= ? THEN first_seen_time END) received_by_cutoff,
       MAX(CASE WHEN first_seen_time <= ? THEN published_at END) published_by_cutoff,
       MAX(first_seen_time) received_ever
-    FROM nfl_news_events`, cutoffAt, cutoffAt, cutoffAt)[0];
+    FROM nfl_news_events
+    WHERE (team IS NULL OR team IN (?, ?))
+      AND first_seen_time >= ? AND first_seen_time <= ?`,
+    cutoffAt, cutoffAt, cutoffAt, homeCode, awayCode, newsWindowFrom, newsWindowTo)[0];
   entries.push(sourceEntry({ source: 'nfl_news_events',
     rowsByCutoff: news?.by_cutoff ?? 0, rowsTotal: news?.total ?? 0,
     publishedAt: news?.published_by_cutoff ?? null,

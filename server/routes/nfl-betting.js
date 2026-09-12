@@ -1204,6 +1204,28 @@ r.get('/sim/calibration', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * The strong version of the calibration question: score the engine's whole
+ * margin distribution against real games, season by season, with the team
+ * profiles behind each season built only from seasons before it.
+ *
+ * Separate from /sim/calibration because it is the expensive one — one
+ * simulated season per test season — and because it is the one that reports
+ * nothing at all when the attached database has no real history to hold out.
+ */
+r.get('/sim/shape', async (req, res, next) => {
+  try {
+    const { simulatorWalkForwardShape } = await import('../services/nfl-drive-sim.js');
+    const { cached: c4, fingerprint: f4 } = await import('../services/compute-cache.js');
+    const trials = Math.min(2000, Number(req.query.trials) || 600);
+    const games = Math.min(60, Number(req.query.games) || 32);
+    const from = Number(req.query.from) || 2022;
+    res.json(c4(`sim_shape:${from}:${trials}:${games}`,
+      f4([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_team_week_features']),
+      () => simulatorWalkForwardShape({ from, trials, games })));
+  } catch (e) { next(e); }
+});
+
 /** The only question that matters: does it beat the closing line? */
 r.get('/sim/backtest', async (req, res, next) => {
   try {

@@ -1744,11 +1744,34 @@ r.post('/reasoning/explain', (req, res, next) => {
 
 /* ------------------------------------------------------ football-first model */
 
-/** The football read on one game, decomposed into the facts that produced it. */
+/**
+ * The football read on one game, decomposed into the facts that produced it.
+ *
+ * `footballFirstLean` calls `residualModel`, which fits ~90 seconds of
+ * coefficients inline on a cache miss (see the doc comment on
+ * `/football-first/coefficients` below) -- blocking this request and every
+ * other one queued behind it on Node's single thread. `peekResidualModel`
+ * checks the cache without paying that cost; on a miss this mirrors
+ * `POST /football-first/fit`'s own queue-and-return pattern instead of
+ * computing here.
+ */
 r.get('/football-first/:season/:week/:home/:away', (req, res, next) => {
   try {
     const season = Number(req.params.season), week = Number(req.params.week);
     const home = String(req.params.home).toUpperCase(), away = String(req.params.away).toUpperCase();
+    if (!peekResidualModel(season, 'margin')) {
+      const stored = serveReport('football_first_fit');
+      if (stored.pending || stored._report?.error) {
+        return res.status(202).json({
+          fitted: false, computing: Boolean(stored.computing || stored._report?.refreshing),
+          season, week, home, away,
+          why: 'The coefficient fit has not been computed for this season yet. It walks about a ' +
+            'thousand games building injury, efficiency and tendency features and takes roughly ninety ' +
+            'seconds, so it runs in a worker thread rather than on a request.',
+          how: 'Reload in a couple of minutes, or POST /api/nfl-betting/football-first/fit to queue it now.'
+        });
+      }
+    }
     const lean = footballFirstLean(season, week, home, away);
     res.json({
       ...lean,

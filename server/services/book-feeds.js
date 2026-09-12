@@ -415,6 +415,7 @@ export async function captureBookFeeds({ providers = Object.keys(PROVIDERS) } = 
       const payload = [...events.values()].map(ev => ({ ...ev,
         bookmakers: [...ev.bookmakers.values()].map(bk => ({ ...bk, markets: [...bk.markets.values()] })) }));
       tape = ingestQuoteSnapshot(payload, { provider: 'free-book-feeds', requestedAt: at,
+        receivedAt: at, receiptClockSource: 'response_completion',
         markets: 'spreads,totals,h2h', sourceRef: 'book_feeds' });
     } catch (error) { tape = { error: error.message }; }
     try { (await import('./nfl-shopping-board.js')).clearShoppingBoardCache(); } catch { /* board cache is best effort */ }

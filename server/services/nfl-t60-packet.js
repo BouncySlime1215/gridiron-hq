@@ -111,9 +111,14 @@ function sourceEntry({ source, rowsByCutoff = 0, rowsTotal = 0, effectiveAt = nu
   }
   if (beforeOrAt(receivedAt, cutoffAt)) return { ...base, claim: 'received_by_cutoff', reason: null };
   if (beforeOrAt(publishedAt, cutoffAt)) return { ...base, claim: 'published_by_cutoff_evidenced', reason: null };
-  if (receivedAt != null) {
+  // A known clock -- received OR published -- that is itself after the
+  // cutoff is positive evidence the row could not have been knowable in
+  // time, in any mode. That is different from availability_unknown below,
+  // where no clock exists at all and lateness is merely unproven.
+  if (receivedAt != null || publishedAt != null) {
+    const when = receivedAt ?? publishedAt;
     return { ...base, claim: 'late_arrival_excluded', rows: 0,
-      reason: `every row for this source reached this system at ${receivedAt}, after the ${cutoffAt} cutoff. ` +
+      reason: `every row for this source reached this system at ${when}, after the ${cutoffAt} cutoff. ` +
         'Backfilling an old fact today is not discovering when it first became known.' };
   }
   return { ...base, claim: 'availability_unknown',
@@ -243,20 +248,26 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
       book_updated_at: q.book_updated_at, received_at: q.received_at }))
   }));
 
-  // Injuries. Rows exist for most seasons, but their receipt clock is the
-  // known weak point (the audit's own finding: 2025 rows carry no
-  // modified_at). Whatever clock exists is reported; where none does, the
-  // entry is quarantined rather than counted.
+  // Injuries. `modified_at` is nflverse's own publish clock, not this
+  // system's receipt clock — nfl_injuries carries no fetch/receipt stamp of
+  // its own. Passing a publish clock as `receivedAt` would wrongly grant
+  // `received_by_cutoff` (the only claim a prospective decision may rest on)
+  // to a source that never recorded when THIS system actually saw the row.
+  // Reported as `publishedAt` instead, so sourceEntry can grant at most the
+  // weaker `published_by_cutoff_evidenced` (historical-replay-only) claim.
   const injuries = rows(`SELECT
       SUM(CASE WHEN modified_at <= ? THEN 1 ELSE 0 END) by_cutoff,
       COUNT(*) total,
-      MAX(CASE WHEN modified_at <= ? THEN modified_at END) received_by_cutoff,
-      MAX(modified_at) received_ever
+      MAX(CASE WHEN modified_at <= ? THEN modified_at END) published_by_cutoff,
+      MAX(modified_at) published_ever
     FROM nfl_injuries WHERE season = ? AND week = ?`, cutoffAt, cutoffAt, season, week)[0];
   entries.push(sourceEntry({ source: 'nfl_injuries',
     rowsByCutoff: injuries?.by_cutoff ?? 0, rowsTotal: injuries?.total ?? 0,
-    receivedAt: injuries?.received_by_cutoff ?? injuries?.received_ever ?? null, cutoffAt,
-    missingReason: 'no injury rows for this season and week' }));
+    publishedAt: injuries?.published_by_cutoff ?? injuries?.published_ever ?? null, cutoffAt,
+    missingReason: 'no injury rows for this season and week',
+    note: 'nflverse modified_at is a publish clock, not this system\'s receipt clock; nfl_injuries has no ' +
+      'fetch/receipt stamp of its own, so this source can support only a labeled historical claim, never a ' +
+      'prospective one.' }));
 
   // Typed news events. `first_seen_time` is an extraction timestamp — a
   // receipt clock for THIS system, though not the article's publication time.

@@ -1,4 +1,4 @@
-export const name = '036_drop_dead_auction_tables';
+export const name = '042_drop_dead_auction_tables';
 
 /**
  * Drops two dead tables.

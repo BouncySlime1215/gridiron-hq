@@ -72,7 +72,11 @@ Every AI agent working in this repository must follow these rules.
 
 ## 2. Current truth snapshot — 2026-09-01
 
-This snapshot is a research fact, not a permanent product claim.
+This snapshot is a research fact, not a permanent product claim. It predates, and is superseded
+as the latest sealed result by, blind-audit runs 27 (2026-09-09), 31 and 32 (2026-09-10) — see
+`docs/evidence/2026-09-10/IMPLEMENTATION-SUMMARY.md` §0 for Run 32's combined result (550 bets,
+207-339, -47.901u, -8.71% ROI) and `docs/evidence/2026-09-09/AUDIT-EVIDENCE.md` for Run 27's. Kept
+below as the dated record it always was; do not read it as the current headline number.
 
 ### 2.0 Audit 8 and the clean-memory boundary
 
@@ -808,7 +812,7 @@ It must retrieve the stored audit object and verify seasons, policy, prices, and
 
 ## 15. Immediate execution queue
 
-**Superseded.** The live queue is [docs/CLAUDE-NEXT-STEPS.md](../CLAUDE-NEXT-STEPS.md). (This section previously pointed at `docs/PROFITABILITY_EXECUTION_PLAN.md`, which was itself consolidated away on 2026-09-10 and is preserved at [evidence/historical/execution-work-through-2026-09-08.md](../evidence/historical/execution-work-through-2026-09-08.md).) — one status table with implementation/integration/evaluation/authority tracked separately per package, checked against the live database rather than carried forward. The items below are kept as the historical record of what this queue held before that; several are now stale (e.g. "keep staking authority at zero" is still true, but "capture 2026 decision/close pairs before kickoff" depends on `SCHEDULER_DISABLED` in `.env`, which the new document explains is currently blocking exactly that).
+**Superseded.** The live queue is [docs/CLAUDE-NEXT-STEPS.md](../CLAUDE-NEXT-STEPS.md). (This section previously pointed at `docs/PROFITABILITY_EXECUTION_PLAN.md`, which was itself consolidated away on 2026-09-10 and is preserved at [evidence/historical/execution-work-through-2026-09-08.md](../evidence/historical/execution-work-through-2026-09-08.md).) — one status table with implementation/integration/evaluation/authority tracked separately per package, checked against the live database rather than carried forward. The items below are kept as the historical record of what this queue held before that; several are now stale (e.g. "keep staking authority at zero" is still true, but "capture 2026 decision/close pairs before kickoff" is no longer blocked by `SCHEDULER_DISABLED` — that flag only stops the background cron scheduler, and the capture path was deliberately built as an on-demand action that does not depend on it, per `nfl-prospective-collection.js`'s and `nfl-market.js`'s own comments. The new document records the first real prospective capture on 2026-09-10 (`nfl|2026-09-10|SF@LAR`), with coverage still 1 of 16 week-1 games until the Saturday T-24h horizon and a real restart risk: the server has to stay up through the weekend or that game's capture is lost — see `docs/CLAUDE-NEXT-STEPS.md` row C12).
 
 ### Now
 

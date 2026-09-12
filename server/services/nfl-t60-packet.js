@@ -295,20 +295,36 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
       book_updated_at: q.book_updated_at, received_at: q.received_at }))
   }));
 
-  // Injuries. Rows exist for most seasons, but their receipt clock is the
-  // known weak point (the audit's own finding: 2025 rows carry no
-  // modified_at). Whatever clock exists is reported; where none does, the
-  // entry is quarantined rather than counted.
+  // Injuries. Giant Plan 8.14: `nfl_injuries.modified_at` is the SOURCE's own
+  // claim about when a report changed, not this system's receipt clock --
+  // treating it as `receivedAt` (the previous version of this block did) is
+  // the exact "published_at masquerading as observed_at" leak nfl-bitemporal.js
+  // exists to close, and it is why the audit could find 2025 rows with no
+  // clock at all: `nfl_injuries` itself has never recorded when THIS system
+  // actually saw a value, only what the source last said. nfl-advanced.js's
+  // syncInjuries now appends every changed report to `nfl_feature_revisions`
+  // with a real `observed_at`, so this reads that store instead. A revision's
+  // `observed_at` is always populated -- this machine chose it -- so the
+  // "quarantined, no clock at all" case that motivated this comment before
+  // cannot recur going forward; what remains is the ordinary as-of question,
+  // "had this system recorded it by the cutoff."
+  //
+  // KNOWN GAP: this only sees rows synced under the wiring above. Historical
+  // `nfl_injuries` rows written before it exist have no corresponding
+  // revision and are invisible here until the affected weeks are re-synced --
+  // see PIPELINE_REPORT.md.
+  const injurySuffix = `:${season}:${week}`;
   const injuries = rows(`SELECT
-      SUM(CASE WHEN modified_at <= ? THEN 1 ELSE 0 END) by_cutoff,
+      SUM(CASE WHEN observed_at <= ? THEN 1 ELSE 0 END) by_cutoff,
       COUNT(*) total,
-      MAX(CASE WHEN modified_at <= ? THEN modified_at END) received_by_cutoff,
-      MAX(modified_at) received_ever
-    FROM nfl_injuries WHERE season = ? AND week = ?`, cutoffAt, cutoffAt, season, week)[0];
+      MAX(CASE WHEN observed_at <= ? THEN observed_at END) received_by_cutoff,
+      MAX(observed_at) received_ever
+    FROM nfl_feature_revisions WHERE feature = 'injury_report' AND entity LIKE '%' || ?`,
+  cutoffAt, cutoffAt, injurySuffix)[0];
   entries.push(sourceEntry({ source: 'nfl_injuries',
     rowsByCutoff: injuries?.by_cutoff ?? 0, rowsTotal: injuries?.total ?? 0,
     receivedAt: injuries?.received_by_cutoff ?? injuries?.received_ever ?? null, cutoffAt,
-    missingReason: 'no injury rows for this season and week' }));
+    missingReason: 'no injury revisions recorded for this season and week' }));
 
   // Typed news events. `first_seen_time` is an extraction timestamp — a
   // receipt clock for THIS system, though not the article's publication time.

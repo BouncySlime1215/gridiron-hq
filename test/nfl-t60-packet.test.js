@@ -36,6 +36,22 @@ db.exec(`INSERT INTO nfl_teams (id,abbr,name,conference,division) VALUES
 
 const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS } =
   await import('../server/services/nfl-t60-packet.js');
+const { recordRevision } = await import('../server/services/nfl-bitemporal.js');
+
+/**
+ * One injury-report revision, in the exact shape nfl-advanced.js's
+ * syncInjuries (Giant Plan 8.14) now writes to nfl_feature_revisions: entity
+ * scoped to the player's SPECIFIC season/week (a report never bleeds into a
+ * different week), a fixed 'injury_report' feature, and both clocks kept
+ * apart so a test can put observedAt on either side of the cutoff without
+ * also having to fake a publication time it does not care about.
+ */
+function storeInjuryRevision(gsisId, { season = GAME.season, week = GAME.week,
+  publishedAt, observedAt = publishedAt, provenance = 'captured',
+  value = { report_status: 'Questionable', practice_status: 'Limited', injury: 'Ankle' } } = {}) {
+  recordRevision({ entity: `player:${gsisId}:${season}:${week}`, feature: 'injury_report',
+    value, publishedAt, observedAt, provenance, sourceId: 'nflverse_injuries' });
+}
 
 const KICKOFF = '2026-09-20T17:00:00Z';
 const CUTOFF = '2026-09-20T16:00:00.000Z';
@@ -107,24 +123,40 @@ test('a source with nothing by the cutoff is a RECORDED missing observation, not
   const injuries = sourceIn(packet, 'nfl_injuries');
   assert.equal(injuries.claim, 'missing');
   assert.equal(injuries.rows, 0);
-  assert.match(injuries.reason, /no injury rows/);
+  assert.match(injuries.reason, /no injury revisions/);
   assert.ok(packet.summary.missing.includes('nfl_injuries'),
     '"we had no injury report" has to be a fact the evaluation can see, not a silence that reads as "nothing was wrong"');
 });
 
-test('rows with no receipt clock are QUARANTINED, not counted as knowable', () => {
-  // Real 2025 injury rows carry no modified_at — the audit found exactly this.
-  // The data is real; the claim "we had it by Sunday noon" is not evidenced.
+test('Giant Plan 8.14: a legacy nfl_injuries row with no revision is invisible to the packet, not quarantined', () => {
+  // Before this stage, the packet read nfl_injuries.modified_at directly, and
+  // a row with no modified_at (real 2025 rows carry none — the audit's own
+  // finding) was QUARANTINED: present but unusable. The packet now reads
+  // nfl_feature_revisions instead, and a row written straight into
+  // nfl_injuries -- bypassing nfl-advanced.js's syncInjuries, exactly like an
+  // installation's pre-existing data before it was re-synced under the new
+  // wiring -- has no revision at all. That is the documented rollout gap
+  // (see PIPELINE_REPORT.md), and it must read as MISSING, not as a row the
+  // packet saw and couldn't clock -- the two are different claims and this
+  // guards against silently reviving the old quarantine path by accident.
   run(`INSERT INTO nfl_injuries (season,week,gsis_id,team,full_name,position,report_status,modified_at)
        VALUES (?,?,?,?,?,?,?,NULL)`, 2026, 3, 'GSIS-1', 'ATL', 'A Player', 'WR', 'Questionable');
   const packet = freezeT60Packet(GAME);
   const injuries = sourceIn(packet, 'nfl_injuries');
-  assert.equal(injuries.claim, 'availability_unknown');
-  assert.equal(injuries.rows, 0, 'nothing was RECEIVED by the cutoff');
-  assert.equal(injuries.rows_now, 1, 'but the row is still reported — quarantine is not deletion');
-  assert.match(injuries.reason, /quarantined/);
+  assert.equal(injuries.claim, 'missing');
+  assert.equal(injuries.rows_now, 0, 'the legacy row is real, but the as-of read only ever sees revisions');
   assert.ok(!packet.summary.eligible.includes('nfl_injuries'));
-  assert.ok(packet.summary.quarantined.includes('nfl_injuries'));
+  assert.ok(packet.summary.missing.includes('nfl_injuries'));
+});
+
+test('Giant Plan 8.14: an injury revision received by the cutoff is the claim a prospective decision may use', () => {
+  storeInjuryRevision('GSIS-2', { publishedAt: '2026-09-18T21:00:00Z', observedAt: '2026-09-18T21:05:00Z' });
+  const packet = freezeT60Packet(GAME);
+  const injuries = sourceIn(packet, 'nfl_injuries');
+  assert.equal(injuries.claim, 'received_by_cutoff');
+  assert.equal(injuries.received_at, '2026-09-18T21:05:00.000Z',
+    'the revision store\'s own observed_at, not nfl_injuries.modified_at, is the receipt clock now');
+  assert.ok(packet.summary.eligible.includes('nfl_injuries'));
 });
 
 test('a labeled historical replay may use evidenced publication, and says so in its own claim', () => {
@@ -193,18 +225,18 @@ test('every claim a packet can make is one of the declared kinds', () => {
  */
 
 test('INJECTION 1 — tomorrow\'s injury status cannot enter today\'s packet', () => {
-  // An injury designation stamped after the cutoff. This is the most
-  // realistic look-ahead in the whole system: the row is genuine, it is
-  // about the right game, and it simply was not known yet.
-  run(`INSERT INTO nfl_injuries (season,week,gsis_id,team,full_name,position,report_status,modified_at)
-       VALUES (?,?,?,?,?,?,?,?)`, 2031, 5, 'GSIS-LATE', 'ATL', 'Late Scratch', 'QB', 'Out',
-    '2026-09-20T16:30:00Z');
+  // A revision OBSERVED after the cutoff. This is the most realistic
+  // look-ahead in the whole system: the fact is genuine, it is about the
+  // right game, and this system simply had not recorded it yet.
+  storeInjuryRevision('GSIS-LATE', { season: 2031, week: 5,
+    publishedAt: '2026-09-20T16:25:00Z', observedAt: '2026-09-20T16:30:00Z',
+    value: { report_status: 'Out', practice_status: null, injury: null } });
   const packet = freezeT60Packet({ ...GAME, season: 2031, week: 5 });
   const injuries = sourceIn(packet, 'nfl_injuries');
 
   assert.equal(injuries.claim, 'late_arrival_excluded');
   assert.equal(injuries.rows, 0, 'nothing was knowable');
-  assert.equal(injuries.rows_now, 1, 'the row exists and is disclosed');
+  assert.equal(injuries.rows_now, 1, 'the revision exists and is disclosed');
   assert.match(injuries.reason, /after the .* cutoff/);
   assert.match(injuries.reason, /Backfilling an old fact today is not discovering when it first became known/);
   assert.ok(!packet.summary.eligible.includes('nfl_injuries'));

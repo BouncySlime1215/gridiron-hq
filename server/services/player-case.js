@@ -272,14 +272,39 @@ function safeRegression(season) {
 }
 export function clearPlayerCaseCache() { _regCache = null; }
 
-/** "J.Winston" and "Jameis Winston" are one player; last name + initial. */
+/**
+ * "J.Winston" and "Jameis Winston" are one player. Full-name equality is
+ * checked first and is always the safe answer; initial+surname is only a
+ * fallback for a genuinely ABBREVIATED name (a bare first initial, the
+ * "J.Winston" case), because that is the only situation full-name comparison
+ * cannot settle on its own. Two names that are BOTH spelled out in full and
+ * merely share an initial and a surname — "Jameis Winston" vs "Josh
+ * Winston" — are two different people: matching on initial+surname alone,
+ * with no full-name check at all, is what let two unrelated same-surname
+ * players collide into one case. That situation now abstains (returns
+ * false) instead of guessing.
+ */
 function sameName(a, b) {
-  const key = n => {
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+
+  const parse = n => {
     const parts = String(n ?? '').replace(/[.]/g, '. ').split(/\s+/).filter(Boolean);
-    if (parts.length < 2) return norm(n);
-    return `${parts[0].replace(/[^A-Za-z]/g, '').charAt(0)}${parts[parts.length - 1].replace(/[^A-Za-z]/g, '')}`.toLowerCase();
+    if (parts.length < 2) return null;
+    const first = parts[0].replace(/[^A-Za-z]/g, '');
+    const surname = parts[parts.length - 1].replace(/[^A-Za-z]/g, '');
+    if (!first || !surname) return null;
+    return { initial: first.charAt(0).toLowerCase(), surname: surname.toLowerCase(), abbreviated: first.length === 1 };
   };
-  return !!a && !!b && key(a) === key(b);
+  const pa = parse(a), pb = parse(b);
+  if (!pa || !pb) return false;
+  // Bridge the two only when at least one side is a bare initial — the only
+  // case a full-name comparison structurally cannot resolve. Two fully
+  // spelled names that disagree already failed the na === nb check above, so
+  // reaching here with both sides spelled out means abstain, not match.
+  if (!pa.abbreviated && !pb.abbreviated) return false;
+  return pa.initial === pb.initial && pa.surname === pb.surname;
 }
 
 /** Does an injured teammate's absence free targets this player can absorb? */

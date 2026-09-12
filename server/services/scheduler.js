@@ -596,6 +596,30 @@ async function refreshNflRookiePublic() {
     throughSeason: Number(process.env.NFL_SEASON) || new Date().getFullYear() });
 }
 
+/**
+ * CFBD college usage-share + PPA signal for the incoming rookie class only.
+ * syncCfbdSeason had zero callers — cfbd_player_season was always empty, so
+ * draft-assist.js's college_signal (wired on the read side already) silently
+ * returned null for every rookie forever.
+ *
+ * Scoped to one season deliberately, not a historical backfill: draft-assist
+ * only ever looks up a player with experience === 0 at `draft_year - 1` (see
+ * cfbd.js), and a rookie's draft_year is the current NFL season — so the only
+ * college season that can ever be read right now is last season's. Widen this
+ * only if something starts needing CFBD signal for OLDER draft classes too;
+ * syncCfbdSeason fetches every FBS player for one season per call, so a
+ * multi-decade sync on a recurring timer would be needless load for a feature
+ * that only ever reads the newest class. Graceful no-op, same convention as
+ * every other optional-key feed here, when CFBD_API_KEY is not configured.
+ */
+async function refreshCfbdRookieSeason() {
+  const { syncCfbdSeason, hasKey } = await import('./cfbd.js');
+  if (!hasKey()) return { skipped: true, reason: 'CFBD_API_KEY not configured' };
+  const season = (Number(process.env.NFL_SEASON) || new Date().getFullYear()) - 1;
+  const result = await syncCfbdSeason(season);
+  return result ?? { skipped: true, reason: 'no data returned' };
+}
+
 /** Capture the live prop market, and settle anything the week has now decided. */
 async function refreshPropCapture() {
   const { capturePropMarket, settlePropQuotes, finalizeClosingSnapshots, propClvStatus,
@@ -925,6 +949,8 @@ export const JOBS = {
     label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' },
   nfl_rookie_public: { run: refreshNflRookiePublic, maxAgeMinutes: 7 * 24 * 60, tier: 'heavy',
     label: 'NFL draft and combine rookie evidence (nflverse, key-free)' },
+  cfbd_rookie_usage: { run: refreshCfbdRookieSeason, maxAgeMinutes: 7 * 24 * 60, tier: 'heavy',
+    label: "Incoming rookie class's final college season usage share + PPA (CFBD, key-gated)" },
   team_analyses: { run: refreshTeamAnalyses, maxAgeMinutes: 4 * 60, tier: 'heavy',
     label: "X's & O's writeups — self-limited to teams with news newer than their analysis" },
   nfl_coaches: { run: refreshCoaches, maxAgeMinutes: 24 * 60, tier: 'growth',

@@ -4,7 +4,7 @@ import { computeConsensus } from './aggregates.js';
 import { statsMap } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ensureLiveDraft, syncLiveDraft, withDraftLock } from '../services/espn-draft.js';
-import { ingestCapture, mintIngestKey, verifyIngestKey, ingestStatus, MAX_FRAMES_PER_BATCH } from '../services/draft-ingest.js';
+import { ingestCapture, mintIngestKey, verifyIngestKey, ingestStatus, finalizeStaleDrafts, MAX_FRAMES_PER_BATCH } from '../services/draft-ingest.js';
 import { espnCors } from '../platform/cors.js';
 import { boardState, rankTargets, dossiersFor, analystNotes, enrichWithEvidence, evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
 import { lookahead } from '../services/draft-lookahead.js';
@@ -1184,6 +1184,22 @@ export function startDraftClockJob() {
         return choice?.id ?? null;
       }
     })
+  });
+}
+
+/**
+ * Starts the ESPN-mirrored live-draft finalizer: every 10 minutes, closes out
+ * any league-linked draft still marked 'active' whose scheduled start was
+ * more than 4 hours ago — see finalizeStaleDrafts (draft-ingest.js) for why
+ * this exists (a capture-driven draft otherwise never auto-finalizes once
+ * the bookmarklet tab stops sending frames). Not started at import time;
+ * called explicitly from server/index.js, same convention as
+ * startDraftClockJob() above.
+ */
+export function startDraftFinalizeJob() {
+  return registerJob('draft-finalize-watch', {
+    intervalMs: 10 * 60 * 1000,
+    run: () => finalizeStaleDrafts()
   });
 }
 

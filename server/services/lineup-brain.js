@@ -287,7 +287,15 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // describes.
   const annotated = me.players.map(p => {
     const lift = vegasLift(p, season, week);
-    const base = p.adj_ppg ?? p.ppg ?? 0;
+    // adj_ppg is a 25%-current/75%-rest-of-season blend built for the trade
+    // horizon, not this decision. A start/sit call is genuinely one week, so
+    // it has to rank on current_week_ppg (this week's DvP-adjusted number)
+    // and apply the game-script multiplier there — multiplying the whole
+    // adj_ppg blend instead inflates/deflates the 75% ROS share by a signal
+    // that only describes this Sunday. current_week_ppg is 0 (not null) on a
+    // bye, so the ?? fallback below only triggers when the field is
+    // genuinely absent, never masking a real bye week as "no data."
+    const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
     return {
       ...p,
       vegas: lift,

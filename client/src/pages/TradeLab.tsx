@@ -30,11 +30,14 @@ const loadUntouchable = (leagueId: number | null): number[] => {
 };
 
 /* ------------------------------------------------------------------ shell */
-export default function TradeLab() {
+// `initialTab` lets a route land directly on one tab — the sidebar's own
+// "Matchups" destination points here now, since the DvP / head-to-head
+// content already lived on this page's `matchups` tab with no direct link in.
+export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
   // Which league is active now lives in the header, shared with My Team and the
   // Prediction Engine — this page just follows it rather than keeping its own.
   const { leagues, activeId: active, loading: leaguesLoading, error: leaguesError, refetch: refetchLeagues } = useLeague();
-  const [tab, setTab] = useState<Tab>('find');
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'find');
   const { data: rosters, loading: rostersLoading, error: rostersError, refetch: refetchRosters } = useApi<any>(active ? `/trades/${active}/rosters` : null);
   const [teamId, setTeamId] = useState<string | null>(null);
   // A "which team is me" pick only means something within the league it was made in.

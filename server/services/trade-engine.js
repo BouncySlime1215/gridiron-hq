@@ -1389,6 +1389,9 @@ export function selfScout(lg, myTeamId) {
 
   return {
     team: { roster_id: me.roster_id, owner: me.owner },
+    // The live NFL week, so a caller (the My Team ceiling-lineup tab, in
+    // particular) doesn't have to hardcode week 1 for the whole season.
+    week: tradeWeekContext().week,
     rank: myRank, of: allLineups.length,
     lineup: { points: lineup.points, slots: lineup.slots.map(s => ({ slot: s.slot, player: s.player ? slim(s.player) : null })),
               bench: lineup.bench.map(slim), holes: lineup.holes },

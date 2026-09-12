@@ -127,7 +127,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/league" element={<LeagueHub />} />
           <Route path="/draft" element={<DraftHub />} />
-          <Route path="/matchups" element={<FantasyLab />} />
+          <Route path="/matchups" element={<TradeLab initialTab="matchups" />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} /><Route path="/players" element={<Players />} />
           <Route path="/trade-lab" element={<TradeLab />} /><Route path="/brain" element={<LeagueBrain />} /><Route path="/trends" element={<Trends />} /><Route path="/lineup" element={<Lineup />} /><Route path="/model" element={<TheModel />} /><Route path="/news" element={<News />} />

@@ -338,10 +338,19 @@ function Room({ id }: { id: string }) {
 
   // The player Claude named, matched back to the board so his headshot and numbers
   // can lead the card instead of just his name.
+  //
+  // Claude only ever hands back a name (there's no player id in the advice
+  // payload to join on directly), so `targets` — the exact shortlist Claude was
+  // shown — resolves that name to an id once. Everything else joins on that id
+  // rather than re-comparing names against `available`, whose entries can be
+  // spelled slightly differently (suffixes, accents) or, rarely, collide with
+  // another player's display name.
   const pickPlayer = useMemo(() => {
     if (!advice?.pick || !state) return null;
-    return state.available.find((a: any) => a.name === advice.pick)
-      ?? state.targets.find((t: any) => t.name === advice.pick) ?? null;
+    const named = state.targets.find((t: any) => t.name === advice.pick)
+      ?? state.available.find((a: any) => a.name === advice.pick);
+    if (!named) return null;
+    return state.available.find((a: any) => a.player_id === named.player_id) ?? named;
   }, [advice, state]);
 
   // Career/preseason evidence for a name Claude mentioned: the advice payload carries it

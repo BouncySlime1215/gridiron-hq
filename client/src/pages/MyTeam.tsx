@@ -259,7 +259,7 @@ export default function MyTeam() {
 
           {tab === 'scout' && active && <TeamScout data={scout} loading={scoutLoading} />}
 
-          {tab === 'ceiling' && active && <CeilingLineup leagueId={active.id} teamId={myTeamId} />}
+          {tab === 'ceiling' && active && <CeilingLineup leagueId={active.id} teamId={myTeamId} week={scout?.week ?? 1} />}
 
           {tab === 'roster' && scout && !scout.error && (
             <div className="grid lg:grid-cols-[1fr_320px] gap-4">
@@ -342,9 +342,9 @@ export default function MyTeam() {
  * feature is the DIFFERENCE, and when a roster has no ceiling lever the honest
  * answer is to say so rather than to invent one.
  */
-function CeilingLineup({ leagueId, teamId }: { leagueId: number; teamId: string | null }) {
+function CeilingLineup({ leagueId, teamId, week }: { leagueId: number; teamId: string | null; week: number }) {
   const { data, loading } = useApi<any>(
-    teamId ? `/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=1&trials=3000` : null);
+    teamId ? `/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=${week}&trials=3000` : null);
 
   if (loading) return <div className="card p-6 text-sm text-slate-500">Simulating correlated outcomes…</div>;
   if (!data) return null;
@@ -360,7 +360,7 @@ function CeilingLineup({ leagueId, teamId }: { leagueId: number; teamId: string 
         <div className="card p-4 mb-3">
           <div className="flex items-baseline gap-2 flex-wrap">
             <h2 className="text-sm font-bold text-slate-800">Built to beat {data.target} points</h2>
-            <span className="text-[11px] text-slate-500">{data.trials.toLocaleString()} correlated draws</span>
+            <span className="text-[11px] text-slate-500">Week {week} · {data.trials.toLocaleString()} correlated draws</span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
             Optimised for the chance of a big week rather than the highest average. A quarterback and

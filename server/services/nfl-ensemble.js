@@ -976,6 +976,130 @@ function fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint, includeChal
 }
 
 /**
+ * Which games are in the weight-fitting window, which are scoreable at all,
+ * and in what chronological order the replay must visit their weeks.
+ *
+ * Shared by the prediction stream and by `fitEnsemble`'s reported window
+ * sizes, so the definition of "eligible" exists once.
+ */
+function replayWindows({ all, beforeSeason = null, beforeWeek = null }) {
+  // Weight fitting is part of the model, not part of grading. A historical
+  // prediction must therefore derive its weights only from games that were final
+  // before that prediction. The old global fit used 2022-2025 outcomes even while
+  // replaying 2022, which made the component forecasts walk-forward but the
+  // ensemble itself look ahead.
+  const eligible = all.filter(g => g.season >= WEIGHT_FIT_FROM && (
+    beforeSeason == null || g.season < beforeSeason ||
+    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
+  ));
+  // Residual skill can be evaluated before the newer raw-margin weighting
+  // window.  Restrict it to prior games at the same cutoff, but do not throw
+  // away the 2015–2021 observations when replaying an early evaluation season.
+  const residualEligible = all.filter(g => g.season >= MIN_SEASON + 2 && (
+    beforeSeason == null || g.season < beforeSeason ||
+    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
+  ));
+  const rawWeightKeys = new Set(eligible.map(g => `${g.season}|${g.week}|${g.home}`));
+  const scoreGames = [...new Map([...eligible, ...residualEligible]
+    .map(g => [`${g.season}|${g.week}|${g.home}`, g])).values()];
+  // CORRECTED 2026-09-10 (Codex audit finding M05): the residual-skill gate
+  // downstream needs its slope FIT on strictly earlier games than the ones it
+  // is GRADED on -- that requires the replay to actually visit weeks in
+  // chronological order. The old `[...new Set(...)]` derived its order from
+  // Map insertion order of two concatenated, overlapping-but-not-identical
+  // eligibility windows, which is not reliably chronological. An explicit
+  // sort makes every component's residual arrays land in true (season, week)
+  // order, which the split downstream depends on.
+  const weeks = [...new Set(scoreGames.map(g => `${g.season}|${g.week}`))]
+    .sort((a, b) => { const [sa, wa] = a.split('|').map(Number), [sb, wb] = b.split('|').map(Number); return sa - sb || wa - wb; });
+  return { eligible, scoreGames, rawWeightKeys, weeks };
+}
+
+/**
+ * Every component's walk-forward forecast for every scoreable game, in
+ * chronological order.
+ *
+ * This is now the one place the cutoff-safe replay loop lives. `fitEnsemble`
+ * consumes it to grade components and derive weights; the component-rank
+ * diagnostic in nfl-ensemble-rank.js consumes the same stream to measure how
+ * much of that forecast set is independent information. Two separate loops
+ * would drift, and a diagnostic answering "how many independent signals does
+ * this ensemble actually have" is only meaningful if it saw exactly the
+ * forecasts the ensemble saw, under the same cutoff, calibration and
+ * abstention rules.
+ *
+ * A component that abstained yields `null`, never zero — abstention is missing
+ * evidence, and treating it as a number is the specific mistake the
+ * feature-differential models in this file were already corrected for.
+ *
+ * Extracted from fitEnsemble 2026-09-12 with no behavioural change; the fitted
+ * artifact it produces on a fixed fixture is byte-identical before and after,
+ * which is what test/nfl-ensemble-rank.test.js pins.
+ */
+export function* componentPredictionStream({ all, restMap, cal, beforeSeason = null, beforeWeek = null } = {}) {
+  const { rawWeightKeys, scoreGames, weeks } = replayWindows({ all, beforeSeason, beforeWeek });
+
+  for (const key of weeks) {
+    const [season, week] = key.split('|').map(Number);
+    const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
+    if (hist.length < 100) continue;
+    const slate = scoreGames.filter(g => g.season === season && g.week === week);
+    if (!slate.length) continue;
+
+    // One context per week; only the two team names differ between its games.
+    const base = { ...buildContext(slate[0], hist, restMap), cal };
+
+    for (const g of slate) {
+      const ctx = { ...base, home: g.home, away: g.away,
+        hfa: g.neutral_site ? 0 : base.hfa, neutral: Boolean(g.neutral_site),
+        spread: g.home_spread, total: g.total,
+        openSpread: g.open_spread, openTotal: g.open_total,
+        temp: g.temp, wind: g.wind, roof: g.roof, div: g.div_game,
+        homeRest: g.home_rest, awayRest: restMap.get(`${g.season}|${g.week}|${g.away}`) };
+      const margins = {}, totals = {};
+      for (const m of MODELS) {
+        let p; try { p = m.predict(ctx); } catch { continue; }
+        margins[m.id] = p?.margin != null && Number.isFinite(p.margin) ? p.margin : null;
+        totals[m.id] = p?.total != null && Number.isFinite(p.total) ? p.total : null;
+      }
+      yield {
+        season, week, week_key: key, home: g.home, away: g.away,
+        market_margin: g.home_spread == null ? null : -g.home_spread,
+        market_total: g.total ?? null,
+        actual_margin: g.home_score - g.away_score,
+        actual_total: g.home_score + g.away_score,
+        in_raw_weight_window: rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`),
+        margins, totals
+      };
+    }
+  }
+}
+
+/**
+ * The inputs `componentPredictionStream` needs, assembled exactly the way
+ * `fitEnsemble` assembles them, so a diagnostic replays identical forecasts
+ * without restating the cutoff and calibration rules.
+ */
+export function ensembleReplayInputs({ evalFrom = EVAL_FROM, beforeSeason = null, minSeason = MIN_SEASON } = {}) {
+  const all = games(minSeason);
+  const restMap = awayRest();
+  // Calibration is part of the fitted model; its training era must end before
+  // the prediction, exactly as in fitEnsemble.
+  const calibrationCutoff = beforeSeason == null ? evalFrom : Math.min(evalFrom, beforeSeason);
+  const calibrationKey = `${calibrationCutoff}|${all.length}`;
+  const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
+  _calibrationCache.set(calibrationKey, cal);
+  return { all, restMap, cal };
+}
+
+/** The component catalog, so a diagnostic can label every column it measures. */
+export function componentIds() {
+  return MODELS.map(m => ({
+    id: m.id, name: m.name, family: m.family, challenger_only: m.challengerOnly === true
+  }));
+}
+
+/**
  * Grades every model walk-forward and derives its weight.
  *
  * Context is rebuilt once per (season, week) rather than per game, since every
@@ -1018,76 +1142,30 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // departure from the market explain the eventual market residual?  These are
   // still walk-forward predictions, and are cut off at the requested game.
   const residuals = Object.fromEntries(MODELS.map(m => [m.id, { signal: [], actual: [], week: [] }]));
-  // Weight fitting is part of the model, not part of grading. A historical
-  // prediction must therefore derive its weights only from games that were final
-  // before that prediction. The old global fit used 2022-2025 outcomes even while
-  // replaying 2022, which made the component forecasts walk-forward but the
-  // ensemble itself look ahead.
-  const eligible = all.filter(g => g.season >= WEIGHT_FIT_FROM && (
-    beforeSeason == null || g.season < beforeSeason ||
-    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
-  ));
-  // Residual skill can be evaluated before the newer raw-margin weighting
-  // window.  Restrict it to prior games at the same cutoff, but do not throw
-  // away the 2015–2021 observations when replaying an early evaluation season.
-  const residualEligible = all.filter(g => g.season >= MIN_SEASON + 2 && (
-    beforeSeason == null || g.season < beforeSeason ||
-    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
-  ));
-  const rawWeightKeys = new Set(eligible.map(g => `${g.season}|${g.week}|${g.home}`));
-  const scoreGames = [...new Map([...eligible, ...residualEligible]
-    .map(g => [`${g.season}|${g.week}|${g.home}`, g])).values()];
-  // CORRECTED 2026-09-10 (Codex audit finding M05): the residual-skill gate
-  // below needs its slope FIT on strictly earlier games than the ones it is
-  // GRADED on -- that requires this loop to actually visit weeks in
-  // chronological order. The old `[...new Set(...)]` derived its order from
-  // Map insertion order of two concatenated, overlapping-but-not-identical
-  // eligibility windows, which is not reliably chronological. An explicit
-  // sort makes every component's residuals[].signal/.actual arrays land in
-  // true (season, week) order, which the split below depends on.
-  const weeks = [...new Set(scoreGames.map(g => `${g.season}|${g.week}`))]
-    .sort((a, b) => { const [sa, wa] = a.split('|').map(Number), [sb, wb] = b.split('|').map(Number); return sa - sb || wa - wb; });
-
-  for (const key of weeks) {
-    const [season, week] = key.split('|').map(Number);
-    const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
-    if (hist.length < 100) continue;
-    const slate = scoreGames.filter(g => g.season === season && g.week === week);
-    if (!slate.length) continue;
-
-    // One context per week; only the two team names differ between its games.
-    const base = { ...buildContext(slate[0], hist, restMap), cal };
-
-    for (const g of slate) {
-      const ctx = { ...base, home: g.home, away: g.away,
-        hfa: g.neutral_site ? 0 : base.hfa, neutral: Boolean(g.neutral_site),
-        spread: g.home_spread, total: g.total,
-        openSpread: g.open_spread, openTotal: g.open_total,
-        temp: g.temp, wind: g.wind, roof: g.roof, div: g.div_game,
-        homeRest: g.home_rest, awayRest: restMap.get(`${g.season}|${g.week}|${g.away}`) };
-      const actualMargin = g.home_score - g.away_score;
-      const actualTotal = g.home_score + g.away_score;
-      for (const m of MODELS) {
-        let p; try { p = m.predict(ctx); } catch { continue; }
-        if (rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`) && p?.margin != null && Number.isFinite(p.margin)) {
-          errs[m.id].margin.push((p.margin - actualMargin) ** 2);
-        }
-        const marketMargin = g.home_spread == null ? null : -g.home_spread;
-        if (p?.margin != null && marketMargin != null && Number.isFinite(p.margin)) {
-          residuals[m.id].signal.push(p.margin - marketMargin);
-          residuals[m.id].actual.push(actualMargin - marketMargin);
-          // Codex correction C07: the week each residual belongs to, so the
-          // fit/score boundary can be placed BETWEEN weeks. A row-index split
-          // cuts a Sunday slate in half roughly six times out of seven, and
-          // the games either side of that cut share a week of common
-          // information -- the same market state, the same injury cycle, the
-          // same weather -- so the "out-of-fold" block was not out of fold.
-          residuals[m.id].week.push(key);
-        }
-        if (rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`) && p?.total != null && Number.isFinite(p.total)) {
-          errs[m.id].total.push((p.total - actualTotal) ** 2);
-        }
+  // The cutoff-safe replay loop itself lives in `componentPredictionStream`
+  // above, so this grading pass and the component-rank diagnostic cannot drift
+  // apart. Everything about which games are eligible, in which order, and what
+  // context each component sees is unchanged — only its home moved.
+  const windows = replayWindows({ all, beforeSeason, beforeWeek });
+  for (const row of componentPredictionStream({ all, restMap, cal, beforeSeason, beforeWeek })) {
+    const { actual_margin: actualMargin, actual_total: actualTotal,
+      market_margin: marketMargin, week_key: key, in_raw_weight_window: inRawWindow } = row;
+    for (const m of MODELS) {
+      const margin = row.margins[m.id] ?? null;
+      const total = row.totals[m.id] ?? null;
+      if (inRawWindow && margin != null) errs[m.id].margin.push((margin - actualMargin) ** 2);
+      if (margin != null && marketMargin != null) {
+        residuals[m.id].signal.push(margin - marketMargin);
+        residuals[m.id].actual.push(actualMargin - marketMargin);
+        // Codex correction C07: the week each residual belongs to, so the
+        // fit/score boundary can be placed BETWEEN weeks. A row-index split
+        // cuts a Sunday slate in half roughly six times out of seven, and
+        // the games either side of that cut share a week of common
+        // information -- the same market state, the same injury cycle, the
+        // same weather -- so the "out-of-fold" block was not out of fold.
+        residuals[m.id].week.push(key);
       }
+      if (inRawWindow && total != null) errs[m.id].total.push((total - actualTotal) ** 2);
     }
   }
 
@@ -1196,8 +1274,8 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     models: scored,
     // Preserve the raw-model weighting audit separately from the longer
     // residual-only history used to establish market incremental value.
-    evaluated_weeks: new Set(eligible.map(g => `${g.season}|${g.week}`)).size,
-    residual_evaluated_weeks: weeks.length,
+    evaluated_weeks: new Set(windows.eligible.map(g => `${g.season}|${g.week}`)).size,
+    residual_evaluated_weeks: windows.weeks.length,
     games: all.length,
     calibration: cal, weighting, input_mode: inputMode,
     weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }

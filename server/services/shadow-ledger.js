@@ -1,6 +1,7 @@
 /** Immutable paper-trading ledger. It is intentionally incapable of execution. */
 import { row, rows, run } from '../db/index.js';
 import { autoPickDecisionBoard } from './nfl-auto-picks.js';
+import { signedClvPoints } from './clv-core.js';
 
 const parseEventKey = value => {
   const [season, week, home, away] = String(value ?? '').split(':');
@@ -81,7 +82,10 @@ export function settleNflShadowDecisions() {
       const cover = sideMargin + decision.line;
       result = cover === 0 ? 'Push' : cover > 0 ? 'Won' : 'Lost';
       closingLine = game.spread == null ? null : backedHome ? game.spread : -game.spread;
-      clv = closingLine == null ? null : decision.line - closingLine;
+      // Signed via the shared clv-core.js convention (audit-consolidation
+      // stage 3, Giant Plan 8.1).
+      clv = closingLine == null ? null
+        : signedClvPoints({ market: 'spread', ourLine: decision.line, closeLine: closingLine });
     } else if (decision.market === 'total' && /^(over|under)$/i.test(decision.selection ?? '')
       && Number.isFinite(decision.line)) {
       const over = /^over$/i.test(decision.selection);
@@ -89,7 +93,7 @@ export function settleNflShadowDecisions() {
         : (actualTotal > decision.line) === over ? 'Won' : 'Lost';
       closingLine = game.total;
       clv = closingLine == null ? null
-        : over ? closingLine - decision.line : decision.line - closingLine;
+        : signedClvPoints({ market: 'total', ourLine: decision.line, closeLine: closingLine, isUnder: !over });
     }
     const outcome = {
       season, week, home, away, actual_margin: actualMargin, actual_total: actualTotal,

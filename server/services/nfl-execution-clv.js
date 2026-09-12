@@ -38,6 +38,7 @@ import { nflKickoffDate } from './date-util.js';
 import { teamCodeFor } from './team-codes.js';
 import { impliedProbability, decimalReturn, americanFromDecimal }
   from '../betting/nfl/contracts/spread-probabilities.js';
+import { signedClvPoints, recordClvGrade } from './clv-core.js';
 
 /**
  * The grading method's own identity. Codex correction C13 requires a saved
@@ -215,12 +216,16 @@ function averageAmericanPrice(prices) {
  * CLV in points for a spread ticket, signed so positive is always better for
  * the bettor: we beat the close when the number we took is more favorable
  * than the number the market closed at, on our own side.
+ *
+ * Audit-consolidation stage 3 (Giant Plan 8.1): delegates to clv-core.js's
+ * shared `signedClvPoints` instead of its own copy of the same convention.
+ * `opp.side` here is 'home'/'away' (never 'over'/'under' — this module only
+ * grades spreads today), so `isUnder` is always false; passing `market:
+ * 'spread'` takes the non-total branch, which is exactly the old behavior.
  */
 function spreadClvPoints({ side, ourLine, closeLine }) {
-  if (!Number.isFinite(ourLine) || !Number.isFinite(closeLine)) return null;
-  // Both lines are already expressed from the backed side's perspective by
-  // the contract key, so a larger number is unambiguously better.
-  return side === 'home' || side === 'away' ? ourLine - closeLine : null;
+  if (side !== 'home' && side !== 'away') return null;
+  return signedClvPoints({ market: 'spread', ourLine, closeLine, isUnder: false });
 }
 
 /**
@@ -351,4 +356,45 @@ export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS
     method: 'read-only projection over the accepted-ticket ledger; nothing is written, so grading is ' +
       'idempotent and a late-arriving close simply becomes gradeable on the next read'
   };
+}
+
+/**
+ * Persists a CLV grade for every currently-graded position into the
+ * append-only `nfl_clv_grades` ledger (migration 037), via clv-core.js's
+ * shared writer.
+ *
+ * Deliberately a SEPARATE call from `executionClvReport()` above, not a side
+ * effect folded into it. That report's whole design — restated in its own
+ * `method` field — is that reading it writes nothing, so re-reading after a
+ * late close arrives is safe and idempotent by construction. Turning every
+ * read into a write would both contradict that stated contract and flood an
+ * append-only table with a new row every time anything merely displays the
+ * report. This function exists for whatever explicitly wants a grade
+ * recorded (a scheduled job, a one-off backfill) — call it, don't call it
+ * from inside a read path.
+ *
+ * Idempotent per (opportunity, grading_version): recordClvGrade's
+ * deterministic id means calling this again for a position already graded
+ * under the same CLV_GRADING_VERSION is a no-op. A future bump of
+ * CLV_GRADING_VERSION records a new row rather than rewriting the old one,
+ * exactly as migration 037 requires.
+ */
+export function recordExecutionClvGrades({ limit = 5000, books = DEFAULT_CLOSING_BOOKS } = {}) {
+  const { positions } = executionClvReport({ limit, books });
+  const bookSet = books == null ? 'all_books_present_in_tape' : [...books].sort();
+  let recorded = 0, skipped = 0;
+  for (const p of positions) {
+    const { inserted } = recordClvGrade({
+      opportunityId: p.id,
+      gradingVersion: CLV_GRADING_VERSION,
+      bookSet,
+      quoteIds: p.closing_quote_ids ?? [],
+      pointClv: p.clv_points,
+      priceClvProbability: p.clv_probability,
+      closeSource: 'nfl_quote_tape',
+      note: p.closing_line != null ? null : 'no book closed at the exact accepted line; point_clv only'
+    });
+    if (inserted) recorded++; else skipped++;
+  }
+  return { recorded, already_graded: skipped, graded_positions: positions.length, grading_version: CLV_GRADING_VERSION };
 }

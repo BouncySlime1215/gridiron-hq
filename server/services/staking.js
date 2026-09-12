@@ -278,6 +278,30 @@ export function slateRiskCheck(bets, { drawdownFraction = 0.5, trials = 8000, se
  * point edge alone: calibration, forward sample, uncertainty and portfolio
  * exposure must all be known first.
  *
+ * `calibrationPassed` and `forwardSettled` are still parameters — this stays
+ * a pure function with no database of its own, deliberately, so it is cheap
+ * to unit-test with synthetic gate values and safe for anything to import.
+ * The trust boundary moved to the CALLER instead: both HTTP routes that call
+ * this (`/stake/safe`, `/stake/safe/slate` in routes/nfl-betting.js) used to
+ * read these two straight off the query string / request body (`calibrated=1`,
+ * `forward_settled=999`), which meant any caller could hand-pick a passing
+ * value and unlock a full stake regardless of what the model has actually
+ * proven. Both routes now compute them from the server's own persisted
+ * evidence before calling this — the latest calibration's real walk-forward
+ * gate (nfl-cover-calibration.js#latestCoverCalibration) and the real settled
+ * forward sample (nfl-auto-picks.js#allPickResults), the same two sources
+ * nfl-research.js's own promotion gates already treat as authoritative — and
+ * no longer accept either field from the request at all.
+ *
+ * `uncertaintyWidth` remains caller-supplied at the route too. It is
+ * legitimately PER-BET (a property of one forecast's predictive distribution
+ * — see decision-basis.js's `predictive_distribution.uncertainty_width_80`),
+ * and neither route accepts a candidate/forecast identity to look that up
+ * from server-side today; wiring one in is a real fix but a materially
+ * bigger one than this pass makes, and is left as a TODO rather than
+ * silently left half-done. It still fails closed (`null` blocks), so this is
+ * no more forgeable than it already was.
+ *
  * `openBets` is the optional, correlation-aware alternative to the flat
  * `openPortfolioFraction` scalar: pass the week's other already-sized bets
  * (each with a stake_fraction and whatever of {team, opponent,
@@ -287,7 +311,12 @@ export function slateRiskCheck(bets, { drawdownFraction = 0.5, trials = 8000, se
  * correctly smaller for a diversified slate, correctly closer to the flat sum
  * for a genuinely correlated one. Omit it (or pass an empty array) and
  * behavior is byte-for-byte what it was before, off the `openPortfolioFraction`
- * scalar alone.
+ * scalar alone. Both `openBets` and `openPortfolioFraction` remain
+ * caller-supplied too: nfl-execution-lifecycle.js#openExposure() does hold
+ * the REAL accepted-but-unsettled positions, but it does not carry the
+ * correlation archetype fields (division_rivalry, weather_bucket,
+ * officiating_crew) slateRiskCheck needs, so wiring it in is a second,
+ * separate TODO rather than something this pass can safely do.
  */
 export function safeStakeFor({ winProb, americanOdds, bankroll = 100, calibrationPassed = false,
   forwardSettled = 0, uncertaintyWidth = null, openPortfolioFraction = 0, openBets = null,

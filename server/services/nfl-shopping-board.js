@@ -26,6 +26,7 @@
 import { rows } from '../db/index.js';
 import { bestExecution, impliedProb } from './nfl-execution-edge.js';
 import { isFreshQuote } from './book-feeds.js';
+import { validAmericanPrice } from './nfl-execution-validation.js';
 import { quoteClockValid, SHOPPING_MAX_AGE_MS } from './nfl-quote-clock.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -60,19 +61,31 @@ export function signedMarginDistribution() {
 /* ------------------------------------------------- simultaneous quote sets */
 
 /**
- * The most recent capture instant per event that actually carries more than one
- * book, with every quote from that instant.
+ * Every book's OWN most recent quote per event, bounded to a capture window
+ * around whichever book was polled last for that event.
  *
- * An event whose latest snapshot has a single book is skipped rather than
- * reported with an empty comparison — one book is not a shopping decision, and
- * silently showing it as "best available" would overstate what we know.
+ * Books are polled on separate schedules (a live 90-second tier, an hourly
+ * tier, and so on), so their `captured_at` values for the same event
+ * legitimately differ by minutes even when every one of them is still the
+ * current standing price. An exact-equality join on the event's single
+ * MAX(captured_at) silently dropped every book except whichever provider
+ * happened to be polled last -- on a board with staggered tiers that could be
+ * nearly every book, not the stale ones this function actually needs to
+ * exclude.
  *
- * Sharing a `captured_at` instant controls for OUR poll latency, not for the
+ * A book whose OWN latest quote trails the event's freshest book by more than
+ * `CAPTURE_WINDOW_MS` is still excluded -- that book genuinely has not been
+ * repolled recently enough to belong in the same comparison, which is the
+ * real thing "one book is not a shopping decision" is protecting against.
+ *
+ * Sharing a bounded window controls for OUR poll latency, not for the
  * aggregator's: a book's own price can sit uncached in the aggregator's
  * response for days after it moved (`book-feeds.js#isFreshQuote`), so a quote
  * with a stale `book_updated_at` is dropped here too before two books are
  * ever compared as if both were live.
  */
+const CAPTURE_WINDOW_MS = 5 * 60 * 1000;
+
 let _quoteCache = new Map();
 export function clearShoppingBoardCache() { _quoteCache = new Map(); }
 
@@ -85,13 +98,17 @@ export function simultaneousQuotes(market = 'spreads') {
   // a hundred-event board meant a hundred round trips — and because both the
   // shopping board and the middle finder call it, the hub status endpoint paid
   // that cost twice and took 17 seconds to answer.
+  //
+  // Grouped by (event_id, book) rather than event_id alone: each book
+  // contributes only its own latest row, not whichever book's latest happens
+  // to be the newest across the whole event.
   const all = rows(
     `SELECT s.event_id, s.captured_at, s.book, s.side, s.line, s.price AS american_price,
             s.commence_time, s.home_team, s.away_team, s.book_updated_at
      FROM nfl_line_snapshots s
-     JOIN (SELECT event_id, MAX(captured_at) AS captured_at
-           FROM nfl_line_snapshots WHERE market = ? GROUP BY event_id) latest
-       ON latest.event_id = s.event_id AND latest.captured_at = s.captured_at
+     JOIN (SELECT event_id, book, MAX(captured_at) AS captured_at
+           FROM nfl_line_snapshots WHERE market = ? GROUP BY event_id, book) latest
+       ON latest.event_id = s.event_id AND latest.book = s.book AND latest.captured_at = s.captured_at
      WHERE s.market = ?`, market, market);
 
   const byEvent = new Map();
@@ -102,15 +119,21 @@ export function simultaneousQuotes(market = 'spreads') {
         home_team: q.home_team ?? null, away_team: q.away_team ?? null,
         commence_time: q.commence_time ?? null, quotes: [] });
     }
+    const ev = byEvent.get(q.event_id);
+    // Track the freshest capture actually seen for this event so the window
+    // below is bounded to real data, not to whichever row arrived first.
+    if (Date.parse(q.captured_at) > Date.parse(ev.captured_at)) ev.captured_at = q.captured_at;
     const { book_updated_at, ...quote } = q;
-    byEvent.get(q.event_id).quotes.push(quote);
+    ev.quotes.push(quote);
   }
 
   const out = [];
   for (const ev of byEvent.values()) {
-    const books = new Set(ev.quotes.map(q => q.book));
+    const freshest = Date.parse(ev.captured_at);
+    const withinWindow = ev.quotes.filter(q => freshest - Date.parse(q.captured_at) <= CAPTURE_WINDOW_MS);
+    const books = new Set(withinWindow.map(q => q.book));
     if (books.size < 2) continue;      // one book is not a shopping decision
-    out.push({ ...ev, books: books.size });
+    out.push({ ...ev, quotes: withinWindow, books: books.size });
   }
   _quoteCache.set(market, out);
   return out.filter(q => quoteClockValid(q));
@@ -140,7 +163,14 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
       // number and the Over wants the smaller — the opposite of taking points
       // on a spread. Getting this backwards would rank the worst book first.
       const takingPoints = market === 'totals' ? /under/i.test(side) : true;
-      const exec = bestExecution(quotes, { takingPoints });
+      // bestExecution() only checks Number.isFinite(american_price) before it
+      // starts converting prices to decimal odds, and that conversion THROWS
+      // on anything below 100 in magnitude (nfl-execution-edge.js's
+      // assertRealPrice) -- including a captured 0, which is finite. One bad
+      // snapshot row used to crash the whole board's request, every event and
+      // every side, rather than just being dropped from this one comparison.
+      const realPriceQuotes = quotes.filter(q => validAmericanPrice(q.american_price));
+      const exec = bestExecution(realPriceQuotes, { takingPoints });
       if (!exec) continue;
 
       // Codex correction C05 gave `bestExecution` an explicit refusal: when no

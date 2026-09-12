@@ -430,7 +430,7 @@ r.get('/teasers/execution-board', async (_req, res, next) => {
 });
 
 /** Log a paper or manually placed ticket after re-validating every gate. */
-r.post('/teasers/executions', async (req, res, next) => {
+r.post('/teasers/executions', requireModelPermission('model:execute'), async (req, res, next) => {
   try {
     const { recordTeaserExecution } = await import('../services/nfl-teaser-execution.js');
     const out = recordTeaserExecution(req.body ?? {});
@@ -447,7 +447,7 @@ r.get('/teasers/executions', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-r.post('/teasers/executions/:id/settle', async (req, res, next) => {
+r.post('/teasers/executions/:id/settle', requireModelPermission('model:execute'), async (req, res, next) => {
   try {
     const { settleTeaserExecution } = await import('../services/nfl-teaser-execution.js');
     const out = settleTeaserExecution(req.params.id, req.body ?? {});
@@ -554,7 +554,7 @@ r.get('/execution/slate', async (req, res, next) => {
 });
 
 /** Record a routing decision so the shopping claim stays checkable. */
-r.post('/execution/log', async (req, res, next) => {
+r.post('/execution/log', requireModelPermission('model:execute'), async (req, res, next) => {
   try {
     const { routeBet, logExecution } = await import('../services/nfl-execution.js');
     const route = routeBet({ eventId: req.query.event_id ?? null, matchup: req.query.matchup ?? null,

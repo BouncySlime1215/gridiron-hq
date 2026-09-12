@@ -467,13 +467,33 @@ export function lifecycleFunnel({ market = null } = {}) {
     GROUP BY status`, ...args);
   const counts = Object.fromEntries(STATES.map(s => [s, 0]));
   for (const r of byStatus) counts[r.status] = r.n;
-  const settled = rows(`SELECT o.id, e.result, e.realized_pnl_units FROM nfl_execution_opportunities o
-    JOIN nfl_execution_lifecycle_events e ON e.opportunity_id=o.id AND e.state='settled'
-    ${market ? 'WHERE o.market=?' : ''}`, ...args);
+  // Both terminal states, not just 'settled': a correctSettlement() call
+  // (Codex audit finding E8) appends a settlement_correction event carrying
+  // the CORRECTED result and a P&L DELTA against the original, and never
+  // touches the original settled row. Joining on 'settled' alone reported
+  // every corrected bet's ORIGINAL win/loss and the original, now-wrong P&L
+  // forever, silently disagreeing with netRealizedUnits() (which every
+  // per-opportunity balance in this module is defined against) by however
+  // much money the correction moved.
+  const settlementEvents = rows(`SELECT o.id AS opportunity_id, e.id AS event_id, e.result, e.realized_pnl_units
+    FROM nfl_execution_opportunities o
+    JOIN nfl_execution_lifecycle_events e ON e.opportunity_id=o.id AND e.state IN ('settled','settlement_correction')
+    ${market ? 'WHERE o.market=?' : ''} ORDER BY e.opportunity_id, e.id`, ...args);
+  const byOpportunity = new Map();
+  for (const e of settlementEvents) {
+    if (!byOpportunity.has(e.opportunity_id)) byOpportunity.set(e.opportunity_id, { result: null, pnl: 0 });
+    const entry = byOpportunity.get(e.opportunity_id);
+    // Rows arrive in event-id order per opportunity, so the last one seen is
+    // the most recent correction if there is one -- it supersedes the
+    // original settled result, exactly as correctSettlement() intends.
+    entry.result = e.result;
+    entry.pnl += Number.isFinite(e.realized_pnl_units) ? e.realized_pnl_units : 0;
+  }
+  const settled = [...byOpportunity.values()];
   const wins = settled.filter(s => s.result === 'won').length;
   const losses = settled.filter(s => s.result === 'lost').length;
   const pushes = settled.filter(s => s.result === 'push' || s.result === 'void').length;
-  const totalPnl = settled.reduce((sum, s) => sum + (s.realized_pnl_units ?? 0), 0);
+  const totalPnl = settled.reduce((sum, s) => sum + s.pnl, 0);
   return {
     total_opportunities: total,
     by_stage: counts,

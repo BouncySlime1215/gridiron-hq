@@ -77,8 +77,9 @@ export default function Edges() {
   // The measured-positive workflow is the default. A live scoreboard is useful,
   // but it is not an edge and should not be the first thing a profit desk opens.
   const [tab, setTab] = useState<'live' | 'teasers' | 'sgp' | 'movement'>('teasers');
-  const [price, setPrice] = useState(-110);
+  const [price, setPrice] = useState<number | null>(null);
   const [priceBook, setPriceBook] = useState('');
+  const [priceReachable, setPriceReachable] = useState(false);
   const [teaserBusy, setTeaserBusy] = useState<string | null>(null);
   const [teaserMessage, setTeaserMessage] = useState<string | null>(null);
 
@@ -94,15 +95,16 @@ export default function Edges() {
   // measurements of the system, not edges anyone can act on.
 
   const saveTeaserPrice = async () => {
-    if (!priceBook.trim()) return;
+    if (!priceBook.trim() || price == null || !priceReachable) return;
     setTeaserBusy('price'); setTeaserMessage(null);
     try {
       await api('/nfl-betting/teasers/prices', { method: 'POST', body: JSON.stringify({
         book: priceBook.trim(), teaser_points: 6, legs: 2,
-        american_price: price, reachable: true,
+        american_price: price, reachable: priceReachable,
         notes: 'Manually verified from teaser execution board'
       }) });
       setTeaserMessage(`Verified ${priceBook.trim()} at ${am(price)}.`);
+      setPriceReachable(false);
       await refetchTeaserBoard();
     } catch (error: any) { setTeaserMessage(error.message); }
     finally { setTeaserBusy(null); }
@@ -235,14 +237,18 @@ export default function Edges() {
                 <div className="mt-2 grid grid-cols-[minmax(0,1fr)_88px] gap-2">
                   <input list="teaser-books" value={priceBook} onChange={event => setPriceBook(event.target.value)}
                     placeholder="Book key, e.g. draftkings" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                  <input type="number" value={price} onChange={event => setPrice(Number(event.target.value))}
+                  <input type="number" value={price ?? ''} placeholder="-115" onChange={event => { setPrice(event.target.value === '' ? null : Number(event.target.value)); setPriceReachable(false); }}
                     aria-label="American teaser price" className="rounded-lg border border-slate-300 px-3 py-2 text-sm tabular-nums" />
                   <datalist id="teaser-books">{teaserBoard.books.map(book => <option key={book.book} value={book.book} />)}</datalist>
                 </div>
                 <div className="mt-2 flex gap-1">{[-105, -110, -115, -120, -130].map(value => (
-                  <button key={value} onClick={() => setPrice(value)} className={`rounded border px-2 py-1 text-[11px] font-bold ${price === value ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-500'}`}>{value}</button>
+                  <button key={value} onClick={() => { setPrice(value); setPriceReachable(false); }} className={`rounded border px-2 py-1 text-[11px] font-bold ${price === value ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-500'}`}>{value}</button>
                 ))}</div>
-                <button onClick={saveTeaserPrice} disabled={!priceBook.trim() || teaserBusy === 'price'} className="btn-primary mt-3 w-full text-sm">
+                <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-600">
+                  <input type="checkbox" checked={priceReachable} onChange={event => setPriceReachable(event.target.checked)} />
+                  I can actually get this price at this book right now
+                </label>
+                <button onClick={saveTeaserPrice} disabled={!priceBook.trim() || price == null || !priceReachable || teaserBusy === 'price'} className="btn-primary mt-3 w-full text-sm">
                   {teaserBusy === 'price' ? 'Verifying…' : 'Save verified price'}
                 </button>
                 <p className="mt-2 text-[10px] leading-4 text-slate-400">Prices expire after {teaserBoard.policy.max_price_age_hours} hours. Recheck the book before logging a ticket.</p>
@@ -261,7 +267,7 @@ export default function Edges() {
                   <div className="text-sm font-bold text-slate-700">No executable ticket right now</div>
                   <p className="mt-1 text-xs leading-5 text-slate-500">A ticket needs two qualifying spreads at the same book in different games, a fresh multi-book capture, and a recently verified payout.</p>
                   {teaserBoard.books.length > 0 && <div className="mt-3 space-y-2">{teaserBoard.books.slice(0, 8).map(book => (
-                    <button key={book.book} onClick={() => { setPriceBook(book.book); if (book.price != null) setPrice(book.price); }} className="flex w-full items-start gap-3 rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-emerald-300">
+                    <button key={book.book} onClick={() => { setPriceBook(book.book); if (book.price != null) setPrice(book.price); setPriceReachable(false); }} className="flex w-full items-start gap-3 rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-emerald-300">
                       <span className="text-xs font-black text-slate-800">{book.book}</span>
                       <span className="text-[11px] text-slate-500">{book.qualifying_legs} legs · {book.cross_game_pairs} pairs</span>
                       <span className="ml-auto text-[11px] text-rose-600">{book.blocked_reasons[0] ?? 'No cross-game pair'}</span>

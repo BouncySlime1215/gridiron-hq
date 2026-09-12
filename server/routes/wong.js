@@ -12,11 +12,13 @@
  * This router serves the strategy module in `betting/nfl/strategy/`, which
  * reads each book from the table that actually holds its lines.
  *
- * AUTH. Mounted ungated, matching the hub's own teaser routes
- * (`POST /teasers/executions`, `POST /teasers/executions/:id/settle`) and its
- * capture triggers (`POST /watch/run`, `POST /polymarket/ingest`). The server
- * binds to 127.0.0.1 and nothing here transmits a wager; `POST /tickets`
- * records what the owner says they did, it does not place anything.
+ * AUTH. `POST /tickets` and `POST /tickets/:id/settle` require
+ * `model:execute` (a6-money-path) — both write a real stake/settlement to the
+ * ledger, and this router used to be mounted ungated on the theory that
+ * nothing here "transmits a wager" (true) while missing that logging or
+ * settling one is itself the money-path action worth gating, matching the
+ * hub's own teaser routes. Capture triggers (`POST /watch/run`,
+ * `POST /polymarket/ingest`) remain ungated — they only refresh board data.
  *
  * ERRORS. `{ error: '<sentence>' }` with a real status, `next(e)` for anything
  * unexpected so the app-level handler logs it — the hub's convention exactly.
@@ -30,6 +32,7 @@ import {
 import {
   CROSS_BOTH_LINES, TEASER_POINTS, familyRate, ticketEV, ticketProbabilities,
 } from '../betting/nfl/strategy/teaser-leg-rates.js';
+import { requireModelPermission } from '../modeling/authz.js';
 
 const r = Router();
 
@@ -619,14 +622,14 @@ export async function recordWongTicket(input = {}, { now = new Date() } = {}) {
   };
 }
 
-r.post('/tickets', async (req, res, next) => {
+r.post('/tickets', requireModelPermission('model:execute'), async (req, res, next) => {
   try {
     const out = await recordWongTicket(req.body ?? {});
     res.status(out.status).json(out.body);
   } catch (e) { next(e); }
 });
 
-r.post('/tickets/:id/settle', async (req, res, next) => {
+r.post('/tickets/:id/settle', requireModelPermission('model:execute'), async (req, res, next) => {
   try {
     const { settleTeaserExecution } = await import('../services/nfl-teaser-execution.js');
     const out = settleTeaserExecution(req.params.id, req.body ?? {});

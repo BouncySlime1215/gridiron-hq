@@ -70,3 +70,69 @@ test('cached quotes expire without another ingestion and remain unavailable afte
   assert.equal(board.simultaneousQuotes('spreads').length, 0);
   assert.equal(board.executionBoardSummary().stale, true);
 });
+
+// a6-money-path: the exact-equality MAX(captured_at) join used to drop a book
+// unless its own poll happened to land at the EVENT's single latest instant.
+// Books are polled on separate schedules, so a book only a few minutes behind
+// the freshest one is not stale -- it is the normal staggered-tier case this
+// module exists to handle, and the old join reported it as absent instead of
+// as a real second book to shop against.
+test('two books polled a few minutes apart in the same round are both shown, not just whichever was polled last', () => {
+  const snapAt = (book, capturedAt) => run(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, capturedAt, 'nfl:2026-09-13:NYJ@NE', '2026-09-13T17:00:01Z',
+    'New England Patriots', 'New York Jets', book, 'spreads', 'New England Patriots', -3, -110, 'free:oddstrader', capturedAt);
+  const t0 = new Date(captured);
+  snapAt('pinnacle', t0.toISOString());
+  snapAt('circa', new Date(t0.getTime() - 3 * 60 * 1000).toISOString()); // 3 minutes earlier, still one polling round
+
+  board.clearShoppingBoardCache();
+  const ev = board.simultaneousQuotes('spreads').find(s => s.event_id === 'nfl:2026-09-13:NYJ@NE');
+  assert.ok(ev, 'the event is reported');
+  assert.equal(ev.books, 2, 'a book polled 3 minutes earlier in the same round still counts');
+  assert.ok(ev.quotes.some(q => q.book === 'circa'));
+});
+
+test('a book whose own latest poll trails the event\'s freshest book past the capture window is excluded from the comparison, even though it is not stale on its own', () => {
+  const snapAt = (book, capturedAt) => run(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, capturedAt, 'nfl:2026-09-13:LAC@LV', '2026-09-13T17:00:01Z',
+    'Las Vegas Raiders', 'Los Angeles Chargers', book, 'spreads', 'Las Vegas Raiders', -3, -110, 'free:oddstrader', capturedAt);
+  const t0 = new Date(captured);
+  snapAt('pinnacle', t0.toISOString());
+  snapAt('circa', new Date(t0.getTime() - 2 * 60 * 1000).toISOString());
+  // draftkings' own quote is 10 minutes behind pinnacle -- well within the
+  // 15-minute overall staleness window (isFreshQuote/quoteClockValid would
+  // pass it on its own) but outside the 5-minute capture window this
+  // comparison is bounded to.
+  snapAt('draftkings', new Date(t0.getTime() - 10 * 60 * 1000).toISOString());
+
+  board.clearShoppingBoardCache();
+  const ev = board.simultaneousQuotes('spreads').find(s => s.event_id === 'nfl:2026-09-13:LAC@LV');
+  assert.ok(ev);
+  assert.equal(ev.books, 2, 'the 10-minutes-behind book is excluded from this comparison');
+  assert.ok(!ev.quotes.some(q => q.book === 'draftkings'));
+});
+
+// a6-money-path: bestExecution() (nfl-execution-edge.js) throws once it tries
+// to convert a sub-100-magnitude price to decimal odds, and the old call site
+// here only filtered on Number.isFinite(american_price) -- which a captured
+// 0 passes. One bad ingestion row used to crash the entire shoppingBoard()
+// response; it must instead just be dropped from the comparison.
+test('a captured price of 0 does not crash the shopping board and is dropped from the comparison', () => {
+  const snapAt = (book, price) => run(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, captured, 'nfl:2026-09-13:GB@CHI', '2026-09-13T17:00:01Z',
+    'Chicago Bears', 'Green Bay Packers', book, 'spreads', 'Chicago Bears', -3, price, 'free:oddstrader', captured);
+  snapAt('pinnacle', -110);
+  snapAt('fanduel', -105);
+  snapAt('brokenfeed', 0);
+
+  board.clearShoppingBoardCache();
+  assert.doesNotThrow(() => board.shoppingBoard({ market: 'spreads' }));
+  const rowsOut = board.shoppingBoard({ market: 'spreads' });
+  const bears = rowsOut.find(r => r.event_id === 'nfl:2026-09-13:GB@CHI' && r.side === 'Chicago Bears');
+  assert.ok(bears, 'the side is still boarded from the two real prices');
+  assert.notEqual(bears.best_book, 'brokenfeed');
+  assert.ok(['pinnacle', 'fanduel'].includes(bears.best_book));
+});

@@ -29,7 +29,7 @@ import { db, rows, row, run } from '../../../db/index.js';
 import { cutoffBatches, decisionCutoff, sequentialCapacity, T60_PROTOCOL_VERSION }
   from '../../../services/nfl-t60-protocol.js';
 import { eventKey } from '../../../services/nfl-contract-key.js';
-import { freezeT60Packet } from '../../../services/nfl-t60-packet.js';
+import { freezeT60Packet, t60PacketHash } from '../../../services/nfl-t60-packet.js';
 import { nflKickoffDate } from '../../../services/date-util.js';
 
 export const T60_RUNNER_VERSION = 'nfl-t60-runner-v1';
@@ -124,9 +124,9 @@ export function captureDueObservations({ experimentId, now = new Date().toISOStr
         failed.push({ id: observation.id, event_key: observation.event_key, reason: packet.error });
         continue;
       }
-      run(`UPDATE nfl_t60_observations SET state='frozen', packet_hash=?, capture_started_at=?,
+      run(`UPDATE nfl_t60_observations SET state='frozen', packet_hash=?, packet_json=?, capture_started_at=?,
            capture_finished_at=? WHERE id=?`,
-      packetHash(packet), startedAt, new Date().toISOString(), observation.id);
+      t60PacketHash(packet), JSON.stringify(packet), startedAt, new Date().toISOString(), observation.id);
       captured.push({ id: observation.id, event_key: observation.event_key, packet });
     } catch (error) {
       run(`UPDATE nfl_t60_observations SET state='failed', last_error=?, capture_started_at=?,
@@ -136,10 +136,6 @@ export function captureDueObservations({ experimentId, now = new Date().toISOStr
     }
   }
   return { captured, failed };
-}
-
-function packetHash(packet) {
-  return crypto.createHash('sha256').update(JSON.stringify(packet)).digest('hex');
 }
 
 /**

@@ -36,9 +36,11 @@
  * after the games it describes; counting it as knowable at a 2023 kickoff
  * would be the single largest look-ahead available here.
  */
+import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
 import { decisionCutoff, T60_PROTOCOL_VERSION } from './nfl-t60-protocol.js';
 import { teamCodeFor } from './team-codes.js';
+import { canonicalize } from '../betting/nfl/contracts/forecast-packet.js';
 
 export const PACKET_VERSION = 'nfl-t60-packet-v3-c11';
 
@@ -138,6 +140,56 @@ function sourceEntry({ source, rowsByCutoff = 0, rowsTotal = 0, effectiveAt = nu
  * postgame weather, next-week ranks or a revised record is "rejected or
  * quarantined with an explicit reason" — that is a property of the claim
  * taxonomy above, not of a caller remembering to filter.
+ */
+/*
+ * TODO (audit-consolidation stage 1, Giant Plan section 8.10/8.1): the task
+ * for this stage asked for freezeT60Packet to "emit the full contract shape
+ * forecast-packet.js already validates" and to call validateForecastPacket
+ * before sealing. That is NOT done here, deliberately, and the reason is an
+ * architecture mismatch this stage found rather than one it can safely paper
+ * over:
+ *
+ *   forecast-packet.js's CONTRACT_GROUPS describe a single-market DECISION
+ *   packet: one chosen quote_id/side/handicap (market), one resolved
+ *   forecast_identity and calibration_id (forecast), and a qualification_state
+ *   already reached (decision). Every one of those is downstream of a policy
+ *   run that has not happened yet at the moment this function executes: T-60
+ *   evidence-freeze runs BEFORE a forecast is computed or a decision is made
+ *   (see t60-runner.js's captureDueObservations, which freezes a packet and
+ *   only later — a separate, not-yet-written step — would hand it to a
+ *   policy). This packet also legitimately holds MULTIPLE sources with
+ *   independent claims (quote_tape, injuries, weather, news, team features),
+ *   which the single-market contract has no group for at all.
+ *
+ *   Populating market/forecast/decision here would mean either (a) guessing
+ *   which of possibly several received quotes is "the" market entry before
+ *   any policy has chosen one, or (b) writing placeholder/null values into a
+ *   contract whose validator was written to CATCH exactly that kind of
+ *   unearned claim (see forecast-packet.js's own docstring: "validation
+ *   fails, it does not repair... a packet missing its event identity is not a
+ *   packet with a gap in it"). Either one is the fabrication this whole module
+ *   exists to refuse — the same failure mode as the four injection tests in
+ *   nfl-t60-packet.test.js, just moved one level up.
+ *
+ *   Forcing this shape now would also break every existing consumer of the
+ *   evidence shape (t60-runner.js's captureDueObservations, the read-only
+ *   GET /t60/packet route in nfl-betting.js, and the whole of
+ *   nfl-t60-packet.test.js, which pins packet.sources/packet.summary/
+ *   packet.claim as the contract for THIS packet).
+ *
+ * What IS done in this stage, as the safe subset: the packet_json column
+ * (migration 036) is now populated with this packet's actual body (see
+ * t60-runner.js), and re-freezing identical inputs now hashes identically —
+ * see t60PacketHash() below, which is the canonical hash this stage adds in
+ * place of t60-runner.js's old ad-hoc `JSON.stringify(packet)` hash (unsorted
+ * keys, and it hashed the wall-clock computation timestamps, so the same
+ * evidence frozen twice at two different real times used to hash differently).
+ *
+ * The real fix for the full request — a genuine DECISION packet that
+ * satisfies forecast-packet.js's contract by combining a frozen T-60 evidence
+ * packet like this one with the policy's actual chosen market/forecast/
+ * decision once that policy run exists — belongs in whatever stage wires the
+ * T-60 runner to the decision/policy layer, where that data is first known.
  */
 export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVersion = null,
   mode = 'prospective', computationStartedAt = null, computationFinishedAt = null } = {}) {
@@ -343,6 +395,30 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
       eligible_count: eligible.length, total_sources: entries.length
     }
   };
+}
+
+/**
+ * The packet's content address.
+ *
+ * Reuses forecast-packet.js's `canonicalize` (sorted keys recursively) so
+ * this codebase has one canonicalization authority rather than two, even
+ * though this packet does not yet meet that module's CONTRACT_GROUPS shape
+ * (see the TODO above freezeT60Packet).
+ *
+ * Deliberately EXCLUDES the wall-clock computation fields —
+ * `computation_started_at`, `computation_finished_at`, `emitted_after_cutoff`
+ * — which record WHEN this packet was assembled, not what evidence it
+ * contains. Without this exclusion, re-freezing the identical evidence a
+ * second time (a retry, or a second caller asking about the same game) always
+ * produced a different hash purely because real time had moved on, which
+ * defeats the one thing a content hash is for: recognizing that nothing
+ * actually changed. This was t60-runner.js's `packetHash`, replaced by this
+ * function as part of this stage.
+ */
+export function t60PacketHash(packet) {
+  const { computation_started_at: _started, computation_finished_at: _finished,
+    emitted_after_cutoff: _emitted, ...content } = packet;
+  return crypto.createHash('sha256').update(JSON.stringify(canonicalize(content))).digest('hex');
 }
 
 /**

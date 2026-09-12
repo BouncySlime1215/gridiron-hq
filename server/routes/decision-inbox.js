@@ -19,6 +19,7 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { rows, row, run } from '../db/index.js';
+import { requireAuthenticated } from '../platform/auth.js';
 
 const r = Router();
 
@@ -156,8 +157,8 @@ r.get('/summary', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Any engine can publish over HTTP too, not just server-side callers. */
-r.post('/', (req, res, next) => {
+/** Any engine can publish over HTTP too, not just server-side callers — but must authenticate to do it. */
+r.post('/', requireAuthenticated, (req, res, next) => {
   try {
     const b = req.body ?? {};
     const rec = publishRecommendation({

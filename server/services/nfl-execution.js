@@ -21,7 +21,13 @@
  */
 import { rows, row, run } from '../db/index.js';
 import { simultaneousQuotes } from './nfl-shopping-board.js';
-import { lineMoveValue } from './nfl-execution-edge.js';
+import { lineMoveValue, assertRealPrice } from './nfl-execution-edge.js';
+
+/** Is this a real, usable American price (finite, at or beyond +/-100)? A
+ * quote of 0 or +50 is a parsing failure, not a very short price, and letting
+ * it into payoutPerUnit() divides by (near) zero and manufactures an
+ * enormous or infinite payout that can rank a broken quote as the best book. */
+const isRealPrice = value => { try { assertRealPrice(value); return true; } catch { return false; } };
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -76,7 +82,7 @@ export function rankBooks(quotes, { market = 'spreads', takingPoints = true } = 
   // The snapshot table spells this `american_price`; accept a plain `price`
   // too so a caller can hand in quotes from anywhere.
   const priceOf = q => (Number.isFinite(q.american_price) ? q.american_price : q.price);
-  const usable = quotes.filter(q => Number.isFinite(priceOf(q)));
+  const usable = quotes.filter(q => isRealPrice(priceOf(q)));
   if (!usable.length) return null;
 
   const raw = usable.map(q => ({

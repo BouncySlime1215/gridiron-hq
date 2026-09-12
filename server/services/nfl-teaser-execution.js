@@ -15,6 +15,8 @@ import { simultaneousQuotes } from './nfl-shopping-board.js';
 import { teaserEV, wongHistory, wongLeg } from './nfl-teasers.js';
 import { ticketProbabilities } from '../betting/nfl/strategy/teaser-leg-rates.js';
 import { payoutPerUnit } from './nfl-execution.js';
+import { teamResolver } from './team-codes.js';
+import { easternGameDate } from './nfl-contract-key.js';
 
 export const TEASER_POLICY = Object.freeze({
   teaser_points: 6,
@@ -299,25 +301,38 @@ export function teaserExecutionLedger({ limit = 100 } = {}) {
   };
 }
 
-export function settleTeaserExecution(id, input = {}) {
+export function settleTeaserExecution(id, _input = {}) {
   const execution = row('SELECT * FROM nfl_teaser_executions WHERE id=?', Number(id));
   if (!execution) return { error: 'teaser execution not found' };
   if (execution.status !== 'open') return { error: `execution is already ${execution.status}` };
   const storedLegs = rows('SELECT * FROM nfl_teaser_execution_legs WHERE execution_id=? ORDER BY slot', execution.id);
-  const scores = Array.isArray(input.scores) ? input.scores : [];
-  if (scores.length !== storedLegs.length) return { error: 'one team_score and opponent_score is required for each leg' };
+  const resolve = teamResolver();
 
+  // The final score used to grade a real stake must come from the same
+  // authoritative source settleExecutionOpportunities() (nfl-execution-pipeline.js)
+  // already trusts for this -- game_lines, cross-checked against the
+  // opponent's own row -- never from the request body. This endpoint used to
+  // take `input.scores` as given, which meant any caller could hand it
+  // whatever final score it liked and settle a real stake off a fabricated
+  // result.
   const graded = [];
   for (const leg of storedLegs) {
-    const score = scores.find(item => String(item.event_id) === String(leg.event_id));
-    if (score?.team_score == null || score.team_score === '' ||
-        score?.opponent_score == null || score.opponent_score === '') {
-      return { error: `both final scores are required for ${leg.team}` };
+    const team = resolve(leg.team), opponent = resolve(leg.opponent);
+    if (!team || !opponent) return { error: `cannot resolve teams for ${leg.team}` };
+    const gameday = easternGameDate(leg.commence_time);
+    if (!gameday) return { error: `cannot resolve game date for ${leg.team}` };
+    const g = row(`SELECT * FROM game_lines WHERE gameday=? AND team=? AND opponent=?`,
+      gameday, team.abbr, opponent.abbr);
+    const other = row(`SELECT * FROM game_lines WHERE gameday=? AND team=? AND opponent=?`,
+      gameday, opponent.abbr, team.abbr);
+    if (!g || !other || !Number.isInteger(g.team_score) || !Number.isInteger(g.opp_score) ||
+        g.team_score < 0 || g.opp_score < 0) {
+      return { error: `final score not yet available for ${leg.team}` };
     }
-    const teamScore = Number(score?.team_score), opponentScore = Number(score?.opponent_score);
-    if (!Number.isInteger(teamScore) || teamScore < 0 || !Number.isInteger(opponentScore) || opponentScore < 0) {
-      return { error: `valid non-negative integer scores are required for ${leg.team}` };
+    if (g.team_score !== other.opp_score || g.opp_score !== other.team_score) {
+      return { error: `conflicting game result for ${leg.team}` };
     }
+    const teamScore = g.team_score, opponentScore = g.opp_score;
     const coverMargin = teamScore - opponentScore + leg.teased_line;
     graded.push({ ...leg, team_score: teamScore, opponent_score: opponentScore,
       result: coverMargin > 0 ? 'won' : coverMargin < 0 ? 'lost' : 'push' });

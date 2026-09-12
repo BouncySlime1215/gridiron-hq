@@ -62,7 +62,7 @@ import { fromMarginDistribution, expectedNetReturn, profitMultiple }
  * 3-unit cap. The cap's only practical function was bounding the blast radius
  * of a bad feed. Now the feed stops instead.
  */
-function assertRealPrice(american) {
+export function assertRealPrice(american) {
   if (!Number.isFinite(american) || Math.abs(american) < 100) {
     throw new TypeError(`american price ${JSON.stringify(american)} is below 100 in magnitude — ` +
       'that is a parsing failure, not a very short price, and it must not reach a stake');
@@ -619,10 +619,18 @@ export function kellyFraction({ winProbability, americanPrice, fraction = 0.25 }
  * This is deliberately restrictive. The failure mode it prevents is the
  * ordinary one: a plausible model, sized with Kelly, run until the bankroll
  * is gone.
+ *
+ * The gate is an ALLOW-list on 'execution', not a deny-list on 'model'. It
+ * used to check `source === 'model'`, which meant any caller could size a
+ * full, unvalidated bet just by passing a `source` that was not literally the
+ * string 'model' -- a typo, a new opportunity kind, anything. Only the one
+ * source this repository has actually earned -- a measured, at-bet-time price
+ * edge -- skips the CLV-proof requirement; every other value, recognised or
+ * not, is treated as an unproven model estimate.
  */
 export function stakeFor({ winProbability, americanPrice, source = 'model',
   bankrollUnits = 100, fraction = 0.25, provenClv = null, maxUnitsPerBet = 3 } = {}) {
-  if (source === 'model' && !(provenClv > 0)) {
+  if (source !== 'execution' && !(provenClv > 0)) {
     return {
       units: 0, blocked: true,
       reason: 'A model-derived probability has not demonstrated closing-line value. ' +

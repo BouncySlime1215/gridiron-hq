@@ -71,7 +71,8 @@ export function ProfitabilityControl() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [book, setBook] = useState('');
-  const [price, setPrice] = useState('-115');
+  const [price, setPrice] = useState('');
+  const [reachable, setReachable] = useState(false);
 
   const act = async (kind: 'reconcile' | 'news' | 'passing' | 'growth') => {
     setBusy(kind); setMessage(null);
@@ -101,7 +102,7 @@ export function ProfitabilityControl() {
     setBusy('teaser'); setMessage(null);
     try {
       await api('/nfl-betting/teasers/prices', { method: 'POST', body: JSON.stringify({
-        book, teaser_points: 6, legs: 2, american_price: Number(price), reachable: true,
+        book, teaser_points: 6, legs: 2, american_price: Number(price), reachable,
         different_games_required: true
       }) });
       setMessage(`Saved ${book} two-team six-point teaser at ${price}.`); await ops.refetch();
@@ -195,8 +196,9 @@ export function ProfitabilityControl() {
       <div className="card p-4">
         <div className="font-black text-slate-900">Reachable teaser price</div>
         <p className="mt-1 text-xs leading-5 text-slate-500">The historical Wong result is actionable only if your real book offers a two-team six-point teaser at -115 or better.</p>
-        <div className="mt-4 grid grid-cols-[1fr_90px] gap-2"><input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Book name" value={book} onChange={event => setBook(event.target.value)} /><input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" aria-label="American teaser price" value={price} onChange={event => setPrice(event.target.value)} /></div>
-        <button className="btn-primary mt-2 w-full text-sm" disabled={!book || busy === 'teaser'} onClick={saveTeaser}>{busy === 'teaser' ? 'Saving…' : 'Save reachable price'}</button>
+        <div className="mt-4 grid grid-cols-[1fr_90px] gap-2"><input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Book name" value={book} onChange={event => setBook(event.target.value)} /><input className="rounded-lg border border-slate-300 px-3 py-2 text-sm" aria-label="American teaser price" placeholder="-115" value={price} onChange={event => setPrice(event.target.value)} /></div>
+        <label className="mt-2 flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={reachable} onChange={event => setReachable(event.target.checked)} />I can actually get this price at this book right now</label>
+        <button className="btn-primary mt-2 w-full text-sm" disabled={!book || !price || !reachable || busy === 'teaser'} onClick={saveTeaser}>{busy === 'teaser' ? 'Saving…' : 'Save reachable price'}</button>
         <div className="mt-3 text-xs text-slate-500">Latest: {d.teaser.latest_reachable ? `${d.teaser.latest_reachable.book} ${d.teaser.latest_reachable.american_price}` : 'none recorded'}</div>
       </div>
     </div>

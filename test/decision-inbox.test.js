@@ -16,6 +16,14 @@ const applied = await runMigrations();
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 seedIfEmpty();
 
+// POST / now requires an authenticated caller (a6-money-path) — any engine
+// publishing a recommendation must identify itself, not just claim to be one.
+const { hashSessionToken } = await import('../server/platform/auth.js');
+db.prepare(`INSERT INTO users (id, subject, display_name) VALUES (1, 'decision-inbox-test-user', 'Test Publisher')`).run();
+db.prepare(`INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+  VALUES (1, ?, datetime('now', '+1 day'))`).run(hashSessionToken('decision-inbox-test-token'));
+const AUTH_HEADER = { Authorization: 'Bearer decision-inbox-test-token' };
+
 // Side-effect imports: assetUniverse() (trade-engine.js) reads tables created
 // ad-hoc at import time by these route files, exactly like test/post-draft-plan.test.js.
 await import('../server/routes/stats.js');       // player_season_stats
@@ -50,7 +58,15 @@ test('a fresh install has no open recommendations', async () => {
   assert.deepEqual(await res.json(), []);
 });
 
-const post = body => fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const post = body => fetch(base, { method: 'POST',
+  headers: { 'Content-Type': 'application/json', ...AUTH_HEADER }, body: JSON.stringify(body) });
+
+test('POST / requires an authenticated caller (a6-money-path)', async () => {
+  const res = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dedupKey: 'unauthed:1', sport: 'NFL', type: 'trade', title: 'x', sourceModel: 'x' }) });
+  assert.equal(res.status, 401);
+  assert.equal(row(`SELECT COUNT(*) n FROM decision_recommendations WHERE dedup_key='unauthed:1'`).n, 0);
+});
 
 test('publishing a recommendation over HTTP persists it and echoes the shape the client expects', async () => {
   const res = await post({

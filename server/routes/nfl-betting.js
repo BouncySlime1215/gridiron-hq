@@ -962,6 +962,26 @@ r.get('/stake', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * The two real, server-side facts safeStakeFor()'s calibration and
+ * forward-sample gates check — computed here, never taken from a request.
+ *
+ * Both `/stake/safe` and `/stake/safe/slate` used to read `calibrated` and
+ * `forward_settled` straight off the query string / request body, so any
+ * caller could set `?calibrated=1&forward_settled=999` and unlock a full
+ * stake regardless of what the model has actually proven. These are the same
+ * two sources nfl-research.js's own promotion gates already treat as
+ * authoritative: the latest calibration's real walk-forward gate, and the
+ * real settled forward sample (exact same filter as nfl-research.js's
+ * `forwardSettled`).
+ */
+function realStakingGates() {
+  const calibration = latestCoverCalibration();
+  const forwardSettled = allPickResults()
+    .filter(x => ['Won', 'Lost'].includes(x.status) && x.quote_at && x.selected_at).length;
+  return { calibrationPassed: calibration?.metrics?.forward_gate_passed === true, forwardSettled };
+}
+
 r.get('/stake/safe', (req, res, next) => {
   try {
     const winProb = Number(req.query.prob), odds = Number(req.query.odds);
@@ -970,8 +990,7 @@ r.get('/stake/safe', (req, res, next) => {
     }
     res.json(safeStakeFor({
       winProb, americanOdds: odds, bankroll: Number(req.query.bankroll) || 100,
-      calibrationPassed: req.query.calibrated === '1',
-      forwardSettled: Number(req.query.forward_settled) || 0,
+      ...realStakingGates(),
       uncertaintyWidth: req.query.interval_width == null ? null : Number(req.query.interval_width),
       openPortfolioFraction: Number(req.query.open_exposure) || 0
     }));
@@ -981,11 +1000,13 @@ r.get('/stake/safe', (req, res, next) => {
 /**
  * Correlation-aware staking for one bet against the REST OF THE WEEK'S SLATE,
  * not just a flat running total. Body: { winProb, americanOdds, bankroll,
- * calibrated, forward_settled, interval_width, open_exposure, openBets }
- * where openBets is the week's other already-sized candidates, each
- * optionally carrying { stake_fraction, team, opponent, division_rivalry,
- * weather_bucket, officiating_crew, model_probability } for correlation
- * estimation. See staking.js's file header and slateRiskCheck for the method.
+ * interval_width, open_exposure, openBets } where openBets is the week's
+ * other already-sized candidates, each optionally carrying { stake_fraction,
+ * team, opponent, division_rivalry, weather_bucket, officiating_crew,
+ * model_probability } for correlation estimation. See staking.js's file
+ * header and slateRiskCheck for the method. `calibrated` / `forward_settled`
+ * are no longer read from the body — see realStakingGates() above; a request
+ * can no longer claim its own way past that gate.
  */
 r.post('/stake/safe/slate', (req, res, next) => {
   try {
@@ -996,8 +1017,7 @@ r.post('/stake/safe/slate', (req, res, next) => {
     }
     res.json(safeStakeFor({
       winProb, americanOdds: odds, bankroll: Number(body.bankroll) || 100,
-      calibrationPassed: body.calibrated === true || body.calibrated === '1',
-      forwardSettled: Number(body.forward_settled) || 0,
+      ...realStakingGates(),
       uncertaintyWidth: body.interval_width == null ? null : Number(body.interval_width),
       openPortfolioFraction: Number(body.open_exposure) || 0,
       openBets: Array.isArray(body.openBets) ? body.openBets : null

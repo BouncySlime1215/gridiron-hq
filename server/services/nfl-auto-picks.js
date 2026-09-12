@@ -202,6 +202,22 @@ export function autoPickCandidates(season, week, policy = NFL_PRODUCTION_POLICY)
   return autoPickDecisionBoard(season, week, policy).selected;
 }
 
+/**
+ * Read/cache role only (Giant Plan 8.10, G08). This UPSERTs a MUTABLE latest
+ * view -- keyed on (season, week, policy_id, matchup, market, selection),
+ * which omits policy_version -- so a re-run after a line moved overwrites
+ * what the model actually decided before it moved. That made it unsafe as
+ * evidence, which is exactly why nfl-decision-tape.js exists: the append-only
+ * tape (nfl_decision_runs / nfl_decision_events), not this table, is the
+ * source of truth a grading or audit reads from.
+ *
+ * `nfl_pick_decisions` is kept — not removed — because it remains a fast,
+ * convenient latest-view projection the UI reads (see nfl-decision-tape.js's
+ * own header comment). The scheduler job that calls this (scheduler.js's
+ * refreshNflDecisionLedger) now ALSO calls recordDecisionRun directly, and
+ * that tape write, not this UPSERT, is what the scheduler treats as the
+ * record of what was decided.
+ */
 export function persistPickDecisions(season, week, decisionBoard) {
   const at = new Date().toISOString();
   for (const d of decisionBoard.decisions) {

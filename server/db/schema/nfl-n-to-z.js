@@ -419,8 +419,13 @@ export function tables(db) {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     season INTEGER NOT NULL, label TEXT, created_at TEXT NOT NULL,
     bets INTEGER, wins INTEGER, losses INTEGER, pushes INTEGER,
-    units REAL, roi REAL, config TEXT
+    units REAL, roi REAL, config TEXT,
+    -- migration 041: the run's ensemble blend spec ({blendMode, modelOptions})
+    -- and its hash, so runs can be grouped/compared by spec without parsing
+    -- the config column's free-form JSON.
+    spec_json TEXT, spec_hash TEXT
   );
+  CREATE INDEX IF NOT EXISTS idx_nfl_replay_runs_spec_hash ON nfl_replay_runs(spec_hash);
   CREATE TABLE IF NOT EXISTS nfl_replay_bets (
     run_id INTEGER NOT NULL, season INTEGER, week INTEGER,
     home TEXT, away TEXT, market TEXT, side TEXT, line REAL,

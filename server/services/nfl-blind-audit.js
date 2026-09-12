@@ -144,6 +144,17 @@ function inputDataState(spec = null) {
       where = ' WHERE detected_at<?'; params = [afterSeason];
     } else if (maxSeason != null && table === 'weekly_ensemble_fits') {
       where = ' WHERE through_season<=?'; params = [maxSeason];
+    } else if (maxSeason != null && table === 'nfl_ensemble_fit_artifacts') {
+      // Giant Plan 8.11: this table had no season scope at all, so ANY write
+      // to it — including a live production fit for the CURRENT season,
+      // wholly unrelated to the historical window this audit replays — would
+      // change its table hash and void the run at the next freeze check.
+      // `cutoff` is either 'live' (today's production fit; never in scope for
+      // a historical replay) or `${season}|${week}` (nfl-ensemble.js's
+      // fitArtifactKey); SQLite's text-to-INTEGER cast takes the leading
+      // numeric prefix, so this scopes the same way weekly_ensemble_fits does
+      // above without needing a real season column on this cache table.
+      where = " WHERE cutoff<>'live' AND CAST(cutoff AS INTEGER)<=?"; params = [maxSeason];
     }
     const data = rows(`SELECT ${selectedColumns.join(',')} FROM ${table}${where} ORDER BY rowid`, ...params);
     const tableHash = createHash('sha256').update(table).update('\0').update(JSON.stringify(selectedColumns)).update('\0');
@@ -281,7 +292,7 @@ const AUDITED_BETTING_MARKETS = ['spread', 'total', 'moneyline'];
 
 function bettingWeekResult(season, week) {
   const perMarket = AUDITED_BETTING_MARKETS
-    .map(market => ({ market, replay: replaySeason(season, { startWeek: week, endWeek: week, markets: [market] }) }))
+    .map(market => ({ market, replay: replaySeason(season, { startWeek: week, endWeek: week, markets: [market], blendMode: 'raw' }) }))
     .filter(x => !x.replay.error);
   if (!perMarket.length) {
     return { metrics: { error: `no completed games stored for ${season}` }, faults: [], picks: [] };
@@ -698,6 +709,27 @@ function historicalOpenerReplay(season, week, threshold = 0.5) {
   return out;
 }
 
+/**
+ * Giant Plan 8.11: the content this run's `result_hash` actually attests to.
+ *
+ * `result.lookback` (attached by `weekLookback` just before this is called)
+ * includes `beat_the_close.historical`/`historical_cumulative`, sourced from
+ * `historicalOpenerReplay` reading `nfl_odds_archive`, `nfl_nfelo_games` and
+ * `nfl_external_ratings` — none of which are in `INPUT_TABLES`, so none of
+ * which the preregistration freeze actually covers or scopes by season.
+ * Hashing them into `result_hash` inverted the freeze: a week's "frozen"
+ * hash would silently change if one of those archives were later corrected,
+ * even though nothing the freeze contract promises to protect had changed.
+ *
+ * The look-back is still fully persisted in `result_json` (chained,
+ * readable, useful) — it is excluded only from the value `result_hash`
+ * commits to.
+ */
+function frozenResultHash(result) {
+  const { lookback, ...frozen } = result;
+  return sha(JSON.stringify(frozen));
+}
+
 function weekLookback(result, prior = null) {
   const council = result?.expert_council;
   const games = council?.games ?? [];
@@ -882,7 +914,7 @@ function openNextWeek(id) {
     classification: 'outcome-visible fault pass; no model mutation authorized' };
   const prior = rows(`SELECT chain_hash FROM nfl_blind_audit_weeks
                       WHERE run_id=? ORDER BY ordinal DESC LIMIT 1`, record.id)[0]?.chain_hash ?? record.spec_hash;
-  const resultHash = sha(JSON.stringify(result));
+  const resultHash = frozenResultHash(result);
   const chainHash = sha(`${prior}:${record.next_ordinal}:${target.season}:${target.week}:${resultHash}`);
   const persistStartedAt = performance.now();
   db.exec('BEGIN IMMEDIATE');
@@ -1002,4 +1034,4 @@ export function blindAuditProtocol() {
 }
 
 export const __test = { bettingSummary, runManifest, inputDataState, inputMutationState, dashboardWeekResult,
-  weeklyInput, reportingCompleteness, weekLookback };
+  weeklyInput, reportingCompleteness, weekLookback, frozenResultHash };

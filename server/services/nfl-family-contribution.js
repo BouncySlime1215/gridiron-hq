@@ -316,7 +316,7 @@ export function familyContributionReport(seasons = [2021, 2022, 2023, 2024, 2025
   const runs = configs.map(config => {
     const byKey = new Map();
     for (const season of seasons) {
-      const replay = replaySeason(season, { markets, modelOptions: { weighting: 'exponential', families: config.families } });
+      const replay = replaySeason(season, { markets, blendMode: 'raw', modelOptions: { weighting: 'exponential', families: config.families } });
       if (replay.error) continue;
       // A selected bet carries `units`; an unselected candidate does not.
       // Both are needed: the universe is every candidate, the economics are

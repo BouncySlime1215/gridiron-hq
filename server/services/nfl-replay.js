@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { rows, run } from '../db/index.js';
 import { fitEnsemble, ensembleLine } from './nfl-ensemble.js';
-import { mean, quantile, random, withRandomSeed, normalCdf, holm } from './stats-util.js';
+import { normalCdf, holm, weeklyClusterBootstrap } from './stats-util.js';
 import { NFL_PRODUCTION_POLICY, NFL_HISTORICAL_REPLAY_POLICY,
   applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
 import { shinNoVig } from './nfl-devig.js';
@@ -40,37 +40,20 @@ const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
 /** No-vig probability of the first side, from both sides' real American prices — Shin's method (nfl-devig.js). */
 const noVigProb = (oddsA, oddsB) => shinNoVig(oddsA, oddsB);
 
-export function uncertainty(bets) {
-  const settled = bets.filter(b => b.result === 'Won' || b.result === 'Lost');
-  const clusters = new Map();
-  for (const b of bets) {
-    const key = `${b.season}-${b.week}`;
-    const group = clusters.get(key) ?? [];
-    group.push(b); clusters.set(key, group);
-  }
-  const weeks = [...clusters.values()];
-  const draws = [];
-  if (weeks.length) withRandomSeed(20260804, () => {
-    for (let trial = 0; trial < 4000; trial++) {
-      const sample = [];
-      for (let i = 0; i < weeks.length; i++) sample.push(...weeks[Math.floor(random() * weeks.length)]);
-      const graded = sample.filter(b => b.result === 'Won' || b.result === 'Lost');
-      const wins = graded.filter(b => b.result === 'Won').length;
-      draws.push({ roi: sample.length ? mean(sample.map(b => b.units)) : 0, winRate: graded.length ? wins / graded.length : 0 });
-    }
-  });
-  const rois = draws.map(x => x.roi), winRates = draws.map(x => x.winRate);
-  return {
-    method: 'deterministic weekly-cluster bootstrap',
-    clusters: weeks.length,
-    trials: draws.length,
-    win_rate_95: draws.length ? [r2(quantile(winRates, 0.025)), r2(quantile(winRates, 0.975))] : [null, null],
-    roi_95: draws.length ? [r2(quantile(rois, 0.025)), r2(quantile(rois, 0.975))] : [null, null],
-    probability_roi_above_zero: draws.length ? r2(rois.filter(x => x > 0).length / draws.length) : null,
-    sample_warning: settled.length < 100
-      ? 'Very small sample: results are dominated by variance.'
-      : settled.length < 500 ? 'Moderate sample: treat profitability as provisional until the interval clears zero.' : null
-  };
+/**
+ * Giant Plan 8.9 (audit-consolidation stage 5): delegates to the one shared
+ * `weeklyClusterBootstrap` (stats-util.js) instead of hand-rolling its own
+ * copy — one of five near-identical implementations this consolidates. With
+ * no `weeks` declared, behavior is unchanged from before this migration: the
+ * resampling universe is still just the weeks present in `bets`. Passing
+ * `weeks` (the run's full declared schedule, including weeks the policy bet
+ * nothing in) is what actually fixes the omitted-zero-bet-week bias described
+ * on the shared function; existing call sites here don't have that schedule
+ * handy without a larger refactor, so this migration is the safe subset —
+ * the shared implementation, wired into one real caller, unchanged output.
+ */
+export function uncertainty(bets, { weeks } = {}) {
+  return weeklyClusterBootstrap(bets, { weeks });
 }
 
 /** Settle at the stored historical price. Missing prices never reach this path. */
@@ -185,8 +168,22 @@ export function replaySeason(season, {
   startWeek = 1,
   endWeek = 22,
   modelOptions = {},
-  label = null
+  label = null,
+  // Giant Plan 8.9: `ensembleLine` never had a blend mode set on it here, so
+  // every replay silently inherited `nfl-ensemble.js`'s own default ('raw')
+  // while the live production path (`nfl-auto-picks.js`) forces
+  // 'market_residual'. A backtest run this way is not measuring the policy
+  // production actually runs — it is measuring a different, unstated one.
+  // There is no safe implicit default any more: every direct caller must say
+  // which blend it means, so the choice is visible in the call site instead
+  // of buried in two different defaults that happened to disagree.
+  blendMode
 } = {}) {
+  if (blendMode !== 'raw' && blendMode !== 'market_residual') {
+    throw new TypeError(
+      `replaySeason: blendMode is required and must be 'raw' or 'market_residual' (got ${JSON.stringify(blendMode)}). ` +
+      "Callers must state explicitly which ensemble blend the replay uses — there is no implicit default.");
+  }
   const slate = rows(`
     SELECT gl.season, gl.week, gl.team AS home, gl.opponent AS away,
            gl.team_score AS home_score, gl.opp_score AS away_score,
@@ -222,7 +219,7 @@ export function replaySeason(season, {
   for (const g of slate) {
     if (currentWeek != null && g.week !== currentWeek) commitWeek();
     currentWeek = g.week;
-    const line = ensembleLine(season, g.week, g.home, g.away, { includeEvidence: false, ...modelOptions });
+    const line = ensembleLine(season, g.week, g.home, g.away, { includeEvidence: false, ...modelOptions, blendMode });
     if (line.error) continue;
     const e = line.ensemble;
 
@@ -341,7 +338,7 @@ export function replaySeason(season, {
     // Historical payouts use each stored price; there is no synthetic -110.
     break_even_needed: r2(averageBreakEven),
     beat_vig: bets.length ? units > 0 : null,
-    config: { policy, modelOptions, startWeek, endWeek },
+    config: { policy, modelOptions, blendMode, startWeek, endWeek },
     decision_audit: {
       candidates: decisions.length,
       selected: bets.length,
@@ -416,10 +413,19 @@ const fmtLine = v => (v > 0 ? `+${v}` : `${v}`);
 /** Persists a replay so runs can be compared over time. */
 export function saveReplay(result) {
   const s = result.summary;
-  run(`INSERT INTO nfl_replay_runs (season, label, created_at, bets, wins, losses, pushes, units, roi, config)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  // Giant Plan 8.9: the blend spec (which ensemble blend mode, and the
+  // modelOptions it was combined with) is the one thing that silently varied
+  // between replay and production before blendMode became required. Recorded
+  // as its own hashable column — not just buried in `config`'s free-form
+  // JSON — so runs can be grouped/compared by spec without parsing it back
+  // out of a blob whose shape has changed release to release.
+  const spec = { blendMode: s.config.blendMode, modelOptions: s.config.modelOptions };
+  const specJson = JSON.stringify(spec);
+  const specHash = createHash('sha256').update(specJson).digest('hex');
+  run(`INSERT INTO nfl_replay_runs (season, label, created_at, bets, wins, losses, pushes, units, roi, config, spec_json, spec_hash)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     s.season, s.label, new Date().toISOString(), s.bets, s.wins, s.losses, s.pushes,
-    s.units, s.roi, JSON.stringify(s.config));
+    s.units, s.roi, JSON.stringify(s.config), specJson, specHash);
   const id = rows('SELECT last_insert_rowid() AS id')[0].id;
   for (const b of result.bets) {
     run(`INSERT INTO nfl_replay_bets
@@ -777,12 +783,21 @@ export function analyzeErrors(bets, { minBets = 25 } = {}) {
  * this says so rather than reporting the flattering number.
  */
 export function validateAdjustment({ discoverySeasons, holdoutSeasons, adjust, config = {} }) {
+  // `config` is forwarded from a long chain of callers (proposeAdjustment,
+  // nfl-candidate-findings.js's holdout tests, the research/experiments
+  // routes) that predate replaySeason's blendMode requirement. Defaulting it
+  // here — at the one place this file calls replaySeason with an arbitrary
+  // caller-supplied config — preserves every one of those callers' current
+  // behavior (the 'raw' blend replaySeason silently used before) without
+  // having to thread blendMode through each of them individually. A caller
+  // that already states config.blendMode still wins.
+  const seasonConfig = { blendMode: 'raw', ...config };
   // Replays are deterministic, so each season is run once and the adjustment is
   // applied to the same bets — otherwise this replays every season four times.
   const cache = new Map();
   const betsFor = seasons => seasons.flatMap(s => {
     if (!cache.has(s)) {
-      const r = replaySeason(s, config);
+      const r = replaySeason(s, seasonConfig);
       cache.set(s, r.error ? [] : r.bets);
     }
     return cache.get(s);
@@ -911,8 +926,12 @@ export function proposeAdjustment(segment, { discoverySeasons, holdoutSeasons, c
 export function trainingIteration(seasons, config = {}) {
   const perSeason = [];
   const allBets = [];
+  // See the matching comment in validateAdjustment: `config` here is forwarded
+  // from many callers that predate replaySeason's blendMode requirement, so
+  // the default is supplied at this boundary rather than at every call site.
+  const seasonConfig = { blendMode: 'raw', ...config };
   for (const s of seasons) {
-    const r = replaySeason(s, config);
+    const r = replaySeason(s, seasonConfig);
     if (r.error) { perSeason.push({ season: s, error: r.error }); continue; }
     perSeason.push(r.summary);
     allBets.push(...r.bets);

@@ -227,3 +227,89 @@ test('C09: per-week display rounding is not reported as a bookkeeping disagreeme
   assert.ok(Math.abs(spread.summary_units_delta) < 0.5,
     'accumulated display rounding stays far below one bet');
 });
+
+/**
+ * Giant Plan 8.14. `spread_only.uncertainty` calls nfl-replay.js's
+ * `uncertainty()`, which matches `result` against the exact strings
+ * 'Won'/'Lost'. This file normalizes results to lower case for its own
+ * by_market/spread_only counting (the case-insensitivity fix directly above
+ * this test), so passing that normalized value straight through made
+ * uncertainty()'s case-sensitive check match nothing -- `win_rate_95` was
+ * always [0, 0] no matter how many bets were actually graded.
+ */
+test('win_rate_95 is not stuck at [0, 0] when there are real, lower-cased wins and losses', () => {
+  const runId = syntheticRun([
+    { season: 2026, week: 1, picks: [pick(), pick(), pick({ result: 'lost', units: -1 })] },
+    { season: 2026, week: 2, picks: [pick(), pick({ result: 'lost', units: -1 })] },
+    { season: 2026, week: 3, picks: [pick(), pick()] }
+  ]);
+  const spreadOnly = auditOverview(runId).spread_only;
+  const [lo, hi] = spreadOnly.uncertainty.win_rate_95;
+  assert.ok(lo != null && hi != null, 'the interval must be real numbers, not nulls');
+  assert.ok(hi > 0, `a book that mostly wins must not report an upper win-rate bound of 0 (got [${lo}, ${hi}])`);
+});
+
+/**
+ * Giant Plan 8.14: ROI's denominator used to be the raw pick count, which
+ * includes voided picks. A void never risked a stake, so counting it as a
+ * bet drags ROI toward zero for every void the run recorded.
+ */
+test('ROI excludes voided picks from its denominator', () => {
+  const runId = syntheticRun([
+    { season: 2026, week: 1, picks: [pick(), pick(), pick({ result: 'void', units: 0 })] }
+  ]);
+  const spread = auditOverview(runId).by_market.spread;
+  // Two real bets at +0.909 units each, one void. ROI must be computed over
+  // the two risked bets (0.909), not all three picks (0.606).
+  assert.equal(spread.roi, 0.909, 'the void must not dilute ROI toward zero');
+});
+
+/**
+ * Giant Plan 8.14: season coverage used to derive "expected weeks" from the
+ * min/max of weeks actually OPENED, which cannot distinguish "the
+ * preregistered span finished clean" from "the run stopped partway through
+ * it" -- a run that only got through weeks 5-7 of a preregistered 5-18 span
+ * looked "complete" because 5-7 itself has no holes.
+ */
+test('season coverage catches a run that stopped short of its own preregistered schedule', () => {
+  const spec = { schedule: [
+    { season: 2026, week: 5 }, { season: 2026, week: 6 }, { season: 2026, week: 7 },
+    { season: 2026, week: 8 }, { season: 2026, week: 9 }
+  ] };
+  const label = 'stopped-short';
+  run(`INSERT INTO nfl_blind_audit_runs (created_at,label,spec_hash,spec_json,code_hash,data_hash,status,next_ordinal)
+       VALUES (?,?,?,?,?,?,?,?)`,
+  '2026-09-10T00:00:00Z', label, `spec-${label}`, JSON.stringify(spec), 'code', 'data', 'sealed', 3);
+  const runId = db.prepare(`SELECT id FROM nfl_blind_audit_runs WHERE label=?`).get(label).id;
+  // Only weeks 5-7 actually opened; 8 and 9 never ran. Observed min-max (5-7)
+  // has no holes in itself -- the real gap only shows up against the spec.
+  [5, 6, 7].forEach((week, ordinal) => {
+    run(`INSERT INTO nfl_blind_audit_weeks
+         (run_id,ordinal,season,week,opened_at,prior_chain_hash,result_hash,chain_hash,result_json,fault_json)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    runId, ordinal, 2026, week, '2026-09-10T00:00:00Z', 'prior', `hash-${ordinal}`, `chain-${ordinal}`,
+    JSON.stringify({ betting: { metrics: { by_market: summarize([pick()]) }, picks: [pick()] } }), '{}');
+  });
+  const overview = auditOverview(runId);
+  const season = overview.season_coverage.find(s => s.season === 2026);
+  assert.equal(season.coverage_source, 'spec_schedule');
+  assert.deepEqual(season.missing_weeks, [8, 9],
+    'weeks 8 and 9 were preregistered but never opened -- observed min-max (5-7) alone cannot see that gap');
+  assert.equal(season.complete, false);
+  assert.equal(overview.coverage_complete, false);
+});
+
+test('season coverage falls back to observed min-max when the spec carries no schedule', () => {
+  // Every existing synthetic run in this file uses spec_json '{}' — this
+  // pins that the fallback path (schedule absent/legacy) still behaves
+  // exactly as it did before this fix, rather than silently reporting
+  // everything as incomplete.
+  const runId = syntheticRun([
+    { season: 2026, week: 5, picks: [pick()] },
+    { season: 2026, week: 6, picks: [pick()] }
+  ]);
+  const season = auditOverview(runId).season_coverage.find(s => s.season === 2026);
+  assert.equal(season.coverage_source, 'observed_min_max_fallback');
+  assert.deepEqual(season.missing_weeks, []);
+  assert.equal(season.complete, true);
+});

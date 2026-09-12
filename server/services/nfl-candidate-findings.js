@@ -96,7 +96,10 @@ function assertSeasonRoleAvailable(findingId, season, role) {
  * would actually run at in production (once per completed season).
  */
 function singleSeasonFindings(season, config = {}) {
-  const replay = replaySeason(season, config);
+  // `config` is forwarded from the season-end orchestrator's own caller and
+  // predates replaySeason's blendMode requirement; default it here so that
+  // caller preserves its current ('raw') behavior unless it says otherwise.
+  const replay = replaySeason(season, { blendMode: 'raw', ...config });
   if (replay.error) return { error: replay.error, season };
   const analysis = analyzeErrors(replay.bets, { minBets: config.minBets ?? 25 });
   return { season, weakest: analysis.weakest, strongest: analysis.strongest, bets: replay.bets.length };

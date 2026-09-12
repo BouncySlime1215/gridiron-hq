@@ -36,6 +36,72 @@ function normal(rand, mu = 0, sd = 1) {
   return mu + (sum - 6) * sd;
 }
 
+/**
+ * A drive-level football scoring process, for `scoring: 'football'`.
+ *
+ * The default `gaussian` scoreboard draws a margin and a total from normals and
+ * splits them. That is fine for testing a MARGIN model, and it is what stages 1
+ * and 2 needed. It is actively misleading for testing a SCORE model, because
+ * measured on the default fixture it has no key-number structure (|margin| = 3
+ * on 5.96% of games against roughly 15% in the real NFL), and the arithmetic of
+ * splitting one total between two teams makes the two scoreboards NEGATIVELY
+ * correlated (-0.33) where real football is mildly positive.
+ *
+ * So this generator produces points the way football does: a shared number of
+ * possessions, each ending in a touchdown, a field goal or nothing according to
+ * the same latent strengths the rest of the fixture uses.
+ *
+ * WHAT THIS IS AND IS NOT EVIDENCE FOR. It is football-SHAPED, not football. It
+ * shares a family with the compound-Poisson model in nfl-joint-score.js — both
+ * put points on the {3, 7} lattice — so a win for that model here is a control
+ * showing the machinery works, NOT evidence it would beat anything on real
+ * games. It is deliberately not the model's own likelihood: the count of
+ * scoring drives here is binomial over a fixed number of possessions rather
+ * than Poisson, and the dependence comes from both teams literally sharing a
+ * possession count rather than from an additive Poisson shock. The model is
+ * therefore mis-specified for this generator too, just far less badly than for
+ * the Gaussian one.
+ *
+ * Driven by its OWN pseudo-random stream, so that turning it on does not
+ * perturb a single feature, weather field or market draw.
+ */
+function driveScoring(rand, hf, af) {
+  // Possessions are shared: football alternates them, so one slow, clock-eating
+  // game suppresses both scoreboards and one fast game inflates both. This is
+  // the mechanism behind real same-game score correlation.
+  const drives = Math.max(7, Math.min(17, Math.round(11.8 + normal(rand, 0, 1.7) + (hf[1] + af[1]) * 0.3)));
+  const logistic = x => 1 / (1 + Math.exp(-x));
+
+  const side = (own, opp, edge) => {
+    const strength = (own[0] - opp[0]) * 0.09 + edge;
+    const pScore = logistic(-0.78 + strength);
+    const pTd = logistic(0.36 + strength * 0.5);
+    let points = 0, scores = 0;
+    for (let d = 0; d < drives; d++) {
+      if (rand() >= pScore) continue;
+      scores++;
+      if (rand() < pTd) {
+        const u = rand();
+        points += u < 0.94 ? 7 : (u < 0.97 ? 6 : 8);
+      } else {
+        points += 3;
+      }
+    }
+    if (rand() < 0.018) points += 2;  // safety
+    return { points, scores, expected: drives * pScore * (pTd * 7 + (1 - pTd) * 3) };
+  };
+
+  // 0.155 on the log-odds scale is worth roughly the 2.2-point home edge the
+  // Gaussian mode hard-codes, so the two modes describe the same home advantage.
+  const h = side(hf, af, 0.155);
+  const a = side(af, hf, 0);
+  return {
+    homeScore: h.points, awayScore: a.points,
+    expectedMargin: h.expected - a.expected,
+    expectedTotal: h.expected + a.expected
+  };
+}
+
 export const FIXTURE_TEAMS = Object.freeze([
   'KC', 'BAL', 'BUF', 'CIN', 'SF', 'SEA', 'DAL', 'PHI',
   'GB', 'DET', 'MIA', 'NYJ', 'LAR', 'ARI', 'TB', 'NO'
@@ -91,14 +157,47 @@ const FEATURE_SPEC = [
  *   market quote — the PRNG draw count is identical either way, so scores,
  *   features and weather are bit-identical across settings and the comparison
  *   is properly controlled.
+ * @param {'gaussian'|'football'} options.scoring  How points are produced.
+ *
+ *   `gaussian` (default, and byte-identical to this fixture before the option
+ *   existed) draws a margin and a total from normals and splits them between
+ *   the two teams. Fine for a margin model; wrong in three measurable ways for
+ *   a SCORE model. Measured on the default fixture: the two scoreboards are
+ *   correlated -0.33, |margin| = 3 occurs on 5.96% of games and |margin| = 7 on
+ *   4.93%, and five team-scores are exactly 1 — a value football cannot
+ *   produce.
+ *
+ *   `football` scores through a drive simulation instead. Measured: team score
+ *   mean 22.4 and sd 10.4 (real NFL roughly 22.5 and 10.2), home/away score
+ *   correlation +0.097 (real is mildly positive), margin mean 2.68 and sd 13.71
+ *   (real roughly 2.2 and 13.5), and no impossible scores.
+ *
+ *   The one moment it still misses is the one that matters most to a
+ *   lattice-aware model: |margin| = 3 occurs on 8.38% of games against 15.08%
+ *   in the real 6,991-game sample `margin-distribution.js` measures, and
+ *   |margin| = 7 on 7.57% against 9.03%. Real football concentrates on key
+ *   numbers roughly twice as hard as this generator does, because real teams
+ *   play the scoreboard late and this one does not. That mismatch is
+ *   CONSERVATIVE for any model whose advantage is knowing where the lattice is:
+ *   the fixture under-rewards it. It is not conservative in the other
+ *   direction, and no result here should be read as a measurement of football.
+ *
+ *   Switching modes changes the scoreboard and nothing else. The drive
+ *   simulation runs on its own PRNG stream and the Gaussian draws are taken in
+ *   both modes and discarded in one, so features, weather and the market's
+ *   noise term are bit-identical across the pair.
  */
 export function seedEnsembleFixture({ run }, {
   seasons = [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
   weeksPerSeason = 17, latentFactors = 3, noise = 0.35, seed = 20260912,
   marketNoise = 1.6,
+  scoring = 'gaussian',
   teams = FIXTURE_TEAMS
 } = {}) {
   const rand = mulberry32(seed);
+  // A dedicated stream for the drive simulation. Separate so that switching
+  // `scoring` changes the scoreboard and nothing else whatsoever.
+  const scoreRand = mulberry32(seed ^ 0x5f3759df);
 
   // A fixed loading matrix: feature j reads factor k with weight L[j][k].
   // Drawn once, so every feature is a different mixture of the SAME small set
@@ -138,15 +237,37 @@ export function seedEnsembleFixture({ run }, {
         // without moving results, which is the honest shape of a feature set
         // that contains more dimensions than it has predictive content.
         const trueEdge = (hf[0] - af[0]) * 6 + 2.2;
-        const margin = Math.round(trueEdge + normal(rand, 0, 10.5));
-        const totalPoints = Math.round(44 + (hf[1] + af[1]) * 2 + normal(rand, 0, 9));
-        const homeScore = Math.max(0, Math.round((totalPoints + margin) / 2));
-        const awayScore = Math.max(0, totalPoints - homeScore);
-        // A market quote that is the true edge plus small noise — close to,
-        // but not identical to, what the components are trying to beat.
-        const marketMargin = Math.round((trueEdge + normal(rand, 0, marketNoise)) * 2) / 2;
+        // These two draws are taken in BOTH scoring modes and become the
+        // scoreboard only in `gaussian` mode. Taking them unconditionally is
+        // what keeps the two modes a controlled pair: `rand` advances
+        // identically, so every feature, every weather field and the market's
+        // own noise term are bit-identical between them, and the ONLY
+        // difference is how points are produced. See the `scoring` option.
+        const gaussianMargin = Math.round(trueEdge + normal(rand, 0, 10.5));
+        const gaussianTotal = Math.round(44 + (hf[1] + af[1]) * 2 + normal(rand, 0, 9));
+
+        let homeScore, awayScore, marginAnchor, totalAnchor;
+        if (scoring === 'football') {
+          const drives = driveScoring(scoreRand, hf, af);
+          homeScore = drives.homeScore;
+          awayScore = drives.awayScore;
+          marginAnchor = drives.expectedMargin;
+          totalAnchor = drives.expectedTotal;
+        } else {
+          homeScore = Math.max(0, Math.round((gaussianTotal + gaussianMargin) / 2));
+          awayScore = Math.max(0, gaussianTotal - homeScore);
+          marginAnchor = trueEdge;
+          totalAnchor = 44 + (hf[1] + af[1]) * 2;
+        }
+
+        // A market quote that is the generator's own expected margin plus small
+        // noise — close to, but not identical to, what the components are trying
+        // to beat. The anchor follows whichever scoring process is in force, so
+        // the market is equally well informed in both modes and the two runs
+        // stay comparable.
+        const marketMargin = Math.round((marginAnchor + normal(rand, 0, marketNoise)) * 2) / 2;
         const homeSpread = -marketMargin;
-        const marketTotal = Math.round((44 + (hf[1] + af[1]) * 2 + normal(rand, 0, 2)) * 2) / 2;
+        const marketTotal = Math.round((totalAnchor + normal(rand, 0, 2)) * 2) / 2;
         const openSpread = homeSpread + Math.round(normal(rand, 0, 0.8) * 2) / 2;
         const openTotal = marketTotal + Math.round(normal(rand, 0, 1.0) * 2) / 2;
         const homeRest = 7 + (rand() < 0.12 ? -3 : 0);
@@ -191,6 +312,7 @@ export function seedEnsembleFixture({ run }, {
   return {
     games: inserted, teams: teams.length, seasons: seasons.length,
     latent_factors: latentFactors, noise, market_noise: marketNoise,
+    scoring,
     feature_fields: FEATURE_SPEC.length,
     note: 'synthetic: feature correlation structure is a property of this generator, not of football'
   };

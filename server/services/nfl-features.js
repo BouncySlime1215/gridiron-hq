@@ -16,6 +16,7 @@
  */
 import { rows } from '../db/index.js';
 import { teamWeeks, playerWeeks } from './nfl-pbp.js';
+import { weatherSplits } from './nfl-weather-response.js';
 
 const div = (a, b) => (b > 0 ? a / b : null);
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -346,42 +347,6 @@ export function bettingTrends(season, week, team) {
 }
 
 /* ------------------------------------------------------ context and form */
-
-/**
- * Splits one team's own prior games by playing conditions and reports how much
- * its offense actually gained or lost per play in each.
- *
- * This is the measurement `gameContext` has always exposed as
- * `dome_epa_delta` / `cold_epa_delta` / `wind_epa_delta`; it is factored out
- * here so the forecasting ensemble can read the same numbers from the same
- * definition rather than restating it. The sample counts come out alongside
- * each delta because these deltas are built on very few games -- a team may
- * play one indoor game all season -- and any consumer that treats a
- * one-game delta as if it were a settled team trait will be modelling noise.
- * A caller that cannot shrink on `*_n` should not be using these at all.
- *
- * `samples` is a list of `{ epa, roof, temp, wind }`, one per prior game.
- * A delta is null unless BOTH sides of its split have at least one game --
- * there is no "difference" against an empty comparison group.
- */
-export function weatherSplits(samples) {
-  const dome = samples.filter(x => x.roof === 'dome' || x.roof === 'closed');
-  const outdoor = samples.filter(x => x.roof && x.roof !== 'dome' && x.roof !== 'closed');
-  const cold = samples.filter(x => x.temp != null && x.temp < 32);
-  const warm = samples.filter(x => x.temp != null && x.temp >= 32);
-  const windy = samples.filter(x => x.wind != null && x.wind >= 15);
-  const calm = samples.filter(x => x.wind != null && x.wind < 15);
-  const delta = (a, b) => (a.length && b.length ? r3(avg(a.map(x => x.epa)) - avg(b.map(x => x.epa))) : null);
-  return {
-    dome_epa_delta: delta(dome, outdoor),
-    cold_epa_delta: delta(cold, warm),
-    wind_epa_delta: delta(windy, calm),
-    dome_n: dome.length, outdoor_n: outdoor.length,
-    cold_n: cold.length, warm_n: warm.length,
-    windy_n: windy.length, calm_n: calm.length,
-    epa_samples: samples.map(x => x.epa)
-  };
-}
 
 /** Venue, weather, rest and market context for a specific upcoming game. */
 export function gameContext(season, week, team) {

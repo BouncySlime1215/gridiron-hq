@@ -24,7 +24,7 @@
 import { rows, run } from '../db/index.js';
 import { availabilityDeficit } from './nfl-availability.js';
 import { teamWeeks } from './nfl-pbp.js';
-import { weatherSplits } from './nfl-features.js';
+import { weatherSplits, isIndoors, WINDY_MPH, COLD_F } from './nfl-weather-response.js';
 import { mean } from './stats-util.js';
 import { ENSEMBLE_FIT_VERSION } from './nfl-forecast-identity.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
@@ -338,8 +338,9 @@ const _weatherSensitivityCache = new Map();
  * and in the wind -- measured from that team's prior games, cut off before the
  * week being predicted.
  *
- * `nfl-features.js` has computed these three deltas all along (`weatherSplits`,
- * surfaced per team as `dome_epa_delta` / `cold_epa_delta` / `wind_epa_delta`).
+ * `nfl-weather-response.js` has defined these three deltas all along, and
+ * `nfl-features.js` has surfaced them per team as `dome_epa_delta` /
+ * `cold_epa_delta` / `wind_epa_delta`.
  * The forecasting ensemble never read them: `weather_total` applied one flat
  * league constant to a dome game whether the offense in it threw on 70% of
  * snaps or ran on 55%. This is the aggregate that makes them readable in the
@@ -472,9 +473,9 @@ function weatherSensitivity(season, week) {
  */
 function weatherAdjustment(c) {
   const kinds = [];
-  if (c.roof === 'dome' || c.roof === 'closed') kinds.push('dome');
-  if (c.wind != null && c.wind >= 15) kinds.push('wind');
-  if (c.temp != null && c.temp < 32) kinds.push('cold');
+  if (isIndoors(c.roof)) kinds.push('dome');
+  if (c.wind != null && c.wind >= WINDY_MPH) kinds.push('wind');
+  if (c.temp != null && c.temp < COLD_F) kinds.push('cold');
   let adj = 0;
   for (const kind of kinds) adj += FLAT_WEATHER_POINTS[kind];
   if (!kinds.length || !c.weather?.byTeam) return adj;
@@ -1616,8 +1617,8 @@ export function weatherComponentDiagnostic({ evalFrom = EVAL_FROM, minSeason = M
       if (g.total == null) continue;
       const c = { ...base, home: g.home, away: g.away,
         temp: g.temp, wind: g.wind, roof: g.roof };
-      const weatherActive = c.roof === 'dome' || c.roof === 'closed'
-        || (c.wind != null && c.wind >= 15) || (c.temp != null && c.temp < 32);
+      const weatherActive = isIndoors(c.roof)
+        || (c.wind != null && c.wind >= WINDY_MPH) || (c.temp != null && c.temp < COLD_F);
       if (!weatherActive) continue;   // both variants are identical here by construction
       const teamTotal = t => ((c.agg.get(t)?.totals ?? []).length ? avg(c.agg.get(t).totals) : 44);
       const baseTotal = teamTotal(g.home) * 0.5 + teamTotal(g.away) * 0.5;

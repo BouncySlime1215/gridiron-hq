@@ -305,17 +305,23 @@ export function regressionForLeague(leagueId, { myTeamId = null, season = null, 
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
 
-  // Names are the only key shared between the weekly feature tables and the
-  // league roster, so matching is normalised on both sides.
-  const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z]/g, '');
-  const mine = new Map(me.players.map(p => [norm(p.name), p]));
+  // `p.player_id` on a regression candidate is a gsis_id (it comes straight
+  // from nfl_player_week_features.player_id), while the league roster is
+  // keyed by the numeric `players.id` (trade-engine's asset universe).
+  // Matching used to normalise both sides' display names instead, which
+  // broke once nfl_player_week_features.player_name became an abbreviated
+  // form (commit 129115e) that no longer agrees with the roster's full
+  // names. Bridge the two stable ids via the players table instead.
+  const rosterIdByGsis = new Map(
+    rows('SELECT id, gsis_id FROM players WHERE gsis_id IS NOT NULL').map(r => [r.gsis_id, r.id]));
+  const mine = new Map(me.players.map(p => [p.id, p]));
   const owners = new Map();
-  for (const t of teams) for (const p of t.players) owners.set(norm(p.name), t.owner);
+  for (const t of teams) for (const p of t.players) owners.set(p.id, t.owner);
 
   const decorate = list => list.map(p => {
-    const key = norm(p.name);
-    const owner = owners.get(key) ?? null;
-    const isMine = mine.has(key);
+    const key = rosterIdByGsis.get(p.player_id);
+    const owner = key != null ? owners.get(key) ?? null : null;
+    const isMine = key != null && mine.has(key);
     return {
       ...p,
       owned_by: owner ?? 'free agent',

@@ -59,24 +59,39 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
   const gridironVersion = nflEngineVersionFor(season, week);
   const insert = db.prepare(`INSERT OR IGNORE INTO weekly_prediction_snapshots
     (season,week,player_id,position,as_of,cutoff,engine_version,gridiron_engine_version,structural,season_to_date,last3,last1,median,
-     prediction,lower_80,upper_80,weights_json,weight_fit,candidate_version,candidate_heads_json)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+     prediction,lower_80,upper_80,weights_json,weight_fit,candidate_version,candidate_heads_json,mode)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   let captured = 0;
+  let coldStart = 0;
   db.exec('BEGIN');
   try {
     for (const projection of projections.values()) {
       const engine = projection.player_week_engine;
-      if (!engine?.heads) continue;
+      // engine.heads is null when the player has zero prior-week evidence
+      // anywhere (a true first-week-of-career cold start) — previously this
+      // silently dropped the player from the whole capture with no record.
+      // Mirror the fallback pattern in player-head-registry.js (degrade to
+      // the structural estimate for every head, never null) so the week
+      // still gets a row instead of a silent gap.
+      const structuralOnly = !engine?.heads;
+      const heads = engine?.heads ?? Object.fromEntries(
+        WEEKLY_ENSEMBLE_HEADS.map(head => [head, projection.structural_ppg]));
+      if (structuralOnly) coldStart += 1;
       const dist = playerWeekDistribution(projection, { scoring, runs });
       captured += insert.run(season, week, projection.player_id, projection.position, now, engine.cutoff,
-        engine.version, gridironVersion, engine.heads.structural, engine.heads.season_to_date, engine.heads.last3,
-        engine.heads.last1, engine.heads.median, projection.ppg, dist.p10, dist.p90,
+        engine.version, gridironVersion, heads.structural, heads.season_to_date, heads.last3,
+        heads.last1, heads.median, projection.ppg, dist.p10, dist.p90,
         JSON.stringify(engine.weights), engine.weight_fit, projection.candidate_head_version,
-        JSON.stringify(projection.candidate_heads)).changes;
+        JSON.stringify(projection.candidate_heads),
+        structuralOnly ? 'cold_start_structural_only' : 'position_ensemble').changes;
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
-  return { captured, season, week, as_of: now, engine_version: gridironVersion,
+  // Honest status for the scheduler: nothing was silently skipped (the
+  // cold-start rows above are captured, just degraded), so say so instead
+  // of leaving `skipped` undefined and letting it read as an unqualified 'ok'.
+  return { captured, cold_start_structural_only: coldStart, skipped: false,
+    season, week, as_of: now, engine_version: gridironVersion,
     first_kickoff: firstKickoff?.toISOString() ?? null };
 }
 

@@ -873,6 +873,9 @@ export function alters(db) {
   if (!snapshotColumns.has('gridiron_engine_version')) {
     db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN gridiron_engine_version TEXT');
   }
+  if (!snapshotColumns.has('mode')) {
+    db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN mode TEXT');
+  }
 
   // ---- server/services/weekly-weight-store.js (lines 29-32); no-op on a fresh DB, the CREATE already carries epoch_id.
   const fitColumns = new Set(db.prepare('PRAGMA table_info(weekly_ensemble_fits)').all().map(item => item.name));

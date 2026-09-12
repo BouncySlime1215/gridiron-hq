@@ -173,12 +173,14 @@ the market model uses nested rolling-season holdouts, including refitting its
 hyperparameters and probability scale inside each training window. MLB player
 and league priors use only games before the projected date.
 
-The latest sealed historical replay opened 70 weeks and scored 974 games. Its
-historical selector produced 144 bets, 65 wins, 77 losses, two pushes, -16.952
-units and -11.77% ROI. That is a failed diagnostic, not evidence of
+The latest sealed historical replay (Run 32, 2026-09-10, same 70-week
+2021-2025 protocol as Runs 7/27/31) produced a combined 550 bets, 207-339,
+-47.901 units and -8.71% ROI. That is a failed diagnostic, not evidence of
 profitability. The current live publication policy also requires a separately
-validated calibration advantage, so Run 7 must not be described as a test of
-the live gate. See the audit report for the per-year and per-model breakdown.
+validated calibration advantage, and this replay's `raw` blend mode does not
+exercise that gate at all, so it must not be described as a test of the live
+gate. See docs/evidence/2026-09-10/IMPLEMENTATION-SUMMARY.md for the per-year
+and per-model breakdown.
 Advanced components abstain when their source data is missing, and performance
 weighting prevents a crowd of correlated weak forecasts from overruling the
 strongest prior.

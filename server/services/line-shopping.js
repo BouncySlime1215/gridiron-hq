@@ -63,7 +63,8 @@ export async function snapshotLines({ markets = 'h2h,spreads,totals' } = {}) {
   // lose the snapshot above.
   try {
     const { ingestQuoteSnapshot } = await import('./nfl-quote-tape.js');
-    ingestQuoteSnapshot(data, { requestedAt: at, markets, sourceRef: 'snapshot_lines' });
+    ingestQuoteSnapshot(data, { requestedAt: at, receivedAt: at,
+      receiptClockSource: 'response_completion', markets, sourceRef: 'snapshot_lines' });
   } catch { /* tape is supplementary evidence; the snapshot table is the working copy */ }
   // The shopping board memoises the latest simultaneous quote set per market.
   // A fresh capture is exactly the event that makes that memo wrong, so drop it

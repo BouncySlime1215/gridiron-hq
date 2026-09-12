@@ -1,6 +1,7 @@
 /** Immutable paper-trading ledger. It is intentionally incapable of execution. */
 import { row, rows, run } from '../db/index.js';
 import { autoPickDecisionBoard } from './nfl-auto-picks.js';
+import { nflKickoffDate } from './date-util.js';
 
 const parseEventKey = value => {
   const [season, week, home, away] = String(value ?? '').split(':');
@@ -13,7 +14,7 @@ export function recordNflShadowBoard(season, week, capturedAt = new Date().toISO
     autoPickDecisionBoard(season, week),
     autoPickDecisionBoard(season, week, undefined, { includeChallengers: true })
   ];
-  let recorded = 0, alreadyFrozen = 0, considered = 0, selected = 0;
+  let recorded = 0, alreadyFrozen = 0, considered = 0, selected = 0, alreadyPlayed = 0;
   const byMode = {};
   for (const board of boards) {
     let modeRecorded = 0, modeFrozen = 0;
@@ -29,6 +30,17 @@ export function recordNflShadowBoard(season, week, capturedAt = new Date().toISO
       WHERE sport='NFL' AND event_key=? AND market=? AND model_version=? LIMIT 1`,
     eventKey, d.market, modelVersion);
       if (exists) { alreadyFrozen++; modeFrozen++; continue; }
+    // Mirrors forward-ledger.js's recordForwardPick guard: a "shadow" decision
+    // is only evidence of anything if it was frozen before the game was
+    // decided. Capturing one for a game already final (or past kickoff) would
+    // be indistinguishable downstream from a real prospective observation.
+    const gameStatus = row(`SELECT team_score, gameday, gametime FROM game_lines
+      WHERE season=? AND week=? AND team=? AND home=1`, season, week, d.home_team ?? null);
+    const kickoff = gameStatus ? nflKickoffDate(gameStatus.gameday, gameStatus.gametime) : null;
+    if (gameStatus?.team_score != null || (kickoff && new Date(capturedAt) >= kickoff)) {
+      alreadyPlayed++;
+      continue;
+    }
     run(`INSERT INTO shadow_decisions
       (sport,event_key,market,selection,model_version,probability,market_probability,uncertainty,
        regime,decision,reason,captured_at,season,week,home_team,away_team,line,american_price,
@@ -45,7 +57,7 @@ export function recordNflShadowBoard(season, week, capturedAt = new Date().toISO
     byMode[board.engine_mode] = { recorded: modeRecorded, already_frozen: modeFrozen,
       considered: board.decisions.length, selected: board.selected.length };
   }
-  return { recorded, already_frozen: alreadyFrozen, considered, selected,
+  return { recorded, already_frozen: alreadyFrozen, already_played: alreadyPlayed, considered, selected,
     by_engine_mode: byMode, mode: 'paper_only' };
 }
 
@@ -68,9 +80,16 @@ export function settleNflShadowDecisions() {
       malformed++;
       continue;
     }
-    const game = row(`SELECT spread,total,team_score,opp_score FROM game_lines
+    const game = row(`SELECT spread,total,closing_spread,closing_total,team_score,opp_score FROM game_lines
       WHERE season=? AND week=? AND team=? AND home=1`, season, week, home);
     if (!game || game.team_score == null || game.opp_score == null) continue;
+
+    // Prefer the frozen true close (last line observed strictly before
+    // kickoff) over the live spread/total, which syncCurrentLines can
+    // overwrite with an in-game number after kickoff — matches
+    // forward-ledger.js's settleForwardPicks pattern.
+    const closeSpread = game.closing_spread ?? game.spread;
+    const closeTotal = game.closing_total ?? game.total;
 
     const actualMargin = game.team_score - game.opp_score;
     const actualTotal = game.team_score + game.opp_score;
@@ -80,14 +99,14 @@ export function settleNflShadowDecisions() {
       const sideMargin = backedHome ? actualMargin : -actualMargin;
       const cover = sideMargin + decision.line;
       result = cover === 0 ? 'Push' : cover > 0 ? 'Won' : 'Lost';
-      closingLine = game.spread == null ? null : backedHome ? game.spread : -game.spread;
+      closingLine = closeSpread == null ? null : backedHome ? closeSpread : -closeSpread;
       clv = closingLine == null ? null : decision.line - closingLine;
     } else if (decision.market === 'total' && /^(over|under)$/i.test(decision.selection ?? '')
       && Number.isFinite(decision.line)) {
       const over = /^over$/i.test(decision.selection);
       result = actualTotal === decision.line ? 'Push'
         : (actualTotal > decision.line) === over ? 'Won' : 'Lost';
-      closingLine = game.total;
+      closingLine = closeTotal;
       clv = closingLine == null ? null
         : over ? closingLine - decision.line : decision.line - closingLine;
     }

@@ -57,7 +57,7 @@ function games(minSeason = MIN_SEASON) {
     SELECT season, week, team AS home, opponent AS away,
            team_score AS home_score, opp_score AS away_score,
            spread AS home_spread, total,
-           NULL AS open_spread, NULL AS open_total,
+           open_spread, open_total,
            temp, wind, roof, rest_days AS home_rest, div_game, neutral_site
     FROM game_lines
     WHERE home = 1 AND team_score IS NOT NULL AND opp_score IS NOT NULL

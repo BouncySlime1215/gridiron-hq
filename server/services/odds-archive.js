@@ -136,11 +136,19 @@ export function storeArchiveQuotes(quotes, { fetchedAt = new Date().toISOString(
       const openSpread = median(spreads), openTotal = median(totals);
       if (openSpread == null && openTotal == null) continue;
       // Only fills a blank: an opener recorded by a direct feed is never overwritten.
-      const r = run(`UPDATE game_lines SET open_spread=COALESCE(open_spread, ?), open_total=COALESCE(open_total, ?)
-        WHERE season=? AND week=? AND ((team=? AND opponent=?) OR (team=? AND opponent=?))
+      // `spread` is per-row, from that row's own team perspective (negative =
+      // favoured) — the median above is the home side's number, so the away
+      // row must get it negated rather than the same shared value.
+      const awaySpread = openSpread == null ? null : -openSpread;
+      const rHome = run(`UPDATE game_lines SET open_spread=COALESCE(open_spread, ?), open_total=COALESCE(open_total, ?)
+        WHERE season=? AND week=? AND team=? AND opponent=?
           AND (open_spread IS NULL OR open_total IS NULL)`,
-      openSpread, openTotal, game.season, game.week, game.home, game.away, game.away, game.home);
-      openersFilled += Number(r.changes ?? 0);
+      openSpread, openTotal, game.season, game.week, game.home, game.away);
+      const rAway = run(`UPDATE game_lines SET open_spread=COALESCE(open_spread, ?), open_total=COALESCE(open_total, ?)
+        WHERE season=? AND week=? AND team=? AND opponent=?
+          AND (open_spread IS NULL OR open_total IS NULL)`,
+      awaySpread, openTotal, game.season, game.week, game.away, game.home);
+      openersFilled += Number(rHome.changes ?? 0) + Number(rAway.changes ?? 0);
     }
     db.exec('COMMIT');
     return { archived, snapshots, openers_filled: openersFilled, unmatched, games: gameCache.size };

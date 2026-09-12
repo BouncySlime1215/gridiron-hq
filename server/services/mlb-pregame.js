@@ -58,8 +58,14 @@ export async function captureMlbPregame(date) {
   const events = parlayEnabled ? await parlayApi.mlbEvents({ ttlMs: MLB_ODDS_TTL_MS })
     : oddsEnabled ? await mlbEvents({ ttlMs: MLB_ODDS_TTL_MS }) : [];
   let latestCapturedAt = new Date().toISOString();
-  let quoteCount = 0;
+  let quoteCount = 0, skippedFirstPitch = 0;
   for (const g of games) {
+    // A "pregame" snapshot taken after first pitch is not pregame: lineups and
+    // odds captured then can already reflect what happened in the game, and
+    // this module's whole contract (see the file header) is pregame-only.
+    // `game_time` is MLB's own gameDate (ISO 8601 UTC), so this needs no
+    // timezone handling of its own.
+    if (g.game_time && new Date(g.game_time).getTime() <= Date.now()) { skippedFirstPitch++; continue; }
     const starters = rows(`SELECT team_id,pitcher_id,pitcher_name,fetched_at FROM mlb_probable_starters
                            WHERE game_pk=? ORDER BY team_id`, g.game_pk);
     const lineup = await boxscoreLineup(g.game_pk);
@@ -92,7 +98,8 @@ export async function captureMlbPregame(date) {
       VALUES (?,?,?,?,?,?,?,?,?,?)`, g.game_pk, latestCapturedAt, date, g.game_time,
       JSON.stringify(starters), JSON.stringify(lineup.lineups), JSON.stringify(lineup.scratches), lineup.status, oddsStatus, oddsSource);
   }
-  const result = { date, captured_at: latestCapturedAt, games: games.length, quotes: quoteCount,
+  const result = { date, captured_at: latestCapturedAt, games: games.length,
+    skipped_first_pitch: skippedFirstPitch, quotes: quoteCount,
     odds_available: captureEnabled, odds_source: parlayEnabled ? 'parlay_api' : oddsEnabled ? 'odds_api' : null,
     odds_capture_enabled: MLB_ODDS_ENABLED, parlay_capture_enabled: parlayEnabled, mode: 'pregame_forward_only',
     note: captureEnabled ? undefined

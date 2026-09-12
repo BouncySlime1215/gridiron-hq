@@ -182,3 +182,4 @@ Specific, file:line, as requested — especially the two named as architecturall
 - `server/migrations/042_drop_dead_auction_tables.js`, `043_execution_opportunity_frozen_columns.js` — renamed/renumbered, `name` export updated to match (commit `0011506`).
 - `server/betting/nfl/strategy/t60-runner.js`, `server/services/nfl-t60-packet.js`, `server/services/shadow-ledger.js` — the three merge-conflict resolutions in commit `2e05b8b`, detailed in §2.
 - `GIANT_PLAN_BUILD_REPORT.md` — this file.
+- `.gitignore` — added a non-trailing-slash `node_modules` line: the existing `node_modules/` pattern doesn't match a worktree's *symlinked* `node_modules` (this exact gap already produced commit `fc507b3` in this branch's own history), so this closes it for good.

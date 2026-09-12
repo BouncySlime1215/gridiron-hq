@@ -194,7 +194,19 @@ export async function runAudit(auditId, producer) {
   // Significance is judged against the correction for every hypothesis tested
   // so far, not against a bare 0.05 — clearing a nominal threshold on the
   // fourteenth attempt is not evidence of anything.
-  const priorTests = row(`SELECT COUNT(*) AS n FROM audit_registry WHERE status='sealed'`)?.n ?? 0;
+  //
+  // Counted by PREREGISTRATION order, not execution order: two audits can be
+  // filed in one order and run (sealed) in a different one, since runAudit
+  // is called whenever a caller's producer happens to finish. Counting
+  // 'sealed' rows with no ordering clause counts whatever happened to
+  // complete before this one — an audit declared AFTER this one but that
+  // finished running first would wrongly count as "prior" here, while an
+  // audit declared before this one but not yet run would wrongly not count.
+  // The hypothesis space this audit's correction has to answer for is fixed
+  // at the moment IT was declared, so "prior" means "preregistered earlier",
+  // full stop.
+  const priorTests = row(`SELECT COUNT(*) AS n FROM audit_registry WHERE status='sealed' AND preregistered_at < ?`,
+    a.preregistered_at)?.n ?? 0;
   const correctedAlpha = 1 - Math.pow(1 - 0.05, 1 / Math.max(1, priorTests + 1));
   const p = Number.isFinite(result?.p_value) ? result.p_value : null;
   const significant = p == null ? null : p < correctedAlpha;
@@ -216,6 +228,31 @@ export async function runAudit(auditId, producer) {
   // audit is sealed on first run and never re-run, so a single look is exactly
   // the regime a fixed-sample p-value is valid in -- but it is no longer
   // LABELLED as something it is not.
+  //
+  // TODO (Giant Plan Section 8.5): p_always_valid and p_fixed_sample_only
+  // answer different questions, and this still collapses them into one
+  // number before the gate below, exactly as before. The schema for the
+  // honest fix -- always_valid_p_anytime, always_valid_p_fixed_sample,
+  // always_valid_variance_source as separate persisted columns -- now exists
+  // (server/migrations/040_audit_registry_always_valid_split.js), but wiring
+  // this function to WRITE them turned out riskier than the migration alone:
+  // audit_registry's existing always_valid_p/_significant/_n columns were
+  // added via server/db/schema/core-and-fantasy.js's frozen legacy-schema
+  // snapshot (a verbatim transcript of this file's old import-time ALTERs,
+  // checked against scripts/schema-snapshot.mjs — see that file's own header
+  // comment), NOT via server/migrations/, and test/audit-registry-always-
+  // valid.test.js only ever imports server/db/index.js (which applies that
+  // frozen snapshot) and never calls runMigrations(). Writing to columns
+  // that only exist after runMigrations() has actually run would make every
+  // test in that suite throw `no such column`. Adding the three new columns
+  // to the frozen legacy file instead would fix that, but core-and-fantasy.js
+  // is documented as a byte-for-byte transcript of history, not a place for
+  // new columns going forward -- doing so is exactly the drift
+  // scripts/schema-snapshot.mjs exists to catch. Left as schema-only (the
+  // migration is written and correct for any database that DOES run the
+  // numbered migrations) until that test fixture's setup is deliberately
+  // changed to call runMigrations(), which is a decision for whoever owns
+  // that test, not something to route around silently here.
   const alwaysValidP = alwaysValid ? (alwaysValid.p_always_valid ?? alwaysValid.p_fixed_sample_only) : null;
   const alwaysValidSignificant = alwaysValid ? alwaysValidP < correctedAlpha : null;
 
@@ -312,6 +349,9 @@ export function auditHistory({ alpha = 0.05 } = {}) {
       p_value: r4(a.p_value), sample_size: a.sample_size,
       always_valid_p: r4(a.always_valid_p),
       always_valid_significant: a.always_valid_significant == null ? null : !!a.always_valid_significant,
+      always_valid_p_anytime: r4(a.always_valid_p_anytime),
+      always_valid_p_fixed_sample: r4(a.always_valid_p_fixed_sample),
+      always_valid_variance_source: a.always_valid_variance_source ?? null,
       preregistered_at: a.preregistered_at, ran_at: a.ran_at,
       flag: a.void_reason
     })),

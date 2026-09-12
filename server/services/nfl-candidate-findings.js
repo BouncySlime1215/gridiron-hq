@@ -280,7 +280,21 @@ export function runCandidateFindingsForSeasonEnd(season, config = {}) {
   for (const finding of eligibleForHoldout) {
     const alreadyUsed = row(`SELECT 1 ok FROM nfl_candidate_finding_seasons WHERE finding_id=? AND season=?`, finding.id, season);
     if (alreadyUsed) continue;
-    holdoutActions.push(recordHoldoutTest(finding, season, config));
+    // Isolated per finding: assertRuleUnchanged (called from inside
+    // recordHoldoutTest, before that function's own try/catch) throws the
+    // instant one finding's frozen predicate no longer matches the live
+    // segmentsFor implementation. That must disqualify only THIS finding's
+    // holdout test for this season, not abort every other eligible
+    // finding's test in the same season-end cycle (and, one call up, not
+    // mark the whole nfl-model-growth.js season-end run 'error' either --
+    // this is the only place that call could still throw). A stale rule is
+    // recorded as a fact for this finding/season and the cycle continues.
+    try {
+      holdoutActions.push(recordHoldoutTest(finding, season, config));
+    } catch (e) {
+      holdoutActions.push({ finding_id: finding.id, segment_key: finding.segment_key,
+        season, state: 'stale', error: e.message });
+    }
   }
 
   return { season, bets_analyzed: single.bets, segments_flagged_this_season: discoveryActions.length,

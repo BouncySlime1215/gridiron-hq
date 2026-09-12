@@ -19,18 +19,24 @@
 import { rows, run } from '../db/index.js';
 import './line-shopping.js';   // owns nfl_line_snapshots, read below
 import { isFreshQuote } from './book-feeds.js';
-import { shinNoVig, proportionalNoVig } from './nfl-devig.js';
+import {
+  americanToProb, americanToDecimal, noVigProbability, proportionalNoVigProbability,
+  fairProbabilityOfOurBet, signedClvPoints
+} from './clv-core.js';
 
 // nfl_bet_log and idx_betlog_event come from
 // server/migrations/000_legacy_schema.js.
 
+// Audit-consolidation stage 3 (Giant Plan 8.1): the de-vig, sigma-adjusted
+// fair-probability math below used to be defined here and nfl-sharp.js
+// imported it from this file. It now lives in clv-core.js as the one shared
+// implementation; these are re-exports so every existing caller (this
+// file's own gradeClosingLineValue below, nfl-sharp.js, and anything else
+// that imports them from 'nfl-clv.js') keeps working unchanged.
+export { americanToProb, americanToDecimal, noVigProbability, proportionalNoVigProbability, fairProbabilityOfOurBet };
+
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
-
-export const americanToProb = o =>
-  o == null || !Number.isFinite(o) ? null : (o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100));
-export const americanToDecimal = o =>
-  o == null || !Number.isFinite(o) ? null : (o > 0 ? 1 + o / 100 : 1 + 100 / Math.abs(o));
 
 const median = a => {
   if (!a.length) return null;
@@ -119,91 +125,13 @@ export function closingConsensus(eventId, market, side, commenceTime) {
  * the market closed on, so comparing our price to the closing price scores it
  * as a loss of value when it was plainly a gain. The points have to be priced.
  *
- * The market's close defines a distribution for the game's margin; our number
- * is then evaluated against that distribution. Sigma is the market's own
- * historical error, measured over 2021-25 in docs/NFL_MODEL_STATUS.md — 12.66
- * points on margins, 13.08 on totals — rather than a figure picked to make the
- * output look good.
+ * `fairProbabilityOfOurBet` (re-exported above from clv-core.js) does that
+ * pricing: the market's close defines a distribution for the game's margin,
+ * via a sigma taken from the market's own historical error (measured over
+ * 2021-25 in docs/NFL_MODEL_STATUS.md — 12.66 points on margins, 13.08 on
+ * totals, not a figure picked to make the output look good), and our number
+ * is evaluated against that distribution.
  */
-const SIGMA = { spreads: 12.66, totals: 13.08 };
-
-/** Abramowitz-Stegun normal CDF; accurate to ~7 decimal places, no dependency. */
-function normalCdf(z) {
-  const t = 1 / (1 + 0.2316419 * Math.abs(z));
-  const d = 0.3989422804014327 * Math.exp(-z * z / 2);
-  const p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 +
-    t * (-1.821255978 + t * 1.330274429))));
-  return z > 0 ? 1 - p : p;
-}
-/** Inverse normal CDF (Acklam), for recovering the mean the close implies. */
-function normalInv(p) {
-  if (p <= 0 || p >= 1) return null;
-  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.3577518672690, -30.66479806614716, 2.506628277459239];
-  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
-  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
-  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
-  const pl = 0.02425;
-  if (p < pl) { const q = Math.sqrt(-2 * Math.log(p));
-    return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
-  if (p > 1 - pl) { const q = Math.sqrt(-2 * Math.log(1 - p));
-    return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
-  const q = p - 0.5, r = q * q;
-  return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q /
-         (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
-}
-
-/**
- * Probability our exact bet wins, judged by where the market closed.
- *
- * For a moneyline there is no number to compare, so the de-vigged closing price
- * is the answer directly. For spreads and totals the closing line and price
- * together imply a distribution, and our number is scored against it — which is
- * what makes a better number show up as positive value.
- */
-export function fairProbabilityOfOurBet({ market, ourLine, closeLine, closeFairProb, side }) {
-  if (closeFairProb == null) return null;
-  if (market === 'h2h' || ourLine == null || closeLine == null) return closeFairProb;
-  const sigma = SIGMA[market];
-  if (!sigma) return closeFairProb;
-
-  // Recover the mean the closing number implies, allowing for a price that is
-  // not exactly even money at that number.
-  const z = normalInv(1 - closeFairProb);
-  if (z == null) return closeFairProb;
-
-  if (market === 'totals') {
-    // Over wins above the number, Under below it.
-    const mu = side === 'Under' ? closeLine + sigma * z : closeLine - sigma * z;
-    return side === 'Under'
-      ? normalCdf((ourLine - mu) / sigma)
-      : 1 - normalCdf((ourLine - mu) / sigma);
-  }
-  // Spreads: `line` is quoted from the bettor's side, so the bet wins when
-  // margin > -line. Positive (ourLine - closeLine) is always extra cushion.
-  const mu = -closeLine - sigma * z;
-  return 1 - normalCdf((-ourLine - mu) / sigma);
-}
-
-/**
- * Removes the bookmaker's margin from a two-sided market.
- *
- * Raw implied probabilities sum to more than 1 — that excess is the vig, and
- * comparing a bet price against a vigged probability would score every bet as
- * losing value. Shin's method (see nfl-devig.js) is the default here — it
- * corrects for the favorite-longshot bias a naive proportional split misses
- * on a skewed line. `proportionalNoVigProbability` below is kept, unused by
- * this module, for anything that wants to compare the two methods directly.
- */
-export function noVigProbability(ourPrice, theirPrice) {
-  if (theirPrice == null) return americanToProb(ourPrice); // one-sided quote: best available is the raw implied
-  return shinNoVig(ourPrice, theirPrice);
-}
-
-/** The legacy proportional-split method, kept only for side-by-side comparison. */
-export function proportionalNoVigProbability(ourPrice, theirPrice) {
-  if (theirPrice == null) return americanToProb(ourPrice);
-  return proportionalNoVig(ourPrice, theirPrice);
-}
 
 /**
  * Grades every ungraded bet whose game has started.
@@ -234,16 +162,12 @@ export function gradeClosingLineValue({ now = new Date().toISOString() } = {}) {
     const dec = americanToDecimal(b.price);
     const clvPct = fair == null || dec == null ? null : fair * dec - 1;
 
-    // Points of line value, signed so positive is always better for the bettor.
-    // Totals invert: an Under wants the higher number, an Over the lower.
-    let clvPoints = null;
-    if (b.line != null && close.line != null) {
-      clvPoints = b.market === 'totals' && b.side === 'Under'
-        ? b.line - close.line
-        : b.market === 'totals'
-          ? close.line - b.line
-          : b.line - close.line;
-    }
+    // Points of line value, signed so positive is always better for the
+    // bettor. The shared clv-core.js convention: totals invert by side, an
+    // Under wants the higher number, an Over the lower.
+    const clvPoints = signedClvPoints({
+      market: b.market, ourLine: b.line, closeLine: close.line, isUnder: b.side === 'Under'
+    });
 
     run(`UPDATE nfl_bet_log SET closing_line=?, closing_price=?, closing_fair_prob=?,
            clv_points=?, clv_pct=?, graded_at=? WHERE bet_id=?`,

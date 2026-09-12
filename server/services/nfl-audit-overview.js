@@ -37,6 +37,23 @@ export function auditOverview(runId) {
   if (!runRow) return { error: `no blind audit run ${runId}` };
   const weeks = rows(`SELECT ordinal, season, week, result_json, result_hash, fault_json
     FROM nfl_blind_audit_weeks WHERE run_id=? ORDER BY ordinal`, runId);
+  // Giant Plan 8.14: coverage below used to derive "expected weeks" from the
+  // min/max of weeks actually opened, which cannot tell "the preregistered
+  // span finished clean" apart from "the run stopped partway through it" --
+  // both look like a hole-free range if the only evidence is what happened to
+  // get opened. The preregistered spec's own schedule is the real target.
+  let expectedWeeksBySeason = null;
+  try {
+    const spec = JSON.parse(runRow.spec_json);
+    if (Array.isArray(spec?.schedule)) {
+      expectedWeeksBySeason = new Map();
+      for (const item of spec.schedule) {
+        const set = expectedWeeksBySeason.get(item.season) ?? new Set();
+        set.add(item.week);
+        expectedWeeksBySeason.set(item.season, set);
+      }
+    }
+  } catch { expectedWeeksBySeason = null; }
 
   const bySeason = new Map();
   const byMarket = {};
@@ -132,7 +149,13 @@ export function auditOverview(runId) {
     // Win rate excludes pushes and voids from its denominator, which is what
     // "win rate" means for a bet that can return the stake.
     t.win_rate = t.wins + t.losses ? r2(t.wins / (t.wins + t.losses)) : null;
-    t.roi = t.bets ? r2(t.units / t.bets) : null;
+    // Giant Plan 8.14: ROI's denominator used to be `t.bets`, which includes
+    // voided picks -- a void never actually risked a stake (it is cancelled,
+    // not settled), so counting it as a bet drags ROI toward zero for every
+    // void the run recorded, exactly like counting a scratched horse as a
+    // loss would.
+    const riskedBets = t.bets - (t.voids ?? 0);
+    t.roi = riskedBets ? r2(t.units / riskedBets) : null;
     // Reconciliation between the authoritative pick-level count and the
     // per-week summary the run also wrote. A mismatch is reported, never
     // resolved silently in favour of whichever number is nearer to hand.
@@ -152,21 +175,28 @@ export function auditOverview(runId) {
     t.units = r2(t.units);
   }
 
-  // Coverage names the exact weeks present and the exact weeks missing inside
-  // the observed span. `5-18` cannot distinguish a complete cohort from one
-  // with holes in it, and a hole is precisely what a weekly economic average
-  // needs to know about.
+  // Coverage names the exact weeks present and the exact weeks missing.
+  // `5-18` cannot distinguish a complete cohort from one with holes in it,
+  // and a hole is precisely what a weekly economic average needs to know
+  // about. "Expected" comes from the run's own preregistered spec.schedule
+  // when it's available -- min/max of the OBSERVED weeks (the fallback below)
+  // cannot tell "this span finished clean" apart from "the run stopped
+  // partway through it": both look hole-free if the only evidence used is
+  // what happened to get opened.
   const seasonCoverage = [...bySeason.entries()].sort((a, b) => a[0] - b[0])
     .map(([season, c]) => {
-      const expected = [];
-      for (let week = c.min_week; week <= c.max_week; week++) expected.push(week);
+      const fromSpec = expectedWeeksBySeason?.get(season);
+      const expected = fromSpec
+        ? [...fromSpec].sort((a, b) => a - b)
+        : Array.from({ length: c.max_week - c.min_week + 1 }, (_, i) => c.min_week + i);
       const missing = expected.filter(week => !c.weeks.has(week));
       return { season,
         weeks: `${c.min_week}-${c.max_week}`,
         weeks_present: c.weeks.size,
         weeks_expected_in_span: expected.length,
         missing_weeks: missing,
-        complete: missing.length === 0 };
+        complete: missing.length === 0,
+        coverage_source: fromSpec ? 'spec_schedule' : 'observed_min_max_fallback' };
     });
   const earlySeasonTested = seasonCoverage.some(c => Number(c.weeks.split('-')[0]) <= 4);
 
@@ -193,7 +223,21 @@ export function auditOverview(runId) {
   // must be visible rather than silently absent from the denominator.
   const spreadUnknown = spreadBets.filter(b =>
     !isWin(b.result) && !isLoss(b.result) && b.result !== 'push' && b.result !== 'void').length;
+  const spreadVoids = spreadBets.filter(b => b.result === 'void').length;
   const spreadUnits = spreadBets.reduce((s, b) => s + (b.units ?? 0), 0);
+  const spreadRiskedBets = spreadBets.length - spreadVoids;
+  // uncertainty() (nfl-replay.js) matches `result` against the exact strings
+  // 'Won'/'Lost' -- the title case every replaySeason() bet actually carries.
+  // `result` here was normalized to lower case above (Codex C09, second
+  // pass) so by_market/spread_only recognize both historical ('Won') and
+  // newer ('won') spellings; passed straight through, that normalization
+  // made uncertainty()'s case-sensitive check match nothing, so win_rate_95
+  // was always [0,0] regardless of how many bets were actually graded.
+  // Restoring the case uncertainty() expects here -- rather than loosening
+  // its own matching, which every other real caller already satisfies --
+  // fixes this without widening what that shared function accepts.
+  const forUncertainty = spreadBets.map(b => ({ ...b,
+    result: isWin(b.result) ? 'Won' : isLoss(b.result) ? 'Lost' : b.result }));
 
   return {
     run_id: runId, status: runRow.status, label: runRow.label, created_at: runRow.created_at,
@@ -217,8 +261,8 @@ export function auditOverview(runId) {
       bets: spreadBets.length, wins: spreadWins, losses: spreadLosses, pushes: spreadPushes,
       unknown_results: spreadUnknown || undefined,
       win_rate: spreadWins + spreadLosses ? r2(spreadWins / (spreadWins + spreadLosses)) : null,
-      units: r2(spreadUnits), roi: spreadBets.length ? r2(spreadUnits / spreadBets.length) : null,
-      uncertainty: spreadBets.length ? uncertainty(spreadBets) : null
+      units: r2(spreadUnits), roi: spreadRiskedBets ? r2(spreadUnits / spreadRiskedBets) : null,
+      uncertainty: spreadBets.length ? uncertainty(forUncertainty) : null
     },
     warning: 'A combined win rate pooling spread, total and moneyline bets together is NOT a spread win rate and ' +
       'must never be benchmarked against a spread break-even threshold -- moneyline payouts and base rates differ ' +

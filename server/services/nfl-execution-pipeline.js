@@ -93,8 +93,23 @@ function resolveQuoteBasis(candidate, contract, { decisionAt = new Date().toISOS
  * candidate set, and never opened against real exposure by anything that
  * calls this function with it.
  */
+const HEX64 = /^[0-9a-f]{64}$/;
+
 export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLICY, {
-  observation = null
+  observation = null,
+  // Giant Plan 8.10 (G03): when the caller already has a frozen T-60 packet
+  // for this board -- the durable runner (t60-runner.js) is the only thing
+  // that produces one today -- pass its hash here to feed the `frozen_packet`
+  // branch nfl-decision-tape.js has carried since C11. This connector still
+  // computes the WHOLE week's board from live tables before it knows which
+  // candidates are selected (Codex finding E6), and a week can hold several
+  // games each with their OWN packet, so this function does not (and should
+  // not) guess a single representative packet by querying nfl_t60_observations
+  // itself -- that would misattribute one game's frozen evidence to every
+  // other game's row in the same board. Only a caller that actually has the
+  // one packet this run is FOR should supply it. No caller does yet; this is
+  // the plumbing, not a behavior change, until one does.
+  dataHash = null
 } = {}) {
   const computationStartedAt = new Date().toISOString();
   const board = autoPickDecisionBoard(season, week, policy);
@@ -125,15 +140,24 @@ export function runExecutionPipeline(season, week, policy = NFL_PRODUCTION_POLIC
     attempt: 1
   };
 
+  // A valid caller-supplied packet hash is the frozen_packet branch's ONLY
+  // signal that real frozen evidence backs this run; anything else (absent,
+  // malformed) keeps the honest fallback rather than let a bad value either
+  // throw inside recordDecisionRun or silently claim stronger evidence than
+  // was actually supplied.
+  const framedPacketHash = typeof dataHash === 'string' && HEX64.test(dataHash) ? dataHash : null;
+
   const tape = recordDecisionRun(season, week, board, {
     observation: observationIdentity,
     policyId: policy.id, policyVersion: policy.version, decidedAt: decisionAt,
     computationStartedAt, computationEndedAt: decisionAt,
-    // The board reads mutable tables at compute time; no artifact can
-    // reproduce exactly what it saw. Recorded as a permanent property of this
-    // evidence rather than left to be assumed stronger later. C11 replaces
-    // this with a real frozen packet hash.
-    dataIdentityStatus: 'unfrozen_live_tables',
+    ...(framedPacketHash
+      ? { dataIdentityStatus: 'frozen_packet', dataHash: framedPacketHash }
+      : // The board reads mutable tables at compute time and no packet was
+        // supplied for it; no artifact can reproduce exactly what it saw.
+        // Recorded as a permanent property of this evidence rather than left
+        // to be assumed stronger later.
+        { dataIdentityStatus: 'unfrozen_live_tables' }),
     note: `execution pipeline ${EXECUTION_PIPELINE_VERSION}`
   });
 

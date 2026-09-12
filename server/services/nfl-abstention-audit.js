@@ -120,7 +120,7 @@ function computeAbstentionAudit({ seasons, markets }) {
   const all = [];
   const perSeason = [];
   for (const season of seasons) {
-    const replay = replaySeason(season, { markets });
+    const replay = replaySeason(season, { markets, blendMode: 'raw' });
     if (replay.error) { perSeason.push({ season, error: replay.error }); continue; }
     const decisions = (replay.decisions ?? []).map(d => ({ ...d, season }));
     all.push(...decisions);

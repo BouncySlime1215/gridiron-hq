@@ -356,6 +356,28 @@ export function down(db) {
     `);
   }
 
+  // The tape itself: nfl_decision_runs / nfl_decision_events. Everything above
+  // this point guards evidence that can partially survive a downgrade by
+  // filtering rows back to 023's vocabulary. The tape has no such fallback --
+  // it did not exist before this migration, so there is no narrower shape to
+  // copy rows into. Any row here is exactly the evidence E6 asked this
+  // migration to stop losing; dropping the tables would delete it outright
+  // rather than downgrade it, so refuse whenever either table is non-empty.
+  const runCount = db.prepare(`SELECT COUNT(*) AS n FROM sqlite_master
+    WHERE type='table' AND name='nfl_decision_runs'`).get()?.n
+    ? db.prepare(`SELECT COUNT(*) AS n FROM nfl_decision_runs`).get()?.n ?? 0
+    : 0;
+  const eventCount = db.prepare(`SELECT COUNT(*) AS n FROM sqlite_master
+    WHERE type='table' AND name='nfl_decision_events'`).get()?.n
+    ? db.prepare(`SELECT COUNT(*) AS n FROM nfl_decision_events`).get()?.n ?? 0
+    : 0;
+  if (runCount || eventCount) {
+    throw new Error(`rollback refused: ${runCount} decision run(s) and ${eventCount} decision event(s) `
+      + `hold evidence that did not exist before this migration and has no narrower schema to fit into. `
+      + `Dropping nfl_decision_runs/nfl_decision_events now would delete that evidence outright rather `
+      + `than downgrade it. Restore the pre-migration snapshot instead.`);
+  }
+
   db.exec(`
     DROP TRIGGER IF EXISTS nfl_decision_runs_no_update;
     DROP TRIGGER IF EXISTS nfl_decision_events_no_delete;

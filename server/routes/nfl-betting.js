@@ -692,8 +692,9 @@ r.get('/replay', (req, res, next) => {
       minEdge: Number(req.query.min_edge) || 3,
       maxDisagreement: disagreement(req),
       markets: String(req.query.markets ?? 'spread').split(','),
-      maxPicksPerWeek: Number(req.query.max_picks) || 5
-    } : {});
+      maxPicksPerWeek: Number(req.query.max_picks) || 5,
+      blendMode: 'raw'
+    } : { blendMode: 'raw' });
     if (out?.error) return res.status(409).json(out);
     res.json(out);
   } catch (e) { next(e); }
@@ -1041,7 +1042,8 @@ r.get('/stake/evaluate', (req, res, next) => {
     for (const s of seasons) {
       const rp = replaySeason(s, {
         minEdge: Number(req.query.min_edge) || 3,
-        maxDisagreement: disagreement(req)
+        maxDisagreement: disagreement(req),
+        blendMode: 'raw'
       });
       if (!rp.error) bets.push(...rp.bets.filter(b => b.result !== 'Push'));
     }
@@ -1737,7 +1739,7 @@ r.get('/reasoning/:season/:week', async (req, res, next) => {
     }
     const { replaySeason } = await import('../services/nfl-replay.js');
     const { ensembleLine } = await import('../services/nfl-ensemble.js');
-    const replay = replaySeason(season, { startWeek: week, endWeek: week });
+    const replay = replaySeason(season, { startWeek: week, endWeek: week, blendMode: 'raw' });
     if (replay.error) return res.status(404).json({ error: replay.error });
 
     const modelsByGame = new Map();

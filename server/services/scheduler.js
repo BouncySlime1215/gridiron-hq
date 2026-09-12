@@ -715,21 +715,53 @@ async function refreshNflOffseasonDepthInjury() {
  * This job derives the live week from the schedule, records every decision
  * (including every abstention) under the production policy, freezes pregame
  * context, and captures the council. It stakes nothing and locks no picks.
+ *
+ * Giant Plan 8.10 (G08): `persistPickDecisions` is now a read/cache role only
+ * (see its own docstring in nfl-auto-picks.js) -- its mutable UPSERT can be
+ * overwritten by a later tick and was never safe as the evidence record. This
+ * job now ALSO calls `recordDecisionRun` directly, and THAT append-only tape
+ * write, not the UPSERT, is what this job treats as the source of truth.
+ * `dataIdentityStatus` stays 'unfrozen_live_tables': this job runs on a
+ * staleness timer against the current week, not against one game's T-60
+ * cutoff, so it has no frozen packet to cite (that path is t60-runner.js's).
+ * The observation identity is stamped with this tick's own wall-clock time so
+ * a later tick whose board genuinely changed (a line moved) is recorded as a
+ * new observation rather than colliding with an old one under a shared key --
+ * recordDecisionRun throws on exactly that collision, by design.
  */
 async function refreshNflDecisionLedger() {
   const { currentNflWeek } = await import('./weekly-learning.js');
   const { autoPickDecisionBoard, persistPickDecisions } = await import('./nfl-auto-picks.js');
+  const { recordDecisionRun } = await import('./nfl-decision-tape.js');
+  const { NFL_PRODUCTION_POLICY } = await import('./nfl-policy.js');
   const { capturePregameSnapshots } = await import('./nfl-pregame.js');
   const { captureForwardExpertWeek } = await import('./nfl-expert-council.js');
   const { season, week } = currentNflWeek();
   if (!Number.isInteger(week) || week < 1 || week > 18) return { skipped: true, reason: 'no regular-season week is upcoming' };
   const board = autoPickDecisionBoard(season, week);
   const decisions = persistPickDecisions(season, week, board);
+  const decidedAt = new Date().toISOString();
+  let tape = null;
+  try {
+    tape = recordDecisionRun(season, week, board, {
+      observation: {
+        experimentId: 'nfl-decision-ledger-scheduled-v1', horizon: 'scheduled_forward_ledger',
+        cutoffAt: decidedAt, jobId: 'scheduler:refreshNflDecisionLedger',
+        observationId: `ledger:${season}:${week}:${NFL_PRODUCTION_POLICY.id}:${NFL_PRODUCTION_POLICY.version}:${decidedAt}`
+      },
+      policyId: NFL_PRODUCTION_POLICY.id, policyVersion: NFL_PRODUCTION_POLICY.version,
+      computationStatus: board.decisions?.length ? 'complete' : 'unavailable',
+      dataIdentityStatus: 'unfrozen_live_tables',
+      decidedAt, computationEndedAt: decidedAt,
+      note: 'scheduler.js refreshNflDecisionLedger'
+    });
+  } catch (e) { tape = { error: e.message }; }
   let pregame = null, council = null;
   try { pregame = capturePregameSnapshots(season, week); } catch (e) { pregame = { error: e.message }; }
   try { council = captureForwardExpertWeek(season, week, { horizon: 'scheduled' }); } catch (e) { council = { error: e.message }; }
   return { season, week, decisions: board.decisions?.length ?? null, selected: board.selected?.length ?? 0,
-    abstention_reasons: board.abstention_reasons ?? null, persisted: decisions, pregame, expert_council: council,
+    abstention_reasons: board.abstention_reasons ?? null, persisted: decisions, decision_run: tape,
+    pregame, expert_council: council,
     staking: 'zero units; this ledger records decisions, it does not place or size bets' };
 }
 

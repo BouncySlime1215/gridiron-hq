@@ -29,13 +29,29 @@ import { db, rows, row, run } from '../../../db/index.js';
 import { cutoffBatches, decisionCutoff, sequentialCapacity, T60_PROTOCOL_VERSION }
   from '../../../services/nfl-t60-protocol.js';
 import { eventKey } from '../../../services/nfl-contract-key.js';
-import { freezeT60Packet } from '../../../services/nfl-t60-packet.js';
+import { freezeT60Packet, t60PacketHash } from '../../../services/nfl-t60-packet.js';
 import { nflKickoffDate } from '../../../services/date-util.js';
+import { autoPickDecisionBoard } from '../../../services/nfl-auto-picks.js';
+import { recordDecisionRun } from '../../../services/nfl-decision-tape.js';
+import { NFL_PRODUCTION_POLICY } from '../../../services/nfl-policy.js';
 
 export const T60_RUNNER_VERSION = 'nfl-t60-runner-v1';
 
 /** How far ahead of a cutoff an observation row is opened. */
 export const SCHEDULE_HORIZON_MINUTES = 24 * 60;
+
+/**
+ * How long past a cutoff a capture may still legitimately run. A capture that
+ * starts inside this window is late by ordinary process jitter -- it is still
+ * describing what was received by the cutoff. A capture attempted after this
+ * window would be reading tables that have moved on since the cutoff and
+ * calling the result "prospective," which is exactly the reconstruction
+ * section 7.1 forbids ("never reconstruct it with later receipts and call it
+ * prospective"). `captureDueObservations` and `markMissedObservations` share
+ * this one constant so a scheduled row falls into exactly one of "still
+ * capturable" or "missed" -- never both, and never neither.
+ */
+export const CAPTURE_GRACE_MINUTES = 10;
 
 /**
  * Every scheduled game for a week, with the cutoff its kickoff implies.
@@ -96,7 +112,8 @@ export function openObservations({ season, week, experimentId, scheduleVersion =
 }
 
 /**
- * Freeze the packet for every observation whose cutoff has arrived.
+ * Freeze the packet for every observation whose cutoff has arrived, then
+ * record what the decision board actually said on the append-only tape.
  *
  * A failure is recorded on the row rather than thrown: one game's collector
  * breaking must not stop the other fifteen from being captured, and the broken
@@ -113,14 +130,20 @@ export function openObservations({ season, week, experimentId, scheduleVersion =
  * and a pass that runs both (see `runT60Pass`) always calls this one FIRST.
  * Calling `markMissedObservations` first would retire a row to `missed`
  * before this function ever got the chance to freeze what may already have
- * arrived for it.
+ * arrived for it. Without the lower bound, an observation whose cutoff
+ * passed hours ago (say the process was down) would still match
+ * `cutoff_at <= now` and get "captured" from whatever the live tables say
+ * right now — exactly the after-the-fact reconstruction section 7.1
+ * forbids. Past the grace window the honest outcome is
+ * `markMissedObservations` marking it missed, not a late capture pretending
+ * to be a timely one.
  */
 export function captureDueObservations({ experimentId, now = new Date().toISOString(),
-  graceMinutes = 10 } = {}) {
-  const cutoffFloor = new Date(Date.parse(now) - graceMinutes * 60_000).toISOString();
+  graceMinutes = CAPTURE_GRACE_MINUTES } = {}) {
+  const deadline = new Date(Date.parse(now) - graceMinutes * 60_000).toISOString();
   const due = rows(`SELECT * FROM nfl_t60_observations
     WHERE experiment_id=? AND state='scheduled' AND cutoff_at <= ? AND cutoff_at >= ?
-    ORDER BY cutoff_at, event_key`, experimentId, now, cutoffFloor);
+    ORDER BY cutoff_at, event_key`, experimentId, now, deadline);
 
   const captured = [], failed = [];
   for (const observation of due) {
@@ -139,10 +162,51 @@ export function captureDueObservations({ experimentId, now = new Date().toISOStr
         failed.push({ id: observation.id, event_key: observation.event_key, reason: packet.error });
         continue;
       }
-      run(`UPDATE nfl_t60_observations SET state='frozen', packet_hash=?, capture_started_at=?,
+      const packetHash = t60PacketHash(packet);
+      run(`UPDATE nfl_t60_observations SET state='frozen', packet_hash=?, packet_json=?, capture_started_at=?,
            capture_finished_at=? WHERE id=?`,
-      packetHash(packet), startedAt, new Date().toISOString(), observation.id);
-      captured.push({ id: observation.id, event_key: observation.event_key, packet });
+      packetHash, JSON.stringify(packet), startedAt, new Date().toISOString(), observation.id);
+      const entry = { id: observation.id, event_key: observation.event_key, packet };
+      captured.push(entry);
+
+      // Giant Plan 8.10 (G02/G03): the packet just frozen is real,
+      // content-addressed evidence. Feed it to the `frozen_packet` branch
+      // nfl-decision-tape.js has carried since C11 but that no production
+      // caller has ever actually exercised (nfl-execution-pipeline.js always
+      // passed 'unfrozen_live_tables'). The board itself is still computed
+      // from the live (mutable) tables -- there is no packet-sourced board
+      // yet; see the architecture note atop freezeT60Packet's own TODO on why
+      // that is a separate, larger piece of work -- but it is computed in
+      // this same synchronous instant, immediately after the freeze whose
+      // hash addresses it, which is the strongest claim available today.
+      //
+      // A failure here must not undo the freeze: the packet is real evidence
+      // whether or not a board could be produced from it a moment later, so
+      // the row stays 'frozen' (not 'failed') and the tape error is recorded
+      // for visibility instead of thrown.
+      try {
+        const board = autoPickDecisionBoard(observation.season, observation.week, NFL_PRODUCTION_POLICY);
+        const decidedAt = new Date().toISOString();
+        const tape = recordDecisionRun(observation.season, observation.week, board, {
+          observation: {
+            experimentId, horizon: observation.horizon, cutoffAt: observation.cutoff_at,
+            jobId: `${T60_RUNNER_VERSION}:captureDueObservations`, observationId: observation.id
+          },
+          policyId: NFL_PRODUCTION_POLICY.id, policyVersion: NFL_PRODUCTION_POLICY.version,
+          computationStatus: board.decisions?.length ? 'complete' : 'unavailable',
+          dataIdentityStatus: 'frozen_packet', dataHash: packetHash,
+          scheduleVersion: observation.schedule_version,
+          decidedAt, computationStartedAt: startedAt, computationEndedAt: decidedAt,
+          note: `t60-runner capture of ${observation.event_key} at cutoff ${observation.cutoff_at}`
+        });
+        run(`UPDATE nfl_t60_observations SET state='decided', decision_run_id=? WHERE id=?`,
+          tape.run_id, observation.id);
+        entry.decision_run_id = tape.run_id;
+      } catch (tapeError) {
+        run(`UPDATE nfl_t60_observations SET last_error=? WHERE id=?`,
+          `packet froze; decision tape write failed: ${tapeError.message}`, observation.id);
+        entry.decision_tape_error = tapeError.message;
+      }
     } catch (error) {
       run(`UPDATE nfl_t60_observations SET state='failed', last_error=?, capture_started_at=?,
            capture_finished_at=? WHERE id=?`,
@@ -151,10 +215,6 @@ export function captureDueObservations({ experimentId, now = new Date().toISOStr
     }
   }
   return { captured, failed };
-}
-
-function packetHash(packet) {
-  return crypto.createHash('sha256').update(JSON.stringify(packet)).digest('hex');
 }
 
 /**
@@ -170,7 +230,7 @@ function packetHash(packet) {
  * running late, it was not running.
  */
 export function markMissedObservations({ experimentId, now = new Date().toISOString(),
-  graceMinutes = 10 } = {}) {
+  graceMinutes = CAPTURE_GRACE_MINUTES } = {}) {
   const deadline = new Date(Date.parse(now) - graceMinutes * 60_000).toISOString();
   const missed = rows(`SELECT id, event_key, cutoff_at FROM nfl_t60_observations
     WHERE experiment_id=? AND state='scheduled' AND cutoff_at < ?`, experimentId, deadline);
@@ -258,11 +318,13 @@ export function slotsHeldAt({ experimentId, season, week, at }) {
  * scheduling system, per section 7.1.
  */
 export function runT60Pass({ season, week, experimentId, scheduleVersion = null,
-  now = new Date().toISOString(), graceMinutes = 10 } = {}) {
+  now = new Date().toISOString(), graceMinutes = CAPTURE_GRACE_MINUTES } = {}) {
   const startedAt = now;
   const opened = openObservations({ season, week, experimentId, scheduleVersion, now });
-  // Capture before marking missed: a row still inside the grace window
-  // belongs to the capture attempt above, never to the missed sweep below.
+  // Capture before marking missed, using the SAME grace boundary as
+  // markMissedObservations: an observation still inside the grace window is
+  // attempted here first, and only what remains `scheduled` past that
+  // boundary is marked missed below -- never both, never neither.
   const captured = captureDueObservations({ experimentId, now, graceMinutes });
   const missed = markMissedObservations({ experimentId, now, graceMinutes });
   return {

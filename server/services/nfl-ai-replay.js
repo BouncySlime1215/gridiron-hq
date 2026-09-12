@@ -277,7 +277,7 @@ const yieldToServer = () => new Promise(resolve => setImmediate(resolve));
 function cachedCandidates(season) {
   const hit = rows(`SELECT candidates_json FROM nfl_ai_replay_candidate_cache WHERE season=? AND cache_version=?`, season, CACHE_VERSION)[0];
   if (hit) return { bets: parse(hit.candidates_json), cache: 'hit' };
-  const replay = replaySeason(season);
+  const replay = replaySeason(season, { blendMode: 'raw' });
   if (replay.error) throw new Error(replay.error);
   run(`INSERT INTO nfl_ai_replay_candidate_cache (season,cache_version,created_at,candidates_json)
        VALUES (?,?,datetime('now'),?)`, season, CACHE_VERSION, JSON.stringify(replay.bets));

@@ -2,6 +2,7 @@
 import { row, rows, run } from '../db/index.js';
 import { autoPickDecisionBoard } from './nfl-auto-picks.js';
 import { nflKickoffDate } from './date-util.js';
+import { signedClvPoints } from './clv-core.js';
 
 const parseEventKey = value => {
   const [season, week, home, away] = String(value ?? '').split(':');
@@ -99,8 +100,15 @@ export function settleNflShadowDecisions() {
       const sideMargin = backedHome ? actualMargin : -actualMargin;
       const cover = sideMargin + decision.line;
       result = cover === 0 ? 'Push' : cover > 0 ? 'Won' : 'Lost';
+      // closeSpread (closing_spread ?? spread, see above) rather than the
+      // live spread, which syncCurrentLines can overwrite in-game (a7-data-
+      // integrity); signed via the shared clv-core.js convention rather than
+      // a fourth local copy of the same ternary (audit-consolidation stage 3,
+      // Giant Plan 8.1). Merge of both fixes: same closing-line input, same
+      // sign convention as the other three ledgers.
       closingLine = closeSpread == null ? null : backedHome ? closeSpread : -closeSpread;
-      clv = closingLine == null ? null : decision.line - closingLine;
+      clv = closingLine == null ? null
+        : signedClvPoints({ market: 'spread', ourLine: decision.line, closeLine: closingLine });
     } else if (decision.market === 'total' && /^(over|under)$/i.test(decision.selection ?? '')
       && Number.isFinite(decision.line)) {
       const over = /^over$/i.test(decision.selection);
@@ -108,7 +116,7 @@ export function settleNflShadowDecisions() {
         : (actualTotal > decision.line) === over ? 'Won' : 'Lost';
       closingLine = closeTotal;
       clv = closingLine == null ? null
-        : over ? closingLine - decision.line : decision.line - closingLine;
+        : signedClvPoints({ market: 'total', ourLine: decision.line, closeLine: closingLine, isUnder: !over });
     }
     const outcome = {
       season, week, home, away, actual_margin: actualMargin, actual_total: actualTotal,

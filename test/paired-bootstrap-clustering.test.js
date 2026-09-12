@@ -1,7 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pairedBootstrapDiff } from '../server/services/backtest-significance.js';
-import { withRandomSeed, randn } from '../server/services/stats-util.js';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+
+// nfl-replay.js (imported below for its `uncertainty`) transitively imports
+// server/db/index.js, which opens a real sqlite connection AT IMPORT TIME
+// against GRIDIRON_DB_PATH -- or, unset, against the live server/data.sqlite.
+// This must be set before that import, exactly like every other test that
+// touches a service importing the db layer, so this file never depends on
+// whatever the invoking shell happened to export.
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-paired-bootstrap-clustering-'));
+process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
+
+const { pairedBootstrapDiff } = await import('../server/services/backtest-significance.js');
+const { withRandomSeed, randn, weeklyClusterBootstrap } = await import('../server/services/stats-util.js');
+const { uncertainty } = await import('../server/services/nfl-replay.js');
+const { db } = await import('../server/db/index.js');
+
+test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 // pairedBootstrapDiff resamples individual units (player-weeks) uniformly
 // with replacement. When several units in the array actually come from the
@@ -114,4 +131,63 @@ test('groups shorter than n is ignored gracefully (falls back to ungrouped)', ()
   const result = pairedBootstrapDiff(a, b, { iterations: 100, seed: 1, groups: ['g1', 'g2'] });
   assert.equal(result.error, undefined);
   assert.equal(result.n, 10);
+});
+
+/**
+ * Giant Plan 8.9 (audit-consolidation stage 5): `weeklyClusterBootstrap`
+ * (stats-util.js) is the one shared implementation replacing five
+ * near-identical hand-rolled copies, one of which was `nfl-replay.js`'s own
+ * `uncertainty()`. The bug it fixes: every prior copy built its resampling
+ * universe purely from weeks present in the bet rows, so a week where the
+ * policy correctly bet nothing could never be drawn and never contributed
+ * its real, honest zero -- silently dropping information and overstating
+ * both the apparent edge and its precision.
+ */
+const won = (season, week, units = 0.909) => ({ season, week, result: 'Won', units });
+const lost = (season, week, units = -1) => ({ season, week, result: 'Lost', units });
+
+test('weeklyClusterBootstrap with no declared weeks matches the resampling universe of the bets themselves', () => {
+  const bets = [won(2026, 1), won(2026, 1), lost(2026, 2), won(2026, 3)];
+  const result = weeklyClusterBootstrap(bets, { iterations: 500, seed: 1 });
+  assert.equal(result.clusters, 3, 'three distinct weeks appear in the bets, and only those three form the universe');
+  assert.equal(result.trials, 500);
+});
+
+test('a declared week with zero bets is drawable and contributes 0 units, not an absence', () => {
+  const bets = [won(2026, 1), won(2026, 1), won(2026, 2), won(2026, 3)];
+  // Week 4 is declared (the policy considered it and bet nothing) but has no rows.
+  const withZeroWeek = weeklyClusterBootstrap(bets, {
+    weeks: ['2026-1', '2026-2', '2026-3', '2026-4'], iterations: 4000, seed: 1
+  });
+  const withoutZeroWeek = weeklyClusterBootstrap(bets, { iterations: 4000, seed: 1 });
+
+  assert.equal(withZeroWeek.clusters, 4, 'the declared universe includes the zero-bet week');
+  assert.equal(withoutZeroWeek.clusters, 3, 'omitting `weeks` falls back to only the weeks present in the rows');
+  // A universe that is 1/4 guaranteed-zero weeks must report strictly lower
+  // (or equal, at the interval edges) ROI bounds than one that never draws a
+  // zero at all -- the whole point of declaring the zero-bet week.
+  assert.ok(withZeroWeek.roi_95[1] <= withoutZeroWeek.roi_95[1],
+    `expected including the honest zero-bet week to not raise the ROI upper bound (${withZeroWeek.roi_95[1]} vs ${withoutZeroWeek.roi_95[1]})`);
+});
+
+test('an all-losing declared universe with a mix of zero-bet weeks never reports a positive ROI lower bound', () => {
+  const bets = [lost(2026, 1), lost(2026, 2)];
+  const result = weeklyClusterBootstrap(bets, {
+    weeks: ['2026-1', '2026-2', '2026-3', '2026-4', '2026-5'], iterations: 4000, seed: 1
+  });
+  assert.ok(result.roi_95[1] <= 0, `an all-losing-or-abstained record must not show a positive ROI upper bound (got ${result.roi_95})`);
+});
+
+test('nfl-replay.js uncertainty() delegates to weeklyClusterBootstrap and preserves its prior (no-weeks) output exactly', () => {
+  const bets = [won(2026, 1), won(2026, 1), lost(2026, 2), won(2026, 3), lost(2026, 4), won(2026, 5)];
+  const viaUncertainty = uncertainty(bets);
+  const viaShared = weeklyClusterBootstrap(bets);
+  assert.deepEqual(viaUncertainty, viaShared,
+    'uncertainty(bets) with no declared weeks must produce byte-identical output to calling the shared function directly -- this migration must not change any existing caller\'s numbers');
+});
+
+test('uncertainty() accepts an optional declared week set and forwards it', () => {
+  const bets = [won(2026, 1), won(2026, 1)];
+  const result = uncertainty(bets, { weeks: ['2026-1', '2026-2', '2026-3'] });
+  assert.equal(result.clusters, 3);
 });

@@ -80,10 +80,22 @@ const FEATURE_SPEC = [
  * @param {number}   options.noise      Per-feature independent noise, as a
  *   multiple of that feature's scale. Higher noise inflates measured rank,
  *   because pure noise is, correctly, independent information.
+ * @param {number}   options.marketNoise  How far the fixture's market quote sits
+ *   from the true edge, in points. The default 1.6 makes the market a
+ *   near-oracle — deliberately, because that is the situation the real ensemble
+ *   is in. But it also means no combination CAN beat the market here, which
+ *   makes "nothing beat the market" uninformative about whether a combiner
+ *   works at all. Raising it produces the control case: a league where the
+ *   components genuinely do know something the market does not, and in which a
+ *   correct combiner must be seen to win. Changing this value alters ONLY the
+ *   market quote — the PRNG draw count is identical either way, so scores,
+ *   features and weather are bit-identical across settings and the comparison
+ *   is properly controlled.
  */
 export function seedEnsembleFixture({ run }, {
   seasons = [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
   weeksPerSeason = 17, latentFactors = 3, noise = 0.35, seed = 20260912,
+  marketNoise = 1.6,
   teams = FIXTURE_TEAMS
 } = {}) {
   const rand = mulberry32(seed);
@@ -132,7 +144,7 @@ export function seedEnsembleFixture({ run }, {
         const awayScore = Math.max(0, totalPoints - homeScore);
         // A market quote that is the true edge plus small noise — close to,
         // but not identical to, what the components are trying to beat.
-        const marketMargin = Math.round((trueEdge + normal(rand, 0, 1.6)) * 2) / 2;
+        const marketMargin = Math.round((trueEdge + normal(rand, 0, marketNoise)) * 2) / 2;
         const homeSpread = -marketMargin;
         const marketTotal = Math.round((44 + (hf[1] + af[1]) * 2 + normal(rand, 0, 2)) * 2) / 2;
         const openSpread = homeSpread + Math.round(normal(rand, 0, 0.8) * 2) / 2;
@@ -178,7 +190,7 @@ export function seedEnsembleFixture({ run }, {
 
   return {
     games: inserted, teams: teams.length, seasons: seasons.length,
-    latent_factors: latentFactors, noise,
+    latent_factors: latentFactors, noise, market_noise: marketNoise,
     feature_fields: FEATURE_SPEC.length,
     note: 'synthetic: feature correlation structure is a property of this generator, not of football'
   };

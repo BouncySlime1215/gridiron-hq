@@ -117,6 +117,20 @@ async function syncHistoricalLinesImpl() {
  * already stored with a null.
  */
 export async function syncCurrentLines(season, weeks = 18) {
+  // TODO(a5-simulation, 2026-09-12): the build plan for this pass asked for a
+  // preKickoff guard on `stmt`'s spread/total UPDATE, matching closeStmt below
+  // (item 7 of Giant Plan section 6). Deliberately NOT applied: the live
+  // `spread`/`total` columns updating post-kickoff is exercised and asserted
+  // as intentional by test/gamescript-closing-line.test.js ("the live column
+  // is allowed to reflect the corrupted mid-game number" — that's their job
+  // elsewhere, e.g. line-shopping/movement detection; only the frozen
+  // closing_* columns below are meant to stop moving at kickoff). Gating
+  // `stmt` the same way would silently stop the live columns from ever
+  // updating during a game, contradicting that documented, tested design.
+  // Left for a human to resolve: either the plan's premise is wrong (closing_*
+  // is correctly the only thing that needs freezing) or there is a narrower
+  // guard intended here that this pass could not identify without more
+  // context. Not applied either way rather than guessed at.
   const stmt = db.prepare(`INSERT INTO game_lines
       (season, week, team, opponent, home, spread, total, implied_points, source, fetched_at,
        team_score, opp_score, moneyline, spread_odds, total_over_odds, total_under_odds,

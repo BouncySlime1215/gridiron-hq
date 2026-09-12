@@ -92,7 +92,12 @@ const clockSeconds = (period, displayClock) => {
   // Regulation only; overtime is reported as period 5+ and treated as the dying
   // seconds of a tied game, which is close enough for a display estimate.
   if (!period) return GAME_SECONDS;
-  if (period > 4) return 0;
+  // A live OT game still has a result in doubt — a trailing team can tie or
+  // win it. Reporting exactly 0 seconds left fed liveWinProbability's
+  // `left <= 0` branch, which asserts an exact 100%/0% certainty regulation
+  // itself never has. A small nonzero figure keeps a live OT game inside the
+  // model's normal (uncertain) path instead of that hard-certainty edge case.
+  if (period > 4) return 60;
   const [m, s] = String(displayClock ?? '15:00').split(':').map(Number);
   const inPeriod = (Number.isFinite(m) ? m : 15) * 60 + (Number.isFinite(s) ? s : 0);
   return (4 - period) * 900 + inPeriod;

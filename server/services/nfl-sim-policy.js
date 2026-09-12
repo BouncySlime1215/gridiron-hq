@@ -105,14 +105,20 @@ export function fourthDownByExpectedPoints({ yard, toGo, ep }) {
  * and winning come apart, which is precisely the late-game situation where real
  * coaches most often get it wrong.
  */
-export function fourthDownByWinProbability({ yard, toGo, lead, secondsLeft, spread = null }) {
+export function fourthDownByWinProbability({ yard, toGo, lead, secondsLeft, spread = null, isHome = true }) {
   if (secondsLeft > 420) return null;   // EP is a fine proxy until the last ~7 minutes
   const fgDistance = (100 - yard) + 17;
   const inRange = fgDistance <= 62;
   const conv = conversionProbability(toGo);
   const makeP = inRange ? fieldGoalProbability(fgDistance) : 0;
 
-  const wp = (l, s) => liveWinProbability(l, Math.max(0, s), spread);
+  // liveWinProbability's spread is ESPN convention (negative = HOME favoured),
+  // but `lead` here is already flipped to the offence's own perspective. For a
+  // possession on the road that mismatch silently fed the home line into the
+  // away team's own win-probability math. Re-expressed once, from the
+  // possessing team's own side, in nflfastR's posteam_spread convention.
+  const posteamSpread = spread == null ? null : (isHome ? spread : -spread);
+  const wp = (l, s) => liveWinProbability(l, Math.max(0, s), posteamSpread);
   // Converting keeps the ball and the clock; failing hands both over.
   const goValue = conv * wp(lead, secondsLeft - 30) + (1 - conv) * (1 - wp(-lead, secondsLeft - 30));
   const fgValue = inRange
@@ -167,7 +173,7 @@ export function twoPointDecision({ leadAfterTd, secondsLeft }) {
  * defensive stop with no timeouts. It only beats the alternative when you need
  * two scores and the clock cannot supply two possessions.
  */
-export function onsideDecision({ lead, secondsLeft, timeouts, spread = null }) {
+export function onsideDecision({ lead, secondsLeft, timeouts, spread = null, isHome = true }) {
   if (lead >= 0 || secondsLeft > 360) {
     return { module: 'onside', call: 'kick_deep', reason: 'Leading or too much time — no reason to gamble.' };
   }
@@ -175,9 +181,14 @@ export function onsideDecision({ lead, secondsLeft, timeouts, spread = null }) {
   const possessionsLeft = Math.floor(secondsLeft / 150) + timeouts * 0.35;
   const scoresNeeded = Math.ceil(Math.abs(lead) / 7.5);
 
-  const onsideWp = recovery * (1 - liveWinProbability(-lead, secondsLeft - 10, spread))
-    + (1 - recovery) * (1 - liveWinProbability(-lead - 3, secondsLeft - 10, spread)) * 0.25;
-  const deepWp = (1 - liveWinProbability(-lead, secondsLeft - 20, spread))
+  // Same re-expression as the fourth-down module: `spread` arrives in ESPN's
+  // home-favoured convention regardless of who is kicking, so it must be
+  // flipped to the kicking team's own side before it means anything relative
+  // to their own `lead`.
+  const posteamSpread = spread == null ? null : (isHome ? spread : -spread);
+  const onsideWp = recovery * (1 - liveWinProbability(-lead, secondsLeft - 10, posteamSpread))
+    + (1 - recovery) * (1 - liveWinProbability(-lead - 3, secondsLeft - 10, posteamSpread)) * 0.25;
+  const deepWp = (1 - liveWinProbability(-lead, secondsLeft - 20, posteamSpread))
     * clamp(possessionsLeft / Math.max(1, scoresNeeded), 0, 1);
 
   const go = onsideWp > deepWp;
@@ -209,8 +220,12 @@ export function onsideDecision({ lead, secondsLeft, timeouts, spread = null }) {
  * Returned as a multiplier on play-outcome standard deviation, which is exactly
  * how it enters the engine.
  */
-export function varianceProfile({ lead, secondsLeft, spread = null }) {
-  const wp = liveWinProbability(lead, secondsLeft, spread);
+export function varianceProfile({ lead, secondsLeft, spread = null, isHome = true }) {
+  // Same re-expression as modules 2 and 4: `lead` is the offence's own
+  // perspective, so `spread` must be flipped to that same side before it is
+  // comparable to it.
+  const posteamSpread = spread == null ? null : (isHome ? spread : -spread);
+  const wp = liveWinProbability(lead, secondsLeft, posteamSpread);
   const urgency = clamp(1 - secondsLeft / 3600, 0, 1);
   // Far from 0.5 the game is decided and variance is either useless or fatal.
   // The effect scales with how little time is left to recover from it.
@@ -288,6 +303,17 @@ export function paceProfile({ lead, secondsLeft, noHuddleRate, timeouts }) {
  * near your own goal line at the end of a half, a drive's small upside does not
  * pay for the chance of handing over a short field.
  */
+// TODO(a5-simulation, 2026-09-12): `secondsLeft` in the first branch below is
+// currently the caller's HALF clock, not the game clock — at the two-minute
+// mark of the FIRST half this can read as a "clock runs out before they get
+// the ball" victory formation, which is wrong (the opponent gets the ball
+// back at halftime). This is the same half-vs-full-clock bug fixed elsewhere
+// in this pass (nfl-drive-sim.js `gameSecondsLeft`) but is NOT applied here:
+// safety instructions for this build explicitly forbade changing this
+// function's sign/formula beyond wiring the timeout decrement, since an
+// adversarial trace already verified it. Feeding the first branch a real
+// game-remaining clock (leaving the second, isHalfEnd, branch on the half
+// clock as it correctly is today) needs a human's sign-off, not this pass's.
 export function kneelDecision({ lead, secondsLeft, timeouts, yard, isHalfEnd }) {
   const kneelable = 40 + timeouts * 40;
   if (lead > 0 && secondsLeft <= kneelable) {

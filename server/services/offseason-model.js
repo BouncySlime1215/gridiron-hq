@@ -1846,6 +1846,13 @@ export function offseasonAdjustments(season = Number(process.env.NFL_SEASON) || 
     const signals = changeSignals(row, summary.teams);
     const drivers = signals.map(s => s.driver);
     const priced = new Set(signals.filter(s => s.priced).map(s => s.key));
+    // A mover's `vacated_share` feature is already an unconditional part of
+    // partialChangeEffect's linear total whenever team_change is priced (see
+    // CHANGE_FEATURES/COMPONENT_OF below) — changeSignals folds the vacated
+    // room text into the team_change driver's own sentence rather than a
+    // separate 'vacated' signal, so without this, `components.vacated` stayed
+    // null for every mover even though the number was already priced in.
+    if (row.changed_team === 1) priced.add('vacated');
 
     let oppMultiplier = 1, ppgMultiplier = 1;
     const components = { team_change: null, depth: null, qb_change: null,

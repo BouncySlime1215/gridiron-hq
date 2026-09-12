@@ -926,6 +926,20 @@ test('game-script coefficients and neutral baseline cannot see beyond the predic
 });
 
 test('weekly availability respects exact injury and practice designations', () => {
+  // The earlier game-script test above populated 501/502 for 2015-2022 and,
+  // separately, 2024 (to test that future rows can't leak backward) — leaving
+  // 2023 an incidental gap in the fixture, not a deliberate missed season.
+  // Filling it keeps player 501 "played every recorded week 2015-2024" true
+  // (see the durability comment further down), now that the durability
+  // denominator (contingency.js) correctly counts a real gap as a missed
+  // season rather than silently excluding it from the denominator.
+  const usage2023 = db.prepare(`INSERT INTO player_week_usage
+    (player_id,season,week,team,position,attempts,carries,targets,receptions)
+    VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(player_id,season,week) DO NOTHING`);
+  for (let week = 1; week <= 18; week++) {
+    usage2023.run(501, 2023, week, 'AAA', 'QB', 28 + week % 8, 0, 0, 0);
+    usage2023.run(502, 2023, week, 'AAA', 'RB', 0, 18 + week % 6, 2, 1);
+  }
   db.prepare(`INSERT INTO nfl_injuries
     (season,week,gsis_id,team,full_name,position,report_status,practice_status,injury)
     VALUES (2026,4,'aaa-qb','AAA','AAA Passer','QB','Questionable','Did Not Participate','Hamstring'),

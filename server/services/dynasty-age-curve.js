@@ -128,7 +128,12 @@ export function dynastyAgeAdjustment({ position, rawValue, gsisId, rosterSnapsho
   const { age, source } = playerRealAge(gsisId, rosterSnapshotAge, { asOf });
   if (age == null) {
     return { raw_value: rawValue, age: null, age_source: null, multiplier: 1, adjusted_value: rawValue,
-      curve: AGE_CURVE_ANCHORS[position] ? position : null };
+      curve: AGE_CURVE_ANCHORS[position] ? position : null,
+      // Only one curve method (4for4 anchors) exists today, so there is
+      // nothing to disagree with and no per-age sample size to report.
+      curve_source: AGE_CURVE_ANCHORS[position] ? DYNASTY_AGE_CURVE_SOURCE : null,
+      sample_size: null,
+      cross_method_disagreement: null };
   }
   const multiplier = ageDecayMultiplier(position, age);
   return {
@@ -138,6 +143,13 @@ export function dynastyAgeAdjustment({ position, rawValue, gsisId, rosterSnapsho
     multiplier,
     adjusted_value: +(rawValue * multiplier).toFixed(1),
     curve: AGE_CURVE_ANCHORS[position] ? position : null,
-    source: DYNASTY_AGE_CURVE_SOURCE
+    source: DYNASTY_AGE_CURVE_SOURCE,
+    // Additive fields (Giant Plan 4.3/#1): only one curve method exists
+    // today (the 4for4 anchor table), so cross-method disagreement is not
+    // computable and sample_size is not tracked per anchor — both report
+    // null/0 rather than a fabricated value until a second method exists.
+    curve_source: DYNASTY_AGE_CURVE_SOURCE,
+    sample_size: null,
+    cross_method_disagreement: null
   };
 }

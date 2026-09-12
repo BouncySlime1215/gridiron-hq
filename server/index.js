@@ -23,7 +23,7 @@ const { seedIfEmpty } = await import('./db/seed/index.js');
 const { default: teamsRouter } = await import('./routes/teams.js');
 const { default: playersRouter } = await import('./routes/players.js');
 const { default: rankingsRouter } = await import('./routes/rankings.js');
-const { default: draftsRouter, startDraftClockJob } = await import('./routes/drafts.js');
+const { default: draftsRouter, startDraftClockJob, startDraftFinalizeJob } = await import('./routes/drafts.js');
 const { default: espnRouter } = await import('./routes/espn.js');
 const { default: newsRouter } = await import('./routes/news.js');
 const { default: aggregatesRouter } = await import('./routes/aggregates.js');
@@ -70,6 +70,10 @@ startScheduler({ intervalMinutes: 5 });
 // setTimeout. Without this, a draft only advanced past the clock while a
 // browser tab with the Draft Room open was watching it count down.
 startDraftClockJob();
+// ESPN-mirrored live drafts otherwise never auto-finalize once the
+// bookmarklet tab stops sending captures — see finalizeStaleDrafts
+// (draft-ingest.js) for why.
+startDraftFinalizeJob();
 
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.

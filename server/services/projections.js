@@ -495,8 +495,16 @@ export function buildProjections({
       const w = seasonWeight(s, through, r);
       // Denominator is his team's games actually played that season — 17 for a
       // completed season, but only the games so far when the cutoff is mid-season.
+      // teamG is legitimately 0 at week 1 of a season that has not kicked off yet
+      // (throughWeek === 0, no usage rows exist for anyone on the team). Flooring
+      // that to 1 here used to invent a phantom, zero-production game every
+      // player's team supposedly already played — the single heaviest-weighted
+      // season in the sum (weight 1, "0 seasons back") — which dragged every
+      // returning player's computed availability down at exactly the week it
+      // matters most. teamG is never negative, so no floor is needed at all:
+      // 0 correctly contributes (0, 0) to (availW, availPlayed) and changes nothing.
       const teamG = teamGames.get(`${a.team}|${s}`) ?? (s === through && throughWeek != null ? throughWeek : GAMES);
-      availW += w * Math.max(1, teamG);
+      availW += w * teamG;
       availPlayed += w * (a.gamesBySeason.get(s) ?? 0);
     }
     const playRate = availW ? availPlayed / availW : 0;
@@ -519,8 +527,11 @@ export function buildProjections({
         const own = a.attemptsBySeason.get(s) ?? 0;
         // Same partial-season correction as availability: his share of the team's
         // attempts has to divide by the attempts the team has actually thrown.
+        // Same phantom-week-1 fix as above — no floor, so a not-yet-started
+        // season correctly yields teamAtt = 0 and is skipped by the guard below
+        // instead of contributing a fake zero-share data point.
         const teamG = teamGames.get(`${a.team}|${s}`) ?? (s === through && throughWeek != null ? throughWeek : GAMES);
-        const teamAtt = perGameAtt * Math.max(1, teamG);
+        const teamAtt = perGameAtt * teamG;
         if (teamAtt > 0) { shareW += w; shareSum += w * Math.min(1, own / teamAtt); }
       }
       const attShare = shareW ? shareSum / shareW : 0;
@@ -529,28 +540,46 @@ export function buildProjections({
     }
     const expectedGames = Math.min(GAMES, Math.max(1, rate * GAMES));
 
+    // QB only: a small, gated nudge from trailing ESPN QBR (see QBR_SIGNAL).
+    // Falls back to no adjustment when the signal is off or the QB has no
+    // qualifying trailing read (rookies, first-year starters, no espn_id).
+    //
+    // Computed BEFORE `params` below so the nudge can be folded into the
+    // sampler's own ypa, not just added to the deterministic ppg afterward.
+    // It used to be add-on only: `params` (what ceiling-lineup, season-sim
+    // and week-postmortem actually draw simulated weeks from via
+    // sampleWeekEvents) never saw it, so every simulated floor/ceiling/win
+    // probability for a QB silently ignored the signal that his own `ppg`
+    // and rank were built from. yards-per-attempt is the natural home for it
+    // (QBR is chiefly an efficiency read) and the format's own pass_yd point
+    // value converts the points-space nudge into that yards-space one
+    // without hardcoding a scoring assumption a non-PPR-style league might
+    // not share.
+    let qbrAdjustment = 0, qbrRead = null, paramsYpa = ypa;
+    if (a.pos === 'QB' && qbrSignal?.enabled && qbrSignal.k) {
+      qbrRead = qbrTrailingForPlayer(a.espn_id, through, throughWeek, { window: qbrSignal.window });
+      if (qbrRead) {
+        qbrAdjustment = qbrSignal.k * (qbrRead.qbr - qbrSignal.center);
+        if (attempts > 0 && scoring.pass_yd) paramsYpa = ypa + qbrAdjustment / (attempts * scoring.pass_yd);
+      }
+    }
+
     const params = {
       position: a.pos, targets, carries, attempts, dispersion,
       ypt, catch_rate: catchRate, rec_td_rate: recTdRate,
       ypc, rush_td_rate: rushTdRate,
-      ypa, pass_td_rate: passTdRate, int_rate: intRate
+      ypa: paramsYpa, pass_td_rate: passTdRate, int_rate: intRate
     };
 
     // Deterministic expectation, used for ranking and as the point estimate.
+    // Kept on the unadjusted `ypa` (see structural_ppg_pre_qbr below) — the
+    // QBR nudge is layered on afterward into `meanPpg`, same as always; only
+    // `params.ypa` above (the sampler's input) now carries it too.
     const structuralPpg = scoreSim({
       passYd: attempts * ypa, passTd: attempts * passTdRate, int: attempts * intRate,
       rushYd: carries * ypc, rushTd: carries * rushTdRate,
       rec: targets * catchRate, recYd: targets * ypt, recTd: targets * recTdRate
     }, scoring);
-
-    // QB only: a small, gated nudge from trailing ESPN QBR (see QBR_SIGNAL).
-    // Falls back to no adjustment when the signal is off or the QB has no
-    // qualifying trailing read (rookies, first-year starters, no espn_id).
-    let qbrAdjustment = 0, qbrRead = null;
-    if (a.pos === 'QB' && qbrSignal?.enabled && qbrSignal.k) {
-      qbrRead = qbrTrailingForPlayer(a.espn_id, through, throughWeek, { window: qbrSignal.window });
-      if (qbrRead) qbrAdjustment = qbrSignal.k * (qbrRead.qbr - qbrSignal.center);
-    }
     const meanPpg = structuralPpg + qbrAdjustment;
 
     out.set(a.id, {

@@ -247,3 +247,36 @@ export async function ingestCapture(draftId, { capture_id: captureId, frames = [
     ...boardSummary(draft, { madeCount: made.length, added, corrected, removed, quarantined, inProgress: !complete, complete })
   };
 }
+
+/**
+ * A live ESPN-mirrored draft (`league_row_id` set) only ever reaches
+ * `status = 'complete'` above, inside ingestCapture — and only when a capture
+ * reports enough picks to fill every roster slot. If the bookmarklet tab
+ * closes early (commissioner forgets to open it, laptop sleeps, wifi drops,
+ * or the ESPN draft is abandoned/cancelled outright), no further capture ever
+ * arrives and the draft sits 'active' forever — outliving the real draft by
+ * days, which is wrong for anything downstream that reads draft.status as
+ * "still happening" (e.g. the league's my-draft-status prompt).
+ *
+ * scheduler.js's liveDraftActive() already treats a draft as no-longer-live
+ * once its scheduled start (`draft_at`) is more than DRAFT_WINDOW_AFTER_HOURS
+ * (4h) in the past — a real snake draft does not run longer than that. This
+ * mirrors the exact same window so "no longer live" and "finalized" always
+ * agree instead of drifting apart from two separately-tuned constants.
+ *
+ * Meant to be ticked periodically (see startDraftFinalizeJob in
+ * routes/drafts.js); a no-op call when nothing qualifies, so it is always
+ * safe to invoke on a timer or directly from a test.
+ */
+const FINALIZE_AFTER_HOURS = 4;
+export function finalizeStaleDrafts(now = Date.now()) {
+  const nowIso = new Date(now).toISOString();
+  // datetime(...) normalizes both sides the same way liveDraftActive() does —
+  // draft_at is stored ISO8601 with a 'T', comparing raw strings against
+  // datetime('now')'s space-separated format is a lexicographic trap.
+  const stale = rows(`SELECT id FROM drafts WHERE league_row_id IS NOT NULL
+    AND status = 'active' AND draft_at IS NOT NULL
+    AND datetime(draft_at) <= datetime(?, '-${FINALIZE_AFTER_HOURS} hours')`, nowIso);
+  for (const draft of stale) run(`UPDATE drafts SET status = 'complete' WHERE id = ?`, draft.id);
+  return { checked_at: nowIso, finalized: stale.map(d => d.id) };
+}

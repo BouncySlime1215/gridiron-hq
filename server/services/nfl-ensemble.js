@@ -24,6 +24,7 @@
 import { rows, run } from '../db/index.js';
 import { availabilityDeficit } from './nfl-availability.js';
 import { teamWeeks } from './nfl-pbp.js';
+import { weatherSplits } from './nfl-features.js';
 import { mean } from './stats-util.js';
 import { ENSEMBLE_FIT_VERSION } from './nfl-forecast-identity.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
@@ -300,6 +301,195 @@ function featureAggregates(season, week) {
   }
   _featureAggregateCache.set(cacheKey, out);
   return out;
+}
+
+/* ------------------------------------------------ per-team weather response */
+
+/**
+ * League-average weather effects on a GAME TOTAL, in points. These are the
+ * constants `weather_total` applied to every team identically, and they stay
+ * exactly as they were: they are the prior this component falls back to, and
+ * the centre that per-team responses are measured as deviations from.
+ */
+const FLAT_WEATHER_POINTS = { dome: 1.2, wind: -2.4, cold: -1.6 };
+
+/** Snaps an offense runs in a game when its own play count is unknown. */
+const DEFAULT_OFF_PLAYS = 63;
+
+/**
+ * A team's own response may shift its share of the weather effect by at most
+ * the size of that effect. In a windy game the league constant is -2.4 points
+ * of game total, or -1.2 per offense, so one offense's deviation is bounded to
+ * +/-1.2: it can cancel its share of the penalty, or double it, and no more.
+ *
+ * A fixed wide cap was tried first and was wrong. On a synthetic league with
+ * NO real per-team weather effect, a 3-point cap still let single games move
+ * six points -- an estimate built entirely from sampling noise, sized like a
+ * real edge. Bounding the deviation by the effect it is deviating from keeps
+ * the adjustment inside the physics of the thing being adjusted.
+ */
+const weatherDeviationCap = kinds =>
+  kinds.reduce((s, kind) => s + Math.abs(FLAT_WEATHER_POINTS[kind]) / 2, 0);
+
+const _weatherSensitivityCache = new Map();
+
+/**
+ * How much each offense's own efficiency actually moved indoors, in the cold
+ * and in the wind -- measured from that team's prior games, cut off before the
+ * week being predicted.
+ *
+ * `nfl-features.js` has computed these three deltas all along (`weatherSplits`,
+ * surfaced per team as `dome_epa_delta` / `cold_epa_delta` / `wind_epa_delta`).
+ * The forecasting ensemble never read them: `weather_total` applied one flat
+ * league constant to a dome game whether the offense in it threw on 70% of
+ * snaps or ran on 55%. This is the aggregate that makes them readable in the
+ * walk-forward loop, on the same cutoff convention `featureAggregates` uses
+ * (this season's earlier weeks, plus the whole prior season for sample).
+ *
+ * The hard part is not reading the delta, it is believing it. A team plays
+ * perhaps two indoor games and three windy ones in a season. Per-game
+ * offensive EPA has a standard deviation around 0.12, so a delta built on a
+ * 3-versus-14 split carries a standard error near 0.075 EPA per play -- about
+ * five points of game total, several times larger than the entire effect being
+ * estimated. Wired in raw, these deltas would be almost pure noise and would
+ * make the component worse, not better.
+ *
+ * So the deltas are shrunk, and the shrinkage is estimated rather than
+ * guessed. Across the 32 teams at this cutoff we have the observed spread of
+ * the deltas and, from the pooled per-game variance of offensive EPA, the
+ * sampling noise each one carries. The between-team variance that survives
+ * subtracting the noise is the only part that can be real; each team's delta
+ * is pulled toward the league mean by the usual empirical-Bayes ratio
+ * tau^2 / (tau^2 + v_team). When no between-team variance survives -- the
+ * honest common case -- every weight is zero, every team gets the league mean,
+ * and the component's output is identical to the flat constant it replaced.
+ *
+ * Only the DEVIATION from the league mean is handed back. The league-average
+ * weather effect is already in FLAT_WEATHER_POINTS, so keeping the mean here
+ * too would double-count it, and would let this change quietly shift the
+ * model's global total calibration instead of doing the one thing it is for:
+ * telling two offenses in the same weather apart.
+ */
+function weatherSensitivity(season, week) {
+  const cacheKey = `${season}|${week}`;
+  if (_weatherSensitivityCache.has(cacheKey)) return _weatherSensitivityCache.get(cacheKey);
+
+  const weeks = teamWeeks().filter(t => (t.season === season ? t.week < week : t.season === season - 1));
+  const conditions = new Map();
+  for (const r of rows(`SELECT season, week, team, roof, temp, wind FROM game_lines
+                        WHERE season IN (?, ?)`, season, season - 1)) {
+    conditions.set(`${r.season}|${r.week}|${r.team}`, r);
+  }
+
+  const byTeam = new Map();
+  for (const t of weeks) {
+    const epa = t.features?.off_epa_per_play;
+    if (epa == null || !Number.isFinite(epa)) continue;
+    const c = conditions.get(`${t.season}|${t.week}|${t.team}`);
+    if (!c) continue;
+    const list = byTeam.get(t.team) ?? [];
+    list.push({ epa, roof: c.roof, temp: c.temp, wind: c.wind });
+    byTeam.set(t.team, list);
+  }
+
+  const splits = new Map();
+  for (const [team, samples] of byTeam) splits.set(team, weatherSplits(samples));
+
+  // Pooled within-team, per-game variance of offensive EPA: the noise floor
+  // every one of these deltas is drawn through.
+  const centered = [];
+  for (const s of splits.values()) {
+    const m = avg(s.epa_samples);
+    if (m == null || s.epa_samples.length < 2) continue;
+    for (const v of s.epa_samples) centered.push((v - m) ** 2);
+  }
+  const perGameVar = centered.length ? mean(centered) : null;
+
+  const KINDS = [['dome', 'dome_epa_delta', 'dome_n', 'outdoor_n'],
+    ['cold', 'cold_epa_delta', 'cold_n', 'warm_n'],
+    ['wind', 'wind_epa_delta', 'windy_n', 'calm_n']];
+
+  const out = new Map();
+  const diagnostics = {};
+  for (const [kind, deltaKey, aKey, bKey] of KINDS) {
+    const observed = [];
+    for (const [team, s] of splits) {
+      const d = s[deltaKey];
+      if (d == null || !Number.isFinite(d)) continue;
+      const nA = s[aKey], nB = s[bKey];
+      if (!nA || !nB) continue;
+      // Variance of a difference of two independent group means.
+      const v = perGameVar == null ? null : perGameVar * (1 / nA + 1 / nB);
+      if (v == null || !(v > 0)) continue;
+      observed.push({ team, d, v });
+    }
+    // Below a handful of teams there is no league spread to estimate, so there
+    // is nothing to separate signal from noise with: hold everything at the
+    // league prior.
+    if (observed.length < 8) { diagnostics[kind] = { teams: observed.length, tau2: 0, shrunk: false }; continue; }
+    const dBar = mean(observed.map(o => o.d));
+    const spread = mean(observed.map(o => (o.d - dBar) ** 2));
+    const noise = mean(observed.map(o => o.v));
+    const tau2 = Math.max(0, spread - noise);
+    // `spread` is itself an estimate from ~32 teams, so under a true null it
+    // lands above `noise` about half the time and max(0, .) keeps only those
+    // halves -- an upward bias that would hand out team-specific adjustments
+    // built from nothing. Measured on a synthetic league with NO real per-team
+    // weather effect, the plain tau2 > 0 rule still moved 288 of 527 games.
+    // So the spread must clear the noise by more than the spread's own
+    // sampling error (about sqrt(2/(k-1)) of it, for a sum of squares over k
+    // teams) at roughly a one-sided 95% level, before any deviation is
+    // applied at all. Below that bar every team gets the league mean and this
+    // component is byte-identical to the flat constant it replaced.
+    const spreadStdErr = noise * Math.sqrt(2 / Math.max(1, observed.length - 1));
+    const significant = spread - noise > 1.645 * spreadStdErr;
+    diagnostics[kind] = { teams: observed.length, tau2: +tau2.toFixed(6),
+      spread: +spread.toFixed(6), noise: +noise.toFixed(6), significant, shrunk: significant && tau2 > 0 };
+    if (!significant || !(tau2 > 0)) continue;   // no real between-team variation survived
+    for (const o of observed) {
+      const w = tau2 / (tau2 + o.v);
+      const deviation = w * (o.d - dBar);   // EPA per play, team-specific part only
+      const e = out.get(o.team) ?? {};
+      e[kind] = deviation;
+      out.set(o.team, e);
+    }
+  }
+
+  const result = { byTeam: out, diagnostics };
+  _weatherSensitivityCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * The points `weather_total` adds for the conditions this game is played in.
+ *
+ * The flat league constant is always applied in full. On top of it, each
+ * offense contributes its own shrunk deviation converted to points -- EPA per
+ * play is already denominated in points, so the conversion is just that team's
+ * expected snap count. An offense with no measured deviation (no prior games
+ * in those conditions, or no surviving between-team variance) contributes
+ * nothing, which reproduces the previous behaviour exactly.
+ */
+function weatherAdjustment(c) {
+  const kinds = [];
+  if (c.roof === 'dome' || c.roof === 'closed') kinds.push('dome');
+  if (c.wind != null && c.wind >= 15) kinds.push('wind');
+  if (c.temp != null && c.temp < 32) kinds.push('cold');
+  let adj = 0;
+  for (const kind of kinds) adj += FLAT_WEATHER_POINTS[kind];
+  if (!kinds.length || !c.weather?.byTeam) return adj;
+
+  for (const team of [c.home, c.away]) {
+    const sens = c.weather.byTeam.get(team);
+    if (!sens) continue;
+    const plays = c.feat?.get(team)?.off_plays;
+    const snaps = plays != null && Number.isFinite(plays) && plays > 0 ? plays : DEFAULT_OFF_PLAYS;
+    let deviation = 0;
+    for (const kind of kinds) deviation += (sens[kind] ?? 0) * snaps;
+    const cap = weatherDeviationCap(kinds);
+    adj += Math.max(-cap, Math.min(cap, deviation));
+  }
+  return adj;
 }
 
 /** A matchup feature abstains unless both its offense and defense halves exist. */
@@ -580,17 +770,13 @@ const MODELS = [
   },
   {
     id: 'weather_total', name: 'Weather-adjusted total', family: 'Context',
-    note: 'Scoring environment adjusted for wind, cold and roof.',
+    note: 'Scoring environment adjusted for wind, cold and roof, plus how much each of these two offenses has actually moved in those conditions.',
     predict: (c) => {
       const base = ((c.agg.get(c.home)?.totals ?? []).length
         ? avg(c.agg.get(c.home).totals) : 44)
         * 0.5 + ((c.agg.get(c.away)?.totals ?? []).length
         ? avg(c.agg.get(c.away).totals) : 44) * 0.5;
-      let adj = 0;
-      if (c.roof === 'dome' || c.roof === 'closed') adj += 1.2;
-      if (c.wind != null && c.wind >= 15) adj -= 2.4;
-      if (c.temp != null && c.temp < 32) adj -= 1.6;
-      return { margin: null, total: base + adj };
+      return { margin: null, total: base + weatherAdjustment(c) };
     }
   },
 
@@ -776,7 +962,8 @@ export function completeWeekSplit(weekKeys) {
  * lets a fixture assert the window and the split boundary directly, rather
  * than inferring them from a fitted artifact.
  */
-export const __testables = { scheduleFaced, completeWeekSplit };
+export const __testables = { scheduleFaced, completeWeekSplit, weatherSensitivity, weatherAdjustment,
+  FLAT_WEATHER_POINTS, DEFAULT_OFF_PLAYS, weatherDeviationCap };
 
 /** Builds the context object every model reads, from games strictly earlier. */
 const _sharedContextCache = new Map();
@@ -791,6 +978,8 @@ function sharedContext(g, hist) {
     agg, recent, schedule: scheduleFaced(hist, { season: g.season, week: g.week }),
     massey: massey(hist), colley: colley(hist), melo: meloRatings(hist), dynamic: dynamicStrength(hist),
     feat: featureAggregates(g.season, g.week),
+    // Per-offense dome/cold/wind response, shrunk toward the league mean.
+    weather: weatherSensitivity(g.season, g.week),
     // Injury availability. The forecasting model has never had this — seventeen
     // thousand injury rows sat in a table nfl-ensemble.js never referenced.
     avail: availabilityDeficit(g.season, g.week),
@@ -937,6 +1126,7 @@ export function clearEnsembleLineCache() { _lineCache.clear(); }
 export function invalidateEnsembleCaches() {
   _cache.clear(); _calibrationCache.clear(); _lineCache.clear();
   _featureAggregateCache.clear(); _sharedContextCache.clear();
+  _weatherSensitivityCache.clear();
 }
 export function clearEnsembleCache() {
   invalidateEnsembleCaches();
@@ -1387,6 +1577,109 @@ export function challengerSignalWeek(season, week) {
         return { id: model.id, projected_margin: r2(prediction?.margin), projected_total: r2(prediction?.total) };
       }) };
   }) };
+}
+
+/**
+ * The exit test Giant Plan 7.5 asks this change to be judged on, as a function
+ * rather than a one-off script: replay every weather-affected game with only
+ * prior information, and report total-line error for the flat league constant
+ * and for the per-offense wiring SIDE BY SIDE on exactly the same games.
+ *
+ * The split that matters is pass-heavy versus run-heavy offenses. A flat wind
+ * penalty is a statement that wind costs a team that throws on seventy per
+ * cent of snaps the same points it costs a team that runs the ball -- which is
+ * where a single constant should be most wrong, and so where a per-team
+ * response should show up first if it is worth anything. Games are bucketed by
+ * the two offenses' combined pass rate over expected, measured from prior
+ * weeks like everything else here.
+ *
+ * This reports error, it does not decide anything. A component that does not
+ * lower error on held-out games has not earned its way into the blend, and the
+ * numbers this returns are the evidence either way.
+ */
+export function weatherComponentDiagnostic({ evalFrom = EVAL_FROM, minSeason = MIN_SEASON } = {}) {
+  const all = games(minSeason);
+  if (all.length < 200) return { error: `only ${all.length} games available — sync game lines first` };
+  const restMap = awayRest();
+  const weeks = [...new Set(all.filter(g => g.season >= evalFrom).map(g => `${g.season}|${g.week}`))]
+    .sort((a, b) => { const [sa, wa] = a.split('|').map(Number), [sb, wb] = b.split('|').map(Number); return sa - sb || wa - wb; });
+
+  const rowsOut = [];
+  for (const key of weeks) {
+    const [season, week] = key.split('|').map(Number);
+    const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
+    if (hist.length < 100) continue;
+    const slate = all.filter(g => g.season === season && g.week === week);
+    if (!slate.length) continue;
+    const base = buildContext(slate[0], hist, restMap);
+    for (const g of slate) {
+      if (g.total == null) continue;
+      const c = { ...base, home: g.home, away: g.away,
+        temp: g.temp, wind: g.wind, roof: g.roof };
+      const weatherActive = c.roof === 'dome' || c.roof === 'closed'
+        || (c.wind != null && c.wind >= 15) || (c.temp != null && c.temp < 32);
+      if (!weatherActive) continue;   // both variants are identical here by construction
+      const teamTotal = t => ((c.agg.get(t)?.totals ?? []).length ? avg(c.agg.get(t).totals) : 44);
+      const baseTotal = teamTotal(g.home) * 0.5 + teamTotal(g.away) * 0.5;
+      const wired = weatherAdjustment(c);
+      const flat = weatherAdjustment({ ...c, weather: null });
+      const proe = t => c.feat.get(t)?.off_proe;
+      const hp = proe(g.home), ap = proe(g.away);
+      rowsOut.push({
+        season, week, home: g.home, away: g.away,
+        roof: g.roof, temp: g.temp, wind: g.wind,
+        actual_total: g.home_score + g.away_score,
+        market_total: g.total,
+        wired_total: baseTotal + wired,
+        flat_total: baseTotal + flat,
+        combined_proe: hp == null || ap == null ? null : hp + ap
+      });
+    }
+  }
+  if (!rowsOut.length) return { error: 'no weather-affected games in the evaluation window' };
+
+  const withProe = rowsOut.filter(r => r.combined_proe != null).sort((a, b) => a.combined_proe - b.combined_proe);
+  const cut = Math.floor(withProe.length / 3);
+  const buckets = {
+    all: rowsOut,
+    run_heavy: withProe.slice(0, cut),
+    pass_heavy: withProe.slice(withProe.length - cut)
+  };
+  const score = list => {
+    if (!list.length) return null;
+    const err = (key) => list.map(r => r[key] - r.actual_total);
+    const stat = e => ({
+      rmse: +Math.sqrt(mean(e.map(x => x ** 2))).toFixed(4),
+      mae: +mean(e.map(Math.abs)).toFixed(4),
+      bias: +mean(e).toFixed(4)
+    });
+    const flat = stat(err('flat_total')), wired = stat(err('wired_total'));
+    // Paired, because both variants forecast the very same games: the question
+    // is whether the wiring helped game by game, not whether two independent
+    // samples happened to differ.
+    const paired = list.map(r => (r.wired_total - r.actual_total) ** 2 - (r.flat_total - r.actual_total) ** 2);
+    const pm = mean(paired);
+    const sd = paired.length > 1
+      ? Math.sqrt(paired.reduce((s, x) => s + (x - pm) ** 2, 0) / (paired.length - 1)) : null;
+    // How far the wiring actually moves a number. A change that cannot move a
+    // total by much cannot help much either, and cannot do much damage -- both
+    // halves of that are worth knowing before reading the error deltas.
+    const shifts = list.map(r => Math.abs(r.wired_total - r.flat_total));
+    return { n: list.length, flat, wired,
+      rmse_delta: +(wired.rmse - flat.rmse).toFixed(4),
+      mae_delta: +(wired.mae - flat.mae).toFixed(4),
+      paired_t: sd > 0 ? +(pm / (sd / Math.sqrt(paired.length))).toFixed(3) : null,
+      differing_games: shifts.filter(v => v > 1e-9).length,
+      mean_abs_shift: +mean(shifts).toFixed(4),
+      max_abs_shift: +Math.max(...shifts).toFixed(4) };
+  };
+  return {
+    eval_from: evalFrom,
+    weather_games: rowsOut.length,
+    splits: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, score(v)])),
+    note: 'rmse_delta/mae_delta are wired minus flat: negative means the per-offense wiring lowered error. ' +
+      'paired_t is on squared error, so a negative t is the wiring helping.'
+  };
 }
 
 export function modelCatalog() {

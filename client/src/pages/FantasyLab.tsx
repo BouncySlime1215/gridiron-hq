@@ -31,7 +31,7 @@ const GROUPS = [
     tabs: [
       ['registry', 'Registry'], ['accuracy', 'Accuracy'], ['odds', 'Championship Odds'],
       ['correlation', 'Correlation'], ['gamescript', 'Game Script'],
-      ['handcuffs', 'Handcuffs']
+      ['availability', 'Availability'], ['handcuffs', 'Handcuffs']
     ] as [string, string][]
   }
 ];
@@ -48,6 +48,7 @@ const BLURB: Record<string, string> = {
   odds: 'Championship odds from a correlated season simulation',
   correlation: 'What rises together, and what cannot',
   gamescript: 'What the betting line predicts about volume',
+  availability: 'Weekly injury report and practice status, folded into the forecast',
   handcuffs: 'Who inherits the work if someone goes down'
 };
 

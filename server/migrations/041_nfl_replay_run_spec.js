@@ -47,6 +47,8 @@ export function up(db) {
 }
 
 export function down(db) {
+  if (!columns(db, 'nfl_replay_runs').length) return; // table never created; nothing to unwind
+
   db.exec(`DROP INDEX IF EXISTS idx_nfl_replay_runs_spec_hash;`);
   // Additive nullable columns recording metadata, not evidence — safe to drop.
   db.exec(`ALTER TABLE nfl_replay_runs DROP COLUMN spec_hash;`);

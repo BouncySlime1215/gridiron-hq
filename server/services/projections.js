@@ -72,7 +72,7 @@ const K = {
 };
 
 // Recency weights. A role two years ago is weak evidence about this year's role.
-const SEASON_WEIGHT = (s, through) => ({ 0: 1, 1: 0.55, 2: 0.28 })[through - s] ?? 0.12;
+export const SEASON_WEIGHT = (s, through) => ({ 0: 1, 1: 0.55, 2: 0.28 })[through - s] ?? 0.12;
 
 /**
  * Build Order 1.3 — how fast evidence goes stale, as fittable parameters.

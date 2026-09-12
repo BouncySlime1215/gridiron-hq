@@ -101,11 +101,26 @@ export function openObservations({ season, week, experimentId, scheduleVersion =
  * A failure is recorded on the row rather than thrown: one game's collector
  * breaking must not stop the other fifteen from being captured, and the broken
  * one must be visible rather than absent.
+ *
+ * `cutoff_at <= now` used to be the whole predicate, with no floor. That let
+ * a `scheduled` row from well outside any real capture window — the
+ * collector was down for days, or a fixture never got cleaned up — sit here
+ * indefinitely, attempted on every single pass. `graceMinutes` bounds it to
+ * the same window `markMissedObservations` uses to decide a row was never
+ * running (below): the two predicates are complementary halves of one
+ * partition — this one owns `[now - grace, now]`, that one owns everything
+ * older — so a row is captured or marked missed exactly once, never both,
+ * and a pass that runs both (see `runT60Pass`) always calls this one FIRST.
+ * Calling `markMissedObservations` first would retire a row to `missed`
+ * before this function ever got the chance to freeze what may already have
+ * arrived for it.
  */
-export function captureDueObservations({ experimentId, now = new Date().toISOString() } = {}) {
+export function captureDueObservations({ experimentId, now = new Date().toISOString(),
+  graceMinutes = 10 } = {}) {
+  const cutoffFloor = new Date(Date.parse(now) - graceMinutes * 60_000).toISOString();
   const due = rows(`SELECT * FROM nfl_t60_observations
-    WHERE experiment_id=? AND state='scheduled' AND cutoff_at <= ?
-    ORDER BY cutoff_at, event_key`, experimentId, now);
+    WHERE experiment_id=? AND state='scheduled' AND cutoff_at <= ? AND cutoff_at >= ?
+    ORDER BY cutoff_at, event_key`, experimentId, now, cutoffFloor);
 
   const captured = [], failed = [];
   for (const observation of due) {
@@ -243,11 +258,13 @@ export function slotsHeldAt({ experimentId, season, week, at }) {
  * scheduling system, per section 7.1.
  */
 export function runT60Pass({ season, week, experimentId, scheduleVersion = null,
-  now = new Date().toISOString() } = {}) {
+  now = new Date().toISOString(), graceMinutes = 10 } = {}) {
   const startedAt = now;
   const opened = openObservations({ season, week, experimentId, scheduleVersion, now });
-  const captured = captureDueObservations({ experimentId, now });
-  const missed = markMissedObservations({ experimentId, now });
+  // Capture before marking missed: a row still inside the grace window
+  // belongs to the capture attempt above, never to the missed sweep below.
+  const captured = captureDueObservations({ experimentId, now, graceMinutes });
+  const missed = markMissedObservations({ experimentId, now, graceMinutes });
   return {
     runner_version: T60_RUNNER_VERSION, protocol_version: T60_PROTOCOL_VERSION,
     experiment_id: experimentId, season, week, started_at: startedAt,

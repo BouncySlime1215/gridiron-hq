@@ -49,14 +49,14 @@ if (!process.env.GRIDIRON_DB_PATH) {
   process.exit(1);
 }
 
-const { run } = await import(path.join(root, 'server/db/index.js'));
+const { run, rows } = await import(path.join(root, 'server/db/index.js'));
 await (await import(path.join(root, 'server/db/migrate.js')).catch(e => { throw e; })).runMigrations();
 
 const scoring = value('scoring', 'gaussian');
 let fixture = null;
 if (flag('fixture')) {
   const { seedEnsembleFixture } = await import(path.join(root, 'test/helpers/seed-ensemble-fixture.js'));
-  fixture = seedEnsembleFixture({ run }, {
+  fixture = seedEnsembleFixture({ run, rows }, {
     scoring,
     marketNoise: Number(value('fixture-market-noise', '1.6'))
   });

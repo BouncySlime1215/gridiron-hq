@@ -41,13 +41,13 @@ if (!process.env.GRIDIRON_DB_PATH) {
   process.exit(1);
 }
 
-const { run } = await import(path.join(root, 'server/db/index.js'));
+const { run, rows } = await import(path.join(root, 'server/db/index.js'));
 await (await import(path.join(root, 'server/db/migrate.js'))).runMigrations();
 
 let fixture = null;
 if (flag('fixture')) {
   const { seedEnsembleFixture } = await import(path.join(root, 'test/helpers/seed-ensemble-fixture.js'));
-  fixture = seedEnsembleFixture({ run }, {
+  fixture = seedEnsembleFixture({ run, rows }, {
     latentFactors: Number(value('fixture-factors', '3')),
     noise: Number(value('fixture-noise', '0.35'))
   });

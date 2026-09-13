@@ -29,7 +29,7 @@ import path from 'node:path';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-forecast-combination-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'fixture.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
-const { db, run, dbPath } = await import('../server/db/index.js');
+const { db, run, rows, dbPath } = await import('../server/db/index.js');
 assert.equal(dbPath, process.env.GRIDIRON_DB_PATH,
   'a combination test must never be able to reach the real database');
 await (await import('../server/db/migrate.js')).runMigrations();
@@ -437,7 +437,7 @@ test('KNOWN CASE: where no signal exists, the bake-off does NOT manufacture one'
 
 test('LOAD-BEARING: the replayed incumbent reproduces fitEnsemble exactly', async () => {
   const { seedEnsembleFixture } = await import('./helpers/seed-ensemble-fixture.js');
-  seedEnsembleFixture({ run }, { latentFactors: 3, noise: 0.35 });
+  seedEnsembleFixture({ run, rows }, { latentFactors: 3, noise: 0.35 });
   const ensemble = await import('../server/services/nfl-ensemble.js');
 
   const CUTOFF = 2023;   // at or after the 2022 calibration boundary, so the

@@ -295,10 +295,10 @@ const STAGE2_LOSSES = {
  * fix that cannot be got subtly wrong.
  */
 async function emitStage2Fixture(marketNoise, outPath) {
-  const { run } = await import(path.join(root, 'server/db/index.js'));
+  const { run, rows } = await import(path.join(root, 'server/db/index.js'));
   await (await import(path.join(root, 'server/db/migrate.js'))).runMigrations();
   const { seedEnsembleFixture } = await import(path.join(root, 'test/helpers/seed-ensemble-fixture.js'));
-  const fixture = seedEnsembleFixture({ run }, { latentFactors: 3, noise: 0.35, marketNoise });
+  const fixture = seedEnsembleFixture({ run, rows }, { latentFactors: 3, noise: 0.35, marketNoise });
 
   const ensemble = await import(path.join(root, 'server/services/nfl-ensemble.js'));
   const combo = await import(path.join(root, 'server/services/forecast-combination.js'));

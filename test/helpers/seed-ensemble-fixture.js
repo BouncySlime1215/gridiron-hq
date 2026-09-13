@@ -187,13 +187,33 @@ const FEATURE_SPEC = [
  *   both modes and discarded in one, so features, weather and the market's
  *   noise term are bit-identical across the pair.
  */
-export function seedEnsembleFixture({ run }, {
+export function seedEnsembleFixture({ run, rows = null }, {
   seasons = [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
   weeksPerSeason = 17, latentFactors = 3, noise = 0.35, seed = 20260912,
   marketNoise = 1.6,
   scoring = 'gaussian',
-  teams = FIXTURE_TEAMS
+  teams = FIXTURE_TEAMS,
+  allowNonEmpty = false
 } = {}) {
+  // Refuse to write a synthetic league on top of real history.
+  //
+  // Every caller's documentation already says "ONLY valid against an empty
+  // scratch database", but nothing enforced it: the report scripts check that
+  // GRIDIRON_DB_PATH is SET, never that it points somewhere disposable. So
+  // `GRIDIRON_DB_PATH=server/data.sqlite node scripts/ensemble-rank-report.mjs
+  // --fixture` would have migrated and then seeded a synthetic league straight
+  // into the real database, and no synthetic row here is distinguishable from a
+  // real one afterwards. The guard lives in the seeder rather than in each
+  // script so that every caller inherits it, including ones not written yet.
+  if (!allowNonEmpty && typeof rows === 'function') {
+    const existing = rows('SELECT COUNT(*) n FROM game_lines')[0]?.n ?? 0;
+    if (existing > 0) {
+      throw new Error(`refusing to seed the synthetic fixture: game_lines already holds ${existing} ` +
+        'row(s). This writes a fabricated league that cannot be told apart from real history ' +
+        'afterwards. Point GRIDIRON_DB_PATH at a fresh scratch path, or pass allowNonEmpty to ' +
+        'say the existing rows are themselves disposable.');
+    }
+  }
   const rand = mulberry32(seed);
   // A dedicated stream for the drive simulation. Separate so that switching
   // `scoring` changes the scoreboard and nothing else whatsoever.

@@ -21,8 +21,34 @@
 import { rows } from '../db/index.js';
 import { normalCdf, mean, stdev } from './stats-util.js';
 import { shinNoVig } from './nfl-devig.js';
+import { buildConformal, recencyWeights, weightedDraw } from './conformal.js';
 
 const LEAGUE_MIN_SEASON = 1999;
+
+/**
+ * Mondrian bins for the conformal calibration (Giant Plan 7.3, fix #15).
+ *
+ * The binning feature is the MARKET's spread, not the model's own predicted
+ * margin. Both are known before kickoff, so either is legal, but only one of
+ * them carries information about how wrong the model is about to be: on the
+ * 2022-2025 walk-forward residuals the margin-error SD is flat across the
+ * model's own |predicted margin| (12.7 / 12.7 / 13.6 / 13.2 points) and rises
+ * monotonically across the market's |spread| (12.1 / 12.4 / 14.2 / 14.4). Big
+ * favourites really do produce more variable margins; the model's own guess at
+ * who the big favourite is, is too noisy to sort games by.
+ *
+ * Totals bin on the market total for the same reason — a 51-point environment
+ * misses by more than a 39-point one.
+ */
+const MARGIN_BIN_EDGES = [3, 6.5, 10];
+const TOTAL_BIN_EDGES = [44, 48];
+const MIN_BIN_CALIBRATION = 150;
+
+/** Binning feature for a game's margin interval: the market spread when quoted. */
+const marginBinKey = (game, predMargin) =>
+  game?.home_spread != null ? Math.abs(game.home_spread) : Math.abs(predMargin ?? 0);
+/** Binning feature for a game's total interval: the market total when quoted. */
+const totalBinKey = (game, predTotal) => (game?.total != null ? game.total : predTotal);
 
 /** One row per real game (not the doubled team-rows game_lines stores), chronological. */
 function historicalGames() {
@@ -176,9 +202,28 @@ export function fitRatings({ selectionThrough = null } = {}) {
   const marginStd = stdev(marginResiduals);
   const totalStd = stdev(totalResiduals);
 
+  // Split-conformal calibration off the same walk-forward residuals. Each of
+  // these residuals came from a prediction made with ratings that only saw
+  // strictly earlier games, which is what makes them a legal calibration set
+  // rather than an in-sample fit of their own spread.
+  const marginConformal = buildConformal(
+    warm.map((r, i) => ({ key: marginBinKey(r.g, r.predMargin), residual: marginResiduals[i] })),
+    { edges: MARGIN_BIN_EDGES, minBin: MIN_BIN_CALIBRATION });
+  const totalConformal = buildConformal(
+    warm.map((r, i) => ({ key: totalBinKey(r.g, r.predTotal), residual: totalResiduals[i] })),
+    { edges: TOTAL_BIN_EDGES, minBin: MIN_BIN_CALIBRATION });
+
+  // Recency weights for the bootstrap. The fitted season carryover is reused as
+  // the decay: the model has already estimated, from this data, how fast a
+  // season's information stops describing the next one.
+  const residualSeasons = warm.map(r => r.g.season);
+  const marginWeights = recencyWeights(residualSeasons, { decay: best.carryover });
+  const totalWeights = marginWeights;
+
   return {
     off, def, hfa, leagueAvg, alpha: best.alpha, carryover: best.carryover, fitWindow,
     marginStd, totalStd, marginBias, totalBias, marginResiduals, totalResiduals, results,
+    marginConformal, totalConformal, residualSeasons, marginWeights, totalWeights,
     warmGames: warm.length, totalGames: games.length,
     // The last season with a completed game in the data. `simulate()` only
     // decays ratings at a season boundary it actually walks through, and with
@@ -196,11 +241,11 @@ export function fitRatings({ selectionThrough = null } = {}) {
  * more than a bell curve predicts), and this way the tails come from games
  * that actually happened rather than an assumed shape.
  */
-function bootstrapProb(predicted, threshold, residuals, trials) {
+function bootstrapProb(predicted, threshold, residuals, trials, weights = null) {
   // A board must not change merely because it was refreshed. Seed a tiny local
   // generator from the exact question being asked rather than Math.random().
   // Replays and UI checks are therefore reproducible without sharing RNG state.
-  const seedText = `${predicted}|${threshold}|${residuals.length}|${trials}`;
+  const seedText = `${predicted}|${threshold}|${residuals.length}|${trials}|${weights ? weights.decay : 'flat'}`;
   let seed = 2166136261;
   for (let i = 0; i < seedText.length; i++) {
     seed ^= seedText.charCodeAt(i);
@@ -212,9 +257,20 @@ function bootstrapProb(predicted, threshold, residuals, trials) {
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
+  // Recency-weighted resampling (Giant Plan 7.3, fix #16). The previous draw was
+  // uniform over 1999-2024, which treats a 1999 miss as exactly as relevant to
+  // next Sunday as a 2024 one — while this same file fits, and then uses, a
+  // season-carryover decay precisely because a season's information does NOT
+  // survive intact into the next. The weights below apply that fitted decay to
+  // the residual pool too, so the two halves of the model finally agree about
+  // how fast the past stops mattering.
+  const useWeights = weights && weights.cumulative?.length === residuals.length && weights.total > 0;
   let hits = 0;
   for (let i = 0; i < trials; i++) {
-    const draw = residuals[(next() * residuals.length) | 0];
+    const u = next();
+    const draw = useWeights
+      ? residuals[weightedDraw(weights.cumulative, weights.total, u)]
+      : residuals[(u * residuals.length) | 0];
     if (predicted + draw > threshold) hits++;
   }
   return hits / trials;
@@ -288,7 +344,7 @@ export function boardFor(season, week, trials = 20000) {
     if (pred.error) continue;
 
     if (g.home_ml != null && away?.moneyline != null) {
-      const homeModelP = bootstrapProb(pred.predicted_margin, 0, m.marginResiduals, trials);
+      const homeModelP = bootstrapProb(pred.predicted_margin, 0, m.marginResiduals, trials, m.marginWeights);
       const homeMarketP = noVigProb(g.home_ml, away.moneyline);
       if (homeMarketP != null) {
         const homeEdge = homeModelP - homeMarketP;
@@ -306,7 +362,7 @@ export function boardFor(season, week, trials = 20000) {
       }
     }
     if (g.home_spread != null && g.home_spread_odds != null && away?.spread_odds != null) {
-      const homeModelP = bootstrapProb(pred.predicted_margin, -g.home_spread, m.marginResiduals, trials);
+      const homeModelP = bootstrapProb(pred.predicted_margin, -g.home_spread, m.marginResiduals, trials, m.marginWeights);
       const homeMarketP = noVigProb(g.home_spread_odds, away.spread_odds);
       if (homeMarketP != null) {
         const homeEdge = homeModelP - homeMarketP;
@@ -329,7 +385,7 @@ export function boardFor(season, week, trials = 20000) {
       }
     }
     if (g.total != null && g.total_over_odds != null && g.total_under_odds != null) {
-      const overModelP = bootstrapProb(pred.predicted_total, g.total, m.totalResiduals, trials);
+      const overModelP = bootstrapProb(pred.predicted_total, g.total, m.totalResiduals, trials, m.totalWeights);
       const overMarketP = noVigProb(g.total_over_odds, g.total_under_odds);
       if (overMarketP != null) {
         const overEdge = overModelP - overMarketP;
@@ -411,10 +467,30 @@ export function nestedEvaluationRows({ seasonsBack = 4 } = {}) {
     const totalBias = mean(totalResiduals);
     const marginStd = stdev(marginResiduals.map(v => v - marginBias)) || 14;
     const totalStd = stdev(totalResiduals.map(v => v - totalBias)) || 10;
+    // Conformal calibration for this fold, fitted on the training seasons only.
+    // It travels with the held-out rows so every downstream audit grades the
+    // same interval the board would have shown, not a refitted one.
+    const marginConformal = buildConformal(
+      warmTrain.map((r, i) => ({ key: marginBinKey(r.g, r.predMargin), residual: marginResiduals[i] - marginBias })),
+      { edges: MARGIN_BIN_EDGES, minBin: MIN_BIN_CALIBRATION });
+    const totalConformal = buildConformal(
+      warmTrain.map((r, i) => ({ key: totalBinKey(r.g, r.predTotal), residual: totalResiduals[i] - totalBias })),
+      { edges: TOTAL_BIN_EDGES, minBin: MIN_BIN_CALIBRATION });
+    // The exact resampling pool the board would have drawn from for this fold,
+    // carried on the rows so an audit can replay the bootstrap it actually ran
+    // rather than a refitted approximation of it. One shared object per fold.
+    const bootstrapPool = {
+      margin: marginResiduals.map(v => v - marginBias),
+      total: totalResiduals.map(v => v - totalBias),
+      seasons: warmTrain.map(r => r.g.season),
+      decay: best.carryover
+    };
+    bootstrapPool.weights = recencyWeights(bootstrapPool.seasons, { decay: best.carryover });
     const combined = simulate([...train, ...test], { ...best, hfa, leagueAvg });
     const held = combined.results.filter(r => r.g.season === season)
       .map(r => ({ ...r, predMargin: r.predMargin + marginBias,
-        predTotal: r.predTotal + totalBias, marginStd, totalStd }));
+        predTotal: r.predTotal + totalBias, marginStd, totalStd,
+        marginConformal, totalConformal, bootstrapPool }));
     evaluated.push(...held);
     perSeason.push(scoreAccuracy(held, season, best));
   }
@@ -428,11 +504,66 @@ export function nestedEvaluationRows({ seasonsBack = 4 } = {}) {
   return out;
 }
 
+/**
+ * Interval coverage is the honest test of an uncertainty claim: an 80% interval
+ * has to contain the truth 80% of the time, and it has to do that inside every
+ * slice a bet can be placed in, not just on average. Marginal coverage alone can
+ * be perfect while the pick'ems over-cover and the double-digit favourites
+ * under-cover in equal and opposite amounts — which is precisely the failure a
+ * single pooled SD produces, and precisely the one that costs money, because the
+ * staking rule reads the width of the game in front of it.
+ */
+function coverageReport(usable, interval, key) {
+  const bins = new Map();
+  let hits = 0, width = 0, graded = 0;
+  for (const r of usable) {
+    const iv = interval(r);
+    if (!iv) continue;
+    graded++;
+    const truth = key(r);
+    const inside = truth >= iv[0] && truth <= iv[1];
+    if (inside) hits++;
+    width += iv[1] - iv[0];
+    const b = binLabelFor(r);
+    const e = bins.get(b) ?? { n: 0, hits: 0, width: 0 };
+    e.n++; e.hits += inside ? 1 : 0; e.width += iv[1] - iv[0];
+    bins.set(b, e);
+  }
+  if (!graded) return null;
+  const perBin = [...bins.entries()].map(([label, e]) => ({
+    bin: label, n: e.n, coverage: +(e.hits / e.n).toFixed(4), mean_width: +(e.width / e.n).toFixed(2)
+  })).sort((a, b) => (a.bin < b.bin ? -1 : 1));
+  return {
+    games: graded,
+    coverage: +(hits / graded).toFixed(4),
+    mean_width: +(width / graded).toFixed(2),
+    // One number for "how badly does coverage depend on which game it is" —
+    // the worst slice's distance from nominal, weighted slices ignored, because
+    // the worst slice is the one a bet lands in when it goes wrong.
+    max_bin_coverage_error: +Math.max(...perBin.map(b => Math.abs(b.coverage - 0.80))).toFixed(4),
+    per_bin: perBin
+  };
+}
+
+const binLabelFor = r => {
+  const k = marginBinKey(r.g, r.predMargin);
+  return k < MARGIN_BIN_EDGES[0] ? `0-${MARGIN_BIN_EDGES[0]}`
+    : k < MARGIN_BIN_EDGES[1] ? `${MARGIN_BIN_EDGES[0]}-${MARGIN_BIN_EDGES[1]}`
+    : k < MARGIN_BIN_EDGES[2] ? `${MARGIN_BIN_EDGES[1]}-${MARGIN_BIN_EDGES[2]}`
+    : `${MARGIN_BIN_EDGES[2]}+`;
+};
+
 function scoreAccuracy(usable, season = null, params = null) {
   let correct = 0, brierSum = 0;
   const marginErrs = [], totalErrs = [], marketMarginErrs = [], marketTotalErrs = [];
   for (const r of usable) {
-    const p = normalCdf(r.predMargin / r.marginStd);
+    // Win probability now comes from the bin's own empirical residual
+    // distribution rather than a normal curve on one pooled SD, so the
+    // probability and the interval are two readings of one calibration set
+    // instead of two independent assumptions that can disagree.
+    const p = r.marginConformal
+      ? r.marginConformal.probabilityAbove(r.predMargin, marginBinKey(r.g, r.predMargin), 0)
+      : normalCdf(r.predMargin / r.marginStd);
     const actualWin = r.actualMargin > 0 ? 1 : 0;
     if ((p > 0.5 ? 1 : 0) === actualWin) correct++;
     brierSum += (p - actualWin) ** 2;
@@ -448,7 +579,15 @@ function scoreAccuracy(usable, season = null, params = null) {
     margin_mae: +mean(marginErrs).toFixed(2),
     total_mae: +mean(totalErrs).toFixed(2),
     market_margin_mae: marketMarginErrs.length ? +mean(marketMarginErrs).toFixed(2) : null,
-    market_total_mae: marketTotalErrs.length ? +mean(marketTotalErrs).toFixed(2) : null
+    market_total_mae: marketTotalErrs.length ? +mean(marketTotalErrs).toFixed(2) : null,
+    margin_interval_80: coverageReport(usable,
+      r => r.marginConformal?.interval(r.predMargin, marginBinKey(r.g, r.predMargin), 0.80)
+        ?? [r.predMargin - 1.2816 * r.marginStd, r.predMargin + 1.2816 * r.marginStd],
+      r => r.actualMargin),
+    total_interval_80: coverageReport(usable,
+      r => r.totalConformal?.interval(r.predTotal, totalBinKey(r.g, r.predTotal), 0.80)
+        ?? [r.predTotal - 1.2816 * r.totalStd, r.predTotal + 1.2816 * r.totalStd],
+      r => r.actualTotal)
   };
   if (season != null) out.season = season;
   if (params) { out.fitted_alpha = params.alpha; out.fitted_carryover = params.carryover; }

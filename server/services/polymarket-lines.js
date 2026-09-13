@@ -23,6 +23,7 @@
 import { rows, run } from '../db/index.js';
 import { lineMoveValue } from './nfl-execution-edge.js';
 import { teamResolver } from './book-feeds.js';
+import { teamCodeFor } from './team-codes.js';
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const SPREAD_STEP = 0.5;   // log a move once the implied spread has shifted this much
@@ -247,11 +248,23 @@ export function pollPolymarketLines({ sinceHours = 72, rebuild = false } = {}) {
 export async function refreshPolymarketLineWatch() {
   const result = pollPolymarketLines();
   if (result.detected.length) {
-    // Map to the ESPN event id the capture dispatcher keys on.
+    // Map to the ESPN event id the capture dispatcher keys on. Both sides of
+    // the join are routed through the same canonical-team resolver
+    // (team-codes.js's teamCodeFor, audit-consolidation stage 3): `d.home`/
+    // `d.away` are already resolved abbreviations (polymarket-lines.js's own
+    // `teamResolver()` sets them), but `espn_line_moves.home_team`/
+    // `away_team` are ESPN's raw feed spelling — comparing those raw against
+    // the resolved abbreviations as strings would almost never match.
     const espn = new Map(rows(`SELECT event_id, home_team, away_team FROM espn_line_moves
-      WHERE id IN (SELECT MAX(id) FROM espn_line_moves GROUP BY event_id)`).map(r => [`${r.away_team}@${r.home_team}`, r.event_id]));
+      WHERE id IN (SELECT MAX(id) FROM espn_line_moves GROUP BY event_id)`)
+      .map(r => {
+        const home = teamCodeFor(r.home_team), away = teamCodeFor(r.away_team);
+        return home && away ? [`${away}@${home}`, r.event_id] : null;
+      })
+      .filter(Boolean));
     const triggers = result.detected
-      .map(d => ({ event_id: espn.get(`${d.away}@${d.home}`) ?? `pm:${d.event_title}`, spread_delta: d.spread_delta, move_value: d.move_value }));
+      .map(d => ({ event_id: espn.get(`${teamCodeFor(d.away)}@${teamCodeFor(d.home)}`) ?? `pm:${d.event_title}`,
+        spread_delta: d.spread_delta, move_value: d.move_value }));
     try {
       const dispatch = await import('./nfl-capture-dispatch.js');
       result.triggers = dispatch.enqueueEspnMoveTriggers(triggers, result.observed_at);

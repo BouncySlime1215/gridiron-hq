@@ -2,10 +2,12 @@
  * Legacy schema fragment: core-and-fantasy.
  *
  * Every statement below is lifted verbatim (same column order, defaults,
- * constraint text and inline comments) from the source files in `sources`,
- * which still run the originals at import time until the removal phase. See
- * server/db/schema/README.md for the contract and core-and-fantasy.manifest.json
- * for the line ranges each statement came from.
+ * constraint text and inline comments) from the source files in `sources`.
+ * Phase 2 removed their own copies, so importing one of those files can no
+ * longer create, alter or silently redefine a table — see server/db/index.js's
+ * comment on applyLegacySchema() for that proof. See server/db/schema/README.md
+ * for the contract and core-and-fantasy.manifest.json for the line ranges each
+ * statement came from.
  *
  * File order follows the production import order (server/index.js top-level
  * imports, then scripts/schema-files.txt) with server/db/index.js first, since

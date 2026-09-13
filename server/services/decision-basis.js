@@ -128,7 +128,7 @@ export async function recordSeasonBases({ season = 2024, maxBets = 200 } = {}) {
   const { replaySeason } = await import('./nfl-replay.js');
   const { ensembleLine } = await import('./nfl-ensemble.js');
   const rep = replaySeason(season, { minEdge: 0, maxDisagreement: null,
-    maxPicksPerWeek: 20, markets: ['spread'] });
+    maxPicksPerWeek: 20, markets: ['spread'], blendMode: 'raw' });
   if (rep.error) return { error: rep.error };
 
   const bets = rep.bets.filter(b => ['Won', 'Lost'].includes(b.result)).slice(0, maxBets);

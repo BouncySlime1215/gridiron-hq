@@ -1265,7 +1265,16 @@ export function crossBothReproduction({ model = null, points = TEASER_POINTS, li
   };
 }
 
-function scoreLeg(probability, won) {
+/**
+ * Log-loss and Brier for one binary prediction.
+ *
+ * Exported so that other held-out scorers use THIS one rather than each
+ * inventing its own clipping constant and its own sign convention — the
+ * simulator's shape harness (`server/services/nfl-sim-shape-calibration.js`)
+ * scores key-number events with it, which is the whole reason those two sets
+ * of numbers can be compared to each other at all.
+ */
+export function scoreLeg(probability, won) {
   const p = Math.min(1 - 1e-12, Math.max(1e-12, probability));
   return { logLoss: -(won ? Math.log(p) : Math.log(1 - p)), brier: (p - (won ? 1 : 0)) ** 2 };
 }

@@ -22,6 +22,7 @@ import { createGunzip } from 'node:zlib';
 import { Readable } from 'node:stream';
 import { db, rows, run } from '../db/index.js';
 import { recordSync } from './scheduler.js';
+import { recordRevision } from './nfl-bitemporal.js';
 
 const REL = 'https://github.com/nflverse/nflverse-data/releases/download';
 export const depthChartReleaseUrl = season => `${REL}/depth_charts/depth_charts_${season}.csv`;
@@ -302,6 +303,39 @@ function weekFromDate(season, dt) {
 
 /* ---------------------------------------------------------------- injuries */
 
+/**
+ * How long after a source publishes an injury-report update this sync can
+ * still credibly claim to have received it while it was current. A report is
+ * a weekly artifact -- Wednesday/Thursday/Friday practice designations built
+ * toward one Sunday game -- so a value the source says it modified more than
+ * this many days before we observe it was not received live; we are reading
+ * it out of the nflverse archive after the fact, the same distinction
+ * migration 032 already draws for quote batches ('legacy_request_time_only').
+ * Ten days rather than seven leaves slack for a Thursday game or a bye week
+ * without changing what the window is for.
+ */
+const INJURY_LIVE_CAPTURE_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
+
+/**
+ * Giant Plan 8.14: `nfl_injuries` UPSERTs a player-week's report in place, so
+ * Wednesday's "full participation" leaves no trace once Friday's designation
+ * overwrites it. That is exactly the gap nfl-bitemporal.js exists to close --
+ * see its header -- so every row whose report/practice status or injury type
+ * actually changed also gets appended to `nfl_feature_revisions` before the
+ * mutable table is overwritten. `nfl_injuries` keeps being written and stays
+ * the correct place to ask "what does the report say right now"; the
+ * revision store is now where "what did we know as of a given moment" lives,
+ * and nfl-t60-packet.js's injury read is wired to it below.
+ *
+ * A revision is appended only when the value is new or has changed. Calling
+ * recordRevision on every unchanged re-sync would still be safe --
+ * `nfl_feature_revisions` is keyed so an identical (entity, feature,
+ * published_at, value, source, observed_at) tuple is a no-op -- but a
+ * periodic sync passes a fresh `observedAt` every run, which would still
+ * manufacture a new, distinct revision for a fact the source never actually
+ * restated. Comparing against the row already on file is what makes "the
+ * source said it again" and "we merely asked again" distinguishable.
+ */
 export async function syncInjuries(seasons) {
   const stmt = db.prepare(`INSERT INTO nfl_injuries
       (season, week, gsis_id, team, full_name, position, report_status, practice_status, injury,modified_at)
@@ -309,8 +343,12 @@ export async function syncInjuries(seasons) {
     ON CONFLICT(season, week, gsis_id) DO UPDATE SET
       report_status=excluded.report_status, practice_status=excluded.practice_status,
       injury=excluded.injury,modified_at=excluded.modified_at`);
+  const existingStmt = db.prepare(`SELECT report_status, practice_status, injury
+    FROM nfl_injuries WHERE season=? AND week=? AND gsis_id=?`);
   let total = 0;
+  let revised = 0;
   const failures = [];
+  const revisionFailures = [];
   for (const season of seasons) {
     const batch = [];
     try {
@@ -328,12 +366,53 @@ export async function syncInjuries(seasons) {
       failures.push({ season, source: `${REL}/injuries/injuries_${season}.csv`, error: error.message });
       continue;
     }
+    // One capture instant for every row this fetch returned -- the same
+    // convention nfl_quote_batches uses for its own receipt clock: everything
+    // in this HTTP response was observed by this machine at the same moment,
+    // whatever each row's own source-claimed modified date says.
+    const observedAt = new Date().toISOString();
     db.exec('BEGIN');
-    try { for (const b of batch) stmt.run(...b); db.exec('COMMIT'); }
+    try {
+      for (const b of batch) {
+        const [rSeason, rWeek, gsisId, , , , reportStatus, practiceStatus, injury, dateModified] = b;
+        const existing = existingStmt.get(rSeason, rWeek, gsisId);
+        if (!existing || existing.report_status !== reportStatus
+          || existing.practice_status !== practiceStatus || existing.injury !== injury) {
+          try {
+            // No date_modified (the audit's own finding: some rows carry
+            // none) leaves this machine's own capture instant as the only
+            // defensible publishedAt -- a lower bound, not a claim about when
+            // the source actually published it -- so that case is always
+            // 'reconstructed' rather than let a zero gap read as 'captured'
+            // by accident.
+            const publishedAt = dateModified || observedAt;
+            const provenance = dateModified
+              && (new Date(observedAt).getTime() - new Date(publishedAt).getTime()) >= 0
+              && (new Date(observedAt).getTime() - new Date(publishedAt).getTime()) <= INJURY_LIVE_CAPTURE_WINDOW_MS
+              ? 'captured' : 'reconstructed';
+            recordRevision({
+              entity: `player:${gsisId}:${rSeason}:${rWeek}`, feature: 'injury_report',
+              value: { report_status: reportStatus, practice_status: practiceStatus, injury },
+              publishedAt, observedAt, provenance, sourceId: 'nflverse_injuries'
+            });
+            revised++;
+          } catch (revisionError) {
+            // A malformed date_modified (or any other recordRevision refusal)
+            // must not take the whole season's sync down with it -- the same
+            // fail-open-on-one-row policy syncAllAdvanced already applies at
+            // the feed level. The mutable row below is still written either way.
+            revisionFailures.push({ season: rSeason, week: rWeek, gsis_id: gsisId, error: revisionError.message });
+          }
+        }
+        stmt.run(...b);
+      }
+      db.exec('COMMIT');
+    }
     catch (e) { db.exec('ROLLBACK'); throw e; }
     total += batch.length;
   }
-  return { rows: total, requested_seasons: seasons, failures,
+  return { rows: total, revisions_recorded: revised, revision_failures: revisionFailures,
+    requested_seasons: seasons, failures,
     complete: failures.length === 0,
     policy: 'A failed source is reported explicitly and is never interpreted as an empty injury week.' };
 }

@@ -162,8 +162,8 @@ const result = await runAudit(filed.audit_id, async () => {
 
   return {
     observed: rate,
-    sampleSize: n,
-    pValue: p,
+    sample_size: n,
+    p_value: p,
     detail: {
       bets: n, wins, losses: n - wins,
       win_rate: +rate.toFixed(4),

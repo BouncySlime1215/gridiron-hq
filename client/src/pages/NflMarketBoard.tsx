@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { api, useApi } from '../api';
 import { americanFmt, pct } from './props/lib';
 import { BettingWorkspace, NextAction, WorkspaceNav } from '../components/betting/BettingWorkspace';
@@ -79,7 +79,10 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
   const [decideView, setDecideView] = useState<DecideView>(initialTool === 'props' ? 'props' : 'games');
   const [executeView, setExecuteView] = useState<ExecuteView>(initialTool === 'venues' ? 'venues' : initialTool === 'lines' ? 'shop' : initialTool === 'watch' ? 'watch' : initialTool === 'ledger' ? 'ledger' : 'edge');
   const [proofView, setProofView] = useState<ProofView>(() => initialProofView(initialTool));
-  const [week, setWeek] = useState(1);
+  // Unset until the server tells us the live week (below) — a hardcoded 1 here
+  // was correct for exactly the first week of the season and stale every week
+  // after that, since nothing ever moved it forward again.
+  const [week, setWeek] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
@@ -89,8 +92,15 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
 
   const hub = useApi<HubStatus>('/betting/status');
   const aiAudit = useApi<AiAuditSummary>('/nfl-betting/ai-replay/latest');
-  const candidates = useApi<CandidatePayload>(section === 'board' && decideView === 'games' ? `/nfl-market/picks/candidates?season=2026&week=${week}` : null);
-  const bets = useApi<{ bets: TrackedBet[] }>(section === 'board' && decideView === 'games' ? `/nfl-market/bets?season=2026&week=${week}` : null);
+  // While `week` is still unknown, the request omits it — the server defaults
+  // to the live NFL week itself (first week with an unplayed game) and echoes
+  // it back on the response, which the effect below adopts exactly once.
+  const candidates = useApi<CandidatePayload>(section === 'board' && decideView === 'games'
+    ? `/nfl-market/picks/candidates?season=2026${week != null ? `&week=${week}` : ''}` : null);
+  useEffect(() => {
+    if (week == null && candidates.data?.week != null) setWeek(candidates.data.week);
+  }, [week, candidates.data?.week]);
+  const bets = useApi<{ bets: TrackedBet[] }>(section === 'board' && decideView === 'games' && week != null ? `/nfl-market/bets?season=2026&week=${week}` : null);
   const rows = useMemo(() => candidates.data?.all_games?.filter(game => game.market === 'spread') ?? [], [candidates.data]);
   const teaser = hub.data?.edges.find(edge => edge.id === 'teasers');
   const latestAi = aiAudit.data?.run;
@@ -140,7 +150,7 @@ export default function NflMarketBoard({ initialTool = 'edges' }: { initialTool?
   return <BettingWorkspace sport="nfl" title="NFL Betting Desk"
     description="One board for decisions, one execution workflow, one live view, and one engine room. Every component feeds the same evidence-gated system."
     activeStage={activeStage}
-    actions={section === 'board' ? <><select aria-label="NFL week" value={week} onChange={event => setWeek(Number(event.target.value))} className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-bold text-white">{Array.from({ length: 18 }, (_, index) => <option className="text-slate-900" key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><button onClick={refreshLines} disabled={running} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-950">Refresh prices</button></> : undefined}>
+    actions={section === 'board' ? <><select aria-label="NFL week" value={week ?? 1} onChange={event => setWeek(Number(event.target.value))} className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-bold text-white">{Array.from({ length: 18 }, (_, index) => <option className="text-slate-900" key={index + 1} value={index + 1}>Week {index + 1}</option>)}</select><button onClick={refreshLines} disabled={running} className="rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-950">Refresh prices</button></> : undefined}>
 
     {/* PageExplainContext.Provider now lives at the App.tsx root, but
         usePageExplain() still needs to run from a component that's actually

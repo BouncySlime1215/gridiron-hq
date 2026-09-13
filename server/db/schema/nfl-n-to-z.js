@@ -414,13 +414,27 @@ export function tables(db) {
 `);
 
   // server/services/nfl-replay.js
+  //
+  // spec_json/spec_hash (migration 041): the run's ensemble blend spec --
+  // blendMode and modelOptions -- and a hash of it, so runs can be grouped or
+  // compared by spec without parsing the config column's free-form JSON.
+  //
+  // Deliberately documented here rather than in a SQL comment inside the
+  // CREATE TABLE below: this text is persisted verbatim into sqlite_master,
+  // and a comma anywhere in a `--` comment sitting above a column makes
+  // SQLite's ALTER TABLE ... DROP COLUMN rewrite of this table's schema fail
+  // with "incomplete input" (reproduced directly against node:sqlite) --
+  // it appears to count commas without skipping comment text when relocating
+  // column boundaries. Keep this table's CREATE statement comment-free.
   db.exec(`
   CREATE TABLE IF NOT EXISTS nfl_replay_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     season INTEGER NOT NULL, label TEXT, created_at TEXT NOT NULL,
     bets INTEGER, wins INTEGER, losses INTEGER, pushes INTEGER,
-    units REAL, roi REAL, config TEXT
+    units REAL, roi REAL, config TEXT,
+    spec_json TEXT, spec_hash TEXT
   );
+  CREATE INDEX IF NOT EXISTS idx_nfl_replay_runs_spec_hash ON nfl_replay_runs(spec_hash);
   CREATE TABLE IF NOT EXISTS nfl_replay_bets (
     run_id INTEGER NOT NULL, season INTEGER, week INTEGER,
     home TEXT, away TEXT, market TEXT, side TEXT, line REAL,

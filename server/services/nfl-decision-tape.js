@@ -1,12 +1,13 @@
 /**
  * The append-only decision tape.
  *
- * `persistPickDecisions` (nfl-auto-picks.js) writes a MUTABLE latest view: it
- * UPSERTs over (season, week, policy_id, matchup, market, selection) -- a key
- * that omits policy_version -- so re-running the board after a line moved
- * overwrites what the model actually decided before it moved. And the
- * execution pipeline only wrote evidence for candidates it SELECTED, so a run
- * that selected nothing left no record that anything was ever considered.
+ * `nfl_pick_decisions` used to be a MUTABLE latest view written independently
+ * by its own caller: it UPSERTs over (season, week, policy_id, matchup,
+ * market, selection) -- a key that omits policy_version -- so re-running the
+ * board after a line moved overwrites what the model actually decided before
+ * it moved. And the execution pipeline only wrote evidence for candidates it
+ * SELECTED, so a run that selected nothing left no record that anything was
+ * ever considered.
  *
  * This module is the evidence layer those two facts require: every candidate
  * is recorded, eligible or not, with its abstention reason, and the rows are
@@ -51,9 +52,26 @@
  * content hash, so a decision made from unfrozen live tables can never collide
  * with the same numbers made from a frozen packet once C11 lands.
  *
- * `nfl_pick_decisions` is deliberately still written by its existing caller.
- * It remains a convenient latest-view projection for the UI; it is simply no
- * longer the evidence anything is evaluated from.
+ * ---------------------------------------------------------------------------
+ * Stage 2 engine unification (2026-09-13): ONE WRITER.
+ *
+ * Giant Plan 8.10 (G08) had already demoted `nfl_pick_decisions` to "read/cache
+ * role only" in doc comments, but two independent code paths still wrote it
+ * directly from a raw decision board: scheduler.js's refreshNflDecisionLedger
+ * (which also, separately, called recordDecisionRun -- two writes from the
+ * same board, not one derived from the other) and nfl-market.js's
+ * `/sync-and-pick` route (which wrote it ALONE, with no tape write at all --
+ * the exact bug this file's evidence layer exists to prevent).
+ *
+ * `persistPickDecisions` (nfl-auto-picks.js) is gone. `nfl_pick_decisions` is
+ * now written from exactly one place: `refreshPickDecisionsCache` below,
+ * called at the end of `recordDecisionRun` itself, reading the run's own
+ * `nfl_decision_events` rows back rather than the caller's board. Every
+ * caller that used to call `persistPickDecisions` now calls
+ * `recordDecisionRun` and gets the cache for free; a caller that only ever
+ * called `recordDecisionRun` (t60-runner.js, nfl-execution-pipeline.js) now
+ * populates the cache too, which it never did before. There is no remaining
+ * path to `nfl_pick_decisions` that does not go through the tape.
  */
 import crypto from 'node:crypto';
 import { db, rows, row, run } from '../db/index.js';
@@ -146,6 +164,13 @@ function decisionContentFingerprint(d) {
     cover_calibration: snap.cover_calibration ?? null,
     active_model_ids: [...(snap.active_model_ids ?? [])].sort(),
     input_mode: snap.input_mode ?? null,
+    // SWEEP STEP 0 ITEM 3: whether this decision's base forecast was a real
+    // model opinion or the market line served verbatim because zero
+    // components passed the residual promotion gate. Part of the content
+    // hash on purpose -- a run that flips from a real opinion to market
+    // identity (or back) on the same numbers is a different decision, not a
+    // formatting change.
+    is_market_identity: d.is_market_identity === true,
     neural_authority: snap.coordinated_decision_head?.neural?.authority ?? null,
     neural_version: snap.coordinated_decision_head?.neural?.version ?? null,
     neural_used: snap.coordinated_decision_head?.neural?.used ?? null,
@@ -415,6 +440,7 @@ export function recordDecisionRun(season, week, decisionBoard, {
         `decisions, ${actual} events present. Append an invalidation and record a new observation; ` +
         'this record must not be rewritten.');
     }
+    refreshPickDecisionsCache(existing.id);
     return { run_id: existing.id, created: false, observation_key: obsKey, content_hash: content,
       decision_count: existing.decision_count,
       note: 'identical observation and content already recorded — idempotent retry, nothing written' };
@@ -456,10 +482,10 @@ export function recordDecisionRun(season, week, decisionBoard, {
             book, quote_at, quote_source, quote_id,
             edge, edge_points, projected_margin, market_margin,
             model_probability, implied_probability, probability_difference,
-            forecast_identity, cover_calibration,
+            forecast_identity, cover_calibration, is_market_identity,
             disagreement, eligible, calibration_eligible, calibration_status,
             abstention_reason, promoted_finding_veto_json, policy_rank, feature_snapshot_json)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, d.matchup, d.home_team ?? null, d.away_team ?? null, d.market,
       d.selection ?? null, d.side ?? null, d.line ?? null, d.american_price ?? null,
       d.book ?? null, d.quote_at ?? null, d.quote_source ?? null, d.quote_id ?? null,
@@ -470,7 +496,7 @@ export function recordDecisionRun(season, week, decisionBoard, {
       forecast.signed_edge_points ?? null, d.edge_points ?? null,
       forecast.projected_margin ?? null, forecast.market_margin ?? null,
       d.model_probability ?? null, d.implied_probability ?? null, d.probability_difference ?? null,
-      snap.forecast_identity?.id ?? null, snap.cover_calibration ?? null,
+      snap.forecast_identity?.id ?? null, snap.cover_calibration ?? null, d.is_market_identity ? 1 : 0,
       d.disagreement ?? null, d.eligible ? 1 : 0, d.calibration_eligible ? 1 : 0,
       d.calibration_status ?? null, d.abstention_reason ?? null,
       d.promoted_finding_veto ? JSON.stringify(d.promoted_finding_veto) : null,
@@ -483,9 +509,60 @@ export function recordDecisionRun(season, week, decisionBoard, {
     throw error;
   }
 
+  refreshPickDecisionsCache(id);
   return { run_id: id, created: true, observation_key: obsKey, content_hash: content,
     decision_count: decisions.length, selected_count: selectedCount,
     computation_status: computationStatus, data_identity_status: dataIdentityStatus };
+}
+
+/**
+ * Rebuilds the `nfl_pick_decisions` latest-view cache for one recorded run,
+ * FROM its own `nfl_decision_events` rows -- never from a caller-supplied
+ * board. This is the only code in the project that writes
+ * `nfl_pick_decisions`; every writer of the tape gets the cache as a side
+ * effect of `recordDecisionRun` instead of maintaining it separately (see the
+ * "ONE WRITER" note at the top of this file).
+ *
+ * Same UPSERT key as before the unification -- (season, week, policy_id,
+ * matchup, market, selection) -- so a later run for the same week still
+ * overwrites the earlier one's row here: that is the whole point of a
+ * "latest view", and the append-only tape underneath is unaffected either way.
+ */
+export function refreshPickDecisionsCache(runId) {
+  const header = row(`SELECT season, week, policy_id, policy_version, decided_at
+                       FROM nfl_decision_runs WHERE id=?`, runId);
+  if (!header) throw new Error(`decision tape: cannot refresh cache for unknown run ${runId}`);
+  const events = rows(`SELECT * FROM nfl_decision_events WHERE run_id=?`, runId);
+  for (const e of events) {
+    run(`INSERT INTO nfl_pick_decisions
+      (season,week,policy_id,policy_version,matchup,selection,market,line,american_price,book,
+       quote_at,quote_source,edge,disagreement,eligible,abstention_reason,policy_rank,
+       is_market_identity,feature_snapshot_json,recorded_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(season,week,policy_id,matchup,market,selection) DO UPDATE SET
+       policy_version=excluded.policy_version,
+       line=excluded.line,american_price=excluded.american_price,book=excluded.book,
+       quote_at=excluded.quote_at,quote_source=excluded.quote_source,edge=excluded.edge,
+       disagreement=excluded.disagreement,eligible=excluded.eligible,
+       abstention_reason=excluded.abstention_reason,policy_rank=excluded.policy_rank,
+       is_market_identity=excluded.is_market_identity,
+       feature_snapshot_json=excluded.feature_snapshot_json,recorded_at=excluded.recorded_at`,
+      header.season, header.week, header.policy_id, header.policy_version, e.matchup, e.selection,
+      e.market, e.line, e.american_price, e.book, e.quote_at, e.quote_source,
+      // `edge_points` is the unsigned magnitude the old board-driven UPSERT wrote
+      // into this column -- kept identical so the UI cache means the same thing
+      // it always did.
+      e.edge_points, e.disagreement, e.eligible, e.abstention_reason, e.policy_rank,
+      // Integration fix (2026-09-12 unify): the stage-2 "ONE WRITER" rewrite
+      // that introduced this rebuild predates u2-market-identity's column on
+      // this table (migration 045) and dropped it from the cache by omission
+      // -- `nfl_decision_events.is_market_identity` (persisted a few lines
+      // above, in recordDecisionRun) was never carried through to this UPSERT.
+      // Restored so nfl_pick_decisions, the table the UI and u2's own real-data
+      // validation actually read, keeps reporting the flag going forward.
+      e.is_market_identity, e.feature_snapshot_json ?? '{}', header.decided_at);
+  }
+  return { run_id: runId, cached: events.length };
 }
 
 /**

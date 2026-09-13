@@ -8,7 +8,7 @@
  * 53.5% of the time over a rolling 30-game window, halving Kelly on failure.
  * The assessment's verdict on it (Part 1.4) is "the right idea, wrong layer
  * to enforce it alone" — this project already measures CLV as a first-class
- * continuous quantity (`nfl-clv.js#gradeClosingLineValue`'s `clv_pct`,
+ * continuous quantity (`clv-core.js#gradeClosingLineValue`'s `clv_pct`,
  * `nfl-prop-clv.js`'s shadow-decision `clv_probability`), so collapsing it
  * back down to "did the line move our way, yes/no" throws away the size of
  * the miss to keep only its sign. This module tests CLV directly, in the

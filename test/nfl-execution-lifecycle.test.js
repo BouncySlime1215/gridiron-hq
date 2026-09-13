@@ -343,6 +343,31 @@ test('E8: a correction can itself be corrected, and the net still reconciles exa
     `a push nets exactly zero however many corrections preceded it, got ${netRealizedUnits(opp.id)}`);
 });
 
+// a6-money-path: lifecycleFunnel() used to join only on state='settled', so a
+// correction's win/loss reclassification and its P&L delta were both
+// invisible to it -- the funnel kept reporting the STALE original result and
+// the STALE original P&L forever, permanently disagreeing with
+// netRealizedUnits() (which every other balance in this module is defined
+// against) by exactly however much the correction moved.
+test('lifecycleFunnel reflects a settlement correction, not the stale original result or P&L', () => {
+  const { opp, settleAt } = acceptedOpportunity({ commenceDate: '2027-02-15', price: -110, stakeUnits: 1 });
+  const settledRecord = settleOpportunity(opp.id, { occurredAt: settleAt, result: 'won' });
+  const originalPnl = settledRecord.events.find(e => e.state === 'settled').realized_pnl_units;
+  const before = lifecycleFunnel({ market: 'spreads' });
+
+  correctSettlement(opp.id, { occurredAt: `${settleAt.slice(0, 10)}T12:00:00Z`,
+    result: 'lost', reason: 'provider issued a corrected final score', actor: 'user:nick' });
+  const after = lifecycleFunnel({ market: 'spreads' });
+
+  assert.equal(after.settled, before.settled, 'the same opportunity, not a new one, reached settled');
+  assert.equal(after.wins, before.wins - 1, 'the stale WON must no longer be counted once corrected to LOST');
+  assert.equal(after.losses, before.losses + 1, 'the corrected LOST must be counted instead');
+
+  const expectedDelta = netRealizedUnits(opp.id) - originalPnl; // -1 - (~0.909)
+  assert.ok(Math.abs((after.realized_pnl_units - before.realized_pnl_units) - expectedDelta) < 1e-6,
+    `funnel P&L must move by the correction's real delta, not stay pinned to the original settled row`);
+});
+
 test('E8: a correction requires both a reason and a named actor, and a prior settlement to correct', () => {
   const { opp, settleAt } = acceptedOpportunity({ commenceDate: '2027-02-01' });
   // Nothing settled yet.

@@ -97,6 +97,93 @@ export function withRandomSeed(seed, fn) {
   try { return fn(); } finally { rng = prior; }
 }
 
+const _r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
+
+/**
+ * Giant Plan 8.9 (audit-consolidation stage 5): the ONE weekly-cluster
+ * bootstrap, replacing five near-identical hand-rolled copies scattered
+ * across nfl-replay.js (`uncertainty`), nfl-prop-clv.js, beat-the-close.js,
+ * nfl-family-contribution.js and line-move-study.js.
+ *
+ * Resamples whole WEEKS with replacement rather than individual bets, since
+ * bets placed in the same week share correlated inputs (market conditions,
+ * model state that week) — the same reasoning as `pairedBootstrapDiff`'s
+ * `groups` option in backtest-significance.js, applied to weeks instead of
+ * games.
+ *
+ * `opts.weeks` (a declared week-key set/array, `${season}-${week}` or
+ * whatever key `keyOf` below produces) is the actual fix this consolidation
+ * exists for: every one of the five prior implementations built its
+ * resampling universe purely from the weeks that happened to appear in
+ * `rows` — a week where the policy correctly bet nothing was never a key at
+ * all, so it could never be drawn and never contribute its real, honest
+ * zero. That silently drops information (a policy that abstains sensibly in
+ * bad weeks looks, to the bootstrap, exactly like a policy that was never
+ * asked to consider those weeks) and inflates both the apparent edge and its
+ * precision. Passing the run's full declared week set fixes this: a declared
+ * week absent from `rows` still gets drawn like any other week, and
+ * contributes one row of zero units and no graded result when it is.
+ *
+ * Without `opts.weeks` this behaves exactly like the five originals (the
+ * resampling universe falls back to "weeks present in rows"), so migrating a
+ * caller that has no independent notion of the declared schedule to this
+ * shared function changes nothing about its numbers.
+ *
+ * @param {Array<{season?, week?, units, result}>} rows - individual bet rows.
+ *   `result` is compared against the exact strings 'Won'/'Lost' for win-rate
+ *   purposes, matching replaySeason()'s own vocabulary.
+ * @param {object} [opts]
+ * @param {Iterable<string>} [opts.weeks] - declared week keys forming the
+ *   full resampling universe; falls back to the keys present in `rows`.
+ * @param {(row) => string} [opts.keyOf] - week key for one row; defaults to
+ *   `${row.season}-${row.week}`.
+ * @param {number} [opts.iterations]
+ * @param {number} [opts.seed]
+ * @returns {{method,clusters,trials,win_rate_95,roi_95,probability_roi_above_zero,sample_warning}}
+ */
+export function weeklyClusterBootstrap(rows, { weeks: declaredWeeks, keyOf, iterations = 4000, seed = 20260804 } = {}) {
+  const keyFor = keyOf ?? (r => `${r.season}-${r.week}`);
+  const byWeek = new Map();
+  for (const r of rows) {
+    const key = keyFor(r);
+    const group = byWeek.get(key) ?? [];
+    group.push(r);
+    byWeek.set(key, group);
+  }
+  const weekKeys = declaredWeeks ? [...new Set(declaredWeeks)] : [...byWeek.keys()];
+  const settled = rows.filter(r => r.result === 'Won' || r.result === 'Lost');
+  const draws = [];
+  if (weekKeys.length) withRandomSeed(seed, () => {
+    for (let trial = 0; trial < iterations; trial++) {
+      const sample = [];
+      for (let i = 0; i < weekKeys.length; i++) {
+        const key = weekKeys[Math.floor(random() * weekKeys.length)];
+        const weekRows = byWeek.get(key);
+        // A declared week absent from `rows` is a real, observed zero — the
+        // policy considered it and bet nothing — not a gap in the data, so it
+        // contributes one zero-unit, ungraded row rather than nothing at all.
+        if (weekRows && weekRows.length) sample.push(...weekRows);
+        else sample.push({ units: 0, result: null });
+      }
+      const graded = sample.filter(b => b.result === 'Won' || b.result === 'Lost');
+      const wins = graded.filter(b => b.result === 'Won').length;
+      draws.push({ roi: sample.length ? mean(sample.map(b => b.units)) : 0, winRate: graded.length ? wins / graded.length : 0 });
+    }
+  });
+  const rois = draws.map(x => x.roi), winRates = draws.map(x => x.winRate);
+  return {
+    method: 'deterministic weekly-cluster bootstrap',
+    clusters: weekKeys.length,
+    trials: draws.length,
+    win_rate_95: draws.length ? [_r2(quantile(winRates, 0.025)), _r2(quantile(winRates, 0.975))] : [null, null],
+    roi_95: draws.length ? [_r2(quantile(rois, 0.025)), _r2(quantile(rois, 0.975))] : [null, null],
+    probability_roi_above_zero: draws.length ? _r2(rois.filter(x => x > 0).length / draws.length) : null,
+    sample_warning: settled.length < 100
+      ? 'Very small sample: results are dominated by variance.'
+      : settled.length < 500 ? 'Moderate sample: treat profitability as provisional until the interval clears zero.' : null
+  };
+}
+
 /** Box-Muller standard normal. */
 export function randn() {
   let u = 0;

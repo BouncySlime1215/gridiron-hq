@@ -229,6 +229,11 @@ r.get('/:id/data', (req, res) => {
   assertLeagueMember(req.auth.userId, req.params.id);
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
   if (!lg) return res.status(404).json({ error: 'league not found' });
+  // Never echo the ESPN session cookies back to the client: this endpoint answers
+  // any league member, but the cookies are commissioner-supplied credentials that
+  // let a caller impersonate the league owner against ESPN directly.
+  delete lg.espn_s2;
+  delete lg.swid;
   res.json({ ...lg, payload: lg.payload ? JSON.parse(lg.payload) : null });
 });
 

@@ -16,10 +16,31 @@ export function canonicalUrl(input) {
 const normalizedHeadline = value => value.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const digest = value => createHash('sha256').update(value).digest('hex').slice(0, 24);
 
+/**
+ * A team's bare abbreviation folds to plain English once lower-cased --
+ * "WAS" reads the same as the word "was", "NO" the same as "no" -- which
+ * was misattributing every story that merely used either common word to
+ * whichever team happens to own that abbreviation (measured against real
+ * ingested stories: 192 of the 298 items tagged WAS or NO carried no actual
+ * mention of Washington/Commanders or New Orleans/Saints anywhere in their
+ * text, only the coincidental word). A real abbreviation is written in
+ * capitals ("WAS", "NO"), a sentence-case or lower-case "was"/"no" never is
+ * (checked against the full corpus: zero genuine capitalized uses of "WAS",
+ * one of "NO", and that one *is* a real abbreviation reference). So a bare
+ * abbreviation -- the default alias derived from `entity.abbr`, not a
+ * caller-supplied custom alias -- is matched against the ORIGINAL, case-
+ * preserved text and must appear in that exact upper-case spelling; a
+ * team's full name, and any explicit alias a caller supplies, still match
+ * case-insensitively exactly as before.
+ */
 export function extractEntities(text, identity = { players: [], teams: [] }) {
   const haystack = ` ${normalizedHeadline(text)} `;
+  const casedHaystack = ` ${String(text).replace(/[^A-Za-z0-9]+/g, ' ').trim()} `;
+  const matches = (entity, alias, isBareAbbreviation) => isBareAbbreviation
+    ? casedHaystack.includes(` ${alias} `)
+    : haystack.includes(` ${normalizedHeadline(alias)} `);
   const match = entries => entries.filter(entity => (entity.aliases ?? [entity.name, entity.abbr]).filter(Boolean)
-    .some(alias => haystack.includes(` ${normalizedHeadline(alias)} `)))
+    .some(alias => matches(entity, alias, !entity.aliases && alias === entity.abbr)))
     .map(entity => ({ id: entity.id, name: entity.name, confidence: 1, method: 'alias_exact' }));
   return { players: match(identity.players ?? []), teams: match(identity.teams ?? []) };
 }

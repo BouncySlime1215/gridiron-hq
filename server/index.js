@@ -23,7 +23,7 @@ const { seedIfEmpty } = await import('./db/seed/index.js');
 const { default: teamsRouter } = await import('./routes/teams.js');
 const { default: playersRouter } = await import('./routes/players.js');
 const { default: rankingsRouter } = await import('./routes/rankings.js');
-const { default: draftsRouter, startDraftClockJob } = await import('./routes/drafts.js');
+const { default: draftsRouter, startDraftClockJob, startDraftFinalizeJob } = await import('./routes/drafts.js');
 const { default: espnRouter } = await import('./routes/espn.js');
 const { default: newsRouter } = await import('./routes/news.js');
 const { default: aggregatesRouter } = await import('./routes/aggregates.js');
@@ -70,13 +70,17 @@ startScheduler({ intervalMinutes: 5 });
 // setTimeout. Without this, a draft only advanced past the clock while a
 // browser tab with the Draft Room open was watching it count down.
 startDraftClockJob();
+// ESPN-mirrored live drafts otherwise never auto-finalize once the
+// bookmarklet tab stops sending captures — see finalizeStaleDrafts
+// (draft-ingest.js) for why.
+startDraftFinalizeJob();
 
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.
 app.use('/api/auth', localAuthRouter);
-app.use('/api/teams', teamsRouter);
+app.use('/api/teams', ...legacyAuthenticated, teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
-app.use('/api/rankings', rankingsRouter);
+app.use('/api/rankings', ...legacyAuthenticated, rankingsRouter);
 // Mounted before draftsRouter so /:id/capture-bookmarklet is matched here first;
 // everything else falls through to the draft room routes.
 app.use('/api/drafts', draftCaptureRouter);
@@ -84,27 +88,27 @@ app.use('/api/drafts', draftsRouter);
 // The bookmarklet loader fetches this from the ESPN tab; served from source so
 // it also works in dev, where client/dist does not exist.
 app.get('/draft-capture.js', serveCaptureScript);
-app.use('/api/espn', espnRouter);
+app.use('/api/espn', ...legacyAuthenticated, espnRouter);
 app.use('/api/news', ...legacyAuthenticated, newsRouter);
-app.use('/api/aggregates', aggregatesRouter);
-app.use('/api/analysis', analysisRouter);
+app.use('/api/aggregates', ...legacyAuthenticated, aggregatesRouter);
+app.use('/api/analysis', ...legacyAuthenticated, analysisRouter);
 app.use('/api/leagues', ...legacyAuthenticated, leaguesRouter);
-app.use('/api/nfl', nfldataRouter);
-app.use('/api/stats', statsRouter);
+app.use('/api/nfl', ...legacyAuthenticated, nfldataRouter);
+app.use('/api/stats', ...legacyAuthenticated, statsRouter);
 app.use('/api/dev', ...legacyAdmin, devRouter);
-app.use('/api/accolades', accoladesRouter);
-app.use('/api/edge', edgeRouter);
+app.use('/api/accolades', ...legacyAuthenticated, accoladesRouter);
+app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/model', modelRouter);
-app.use('/api/props', propsRouter);
-app.use('/api/props-tickets', propsTicketsRouter);
-app.use('/api/decision-inbox', decisionInboxRouter);
+app.use('/api/props', ...legacyAuthenticated, propsRouter);
+app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
+app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
 app.use('/api/mlb', mlbRouter);
 app.use('/api/nfl-market', nflMarketRouter);
 app.use('/api/nfl-betting', nflBettingRouter);
-app.use('/api/betting/wong', wongRouter);
+app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
 app.use('/api/betting', bettingHubRouter);
 app.use('/api/execution-slate', executionSlateRouter);
 

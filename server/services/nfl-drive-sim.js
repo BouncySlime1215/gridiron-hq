@@ -35,8 +35,9 @@
  */
 import { rows } from '../db/index.js';
 import { randn, withRandomSeed, random } from './stats-util.js';
-import { learnedProfiles, blendedProfiles, expectedPointsSurface, expectedPoints } from './nfl-sim-learn.js';
+import { learnedProfiles, blendedProfiles, expectedPointsSurface, expectedPoints, RATE_SPEC } from './nfl-sim-learn.js';
 import { simulationCalibrationFor, calibrateSimulationContext } from './nfl-sim-calibration.js';
+import { simulatorShapeReport, walkForwardShapeCalibration } from './nfl-sim-shape-calibration.js';
 import * as P from './nfl-sim-policy.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -239,7 +240,18 @@ function runPlay(ctx, { yard, isPass, varianceMult, preventMult }) {
  * choice.
  */
 function simulateDrive(ctx, state, ep) {
-  const { secondsLeft, lead, timeouts, oppTimeouts, isHalfEnd, spread } = state;
+  const { secondsLeft, lead, timeouts, oppTimeouts, isHalfEnd, spread, isHome = true,
+    // Half-clock vs full-clock: `secondsLeft` here is time left in the CURRENT
+    // half (resets to 1800 at halftime), which is exactly what pace, prevent
+    // defence and the two-minute warning want. But a handful of modules reason
+    // about the whole GAME clock (how much win probability is left to move,
+    // how urgent the situation truly is) and were being handed the half clock
+    // instead — at the two-minute mark of the FIRST half they saw the same
+    // number they'd see at the true end of the game. `gameSecondsLeft` carries
+    // the real full-game remaining time for those; callers that have no half
+    // split (overtime, the live remainder simulator) simply leave it equal to
+    // secondsLeft, which is already correct for them.
+    gameSecondsLeft = secondsLeft } = state;
   let yard = state.yard;
   // Pregame drives omit these fields and correctly start first-and-10. A live
   // remainder must preserve the actual current series; resetting 3rd-and-9 to
@@ -255,7 +267,7 @@ function simulateDrive(ctx, state, ep) {
 
   // Modules 5/6, 7/8, 17 and 11: risk preference, pace, air yards, prevent —
   // all functions of leverage rather than constants.
-  const variance = P.varianceProfile({ lead, secondsLeft, spread });
+  const variance = P.varianceProfile({ lead, secondsLeft: gameSecondsLeft, spread, isHome });
   const pace = P.paceProfile({ lead, secondsLeft, noHuddleRate: ctx.noHuddle, timeouts });
   const deep = P.deepShotPolicy({ rates: ctx.rates, varianceBonus: variance.deep_shot_bonus });
   const prevent = P.preventDefense({ lead: -lead, secondsLeft, oppYard: yard });
@@ -269,7 +281,7 @@ function simulateDrive(ctx, state, ep) {
 
   // Modules 14 and 15, evaluated once per drive: measured game-script pass rate
   // plus the capped under-passing lean.
-  const script = P.gameScriptPassRate({ lead, secondsLeft, rates: ctx.rates });
+  const script = P.gameScriptPassRate({ lead, secondsLeft: gameSecondsLeft, rates: ctx.rates });
   const lean = P.minimaxLean({ rates: ctx.rates });
   const basePassRate = clamp(script.pass_rate + lean.adjustment + deep.deep_rate * 0.15, 0.15, 0.94);
 
@@ -342,7 +354,10 @@ function simulateDrive(ctx, state, ep) {
       // of why a naive drive simulator produces margins that are too narrow.
       const returnTd = play.turnover === 'interception'
         ? random() < 0.055 : random() < 0.025;
-      return { points: 0, seconds: elapsed, endYard: clamp(yard, 1, 99),
+      // Field position flips with possession, exactly as it already does for a
+      // punt or a missed field goal below — a turnover at the offence's own 30
+      // hands the new offence the ball at THEIR own 70, not their own 30.
+      return { points: 0, seconds: elapsed, endYard: clamp(100 - yard, 1, 99),
         turnover: play.turnover, defensive_touchdown: returnTd, plays, decisions, tape };
     }
 
@@ -360,7 +375,7 @@ function simulateDrive(ctx, state, ep) {
 
     // Module 2 first: inside seven minutes, win probability overrides points.
     const wp = P.fourthDownByWinProbability({ yard, toGo: need, lead,
-      secondsLeft: secondsLeft - elapsed, spread });
+      secondsLeft: gameSecondsLeft - elapsed, spread, isHome });
     // Module 1 otherwise, shifted by module 16 for this staff's real aggression.
     const epCall = P.fourthDownByExpectedPoints({ yard, toGo: need, ep });
     const aggression = P.coachAggression({ rates: ctx.rates });
@@ -464,7 +479,12 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
 
     while (clock > 0) {
       const off = possession === 'home' ? homeCtx : awayCtx;
-      const lead = possession === 'home' ? home - away : away - home;
+      const isHome = possession === 'home';
+      const lead = isHome ? home - away : away - home;
+      // Half-clock vs full-clock (item 4): `clock` resets to 1800 at halftime.
+      // The modules that gauge how urgent the whole GAME is need the real
+      // full-game remaining time, not the half's own countdown.
+      const gameSecondsLeft = half === 1 ? clock + HALF : clock;
       const clockBefore = clock;
       const scoreBefore = { home, away };
 
@@ -472,13 +492,26 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
       const tmw = P.twoMinuteWarning({ lead, secondsLeft: clock,
         timeouts: timeouts[possession], hasBall: true });
       // Module 10: timeouts are a finite resource, spent or held deliberately.
+      // TODO(a5-simulation, 2026-09-12): this call passes `onDefense: false`
+      // for the team about to run THIS drive — i.e. the offence — but
+      // timeoutPolicy's `shouldSpend` requires `onDefense && trailing`, so
+      // with onDefense hardcoded false it can never fire from this call site.
+      // The module's own doc describes a DEFENSIVE, trailing team spending a
+      // timeout to get the ball back sooner — that would need a second call
+      // here using the opponent's own lead/timeouts with onDefense:true. Not
+      // added: that is a second, separate bug from "wire the decrement",
+      // which is the only fix asked for in this pass; flagging rather than
+      // guessing at the intended shape of that second call.
       const to = P.timeoutPolicy({ lead, secondsLeft: clock, timeouts: timeouts[possession],
         onDefense: false });
+      // Wire the decision to an actual counter other policies read (kneel's
+      // oppTimeouts, the onside clock math) — previously computed and discarded.
+      if (to.call === 'spend') timeouts[possession] = Math.max(0, timeouts[possession] - 1);
 
       const d = simulateDrive(off, {
         yard, secondsLeft: clock, lead, timeouts: timeouts[possession],
         oppTimeouts: timeouts[possession === 'home' ? 'away' : 'home'],
-        isHalfEnd: clock < 120, spread
+        isHalfEnd: clock < 120, spread, isHome, gameSecondsLeft
       }, ep);
 
       let scored = d.points;
@@ -498,7 +531,20 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
         const six = 6 + (random() < 0.945 ? 1 : 0);
         if (possession === 'home') away += six; else home += six;
       }
-      if (possession === 'home') home += Math.max(0, scored); else away += Math.max(0, scored);
+      if (possession === 'home') {
+        home += Math.max(0, scored);
+        // Home-field advantage, as a continuous per-drive nudge rather than a
+        // single end-of-game coin flip of a full touchdown. The old version
+        // put a discrete spike exactly at margin+7 in the simulated
+        // distribution — real margins don't have that spike. Spreading the
+        // same expected value (homeFieldPoints) across every one of the home
+        // team's own possessions removes the spike and keeps the total EV:
+        // RATE_SPEC.off_drives possessions x (homeFieldPoints/RATE_SPEC.off_drives)
+        // per possession averages back out to homeFieldPoints per game.
+        if (homeFieldPoints > 0 && random() < homeFieldPoints / RATE_SPEC.off_drives) home += 1;
+      } else {
+        away += Math.max(0, scored);
+      }
 
       clock -= Math.max(15, d.seconds);
       const clockAfter = Math.max(0, clock);
@@ -529,7 +575,7 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
       if (d.touchdown && half === 2 && clock < 360) {
         const myLead = possession === 'home' ? home - away : away - home;
         const on = P.onsideDecision({ lead: myLead, secondsLeft: clock,
-          timeouts: timeouts[possession], spread });
+          timeouts: timeouts[possession], spread, isHome: possession === 'home' });
         if (on.call === 'onside' && random() < 0.12) { yard = 45; continue; }
       }
       possession = possession === 'home' ? 'away' : 'home';
@@ -546,7 +592,7 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
       const off = otPossession === 'home' ? homeCtx : awayCtx;
       const lead = otPossession === 'home' ? home - away : away - home;
       const d = simulateDrive(off, { yard: 25, secondsLeft: otClock, lead, timeouts: 2,
-        oppTimeouts: 2, isHalfEnd: false, spread }, ep);
+        oppTimeouts: 2, isHalfEnd: false, spread, isHome: otPossession === 'home' }, ep);
       let pts = d.points;
       if (d.touchdown) pts = 6 + (random() < 0.945 ? 1 : 0);
       if (otPossession === 'home') home += Math.max(0, pts); else away += Math.max(0, pts);
@@ -557,10 +603,10 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
     }
   }
 
-  // Home-field advantage, applied as a scoring nudge rather than baked into the
-  // rates, so it stays one visible knob that can be checked against reality.
-  if (homeFieldPoints > 0 && random() < homeFieldPoints / 7) home += 7;
-
+  // Home-field advantage is now applied continuously, per home possession,
+  // inside the regulation drive loop above — see the comment there. It stays
+  // one visible knob (homeFieldPoints) that can still be checked against
+  // reality, just without the discrete +7-or-nothing shape.
   return { home, away, drives };
 }
 
@@ -807,7 +853,7 @@ export function simulateRemainder({
         const lead = possession === 'home' ? h - a : a - h;
         const d = simulateDrive(off, { yard, down: currentDown, toGo: currentToGo,
           secondsLeft: clock, lead, timeouts: 3, oppTimeouts: 3,
-          isHalfEnd: clock < 120, spread }, ep);
+          isHalfEnd: clock < 120, spread, isHome: possession === 'home' }, ep);
         let pts = d.points;
         if (d.touchdown) {
           const leadAfter = possession === 'home' ? h + 6 - a : a + 6 - h;
@@ -861,6 +907,56 @@ export function simulateRemainder({
 }
 
 /**
+ * Raw SIGNED integer margins, for auditing the engine's distribution shape.
+ *
+ * Same argument as `simulatePlaySample` below: the audit is about shape, and
+ * every summary the engine already returns destroys the thing being audited.
+ * `simulateMatchup`'s `key_numbers` block is the closest existing view and it
+ * is not close enough — it reports |margin| only, so a fault that lands on ONE
+ * side of zero (a home-field coin flip of a full touchdown, which put a
+ * discrete spike at +7 and nothing at -7) is folded in half and disappears
+ * before anybody can see it. That is not hypothetical; it is what shipped.
+ *
+ * Returns the margins themselves, one per trial, pooled across whatever set of
+ * matchups the caller enumerates. `nfl-sim-shape-calibration.js` is the
+ * consumer.
+ *
+ * Deterministic: each matchup is seeded independently, for the reason spelled
+ * out at length in `calibrationReport` — an audit metric that moves between
+ * runs can be re-rolled until it passes.
+ */
+export function simulateMarginSample({
+  trials = 500, games = 40, season = null, homeFieldPoints = 1.6, seed = 1000
+} = {}) {
+  const prof = blendedProfiles({ season });
+  const teams = [...prof.teams.keys()].sort();
+  if (teams.length < 4) return { error: 'not enough team profiles to sample', margins: [], totals: [] };
+  const surface = epFor(prof.league);
+  const ep = y => expectedPoints(surface, y);
+
+  const margins = [], totals = [];
+  const pairings = [];
+  for (let i = 0; i < games; i++) {
+    const h = teams[i % teams.length];
+    const a = teams[(i * 7 + 3) % teams.length];
+    if (a === h) continue;
+    pairings.push([h, a]);
+    const H = prof.teams.get(h), A = prof.teams.get(a);
+    const homeCtx = buildContext(H, A, prof.league);
+    const awayCtx = buildContext(A, H, prof.league);
+    withRandomSeed(seed + i, () => {
+      for (let t = 0; t < trials; t++) {
+        const g = simulateGame(homeCtx, awayCtx, ep, { homeFieldPoints, spread: null });
+        margins.push(g.home - g.away);
+        totals.push(g.home + g.away);
+      }
+    });
+  }
+  return { margins, totals, matchups: pairings.length, trials_each: trials,
+    profile_season: prof.season, profile_cutoff: prof.cutoff, home_field_points: homeFieldPoints };
+}
+
+/**
  * Raw play outcomes, for auditing the engine against the real play log.
  *
  * Deliberately returns the underlying yardage rather than a summary — the
@@ -900,7 +996,16 @@ export function simulatePlaySample({ trials = 20000, season = null, seed = 99 } 
  * internals, so this compares simulated aggregates against every completed game
  * in this database. Reported rather than asserted — and reported when it fails.
  */
-export function calibrationReport({ trials = 300, games = 40, season = null } = {}) {
+export function calibrationReport({ trials = 300, games = 40, season = null,
+  // The shape half needs a bigger sample than the moment half and for a
+  // different reason: a moment converges on a few thousand games, whereas the
+  // mirror-ratio spike statistic is a second difference of log counts in
+  // single one-point bins, and its standard error falls only as the square
+  // root of the count in those bins. At 1,200 x 40 the +/-7 bins hold roughly
+  // 1,600 games each, which puts the statistic's standard error near 0.043 in
+  // log-ratio units — enough to resolve the 0.17 the engine actually shows.
+  // Anything much smaller reports a spike check that cannot see a spike.
+  shapeChecks = true, shapeTrials = 1200, shapeGames = 40 } = {}) {
   const prof = blendedProfiles({ season });
   const teams = [...prof.teams.keys()];
   if (teams.length < 4) return { error: 'not enough team profiles to calibrate' };
@@ -948,15 +1053,44 @@ export function calibrationReport({ trials = 300, games = 40, season = null } = 
       gap: r2(sdGap), tolerance: 3.5, pass: Math.abs(sdGap) < 3.5 }
   ];
 
+  // The shape half. Three moments cannot see a spike or a missing overtime —
+  // both of which this engine has actually shipped while these three checks
+  // said "calibrated" — so the mass checks are merged in here rather than
+  // living in a separate report nobody runs. `shape.checks` carries its own
+  // pass flags, and an ungraded one (pass: null, because no real corpus is
+  // attached to measure its reference from) counts as neither pass nor fail.
+  const shape = shapeChecks === false ? null
+    : simulatorShapeReport({ sampler: simulateMarginSample,
+        trials: shapeTrials, games: shapeGames, season });
+  const shapeGraded = shape?.checks?.filter(c => c.pass != null) ?? [];
+  const allPass = checks.every(c => c.pass) && shapeGraded.every(c => c.pass);
+
   return {
     simulated_matchups: simTotals.length, trials_each: trials,
     actual_games: actual.length, season: prof.season,
-    checks, calibrated: checks.every(c => c.pass),
-    failing: checks.filter(c => !c.pass).map(c => c.check),
+    checks, moment_checks_pass: checks.every(c => c.pass),
+    shape, shape_checks_pass: shapeGraded.length ? shapeGraded.every(c => c.pass) : null,
+    calibrated: allPass,
+    failing: [...checks.filter(c => !c.pass), ...shapeGraded.filter(c => !c.pass)].map(c => c.check),
     note: 'Compared against every completed game since 2021 in this database. Passing is a FLOOR — it ' +
       'says the engine plays plausible football, not that it beats a market. A simulator can be ' +
-      'perfectly calibrated to the league average and still have no edge on any single game.'
+      'perfectly calibrated to the league average and still have no edge on any single game. ' +
+      '`checks` are the three MOMENTS this report has always had; `shape` is the distribution and ' +
+      'key-number mass, which is what a moment check structurally cannot see — see ' +
+      'nfl-sim-shape-calibration.js. For the strong, season-by-season held-out version run ' +
+      '`simulatorWalkForwardShape()`.'
   };
+}
+
+/**
+ * The held-out shape harness, bound to this engine's own sampler.
+ *
+ * Thin on purpose: the scoring lives in `nfl-sim-shape-calibration.js`, which
+ * deliberately does not import this file, so the dependency runs one way and
+ * the scorer stays testable against a fixed margin sample.
+ */
+export function simulatorWalkForwardShape(options = {}) {
+  return walkForwardShapeCalibration({ sampler: simulateMarginSample, ...options });
 }
 
 /**

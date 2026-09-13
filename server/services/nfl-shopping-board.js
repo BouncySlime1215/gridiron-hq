@@ -26,6 +26,7 @@
 import { rows } from '../db/index.js';
 import { bestExecution, impliedProb } from './nfl-execution-edge.js';
 import { isFreshQuote } from './book-feeds.js';
+import { validAmericanPrice } from './nfl-execution-validation.js';
 import { quoteClockValid, SHOPPING_MAX_AGE_MS } from './nfl-quote-clock.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -60,19 +61,31 @@ export function signedMarginDistribution() {
 /* ------------------------------------------------- simultaneous quote sets */
 
 /**
- * The most recent capture instant per event that actually carries more than one
- * book, with every quote from that instant.
+ * Every book's OWN most recent quote per event, bounded to a capture window
+ * around whichever book was polled last for that event.
  *
- * An event whose latest snapshot has a single book is skipped rather than
- * reported with an empty comparison — one book is not a shopping decision, and
- * silently showing it as "best available" would overstate what we know.
+ * Books are polled on separate schedules (a live 90-second tier, an hourly
+ * tier, and so on), so their `captured_at` values for the same event
+ * legitimately differ by minutes even when every one of them is still the
+ * current standing price. An exact-equality join on the event's single
+ * MAX(captured_at) silently dropped every book except whichever provider
+ * happened to be polled last -- on a board with staggered tiers that could be
+ * nearly every book, not the stale ones this function actually needs to
+ * exclude.
  *
- * Sharing a `captured_at` instant controls for OUR poll latency, not for the
+ * A book whose OWN latest quote trails the event's freshest book by more than
+ * `CAPTURE_WINDOW_MS` is still excluded -- that book genuinely has not been
+ * repolled recently enough to belong in the same comparison, which is the
+ * real thing "one book is not a shopping decision" is protecting against.
+ *
+ * Sharing a bounded window controls for OUR poll latency, not for the
  * aggregator's: a book's own price can sit uncached in the aggregator's
  * response for days after it moved (`book-feeds.js#isFreshQuote`), so a quote
  * with a stale `book_updated_at` is dropped here too before two books are
  * ever compared as if both were live.
  */
+export const CAPTURE_WINDOW_MS = 5 * 60 * 1000;
+
 let _quoteCache = new Map();
 export function clearShoppingBoardCache() { _quoteCache = new Map(); }
 
@@ -85,13 +98,17 @@ export function simultaneousQuotes(market = 'spreads') {
   // a hundred-event board meant a hundred round trips — and because both the
   // shopping board and the middle finder call it, the hub status endpoint paid
   // that cost twice and took 17 seconds to answer.
+  //
+  // Grouped by (event_id, book) rather than event_id alone: each book
+  // contributes only its own latest row, not whichever book's latest happens
+  // to be the newest across the whole event.
   const all = rows(
     `SELECT s.event_id, s.captured_at, s.book, s.side, s.line, s.price AS american_price,
             s.commence_time, s.home_team, s.away_team, s.book_updated_at
      FROM nfl_line_snapshots s
-     JOIN (SELECT event_id, MAX(captured_at) AS captured_at
-           FROM nfl_line_snapshots WHERE market = ? GROUP BY event_id) latest
-       ON latest.event_id = s.event_id AND latest.captured_at = s.captured_at
+     JOIN (SELECT event_id, book, MAX(captured_at) AS captured_at
+           FROM nfl_line_snapshots WHERE market = ? GROUP BY event_id, book) latest
+       ON latest.event_id = s.event_id AND latest.book = s.book AND latest.captured_at = s.captured_at
      WHERE s.market = ?`, market, market);
 
   const byEvent = new Map();
@@ -102,15 +119,21 @@ export function simultaneousQuotes(market = 'spreads') {
         home_team: q.home_team ?? null, away_team: q.away_team ?? null,
         commence_time: q.commence_time ?? null, quotes: [] });
     }
+    const ev = byEvent.get(q.event_id);
+    // Track the freshest capture actually seen for this event so the window
+    // below is bounded to real data, not to whichever row arrived first.
+    if (Date.parse(q.captured_at) > Date.parse(ev.captured_at)) ev.captured_at = q.captured_at;
     const { book_updated_at, ...quote } = q;
-    byEvent.get(q.event_id).quotes.push(quote);
+    ev.quotes.push(quote);
   }
 
   const out = [];
   for (const ev of byEvent.values()) {
-    const books = new Set(ev.quotes.map(q => q.book));
+    const freshest = Date.parse(ev.captured_at);
+    const withinWindow = ev.quotes.filter(q => freshest - Date.parse(q.captured_at) <= CAPTURE_WINDOW_MS);
+    const books = new Set(withinWindow.map(q => q.book));
     if (books.size < 2) continue;      // one book is not a shopping decision
-    out.push({ ...ev, books: books.size });
+    out.push({ ...ev, quotes: withinWindow, books: books.size });
   }
   _quoteCache.set(market, out);
   return out.filter(q => quoteClockValid(q));
@@ -140,7 +163,14 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
       // number and the Over wants the smaller — the opposite of taking points
       // on a spread. Getting this backwards would rank the worst book first.
       const takingPoints = market === 'totals' ? /under/i.test(side) : true;
-      const exec = bestExecution(quotes, { takingPoints });
+      // bestExecution() only checks Number.isFinite(american_price) before it
+      // starts converting prices to decimal odds, and that conversion THROWS
+      // on anything below 100 in magnitude (nfl-execution-edge.js's
+      // assertRealPrice) -- including a captured 0, which is finite. One bad
+      // snapshot row used to crash the whole board's request, every event and
+      // every side, rather than just being dropped from this one comparison.
+      const realPriceQuotes = quotes.filter(q => validAmericanPrice(q.american_price));
+      const exec = bestExecution(realPriceQuotes, { takingPoints });
       if (!exec) continue;
 
       // Codex correction C05 gave `bestExecution` an explicit refusal: when no
@@ -157,7 +187,7 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
           best_book: null, best_line: null, best_price: null, median_line: exec.median_line,
           line_edge: null, price_edge: null,
           win_probability: null, loss_probability: null, push_probability: null,
-          expected_net_return: null, qualified: false,
+          expected_net_return: null, edge_vs_median: null, qualified: false,
           unpriceable_reason: exec.reason,
           all: exec.all
         });
@@ -179,18 +209,38 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
         // probability from the ranking-only line_edge scalar.
         win_probability: exec.best.win_probability, loss_probability: exec.best.loss_probability,
         push_probability: exec.best.push_probability,
-        // Codex correction C05: the board now ranks by expected net return at
-        // the exact offered line AND price, under the same distribution that
-        // produced the probabilities above. The old `edge_vs_median` scalar
-        // was `line_edge * 2 + price_edge`, a heuristic that contradicted the
-        // economics attached to it -- it ranked +2.5/+100 above +3/-150 while
-        // its own expected returns were -0.1500 and -0.1417.
+        // Codex correction C05 got this right WITHIN one side: rank the books
+        // quoting a single event/side by expected net return at each book's
+        // own line and price, under one distribution, rather than by the old
+        // `line_edge * 2 + price_edge` heuristic that once ranked +2.5/+100
+        // above +3/-150 while its own computed EVs were -0.1500 and -0.1417.
+        // Kept here as a diagnostic.
         expected_net_return: exec.best.expected_net_return,
+        // GIANT PLAN 29. `expected_net_return` is NOT safe to sort or lead a
+        // display with ACROSS different sides and events, and this board used
+        // to do exactly that. It carries the reference LINE's own historical
+        // cover rate -- the same "underdog bias" the 2026-09-10 audit found
+        // baked into `coverProbabilities` (+6.5 covers 53.53% historically,
+        // +10 covers 55.28%, both above the 52.38% break-even purely on
+        // twenty years of who that number happened to favour). That bias is
+        // identical for every book quoting one side, so it cancels out of a
+        // WITHIN-side ranking -- comparing books at the same reference line --
+        // but this board's leaderboard compares DIFFERENT sides and events,
+        // each sitting at its own reference line with its own bias level, and
+        // `expected_net_return` would put the board's largest historical dog
+        // bias at the top regardless of whether that particular book actually
+        // shopped any better than its own median. `edge_vs_median` is
+        // `bestExecution`'s answer to that: this book's expected return minus
+        // what blindly taking the median book's own line and price would have
+        // returned, both under the identical distribution, so the shared bias
+        // term cancels and what is left is the genuine improvement from
+        // shopping. This is the field the board now leads on.
+        edge_vs_median: exec.best.edge_vs_median,
         // How this row was ranked. `price_only` means the module could not
         // value the NUMBER on this contract and compared prices at the most
         // common one instead — true for moneylines (no number) and totals (a
         // total is not a margin).
-        ranked_by: exec.ranked_by ?? 'expected_net_return',
+        ranked_by: exec.ranked_by ?? 'edge_vs_median',
         compared_at_line: exec.compared_at_line ?? null,
         // NOT an edge over the market. These probabilities are implied by the
         // market's own reference line, so a positive number here means a
@@ -204,10 +254,17 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
   }
   return rowsOut
     .sort((a, b) => {
-      if (a.expected_net_return == null && b.expected_net_return == null) return 0;
-      if (a.expected_net_return == null) return 1;
-      if (b.expected_net_return == null) return -1;
-      return b.expected_net_return - a.expected_net_return;
+      // GIANT PLAN 29: lead on edge_vs_median (within-side improvement over
+      // the median book), not the absolute expected_net_return -- see the
+      // long comment above where each row is built for why the absolute
+      // number is not comparable across sides. A row with no distribution at
+      // all (price_only, or fully unpriceable) has neither field and sorts
+      // last either way.
+      const av = a.edge_vs_median, bv = b.edge_vs_median;
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return bv - av;
     })
     .slice(0, limit);
 }
@@ -406,9 +463,26 @@ export function executionBoardSummary() {
     sides_priced: spreads.length,
     events: new Set(spreads.map(r => r.event_id)).size,
     shoppable_sides: shoppable.length,
+    // GIANT PLAN 29. THE LEADING NUMBERS. `edge_vs_median` is the honest
+    // within-side improvement from shopping (see the long comment in
+    // `shoppingBoard` above) -- it is safe to average and to headline because,
+    // unlike `expected_net_return`, it does not carry the reference line's own
+    // historical cover-rate bias. This is what `betting-hub.js` now puts in
+    // the human-facing headline.
+    mean_edge_vs_median_when_shoppable: shoppable.length
+      ? r4(shoppable.reduce((s, r) => s + (r.edge_vs_median ?? 0), 0) / shoppable.length) : null,
+    best_edge_vs_median: spreads[0]?.edge_vs_median ?? null,
     // Mean over the sides where shopping actually beats the median book. The
     // all-sides mean is the wrong number: half of any dispersion is by
     // definition below median and is not an available improvement.
+    //
+    // KEPT AS A DIAGNOSTIC ONLY, not the lead. `expected_net_return` (and
+    // therefore this mean, and `best_expected_return` below) is the ABSOLUTE
+    // return implied by each side's own reference line, which the
+    // 2026-09-10 audit measured as carrying a real historical underdog bias
+    // -- it is not comparable across different sides/events and must not be
+    // used to rank or headline this board. See `mean_edge_vs_median_when_shoppable`
+    // and `best_edge_vs_median` above for the numbers that are safe to lead with.
     mean_expected_return_when_shoppable: shoppable.length
       ? r4(shoppable.reduce((s, r) => s + r.expected_net_return, 0) / shoppable.length) : null,
     best_expected_return: spreads[0]?.expected_net_return ?? null,
@@ -416,7 +490,9 @@ export function executionBoardSummary() {
     // reader cannot infer profitability from a positive number above.
     qualified: false,
     qualification_note: 'expected returns here are computed against the market\'s own reference line. ' +
-      'They rank obtainable contracts and measure execution quality; they are not evidence of an edge.',
+      'They rank obtainable contracts and measure execution quality; they are not evidence of an edge. ' +
+      '`edge_vs_median` isolates the shopping improvement itself; `expected_net_return` additionally ' +
+      'carries that reference line\'s own historical cover-rate level and is not comparable across sides.',
     middles_found: middles.length,
     positive_ev_middles: middles.filter(m => (m.ev_per_unit ?? 0) > 0).length,
     arbitrage_found: middles.filter(m => m.arbitrage).length,

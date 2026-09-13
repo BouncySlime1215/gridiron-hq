@@ -24,12 +24,15 @@
 import { rows, run } from '../db/index.js';
 import { availabilityDeficit } from './nfl-availability.js';
 import { teamWeeks } from './nfl-pbp.js';
+import { weatherSplits, isIndoors, WINDY_MPH, COLD_F } from './nfl-weather-response.js';
 import { mean } from './stats-util.js';
+import { dieboldMariano, naivePairedT } from './forecast-comparison.js';
 import { ENSEMBLE_FIT_VERSION } from './nfl-forecast-identity.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
 import { rosterStrengthWeek } from './nfl-roster-strength.js';
 import { signalReliabilityFor } from './nfl-signal-reliability.js';
+import { buildConformal } from './conformal.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
 const EVAL_FROM = 2022;    // frozen calibration boundary retained for the established ensemble
@@ -57,7 +60,7 @@ function games(minSeason = MIN_SEASON) {
     SELECT season, week, team AS home, opponent AS away,
            team_score AS home_score, opp_score AS away_score,
            spread AS home_spread, total,
-           NULL AS open_spread, NULL AS open_total,
+           open_spread, open_total,
            temp, wind, roof, rest_days AS home_rest, div_game, neutral_site
     FROM game_lines
     WHERE home = 1 AND team_score IS NOT NULL AND opp_score IS NOT NULL
@@ -77,8 +80,65 @@ function awayRest() {
 
 /* ----------------------------------------------------- rating primitives */
 
-/** Massey: least-squares ratings that best explain observed margins. */
-function massey(hist) {
+/**
+ * Ridge strength for the Massey paired-comparison system.
+ *
+ * `massey()` below solves the normal equations of the paired-comparison design
+ * in which every game contributes a row with +1 in the home team's column, -1
+ * in the away team's, and the observed margin as its response. Zero here
+ * recovers the ordinary least-squares estimator exactly, including its
+ * sum-to-zero pin, so a zero is a genuine no-op rather than an approximation
+ * of one — `test/ensemble-massey-ridge.test.js` asserts that identity.
+ *
+ * WHY THIS IS ZERO, and what was measured to put it there.
+ *
+ * Shrinkage makes the ESTIMATOR better and the FORECAST no better. Swept over
+ * lambda in {0,1,2,5,10,20,50,100,200,500} on the deterministic league fixture
+ * (`test/helpers/seed-league-history.js`, ten seasons), the component's own
+ * walk-forward margin RMSE bottoms out at lambda = 50, and that win replicates
+ * on five independent fixture seeds — 13.823 -> 13.583 mean RMSE, better in
+ * 5 of 5. But the held-out ensemble forecast (2024-2025, n = 206 per seed) does
+ * not move with it: 12.2675 -> 12.2720 mean, WORSE in 4 of 5 seeds by about
+ * four hundredths of a point. This component carries roughly a tenth of the
+ * margin weight, the market anchor and market regression carry twice that
+ * between them, and melo and dynamic_state already supply opponent-adjusted
+ * strength — so a sharper Massey is largely redundant information by the time
+ * it reaches the blend.
+ *
+ * A measured non-improvement is not a reason to ship the change silently at a
+ * nonzero default, so the default is the old behaviour exactly. The estimator
+ * stays because it is the correct closed form, it is now testable, and one
+ * constant is all that stands between it and production if the same sweep ever
+ * runs against real NFL history — which this branch could not do.
+ *
+ * Caveat worth carrying forward: the fixture schedules a near-balanced rotating
+ * round-robin, which is the regime where opponent-aware shrinkage has least to
+ * add. Real NFL schedules are genuinely unbalanced, so this measurement may
+ * understate the ridge rather than overstate it.
+ */
+const MASSEY_RIDGE_LAMBDA = 0;
+
+/**
+ * Massey: least-squares ratings that best explain observed margins, with
+ * optional ridge shrinkage toward a prior.
+ *
+ * Closed form: theta_hat = (X'X + lambda*I)^-1 (X'y + lambda*gamma), where X is
+ * the paired-comparison design (+1 home, -1 away), y the observed margins and
+ * gamma a prior rating vector. `X'X` is assembled directly as the Massey
+ * matrix — games played on the diagonal, negated meeting counts off it — so no
+ * n-by-g design matrix is ever materialised.
+ *
+ * Identification. `X'X` has the all-ones vector in its null space, so ordinary
+ * least squares needs an explicit constraint; the lambda = 0 branch keeps the
+ * historical pin (overwrite the last row with a sum-to-zero condition). With
+ * lambda > 0 the system is already full rank and the pin is not merely
+ * unnecessary but harmful: it discards one team's own equation. Centring is
+ * preserved for free instead — `X'y` is orthogonal to the all-ones vector by
+ * construction (every game adds +m to one column and -m to another), the prior
+ * is centred below, and the all-ones vector is an eigenvector of
+ * (X'X + lambda*I), so the solution stays orthogonal to it.
+ */
+function massey(hist, { lambda = MASSEY_RIDGE_LAMBDA, prior = null } = {}) {
   const teams = [...new Set(hist.flatMap(g => [g.home, g.away]))];
   const idx = new Map(teams.map((t, i) => [t, i]));
   const n = teams.length;
@@ -91,9 +151,26 @@ function massey(hist) {
     A[i][i]++; A[j][j]++; A[i][j]--; A[j][i]--;
     b[i] += m; b[j] -= m;
   }
-  // Ratings are only identified up to a constant, so pin the mean at zero.
-  for (let k = 0; k < n; k++) A[n - 1][k] = 1;
-  b[n - 1] = 0;
+  if (!(lambda > 0)) {
+    // Ratings are only identified up to a constant, so pin the mean at zero.
+    for (let k = 0; k < n; k++) A[n - 1][k] = 1;
+    b[n - 1] = 0;
+    const x = solve(A, b);
+    return new Map(teams.map((t, i) => [t, x?.[i] ?? 0]));
+  }
+  // A prior that is not centred would shift every rating by its mean, which the
+  // identification above deliberately fixes at zero. Centre it rather than
+  // silently moving the whole league.
+  const gamma = new Array(n).fill(0);
+  if (prior) {
+    let sum = 0, seen = 0;
+    for (let k = 0; k < n; k++) {
+      const v = prior.get(teams[k]);
+      if (Number.isFinite(v)) { gamma[k] = v; sum += v; seen++; }
+    }
+    if (seen) { const mid = sum / seen; for (let k = 0; k < n; k++) gamma[k] -= mid; }
+  }
+  for (let k = 0; k < n; k++) { A[k][k] += lambda; b[k] += lambda * gamma[k]; }
   const x = solve(A, b);
   return new Map(teams.map((t, i) => [t, x?.[i] ?? 0]));
 }
@@ -200,51 +277,108 @@ function dynamicStrength(hist) {
 }
 
 /**
- * Empirical predictive distribution around the point forecast. Residual shape
- * comes only from games completed before the target week. Similar spread/total
- * environments are preferred when at least 120 prior games exist.
+ * Mondrian bins for the ensemble's conformal interval (Giant Plan 7.3, fix #18).
+ * Bucketed on the market's |spread| — the one pre-kickoff feature that actually
+ * sorts games by how variable their margin turns out to be.
  */
-function predictiveDistribution(hist, { margin, total, homeSpread, marketTotal, disagreement }) {
+const ENSEMBLE_SPREAD_BINS = [3, 6.5, 10];
+const ENSEMBLE_TOTAL_BINS = [44, 48];
+const ENSEMBLE_MIN_BIN = 150;
+const ENSEMBLE_MIN_CALIBRATION = 200;
+
+/**
+ * Split-conformal predictive distribution around the point forecast.
+ *
+ * What this replaces, and why. The previous version pooled every residual in
+ * history, re-centred them on their own median, and then multiplied the spread
+ * of that pool by `1 + min(0.25, disagreement / 30)`. Two separate problems:
+ *
+ *   1. The pool was effectively unconditional. A "similar environment" cohort
+ *      was attempted (|spread| within 2.5 and total within 6) but it fell back
+ *      to all history whenever fewer than 120 comparable games existed, and the
+ *      fallback is the common case early in a season — so most games got one
+ *      global residual shape, the same defect fix #15 names in nfl-market.js.
+ *   2. `disagreement / 30` has no derivation. Thirty is not a measured quantity;
+ *      the multiplier was a plausible-looking knob, and a knob that widens an
+ *      interval without a coverage argument cannot make it better calibrated —
+ *      it can only make it wider, which is not the same thing. That is exactly
+ *      why this function has always carried `production_eligible: false`.
+ *
+ * What replaces it is a split-conformal interval, Mondrian-binned by the
+ * market's spread bucket. The residual pool is the same one this function
+ * already used (actual margin minus the market's margin, from games completed
+ * strictly before this one), but the interval is now the bin's own
+ * ceil((n+1)·level) order statistic of |residual| — a finite-sample coverage
+ * statement rather than a shape assumption plus a fudge factor.
+ *
+ * `production_eligible` deliberately stays false. A better mechanism is not a
+ * promotion; that decision belongs to the promotion gate in staking.js, on
+ * forward-settled evidence, not to the function describing itself.
+ */
+export function predictiveDistribution(hist, { margin, total, homeSpread, marketTotal, disagreement }) {
   if (margin == null) return null;
   const all = hist.filter(x => x.home_spread != null).map(x => ({
     spread: x.home_spread, total: x.total,
     margin_residual: (x.home_score - x.away_score) - (-x.home_spread),
     total_residual: x.total == null ? null : (x.home_score + x.away_score) - x.total
   }));
-  let conditional = all.filter(x => homeSpread != null && Math.abs(Math.abs(x.spread) - Math.abs(homeSpread)) <= 2.5 &&
-    (marketTotal == null || x.total == null || Math.abs(x.total - marketTotal) <= 6));
-  const cohort = conditional.length >= 120 ? conditional : all;
-  if (cohort.length < 100) return null;
-  const marginResiduals = cohort.map(x => x.margin_residual);
-  const residualMedian = quantile(marginResiduals, 0.5) ?? 0;
-  const inflation = 1 + Math.min(0.25, Math.max(0, disagreement ?? 0) / 30);
-  const marginSamples = marginResiduals.map(x => Math.round(margin + (x - residualMedian) * inflation));
-  const grade = marginSamples.map(x => homeSpread == null ? null : Math.sign(x + homeSpread));
-  // The moneyline call is the same margin samples graded at a threshold of zero
-  // instead of the spread line. It is deliberately NOT a second, independently
-  // fitted distribution: home winning outright and home covering a spread are
-  // both just thresholds on one shared margin distribution, so deriving both
-  // from marginSamples is what keeps them arithmetically unable to disagree.
+  if (all.length < ENSEMBLE_MIN_CALIBRATION) return null;
+
+  // Centre the calibration set the same way the point forecast is centred, so
+  // the residuals being quantiled are residuals of THIS forecast and not of a
+  // systematically different one.
+  const marginCentre = quantile(all.map(x => x.margin_residual), 0.5) ?? 0;
+  const marginCal = buildConformal(
+    all.map(x => ({ key: Math.abs(x.spread), residual: x.margin_residual - marginCentre })),
+    { edges: ENSEMBLE_SPREAD_BINS, minBin: ENSEMBLE_MIN_BIN });
+
+  const totalRows = all.filter(x => Number.isFinite(x.total_residual) && x.total != null);
+  const totalCentre = totalRows.length ? (quantile(totalRows.map(x => x.total_residual), 0.5) ?? 0) : 0;
+  const totalCal = totalRows.length >= ENSEMBLE_MIN_CALIBRATION
+    ? buildConformal(totalRows.map(x => ({ key: x.total, residual: x.total_residual - totalCentre })),
+      { edges: ENSEMBLE_TOTAL_BINS, minBin: ENSEMBLE_MIN_BIN })
+    : null;
+
+  // The bin's own residual sample, applied to this game's point forecast. Every
+  // probability below is a threshold read on this one sample, which is what
+  // keeps cover, win and push arithmetically unable to contradict each other.
+  const marginKey = homeSpread == null ? Math.abs(margin) : Math.abs(homeSpread);
+  const binResiduals = marginCal.residualsFor(marginKey);
+  const marginSamples = binResiduals.map(x => Math.round(margin + x));
+  const grade = marginSamples.map(x => (homeSpread == null ? null : Math.sign(x + homeSpread)));
   const winGrade = marginSamples.map(x => Math.sign(x));
-  const totalResiduals = cohort.map(x => x.total_residual).filter(Number.isFinite);
-  const totalMedian = quantile(totalResiduals, 0.5) ?? 0;
-  const totalSamples = total == null ? [] : totalResiduals.map(x => Math.round(total + (x - totalMedian)));
+
+  const totalKey = marketTotal ?? total;
+  const totalSamples = total == null || !totalCal ? []
+    : totalCal.residualsFor(totalKey).map(x => Math.round(total + x));
+
   const q = values => ({
     p10: r2(quantile(values, 0.10)), p25: r2(quantile(values, 0.25)),
     p50: r2(quantile(values, 0.50)), p75: r2(quantile(values, 0.75)), p90: r2(quantile(values, 0.90))
   });
+  const iv80 = marginCal.interval(margin, marginKey, 0.80);
+  const iv50 = marginCal.interval(margin, marginKey, 0.50);
+  const detail = marginCal.describe(marginKey, 0.80);
+
   return {
-    method: 'cutoff-safe empirical market-residual distribution with disagreement inflation',
-    sample_size: cohort.length, conditional_cohort: conditional.length >= 120,
+    method: 'mondrian split-conformal on pre-kickoff market residuals',
+    sample_size: binResiduals.length,
+    calibration_total: marginCal.calibration_n,
+    conditional_cohort: !detail.borrowed_pool,
+    conformal: { ...detail, level: 0.80, bins: marginCal.bins, centre: r2(marginCentre) },
     margin_quantiles: q(marginSamples), total_quantiles: totalSamples.length ? q(totalSamples) : null,
     home_cover_probability: homeSpread == null ? null : r2(grade.filter(x => x > 0).length / grade.length),
     away_cover_probability: homeSpread == null ? null : r2(grade.filter(x => x < 0).length / grade.length),
     push_probability: homeSpread == null ? null : r2(grade.filter(x => x === 0).length / grade.length),
     home_win_probability: r2(winGrade.filter(x => x > 0).length / winGrade.length),
     away_win_probability: r2(winGrade.filter(x => x < 0).length / winGrade.length),
-    margin_interval_80: [r2(quantile(marginSamples, 0.1)), r2(quantile(marginSamples, 0.9))],
-    margin_interval_50: [r2(quantile(marginSamples, 0.25)), r2(quantile(marginSamples, 0.75))],
-    uncertainty_width_80: r2(quantile(marginSamples, 0.9) - quantile(marginSamples, 0.1)),
+    margin_interval_80: iv80 ? [r2(iv80[0]), r2(iv80[1])] : null,
+    margin_interval_50: iv50 ? [r2(iv50[0]), r2(iv50[1])] : null,
+    uncertainty_width_80: iv80 ? r2(iv80[1] - iv80[0]) : null,
+    // Reported, no longer applied. The old code multiplied the interval by
+    // 1 + disagreement/30; it is kept visible as a diagnostic so the number can
+    // be studied against realised coverage instead of silently widening a bet.
+    model_disagreement_margin: disagreement == null ? null : r2(disagreement),
     positive_ev_threshold_at_minus_110: 0.5238,
     calibration_state: 'research_distribution_only',
     production_eligible: false
@@ -300,6 +434,196 @@ function featureAggregates(season, week) {
   }
   _featureAggregateCache.set(cacheKey, out);
   return out;
+}
+
+/* ------------------------------------------------ per-team weather response */
+
+/**
+ * League-average weather effects on a GAME TOTAL, in points. These are the
+ * constants `weather_total` applied to every team identically, and they stay
+ * exactly as they were: they are the prior this component falls back to, and
+ * the centre that per-team responses are measured as deviations from.
+ */
+const FLAT_WEATHER_POINTS = { dome: 1.2, wind: -2.4, cold: -1.6 };
+
+/** Snaps an offense runs in a game when its own play count is unknown. */
+const DEFAULT_OFF_PLAYS = 63;
+
+/**
+ * A team's own response may shift its share of the weather effect by at most
+ * the size of that effect. In a windy game the league constant is -2.4 points
+ * of game total, or -1.2 per offense, so one offense's deviation is bounded to
+ * +/-1.2: it can cancel its share of the penalty, or double it, and no more.
+ *
+ * A fixed wide cap was tried first and was wrong. On a synthetic league with
+ * NO real per-team weather effect, a 3-point cap still let single games move
+ * six points -- an estimate built entirely from sampling noise, sized like a
+ * real edge. Bounding the deviation by the effect it is deviating from keeps
+ * the adjustment inside the physics of the thing being adjusted.
+ */
+const weatherDeviationCap = kinds =>
+  kinds.reduce((s, kind) => s + Math.abs(FLAT_WEATHER_POINTS[kind]) / 2, 0);
+
+const _weatherSensitivityCache = new Map();
+
+/**
+ * How much each offense's own efficiency actually moved indoors, in the cold
+ * and in the wind -- measured from that team's prior games, cut off before the
+ * week being predicted.
+ *
+ * `nfl-weather-response.js` has defined these three deltas all along, and
+ * `nfl-features.js` has surfaced them per team as `dome_epa_delta` /
+ * `cold_epa_delta` / `wind_epa_delta`.
+ * The forecasting ensemble never read them: `weather_total` applied one flat
+ * league constant to a dome game whether the offense in it threw on 70% of
+ * snaps or ran on 55%. This is the aggregate that makes them readable in the
+ * walk-forward loop, on the same cutoff convention `featureAggregates` uses
+ * (this season's earlier weeks, plus the whole prior season for sample).
+ *
+ * The hard part is not reading the delta, it is believing it. A team plays
+ * perhaps two indoor games and three windy ones in a season. Per-game
+ * offensive EPA has a standard deviation around 0.12, so a delta built on a
+ * 3-versus-14 split carries a standard error near 0.075 EPA per play -- about
+ * five points of game total, several times larger than the entire effect being
+ * estimated. Wired in raw, these deltas would be almost pure noise and would
+ * make the component worse, not better.
+ *
+ * So the deltas are shrunk, and the shrinkage is estimated rather than
+ * guessed. Across the 32 teams at this cutoff we have the observed spread of
+ * the deltas and, from the pooled per-game variance of offensive EPA, the
+ * sampling noise each one carries. The between-team variance that survives
+ * subtracting the noise is the only part that can be real; each team's delta
+ * is pulled toward the league mean by the usual empirical-Bayes ratio
+ * tau^2 / (tau^2 + v_team). When no between-team variance survives -- the
+ * honest common case -- every weight is zero, every team gets the league mean,
+ * and the component's output is identical to the flat constant it replaced.
+ *
+ * Only the DEVIATION from the league mean is handed back. The league-average
+ * weather effect is already in FLAT_WEATHER_POINTS, so keeping the mean here
+ * too would double-count it, and would let this change quietly shift the
+ * model's global total calibration instead of doing the one thing it is for:
+ * telling two offenses in the same weather apart.
+ */
+function weatherSensitivity(season, week) {
+  const cacheKey = `${season}|${week}`;
+  if (_weatherSensitivityCache.has(cacheKey)) return _weatherSensitivityCache.get(cacheKey);
+
+  const weeks = teamWeeks().filter(t => (t.season === season ? t.week < week : t.season === season - 1));
+  const conditions = new Map();
+  for (const r of rows(`SELECT season, week, team, roof, temp, wind FROM game_lines
+                        WHERE season IN (?, ?)`, season, season - 1)) {
+    conditions.set(`${r.season}|${r.week}|${r.team}`, r);
+  }
+
+  const byTeam = new Map();
+  for (const t of weeks) {
+    const epa = t.features?.off_epa_per_play;
+    if (epa == null || !Number.isFinite(epa)) continue;
+    const c = conditions.get(`${t.season}|${t.week}|${t.team}`);
+    if (!c) continue;
+    const list = byTeam.get(t.team) ?? [];
+    list.push({ epa, roof: c.roof, temp: c.temp, wind: c.wind });
+    byTeam.set(t.team, list);
+  }
+
+  const splits = new Map();
+  for (const [team, samples] of byTeam) splits.set(team, weatherSplits(samples));
+
+  // Pooled within-team, per-game variance of offensive EPA: the noise floor
+  // every one of these deltas is drawn through.
+  const centered = [];
+  for (const s of splits.values()) {
+    const m = avg(s.epa_samples);
+    if (m == null || s.epa_samples.length < 2) continue;
+    for (const v of s.epa_samples) centered.push((v - m) ** 2);
+  }
+  const perGameVar = centered.length ? mean(centered) : null;
+
+  const KINDS = [['dome', 'dome_epa_delta', 'dome_n', 'outdoor_n'],
+    ['cold', 'cold_epa_delta', 'cold_n', 'warm_n'],
+    ['wind', 'wind_epa_delta', 'windy_n', 'calm_n']];
+
+  const out = new Map();
+  const diagnostics = {};
+  for (const [kind, deltaKey, aKey, bKey] of KINDS) {
+    const observed = [];
+    for (const [team, s] of splits) {
+      const d = s[deltaKey];
+      if (d == null || !Number.isFinite(d)) continue;
+      const nA = s[aKey], nB = s[bKey];
+      if (!nA || !nB) continue;
+      // Variance of a difference of two independent group means.
+      const v = perGameVar == null ? null : perGameVar * (1 / nA + 1 / nB);
+      if (v == null || !(v > 0)) continue;
+      observed.push({ team, d, v });
+    }
+    // Below a handful of teams there is no league spread to estimate, so there
+    // is nothing to separate signal from noise with: hold everything at the
+    // league prior.
+    if (observed.length < 8) { diagnostics[kind] = { teams: observed.length, tau2: 0, shrunk: false }; continue; }
+    const dBar = mean(observed.map(o => o.d));
+    const spread = mean(observed.map(o => (o.d - dBar) ** 2));
+    const noise = mean(observed.map(o => o.v));
+    const tau2 = Math.max(0, spread - noise);
+    // `spread` is itself an estimate from ~32 teams, so under a true null it
+    // lands above `noise` about half the time and max(0, .) keeps only those
+    // halves -- an upward bias that would hand out team-specific adjustments
+    // built from nothing. Measured on a synthetic league with NO real per-team
+    // weather effect, the plain tau2 > 0 rule still moved 288 of 527 games.
+    // So the spread must clear the noise by more than the spread's own
+    // sampling error (about sqrt(2/(k-1)) of it, for a sum of squares over k
+    // teams) at roughly a one-sided 95% level, before any deviation is
+    // applied at all. Below that bar every team gets the league mean and this
+    // component is byte-identical to the flat constant it replaced.
+    const spreadStdErr = noise * Math.sqrt(2 / Math.max(1, observed.length - 1));
+    const significant = spread - noise > 1.645 * spreadStdErr;
+    diagnostics[kind] = { teams: observed.length, tau2: +tau2.toFixed(6),
+      spread: +spread.toFixed(6), noise: +noise.toFixed(6), significant, shrunk: significant && tau2 > 0 };
+    if (!significant || !(tau2 > 0)) continue;   // no real between-team variation survived
+    for (const o of observed) {
+      const w = tau2 / (tau2 + o.v);
+      const deviation = w * (o.d - dBar);   // EPA per play, team-specific part only
+      const e = out.get(o.team) ?? {};
+      e[kind] = deviation;
+      out.set(o.team, e);
+    }
+  }
+
+  const result = { byTeam: out, diagnostics };
+  _weatherSensitivityCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * The points `weather_total` adds for the conditions this game is played in.
+ *
+ * The flat league constant is always applied in full. On top of it, each
+ * offense contributes its own shrunk deviation converted to points -- EPA per
+ * play is already denominated in points, so the conversion is just that team's
+ * expected snap count. An offense with no measured deviation (no prior games
+ * in those conditions, or no surviving between-team variance) contributes
+ * nothing, which reproduces the previous behaviour exactly.
+ */
+function weatherAdjustment(c) {
+  const kinds = [];
+  if (isIndoors(c.roof)) kinds.push('dome');
+  if (c.wind != null && c.wind >= WINDY_MPH) kinds.push('wind');
+  if (c.temp != null && c.temp < COLD_F) kinds.push('cold');
+  let adj = 0;
+  for (const kind of kinds) adj += FLAT_WEATHER_POINTS[kind];
+  if (!kinds.length || !c.weather?.byTeam) return adj;
+
+  for (const team of [c.home, c.away]) {
+    const sens = c.weather.byTeam.get(team);
+    if (!sens) continue;
+    const plays = c.feat?.get(team)?.off_plays;
+    const snaps = plays != null && Number.isFinite(plays) && plays > 0 ? plays : DEFAULT_OFF_PLAYS;
+    let deviation = 0;
+    for (const kind of kinds) deviation += (sens[kind] ?? 0) * snaps;
+    const cap = weatherDeviationCap(kinds);
+    adj += Math.max(-cap, Math.min(cap, deviation));
+  }
+  return adj;
 }
 
 /** A matchup feature abstains unless both its offense and defense halves exist. */
@@ -580,17 +904,13 @@ const MODELS = [
   },
   {
     id: 'weather_total', name: 'Weather-adjusted total', family: 'Context',
-    note: 'Scoring environment adjusted for wind, cold and roof.',
+    note: 'Scoring environment adjusted for wind, cold and roof, plus how much each of these two offenses has actually moved in those conditions.',
     predict: (c) => {
       const base = ((c.agg.get(c.home)?.totals ?? []).length
         ? avg(c.agg.get(c.home).totals) : 44)
         * 0.5 + ((c.agg.get(c.away)?.totals ?? []).length
         ? avg(c.agg.get(c.away).totals) : 44) * 0.5;
-      let adj = 0;
-      if (c.roof === 'dome' || c.roof === 'closed') adj += 1.2;
-      if (c.wind != null && c.wind >= 15) adj -= 2.4;
-      if (c.temp != null && c.temp < 32) adj -= 1.6;
-      return { margin: null, total: base + adj };
+      return { margin: null, total: base + weatherAdjustment(c) };
     }
   },
 
@@ -776,7 +1096,8 @@ export function completeWeekSplit(weekKeys) {
  * lets a fixture assert the window and the split boundary directly, rather
  * than inferring them from a fitted artifact.
  */
-export const __testables = { scheduleFaced, completeWeekSplit };
+export const __testables = { scheduleFaced, completeWeekSplit, massey, MASSEY_RIDGE_LAMBDA,
+  weatherSensitivity, weatherAdjustment, FLAT_WEATHER_POINTS, DEFAULT_OFF_PLAYS, weatherDeviationCap };
 
 /** Builds the context object every model reads, from games strictly earlier. */
 const _sharedContextCache = new Map();
@@ -791,6 +1112,8 @@ function sharedContext(g, hist) {
     agg, recent, schedule: scheduleFaced(hist, { season: g.season, week: g.week }),
     massey: massey(hist), colley: colley(hist), melo: meloRatings(hist), dynamic: dynamicStrength(hist),
     feat: featureAggregates(g.season, g.week),
+    // Per-offense dome/cold/wind response, shrunk toward the league mean.
+    weather: weatherSensitivity(g.season, g.week),
     // Injury availability. The forecasting model has never had this — seventeen
     // thousand injury rows sat in a table nfl-ensemble.js never referenced.
     avail: availabilityDeficit(g.season, g.week),
@@ -937,6 +1260,7 @@ export function clearEnsembleLineCache() { _lineCache.clear(); }
 export function invalidateEnsembleCaches() {
   _cache.clear(); _calibrationCache.clear(); _lineCache.clear();
   _featureAggregateCache.clear(); _sharedContextCache.clear();
+  _weatherSensitivityCache.clear();
 }
 export function clearEnsembleCache() {
   invalidateEnsembleCaches();
@@ -973,6 +1297,143 @@ function fitDataFingerprint() {
 function fitArtifactKey(evalFrom, cutoffKey, weighting, fingerprint, includeChallengers) {
   const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
   return `${FIT_ARTIFACT_VERSION}|${evalFrom}|${cutoffKey}|${weighting}|${inputMode}|${fingerprint}`;
+}
+
+/**
+ * Which games are in the weight-fitting window, which are scoreable at all,
+ * and in what chronological order the replay must visit their weeks.
+ *
+ * Shared by the prediction stream and by `fitEnsemble`'s reported window
+ * sizes, so the definition of "eligible" exists once.
+ */
+function replayWindows({ all, beforeSeason = null, beforeWeek = null }) {
+  // Weight fitting is part of the model, not part of grading. A historical
+  // prediction must therefore derive its weights only from games that were final
+  // before that prediction. The old global fit used 2022-2025 outcomes even while
+  // replaying 2022, which made the component forecasts walk-forward but the
+  // ensemble itself look ahead.
+  const eligible = all.filter(g => g.season >= WEIGHT_FIT_FROM && (
+    beforeSeason == null || g.season < beforeSeason ||
+    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
+  ));
+  // Residual skill can be evaluated before the newer raw-margin weighting
+  // window.  Restrict it to prior games at the same cutoff, but do not throw
+  // away the 2015–2021 observations when replaying an early evaluation season.
+  const residualEligible = all.filter(g => g.season >= MIN_SEASON + 2 && (
+    beforeSeason == null || g.season < beforeSeason ||
+    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
+  ));
+  const rawWeightKeys = new Set(eligible.map(g => `${g.season}|${g.week}|${g.home}`));
+  const scoreGames = [...new Map([...eligible, ...residualEligible]
+    .map(g => [`${g.season}|${g.week}|${g.home}`, g])).values()];
+  // CORRECTED 2026-09-10 (Codex audit finding M05): the residual-skill gate
+  // downstream needs its slope FIT on strictly earlier games than the ones it
+  // is GRADED on -- that requires the replay to actually visit weeks in
+  // chronological order. The old `[...new Set(...)]` derived its order from
+  // Map insertion order of two concatenated, overlapping-but-not-identical
+  // eligibility windows, which is not reliably chronological. An explicit
+  // sort makes every component's residual arrays land in true (season, week)
+  // order, which the split downstream depends on.
+  const weeks = [...new Set(scoreGames.map(g => `${g.season}|${g.week}`))]
+    .sort((a, b) => { const [sa, wa] = a.split('|').map(Number), [sb, wb] = b.split('|').map(Number); return sa - sb || wa - wb; });
+  return { eligible, scoreGames, rawWeightKeys, weeks };
+}
+
+/**
+ * Every component's walk-forward forecast for every scoreable game, in
+ * chronological order.
+ *
+ * This is now the one place the cutoff-safe replay loop lives. `fitEnsemble`
+ * consumes it to grade components and derive weights; the component-rank
+ * diagnostic in nfl-ensemble-rank.js consumes the same stream to measure how
+ * much of that forecast set is independent information. Two separate loops
+ * would drift, and a diagnostic answering "how many independent signals does
+ * this ensemble actually have" is only meaningful if it saw exactly the
+ * forecasts the ensemble saw, under the same cutoff, calibration and
+ * abstention rules.
+ *
+ * A component that abstained yields `null`, never zero — abstention is missing
+ * evidence, and treating it as a number is the specific mistake the
+ * feature-differential models in this file were already corrected for.
+ *
+ * Extracted from fitEnsemble 2026-09-12 with no behavioural change; the fitted
+ * artifact it produces on a fixed fixture is byte-identical before and after,
+ * which is what test/nfl-ensemble-rank.test.js pins.
+ */
+export function* componentPredictionStream({ all, restMap, cal, beforeSeason = null, beforeWeek = null } = {}) {
+  const { rawWeightKeys, scoreGames, weeks } = replayWindows({ all, beforeSeason, beforeWeek });
+
+  for (const key of weeks) {
+    const [season, week] = key.split('|').map(Number);
+    const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
+    if (hist.length < 100) continue;
+    const slate = scoreGames.filter(g => g.season === season && g.week === week);
+    if (!slate.length) continue;
+
+    // One context per week; only the two team names differ between its games.
+    const base = { ...buildContext(slate[0], hist, restMap), cal };
+    // CORRECTED 2026-09-12 sweep item 12: `base.hfa` is `slate[0]`'s OWN
+    // per-game value (buildContext already zeroed it via hfaFor when
+    // slate[0] itself is a neutral-site game), not the week's raw home-field
+    // constant. Re-deriving every other game's hfa from `base.hfa` therefore
+    // silently zeroed home-field advantage for every OTHER game in a week
+    // whenever the week's first-sorted game happened to be the neutral one --
+    // confirmed against real 2015+ history: this fires for all 13 real
+    // non-neutral games sharing 2022 week 11 with the neutral ARI game (sorted
+    // first that week), and for the live 2026 week 1 SEA game sharing its
+    // week with the neutral LAR game. `sharedContext` is cached by
+    // `season|week|hist.length`, so this is a cache hit for every game after
+    // the first and costs nothing extra.
+    const rawHfa = sharedContext(slate[0], hist).hfa;
+
+    for (const g of slate) {
+      const ctx = { ...base, home: g.home, away: g.away,
+        hfa: g.neutral_site ? 0 : rawHfa, neutral: Boolean(g.neutral_site),
+        spread: g.home_spread, total: g.total,
+        openSpread: g.open_spread, openTotal: g.open_total,
+        temp: g.temp, wind: g.wind, roof: g.roof, div: g.div_game,
+        homeRest: g.home_rest, awayRest: restMap.get(`${g.season}|${g.week}|${g.away}`) };
+      const margins = {}, totals = {};
+      for (const m of MODELS) {
+        let p; try { p = m.predict(ctx); } catch { continue; }
+        margins[m.id] = p?.margin != null && Number.isFinite(p.margin) ? p.margin : null;
+        totals[m.id] = p?.total != null && Number.isFinite(p.total) ? p.total : null;
+      }
+      yield {
+        season, week, week_key: key, home: g.home, away: g.away,
+        market_margin: g.home_spread == null ? null : -g.home_spread,
+        market_total: g.total ?? null,
+        actual_margin: g.home_score - g.away_score,
+        actual_total: g.home_score + g.away_score,
+        in_raw_weight_window: rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`),
+        margins, totals
+      };
+    }
+  }
+}
+
+/**
+ * The inputs `componentPredictionStream` needs, assembled exactly the way
+ * `fitEnsemble` assembles them, so a diagnostic replays identical forecasts
+ * without restating the cutoff and calibration rules.
+ */
+export function ensembleReplayInputs({ evalFrom = EVAL_FROM, beforeSeason = null, minSeason = MIN_SEASON } = {}) {
+  const all = games(minSeason);
+  const restMap = awayRest();
+  // Calibration is part of the fitted model; its training era must end before
+  // the prediction, exactly as in fitEnsemble.
+  const calibrationCutoff = beforeSeason == null ? evalFrom : Math.min(evalFrom, beforeSeason);
+  const calibrationKey = `${calibrationCutoff}|${all.length}`;
+  const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
+  _calibrationCache.set(calibrationKey, cal);
+  return { all, restMap, cal };
+}
+
+/** The component catalog, so a diagnostic can label every column it measures. */
+export function componentIds() {
+  return MODELS.map(m => ({
+    id: m.id, name: m.name, family: m.family, challenger_only: m.challengerOnly === true
+  }));
 }
 
 /**
@@ -1018,76 +1479,30 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // departure from the market explain the eventual market residual?  These are
   // still walk-forward predictions, and are cut off at the requested game.
   const residuals = Object.fromEntries(MODELS.map(m => [m.id, { signal: [], actual: [], week: [] }]));
-  // Weight fitting is part of the model, not part of grading. A historical
-  // prediction must therefore derive its weights only from games that were final
-  // before that prediction. The old global fit used 2022-2025 outcomes even while
-  // replaying 2022, which made the component forecasts walk-forward but the
-  // ensemble itself look ahead.
-  const eligible = all.filter(g => g.season >= WEIGHT_FIT_FROM && (
-    beforeSeason == null || g.season < beforeSeason ||
-    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
-  ));
-  // Residual skill can be evaluated before the newer raw-margin weighting
-  // window.  Restrict it to prior games at the same cutoff, but do not throw
-  // away the 2015–2021 observations when replaying an early evaluation season.
-  const residualEligible = all.filter(g => g.season >= MIN_SEASON + 2 && (
-    beforeSeason == null || g.season < beforeSeason ||
-    (g.season === beforeSeason && g.week < (beforeWeek ?? 1))
-  ));
-  const rawWeightKeys = new Set(eligible.map(g => `${g.season}|${g.week}|${g.home}`));
-  const scoreGames = [...new Map([...eligible, ...residualEligible]
-    .map(g => [`${g.season}|${g.week}|${g.home}`, g])).values()];
-  // CORRECTED 2026-09-10 (Codex audit finding M05): the residual-skill gate
-  // below needs its slope FIT on strictly earlier games than the ones it is
-  // GRADED on -- that requires this loop to actually visit weeks in
-  // chronological order. The old `[...new Set(...)]` derived its order from
-  // Map insertion order of two concatenated, overlapping-but-not-identical
-  // eligibility windows, which is not reliably chronological. An explicit
-  // sort makes every component's residuals[].signal/.actual arrays land in
-  // true (season, week) order, which the split below depends on.
-  const weeks = [...new Set(scoreGames.map(g => `${g.season}|${g.week}`))]
-    .sort((a, b) => { const [sa, wa] = a.split('|').map(Number), [sb, wb] = b.split('|').map(Number); return sa - sb || wa - wb; });
-
-  for (const key of weeks) {
-    const [season, week] = key.split('|').map(Number);
-    const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
-    if (hist.length < 100) continue;
-    const slate = scoreGames.filter(g => g.season === season && g.week === week);
-    if (!slate.length) continue;
-
-    // One context per week; only the two team names differ between its games.
-    const base = { ...buildContext(slate[0], hist, restMap), cal };
-
-    for (const g of slate) {
-      const ctx = { ...base, home: g.home, away: g.away,
-        hfa: g.neutral_site ? 0 : base.hfa, neutral: Boolean(g.neutral_site),
-        spread: g.home_spread, total: g.total,
-        openSpread: g.open_spread, openTotal: g.open_total,
-        temp: g.temp, wind: g.wind, roof: g.roof, div: g.div_game,
-        homeRest: g.home_rest, awayRest: restMap.get(`${g.season}|${g.week}|${g.away}`) };
-      const actualMargin = g.home_score - g.away_score;
-      const actualTotal = g.home_score + g.away_score;
-      for (const m of MODELS) {
-        let p; try { p = m.predict(ctx); } catch { continue; }
-        if (rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`) && p?.margin != null && Number.isFinite(p.margin)) {
-          errs[m.id].margin.push((p.margin - actualMargin) ** 2);
-        }
-        const marketMargin = g.home_spread == null ? null : -g.home_spread;
-        if (p?.margin != null && marketMargin != null && Number.isFinite(p.margin)) {
-          residuals[m.id].signal.push(p.margin - marketMargin);
-          residuals[m.id].actual.push(actualMargin - marketMargin);
-          // Codex correction C07: the week each residual belongs to, so the
-          // fit/score boundary can be placed BETWEEN weeks. A row-index split
-          // cuts a Sunday slate in half roughly six times out of seven, and
-          // the games either side of that cut share a week of common
-          // information -- the same market state, the same injury cycle, the
-          // same weather -- so the "out-of-fold" block was not out of fold.
-          residuals[m.id].week.push(key);
-        }
-        if (rawWeightKeys.has(`${g.season}|${g.week}|${g.home}`) && p?.total != null && Number.isFinite(p.total)) {
-          errs[m.id].total.push((p.total - actualTotal) ** 2);
-        }
+  // The cutoff-safe replay loop itself lives in `componentPredictionStream`
+  // above, so this grading pass and the component-rank diagnostic cannot drift
+  // apart. Everything about which games are eligible, in which order, and what
+  // context each component sees is unchanged — only its home moved.
+  const windows = replayWindows({ all, beforeSeason, beforeWeek });
+  for (const row of componentPredictionStream({ all, restMap, cal, beforeSeason, beforeWeek })) {
+    const { actual_margin: actualMargin, actual_total: actualTotal,
+      market_margin: marketMargin, week_key: key, in_raw_weight_window: inRawWindow } = row;
+    for (const m of MODELS) {
+      const margin = row.margins[m.id] ?? null;
+      const total = row.totals[m.id] ?? null;
+      if (inRawWindow && margin != null) errs[m.id].margin.push((margin - actualMargin) ** 2);
+      if (margin != null && marketMargin != null) {
+        residuals[m.id].signal.push(margin - marketMargin);
+        residuals[m.id].actual.push(actualMargin - marketMargin);
+        // Codex correction C07: the week each residual belongs to, so the
+        // fit/score boundary can be placed BETWEEN weeks. A row-index split
+        // cuts a Sunday slate in half roughly six times out of seven, and
+        // the games either side of that cut share a week of common
+        // information -- the same market state, the same injury cycle, the
+        // same weather -- so the "out-of-fold" block was not out of fold.
+        residuals[m.id].week.push(key);
       }
+      if (inRawWindow && total != null) errs[m.id].total.push((total - actualTotal) ** 2);
     }
   }
 
@@ -1122,11 +1537,41 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     const slope = denominator > 0 ? fitSignal.reduce((s, x, i) => s + x * fitActual[i], 0) / denominator : 0;
     const baselineMse = scoreActual.length ? mean(scoreActual.map(x => x ** 2)) : null;
     const residualMse = scoreActual.length ? mean(scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2)) : null;
-    const paired = scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2 - x ** 2);
-    const pairedMean = paired.length ? mean(paired) : null;
-    const pairedSd = paired.length > 1
-      ? Math.sqrt(paired.reduce((sum, x) => sum + (x - pairedMean) ** 2, 0) / (paired.length - 1)) : null;
-    const residualT = pairedSd > 0 ? pairedMean / (pairedSd / Math.sqrt(paired.length)) : null;
+    // CORRECTED 2026-09-12 (Giant Plan 7.2, FIX #2): this comparison used to be
+    // an ad hoc paired t-test over per-game squared errors. That statistic
+    // assumes the per-game loss differentials are independent, and here they
+    // are emphatically not: every game on one Sunday slate is scored by the
+    // SAME `slope`, fitted once on the earlier block and then held fixed, and
+    // shares one week of market state, injury news and weather. Fourteen games
+    // off one slate are far closer to one observation than to fourteen, and
+    // the paired t divides by sqrt(n) using the inflated n -- so it reports a
+    // statistic larger than the evidence supports, and this is the gate that
+    // decides which components earn residual weight.
+    //
+    // Diebold-Mariano with the Harvey-Leybourne-Newbold small-sample
+    // correction is the standard instrument for the question actually being
+    // asked ("is forecast A more accurate than forecast B on dependent data").
+    // The week is the forecast period, so each week's slate collapses to one
+    // loss differential and the test runs over the series of weeks; the
+    // reference is t with (weeks - 1) degrees of freedom rather than a normal.
+    //
+    // Worth knowing before reading the two numbers side by side: DM* reduces
+    // EXACTLY to the paired t when the horizon is 1 and there is no clustering
+    // (asserted in test/diebold-mariano.test.js). So the gap between
+    // `residual_dm_t` and `residual_paired_t` below is not two tools
+    // disagreeing -- it is a direct measurement of how much within-week
+    // dependence the old statistic was spending as though it were evidence.
+    const scoreWeekLabels = rs.week.slice(splitIdx);
+    const modelLoss = scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2);
+    const marketLoss = scoreActual.map(x => x ** 2);
+    // horizon 1: the slate is the period, and one week's forecast does not
+    // overlap the next week's information set. Clustering, not the horizon, is
+    // what carries the dependence in this particular design.
+    const dm = dieboldMariano(modelLoss, marketLoss, { horizon: 1, clusters: scoreWeekLabels });
+    // The superseded statistic, still computed and still reported -- an audit
+    // that cannot see what the old gate would have said cannot check this one.
+    const legacyPaired = naivePairedT(modelLoss, marketLoss);
+    const residualT = legacyPaired.ok ? legacyPaired.statistic : null;
     const marketRmse = baselineMse == null ? null : Math.sqrt(baselineMse);
     const modelRmse = residualMse == null ? null : Math.sqrt(residualMse);
     const residualGain = marketRmse == null || modelRmse == null ? null : marketRmse - modelRmse;
@@ -1140,6 +1585,20 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
       residual_rmse: residualMse == null ? null : r2(Math.sqrt(residualMse)),
       market_residual_rmse: baselineMse == null ? null : r2(Math.sqrt(baselineMse)),
       residual_rmse_gain: r2(residualGain),
+      // The statistic the gate reads. Same sign convention as the paired t it
+      // replaces: negative means the component beat the market.
+      residual_dm_t: dm.ok ? r2(dm.statistic) : null,
+      // One-sided "this component is more accurate than the market", on
+      // t with (weeks - 1) df. Small p = real incremental skill.
+      residual_dm_p: dm.ok ? +dm.pLess.toFixed(4) : null,
+      residual_dm_df: dm.ok ? dm.df : null,
+      // The sample size the test actually has (weeks), next to the one the old
+      // paired t claimed (games). The ratio is the inflation that was being
+      // counted as evidence.
+      residual_dm_weeks: dm.ok ? dm.periods : null,
+      residual_dm_ok: dm.ok,
+      residual_dm_reason: dm.ok ? null : dm.reason,
+      // Superseded; retained for audit continuity, never read by a gate.
       residual_paired_t: r2(residualT),
       // The size of the OUT-OF-FOLD score block, not the total pool -- this is
       // the sample size the gate below actually requires 250 of.
@@ -1182,8 +1641,22 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     // multi-season OOF-1 standard used elsewhere (e.g. nfl-cover-calibration.js's
     // forward gate). Excluded challengers have no weight in either
     // normalization, even when their score is strong.
+    //
+    // The significance leg of this gate now reads the Diebold-Mariano
+    // statistic (FIX #2, above) instead of the paired t. Two changes follow
+    // from that, both deliberate:
+    //   - the threshold is a one-sided 5% P-VALUE rather than a fixed -1.645.
+    //     -1.645 is the normal critical value; DM* is referred to t with
+    //     (weeks - 1) degrees of freedom, where the 5% critical value depends
+    //     on how many weeks were actually scored. Hard-coding -1.645 would
+    //     quietly re-import the large-sample assumption HLN exists to remove.
+    //   - a component whose DM test could not be computed at all (too few
+    //     complete weeks in the score block, zero variance) fails the gate.
+    //     No statistic means no evidence, which is not the same as evidence of
+    //     no skill, but it is equally not grounds for production weight.
     m.residual_diagnostic_passed = m.residual_n >= 250
-      && m.residual_rmse_gain >= 0.03 && m.residual_paired_t <= -1.645;
+      && m.residual_rmse_gain >= 0.03
+      && m.residual_dm_ok === true && m.residual_dm_p <= 0.05;
     m.residual_gate_passed = (includeChallengers || !m.challenger_only)
       && m.residual_diagnostic_passed;
     m.residual_weight = m.residual_gate_passed ? Math.exp(-0.7 * m.residual_rmse) : 0;
@@ -1191,16 +1664,33 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   const residualWeightSum = scored.reduce((s, m) => s + m.residual_weight, 0);
   for (const m of scored) m.residual_weight = residualWeightSum
     ? +(m.residual_weight / residualWeightSum).toFixed(4) : 0;
+  // SWEEP STEP 0 ITEM 3 (2026-09-12): across every fit artifact ever persisted
+  // (848 artifacts / 26,288 component-cutoff rows, checked read-only against
+  // real production history), residual_gate_passed has NEVER once been true.
+  // That is not a property of one unlucky cutoff -- it means market_residual
+  // has, in practice, always fallen through to `marketMargin` verbatim below,
+  // and spread_edge has been identically 0 at every cutoff that ever shipped.
+  // `residual_gate_pass_count` makes that a queryable fact of THIS cutoff's fit
+  // rather than something only visible by re-deriving it from 26k stored rows,
+  // and `ensembleLine`'s `is_market_identity` (below) is the per-game flag
+  // downstream code and audits actually branch on.
+  const residualGatePassCount = scored.filter(m => m.residual_gate_passed).length;
 
   const result = {
     models: scored,
     // Preserve the raw-model weighting audit separately from the longer
     // residual-only history used to establish market incremental value.
-    evaluated_weeks: new Set(eligible.map(g => `${g.season}|${g.week}`)).size,
-    residual_evaluated_weeks: weeks.length,
+    evaluated_weeks: new Set(windows.eligible.map(g => `${g.season}|${g.week}`)).size,
+    residual_evaluated_weeks: windows.weeks.length,
     games: all.length,
     calibration: cal, weighting, input_mode: inputMode,
-    weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }
+    weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 },
+    residual_gate_pass_count: residualGatePassCount,
+    // True exactly when NO component earned residual weight at this cutoff --
+    // the honest, queryable version of "market_residual has no independent
+    // opinion here." Independent of blendMode: this describes what the fit
+    // itself has to offer, not which blend a particular caller requested.
+    zero_residual_components_at_cutoff: residualGatePassCount === 0
   };
   _cache.set(cacheKey, result);
   if (_artifactPersistenceEnabled) {
@@ -1219,7 +1709,21 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
  */
 export function ensembleLine(season, week, home, away, {
   weighting = 'exponential', families = null, blendMode = 'raw', includeEvidence = true,
-  includeChallengers = false, excludeModels = []
+  includeChallengers = false, excludeModels = [],
+  // Integration stage 1 (2026-09-12): when a caller has a frozen T-60 evidence
+  // packet for this exact game, it passes the market number(s) the packet
+  // actually froze here instead of letting this function read game_lines for
+  // them -- see nfl-auto-picks.js's autoPickDecisionBoardForPacket and
+  // nfl-t60-packet.js's resolvePacketMarketQuote. `undefined` on a field means
+  // "no override, read game_lines as before"; an explicit `null` means "the
+  // packet was checked and had nothing eligible" and must NOT fall back to a
+  // live read for that field -- silently doing so would let the one input the
+  // packet actually carries real values for quietly come from the present
+  // instead of from what was frozen, defeating the whole point of a
+  // packet-sourced board. `source` is a label (e.g. 'frozen_packet') recorded
+  // on the result so the caller can see, per field, where each number came
+  // from -- see the `market_data_source` on the returned `ensemble` object.
+  marketOverride = null
 } = {}) {
   const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
   const reliability = includeChallengers ? signalReliabilityFor(season, week)
@@ -1227,7 +1731,13 @@ export function ensembleLine(season, week, home, away, {
   const excludedKey = [...excludeModels].sort().join(',');
   const excluded = new Set(excludeModels);
   const familyKey = families?.length ? [...new Set(families)].sort().join(',') : '*';
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|families:${familyKey}|${includeEvidence ? 'evidence' : 'forecast'}`;
+  // A market override changes the actual inputs to this line, so it must be
+  // part of the cache key -- otherwise a live call and a packet-sourced call
+  // for the identical game would collide on the same cached result, and
+  // whichever ran first would silently answer for both.
+  const overrideKey = marketOverride
+    ? `override:${marketOverride.home_spread ?? 'null'},${marketOverride.total ?? 'null'}` : 'override:none';
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|families:${familyKey}|${includeEvidence ? 'evidence' : 'forecast'}|${overrideKey}`;
   // Every family ablation follows the same blend and distribution path as the
   // full model. Shared contexts and fitted artifacts remain cached below.
   if (_lineCache.has(lineKey)) return _lineCache.get(lineKey);
@@ -1243,12 +1753,36 @@ export function ensembleLine(season, week, home, away, {
   const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
   if (hist.length < 100) return { error: 'not enough history before this week' };
 
+  // CORRECTED 2026-09-12 sweep item 11: this used to null the opener out for
+  // any already-decided game (`CASE WHEN team_score IS NULL THEN open_spread
+  // END`), so a call against a PAST game read a different open_spread than
+  // `games()` -- fixed for exactly this discrepancy by a3e1841 -- supplies
+  // for the identical row via componentPredictionStream/fitEnsemble. The
+  // opener is fixed well before kickoff regardless of whether the game has
+  // since finished, so hiding it here was never a look-ahead guard, only an
+  // unnoticed second copy of the bug a3e1841 already fixed at `games()`.
+  // market_anchor's replay-graded RMSE and its live prediction for the same
+  // game now read the same number.
   const g = rows(`SELECT team AS home, opponent AS away, spread AS home_spread, total,
-                         CASE WHEN team_score IS NULL THEN open_spread END AS open_spread,
-                         CASE WHEN team_score IS NULL THEN open_total END AS open_total,
+                         open_spread, open_total,
                          temp, wind, roof, rest_days AS home_rest, div_game, neutral_site
                   FROM game_lines WHERE season=? AND week=? AND team=? AND home=1`, season, week, home)[0]
     ?? { home, away, home_spread: null, total: null };
+  // `game_context` below covers every field this query read OTHER than
+  // home_spread/total: weather, rest, division and neutral-site status.
+  // Nothing overrides those today (see the marketOverride doc above) -- they
+  // are always this live game_lines row -- so `market_data_source` always
+  // reports 'game_lines' for them, honestly, rather than only tracking the
+  // two fields an override CAN reach and leaving the rest unstated.
+  const marketDataSource = { home_spread: 'game_lines', total: 'game_lines', game_context: 'game_lines' };
+  if (marketOverride && 'home_spread' in marketOverride) {
+    g.home_spread = marketOverride.home_spread;
+    marketDataSource.home_spread = marketOverride.source ?? 'frozen_packet';
+  }
+  if (marketOverride && 'total' in marketOverride) {
+    g.total = marketOverride.total;
+    marketDataSource.total = marketOverride.source ?? 'frozen_packet';
+  }
   const ctx = { ...buildContext({ ...g, season, week, home, away }, hist, restMap),
     home, away, cal: fit.calibration };
 
@@ -1297,6 +1831,19 @@ export function ensembleLine(season, week, home, away, {
   // market. The in-sample residual diagnostic is not proof of independent skill.
   // The no-signal fallback is precisely the spread.
   const margin = blendMode === 'market_residual' ? residualMargin : rawMargin;
+  // SWEEP STEP 0 ITEM 3: `market_residual` returns `marketMargin` verbatim,
+  // by construction, whenever no component has residual weight (see the
+  // fallback in `residualMargin` above) -- this is production's blend mode
+  // (nfl-auto-picks.js) and, checked read-only against real history, has been
+  // true at EVERY cutoff ever fit (0 of 848 stored fit artifacts / 26,288
+  // component-cutoff rows ever passed the gate). `is_market_identity` names
+  // that plainly rather than leaving a caller to notice spread_edge is 0: it
+  // is true only when the served forecast IS the market line by arithmetic,
+  // not merely close to it because the models happened to agree with the
+  // market. `raw` mode never falls back to the market this way, so it is
+  // always false there even if a model's own output happens to match the line.
+  const isMarketIdentity = blendMode === 'market_residual'
+    && marketMargin != null && residualWeight === 0;
   const disagreementMargin = sd(marginVals);
   const distribution = predictiveDistribution(hist, { margin, total, homeSpread: g.home_spread,
     marketTotal: g.total, disagreement: disagreementMargin });
@@ -1316,6 +1863,11 @@ export function ensembleLine(season, week, home, away, {
       projected_total: r2(total),
       market_spread: g.home_spread ?? null,
       market_total: g.total ?? null,
+      // Where market_spread/market_total (and the weather/rest/div/neutral
+      // context folded into every model's ctx above) actually came from --
+      // 'game_lines' unless a caller supplied marketOverride. Visible on every
+      // line, live or packet-sourced, so a reader never has to guess.
+      market_data_source: marketDataSource,
       spread_edge: margin != null && marketMargin != null ? r2(margin - marketMargin) : null,
       total_edge: total != null && g.total != null ? r2(total - g.total) : null,
       model_disagreement_margin: r2(disagreementMargin),
@@ -1324,6 +1876,11 @@ export function ensembleLine(season, week, home, away, {
       models_contributing_total: totalVals.length,
       confidence: confidenceFrom(sd(marginVals), margin, marketMargin),
       blend_mode: blendMode,
+      // Every audit/replay run declares its blend explicitly (blend_mode,
+      // above) and now also declares, honestly, whether that blend actually
+      // produced a real model opinion for this game or just the market line
+      // with no independent view -- see the sweep note on `isMarketIdentity`.
+      is_market_identity: isMarketIdentity,
       residual_models_contributing: residualModels.length,
       distribution,
       player_availability: playerAvailability
@@ -1374,10 +1931,13 @@ export function challengerSignalWeek(season, week) {
   const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
   _calibrationCache.set(calibrationKey, cal);
   const base = { ...buildContext({ ...slate[0], season, week }, hist, restMap), cal };
+  // See the matching comment in componentPredictionStream: `base.hfa` is
+  // `slate[0]`'s own zeroed-if-neutral value, not the week's raw constant.
+  const rawHfa = sharedContext({ ...slate[0], season, week }, hist).hfa;
   const challengers = MODELS.filter(model => model.challengerOnly);
   return { version: CHALLENGER_SIGNAL_VERSION, season, week, games: slate.map(game => {
     const ctx = { ...base, home: game.home, away: game.away,
-      hfa: game.neutral_site ? 0 : base.hfa, neutral: Boolean(game.neutral_site),
+      hfa: game.neutral_site ? 0 : rawHfa, neutral: Boolean(game.neutral_site),
       spread: game.spread, total: game.total, openSpread: game.open_spread, openTotal: game.open_total,
       temp: game.temp, wind: game.wind, roof: game.roof, div: game.div_game,
       homeRest: game.home_rest, awayRest: restMap.get(`${season}|${week}|${game.away}`) };
@@ -1387,6 +1947,109 @@ export function challengerSignalWeek(season, week) {
         return { id: model.id, projected_margin: r2(prediction?.margin), projected_total: r2(prediction?.total) };
       }) };
   }) };
+}
+
+/**
+ * The exit test Giant Plan 7.5 asks this change to be judged on, as a function
+ * rather than a one-off script: replay every weather-affected game with only
+ * prior information, and report total-line error for the flat league constant
+ * and for the per-offense wiring SIDE BY SIDE on exactly the same games.
+ *
+ * The split that matters is pass-heavy versus run-heavy offenses. A flat wind
+ * penalty is a statement that wind costs a team that throws on seventy per
+ * cent of snaps the same points it costs a team that runs the ball -- which is
+ * where a single constant should be most wrong, and so where a per-team
+ * response should show up first if it is worth anything. Games are bucketed by
+ * the two offenses' combined pass rate over expected, measured from prior
+ * weeks like everything else here.
+ *
+ * This reports error, it does not decide anything. A component that does not
+ * lower error on held-out games has not earned its way into the blend, and the
+ * numbers this returns are the evidence either way.
+ */
+export function weatherComponentDiagnostic({ evalFrom = EVAL_FROM, minSeason = MIN_SEASON } = {}) {
+  const all = games(minSeason);
+  if (all.length < 200) return { error: `only ${all.length} games available — sync game lines first` };
+  const restMap = awayRest();
+  const weeks = [...new Set(all.filter(g => g.season >= evalFrom).map(g => `${g.season}|${g.week}`))]
+    .sort((a, b) => { const [sa, wa] = a.split('|').map(Number), [sb, wb] = b.split('|').map(Number); return sa - sb || wa - wb; });
+
+  const rowsOut = [];
+  for (const key of weeks) {
+    const [season, week] = key.split('|').map(Number);
+    const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
+    if (hist.length < 100) continue;
+    const slate = all.filter(g => g.season === season && g.week === week);
+    if (!slate.length) continue;
+    const base = buildContext(slate[0], hist, restMap);
+    for (const g of slate) {
+      if (g.total == null) continue;
+      const c = { ...base, home: g.home, away: g.away,
+        temp: g.temp, wind: g.wind, roof: g.roof };
+      const weatherActive = isIndoors(c.roof)
+        || (c.wind != null && c.wind >= WINDY_MPH) || (c.temp != null && c.temp < COLD_F);
+      if (!weatherActive) continue;   // both variants are identical here by construction
+      const teamTotal = t => ((c.agg.get(t)?.totals ?? []).length ? avg(c.agg.get(t).totals) : 44);
+      const baseTotal = teamTotal(g.home) * 0.5 + teamTotal(g.away) * 0.5;
+      const wired = weatherAdjustment(c);
+      const flat = weatherAdjustment({ ...c, weather: null });
+      const proe = t => c.feat.get(t)?.off_proe;
+      const hp = proe(g.home), ap = proe(g.away);
+      rowsOut.push({
+        season, week, home: g.home, away: g.away,
+        roof: g.roof, temp: g.temp, wind: g.wind,
+        actual_total: g.home_score + g.away_score,
+        market_total: g.total,
+        wired_total: baseTotal + wired,
+        flat_total: baseTotal + flat,
+        combined_proe: hp == null || ap == null ? null : hp + ap
+      });
+    }
+  }
+  if (!rowsOut.length) return { error: 'no weather-affected games in the evaluation window' };
+
+  const withProe = rowsOut.filter(r => r.combined_proe != null).sort((a, b) => a.combined_proe - b.combined_proe);
+  const cut = Math.floor(withProe.length / 3);
+  const buckets = {
+    all: rowsOut,
+    run_heavy: withProe.slice(0, cut),
+    pass_heavy: withProe.slice(withProe.length - cut)
+  };
+  const score = list => {
+    if (!list.length) return null;
+    const err = (key) => list.map(r => r[key] - r.actual_total);
+    const stat = e => ({
+      rmse: +Math.sqrt(mean(e.map(x => x ** 2))).toFixed(4),
+      mae: +mean(e.map(Math.abs)).toFixed(4),
+      bias: +mean(e).toFixed(4)
+    });
+    const flat = stat(err('flat_total')), wired = stat(err('wired_total'));
+    // Paired, because both variants forecast the very same games: the question
+    // is whether the wiring helped game by game, not whether two independent
+    // samples happened to differ.
+    const paired = list.map(r => (r.wired_total - r.actual_total) ** 2 - (r.flat_total - r.actual_total) ** 2);
+    const pm = mean(paired);
+    const sd = paired.length > 1
+      ? Math.sqrt(paired.reduce((s, x) => s + (x - pm) ** 2, 0) / (paired.length - 1)) : null;
+    // How far the wiring actually moves a number. A change that cannot move a
+    // total by much cannot help much either, and cannot do much damage -- both
+    // halves of that are worth knowing before reading the error deltas.
+    const shifts = list.map(r => Math.abs(r.wired_total - r.flat_total));
+    return { n: list.length, flat, wired,
+      rmse_delta: +(wired.rmse - flat.rmse).toFixed(4),
+      mae_delta: +(wired.mae - flat.mae).toFixed(4),
+      paired_t: sd > 0 ? +(pm / (sd / Math.sqrt(paired.length))).toFixed(3) : null,
+      differing_games: shifts.filter(v => v > 1e-9).length,
+      mean_abs_shift: +mean(shifts).toFixed(4),
+      max_abs_shift: +Math.max(...shifts).toFixed(4) };
+  };
+  return {
+    eval_from: evalFrom,
+    weather_games: rowsOut.length,
+    splits: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, score(v)])),
+    note: 'rmse_delta/mae_delta are wired minus flat: negative means the per-offense wiring lowered error. ' +
+      'paired_t is on squared error, so a negative t is the wiring helping.'
+  };
 }
 
 export function modelCatalog() {

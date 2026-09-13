@@ -47,7 +47,7 @@
  * would need the same thing: real settled rows to decompose.
  *
  * Checked directly (2026-09-04): `forward_picks` has 0 rows and `nfl_bet_log`
- * (nfl-clv.js) has 0 rows. There is nothing settled to attribute — not a thin
+ * (clv-core.js) has 0 rows. There is nothing settled to attribute — not a thin
  * sample that would produce a wide-error estimate, an *empty* one. Building a
  * decomposition function against zero rows would be scaffolding around a
  * placeholder, not a measurement, and it could not be tested against anything
@@ -63,6 +63,7 @@
  */
 import { rows, row, run } from '../db/index.js';
 import { nflKickoffDate } from './date-util.js';
+import { signedClvPoints } from './clv-core.js';
 
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const BREAK_EVEN = 0.5238;
@@ -162,7 +163,9 @@ export function settleForwardPicks() {
       const line = p.line_at_pick ?? closeTotal;
       result = actualTotal === line ? 'Push' : (actualTotal > line) === over ? 'Won' : 'Lost';
       if (p.line_at_pick != null && closeTotal != null) {
-        clv = over ? closeTotal - p.line_at_pick : p.line_at_pick - closeTotal;
+        // Signed via the shared clv-core.js convention (audit-consolidation
+        // stage 3, Giant Plan 8.1): a higher total helps Under, hurts Over.
+        clv = signedClvPoints({ market: 'total', ourLine: p.line_at_pick, closeLine: closeTotal, isUnder: !over });
       }
     } else {
       const line = p.line_at_pick != null ? p.line_at_pick : closing;
@@ -172,7 +175,7 @@ export function settleForwardPicks() {
       if (p.line_at_pick != null && closing != null) {
         // A larger handicap is always better for the backed team: -3 beats a
         // close of -4, and +4 beats a close of +3.
-        clv = p.line_at_pick - closing;
+        clv = signedClvPoints({ market: 'spread', ourLine: p.line_at_pick, closeLine: closing });
       }
     }
 

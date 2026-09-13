@@ -20,14 +20,14 @@
  * makes line shopping work, applied to the number instead of the price.
  *
  * This is also self-verifying. A bet placed against a stale number should show
- * up as positive closing line value once the book catches up, and nfl-clv.js
- * grades exactly that. If the divergences found here do not produce positive
- * CLV, the premise is wrong and the ledger will say so.
+ * up as positive closing line value once the book catches up, and
+ * clv-core.js's ledger grades exactly that. If the divergences found here do
+ * not produce positive CLV, the premise is wrong and the ledger will say so.
  */
 import { rows } from '../db/index.js';
 import { hasKey, gameOdds, reserveStatus } from './odds-api.js';
 import { latestSnapshotPayload } from './line-shopping.js';
-import { americanToProb, americanToDecimal, noVigProbability } from './nfl-clv.js';
+import { americanToProb, americanToDecimal, noVigProbability } from './clv-core.js';
 
 /**
  * Books that price for accuracy, in rough order of how much their number is
@@ -143,15 +143,16 @@ export async function sharpBoard({ markets = 'spreads,totals', includePinnacle =
  * Recreational numbers that have not caught up to the sharp consensus.
  *
  * `edge_pct` is the expected return of taking the stale number, priced against
- * the sharp book's implied distribution — the same calculation nfl-clv.js uses
- * to grade a bet against the close, applied before kickoff instead of after.
- * A positive number here is a claim that will be checked automatically later.
+ * the sharp book's implied distribution — the same calculation clv-core.js
+ * uses to grade a bet against the close, applied before kickoff instead of
+ * after. A positive number here is a claim that will be checked automatically
+ * later.
  */
 export async function sharpDivergence({ minEdgePct = 0.01, markets = 'spreads,totals' } = {}) {
   const board = await sharpBoard({ markets });
   if (board.error) return board;
 
-  const { fairProbabilityOfOurBet } = await import('./nfl-clv.js');
+  const { fairProbabilityOfOurBet } = await import('./clv-core.js');
   const out = [];
   for (const g of board.games) {
     for (const [market, m] of Object.entries(g.markets)) {

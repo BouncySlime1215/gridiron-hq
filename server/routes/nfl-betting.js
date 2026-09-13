@@ -35,7 +35,7 @@ import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsemb
 import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit,
   candidateInputComparison, saveCandidateInputAudit, latestCandidateInputAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
-import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/nfl-clv.js';
+import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/clv-core.js';
 import { sharpBoard, sharpDivergence, steamMoves, sharpScorecard } from '../services/nfl-sharp.js';
 import { runIfStale } from '../services/scheduler.js';
 import { stakeFor, safeStakeFor, evaluateSizing, slateRiskCheck } from '../services/staking.js';
@@ -692,8 +692,9 @@ r.get('/replay', (req, res, next) => {
       minEdge: Number(req.query.min_edge) || 3,
       maxDisagreement: disagreement(req),
       markets: String(req.query.markets ?? 'spread').split(','),
-      maxPicksPerWeek: Number(req.query.max_picks) || 5
-    } : {});
+      maxPicksPerWeek: Number(req.query.max_picks) || 5,
+      blendMode: 'raw'
+    } : { blendMode: 'raw' });
     if (out?.error) return res.status(409).json(out);
     res.json(out);
   } catch (e) { next(e); }
@@ -962,6 +963,26 @@ r.get('/stake', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * The two real, server-side facts safeStakeFor()'s calibration and
+ * forward-sample gates check — computed here, never taken from a request.
+ *
+ * Both `/stake/safe` and `/stake/safe/slate` used to read `calibrated` and
+ * `forward_settled` straight off the query string / request body, so any
+ * caller could set `?calibrated=1&forward_settled=999` and unlock a full
+ * stake regardless of what the model has actually proven. These are the same
+ * two sources nfl-research.js's own promotion gates already treat as
+ * authoritative: the latest calibration's real walk-forward gate, and the
+ * real settled forward sample (exact same filter as nfl-research.js's
+ * `forwardSettled`).
+ */
+function realStakingGates() {
+  const calibration = latestCoverCalibration();
+  const forwardSettled = allPickResults()
+    .filter(x => ['Won', 'Lost'].includes(x.status) && x.quote_at && x.selected_at).length;
+  return { calibrationPassed: calibration?.metrics?.forward_gate_passed === true, forwardSettled };
+}
+
 r.get('/stake/safe', (req, res, next) => {
   try {
     const winProb = Number(req.query.prob), odds = Number(req.query.odds);
@@ -970,8 +991,7 @@ r.get('/stake/safe', (req, res, next) => {
     }
     res.json(safeStakeFor({
       winProb, americanOdds: odds, bankroll: Number(req.query.bankroll) || 100,
-      calibrationPassed: req.query.calibrated === '1',
-      forwardSettled: Number(req.query.forward_settled) || 0,
+      ...realStakingGates(),
       uncertaintyWidth: req.query.interval_width == null ? null : Number(req.query.interval_width),
       openPortfolioFraction: Number(req.query.open_exposure) || 0
     }));
@@ -981,11 +1001,13 @@ r.get('/stake/safe', (req, res, next) => {
 /**
  * Correlation-aware staking for one bet against the REST OF THE WEEK'S SLATE,
  * not just a flat running total. Body: { winProb, americanOdds, bankroll,
- * calibrated, forward_settled, interval_width, open_exposure, openBets }
- * where openBets is the week's other already-sized candidates, each
- * optionally carrying { stake_fraction, team, opponent, division_rivalry,
- * weather_bucket, officiating_crew, model_probability } for correlation
- * estimation. See staking.js's file header and slateRiskCheck for the method.
+ * interval_width, open_exposure, openBets } where openBets is the week's
+ * other already-sized candidates, each optionally carrying { stake_fraction,
+ * team, opponent, division_rivalry, weather_bucket, officiating_crew,
+ * model_probability } for correlation estimation. See staking.js's file
+ * header and slateRiskCheck for the method. `calibrated` / `forward_settled`
+ * are no longer read from the body — see realStakingGates() above; a request
+ * can no longer claim its own way past that gate.
  */
 r.post('/stake/safe/slate', (req, res, next) => {
   try {
@@ -996,8 +1018,7 @@ r.post('/stake/safe/slate', (req, res, next) => {
     }
     res.json(safeStakeFor({
       winProb, americanOdds: odds, bankroll: Number(body.bankroll) || 100,
-      calibrationPassed: body.calibrated === true || body.calibrated === '1',
-      forwardSettled: Number(body.forward_settled) || 0,
+      ...realStakingGates(),
       uncertaintyWidth: body.interval_width == null ? null : Number(body.interval_width),
       openPortfolioFraction: Number(body.open_exposure) || 0,
       openBets: Array.isArray(body.openBets) ? body.openBets : null
@@ -1021,7 +1042,8 @@ r.get('/stake/evaluate', (req, res, next) => {
     for (const s of seasons) {
       const rp = replaySeason(s, {
         minEdge: Number(req.query.min_edge) || 3,
-        maxDisagreement: disagreement(req)
+        maxDisagreement: disagreement(req),
+        blendMode: 'raw'
       });
       if (!rp.error) bets.push(...rp.bets.filter(b => b.result !== 'Push'));
     }
@@ -1179,6 +1201,28 @@ r.get('/sim/calibration', async (req, res, next) => {
     res.json(c3(`sim_calibration:${trials}:${games}`,
       f3([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_team_week_features']),
       () => calibrationReport({ trials, games })));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The strong version of the calibration question: score the engine's whole
+ * margin distribution against real games, season by season, with the team
+ * profiles behind each season built only from seasons before it.
+ *
+ * Separate from /sim/calibration because it is the expensive one — one
+ * simulated season per test season — and because it is the one that reports
+ * nothing at all when the attached database has no real history to hold out.
+ */
+r.get('/sim/shape', async (req, res, next) => {
+  try {
+    const { simulatorWalkForwardShape } = await import('../services/nfl-drive-sim.js');
+    const { cached: c4, fingerprint: f4 } = await import('../services/compute-cache.js');
+    const trials = Math.min(2000, Number(req.query.trials) || 600);
+    const games = Math.min(60, Number(req.query.games) || 32);
+    const from = Number(req.query.from) || 2022;
+    res.json(c4(`sim_shape:${from}:${trials}:${games}`,
+      f4([{ table: 'game_lines', stamp: 'fetched_at' }, 'nfl_team_week_features']),
+      () => simulatorWalkForwardShape({ from, trials, games })));
   } catch (e) { next(e); }
 });
 
@@ -1717,7 +1761,7 @@ r.get('/reasoning/:season/:week', async (req, res, next) => {
     }
     const { replaySeason } = await import('../services/nfl-replay.js');
     const { ensembleLine } = await import('../services/nfl-ensemble.js');
-    const replay = replaySeason(season, { startWeek: week, endWeek: week });
+    const replay = replaySeason(season, { startWeek: week, endWeek: week, blendMode: 'raw' });
     if (replay.error) return res.status(404).json({ error: replay.error });
 
     const modelsByGame = new Map();
@@ -1744,11 +1788,34 @@ r.post('/reasoning/explain', (req, res, next) => {
 
 /* ------------------------------------------------------ football-first model */
 
-/** The football read on one game, decomposed into the facts that produced it. */
+/**
+ * The football read on one game, decomposed into the facts that produced it.
+ *
+ * `footballFirstLean` calls `residualModel`, which fits ~90 seconds of
+ * coefficients inline on a cache miss (see the doc comment on
+ * `/football-first/coefficients` below) -- blocking this request and every
+ * other one queued behind it on Node's single thread. `peekResidualModel`
+ * checks the cache without paying that cost; on a miss this mirrors
+ * `POST /football-first/fit`'s own queue-and-return pattern instead of
+ * computing here.
+ */
 r.get('/football-first/:season/:week/:home/:away', (req, res, next) => {
   try {
     const season = Number(req.params.season), week = Number(req.params.week);
     const home = String(req.params.home).toUpperCase(), away = String(req.params.away).toUpperCase();
+    if (!peekResidualModel(season, 'margin')) {
+      const stored = serveReport('football_first_fit');
+      if (stored.pending || stored._report?.error) {
+        return res.status(202).json({
+          fitted: false, computing: Boolean(stored.computing || stored._report?.refreshing),
+          season, week, home, away,
+          why: 'The coefficient fit has not been computed for this season yet. It walks about a ' +
+            'thousand games building injury, efficiency and tendency features and takes roughly ninety ' +
+            'seconds, so it runs in a worker thread rather than on a request.',
+          how: 'Reload in a couple of minutes, or POST /api/nfl-betting/football-first/fit to queue it now.'
+        });
+      }
+    }
     const lean = footballFirstLean(season, week, home, away);
     res.json({
       ...lean,

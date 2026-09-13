@@ -281,7 +281,7 @@ export function buildCoverCalibration({ fromSeason = 2021, throughSeason = 2025,
   const modelVersion = coverCalibrationVersion(forecastIdentity);
   const samples = [];
   for (let season = fromSeason; season <= throughSeason; season++) {
-    const replay = replaySeason(season, { minEdge: 0, maxDisagreement: null, maxPicksPerWeek: 20, markets: ['spread'], modelOptions });
+    const replay = replaySeason(season, { minEdge: 0, maxDisagreement: null, maxPicksPerWeek: 20, markets: ['spread'], modelOptions, blendMode: modelOptions.blendMode });
     if (replay.error) continue;
     for (const b of replay.bets) {
       if (!['Won', 'Lost'].includes(b.result)) continue;

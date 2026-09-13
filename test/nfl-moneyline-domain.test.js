@@ -154,7 +154,8 @@ test('replaySeason grades moneyline against the real final score with a real no-
   seedHistory({ throughSeason: 2026 });
   clearEnsembleCache();
   const replay = replaySeason(2026, {
-    markets: ['moneyline'], minEdge: 0, maxDisagreement: null, maxPicksPerWeek: 20, startWeek: 1, endWeek: 18
+    markets: ['moneyline'], minEdge: 0, maxDisagreement: null, maxPicksPerWeek: 20, startWeek: 1, endWeek: 18,
+    blendMode: 'raw'
   });
   assert.ok(!replay.error, replay.error);
   assert.ok(replay.bets.length > 0, 'expected real moneyline bets from the seeded slate');

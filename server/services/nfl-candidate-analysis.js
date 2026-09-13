@@ -26,7 +26,11 @@ function score(items) {
 function runEngine(seasons, includeChallengers, extraModelOptions = {}) {
   const perSeason = [], bets = [], decisions = [];
   for (const season of seasons) {
-    const result = replaySeason(season, { modelOptions: includeChallengers
+    // TODO(Giant Plan 8.9): preserves the prior implicit 'raw' behavior here.
+    // Whether champion/candidate comparison should instead run under
+    // production's 'market_residual' blend is a separate decision this
+    // change does not make.
+    const result = replaySeason(season, { blendMode: 'raw', modelOptions: includeChallengers
       ? { includeChallengers: true, ...extraModelOptions } : extraModelOptions });
     if (result.error) { perSeason.push({ season, error: result.error }); continue; }
     perSeason.push(result.summary); bets.push(...result.bets); decisions.push(...result.decisions);

@@ -184,6 +184,29 @@ test('typed fake news is quarantined while verified publisher evidence reaches p
   assert.ok(signal.claims.every(claim => claim.source !== 'NFL Truth Wire'));
 });
 
+test('syncStructuredNewsSignals resolves each player in a multi-player story to their OWN status and body part, not the story\'s first match', () => {
+  const team = row(`SELECT id, abbr FROM nfl_teams LIMIT 1`);
+  run(`INSERT INTO players (name, position, team_id, fantasy_relevant) VALUES ('Zzyzx Flowers', 'WR', ?, 1)`, team.id);
+  const flowersId = row(`SELECT id FROM players WHERE name='Zzyzx Flowers'`).id;
+  run(`INSERT INTO players (name, position, team_id, fantasy_relevant) VALUES ('Zzyzx Walker', 'WR', ?, 1)`, team.id);
+  const walkerId = row(`SELECT id FROM players WHERE name='Zzyzx Walker'`).id;
+  const identity = { players: [{ id: flowersId, name: 'Zzyzx Flowers' }, { id: walkerId, name: 'Zzyzx Walker' }], teams: [] };
+  const item = normalizeNewsItem({ source: 'ESPN', source_type: 'publisher',
+    source_url: 'https://www.espn.com/nfl/story/_/id/999998/multi-player-status', published_at: new Date().toISOString(),
+    headline: 'Practice report',
+    summary: 'WR Zzyzx Flowers (hamstring) was a full participant. WR Zzyzx Walker (groin) remains questionable.'
+  }, { identity });
+  upsertNormalizedNewsItem(item, { teamId: team.id });
+  syncStructuredNewsSignals({ sinceDays: 1 });
+  const signals = rows(`SELECT player_name, status, body_part FROM nfl_news_signals
+    WHERE source_url=? AND signal_type='availability' ORDER BY player_name`, item.canonical_url)
+    .map(s => ({ player_name: s.player_name, status: s.status, body_part: s.body_part }));
+  assert.deepEqual(signals, [
+    { player_name: 'Zzyzx Flowers', status: 'available_positive', body_part: 'hamstring' },
+    { player_name: 'Zzyzx Walker', status: 'questionable', body_part: 'groin' }
+  ]);
+});
+
 test('manual news POST rejects the literal "AI analysis" as a source', async () => {
   const rejected = await request('/', { method: 'POST', token: 'news-ingest-token', body: { date: '2026-08-25', headline: 'Manual note', source: 'AI Analysis' } });
   assert.equal(rejected.status, 400);

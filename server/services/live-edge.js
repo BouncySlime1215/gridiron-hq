@@ -190,18 +190,27 @@ export async function liveBoard({ costFraction = 0.0253 } = {}) {
   }
 
   // The most recent order book per market, which is the only executable price.
+  // Restricted to kind='other' -- parsePolymarketProp's fallback bucket, which
+  // is where a game-moneyline market lands since it matches none of the prop/
+  // futures/award patterns. Without this a live game could be priced against
+  // a season-long futures or MVP market that happens to name the same team.
   const books = rows(
-    `SELECT m.question, q.best_bid, q.best_ask, q.bid_size, q.ask_size
+    `SELECT m.question, m.event_title, q.best_bid, q.best_ask, q.bid_size, q.ask_size
      FROM polymarket_quotes q JOIN polymarket_markets m ON m.condition_id = q.condition_id
-     WHERE q.best_bid IS NOT NULL`);
+     WHERE q.best_bid IS NOT NULL AND m.kind = 'other'`);
 
   const out = [];
   for (const g of live) {
     const s = g.live;
-    // Match the exchange market by team name appearing in the question. Loose
-    // by design; an unmatched game is reported without a price rather than
-    // paired with the wrong market.
-    const book = books.find(b => (b.question ?? '').toUpperCase().includes(String(g.name ?? '').split(' at ')[1]?.toUpperCase() ?? ' '));
+    // Match the exchange market by BOTH team names appearing in its title.
+    // Matching on the home team alone (the previous behaviour) could pair a
+    // game with any other market mentioning the same home team -- a
+    // different week's game against a different opponent, for instance.
+    const [awayName, homeName] = String(g.name ?? '').split(' at ').map(t => t?.toUpperCase());
+    const book = awayName && homeName ? books.find(b => {
+      const text = `${b.question ?? ''} ${b.event_title ?? ''}`.toUpperCase();
+      return text.includes(awayName) && text.includes(homeName);
+    }) : null;
     const marketProb = book ? (book.best_bid + book.best_ask) / 2 : null;
     const depth = book ? Math.min(book.bid_size ?? 0, book.ask_size ?? 0) : null;
 

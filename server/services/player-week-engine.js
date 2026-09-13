@@ -8,7 +8,7 @@
  */
 import { rows } from '../db/index.js';
 import {
-  buildProjections, sampleAllocatedWeekEvents, sampleWeekEvents, sampleWeeks
+  buildProjections, sampleAllocatedWeekEvents, sampleWeekEvents, sampleWeeks, SEASON_WEIGHT
 } from './projections.js';
 import { PPR, scoreLine } from './scoring.js';
 import {
@@ -127,6 +127,31 @@ function priorScores(season, week, scoring) {
     const list = out.get(row.player_id) ?? [];
     list.push(Number(scoreLine(row, scoring)));
     out.set(row.player_id, list);
+  }
+  if (out.size === 0) {
+    /*
+     * The query above never crosses a season boundary, so at the start of a
+     * new season (week 1, or any week before the current season has usage
+     * rows on file) every player would start cold even when prior-season
+     * history exists. Fall back to a season-recency-weighted average of
+     * each player's prior seasons, using the same decay table structural
+     * projections use (SEASON_WEIGHT from projections.js), rather than
+     * scaling individual game scores — that would bias the number down
+     * instead of just discounting older, less relevant seasons against
+     * more recent ones.
+     */
+    const weighted = new Map(); // player_id -> { sum, weight }
+    for (const row of rows('SELECT * FROM player_week_usage WHERE season < ?', season)) {
+      const weight = SEASON_WEIGHT(row.season, season);
+      if (!(weight > 0)) continue;
+      const acc = weighted.get(row.player_id) ?? { sum: 0, weight: 0 };
+      acc.sum += Number(scoreLine(row, scoring)) * weight;
+      acc.weight += weight;
+      weighted.set(row.player_id, acc);
+    }
+    for (const [playerId, acc] of weighted) {
+      if (acc.weight > 0) out.set(playerId, [acc.sum / acc.weight]);
+    }
   }
   return out;
 }

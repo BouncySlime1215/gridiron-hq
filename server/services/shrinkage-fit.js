@@ -29,9 +29,23 @@
  * derivation.
  */
 import { db, rows } from '../db/index.js';
+import { RECENCY } from './projections.js';
 
 const GAMES = 17;
-const SEASON_WEIGHT = (s, through) => ({ 0: 1, 1: 0.55, 2: 0.28 })[through - s] ?? 0.12;
+// Must mirror projections.js's own seasonWeight() exactly: the fit has to be
+// trained under the same recency weighting the model will actually apply the
+// fitted k under, or the k it produces is optimal for a decay curve that
+// doesn't exist in production. projections.js defaults RECENCY.seasonDecay to
+// 0.35 (fitted; see its own comment), which decays much faster than this
+// script's old standalone {1, 0.55, 0.28, 0.12} table — importing the live
+// RECENCY constant keeps the two in lockstep, including the escape hatch
+// (seasonDecay: null) that restores the original hand-picked table.
+const SEASON_WEIGHT = (s, through) => {
+  const back = through - s;
+  return RECENCY.seasonDecay == null
+    ? ({ 0: 1, 1: 0.55, 2: 0.28 })[back] ?? 0.12
+    : Math.pow(RECENCY.seasonDecay, back);
+};
 
 /* ------------------------------------------------------- variance components */
 

@@ -87,6 +87,14 @@ export function freezePropDecisionPolicy() {
 
 freezePropDecisionPolicy();
 
+// Joining on display name broke when projections.js started emitting an
+// abbreviated `name` (commit 129115e, sourced from nfl_player_week_features)
+// while sportsbook quotes and `players.name` stayed full names — the two
+// normalized strings no longer agreed even for a correctly identified
+// player. `knownPlayers` already resolves a sportsbook name to the
+// canonical player row(s) including the stable numeric id; join the
+// projections map (keyed by that same id, see the callers below) through
+// that id instead of matching name strings on both sides.
 function projectionMatch(quote, projections, knownPlayers) {
   if (!MARKET_STAT[quote.market]) return {
     status: 'unsupported_market', reason: `market ${quote.market} is not supported`, projection: null
@@ -95,9 +103,15 @@ function projectionMatch(quote, projections, knownPlayers) {
     status: 'unsupported_participant', reason: 'team-defense touchdown markets are outside the player event engine', projection: null
   };
   const normalized = normalizeName(quote.player);
-  const projection = projections.get(normalized);
-  if (projection) return { status: 'modeled', reason: 'canonical normalized-name match', projection };
   const known = knownPlayers.get(normalized) ?? [];
+  const withProjection = known.find(player => player.id != null && projections.has(String(player.id)));
+  if (withProjection) {
+    return {
+      status: 'modeled', reason: 'canonical player-id match',
+      projection: projections.get(String(withProjection.id)),
+      matched_player_id: withProjection.gsis_id ?? String(withProjection.id)
+    };
+  }
   if (!known.length) return {
     status: 'identity_unresolved', reason: 'sportsbook player name did not resolve to the canonical player universe', projection: null
   };
@@ -156,8 +170,10 @@ function weekForEvent(event, season, fallbackWeek) {
   return candidates[0].week;
 }
 
-function probabilityForQuote(quote, projections) {
-  const projection = projections.get(normalizeName(quote.player));
+// Takes the already-resolved projection (from projectionMatch) rather than
+// re-deriving it by name — see the comment on projectionMatch for why a
+// second normalized-name lookup against the same id-keyed map cannot work.
+function probabilityForQuote(quote, projection) {
   if (!projection) return null;
   if (quote.market === 'player_anytime_td') return projection.projection.any_td_prob;
   const stat = MARKET_STAT[quote.market];
@@ -262,7 +278,7 @@ export async function capturePropMarket({ season, week, maxEvents = 12, schedule
     const eventWeek = weekForEvent(e, season, week);
     if (!projectionsByWeek.has(eventWeek)) {
       const projections = Number.isInteger(eventWeek) ? projectWeek(season, eventWeek) : [];
-      projectionsByWeek.set(eventWeek, new Map(projections.map(p => [normalizeName(p.name), p])));
+      projectionsByWeek.set(eventWeek, new Map(projections.map(p => [String(p.player_id), p])));
     }
     const projectionIndex = projectionsByWeek.get(eventWeek);
     const captureHorizon = duePropCaptureHorizon(e.commence_time, [], capturedAt);
@@ -270,7 +286,7 @@ export async function capturePropMarket({ season, week, maxEvents = 12, schedule
       seen++;
       if (q.commence_time && new Date(q.commence_time).getTime() <= new Date(capturedAt).getTime()) continue;
       const match = projectionMatch(q, projectionIndex, knownPlayers);
-      const modelProbability = match.projection ? probabilityForQuote(q, projectionIndex) : null;
+      const modelProbability = match.projection ? probabilityForQuote(q, match.projection) : null;
       const edge = Number.isFinite(modelProbability) && Number.isFinite(q.implied_probability)
         ? modelProbability - q.implied_probability : null;
       const offeredLine = q.line ?? (q.market === 'player_anytime_td' ? 0.5 : null);
@@ -278,7 +294,7 @@ export async function capturePropMarket({ season, week, maxEvents = 12, schedule
         offeredLine, q.american_price, modelProbability, q.implied_probability, edge,
         season ?? null, eventWeek ?? null, q.commence_time ?? e.commence_time ?? null,
         q.home_team ?? e.home_team ?? null, q.away_team ?? e.away_team ?? null,
-        match.status, match.reason, match.projection?.player_id ?? match.matched_player_id ?? null,
+        match.status, match.reason, match.matched_player_id ?? null,
         captureHorizon).changes;
     }
   }
@@ -348,21 +364,21 @@ export function captureFreePropMarket({ sinceHours = 24 * 14 } = {}) {
     const projKey = `${eventSeason}|${eventWeek}`;
     if (!projectionsByWeek.has(projKey)) {
       const projections = Number.isInteger(eventWeek) ? projectWeek(eventSeason, eventWeek) : [];
-      projectionsByWeek.set(projKey, new Map(projections.map(p => [normalizeName(p.name), p])));
+      projectionsByWeek.set(projKey, new Map(projections.map(p => [String(p.player_id), p])));
     }
     const projectionIndex = projectionsByWeek.get(projKey);
     for (const q of attachFairProbabilities(batch)) {
       seen++;
       if (q.commence_time && new Date(q.commence_time).getTime() <= new Date(q.captured_at).getTime()) continue;
       const match = projectionMatch(q, projectionIndex, knownPlayers);
-      const modelProbability = match.projection ? probabilityForQuote(q, projectionIndex) : null;
+      const modelProbability = match.projection ? probabilityForQuote(q, match.projection) : null;
       const edge = Number.isFinite(modelProbability) && Number.isFinite(q.implied_probability)
         ? modelProbability - q.implied_probability : null;
       stored += insert.run(q.captured_at, q.event_id, q.book, q.market, q.player, q.side,
         q.line, q.american_price, modelProbability, q.implied_probability, edge,
         eventSeason ?? null, eventWeek ?? null, q.commence_time ?? null,
         q.home_team ?? null, q.away_team ?? null,
-        match.status, match.reason, match.projection?.player_id ?? match.matched_player_id ?? null,
+        match.status, match.reason, match.matched_player_id ?? null,
         null).changes;
     }
   }
@@ -424,9 +440,14 @@ export function settlePropQuotes({ season, week } = {}) {
   season, week);
   if (!pending.length) return { settled: 0, unmatched: 0, note: 'nothing pending for that week' };
 
+  // Keyed by gsis_id (nfl_player_week_features.player_id IS a gsis_id), not
+  // display name — player_name there is the abbreviated form (commit
+  // 129115e) and never matched the sportsbook's full name to begin with.
+  // matched_player_id was captured on the quote row at match time and is
+  // already a gsis_id whenever identity resolved (see projectionMatch).
   const actuals = new Map();
   for (const r of playerWeeks(season).filter(x => x.week === week)) {
-    actuals.set(normalizeName(r.player_name), r.features);
+    actuals.set(String(r.player_id), r.features);
   }
   const upd = db.prepare(`UPDATE nfl_prop_clv SET settled=1, actual_value=?, won=?, settlement_reason=?
                           WHERE captured_at=? AND event_id=? AND book=? AND market=? AND player=? AND side=?`);
@@ -442,7 +463,7 @@ export function settlePropQuotes({ season, week } = {}) {
       unsettleable++;
       continue;
     }
-    const f = actuals.get(normalizeName(q.player));
+    const f = q.matched_player_id ? actuals.get(String(q.matched_player_id)) : null;
     if (!f) { unmatched++; continue; }
     const actual = q.market === 'player_anytime_td'
       ? ((f.rushing_tds ?? 0) + (f.receiving_tds ?? 0)) : f[SETTLE_FIELD[q.market]];
@@ -577,13 +598,13 @@ export function reconcilePropQuoteMatches({ force = false } = {}) {
     if (!projectionCache.has(key)) {
       const projections = Number.isInteger(quote.season) && Number.isInteger(quote.week)
         ? projectWeek(quote.season, quote.week) : [];
-      projectionCache.set(key, new Map(projections.map(p => [normalizeName(p.name), p])));
+      projectionCache.set(key, new Map(projections.map(p => [String(p.player_id), p])));
     }
     const projectionIndex = projectionCache.get(key);
     const match = projectionMatch(quote, projectionIndex, knownPlayers);
-    const probability = match.projection ? probabilityForQuote(quote, projectionIndex) : null;
+    const probability = match.projection ? probabilityForQuote(quote, match.projection) : null;
     updated += update.run(match.status, match.reason,
-      match.projection?.player_id ?? match.matched_player_id ?? null,
+      match.matched_player_id ?? null,
       probability, probability, probability, quote.rowid).changes;
   }
   return { reviewed: pending.length, updated, coverage: propMatchCoverage() };

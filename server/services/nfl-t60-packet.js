@@ -36,9 +36,12 @@
  * after the games it describes; counting it as knowable at a 2023 kickoff
  * would be the single largest look-ahead available here.
  */
+import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
 import { decisionCutoff, T60_PROTOCOL_VERSION } from './nfl-t60-protocol.js';
 import { teamCodeFor } from './team-codes.js';
+import { canonicalize } from '../betting/nfl/contracts/forecast-packet.js';
+import { SHARP_BOOKS } from './nfl-sharp.js';
 
 export const PACKET_VERSION = 'nfl-t60-packet-v3-c11';
 
@@ -111,9 +114,14 @@ function sourceEntry({ source, rowsByCutoff = 0, rowsTotal = 0, effectiveAt = nu
   }
   if (beforeOrAt(receivedAt, cutoffAt)) return { ...base, claim: 'received_by_cutoff', reason: null };
   if (beforeOrAt(publishedAt, cutoffAt)) return { ...base, claim: 'published_by_cutoff_evidenced', reason: null };
-  if (receivedAt != null) {
+  // A known clock -- received OR published -- that is itself after the
+  // cutoff is positive evidence the row could not have been knowable in
+  // time, in any mode. That is different from availability_unknown below,
+  // where no clock exists at all and lateness is merely unproven.
+  if (receivedAt != null || publishedAt != null) {
+    const when = receivedAt ?? publishedAt;
     return { ...base, claim: 'late_arrival_excluded', rows: 0,
-      reason: `every row for this source reached this system at ${receivedAt}, after the ${cutoffAt} cutoff. ` +
+      reason: `every row for this source reached this system at ${when}, after the ${cutoffAt} cutoff. ` +
         'Backfilling an old fact today is not discovering when it first became known.' };
   }
   return { ...base, claim: 'availability_unknown',
@@ -138,6 +146,56 @@ function sourceEntry({ source, rowsByCutoff = 0, rowsTotal = 0, effectiveAt = nu
  * postgame weather, next-week ranks or a revised record is "rejected or
  * quarantined with an explicit reason" — that is a property of the claim
  * taxonomy above, not of a caller remembering to filter.
+ */
+/*
+ * TODO (audit-consolidation stage 1, Giant Plan section 8.10/8.1): the task
+ * for this stage asked for freezeT60Packet to "emit the full contract shape
+ * forecast-packet.js already validates" and to call validateForecastPacket
+ * before sealing. That is NOT done here, deliberately, and the reason is an
+ * architecture mismatch this stage found rather than one it can safely paper
+ * over:
+ *
+ *   forecast-packet.js's CONTRACT_GROUPS describe a single-market DECISION
+ *   packet: one chosen quote_id/side/handicap (market), one resolved
+ *   forecast_identity and calibration_id (forecast), and a qualification_state
+ *   already reached (decision). Every one of those is downstream of a policy
+ *   run that has not happened yet at the moment this function executes: T-60
+ *   evidence-freeze runs BEFORE a forecast is computed or a decision is made
+ *   (see t60-runner.js's captureDueObservations, which freezes a packet and
+ *   only later — a separate, not-yet-written step — would hand it to a
+ *   policy). This packet also legitimately holds MULTIPLE sources with
+ *   independent claims (quote_tape, injuries, weather, news, team features),
+ *   which the single-market contract has no group for at all.
+ *
+ *   Populating market/forecast/decision here would mean either (a) guessing
+ *   which of possibly several received quotes is "the" market entry before
+ *   any policy has chosen one, or (b) writing placeholder/null values into a
+ *   contract whose validator was written to CATCH exactly that kind of
+ *   unearned claim (see forecast-packet.js's own docstring: "validation
+ *   fails, it does not repair... a packet missing its event identity is not a
+ *   packet with a gap in it"). Either one is the fabrication this whole module
+ *   exists to refuse — the same failure mode as the four injection tests in
+ *   nfl-t60-packet.test.js, just moved one level up.
+ *
+ *   Forcing this shape now would also break every existing consumer of the
+ *   evidence shape (t60-runner.js's captureDueObservations, the read-only
+ *   GET /t60/packet route in nfl-betting.js, and the whole of
+ *   nfl-t60-packet.test.js, which pins packet.sources/packet.summary/
+ *   packet.claim as the contract for THIS packet).
+ *
+ * What IS done in this stage, as the safe subset: the packet_json column
+ * (migration 036) is now populated with this packet's actual body (see
+ * t60-runner.js), and re-freezing identical inputs now hashes identically —
+ * see t60PacketHash() below, which is the canonical hash this stage adds in
+ * place of t60-runner.js's old ad-hoc `JSON.stringify(packet)` hash (unsorted
+ * keys, and it hashed the wall-clock computation timestamps, so the same
+ * evidence frozen twice at two different real times used to hash differently).
+ *
+ * The real fix for the full request — a genuine DECISION packet that
+ * satisfies forecast-packet.js's contract by combining a frozen T-60 evidence
+ * packet like this one with the policy's actual chosen market/forecast/
+ * decision once that policy run exists — belongs in whatever stage wires the
+ * T-60 runner to the decision/policy layer, where that data is first known.
  */
 export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVersion = null,
   mode = 'prospective', computationStartedAt = null, computationFinishedAt = null } = {}) {
@@ -243,31 +301,87 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
       book_updated_at: q.book_updated_at, received_at: q.received_at }))
   }));
 
-  // Injuries. Rows exist for most seasons, but their receipt clock is the
-  // known weak point (the audit's own finding: 2025 rows carry no
-  // modified_at). Whatever clock exists is reported; where none does, the
-  // entry is quarantined rather than counted.
+  // Injuries. Giant Plan 8.14: `nfl_injuries.modified_at` is the SOURCE's own
+  // claim about when a report changed, not this system's receipt clock --
+  // treating it as `receivedAt` (the previous version of this block did) is
+  // the exact "published_at masquerading as observed_at" leak nfl-bitemporal.js
+  // exists to close, and it is why the audit could find 2025 rows with no
+  // clock at all: `nfl_injuries` itself has never recorded when THIS system
+  // actually saw a value, only what the source last said. nfl-advanced.js's
+  // syncInjuries now appends every changed report to `nfl_feature_revisions`
+  // with a real `observed_at`, so this reads that store instead. A revision's
+  // `observed_at` is always populated -- this machine chose it -- so the
+  // "quarantined, no clock at all" case that motivated this comment before
+  // cannot recur going forward; what remains is the ordinary as-of question,
+  // "had this system recorded it by the cutoff."
+  //
+  // KNOWN GAP: this only sees rows synced under the wiring above. Historical
+  // `nfl_injuries` rows written before it exist have no corresponding
+  // revision and are invisible here until the affected weeks are re-synced --
+  // see PIPELINE_REPORT.md.
+  //
+  // MERGE NOTE (integration, G22 x Giant Plan 8.14): the entity-suffix filter
+  // below only scopes by season/week, same as the pre-G22 `nfl_injuries` read
+  // this replaces — without a team filter this game's packet would absorb
+  // every OTHER game's injury revisions for the same week too, the identical
+  // cross-game leak G22 fixed for the old `nfl_injuries` path (a9-nfl-t60-
+  // packet-scoping). `nfl_feature_revisions.entity` carries no team of its
+  // own (`player:<gsisId>:<season>:<week>` — see nfl-advanced.js:394), so
+  // team is resolved via a LEFT JOIN back to `nfl_injuries`, which
+  // syncInjuries always writes in the same transaction as the revision
+  // (server/services/nfl-advanced.js's batch loop runs `stmt.run(...b)`
+  // unconditionally, so every real revision has a same-season/week/gsis_id
+  // row there with the correct team). A revision with no matching row
+  // (only possible when a test writes straight to nfl_feature_revisions,
+  // bypassing syncInjuries) still passes, the same "unresolvable team admits
+  // the evidence rather than silently drops it" rule G22 already applied to
+  // nfl_news_events below. No test in this repo yet exercises the team-
+  // scoping of this specific (bitemporal) path — flagged for review.
+  const injurySuffix = `:${season}:${week}`;
   const injuries = rows(`SELECT
-      SUM(CASE WHEN modified_at <= ? THEN 1 ELSE 0 END) by_cutoff,
+      SUM(CASE WHEN fr.observed_at <= ? THEN 1 ELSE 0 END) by_cutoff,
       COUNT(*) total,
-      MAX(CASE WHEN modified_at <= ? THEN modified_at END) received_by_cutoff,
-      MAX(modified_at) received_ever
-    FROM nfl_injuries WHERE season = ? AND week = ?`, cutoffAt, cutoffAt, season, week)[0];
+      MAX(CASE WHEN fr.observed_at <= ? THEN fr.observed_at END) received_by_cutoff,
+      MAX(fr.observed_at) received_ever
+    FROM nfl_feature_revisions fr
+    LEFT JOIN nfl_injuries ni
+      ON ni.gsis_id || ':' || ni.season || ':' || ni.week = substr(fr.entity, 8)
+    WHERE fr.feature = 'injury_report' AND fr.entity LIKE '%' || ?
+      AND (ni.team IS NULL OR ni.team IN (?, ?))`,
+  cutoffAt, cutoffAt, injurySuffix, homeCode, awayCode)[0];
   entries.push(sourceEntry({ source: 'nfl_injuries',
     rowsByCutoff: injuries?.by_cutoff ?? 0, rowsTotal: injuries?.total ?? 0,
     receivedAt: injuries?.received_by_cutoff ?? injuries?.received_ever ?? null, cutoffAt,
-    missingReason: 'no injury rows for this season and week' }));
+    missingReason: 'no injury revisions recorded for this season and week' }));
 
   // Typed news events. `first_seen_time` is an extraction timestamp — a
   // receipt clock for THIS system, though not the article's publication time.
   // Both are carried so neither is mistaken for the other.
+  //
+  // G22: this query had NO WHERE clause of any kind — every typed news event
+  // ever extracted, for every team and every season, fed every game's packet.
+  // `nfl_news_events` (migration 019) carries no season/week column, so team
+  // plus a kickoff-anchored date window are the only scoping this table can
+  // offer; there is no exact "this game's week" join available. `team` is
+  // nullable — an event whose player entity did not resolve to a team is
+  // stored with no team at all — and excluding those outright would silently
+  // drop real evidence rather than admit unrelated evidence, so a null team
+  // still passes and is narrowed only by the date window. The window is
+  // deliberately generous (a week of pregame lead-in, two days past kickoff
+  // for same-day corrections) rather than tight, because the point is
+  // excluding OTHER seasons/weeks, not shaving this one.
+  const newsWindowFrom = new Date(kickoffAt - 8 * 86400000).toISOString();
+  const newsWindowTo = new Date(kickoffAt + 2 * 86400000).toISOString();
   const news = rows(`SELECT
       SUM(CASE WHEN first_seen_time <= ? THEN 1 ELSE 0 END) by_cutoff,
       COUNT(*) total,
       MAX(CASE WHEN first_seen_time <= ? THEN first_seen_time END) received_by_cutoff,
       MAX(CASE WHEN first_seen_time <= ? THEN published_at END) published_by_cutoff,
       MAX(first_seen_time) received_ever
-    FROM nfl_news_events`, cutoffAt, cutoffAt, cutoffAt)[0];
+    FROM nfl_news_events
+    WHERE (team IS NULL OR team IN (?, ?))
+      AND first_seen_time >= ? AND first_seen_time <= ?`,
+    cutoffAt, cutoffAt, cutoffAt, homeCode, awayCode, newsWindowFrom, newsWindowTo)[0];
   entries.push(sourceEntry({ source: 'nfl_news_events',
     rowsByCutoff: news?.by_cutoff ?? 0, rowsTotal: news?.total ?? 0,
     publishedAt: news?.published_by_cutoff ?? null,
@@ -319,6 +433,12 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
   return {
     packet_version: PACKET_VERSION, protocol_version: T60_PROTOCOL_VERSION,
     season, week, matchup: `${away} at ${home}`,
+    // Canonical codes, not just the human-readable `matchup` string, so a
+    // consumer that only has the packet (autoPickDecisionBoardForPacket,
+    // nfl-auto-picks.js) can identify the game without re-parsing prose.
+    // `homeCode`/`awayCode` were already resolved above to scope the quote
+    // lookup; this stage is the first thing to actually export them.
+    home_team: homeCode, away_team: awayCode,
     kickoff: cutoff.kickoff, cutoff_at: cutoffAt, schedule_version: scheduleVersion,
     mode,
     claim: mode === 'historical'
@@ -342,6 +462,175 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
       missing: by('missing'),
       eligible_count: eligible.length, total_sources: entries.length
     }
+  };
+}
+
+/**
+ * The packet's content address.
+ *
+ * Reuses forecast-packet.js's `canonicalize` (sorted keys recursively) so
+ * this codebase has one canonicalization authority rather than two, even
+ * though this packet does not yet meet that module's CONTRACT_GROUPS shape
+ * (see the TODO above freezeT60Packet).
+ *
+ * Deliberately EXCLUDES the wall-clock computation fields —
+ * `computation_started_at`, `computation_finished_at`, `emitted_after_cutoff`
+ * — which record WHEN this packet was assembled, not what evidence it
+ * contains. Without this exclusion, re-freezing the identical evidence a
+ * second time (a retry, or a second caller asking about the same game) always
+ * produced a different hash purely because real time had moved on, which
+ * defeats the one thing a content hash is for: recognizing that nothing
+ * actually changed. This was t60-runner.js's `packetHash`, replaced by this
+ * function as part of this stage.
+ */
+export function t60PacketHash(packet) {
+  const { computation_started_at: _started, computation_finished_at: _finished,
+    emitted_after_cutoff: _emitted, ...content } = packet;
+  return crypto.createHash('sha256').update(JSON.stringify(canonicalize(content))).digest('hex');
+}
+
+/**
+ * Audit trail for the "genuinely reproducible from the packet" gap (Giant
+ * Plan 8.10 / integration stage 1, 2026-09-12): what autoPickDecisionBoard()
+ * (nfl-auto-picks.js) actually reads to compute one game's edge, and whether
+ * THIS packet's schema carries the equivalent evidence -- traced directly
+ * against nfl-ensemble.js's ensembleLine() and nfl-auto-picks.js's
+ * computeDecisionBoard(), not inferred.
+ *
+ *   market_quote   -- the spread + price the edge is computed against and the
+ *                     selected side is priced at. This packet's nfl_quote_tape
+ *                     entry carries genuine per-row VALUES (quote_id, book,
+ *                     side, line, price, receipt clock -- Codex correction
+ *                     C11's `values` field, not a count), so this is the one
+ *                     input a packet-sourced board can actually be built from
+ *                     today. See resolvePacketMarketQuote() below. It is NOT
+ *                     the same number the live board reads, and that is
+ *                     disclosed, not glossed over: the live board's
+ *                     `game_lines.spread` is a single ESPN/DraftKings
+ *                     reference line (see gamescript.js's syncCurrentLines),
+ *                     while this packet freezes The Odds API's multi-book
+ *                     nfl_quote_tape -- nfl-quote-tape.js's own docstring:
+ *                     "Consensus rows from game_lines may describe a market,
+ *                     but they never count as genuine multi-book evidence."
+ *                     There is no row-for-row correspondence between the two,
+ *                     so a packet-sourced board resolves its own market quote
+ *                     from whichever book(s) the tape actually captured
+ *                     (reusing nfl-sharp.js's existing pinnacle-first
+ *                     reference-book ordering) rather than pretending to
+ *                     reproduce the live number.
+ *   game_context   -- temp/wind/roof/rest_days/div_game/neutral_site/
+ *                     open_spread/open_total, which ensembleLine reads
+ *                     straight from game_lines and folds into buildContext()
+ *                     for every model, not merely the final edge. NOT in this
+ *                     packet's schema: nfl_game_weather_forecast_history's
+ *                     entry is a row count and a receipt clock (section 6.2's
+ *                     availability question), not the forecasted temp/wind/
+ *                     roof a weather model actually consumes, and no rest/
+ *                     div/neutral field exists in the packet at all.
+ *   team_features  -- prior-week team-week features (featureAggregates() /
+ *                     netFeature() in nfl-ensemble.js), read from
+ *                     nfl_team_week_features. This packet's entry for that
+ *                     source is ALSO a bare row count -- freezeT60Packet
+ *                     never populates its `values` -- so it proves rows
+ *                     existed by the cutoff without saying what they held.
+ *   total_market   -- game_lines.total / a 'totals' quote. PACKET_MARKET is
+ *                     hardcoded to 'spreads' (this module's one-contract
+ *                     scope, documented above); a total is never captured in
+ *                     any T-60 packet today.
+ *   model_state    -- fitted ensemble weights (nfl_ensemble_fit_artifacts),
+ *                     cover calibration (nfl_cover_calibrations), promoted
+ *                     candidate findings. Deliberately OUT of this packet's
+ *                     scope, not merely unimplemented: this packet documents
+ *                     EVIDENCE (what was knowable about one game), not the
+ *                     forecasting model's own parameters -- those already have
+ *                     their own identity and versioning (spreadForecastIdentity
+ *                     / code-identity.js) on the decision tape, a different
+ *                     reproducibility mechanism than this packet.
+ *
+ * A caller that needs to know, in code, which of these it can trust from a
+ * packet (rather than reading this comment) should check this object.
+ */
+export const PACKET_BOARD_INPUT_COVERAGE = Object.freeze({
+  market_quote: 'in_schema',
+  game_context: 'not_in_schema',
+  team_features: 'not_in_schema',
+  total_market: 'not_in_schema',
+  model_state: 'out_of_packet_scope'
+});
+
+/**
+ * Resolve "the" market spread and price from a frozen packet's quote-tape
+ * evidence -- the one number a live board reads off `game_lines`, reconstructed
+ * from the packet's per-book VALUES instead of a live re-read.
+ *
+ * A packet can hold several books' worth of eligible quotes (or none). Picking
+ * one is unavoidable -- the board wants a single spread, not a scatter -- so
+ * this reuses the SAME reference-book ordering nfl-sharp.js already applies
+ * elsewhere in this codebase for "the" market price in this sport (Pinnacle
+ * first; the rest of nfl-sharp.js's SHARP_BOOKS after it), falling through to
+ * whatever books the packet actually has, alphabetically, so the choice stays
+ * deterministic even when none of the usual sharp books were captured for this
+ * game. The chosen book is always reported on the result, so this is a
+ * disclosed selection rule, not a hidden one.
+ *
+ * Returns `{ status: 'unavailable' | 'ineligible', reason }` when the packet
+ * genuinely has nothing a prospective decision could use -- the caller's job
+ * is to record that honestly (an abstained candidate, not a live-table
+ * fallback), never to paper over it.
+ */
+export function resolvePacketMarketQuote(packet) {
+  const source = packet?.sources?.find(s => s.source === 'nfl_quote_tape');
+  if (!source) {
+    return { status: 'unavailable', reason: 'packet carries no nfl_quote_tape source entry at all' };
+  }
+  // Eligibility is whatever the packet itself already decided for its OWN
+  // mode (packet.summary.eligible, computed by ELIGIBLE_BY_MODE above) --
+  // 'received_by_cutoff' only for a prospective packet, but ALSO
+  // 'published_by_cutoff_evidenced' for a labeled historical replay. Checking
+  // `source.claim` against a hardcoded 'received_by_cutoff' here would wrongly
+  // reject a historical packet's legitimately eligible evidence.
+  if (!packet.summary?.eligible?.includes('nfl_quote_tape')) {
+    return { status: 'ineligible', claim: source.claim,
+      reason: source.reason ?? `nfl_quote_tape's claim in this packet is '${source.claim}', which this ` +
+        `packet's own mode ('${packet.mode}') does not admit -- nothing here is eligible` };
+  }
+  const values = source.values ?? [];
+  if (!values.length) {
+    return { status: 'unavailable', reason: `claim is '${source.claim}' but the packet froze no quote values` };
+  }
+
+  const byBook = new Map();
+  for (const v of values) {
+    if (!byBook.has(v.bookmaker_key)) byBook.set(v.bookmaker_key, []);
+    byBook.get(v.bookmaker_key).push(v);
+  }
+  const otherBooksSorted = [...byBook.keys()].filter(b => !SHARP_BOOKS.includes(b)).sort();
+  const bookOrder = [...SHARP_BOOKS, ...otherBooksSorted];
+  const chosenBook = bookOrder.find(b => byBook.has(b));
+  if (!chosenBook) return { status: 'unavailable', reason: 'no book present among the packet\'s frozen quotes' };
+
+  // Within the chosen book, several snapshots may have been received by the
+  // cutoff (the tape is append-only); the latest one is what a decision made
+  // right at the cutoff would have held, the same "last observation before
+  // the moment that matters" rule the rest of this codebase uses for a close.
+  const latestOf = side => side
+    .slice().sort((a, b) => (a.received_at < b.received_at ? -1 : a.received_at > b.received_at ? 1 : 0)).at(-1);
+  const bookValues = byBook.get(chosenBook);
+  const home = latestOf(bookValues.filter(v => v.side_key === 'home'));
+  const away = latestOf(bookValues.filter(v => v.side_key === 'away'));
+  if (!home) {
+    return { status: 'unavailable', reason: `chosen book '${chosenBook}' has no home-side quote in this packet` };
+  }
+
+  return {
+    status: 'available', book: chosenBook, book_selection_rule: 'sharp_books_first_then_alphabetical',
+    home_spread: home.line, home_price: home.american_price,
+    // A missing away-side row still lets the spread be reported (spreads are
+    // symmetric by construction), but never its price -- assuming the price
+    // is symmetric would fabricate a number this packet never actually froze.
+    away_spread: away?.line ?? (home.line == null ? null : -home.line),
+    away_price: away?.american_price ?? null,
+    quote_at: home.received_at, snapshot_at: home.snapshot_at
   };
 }
 

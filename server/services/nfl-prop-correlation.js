@@ -239,8 +239,14 @@ export function samePlayerCorrelation(statA, statB) {
 
 /* ------------------------------------------------------- SGP pricing */
 
-/** Nudge a correlation matrix back to positive-definite so Cholesky can't fail. */
-function conditioned(matrix) {
+/**
+ * Nudge a correlation matrix back to positive-definite so Cholesky can't fail.
+ * Exported so other consumers of these same fitted archetypes (the bottom-up
+ * team total, `bottom-up-team-total.js`) condition their own multi-leg
+ * matrices the identical way this module's own SGP pricing does, instead of
+ * re-deriving a second ridge schedule for numbers that came from one fit.
+ */
+export function conditioned(matrix) {
   const n = matrix.length;
   for (let ridge = 0; ridge <= 0.5; ridge += 0.02) {
     const m = matrix.map((row, i) => row.map((v, j) => (i === j ? v + ridge : v * (1 - ridge))));

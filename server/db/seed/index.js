@@ -19,18 +19,24 @@ const FANTASY_SLOT = new Set(['QB', 'RB1', 'RB2', 'WR1', 'WR2', 'WR3', 'TE1', 'K
 
 export function seedIfEmpty() {
   console.log('Reconciling seed data...');
+  // This seed runs on every boot (server/index.js calls seedIfEmpty()
+  // unconditionally). The old ON CONFLICT(abbr) DO UPDATE touched every column,
+  // including the ones /api/teams's EDITABLE list and /api/analysis let a user
+  // hand-edit live (head_coach/oc_name/dc_name/off_scheme(_detail)/def_scheme(_detail)/
+  // st_coordinator/ol_analysis/dl_analysis/lb_analysis/secondary_analysis/
+  // st_analysis/coach_analysis) — silently reverting every one of those edits
+  // back to the hardcoded seed text on the next restart. Only the columns that
+  // route never exposes for editing (name/conference/division/primary_color/
+  // secondary_color — the team's actual identity, not its current commentary)
+  // stay self-healing here; test/model-registry-persistence.test.js's "partial
+  // seed reconciliation" test relies on exactly that self-heal for a corrupted
+  // team name and must keep passing.
   const insertTeam = db.prepare(`INSERT INTO nfl_teams
     (abbr, name, conference, division, head_coach, oc_name, dc_name, off_scheme, off_scheme_detail,
      def_scheme, def_scheme_detail, st_coordinator, ol_analysis, dl_analysis, lb_analysis,
      secondary_analysis, st_analysis, coach_analysis, primary_color, secondary_color)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(abbr) DO UPDATE SET name=excluded.name,conference=excluded.conference,division=excluded.division,
-      head_coach=excluded.head_coach,oc_name=excluded.oc_name,dc_name=excluded.dc_name,
-      off_scheme=excluded.off_scheme,off_scheme_detail=excluded.off_scheme_detail,
-      def_scheme=excluded.def_scheme,def_scheme_detail=excluded.def_scheme_detail,
-      st_coordinator=excluded.st_coordinator,ol_analysis=excluded.ol_analysis,dl_analysis=excluded.dl_analysis,
-      lb_analysis=excluded.lb_analysis,secondary_analysis=excluded.secondary_analysis,
-      st_analysis=excluded.st_analysis,coach_analysis=excluded.coach_analysis,
       primary_color=excluded.primary_color,secondary_color=excluded.secondary_color`);
   const insertPlayer = db.prepare(`INSERT INTO players
     (name, position, team_id, depth_rank, slot_code, phase, fantasy_relevant)
@@ -114,8 +120,12 @@ export function seedIfEmpty() {
       run(`INSERT INTO ranking_sets (name, scoring) VALUES ('My 2026 Board', 'PPR')`);
       setId = row('SELECT last_insert_rowid() AS id').id;
     }
-    const insertEntry = db.prepare(`INSERT INTO ranking_entries (set_id, player_id, rank, tier) VALUES (?,?,?,?)
-      ON CONFLICT(set_id, player_id) DO UPDATE SET rank=excluded.rank,tier=excluded.tier`);
+    // INSERT OR IGNORE: once an entry exists for this player in this set, the
+    // user's own re-ranking (rankings.js lets a rank/tier be edited directly)
+    // owns it. The old ON CONFLICT...DO UPDATE reset every rank/tier back to
+    // this hardcoded consensus board on every boot, silently undoing any
+    // re-rank the moment the server restarted.
+    const insertEntry = db.prepare(`INSERT OR IGNORE INTO ranking_entries (set_id, player_id, rank, tier) VALUES (?,?,?,?)`);
 
     DEFAULT_BOARD.forEach(([name, pos, abbr], i) => {
       // Exact `name=?` alone missed anyone whose stored spelling differs by an

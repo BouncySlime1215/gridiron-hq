@@ -48,7 +48,7 @@ for (const [margin, count] of Object.entries(COUNTS)) {
   }
 }
 
-const { marginDistribution, lineMoveTransitions, coverProbabilities, bestExecution, NO_FORECAST_BASE } =
+const { marginDistribution, lineMoveTransitions, coverProbabilities, bestExecution, NO_FORECAST_BASE, stakeFor } =
   await import('../server/services/nfl-execution-edge.js');
 
 test('the synthetic pmf matches the constructed population exactly', () => {
@@ -482,4 +482,38 @@ test('C05 regression: a single quote at the common number still cannot be ranked
     assert.equal(exec.qualified, false);
     assert.match(exec.reason, /no_qualified_distribution/);
   }
+});
+
+/* ============================================================ stakeFor gate */
+
+// a6-money-path: stakeFor()'s CLV-proof gate was a DENY-list on the literal
+// string 'model' (`source === 'model'`), so anything that was not exactly
+// that string -- a typo, an unrecognised opportunity kind -- sailed straight
+// through to a full, unvalidated stake. The fix inverts it to an ALLOW-list
+// on 'execution'. These lock the allow-list in, especially the case a
+// deny-list can never catch: a source value nobody wrote down.
+
+test('stakeFor: an unrecognised source is treated as unproven and blocked, not allowed through', () => {
+  const out = stakeFor({ winProbability: 0.58, americanPrice: -110, source: 'totally_made_up' });
+  assert.equal(out.units, 0);
+  assert.equal(out.blocked, true);
+  assert.match(out.reason, /closing-line value/);
+});
+
+test('stakeFor: the literal source "model" is still blocked without proven CLV', () => {
+  const out = stakeFor({ winProbability: 0.58, americanPrice: -110, source: 'model' });
+  assert.equal(out.units, 0);
+  assert.equal(out.blocked, true);
+});
+
+test('stakeFor: an unrecognised source WITH proven CLV is allowed to size, same as "model" would be', () => {
+  const out = stakeFor({ winProbability: 0.58, americanPrice: -110, source: 'totally_made_up', provenClv: 0.01 });
+  assert.equal(out.blocked, undefined);
+  assert.ok(out.units > 0);
+});
+
+test('stakeFor: "execution" sizes a real stake with no CLV proof required', () => {
+  const out = stakeFor({ winProbability: 0.58, americanPrice: -110, source: 'execution' });
+  assert.equal(out.blocked, undefined);
+  assert.ok(out.units > 0);
 });

@@ -59,24 +59,39 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
   const gridironVersion = nflEngineVersionFor(season, week);
   const insert = db.prepare(`INSERT OR IGNORE INTO weekly_prediction_snapshots
     (season,week,player_id,position,as_of,cutoff,engine_version,gridiron_engine_version,structural,season_to_date,last3,last1,median,
-     prediction,lower_80,upper_80,weights_json,weight_fit,candidate_version,candidate_heads_json)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+     prediction,lower_80,upper_80,weights_json,weight_fit,candidate_version,candidate_heads_json,mode)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   let captured = 0;
+  let coldStart = 0;
   db.exec('BEGIN');
   try {
     for (const projection of projections.values()) {
       const engine = projection.player_week_engine;
-      if (!engine?.heads) continue;
+      // engine.heads is null when the player has zero prior-week evidence
+      // anywhere (a true first-week-of-career cold start) — previously this
+      // silently dropped the player from the whole capture with no record.
+      // Mirror the fallback pattern in player-head-registry.js (degrade to
+      // the structural estimate for every head, never null) so the week
+      // still gets a row instead of a silent gap.
+      const structuralOnly = !engine?.heads;
+      const heads = engine?.heads ?? Object.fromEntries(
+        WEEKLY_ENSEMBLE_HEADS.map(head => [head, projection.structural_ppg]));
+      if (structuralOnly) coldStart += 1;
       const dist = playerWeekDistribution(projection, { scoring, runs });
       captured += insert.run(season, week, projection.player_id, projection.position, now, engine.cutoff,
-        engine.version, gridironVersion, engine.heads.structural, engine.heads.season_to_date, engine.heads.last3,
-        engine.heads.last1, engine.heads.median, projection.ppg, dist.p10, dist.p90,
+        engine.version, gridironVersion, heads.structural, heads.season_to_date, heads.last3,
+        heads.last1, heads.median, projection.ppg, dist.p10, dist.p90,
         JSON.stringify(engine.weights), engine.weight_fit, projection.candidate_head_version,
-        JSON.stringify(projection.candidate_heads)).changes;
+        JSON.stringify(projection.candidate_heads),
+        structuralOnly ? 'cold_start_structural_only' : 'position_ensemble').changes;
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
-  return { captured, season, week, as_of: now, engine_version: gridironVersion,
+  // Honest status for the scheduler: nothing was silently skipped (the
+  // cold-start rows above are captured, just degraded), so say so instead
+  // of leaving `skipped` undefined and letting it read as an unqualified 'ok'.
+  return { captured, cold_start_structural_only: coldStart, skipped: false,
+    season, week, as_of: now, engine_version: gridironVersion,
     first_kickoff: firstKickoff?.toISOString() ?? null };
 }
 
@@ -203,10 +218,64 @@ export function weeklyLearningStatus() {
   };
 }
 
-export function currentNflWeek(season = Number(process.env.NFL_SEASON) || new Date().getFullYear()) {
-  const upcoming = row(`SELECT MIN(week) AS week FROM game_lines
-                        WHERE season=? AND team_score IS NULL`, season)?.week;
-  return { season, week: Number(process.env.NFL_WEEK) || upcoming || 1 };
+// A game missing its score this long after kickoff is no longer "hasn't been
+// played yet" — real NFL games (including OT) finish inside this window, and
+// ESPN posts finals within minutes after. Past this, a null score is either a
+// sync gap or a real data-availability hole, not a game still in progress.
+const SCORE_GRACE_HOURS = 6;
+
+/**
+ * The schedule's own view of "what week is it": the earliest week whose games
+ * are not ALL already in the past (i.e. the week currently underway or next
+ * up), derived purely from gameday/gametime — no score data involved. Used as
+ * a cross-check against the score-derived week below, and as the fallback
+ * when that score-derived value looks wrong (see currentNflWeek).
+ */
+function scheduleDerivedWeek(season, now = new Date()) {
+  const weeks = rows(`SELECT DISTINCT week, gameday, gametime FROM game_lines
+                      WHERE season=? AND gameday IS NOT NULL`, season);
+  if (!weeks.length) return null;
+  const maxKickoffByWeek = new Map();
+  for (const w of weeks) {
+    const kickoff = nflKickoffDate(w.gameday, w.gametime);
+    if (!kickoff) continue;
+    const prior = maxKickoffByWeek.get(w.week);
+    if (!prior || kickoff > prior) maxKickoffByWeek.set(w.week, kickoff);
+  }
+  if (!maxKickoffByWeek.size) return null;
+  const ordered = [...maxKickoffByWeek.entries()].sort((a, b) => a[0] - b[0]);
+  const notYetConcluded = ordered.find(([, maxKickoff]) => maxKickoff.getTime() >= now.getTime());
+  return (notYetConcluded ?? ordered.at(-1))[0];
+}
+
+export function currentNflWeek(season = Number(process.env.NFL_SEASON) || new Date().getFullYear(), now = new Date()) {
+  const scoreWeek = row(`SELECT MIN(week) AS week FROM game_lines
+                        WHERE season=? AND team_score IS NULL`, season)?.week ?? null;
+  const scheduleWeek = scheduleDerivedWeek(season, now);
+  const bestGuess = scoreWeek ?? scheduleWeek ?? 1;
+
+  // Cross-check: of bestGuess's games, how many are missing a score well past
+  // their own kickoff? If more than half are, the score-derived signal is
+  // unreliable (a stalled/broken sync, not just "week still in progress") and
+  // the schedule's own idea of the current week takes over instead.
+  const games = rows(`SELECT team_score, gameday, gametime FROM game_lines
+                      WHERE season=? AND week=?`, season, bestGuess);
+  const graceMs = SCORE_GRACE_HOURS * 60 * 60 * 1000;
+  const overdue = games.filter(g => {
+    if (g.team_score != null) return false;
+    const kickoff = nflKickoffDate(g.gameday, g.gametime);
+    return kickoff && (now.getTime() - kickoff.getTime()) > graceMs;
+  });
+  const looksWrong = games.length > 0 && (overdue.length / games.length) > 0.5;
+  const resolved = looksWrong && scheduleWeek != null ? scheduleWeek : bestGuess;
+
+  return {
+    season,
+    week: Number(process.env.NFL_WEEK) || resolved,
+    score_derived_week: scoreWeek,
+    schedule_derived_week: scheduleWeek,
+    score_signal_flagged: looksWrong
+  };
 }
 
 export function runWeeklyLearningCycle() {

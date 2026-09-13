@@ -42,6 +42,18 @@ const EXCLUDE = new Set([
   'node_modules', '.git', 'dist', '.env', '.DS_Store',
   'data', 'coverage', '.vite', 'client/dist'
 ]);
+// The real database, at any depth, under any of its runtime or backup names
+// (server/data.sqlite, its -wal/-shm siblings, and every *.bak / *.bak-journal
+// migration snapshot). `EXCLUDE` above is exact-name only, which the non-git
+// fallback's `walk()` was relying on with no 'data.sqlite' entry at all — a
+// release built from a non-git checkout (or, defensively, one where a backup
+// file had been committed) could ship it. Matched on the basename so it
+// catches the file regardless of which directory it lives under.
+const DB_FILE_PATTERN = /^data\.sqlite/;
+const isExcluded = relOrName => {
+  const base = path.basename(relOrName);
+  return EXCLUDE.has(relOrName) || EXCLUDE.has(base) || DB_FILE_PATTERN.test(base);
+};
 /** Files whose executable bit must survive the round trip. */
 const EXECUTABLE = /\.(command|sh)$/;
 
@@ -176,7 +188,7 @@ try {
 let copied = 0;
 for (const rel of files) {
   const top = rel.split('/')[0];
-  if (EXCLUDE.has(top) || EXCLUDE.has(rel)) continue;
+  if (isExcluded(top) || isExcluded(rel)) continue;
   const src = path.join(ROOT, rel);
   if (!fs.existsSync(src) || fs.statSync(src).isDirectory()) continue;
   const dest = path.join(STAGE, rel);
@@ -221,7 +233,7 @@ console.log(`    gh release create v1.0.0 "${ZIP}" --title "Gridiron HQ" --notes
 
 function walk(dir, acc = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (EXCLUDE.has(e.name)) continue;
+    if (isExcluded(e.name)) continue;
     const p = path.join(dir, e.name);
     e.isDirectory() ? walk(p, acc) : acc.push(p);
   }

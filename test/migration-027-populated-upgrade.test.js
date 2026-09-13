@@ -440,6 +440,60 @@ test('C03: 027 refuses to downgrade away terminal evidence, and refuses a popula
   'the terminal evidence survived the refusal');
 });
 
+// These two tests call 027's down() directly against a fixture built only
+// THROUGH 027, rather than through rollbackMigration()'s full unwind from the
+// current latest migration. That avoids an unrelated, pre-existing defect in
+// 041_nfl_replay_run_spec.js's down() (it unconditionally ALTERs
+// nfl_replay_runs, a table this migration-only fixture -- built by replaying
+// migration files without the schema-bootstrap path a real install always
+// takes -- never creates) which otherwise aborts any unwindTo() walk that
+// passes through 041. That defect predates this stage's changes, is outside
+// the migration this test file exercises, and is reported separately rather
+// than papered over here.
+test('C03/8.14: 027 refuses to drop the decision tape itself when it holds any row', async () => {
+  // The terminal-state guard elsewhere in this file protects the execution
+  // ledger, which predates this migration and has a narrower schema to fall
+  // back into. nfl_decision_runs/nfl_decision_events have no such
+  // predecessor -- they did not exist before 027 -- so a downgrade that
+  // reaches the final DROP TABLE at the bottom of down() has nothing to
+  // preserve rows into. It must refuse outright rather than delete the tape,
+  // exactly as the execution-ledger guards refuse rather than lose evidence.
+  const { database } = await fixtureAt('027_decision_tape', { name: 'down-027-tape-direct', populated: false });
+  const [{ mod: m027 }] = (await migrationsThrough('027_decision_tape')).slice(-1);
+
+  database.prepare(`INSERT INTO nfl_decision_runs
+    (id, season, week, policy_id, policy_version, board_hash, decided_at,
+     decision_count, selected_count, engine_mode, note)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+    'run-fresh-1', 2026, 2, 'nfl-spread-v1', '1.2.0', 'fresh-board-hash-1',
+    '2026-09-10T00:00:00Z', 1, 1, 'champion', 'written after 027 upgraded');
+  database.prepare(`INSERT INTO nfl_decision_events
+    (run_id, matchup, market, selection, line, american_price, book, eligible, abstention_reason)
+    VALUES (?,?,?,?,?,?,?,?,?)`).run(
+    'run-fresh-1', 'BAL at KC', 'spread', 'KC', -3.5, -110, 'draftkings', 1, null);
+
+  assert.throws(() => m027.down(database), /1 decision run\(s\) and 1 decision event\(s\) hold evidence/);
+  assert.equal(database.prepare(`SELECT COUNT(*) n FROM nfl_decision_runs`).get().n, 1,
+    'the run survived the refusal');
+  assert.equal(database.prepare(`SELECT COUNT(*) n FROM nfl_decision_events`).get().n, 1,
+    'the event survived the refusal');
+});
+
+test('C03/8.14: an untouched decision tape still rolls back cleanly, exactly as before the guard existed', async () => {
+  // The guard must fire only on rows that are actually there -- a fresh
+  // install, or a database where the tape was created but never fed, has to
+  // downgrade exactly as it always did.
+  const { database } = await fixtureAt('027_decision_tape', { name: 'down-027-tape-empty-direct', populated: false });
+  const [{ mod: m027 }] = (await migrationsThrough('027_decision_tape')).slice(-1);
+  assert.equal(database.prepare(`SELECT COUNT(*) n FROM nfl_decision_runs`).get().n, 0);
+  assert.equal(database.prepare(`SELECT COUNT(*) n FROM nfl_decision_events`).get().n, 0);
+
+  m027.down(database);
+  assert.equal(database.prepare(
+    `SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name='nfl_decision_runs'`).get().n, 0,
+  'the tables were actually dropped, not merely left in place by an early return');
+});
+
 test('C03/C01: a database holding a LEGACY DECISION RUN upgrades — 031 must not trip 027\'s trigger', async () => {
   // The regression this file previously could not catch. 027 protects
   // nfl_decision_runs against UPDATE; 031 backfills identity columns with an

@@ -51,7 +51,14 @@ const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
  * uses, so a ceiling here is comparable to a title probability there.
  */
 function outcomePools(players, season, week, scoring) {
-  const proj = buildProjections({ through: season - 1, scoring });
+  // Mid-season cutoff, not a season-boundary one: `through: season - 1` alone
+  // ignores every game already played THIS season — a hot streak, a role
+  // change, an injury — and always builds off last season's snapshot no
+  // matter how far into the current season `week` actually is. `throughWeek:
+  // week - 1` mirrors the same walk-forward-safe cutoff player-week-engine.js
+  // already uses for weekly projections, so a ceiling/floor lineup here is
+  // built from the same current information the rest of the app has.
+  const proj = buildProjections({ through: season, throughWeek: week - 1, scoring });
   const { schedule } = matchupModel();
   const entries = [];
   for (const p of players) {

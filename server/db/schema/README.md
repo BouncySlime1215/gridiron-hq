@@ -11,6 +11,14 @@ new numbered migration under `server/migrations/`. A fragment edited after the
 fact silently does nothing on any database that has already recorded
 `000_legacy_schema` as applied, which is every database that matters.
 
+That rule has already been broken twice, both in `nfl-n-to-z.js`: an index
+added straight to the fragment (`bbcdae2`, superseded by migration 029) and
+columns added straight to it (`1bbe43d`, superseded by migration 032), when a
+numbered migration was the correct place for both. Both predate this note and
+are called out here so "frozen" isn't read as untested in practice — treat any
+future addition here the same way: a mistake to fix, not a precedent to
+follow.
+
 ## Fragment contract
 
 One file per batch, `server/db/schema/<batch>.js`, exporting exactly:

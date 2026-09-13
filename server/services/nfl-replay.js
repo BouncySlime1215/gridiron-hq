@@ -23,9 +23,9 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { rows, run } from '../db/index.js';
+import { rows, row, run } from '../db/index.js';
 import { fitEnsemble, ensembleLine } from './nfl-ensemble.js';
-import { mean, quantile, random, withRandomSeed, normalCdf, holm } from './stats-util.js';
+import { normalCdf, holm, weeklyClusterBootstrap } from './stats-util.js';
 import { NFL_PRODUCTION_POLICY, NFL_HISTORICAL_REPLAY_POLICY,
   applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
 import { shinNoVig } from './nfl-devig.js';
@@ -34,43 +34,28 @@ import { availabilityDeficit } from './nfl-availability.js';
 import { teamNewsSignals } from './nfl-news-signal.js';
 import { teamEventVector } from './nfl-event-archive.js';
 import { codeIdentity } from '../platform/code-identity.js';
+import { createNetwork, predictNetwork, spreadFeatureVector, trainBatch } from './nfl-online-neural.js';
+import { nflKickoffDate } from './date-util.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
 /** No-vig probability of the first side, from both sides' real American prices — Shin's method (nfl-devig.js). */
 const noVigProb = (oddsA, oddsB) => shinNoVig(oddsA, oddsB);
 
-export function uncertainty(bets) {
-  const settled = bets.filter(b => b.result === 'Won' || b.result === 'Lost');
-  const clusters = new Map();
-  for (const b of bets) {
-    const key = `${b.season}-${b.week}`;
-    const group = clusters.get(key) ?? [];
-    group.push(b); clusters.set(key, group);
-  }
-  const weeks = [...clusters.values()];
-  const draws = [];
-  if (weeks.length) withRandomSeed(20260804, () => {
-    for (let trial = 0; trial < 4000; trial++) {
-      const sample = [];
-      for (let i = 0; i < weeks.length; i++) sample.push(...weeks[Math.floor(random() * weeks.length)]);
-      const graded = sample.filter(b => b.result === 'Won' || b.result === 'Lost');
-      const wins = graded.filter(b => b.result === 'Won').length;
-      draws.push({ roi: sample.length ? mean(sample.map(b => b.units)) : 0, winRate: graded.length ? wins / graded.length : 0 });
-    }
-  });
-  const rois = draws.map(x => x.roi), winRates = draws.map(x => x.winRate);
-  return {
-    method: 'deterministic weekly-cluster bootstrap',
-    clusters: weeks.length,
-    trials: draws.length,
-    win_rate_95: draws.length ? [r2(quantile(winRates, 0.025)), r2(quantile(winRates, 0.975))] : [null, null],
-    roi_95: draws.length ? [r2(quantile(rois, 0.025)), r2(quantile(rois, 0.975))] : [null, null],
-    probability_roi_above_zero: draws.length ? r2(rois.filter(x => x > 0).length / draws.length) : null,
-    sample_warning: settled.length < 100
-      ? 'Very small sample: results are dominated by variance.'
-      : settled.length < 500 ? 'Moderate sample: treat profitability as provisional until the interval clears zero.' : null
-  };
+/**
+ * Giant Plan 8.9 (audit-consolidation stage 5): delegates to the one shared
+ * `weeklyClusterBootstrap` (stats-util.js) instead of hand-rolling its own
+ * copy — one of five near-identical implementations this consolidates. With
+ * no `weeks` declared, behavior is unchanged from before this migration: the
+ * resampling universe is still just the weeks present in `bets`. Passing
+ * `weeks` (the run's full declared schedule, including weeks the policy bet
+ * nothing in) is what actually fixes the omitted-zero-bet-week bias described
+ * on the shared function; existing call sites here don't have that schedule
+ * handy without a larger refactor, so this migration is the safe subset —
+ * the shared implementation, wired into one real caller, unchanged output.
+ */
+export function uncertainty(bets, { weeks } = {}) {
+  return weeklyClusterBootstrap(bets, { weeks });
 }
 
 /** Settle at the stored historical price. Missing prices never reach this path. */
@@ -185,8 +170,22 @@ export function replaySeason(season, {
   startWeek = 1,
   endWeek = 22,
   modelOptions = {},
-  label = null
+  label = null,
+  // Giant Plan 8.9: `ensembleLine` never had a blend mode set on it here, so
+  // every replay silently inherited `nfl-ensemble.js`'s own default ('raw')
+  // while the live production path (`nfl-auto-picks.js`) forces
+  // 'market_residual'. A backtest run this way is not measuring the policy
+  // production actually runs — it is measuring a different, unstated one.
+  // There is no safe implicit default any more: every direct caller must say
+  // which blend it means, so the choice is visible in the call site instead
+  // of buried in two different defaults that happened to disagree.
+  blendMode
 } = {}) {
+  if (blendMode !== 'raw' && blendMode !== 'market_residual') {
+    throw new TypeError(
+      `replaySeason: blendMode is required and must be 'raw' or 'market_residual' (got ${JSON.stringify(blendMode)}). ` +
+      "Callers must state explicitly which ensemble blend the replay uses — there is no implicit default.");
+  }
   const slate = rows(`
     SELECT gl.season, gl.week, gl.team AS home, gl.opponent AS away,
            gl.team_score AS home_score, gl.opp_score AS away_score,
@@ -222,7 +221,7 @@ export function replaySeason(season, {
   for (const g of slate) {
     if (currentWeek != null && g.week !== currentWeek) commitWeek();
     currentWeek = g.week;
-    const line = ensembleLine(season, g.week, g.home, g.away, { includeEvidence: false, ...modelOptions });
+    const line = ensembleLine(season, g.week, g.home, g.away, { includeEvidence: false, ...modelOptions, blendMode });
     if (line.error) continue;
     const e = line.ensemble;
 
@@ -341,7 +340,7 @@ export function replaySeason(season, {
     // Historical payouts use each stored price; there is no synthetic -110.
     break_even_needed: r2(averageBreakEven),
     beat_vig: bets.length ? units > 0 : null,
-    config: { policy, modelOptions, startWeek, endWeek },
+    config: { policy, modelOptions, blendMode, startWeek, endWeek },
     decision_audit: {
       candidates: decisions.length,
       selected: bets.length,
@@ -416,10 +415,19 @@ const fmtLine = v => (v > 0 ? `+${v}` : `${v}`);
 /** Persists a replay so runs can be compared over time. */
 export function saveReplay(result) {
   const s = result.summary;
-  run(`INSERT INTO nfl_replay_runs (season, label, created_at, bets, wins, losses, pushes, units, roi, config)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  // Giant Plan 8.9: the blend spec (which ensemble blend mode, and the
+  // modelOptions it was combined with) is the one thing that silently varied
+  // between replay and production before blendMode became required. Recorded
+  // as its own hashable column — not just buried in `config`'s free-form
+  // JSON — so runs can be grouped/compared by spec without parsing it back
+  // out of a blob whose shape has changed release to release.
+  const spec = { blendMode: s.config.blendMode, modelOptions: s.config.modelOptions };
+  const specJson = JSON.stringify(spec);
+  const specHash = createHash('sha256').update(specJson).digest('hex');
+  run(`INSERT INTO nfl_replay_runs (season, label, created_at, bets, wins, losses, pushes, units, roi, config, spec_json, spec_hash)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     s.season, s.label, new Date().toISOString(), s.bets, s.wins, s.losses, s.pushes,
-    s.units, s.roi, JSON.stringify(s.config));
+    s.units, s.roi, JSON.stringify(s.config), specJson, specHash);
   const id = rows('SELECT last_insert_rowid() AS id')[0].id;
   for (const b of result.bets) {
     run(`INSERT INTO nfl_replay_bets
@@ -777,12 +785,21 @@ export function analyzeErrors(bets, { minBets = 25 } = {}) {
  * this says so rather than reporting the flattering number.
  */
 export function validateAdjustment({ discoverySeasons, holdoutSeasons, adjust, config = {} }) {
+  // `config` is forwarded from a long chain of callers (proposeAdjustment,
+  // nfl-candidate-findings.js's holdout tests, the research/experiments
+  // routes) that predate replaySeason's blendMode requirement. Defaulting it
+  // here — at the one place this file calls replaySeason with an arbitrary
+  // caller-supplied config — preserves every one of those callers' current
+  // behavior (the 'raw' blend replaySeason silently used before) without
+  // having to thread blendMode through each of them individually. A caller
+  // that already states config.blendMode still wins.
+  const seasonConfig = { blendMode: 'raw', ...config };
   // Replays are deterministic, so each season is run once and the adjustment is
   // applied to the same bets — otherwise this replays every season four times.
   const cache = new Map();
   const betsFor = seasons => seasons.flatMap(s => {
     if (!cache.has(s)) {
-      const r = replaySeason(s, config);
+      const r = replaySeason(s, seasonConfig);
       cache.set(s, r.error ? [] : r.bets);
     }
     return cache.get(s);
@@ -911,8 +928,12 @@ export function proposeAdjustment(segment, { discoverySeasons, holdoutSeasons, c
 export function trainingIteration(seasons, config = {}) {
   const perSeason = [];
   const allBets = [];
+  // See the matching comment in validateAdjustment: `config` here is forwarded
+  // from many callers that predate replaySeason's blendMode requirement, so
+  // the default is supplied at this boundary rather than at every call site.
+  const seasonConfig = { blendMode: 'raw', ...config };
   for (const s of seasons) {
-    const r = replaySeason(s, config);
+    const r = replaySeason(s, seasonConfig);
     if (r.error) { perSeason.push({ season: s, error: r.error }); continue; }
     perSeason.push(r.summary);
     allBets.push(...r.bets);
@@ -1099,4 +1120,219 @@ export function latestCandidateInputAudit() {
   return { id: audit.id, candidate_id: audit.candidate_id,
     seasons: JSON.parse(audit.seasons_json), created_at: audit.created_at,
     result: JSON.parse(audit.result_json) };
+}
+
+/* =========================================================================
+ * The online-neural prequential replay — merged in from nfl-neural-replay.js
+ * (stage-2 engine unification: it had exactly one importer, nfl-diagnostic.js,
+ * and its own bespoke train/evaluate loop for one specific model family. It
+ * is not a rewrite of replaySeason's ensemble-policy loop above — it trains
+ * and evaluates an evolving online neural network week over week, which
+ * replaySeason has no equivalent of — so it keeps its own loop here as a
+ * second model option this file offers, rather than living in its own
+ * single-purpose file. r2/unitsFor/noVigProb above are NOT reused: this
+ * engine's units/no-vig helpers price a `{result, american_price}` item
+ * shaped differently from replaySeason's (won, pushed, price) triple, so they
+ * keep their own names (r3, neuralUnitsFor, neuralNoVig) below instead of
+ * silently overloading the ones above.
+ *
+ * Every game in a week is predicted by one unchanged network. Only after the
+ * entire week is scored may those labels enter the next update. A ridge-logit
+ * decision calibrator is fitted on earlier neural forecasts and turns
+ * residual magnitude, price side and season phase into a cover probability.
+ * This is an opened research candidate and never changes production
+ * authority.
+ * ========================================================================= */
+
+export const NEURAL_REPLAY_VERSION = 'spread-residual-neural-v2-two-sided-cover';
+const NEURAL_RIDGE = 32;
+const NEURAL_MIN_CALIBRATION = 200;
+const NEURAL_EV_BUFFER = 0.02;
+const NEURAL_MAX_WEEKLY_PICKS = 3;
+const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
+const sigmoid = value => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, value))));
+const neuralPhase = week => week <= 6 ? 'early' : week <= 12 ? 'middle' : 'late';
+const neuralImplied = price => price == null ? null : price > 0 ? 100 / (price + 100)
+  : Math.abs(price) / (Math.abs(price) + 100);
+const neuralNoVig = (selected, opposite) => {
+  const a = neuralImplied(selected), b = neuralImplied(opposite);
+  return a == null || b == null || a + b <= 0 ? null : a / (a + b);
+};
+const neuralUnitsFor = item => item.result === 'Push' ? 0 : item.result === 'Lost' ? -1
+  : item.american_price > 0 ? item.american_price / 100 : 100 / Math.abs(item.american_price);
+
+function neuralVector(item) {
+  return [1, Math.max(-3, Math.min(3, item.prediction_residual / 3)),
+    item.home_underdog ? 1 : 0, neuralPhase(item.week) === 'middle' ? 1 : 0,
+    neuralPhase(item.week) === 'late' ? 1 : 0,
+    Math.min(3, Math.max(0, Number(item.disagreement ?? 0)) / 5)];
+}
+
+/** Conservative ridge logistic fit. The penalty shrinks toward market parity. */
+export function fitNeuralDecisionCalibrator(examples, ridge = NEURAL_RIDGE) {
+  if (examples.length < NEURAL_MIN_CALIBRATION) return null;
+  const width = neuralVector(examples[0]).length;
+  let weights = Array(width).fill(0);
+  for (let iteration = 0; iteration < 40; iteration++) {
+    const gradient = Array(width).fill(0);
+    const hessian = Array.from({ length: width }, () => Array(width).fill(0));
+    for (const item of examples) {
+      const x = neuralVector(item), p = sigmoid(x.reduce((sum, value, index) => sum + value * weights[index], 0));
+      const y = item.home_cover ? 1 : 0, variance = Math.max(1e-6, p * (1 - p));
+      for (let i = 0; i < width; i++) {
+        gradient[i] += x[i] * (y - p);
+        for (let j = 0; j < width; j++) hessian[i][j] += variance * x[i] * x[j];
+      }
+    }
+    // Do not penalize the intercept; every contextual effect shrinks to zero.
+    for (let i = 1; i < width; i++) { gradient[i] -= ridge * weights[i]; hessian[i][i] += ridge; }
+    hessian[0][0] += 1e-6;
+    const delta = neuralSolve(hessian, gradient);
+    if (!delta) break;
+    weights = weights.map((value, index) => value + delta[index]);
+    if (delta.reduce((sum, value) => sum + Math.abs(value), 0) < 1e-7) break;
+  }
+  return { version: NEURAL_REPLAY_VERSION, ridge, examples: examples.length, weights };
+}
+
+function neuralSolve(matrix, target) {
+  const a = matrix.map((mrow, index) => [...mrow, target[index]]), n = target.length;
+  for (let column = 0; column < n; column++) {
+    let pivot = column;
+    for (let r = column + 1; r < n; r++) if (Math.abs(a[r][column]) > Math.abs(a[pivot][column])) pivot = r;
+    if (Math.abs(a[pivot][column]) < 1e-10) return null;
+    [a[column], a[pivot]] = [a[pivot], a[column]];
+    const divisor = a[column][column];
+    for (let j = column; j <= n; j++) a[column][j] /= divisor;
+    for (let r = 0; r < n; r++) if (r !== column) {
+      const factor = a[r][column];
+      for (let j = column; j <= n; j++) a[r][j] -= factor * a[column][j];
+    }
+  }
+  return a.map(mrow => mrow[n]);
+}
+
+export function calibratedNeuralProbability(calibrator, item) {
+  if (!calibrator) return null;
+  const x = neuralVector(item);
+  return sigmoid(x.reduce((sum, value, index) => sum + value * calibrator.weights[index], 0));
+}
+
+function neuralSummarize(items) {
+  const wins = items.filter(item => item.result === 'Won').length;
+  const losses = items.filter(item => item.result === 'Lost').length;
+  const units = items.reduce((sum, item) => sum + item.units, 0);
+  return { bets: items.length, wins, losses,
+    win_rate: wins + losses ? r3(wins / (wins + losses)) : null,
+    units: r3(units), roi: items.length ? r3(units / items.length) : null,
+    uncertainty: uncertainty(items) };
+}
+
+/** Full historical run. Defaults are frozen before the opened 2021–2025 audit. */
+export function runHistoricalNeuralReplay({ trainFrom = 2018, evaluateFrom = 2021,
+  throughSeason = 2025 } = {}) {
+  const games = rows(`SELECT h.season,h.week,h.team home,h.opponent away,h.gameday,h.gametime,
+      h.spread home_spread,h.spread_odds home_price,a.spread_odds away_price,
+      h.team_score-h.opp_score actual_margin
+    FROM game_lines h LEFT JOIN game_lines a ON a.season=h.season AND a.week=h.week
+      AND a.team=h.opponent AND a.home=0
+    WHERE h.home=1 AND h.season BETWEEN ? AND ? AND h.team_score IS NOT NULL
+      AND h.spread IS NOT NULL ORDER BY h.season,h.week,h.team`, trainFrom, throughSeason);
+  const weeks = [...new Set(games.map(game => `${game.season}|${game.week}`))];
+  let network = null;
+  const replayMemory = [], calibrationMemory = [], allForecasts = [], bets = [], timeline = [];
+  for (const weekKey of weeks) {
+    const [season, week] = weekKey.split('|').map(Number);
+    const forecasts = [];
+    for (const game of games.filter(item => item.season === season && item.week === week)) {
+      const line = ensembleLine(season, week, game.home, game.away,
+        { includeEvidence: false, includeChallengers: true });
+      if (line.error) continue;
+      const kickoff = game.gameday ? nflKickoffDate(game.gameday, game.gametime || '23:59') : null;
+      const cutoff = kickoff?.toISOString() ?? null;
+      const features = spreadFeatureVector(line, { before: cutoff });
+      if (!features) continue;
+      if (!network) network = createNetwork(features.values.length);
+      const residual = predictNetwork(network, features.values);
+      const grade = game.actual_margin + game.home_spread;
+      const pushed = grade === 0;
+      forecasts.push({ season, week, home: game.home, away: game.away,
+        home_spread: game.home_spread, home_price: game.home_price, away_price: game.away_price,
+        home_market_probability: neuralNoVig(game.home_price, game.away_price),
+        prediction_residual: r3(residual), edge_points: Math.abs(residual),
+        disagreement: line.ensemble.model_disagreement_margin,
+        home_underdog: game.home_spread > 0, home_cover: grade > 0, pushed,
+        target_residual: game.actual_margin - (-game.home_spread),
+        input: features.values });
+    }
+    // One calibrator for the whole week; no result in this week is visible yet.
+    const calibrator = fitNeuralDecisionCalibrator(calibrationMemory);
+    for (const item of forecasts) {
+      const homeProbability = calibratedNeuralProbability(calibrator, item);
+      const homeAdvantage = homeProbability == null || item.home_market_probability == null
+        ? null : homeProbability - item.home_market_probability;
+      const backHome = homeAdvantage != null && homeAdvantage > 0;
+      item.side = backHome ? item.home : item.away;
+      item.line = backHome ? item.home_spread : -item.home_spread;
+      item.american_price = backHome ? item.home_price : item.away_price;
+      item.opposite_price = backHome ? item.away_price : item.home_price;
+      item.market_probability = backHome ? item.home_market_probability
+        : item.home_market_probability == null ? null : 1 - item.home_market_probability;
+      item.model_probability = homeProbability == null ? null : r3(backHome ? homeProbability : 1 - homeProbability);
+      item.probability_edge = homeAdvantage == null ? null : Math.abs(homeAdvantage);
+      item.selected_underdog = item.line > 0;
+      item.won = backHome ? item.home_cover : !item.home_cover;
+      item.result = item.pushed ? 'Push' : item.won ? 'Won' : 'Lost';
+    }
+    if (season >= evaluateFrom) {
+      const selected = forecasts.filter(item => item.american_price != null
+          && item.probability_edge != null && item.probability_edge >= NEURAL_EV_BUFFER)
+        .sort((a, b) => b.probability_edge - a.probability_edge || b.edge_points - a.edge_points)
+        .slice(0, NEURAL_MAX_WEEKLY_PICKS).map(item => ({ ...item, units: neuralUnitsFor(item) }));
+      bets.push(...selected);
+      timeline.push({ season, week, forecasts: forecasts.length, selected: selected.length,
+        calibrator_examples: calibrator?.examples ?? 0 });
+    }
+    // Outcomes become visible only after every game in the week was forecast.
+    for (const item of forecasts) {
+      replayMemory.push({ input: item.input, target: item.target_residual });
+      // Cover calibration learns direction from the real spread result. Older
+      // seasons may lack archived juice, but that does not make the cover label
+      // unknowable; price is required later for selection and settlement only.
+      if (!item.pushed) calibrationMemory.push(item);
+    }
+    if (forecasts.length) network = trainBatch(network, replayMemory.slice(-512));
+    allForecasts.push(...forecasts);
+  }
+  const perSeason = [];
+  for (let season = evaluateFrom; season <= throughSeason; season++) {
+    perSeason.push({ season, ...neuralSummarize(bets.filter(item => item.season === season)) });
+  }
+  const byPhase = ['early', 'middle', 'late'].map(name => ({ phase: name,
+    ...neuralSummarize(bets.filter(item => neuralPhase(item.week) === name)) }));
+  const bySide = ['underdog', 'favorite'].map(name => ({ side: name,
+    ...neuralSummarize(bets.filter(item => name === 'underdog' ? item.selected_underdog : !item.selected_underdog)) }));
+  return { version: NEURAL_REPLAY_VERSION,
+    evidence_class: 'opened prequential development replay; every weekly prediction precedes that week\'s update',
+    config: { train_from: trainFrom, evaluate_from: evaluateFrom, through_season: throughSeason,
+      ridge: NEURAL_RIDGE, minimum_calibration_examples: NEURAL_MIN_CALIBRATION,
+      probability_edge_buffer: NEURAL_EV_BUFFER, max_weekly_picks: NEURAL_MAX_WEEKLY_PICKS,
+      neural_training: 'existing bounded 35→10→1 weekly replay learner' },
+    forecasts: allForecasts.length, training_examples: replayMemory.length,
+    overall: neuralSummarize(bets), per_season: perSeason, by_phase: byPhase, by_side: bySide,
+    timeline };
+}
+
+export function saveHistoricalNeuralReplay(result) {
+  const createdAt = new Date().toISOString();
+  const saved = run(`INSERT INTO nfl_neural_replay_audits (version,created_at,result_json)
+    VALUES (?,?,?)`, result.version, createdAt, JSON.stringify(result));
+  return { id: Number(saved.lastInsertRowid), version: result.version, created_at: createdAt, result };
+}
+
+export function latestHistoricalNeuralReplay() {
+  const item = row('SELECT * FROM nfl_neural_replay_audits ORDER BY id DESC LIMIT 1');
+  if (!item) return null;
+  return { id: Number(item.id), version: item.version, created_at: item.created_at,
+    result: JSON.parse(item.result_json) };
 }

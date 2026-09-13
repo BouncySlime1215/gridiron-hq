@@ -27,6 +27,7 @@ const {
   fairPriceProbability, fairPriceEv, challengeExtremePrice, priceImprovement,
   threeWayAttribution, attributePnl, EXTREME_EV_THRESHOLD
 } = await import('../server/services/nfl-execution-attribution.js');
+const { rankBooks } = await import('../server/services/nfl-execution.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -68,6 +69,32 @@ test('priceImprovement reports the ACCEPTED book\'s edge, not just whichever boo
   assert.equal(mine.book, 'draftkings');
   assert.equal(mine.books_compared, 3);
   assert.ok(Number.isFinite(mine.edge_vs_median_winrate_pts));
+});
+
+// a6-money-path: payoutPerUnit(0) divides by Math.abs(0) and returns
+// Infinity, and rankBooks()'s old `usable` filter only checked
+// Number.isFinite(price) -- which a price of 0 (or any sub-100-magnitude
+// junk value) passes. An Infinite payout would then rank that broken quote
+// as the best book on the board, ahead of every real price.
+test('rankBooks excludes a price-0 (or otherwise sub-100) quote instead of ranking it as an infinite-payout winner', () => {
+  const ranked = rankBooks([
+    { book: 'draftkings', side: 'home', line: -3, american_price: -110 },
+    { book: 'fanduel', side: 'home', line: -3, american_price: -105 },
+    { book: 'brokenfeed', side: 'home', line: -3, american_price: 0 },
+    { book: 'alsobroken', side: 'home', line: -3, american_price: 50 }
+  ], { market: 'spreads', takingPoints: true });
+  assert.ok(ranked, 'the two real prices are still enough to rank');
+  assert.equal(ranked.books_compared, 2);
+  assert.ok(!ranked.all.some(b => b.book === 'brokenfeed' || b.book === 'alsobroken'));
+  assert.equal(ranked.best.book, 'fanduel');
+  assert.ok(Number.isFinite(ranked.best.payout_per_unit));
+});
+
+test('rankBooks refuses entirely when every quote is a junk price', () => {
+  const ranked = rankBooks([
+    { book: 'brokenfeed', side: 'home', line: -3, american_price: 0 }
+  ], { market: 'spreads', takingPoints: true });
+  assert.equal(ranked, null);
 });
 
 test('threeWayAttribution reports price improvement, fair-price EV and realized result as three separate figures', () => {

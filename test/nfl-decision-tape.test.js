@@ -119,6 +119,22 @@ test('a moved quote creates a second run while the first stays byte-identical', 
   assert.equal(decisionRun(before.run_id).content_hash, beforeRow.content_hash);
 });
 
+test('u2-market-identity: is_market_identity persists on the event and round-trips as a real boolean', () => {
+  const marketIdentity = record([decision({ matchup: 'GB at DET', selection: 'DET', is_market_identity: true })]);
+  const realOpinion = record([decision({ matchup: 'NYJ at NE', selection: 'NE', is_market_identity: false })]);
+
+  const [flagged] = decisionRunEvents(marketIdentity.run_id);
+  const [opinion] = decisionRunEvents(realOpinion.run_id);
+  assert.equal(flagged.is_market_identity, 1);
+  assert.equal(opinion.is_market_identity, 0);
+
+  // Flipping ONLY this field on otherwise-identical numbers is a genuinely
+  // different decision, not a formatting change — it changes the content hash.
+  assert.notEqual(marketIdentity.content_hash,
+    record([decision({ matchup: 'GB at DET', selection: 'DET', is_market_identity: false })],
+      { observation: observation() }).content_hash);
+});
+
 test('a policy version change is a different run even with identical numbers', () => {
   const a = record([decision()], { policyVersion: '1.0.0' });
   const b = record([decision()], { policyVersion: '1.1.0' });
@@ -193,6 +209,10 @@ test('C01: EVERY material field independently changes the content hash', () => {
     expected_return: { decisions: [decision({ expected_return: -0.02 })] },
     push_probability: { decisions: [decision({ push_probability: 0.08 })] },
     eligibility: { decisions: [decision({ eligible: false, abstention_reason: 'edge_below_threshold' })] },
+    // u2-market-identity: whether this decision's base forecast was a real
+    // model opinion or the market line served verbatim (see nfl-ensemble.js).
+    // A run that flips this on the same numbers is a different decision.
+    is_market_identity: { decisions: [decision({ is_market_identity: true })] },
     policy_version: { policyVersion: '2.0.0' },
     engine_mode: { engineMode: 'candidate' },
     horizon: { horizon: 'T-1440' },
@@ -480,4 +500,67 @@ test('the observation key ignores the retry attempt and nothing else', () => {
     assert.notEqual(observationKey(base), observationKey({ ...base, [field]: 'changed' }),
       `${field} must be part of the observation identity`);
   }
+});
+
+/* ======================================================================
+ * Stage 2 engine unification: `nfl_pick_decisions` is a read-side cache
+ * regenerated FROM the tape, never written independently. See this file's
+ * companion "ONE WRITER" note in nfl-decision-tape.js.
+ * ====================================================================== */
+
+test('recordDecisionRun regenerates the nfl_pick_decisions cache from its own tape rows', () => {
+  const abstained = decision({
+    matchup: 'DAL at PHI', home_team: 'PHI', away_team: 'DAL', selection: null, side: null,
+    line: null, american_price: null, book: null, eligible: false, calibration_eligible: false,
+    abstention_reason: 'below minimum edge', policy_rank: null
+  });
+  const r = recordDecisionRun(2026, 10, board([decision(), abstained]), {
+    observation: observation({ observationId: 'cache-regen-1' }),
+    policyId: 'nfl-production-v1', policyVersion: '1.0.0'
+  });
+
+  const cached = db.prepare(`SELECT * FROM nfl_pick_decisions WHERE season=2026 AND week=10 ORDER BY matchup`).all();
+  assert.equal(cached.length, 2, 'both the selected pick and the abstention are cached');
+
+  const selectedRow = cached.find(c => c.matchup === 'CHI at CAR');
+  assert.equal(selectedRow.policy_id, 'nfl-production-v1');
+  assert.equal(selectedRow.selection, 'CAR');
+  assert.equal(selectedRow.market, 'spread');
+  assert.equal(selectedRow.line, -2.5);
+  assert.equal(selectedRow.edge, 3.2, 'edge in the cache is edge_points, same column meaning as before the merge');
+  assert.equal(selectedRow.eligible, 1);
+  assert.equal(selectedRow.abstention_reason, null);
+
+  const abstainedRow = cached.find(c => c.matchup === 'DAL at PHI');
+  assert.equal(abstainedRow.eligible, 0);
+  assert.equal(abstainedRow.abstention_reason, 'below minimum edge');
+
+  // The cache is addressed by run, but its row key is (season, week, policy,
+  // matchup, market, selection) -- decisionRunEvents still shows both events
+  // recorded on the immutable tape underneath it.
+  assert.equal(decisionRunEvents(r.run_id).length, 2);
+});
+
+test('a later run for the same week overwrites the cache row — latest view, not accumulation', () => {
+  const obsA = observation({ observationId: 'latest-view-a' });
+  const obsB = observation({ observationId: 'latest-view-b' });
+  const common = { policyId: 'nfl-production-v1', policyVersion: '1.0.0' };
+
+  recordDecisionRun(2026, 11, board([decision({ line: -2.5, american_price: -110 })]),
+    { observation: obsA, ...common });
+  recordDecisionRun(2026, 11, board([decision({ line: -3, american_price: -120 })]),
+    { observation: obsB, ...common });
+
+  const rowsFor11 = db.prepare(`SELECT * FROM nfl_pick_decisions WHERE season=2026 AND week=11`).all();
+  assert.equal(rowsFor11.length, 1, 'the UPSERT key means one live row per (season,week,policy,matchup,market,selection)');
+  assert.equal(rowsFor11[0].line, -3, 'the cache reflects the LATEST recorded run, not the first one');
+
+  // Both observations still exist, unabridged, on the append-only tape.
+  assert.equal(decisionRunsFor(2026, 11).length, 2);
+});
+
+test('nfl-auto-picks.js no longer exports an independent nfl_pick_decisions writer', async () => {
+  const autoPicks = await import('../server/services/nfl-auto-picks.js');
+  assert.equal(autoPicks.persistPickDecisions, undefined,
+    'persistPickDecisions was removed — recordDecisionRun is the only writer of nfl_pick_decisions');
 });

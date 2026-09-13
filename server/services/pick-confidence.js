@@ -93,7 +93,7 @@ function fitConfidence(beforeSeason) {
   const history = [];
   for (let season = beforeSeason - 5; season < beforeSeason; season++) {
     let r;
-    try { r = replaySeason(season, { startWeek: 5, endWeek: 18 }); } catch { continue; }
+    try { r = replaySeason(season, { startWeek: 5, endWeek: 18, blendMode: 'raw' }); } catch { continue; }
     if (r?.error || !Array.isArray(r.bets)) continue;
     for (const b of r.bets) {
       if (b.result !== 'Won' && b.result !== 'Lost') continue;
@@ -220,7 +220,7 @@ export function confidenceCalibration({ seasons = null } = {}) {
     const m = confidenceModel(season);
     if (!m.fitted) continue;
     let replay;
-    try { replay = replaySeason(season, { startWeek: 5, endWeek: 18 }); } catch { continue; }
+    try { replay = replaySeason(season, { startWeek: 5, endWeek: 18, blendMode: 'raw' }); } catch { continue; }
     if (replay?.error) continue;
     const picks = (replay.bets ?? []).filter(b => b.result === 'Won' || b.result === 'Lost');
     for (const p of picks) {

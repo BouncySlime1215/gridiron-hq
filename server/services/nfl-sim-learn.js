@@ -434,10 +434,14 @@ export function expectedPointsSurface(driveFn, { trials = 600, seed = 7 } = {}) 
       let net = 0;
       for (let i = 0; i < trials; i++) {
         const d = driveFn(y);
-        // Where the opponent starts, from their own perspective.
+        // Where the opponent starts, from their own perspective. simulateDrive
+        // already returns `endYard` flipped to the new offence's own side for
+        // every non-scoring ending — a punt's net distance is already netted
+        // out, a turnover's spot is already mirrored — so this used to double-
+        // apply the punt's net-40 transform on top of an already-net-40'd
+        // endYard. No further transform needed for any of them.
         const oppStart = d.points > 0 ? 25                       // after a score, touchback
-          : d.turnover ? clamp(100 - d.endYard, 1, 99)           // takeover on the spot
-            : clamp(100 - (d.endYard + 40), 1, 99);              // punt, net ~40
+          : clamp(d.endYard, 1, 99);                              // punt, turnover or FG-miss spot
         const oppGross = gross.get(nearestGrid(oppStart, grid)) ?? 1.5;
         net += d.points - oppGross;
       }

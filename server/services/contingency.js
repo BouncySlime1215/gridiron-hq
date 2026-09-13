@@ -45,21 +45,31 @@ export function availability({ through = SEASON - 1 } = {}) {
 
   const byPlayer = new Map();
   for (const r of log) {
-    const a = byPlayer.get(r.player_id) ?? { seasons: 0, games: 0, position: r.position };
+    const a = byPlayer.get(r.player_id) ?? { seasons: 0, games: 0, position: r.position, firstSeason: r.season };
     a.seasons++; a.games += r.games;
+    a.firstSeason = Math.min(a.firstSeason, r.season);
     byPlayer.set(r.player_id, a);
   }
+  // Durability's whole point is to penalize missed time — but `a.seasons` only
+  // counts seasons with at least one logged game, so a player who missed an
+  // ENTIRE season (season-ending injury, suspension) contributes no row for
+  // it and silently disappears from that count instead of counting against
+  // him. `tenureSeasons` is every season from his first appearance through
+  // the cutoff, whether or not he has a row in it, so a fully-missed season
+  // correctly adds 17 games of zero credit to the denominator rather than
+  // shrinking the denominator itself to match his (thinner) attendance.
+  const tenureSeasons = a => through - a.firstSeason + 1;
 
   // Position base rates — running backs miss more time than anyone, and it is not close.
   const posRate = {};
   for (const pos of SKILL) {
     const list = [...byPlayer.values()].filter(a => a.position === pos);
-    posRate[pos] = list.length ? mean(list.map(a => a.games / (a.seasons * 17))) : 0.75;
+    posRate[pos] = list.length ? mean(list.map(a => a.games / (tenureSeasons(a) * 17))) : 0.75;
   }
 
   const out = new Map();
   for (const [pid, a] of byPlayer) {
-    const observed = a.games / (a.seasons * 17);
+    const observed = a.games / (tenureSeasons(a) * 17);
     const rate = shrink(observed, posRate[a.position] ?? 0.75, a.seasons, 1.2);
     // A live injury designation is worth roughly a fifth of a season of doubt.
     const penalty = flagged.has(pid) ? 0.82 : 1;
@@ -124,7 +134,12 @@ export function weeklyAvailability(season, week, { through = season - 1 } = {}) 
     if (!/out|reserve|ir|pup|suspend/.test(status)) {
       if (/did not|dnp/.test(practice)) active *= 0.72;
       else if (/limited/.test(practice)) active *= 0.92;
-      else if (/full/.test(practice)) active = Math.max(active, 0.96);
+      // A full practice is good news, but it must never override a team's own
+      // Doubtful call — that designation already means "worked out, still
+      // unlikely to play" (game-plan, precautionary rest, etc.), and Math.max
+      // here was pushing a Doubtful player (capped at 0.15 two lines above)
+      // all the way up to 0.96 whenever he also had a full practice listed.
+      else if (/full/.test(practice) && !/doubtful/.test(status)) active = Math.max(active, 0.96);
     }
     active = Math.max(0.01, Math.min(0.995, active));
     out.set(p.id, {

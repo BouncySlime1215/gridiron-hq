@@ -23,13 +23,36 @@ process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 process.env.SCHEDULER_DISABLED = '1';
 
 const { db } = await import('../server/db/index.js');
-// Only the one migration that owns the execution ledger. The full chain is not
-// needed here and would couple this suite to every other migration in flight.
-const { up: createExecutionLedger } = await import('../server/migrations/012_teaser_execution_ledger.js');
-createExecutionLedger(db);
+// The full migration chain, not just the one migration that owns the
+// execution ledger: POST /tickets and /tickets/:id/settle now require
+// model:execute (a6-money-path), and requireModelPermission reads the
+// users/auth_sessions/model_permissions tables, which in turn depend on
+// several earlier migrations (005-007) — cherry-picking single migration
+// files got fragile once this router had a real auth dependency, so this
+// takes the same real, ordered chain every other test file in this suite
+// bootstraps from.
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations();
+
+const { hashSessionToken } = await import('../server/platform/auth.js');
+db.prepare(`INSERT INTO users (id, subject, display_name) VALUES (1, 'wong-routes-test-user', 'Test Owner')`).run();
+db.prepare(`INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+  VALUES (1, ?, datetime('now', '+1 day'))`).run(hashSessionToken('wong-routes-test-token'));
+db.prepare(`INSERT INTO model_permissions (user_id, permission) VALUES (1, 'model:execute')`).run();
+const AUTH_HEADER = { authorization: 'Bearer wong-routes-test-token' };
+
+// settleTeaserExecution() (a6-money-path) resolves the real final score from
+// game_lines via teamResolver(), rather than trusting a caller-supplied
+// score — teamResolver() reads nfl_teams, which this fixture's tickets need.
+db.exec(`INSERT INTO nfl_teams (id, abbr, name, conference, division) VALUES
+  (1, 'JAX', 'Jacksonville Jaguars', 'AFC', 'South'),
+  (2, 'CLE', 'Cleveland Browns', 'AFC', 'North'),
+  (3, 'NYJ', 'New York Jets', 'AFC', 'East'),
+  (4, 'TEN', 'Tennessee Titans', 'AFC', 'South')`);
 
 const wong = await import('../server/routes/wong.js');
 const { default: wongRouter, captureRunners, seasonModuleSource, SEASON_MODULE_PATH } = wong;
+const { easternGameDate } = await import('../server/services/nfl-contract-key.js');
 
 const app = express();
 app.use(express.json());
@@ -41,8 +64,11 @@ const server = app.listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
 
 const get = url => fetch(base + url);
+// The bearer token is harmless noise on the routes that don't require it
+// (POST /refresh, PUT /settings) and required by the two that now do
+// (POST /tickets, POST /tickets/:id/settle) — see AUTH_HEADER above.
 const post = (url, body) => fetch(base + url,
-  { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+  { method: 'POST', headers: { 'content-type': 'application/json', ...AUTH_HEADER }, body: JSON.stringify(body ?? {}) });
 const put = (url, body) => fetch(base + url,
   { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
 
@@ -336,6 +362,16 @@ const ticket = (overrides = {}) => ({
   legs: goodLegs, ...overrides,
 });
 
+test('POST /tickets and POST /tickets/:id/settle require model:execute — an unauthenticated caller is refused', async () => {
+  seedBoard();
+  const noAuth = (url, body) => fetch(base + url,
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+  assert.equal((await noAuth('/api/betting/wong/tickets', ticket())).status, 401);
+  assert.equal((await noAuth('/api/betting/wong/tickets/1/settle', {})).status, 401);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM nfl_teaser_executions').get().n, 0,
+    'nothing reached the ledger without authorization');
+});
+
 test('POST /tickets refuses everything that is not this bet', async () => {
   seedBoard();
 
@@ -433,28 +469,44 @@ test('GET /tickets is the ledger, and season filters on the legs kicking off', a
   assert.equal((await get('/api/betting/wong/tickets?season=nope')).status, 400);
 });
 
-test('POST /tickets/:id/settle grades against the teased number', async () => {
+test('POST /tickets/:id/settle grades against the real final score, never a caller-supplied one', async () => {
   const ledger = await (await get('/api/betting/wong/tickets')).json();
   const open = ledger.executions.find(execution => execution.status === 'open');
   assert.ok(open, 'the ticket logged above is still open');
 
-  const res = await post(`/api/betting/wong/tickets/${open.id}/settle`, {
+  // A malicious or buggy caller claiming a score must not settle the ticket:
+  // no game_lines final is recorded yet for either leg.
+  const forged = await post(`/api/betting/wong/tickets/${open.id}/settle`, {
     scores: [
-      // JAX teased to -1: a 3-point win covers.
-      { event_id: JAX, team_score: 24, opponent_score: 21 },
-      // Jets teased to +7.5: losing by 3 covers.
-      { event_id: NYJ, team_score: 17, opponent_score: 20 },
+      { event_id: JAX, team_score: 99, opponent_score: 0 },
+      { event_id: NYJ, team_score: 99, opponent_score: 0 },
     ],
   });
+  assert.equal(forged.status, 400);
+  assert.match((await forged.json()).error, /final score not yet available/);
+
+  // The real final score, recorded in game_lines the way any other settlement
+  // in this codebase is: JAX teased to -1, wins by 3, covers; the Jets teased
+  // to +7.5, lose by 3, still cover.
+  db.prepare(`INSERT INTO game_lines (season,week,team,opponent,home,gameday,gametime,team_score,opp_score)
+    VALUES (2099,1,?,?,?,?,?,?,?)`).run('JAX', 'CLE', 1, easternGameDate(KICK), '13:00', 24, 21);
+  db.prepare(`INSERT INTO game_lines (season,week,team,opponent,home,gameday,gametime,team_score,opp_score)
+    VALUES (2099,1,?,?,?,?,?,?,?)`).run('CLE', 'JAX', 0, easternGameDate(KICK), '13:00', 21, 24);
+  db.prepare(`INSERT INTO game_lines (season,week,team,opponent,home,gameday,gametime,team_score,opp_score)
+    VALUES (2099,1,?,?,?,?,?,?,?)`).run('TEN', 'NYJ', 1, easternGameDate(LATER), '13:00', 20, 17);
+  db.prepare(`INSERT INTO game_lines (season,week,team,opponent,home,gameday,gametime,team_score,opp_score)
+    VALUES (2099,1,?,?,?,?,?,?,?)`).run('NYJ', 'TEN', 0, easternGameDate(LATER), '13:00', 17, 20);
+
+  const res = await post(`/api/betting/wong/tickets/${open.id}/settle`, {});
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.settled, true);
   assert.equal(body.status, 'won');
   assert.ok(body.profit_units > 0);
 
-  const missing = await post(`/api/betting/wong/tickets/${open.id}/settle`, { scores: [] });
-  assert.equal(missing.status, 400);
-  assert.match((await missing.json()).error, /already|required for each leg/);
+  const again = await post(`/api/betting/wong/tickets/${open.id}/settle`, {});
+  assert.equal(again.status, 400);
+  assert.match((await again.json()).error, /already/);
 });
 
 /* ------------------------------------------------------ the delegated four */

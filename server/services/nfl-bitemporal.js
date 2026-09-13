@@ -152,3 +152,96 @@ export function revisionCoverage() {
     caveat: 'A feature with one revision per entity has never been observed changing here. '
       + 'That is usually a sign it was loaded once from an archive, not that the world held still.' };
 }
+
+/**
+ * 2026-09-12 sweep, item 15: does this store actually protect the walk-forward
+ * from reading a week-keyed roster table's CURRENT value where it needed the
+ * value as it was knowable at some earlier decision time?
+ *
+ * CHECKED, not assumed, against real server/data.sqlite (2026-09-13):
+ *
+ *   - `nfl_feature_revisions` holds 0 rows in production. `recordRevision` was
+ *     wired into the injury sync (59c1e35, "bitemporal injury wiring", earlier
+ *     today) but that sync has not run again since, so there is no revision
+ *     history yet for anything, including injuries.
+ *   - `valueAsKnown` (the only reader this store has) has ZERO call sites
+ *     anywhere in this codebase. Even once revisions accumulate, nothing --
+ *     including `availabilityDeficit()`, which `nfl-ensemble.js` actually
+ *     reads for its Roster availability component -- consults them. The
+ *     walk-forward reads the plain, in-place-mutated `nfl_injuries` table
+ *     directly.
+ *   - `nfl_injuries` (`modified_at`) and `nfl_depth` (`captured`) are the only
+ *     two of the four named tables that carry ANY per-row timestamp at all.
+ *     `nfl_snaps` and `player_week_usage` have no such column in the schema,
+ *     so their mutation history can never be reconstructed, only assumed.
+ *   - Real spread of those timestamps: 2021-2024 `nfl_injuries` rows show
+ *     thousands of distinct `modified_at` values across a season (2022 week 5
+ *     alone: 347 rows, 248 distinct stamps) -- real in-season revision
+ *     activity, consistent with the Wed/Thu/Fri practice-report cadence. But
+ *     2025 and EVERY 2026 row has `modified_at IS NULL` -- exactly the two
+ *     seasons a live evaluation most needs, and exactly where this function
+ *     can say the least about what the current value actually represents.
+ *
+ * This is therefore the plan's "coverage does not extend to these tables"
+ * branch: read-as-of-time wiring is not attempted here (there is no revision
+ * data yet for anything to read, and building that pipeline is a real project
+ * of its own). What this function gives stage 2 instead is a per-season,
+ * per-table, code-checkable verdict so a walk-forward can decide what to
+ * trust rather than silently trusting all of it:
+ *
+ *   'no_data'                 nothing stored for this season.
+ *   'no_timestamp_evidence'   every row's timestamp is NULL -- 2025 and 2026
+ *                             today -- cannot rule out a post-hoc mutation.
+ *   'single_capture_low_risk' exactly one distinct timestamp all season --
+ *                             consistent with one historical bulk load, so
+ *                             there is no in-season revision trail to leak
+ *                             from in the first place.
+ *   'revision_evidence_present' a real, spread-out capture cadence -- the
+ *                             stored value is very likely each week's own
+ *                             final pre-kickoff report, which is legitimate
+ *                             information for grading THAT week, but this is
+ *                             still not a code-level guarantee.
+ *
+ * `nfl_snaps` and `player_week_usage` always report 'no_timestamp_column':
+ * they describe completed-play outcomes for weeks already final, which are
+ * structurally far less likely to be revised with hindsight than a pregame
+ * report -- but the schema cannot prove that either way.
+ *
+ * STATED ASSUMPTION for stage 2, following from the above: exclude 2025 and
+ * 2026 from any walk-forward comparison that leans on the Roster availability
+ * family (`availability`, `roster_strength`) or treat those two seasons'
+ * results on that family as unverified, until either real revision data
+ * exists to check against or the tables gain a capture timestamp of their
+ * own. 2015-2024 are not proven safe by any code path, but carry the better
+ * evidence available today.
+ */
+export function weekKeyedTableMutationRisk() {
+  const verdictFor = s => {
+    if (!s || !s.rows) return 'no_data';
+    if (s.distinct_stamps === 0) return 'no_timestamp_evidence';
+    if (s.distinct_stamps === 1) return 'single_capture_low_risk';
+    return 'revision_evidence_present';
+  };
+  const injuries = rows(`SELECT season, COUNT(*) rows, COUNT(DISTINCT modified_at) distinct_stamps
+    FROM nfl_injuries GROUP BY season ORDER BY season`).map(s => ({ ...s, verdict: verdictFor(s) }));
+  const depth = rows(`SELECT season, COUNT(*) rows, COUNT(DISTINCT captured) distinct_stamps
+    FROM nfl_depth GROUP BY season ORDER BY season`).map(s => ({ ...s, verdict: verdictFor(s) }));
+  const revisionRows = rows(`SELECT COUNT(*) n FROM nfl_feature_revisions`)[0]?.n ?? 0;
+  return {
+    revision_store_rows: revisionRows,
+    revision_store_reader_wired: false,
+    tables: {
+      nfl_injuries: injuries,
+      nfl_depth: depth,
+      nfl_snaps: { verdict: 'no_timestamp_column' },
+      player_week_usage: { verdict: 'no_timestamp_column' }
+    },
+    unproven_seasons: [...new Set([...injuries, ...depth]
+      .filter(s => s.verdict === 'no_timestamp_evidence' || s.verdict === 'no_data')
+      .map(s => s.season))].sort((a, b) => a - b),
+    guidance: 'A season in unproven_seasons (or either table always, for nfl_snaps/player_week_usage) ' +
+      'has no evidence ruling out a "week < target" read returning a value mutated with hindsight. ' +
+      'Exclude those seasons from a walk-forward comparison on the Roster availability family, or bound ' +
+      'the claim explicitly, until the revision store above actually has readers.'
+  };
+}

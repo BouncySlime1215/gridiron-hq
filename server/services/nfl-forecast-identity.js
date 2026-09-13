@@ -27,9 +27,29 @@ import { createHash } from 'node:crypto';
 //          of seven, and games in one week share a week of common information,
 //          so the score block was not out of fold.
 //
-// A weight, slope or calibration fitted under v9 describes a different
+// v11 (2026-09-12, model integration branch): the residual-skill GATE changed
+// instrument. It read an ad hoc paired t over per-game squared errors and a
+// fixed -1.645 cutoff; it now reads a Diebold-Mariano statistic with the
+// Harvey-Leybourne-Newbold small-sample correction, clustered by week, against
+// a one-sided 5% p-value on t with (weeks - 1) df. That decides which
+// components earn residual weight, so the same input data now produces a
+// different set of weights -- which is precisely the condition this constant
+// exists to detect.
+//
+// Two further changes on the same merge alter what a component emits for the
+// same game: weather_total now applies each offense's own shrunk dome/cold/wind
+// response instead of one flat league constant, and predictiveDistribution
+// returns a Mondrian split-conformal interval instead of a pooled-SD normal
+// widened by an unmeasured disagreement multiplier.
+//
+// Without this bump a fit artifact persisted under v10 would be loaded and
+// served as though it described the current estimator: old weights, chosen by
+// the superseded gate, in front of components that no longer produce the same
+// numbers. Bumping is the whole mechanism that prevents that.
+//
+// A weight, slope or calibration fitted under v9 or v10 describes a different
 // estimator and may not be reused as though it reflected this one.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v10-aligned-opponent-window-week-split';
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v11-dm-gate-conformal-interval-weather-response';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

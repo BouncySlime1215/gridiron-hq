@@ -16,9 +16,10 @@ const { default: leaguesRouter } = await import('../server/routes/leagues.js');
 const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
 const express = (await import('express')).default;
 
-run(`INSERT INTO leagues (platform, league_id, season, name)
-     VALUES ('espn','12345',2026,'Local Test League')`);
+run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid)
+     VALUES ('espn','12345',2026,'Local Test League','secret-espn-s2-cookie','{secret-swid}')`);
 const leagueId = row('SELECT last_insert_rowid() AS id').id;
+let sessionToken;
 
 const app = express();
 app.use(express.json());
@@ -46,6 +47,7 @@ test('a local browser provisions one owner with league and model access', async 
   const body = await provision.json();
   assert.ok(body.token?.length > 30);
   assert.equal(body.leagues, 1);
+  sessionToken = body.token;
 
   const user = row(`SELECT id FROM users WHERE subject='gridiron-local-owner'`);
   assert.ok(user);
@@ -61,4 +63,15 @@ test('a local browser provisions one owner with league and model access', async 
 
 test('protected routes still reject anonymous callers', async () => {
   assert.equal((await fetch(`${base}/leagues`)).status, 401);
+});
+
+test('GET /leagues/:id/data never echoes the ESPN session cookies', async () => {
+  assert.ok(sessionToken, 'earlier provisioning test must have run first');
+  const response = await fetch(`${base}/leagues/${leagueId}/data`, {
+    headers: { Authorization: `Bearer ${sessionToken}` }
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal('espn_s2' in body, false, 'espn_s2 must not appear in the response body');
+  assert.equal('swid' in body, false, 'swid must not appear in the response body');
 });

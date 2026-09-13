@@ -96,7 +96,10 @@ function assertSeasonRoleAvailable(findingId, season, role) {
  * would actually run at in production (once per completed season).
  */
 function singleSeasonFindings(season, config = {}) {
-  const replay = replaySeason(season, config);
+  // `config` is forwarded from the season-end orchestrator's own caller and
+  // predates replaySeason's blendMode requirement; default it here so that
+  // caller preserves its current ('raw') behavior unless it says otherwise.
+  const replay = replaySeason(season, { blendMode: 'raw', ...config });
   if (replay.error) return { error: replay.error, season };
   const analysis = analyzeErrors(replay.bets, { minBets: config.minBets ?? 25 });
   return { season, weakest: analysis.weakest, strongest: analysis.strongest, bets: replay.bets.length };
@@ -280,7 +283,21 @@ export function runCandidateFindingsForSeasonEnd(season, config = {}) {
   for (const finding of eligibleForHoldout) {
     const alreadyUsed = row(`SELECT 1 ok FROM nfl_candidate_finding_seasons WHERE finding_id=? AND season=?`, finding.id, season);
     if (alreadyUsed) continue;
-    holdoutActions.push(recordHoldoutTest(finding, season, config));
+    // Isolated per finding: assertRuleUnchanged (called from inside
+    // recordHoldoutTest, before that function's own try/catch) throws the
+    // instant one finding's frozen predicate no longer matches the live
+    // segmentsFor implementation. That must disqualify only THIS finding's
+    // holdout test for this season, not abort every other eligible
+    // finding's test in the same season-end cycle (and, one call up, not
+    // mark the whole nfl-model-growth.js season-end run 'error' either --
+    // this is the only place that call could still throw). A stale rule is
+    // recorded as a fact for this finding/season and the cycle continues.
+    try {
+      holdoutActions.push(recordHoldoutTest(finding, season, config));
+    } catch (e) {
+      holdoutActions.push({ finding_id: finding.id, segment_key: finding.segment_key,
+        season, state: 'stale', error: e.message });
+    }
   }
 
   return { season, bets_analyzed: single.bets, segments_flagged_this_season: discoveryActions.length,

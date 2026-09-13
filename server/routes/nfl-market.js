@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { cached, fingerprint } from '../services/compute-cache.js';
 import { boardFor, accuracy, predictGame, clearNflMarketCache } from '../services/nfl-market.js';
 import { syncCurrentLines } from '../services/gamescript.js';
-import { autoPickDecisionBoard, persistPickDecisions, ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
+import { autoPickDecisionBoard, ensurePicksFor, pickResultsFor, allPickResults, standing } from '../services/nfl-auto-picks.js';
+import { recordDecisionRun } from '../services/nfl-decision-tape.js';
 import { addUserBet, removeUserBet, userBetsFor, allUserBets, userBetsStanding } from '../services/nfl-user-bets.js';
 import { NFL_PRODUCTION_POLICY } from '../services/nfl-policy.js';
 import { closingLineValue } from '../services/line-shopping.js';
@@ -386,9 +387,17 @@ r.post('/execution/:id/accept', requireModelPermission('model:execute'), (req, r
  * Closing-line value over the ACCEPTED-ticket ledger (Codex audit finding
  * E9). A read-only projection, so calling it repeatedly is idempotent by
  * construction and a late-arriving close simply becomes gradeable.
+ *
+ * `?includeAbstained=1` (u5-clv-endpoints, Step 0 item 5) additionally grades
+ * every passed/abstained opportunity, so the denominator can be every
+ * decision the model made on a slate rather than only the ones it bet.
+ * Defaults to false -- unchanged accepted-only behavior for any existing caller.
  */
-r.get('/execution/clv', requireModelPermission('model:execute'), (_req, res, next) => {
-  try { res.json(executionClvReport()); } catch (e) { next(e); }
+r.get('/execution/clv', requireModelPermission('model:execute'), (req, res, next) => {
+  try {
+    const includeAbstained = ['1', 'true'].includes(String(req.query.includeAbstained ?? '').toLowerCase());
+    res.json(executionClvReport({ includeAbstained }));
+  } catch (e) { next(e); }
 });
 
 /** Settle every accepted position whose game now has a real final score. Safe to call repeatedly — already-settled positions are simply skipped. */
@@ -417,6 +426,13 @@ r.post('/prospective-collection/run', requireModelPermission('model:train'), (re
  * this week's 5 most confident spread edges as new straight bets. Simulation
  * trial count is generous (default 20k per bet) since "how many scenarios were
  * actually run" is the honesty check on this button, not a number to shortcut.
+ *
+ * Stage 2 engine unification: this human-triggered button used to call
+ * `persistPickDecisions` directly -- an independent write to
+ * `nfl_pick_decisions` with NO decision-tape record at all, the exact gap
+ * the tape (nfl-decision-tape.js) exists to close. It now calls
+ * `recordDecisionRun`, same as the scheduled ledger job and the T-60 runner,
+ * and the cache follows from that write instead of being written separately.
  */
 r.post('/sync-and-pick', requireModelPermission('model:execute'), async (req, res, next) => {
   try {
@@ -432,7 +448,21 @@ r.post('/sync-and-pick', requireModelPermission('model:execute'), async (req, re
     const lastWeekResults = lastWeek >= 1 ? pickResultsFor(season, lastWeek) : [];
 
     const decisionBoard = autoPickDecisionBoard(season, week);
-    const decisionAudit = persistPickDecisions(season, week, decisionBoard);
+    const decidedAt = new Date().toISOString();
+    let decisionAudit = null;
+    try {
+      decisionAudit = recordDecisionRun(season, week, decisionBoard, {
+        observation: {
+          experimentId: 'nfl-sync-and-pick-manual', horizon: 'manual_weekly_workflow',
+          cutoffAt: decidedAt, jobId: 'route:nfl-market/sync-and-pick',
+          observationId: `sync-and-pick:${season}:${week}:${decisionBoard.policy.id}:${decisionBoard.policy.version}:${decidedAt}`
+        },
+        computationStatus: decisionBoard.decisions?.length ? 'complete' : 'unavailable',
+        dataIdentityStatus: 'unfrozen_live_tables',
+        decidedAt, computationEndedAt: decidedAt,
+        note: 'nfl-market.js /sync-and-pick manual run'
+      });
+    } catch (e) { decisionAudit = { error: e.message }; }
     const candidates = decisionBoard.selected;
     const newPicks = ensurePicksFor(season, week, candidates, NFL_PRODUCTION_POLICY.maxPicksPerWeek);
 

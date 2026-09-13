@@ -110,7 +110,7 @@ for (const r of rows) {
 
   const featureRow = {};
   for (const [k, v] of Object.entries(r)) {
-    if (TOP_LEVEL.includes(k)) continue;
+    if (TOP_LEVEL.includes(k) || OUTCOME_COLUMNS.has(k)) continue;
     featureRow[k] = v === '' ? null : (isFinite(Number(v)) && v.trim() !== '' ? Number(v) : v);
   }
 

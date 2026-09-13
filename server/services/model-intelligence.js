@@ -13,10 +13,34 @@ import { nflMarketMovement, mlbMarketMovement } from './market-movement.js';
 
 const r3 = n => n == null || !Number.isFinite(n) ? null : +n.toFixed(3);
 const mean = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
-const quantile = (values, p) => {
+/**
+ * The split-conformal half-width: the ceil((n+1)p)-th smallest calibration
+ * score, NOT the plain empirical p-quantile.
+ *
+ * This function used to be a linear-interpolated empirical quantile. That is
+ * the anti-conservative variant: it drops the (n+1) finite-sample term, so the
+ * interval it returns carries no coverage guarantee at all, while the method
+ * string below still called the result "conformal". The two differ by up to
+ * ~4% of the half-width at n ~ 100 and the gap is widest at the 95% level,
+ * exactly where an under-wide interval is most misleading.
+ *
+ * Found by research/conformal/mapie_crosscheck.py, an independent second
+ * opinion from MAPIE (a reviewed conformal-prediction library) run on the same
+ * rows. MAPIE's half-width reproduces this order statistic exactly on every
+ * fold and level measured, which is what lets the gap be attributed to this
+ * formula rather than left as an unexplained library difference.
+ *
+ * Honest caveat, because this is a guarantee and not a tuning knob: the
+ * correction guarantees coverage >= 1 - alpha in expectation. It does NOT
+ * make measured coverage land closer to nominal on any particular sample, and
+ * on the fixture panel it did not — see the cross-check report. It is here
+ * because the code claims to be conformal, not because it scored better.
+ */
+export const conformalHalfWidth = (values, p) => {
   if (!values.length) return null;
-  const a = [...values].sort((x, y) => x - y); const i = (a.length - 1) * p;
-  const lo = Math.floor(i), hi = Math.ceil(i); return a[lo] + (a[hi] - a[lo]) * (i - lo);
+  const a = [...values].sort((x, y) => x - y);
+  const k = Math.min(Math.ceil((a.length + 1) * p), a.length);
+  return a[k - 1];
 };
 
 const HYPOTHESES = [
@@ -38,10 +62,10 @@ function uncertainty() {
   for (const season of nested.evaluation_seasons) {
     const train = rowsOut.filter(x => x.g.season < season);
     const test = rowsOut.filter(x => x.g.season === season);
-    const marginQ80 = quantile(train.map(x => Math.abs(x.actualMargin - x.predMargin)), .8);
-    const marginQ95 = quantile(train.map(x => Math.abs(x.actualMargin - x.predMargin)), .95);
-    const totalQ80 = quantile(train.map(x => Math.abs(x.actualTotal - x.predTotal)), .8);
-    const totalQ95 = quantile(train.map(x => Math.abs(x.actualTotal - x.predTotal)), .95);
+    const marginQ80 = conformalHalfWidth(train.map(x => Math.abs(x.actualMargin - x.predMargin)), .8);
+    const marginQ95 = conformalHalfWidth(train.map(x => Math.abs(x.actualMargin - x.predMargin)), .95);
+    const totalQ80 = conformalHalfWidth(train.map(x => Math.abs(x.actualTotal - x.predTotal)), .8);
+    const totalQ95 = conformalHalfWidth(train.map(x => Math.abs(x.actualTotal - x.predTotal)), .95);
     if (!test.length || marginQ80 == null) continue;
     folds.push({ season, n: test.length,
       margin_80_coverage: r3(mean(test.map(x => Number(Math.abs(x.actualMargin - x.predMargin) <= marginQ80)))),
@@ -52,7 +76,7 @@ function uncertainty() {
       total_interval_80: r3(totalQ80), total_interval_95: r3(totalQ95) });
   }
   return {
-    method: 'chronological conformal residual intervals; every interval uses only prior outer-fold seasons',
+    method: 'chronological split-conformal residual intervals (ceil((n+1)(1-alpha)) order statistic, cross-checked against MAPIE); every interval uses only prior outer-fold seasons',
     folds,
     aggregate: { n: folds.reduce((s, x) => s + x.n, 0),
       margin_80_coverage: r3(mean(folds.map(x => x.margin_80_coverage))), margin_95_coverage: r3(mean(folds.map(x => x.margin_95_coverage))),

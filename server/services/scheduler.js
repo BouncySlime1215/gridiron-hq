@@ -272,7 +272,7 @@ async function refreshNflLineSnapshots() {
   }
   const snap = await snapshotLines({ markets: 'spreads,totals' });
   if (snap?.error) return snap;
-  const { gradeClosingLineValue } = await import('./nfl-clv.js');
+  const { gradeClosingLineValue } = await import('./clv-core.js');
   // Grade as soon as a fresh capture exists: a bet becomes gradeable the moment
   // its game kicks off, and the last capture before that is its close.
   const result = { ...snap, clv: gradeClosingLineValue() };
@@ -596,6 +596,30 @@ async function refreshNflRookiePublic() {
     throughSeason: Number(process.env.NFL_SEASON) || new Date().getFullYear() });
 }
 
+/**
+ * CFBD college usage-share + PPA signal for the incoming rookie class only.
+ * syncCfbdSeason had zero callers — cfbd_player_season was always empty, so
+ * draft-assist.js's college_signal (wired on the read side already) silently
+ * returned null for every rookie forever.
+ *
+ * Scoped to one season deliberately, not a historical backfill: draft-assist
+ * only ever looks up a player with experience === 0 at `draft_year - 1` (see
+ * cfbd.js), and a rookie's draft_year is the current NFL season — so the only
+ * college season that can ever be read right now is last season's. Widen this
+ * only if something starts needing CFBD signal for OLDER draft classes too;
+ * syncCfbdSeason fetches every FBS player for one season per call, so a
+ * multi-decade sync on a recurring timer would be needless load for a feature
+ * that only ever reads the newest class. Graceful no-op, same convention as
+ * every other optional-key feed here, when CFBD_API_KEY is not configured.
+ */
+async function refreshCfbdRookieSeason() {
+  const { syncCfbdSeason, hasKey } = await import('./cfbd.js');
+  if (!hasKey()) return { skipped: true, reason: 'CFBD_API_KEY not configured' };
+  const season = (Number(process.env.NFL_SEASON) || new Date().getFullYear()) - 1;
+  const result = await syncCfbdSeason(season);
+  return result ?? { skipped: true, reason: 'no data returned' };
+}
+
 /** Capture the live prop market, and settle anything the week has now decided. */
 async function refreshPropCapture() {
   const { capturePropMarket, settlePropQuotes, finalizeClosingSnapshots, propClvStatus,
@@ -611,6 +635,12 @@ async function refreshPropCapture() {
                     WHERE settled=0 AND season IS NOT NULL AND week IS NOT NULL
                       AND commence_time <= ?`, new Date().toISOString());
   const settlement = due.map(x => ({ ...x, ...settlePropQuotes(x) }));
+  // Deliberately routine (force defaults to false): only re-touches rows still
+  // NULL/'legacy_unclassified' so every tick stays cheap. To re-run today's
+  // matcher against rows a since-fixed matcher bug stamped with some other
+  // terminal status, run scripts/backfill-prop-quote-reconcile.mjs once —
+  // do not flip this to force:true, that would force-rescan the whole table
+  // every tick.
   return { captured, closing, settlement, reconciliation: reconcilePropQuoteMatches(), archive: propClvStatus() };
 }
 
@@ -627,6 +657,9 @@ async function refreshFreePropClv() {
                     WHERE settled=0 AND season IS NOT NULL AND week IS NOT NULL
                       AND commence_time <= ?`, new Date().toISOString());
   const settlement = due.map(x => ({ ...x, ...settlePropQuotes(x) }));
+  // See the comment on the same call in refreshPropCapture above: routine,
+  // non-forced, by design. Use scripts/backfill-prop-quote-reconcile.mjs for
+  // a one-time force:true re-pass after a matcher fix.
   return { captured, settlement, reconciliation: reconcilePropQuoteMatches(), archive: propClvStatus() };
 }
 
@@ -691,21 +724,53 @@ async function refreshNflOffseasonDepthInjury() {
  * This job derives the live week from the schedule, records every decision
  * (including every abstention) under the production policy, freezes pregame
  * context, and captures the council. It stakes nothing and locks no picks.
+ *
+ * Stage 2 engine unification: this job used to call BOTH `persistPickDecisions`
+ * (an independent UPSERT straight from `board`) AND `recordDecisionRun` --
+ * two writes derived from the same board rather than one derived from the
+ * other. `persistPickDecisions` is gone; `recordDecisionRun` is now the only
+ * write this job makes, and it regenerates `nfl_pick_decisions` itself from
+ * the tape rows it just wrote (see nfl-decision-tape.js's "ONE WRITER" note).
+ * `dataIdentityStatus` stays 'unfrozen_live_tables': this job runs on a
+ * staleness timer against the current week, not against one game's T-60
+ * cutoff, so it has no frozen packet to cite (that path is t60-runner.js's).
+ * The observation identity is stamped with this tick's own wall-clock time so
+ * a later tick whose board genuinely changed (a line moved) is recorded as a
+ * new observation rather than colliding with an old one under a shared key --
+ * recordDecisionRun throws on exactly that collision, by design.
  */
 async function refreshNflDecisionLedger() {
   const { currentNflWeek } = await import('./weekly-learning.js');
-  const { autoPickDecisionBoard, persistPickDecisions } = await import('./nfl-auto-picks.js');
+  const { autoPickDecisionBoard } = await import('./nfl-auto-picks.js');
+  const { recordDecisionRun } = await import('./nfl-decision-tape.js');
+  const { NFL_PRODUCTION_POLICY } = await import('./nfl-policy.js');
   const { capturePregameSnapshots } = await import('./nfl-pregame.js');
   const { captureForwardExpertWeek } = await import('./nfl-expert-council.js');
   const { season, week } = currentNflWeek();
   if (!Number.isInteger(week) || week < 1 || week > 18) return { skipped: true, reason: 'no regular-season week is upcoming' };
   const board = autoPickDecisionBoard(season, week);
-  const decisions = persistPickDecisions(season, week, board);
+  const decidedAt = new Date().toISOString();
+  let tape = null;
+  try {
+    tape = recordDecisionRun(season, week, board, {
+      observation: {
+        experimentId: 'nfl-decision-ledger-scheduled-v1', horizon: 'scheduled_forward_ledger',
+        cutoffAt: decidedAt, jobId: 'scheduler:refreshNflDecisionLedger',
+        observationId: `ledger:${season}:${week}:${NFL_PRODUCTION_POLICY.id}:${NFL_PRODUCTION_POLICY.version}:${decidedAt}`
+      },
+      policyId: NFL_PRODUCTION_POLICY.id, policyVersion: NFL_PRODUCTION_POLICY.version,
+      computationStatus: board.decisions?.length ? 'complete' : 'unavailable',
+      dataIdentityStatus: 'unfrozen_live_tables',
+      decidedAt, computationEndedAt: decidedAt,
+      note: 'scheduler.js refreshNflDecisionLedger'
+    });
+  } catch (e) { tape = { error: e.message }; }
   let pregame = null, council = null;
   try { pregame = capturePregameSnapshots(season, week); } catch (e) { pregame = { error: e.message }; }
   try { council = captureForwardExpertWeek(season, week, { horizon: 'scheduled' }); } catch (e) { council = { error: e.message }; }
   return { season, week, decisions: board.decisions?.length ?? null, selected: board.selected?.length ?? 0,
-    abstention_reasons: board.abstention_reasons ?? null, persisted: decisions, pregame, expert_council: council,
+    abstention_reasons: board.abstention_reasons ?? null, decision_run: tape,
+    pregame, expert_council: council,
     staking: 'zero units; this ledger records decisions, it does not place or size bets' };
 }
 
@@ -925,6 +990,8 @@ export const JOBS = {
     label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' },
   nfl_rookie_public: { run: refreshNflRookiePublic, maxAgeMinutes: 7 * 24 * 60, tier: 'heavy',
     label: 'NFL draft and combine rookie evidence (nflverse, key-free)' },
+  cfbd_rookie_usage: { run: refreshCfbdRookieSeason, maxAgeMinutes: 7 * 24 * 60, tier: 'heavy',
+    label: "Incoming rookie class's final college season usage share + PPA (CFBD, key-gated)" },
   team_analyses: { run: refreshTeamAnalyses, maxAgeMinutes: 4 * 60, tier: 'heavy',
     label: "X's & O's writeups — self-limited to teams with news newer than their analysis" },
   nfl_coaches: { run: refreshCoaches, maxAgeMinutes: 24 * 60, tier: 'growth',

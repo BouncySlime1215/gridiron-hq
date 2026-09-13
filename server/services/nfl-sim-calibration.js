@@ -84,8 +84,15 @@ export function simulationCalibrationFor(season, week, { persist = false } = {})
     red_zone: multiplier(observed.rates.red_zone_score, RATE_SPEC.off_red_zone_td_rate),
     shotgun: multiplier(observed.rates.shotgun, RATE_SPEC.off_shotgun_rate),
     no_huddle: multiplier(observed.rates.no_huddle, RATE_SPEC.off_no_huddle_rate),
+    // Every other multiplier here divides the observed rate by the context's
+    // own measured baseline (RATE_SPEC). This one divided by a bare 27
+    // instead — a guess uncoupled from the spec it is supposed to be
+    // calibrating against. RATE_SPEC's own baseline seconds-per-play is
+    // off_seconds_per_drive / off_plays_per_drive (~30), consistent with how
+    // every other rate here is expressed.
     clock: observed.shape.seconds_per_play == null ? 1
-      : clamp(observed.shape.seconds_per_play / 27, 0.85, 1.15)
+      : clamp(observed.shape.seconds_per_play
+          / (RATE_SPEC.off_seconds_per_drive / RATE_SPEC.off_plays_per_drive), 0.85, 1.15)
   };
   const evidenceHash = sha({ season, week, observed });
   const result = { available: true, version: SIM_CALIBRATION_VERSION, season, week,

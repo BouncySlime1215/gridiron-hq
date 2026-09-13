@@ -14,7 +14,7 @@ const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine,
   withEphemeralEnsembleArtifacts } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
 const { deriveSignalReliability } = await import('../server/services/nfl-signal-reliability.js');
-const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-neural-replay.js');
+const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-replay.js');
 const { calibratedCoverProbability } = await import('../server/services/nfl-cover-calibration.js');
 const { nflCoordinationAudit } = await import('../server/services/nfl-coordination-audit.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
@@ -231,6 +231,66 @@ test('news latency team matching does not collide on a two-letter abbreviation s
     away_team: 'Denver Broncos', book: 'book-a', market: 'spreads', side: 'New England Patriots',
     captured_at: '2026-09-01T12:04:00Z', line: -3, price: -110 }];
   assert.equal(newsLatencyTest.quoteReaction(claim, real, 'newenglandpatriots').length, 1);
+});
+
+test('news latency market-model baseline absorbs a leaguewide vig shift but still catches an idiosyncratic move', () => {
+  // Three peer games (never the claim's own team) that move together at every
+  // capture, standing in for "the rest of the slate" an event study compares
+  // one security against.
+  const PEERS = [
+    { home: 'Miami Dolphins', away: 'New York Jets', base: -6.0 },
+    { home: 'Seattle Seahawks', away: 'Arizona Cardinals', base: 2.5 },
+    { home: 'Detroit Lions', away: 'Chicago Bears', base: 1.0 }
+  ];
+  const COMMENCE = '2026-09-21T18:00:00Z';
+  const BOOK = 'book-a', MARKET = 'spreads';
+  // A quiet pre-claim estimation window: five steps of small jitter around a
+  // flat baseline, while every peer sits perfectly still -- this is what
+  // "ordinary, non-event weeks" looks like for this quote series.
+  const ESTIMATION_TIMES = ['2026-09-10T00:00:00Z', '2026-09-11T00:00:00Z', '2026-09-12T00:00:00Z',
+    '2026-09-13T00:00:00Z', '2026-09-14T00:00:00Z', '2026-09-15T00:00:00Z'];
+  const JITTER = [-3.0, -3.1, -3.0, -3.1, -3.0, -3.0]; // deltas: -.1,+.1,-.1,+.1,0 -> sigma = 0.1
+
+  const rows = [];
+  const addGame = (eventId, home, away, jitterLines, extra = []) => {
+    ESTIMATION_TIMES.forEach((t, i) => rows.push({ event_id: eventId, commence_time: COMMENCE, home_team: home,
+      away_team: away, book: BOOK, market: MARKET, side: home, captured_at: t, line: jitterLines[i] }));
+    for (const e of extra) rows.push({ event_id: eventId, commence_time: COMMENCE, home_team: home, away_team: away,
+      book: BOOK, market: MARKET, side: home, captured_at: e.captured_at, line: e.line });
+  };
+
+  // Peer games: flat through the estimation window, then ALL shift -1.0
+  // together at T_after1 (the leaguewide vig widening), then hold flat
+  // again through T_after2.
+  const T_after1 = '2026-09-16T00:00:00Z', T_after2 = '2026-09-16T12:00:00Z';
+  PEERS.forEach((p, i) => addGame(`peer${i}`, p.home, p.away, Array(6).fill(p.base),
+    [{ captured_at: T_after1, line: p.base - 1.0 }, { captured_at: T_after2, line: p.base - 1.0 }]));
+
+  // Game 1: same quiet jitter as its own estimation window, then moves -1.0
+  // in lockstep with every peer at T_after1 -- a leaguewide shift, not news.
+  addGame('claimgame', 'Kansas City Chiefs', 'Buffalo Bills', JITTER, [{ captured_at: T_after1, line: -4.0 }]);
+  // Game 2: same quiet jitter, but moves -1.0 ALONE at T_after2 while every
+  // peer sits still -- a genuine idiosyncratic move.
+  addGame('idiogame', 'Denver Broncos', 'Las Vegas Raiders', JITTER, [{ captured_at: T_after2, line: -4.0 }]);
+
+  const index = newsLatencyTest.buildMarketMoveIndex(rows);
+  const leaguewide = newsLatencyTest.quoteReaction({ published_at: '2026-09-15T12:00:00Z' }, rows, 'kansascitychiefs', { index });
+  const idiosyncratic = newsLatencyTest.quoteReaction({ published_at: '2026-09-16T06:00:00Z' }, rows, 'denverbroncos', { index });
+
+  assert.equal(leaguewide.length, 1);
+  assert.equal(leaguewide[0].line_move, -1.0, 'the raw move alone still crosses the old fixed threshold');
+  assert.equal(leaguewide[0].reaction_basis, 'market_model_abnormal_move');
+  assert.equal(leaguewide[0].market_line_move, -1.0, 'peers moved the same amount at the same instant');
+  assert.equal(leaguewide[0].abnormal_line_move, 0, 'own move minus the market-model baseline is zero');
+  assert.equal(leaguewide[0].reacted, false, 'a shift every game made together is not evidence for this claim');
+
+  assert.equal(idiosyncratic.length, 1);
+  assert.equal(idiosyncratic[0].line_move, -1.0);
+  assert.equal(idiosyncratic[0].reaction_basis, 'market_model_abnormal_move');
+  assert.equal(idiosyncratic[0].market_line_move, 0, 'peers held still at this instant');
+  assert.equal(idiosyncratic[0].abnormal_line_move, -1.0);
+  assert.ok(Math.abs(idiosyncratic[0].line_move_z) >= 2, 'sized well beyond this series\' own normal noise');
+  assert.equal(idiosyncratic[0].reacted, true, 'a move no peer made is real evidence for this claim');
 });
 
 test('postgame truth reads challenges, turnovers and explosive gameplay from the settled tape', () => {
@@ -926,6 +986,20 @@ test('game-script coefficients and neutral baseline cannot see beyond the predic
 });
 
 test('weekly availability respects exact injury and practice designations', () => {
+  // The earlier game-script test above populated 501/502 for 2015-2022 and,
+  // separately, 2024 (to test that future rows can't leak backward) — leaving
+  // 2023 an incidental gap in the fixture, not a deliberate missed season.
+  // Filling it keeps player 501 "played every recorded week 2015-2024" true
+  // (see the durability comment further down), now that the durability
+  // denominator (contingency.js) correctly counts a real gap as a missed
+  // season rather than silently excluding it from the denominator.
+  const usage2023 = db.prepare(`INSERT INTO player_week_usage
+    (player_id,season,week,team,position,attempts,carries,targets,receptions)
+    VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(player_id,season,week) DO NOTHING`);
+  for (let week = 1; week <= 18; week++) {
+    usage2023.run(501, 2023, week, 'AAA', 'QB', 28 + week % 8, 0, 0, 0);
+    usage2023.run(502, 2023, week, 'AAA', 'RB', 0, 18 + week % 6, 2, 1);
+  }
   db.prepare(`INSERT INTO nfl_injuries
     (season,week,gsis_id,team,full_name,position,report_status,practice_status,injury)
     VALUES (2026,4,'aaa-qb','AAA','AAA Passer','QB','Questionable','Did Not Participate','Hamstring'),
@@ -1163,7 +1237,7 @@ test('missing MLB boxscore data stays pending until a final participant list con
 /* ------------------------------------------------------------------- CLV */
 
 const { recordBet, gradeClosingLineValue, listBets, clvReport, noVigProbability, fairProbabilityOfOurBet } =
-  await import('../server/services/nfl-clv.js');
+  await import('../server/services/clv-core.js');
 
 const KICKOFF = '2020-01-01T00:00:00Z';
 function stageClose(eventId, market, side, other, line, otherLine, price = -110, otherPrice = -110) {

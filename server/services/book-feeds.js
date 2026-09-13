@@ -65,9 +65,18 @@ export const enabled = () => ENABLED;
  * a fresh `captured_at` while one carries a stale `book_updated_at` because
  * the aggregator served a cached price for it. 72 hours keeps every book
  * whose feed is actually refreshing (medians all under 4 days) and drops
- * only the quotes an aggregator has stopped tracking. A null stamp (Pinnacle
- * and Bovada, captured directly rather than through the aggregator) is not
- * penalised — `captured_at` itself is the freshness signal there.
+ * only the quotes an aggregator has stopped tracking. A null stamp (Pinnacle,
+ * Bovada, FanDuel and Kambi, all captured directly rather than through the
+ * aggregator) is not penalised — `captured_at` itself is the freshness
+ * signal there. Kambi's `changedDate` is deliberately dropped before it
+ * reaches this column (see parseKambi) rather than compared against
+ * STALE_BOOK_HOURS: it records when Kambi last moved the PRICE, which for a
+ * feed we poll directly says nothing about whether our capture is stale — an
+ * unmoved line sitting untouched for four days is still exactly what Kambi is
+ * quoting right now, not a quote this feed has fallen behind on. Applying the
+ * aggregator's staleness clock to it would have discarded every Kambi quote
+ * whose price simply hadn't changed recently, which is the common case, not
+ * the exception.
  */
 export const STALE_BOOK_HOURS = 72;
 
@@ -87,6 +96,41 @@ const ODDSTRADER_BOOKS = Object.freeze({
 const ODDSTRADER_PAIDS = Object.keys(ODDSTRADER_BOOKS).join(',');
 // Direct feeds outrank the aggregator's copy of the same book.
 const PROVIDER_PRIORITY = { pinnacle: 0, fanduel: 1, bovada: 1, kambi: 2, oddstrader: 3 };
+
+/**
+ * mergeQuotes's provider-priority pick (above) only ever sees one call's own
+ * `byProvider` map, so it only catches an aggregator's copy of a direct book
+ * when BOTH happen to be fetched in the SAME captureBookFeeds() call. They
+ * never are: the fast job polls oddstrader every 5 minutes, the slow job
+ * polls bovada and fanduel hourly (scheduler.js's nfl_book_feeds_fast/_slow
+ * split), so oddstrader's own copies of `bovada` (paid 84) and `fanduel`
+ * (paid 78) — the two ODDSTRADER_BOOKS entries whose names collide with a
+ * directly-polled book — always land in a call that has no competing direct
+ * quote to lose to. Both get written as if they were an independent
+ * observation of that book, on the fast job's 5-minute clock, alongside the
+ * real direct capture's hourly one: two different capture MECHANISMS
+ * reporting the same book at different instants, which sharp-lag.js and
+ * signal-latency.js read as that book "moving" when it may not have.
+ *
+ * This tracks the most recent successful DIRECT (non-aggregator) capture per
+ * book name, process-lifetime, so the priority preference holds across calls
+ * instead of only within one. Bounded by construction to one entry per book
+ * name ever seen (worst case: every ODDSTRADER_BOOKS value, a few dozen) —
+ * this cannot grow across a multi-day run.
+ */
+const DIRECT_BOOK_COVERAGE_MS = 90 * 60 * 1000; // slow job is hourly; one missed tick of slack
+const _directBookLastSeen = new Map(); // book -> ms timestamp of last successful direct capture
+
+function recordDirectBooks(provider, quotes) {
+  if (provider === 'oddstrader') return; // the aggregator; every other provider is a direct feed
+  const at = Date.now();
+  for (const q of quotes) _directBookLastSeen.set(q.book, at);
+}
+function directlyCovered(book) {
+  const at = _directBookLastSeen.get(book);
+  return Boolean(at && Date.now() - at < DIRECT_BOOK_COVERAGE_MS);
+}
+export function __resetDirectBookCoverage() { _directBookLastSeen.clear(); }
 
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const american = v => { const n = num(String(v ?? '').replace('+', '')); return n; };
@@ -188,17 +232,26 @@ export function parseKambi(payload, resolve = teamResolver()) {
       for (const o of offer.outcomes ?? []) {
         const price = american(o.oddsAmerican);
         if (price == null) continue;
-        const updated = o.changedDate ?? null;
+        // Kambi's own endpoint is hit directly (see PROVIDERS.kambi below), not
+        // through the aggregator — `captured_at` is this quote's freshness
+        // signal, same as Pinnacle/Bovada/FanDuel (all null below for the same
+        // reason). `o.changedDate` is when Kambi last moved the PRICE, not
+        // when our capture might have gone stale; feeding it into
+        // `book_updated_at` made isFreshQuote's aggregator-only staleness
+        // clock (STALE_BOOK_HOURS, above) drop a perfectly live Kambi quote
+        // for any line that simply hadn't changed in 72 hours — the common
+        // case, not the exception. Deliberately dropped rather than carried
+        // through.
         const line = o.line == null ? null : Number(o.line) / 1000;
         if (type === 'Handicap') {
           const side = resolve(o.participant ?? o.label);
-          if (side && line != null) out.push({ ...base, market: 'spreads', side: side.abbr, line, price, book_updated_at: updated });
+          if (side && line != null) out.push({ ...base, market: 'spreads', side: side.abbr, line, price, book_updated_at: null });
         } else if (type === 'Over/Under' && /Total Points/i.test(criterion)) {
           const side = o.type === 'OT_OVER' ? 'Over' : o.type === 'OT_UNDER' ? 'Under' : null;
-          if (side && line != null) out.push({ ...base, market: 'totals', side, line, price, book_updated_at: updated });
+          if (side && line != null) out.push({ ...base, market: 'totals', side, line, price, book_updated_at: null });
         } else if (type === 'Match') {
           const side = resolve(o.participant);
-          if (side) out.push({ ...base, market: 'h2h', side: side.abbr, line: null, price, book_updated_at: updated });
+          if (side) out.push({ ...base, market: 'h2h', side: side.abbr, line: null, price, book_updated_at: null });
         }
       }
     }
@@ -364,6 +417,13 @@ export function mergeQuotes(byProvider) {
   const best = new Map(); // key -> quote
   for (const [provider, quotes] of Object.entries(byProvider)) {
     for (const q of quotes) {
+      // The aggregator's copy of a book that has its own direct feed is only
+      // useful when that direct feed is down; when the direct feed has
+      // reported this exact book recently — even from a DIFFERENT capture
+      // call on a different cadence — skip the aggregator's copy so the
+      // fast/slow/extra jobs cannot double-write the same book as if it were
+      // two independent sources (see _directBookLastSeen above).
+      if (provider === 'oddstrader' && directlyCovered(q.book)) continue;
       const key = `${eventKey(q.commence_time, q.away, q.home)}|${q.book}|${q.market}|${q.side}`;
       const existing = best.get(key);
       if (!existing || PROVIDER_PRIORITY[provider] < PROVIDER_PRIORITY[existing.provider]) {
@@ -383,7 +443,7 @@ export async function captureBookFeeds({ providers = Object.keys(PROVIDERS) } = 
       errors[name] = `skipped: backing off ${Math.round(backoffRemainingMs(name) / 1000)}s after a recent failure`;
       return;
     }
-    try { byProvider[name] = await PROVIDERS[name](); recordProviderSuccess(name); }
+    try { byProvider[name] = await PROVIDERS[name](); recordProviderSuccess(name); recordDirectBooks(name, byProvider[name]); }
     catch (error) { errors[name] = error.message; byProvider[name] = []; recordProviderFailure(name); }
   }));
   const merged = mergeQuotes(byProvider);
@@ -415,6 +475,7 @@ export async function captureBookFeeds({ providers = Object.keys(PROVIDERS) } = 
       const payload = [...events.values()].map(ev => ({ ...ev,
         bookmakers: [...ev.bookmakers.values()].map(bk => ({ ...bk, markets: [...bk.markets.values()] })) }));
       tape = ingestQuoteSnapshot(payload, { provider: 'free-book-feeds', requestedAt: at,
+        receivedAt: at, receiptClockSource: 'response_completion',
         markets: 'spreads,totals,h2h', sourceRef: 'book_feeds' });
     } catch (error) { tape = { error: error.message }; }
     try { (await import('./nfl-shopping-board.js')).clearShoppingBoardCache(); } catch { /* board cache is best effort */ }
@@ -439,4 +500,4 @@ export function bookFeedStatus() {
 }
 
 export const __test = { parseOddstrader, parsePinnacle, parseKambi, parseBovada, parseFanduel, mergeQuotes, eventKey,
-  inBackoff, recordProviderFailure, recordProviderSuccess, backoffRemainingMs };
+  inBackoff, recordProviderFailure, recordProviderSuccess, backoffRemainingMs, recordDirectBooks, directlyCovered };

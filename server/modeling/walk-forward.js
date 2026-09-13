@@ -1,3 +1,32 @@
+/**
+ * The generic model-lab walk-forward contract: chronological period splits
+ * (train on everything before a cutoff, evaluate the cutoff period) plus a
+ * sealed final holdout that only `openFinalHoldout({ authorize: true })` may
+ * open. Any candidate implementing `.fit(train)` -> model with `.predict()`
+ * can be walked through this.
+ *
+ * Investigated during the stage-2 engine-unification pass as a possible
+ * merge target for `server/services/weekly-walkforward.js` (same "walk
+ * forward" name, same surface-level idea) and DELIBERATELY left separate:
+ *
+ *   - Different observation shape. This module requires a timestamped
+ *     `player_id`/`season`/`week`/`as_of` observation (assertTimestampedObservation
+ *     enforces it); weekly-walkforward.js's rows are per-GAME, with no player
+ *     identity and no `as_of` to validate against.
+ *   - Different holdout semantics. `createWalkForwardSplits` seals the LATEST
+ *     season entirely -- it is never in `splits`, only ever available via the
+ *     explicit, authorized `openFinalHoldout`. weekly-walkforward.js's whole
+ *     point is to walk and GRADE every season it is given, including the
+ *     latest one, to show whether accuracy rises with training size across
+ *     the full history. Forcing it through a sealed-holdout contract would
+ *     mean either lying about which season is "sealed" or losing the
+ *     final-season grade its own report depends on.
+ *
+ * A shared name is not shared logic. Merging these would have meant an
+ * adapter that fabricates the fields this contract needs and gives up the
+ * one property (grading every season) the other module exists to provide --
+ * a worse outcome than the duplication it would remove. Left as two engines.
+ */
 import { assertTimestampedObservation, assertUniqueObservations, configurationHash, FEATURE_SET_VERSION, PIPELINE_VERSION } from './contracts.js';
 
 const period = row => Number(row.season) * 100 + Number(row.week);

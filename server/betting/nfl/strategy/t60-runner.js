@@ -31,7 +31,7 @@ import { cutoffBatches, decisionCutoff, sequentialCapacity, T60_PROTOCOL_VERSION
 import { eventKey } from '../../../services/nfl-contract-key.js';
 import { freezeT60Packet, t60PacketHash } from '../../../services/nfl-t60-packet.js';
 import { nflKickoffDate } from '../../../services/date-util.js';
-import { autoPickDecisionBoard } from '../../../services/nfl-auto-picks.js';
+import { autoPickDecisionBoardForPacket } from '../../../services/nfl-auto-picks.js';
 import { recordDecisionRun } from '../../../services/nfl-decision-tape.js';
 import { NFL_PRODUCTION_POLICY } from '../../../services/nfl-policy.js';
 
@@ -169,23 +169,39 @@ export function captureDueObservations({ experimentId, now = new Date().toISOStr
       const entry = { id: observation.id, event_key: observation.event_key, packet };
       captured.push(entry);
 
-      // Giant Plan 8.10 (G02/G03): the packet just frozen is real,
-      // content-addressed evidence. Feed it to the `frozen_packet` branch
-      // nfl-decision-tape.js has carried since C11 but that no production
-      // caller has ever actually exercised (nfl-execution-pipeline.js always
-      // passed 'unfrozen_live_tables'). The board itself is still computed
-      // from the live (mutable) tables -- there is no packet-sourced board
-      // yet; see the architecture note atop freezeT60Packet's own TODO on why
-      // that is a separate, larger piece of work -- but it is computed in
-      // this same synchronous instant, immediately after the freeze whose
-      // hash addresses it, which is the strongest claim available today.
+      // Giant Plan 8.10 (G02/G03), closed in the integration pass of
+      // 2026-09-12: the packet just frozen is real, content-addressed
+      // evidence, and the board recorded against it is now actually computed
+      // FROM that packet -- autoPickDecisionBoardForPacket
+      // (nfl-auto-picks.js) sources the market spread/price from the
+      // packet's own frozen nfl_quote_tape evidence via ensembleLine's
+      // marketOverride, not a live game_lines re-read. This used to call
+      // autoPickDecisionBoard(), which computed the WHOLE week from live
+      // mutable tables and was merely time-adjacent to the freeze, not
+      // reproducible from it -- two separate defects the old comment here
+      // called "the strongest claim available today": (1) the numbers came
+      // from whatever game_lines said AT COMPUTE TIME, not from what the
+      // packet froze, and (2) a single game's packet hash was stamped onto
+      // every OTHER game's decision in the same week's board too, a scope
+      // mismatch given nfl_t60_observations is itself one row per game.
+      // autoPickDecisionBoardForPacket fixes both: it returns a board for
+      // exactly the one game this packet and this observation are for.
+      //
+      // Not every input that board needs lives in this packet's schema yet
+      // (weather/rest/div/neutral game context, prior-week team features --
+      // see nfl-t60-packet.js's PACKET_BOARD_INPUT_COVERAGE) -- those are
+      // still read live, but VISIBLY: every decision's feature_snapshot
+      // carries a data_provenance breakdown, and the run's own
+      // packet_provenance names exactly what did and did not come from the
+      // packet, rather than the old blanket (and overstated) 'frozen_packet'
+      // status implying the whole computation was reproducible.
       //
       // A failure here must not undo the freeze: the packet is real evidence
       // whether or not a board could be produced from it a moment later, so
       // the row stays 'frozen' (not 'failed') and the tape error is recorded
       // for visibility instead of thrown.
       try {
-        const board = autoPickDecisionBoard(observation.season, observation.week, NFL_PRODUCTION_POLICY);
+        const board = autoPickDecisionBoardForPacket(packet, NFL_PRODUCTION_POLICY);
         const decidedAt = new Date().toISOString();
         const tape = recordDecisionRun(observation.season, observation.week, board, {
           observation: {

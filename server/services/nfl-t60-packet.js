@@ -41,6 +41,7 @@ import { rows } from '../db/index.js';
 import { decisionCutoff, T60_PROTOCOL_VERSION } from './nfl-t60-protocol.js';
 import { teamCodeFor } from './team-codes.js';
 import { canonicalize } from '../betting/nfl/contracts/forecast-packet.js';
+import { SHARP_BOOKS } from './nfl-sharp.js';
 
 export const PACKET_VERSION = 'nfl-t60-packet-v3-c11';
 
@@ -432,6 +433,12 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
   return {
     packet_version: PACKET_VERSION, protocol_version: T60_PROTOCOL_VERSION,
     season, week, matchup: `${away} at ${home}`,
+    // Canonical codes, not just the human-readable `matchup` string, so a
+    // consumer that only has the packet (autoPickDecisionBoardForPacket,
+    // nfl-auto-picks.js) can identify the game without re-parsing prose.
+    // `homeCode`/`awayCode` were already resolved above to scope the quote
+    // lookup; this stage is the first thing to actually export them.
+    home_team: homeCode, away_team: awayCode,
     kickoff: cutoff.kickoff, cutoff_at: cutoffAt, schedule_version: scheduleVersion,
     mode,
     claim: mode === 'historical'
@@ -480,6 +487,151 @@ export function t60PacketHash(packet) {
   const { computation_started_at: _started, computation_finished_at: _finished,
     emitted_after_cutoff: _emitted, ...content } = packet;
   return crypto.createHash('sha256').update(JSON.stringify(canonicalize(content))).digest('hex');
+}
+
+/**
+ * Audit trail for the "genuinely reproducible from the packet" gap (Giant
+ * Plan 8.10 / integration stage 1, 2026-09-12): what autoPickDecisionBoard()
+ * (nfl-auto-picks.js) actually reads to compute one game's edge, and whether
+ * THIS packet's schema carries the equivalent evidence -- traced directly
+ * against nfl-ensemble.js's ensembleLine() and nfl-auto-picks.js's
+ * computeDecisionBoard(), not inferred.
+ *
+ *   market_quote   -- the spread + price the edge is computed against and the
+ *                     selected side is priced at. This packet's nfl_quote_tape
+ *                     entry carries genuine per-row VALUES (quote_id, book,
+ *                     side, line, price, receipt clock -- Codex correction
+ *                     C11's `values` field, not a count), so this is the one
+ *                     input a packet-sourced board can actually be built from
+ *                     today. See resolvePacketMarketQuote() below. It is NOT
+ *                     the same number the live board reads, and that is
+ *                     disclosed, not glossed over: the live board's
+ *                     `game_lines.spread` is a single ESPN/DraftKings
+ *                     reference line (see gamescript.js's syncCurrentLines),
+ *                     while this packet freezes The Odds API's multi-book
+ *                     nfl_quote_tape -- nfl-quote-tape.js's own docstring:
+ *                     "Consensus rows from game_lines may describe a market,
+ *                     but they never count as genuine multi-book evidence."
+ *                     There is no row-for-row correspondence between the two,
+ *                     so a packet-sourced board resolves its own market quote
+ *                     from whichever book(s) the tape actually captured
+ *                     (reusing nfl-sharp.js's existing pinnacle-first
+ *                     reference-book ordering) rather than pretending to
+ *                     reproduce the live number.
+ *   game_context   -- temp/wind/roof/rest_days/div_game/neutral_site/
+ *                     open_spread/open_total, which ensembleLine reads
+ *                     straight from game_lines and folds into buildContext()
+ *                     for every model, not merely the final edge. NOT in this
+ *                     packet's schema: nfl_game_weather_forecast_history's
+ *                     entry is a row count and a receipt clock (section 6.2's
+ *                     availability question), not the forecasted temp/wind/
+ *                     roof a weather model actually consumes, and no rest/
+ *                     div/neutral field exists in the packet at all.
+ *   team_features  -- prior-week team-week features (featureAggregates() /
+ *                     netFeature() in nfl-ensemble.js), read from
+ *                     nfl_team_week_features. This packet's entry for that
+ *                     source is ALSO a bare row count -- freezeT60Packet
+ *                     never populates its `values` -- so it proves rows
+ *                     existed by the cutoff without saying what they held.
+ *   total_market   -- game_lines.total / a 'totals' quote. PACKET_MARKET is
+ *                     hardcoded to 'spreads' (this module's one-contract
+ *                     scope, documented above); a total is never captured in
+ *                     any T-60 packet today.
+ *   model_state    -- fitted ensemble weights (nfl_ensemble_fit_artifacts),
+ *                     cover calibration (nfl_cover_calibrations), promoted
+ *                     candidate findings. Deliberately OUT of this packet's
+ *                     scope, not merely unimplemented: this packet documents
+ *                     EVIDENCE (what was knowable about one game), not the
+ *                     forecasting model's own parameters -- those already have
+ *                     their own identity and versioning (spreadForecastIdentity
+ *                     / code-identity.js) on the decision tape, a different
+ *                     reproducibility mechanism than this packet.
+ *
+ * A caller that needs to know, in code, which of these it can trust from a
+ * packet (rather than reading this comment) should check this object.
+ */
+export const PACKET_BOARD_INPUT_COVERAGE = Object.freeze({
+  market_quote: 'in_schema',
+  game_context: 'not_in_schema',
+  team_features: 'not_in_schema',
+  total_market: 'not_in_schema',
+  model_state: 'out_of_packet_scope'
+});
+
+/**
+ * Resolve "the" market spread and price from a frozen packet's quote-tape
+ * evidence -- the one number a live board reads off `game_lines`, reconstructed
+ * from the packet's per-book VALUES instead of a live re-read.
+ *
+ * A packet can hold several books' worth of eligible quotes (or none). Picking
+ * one is unavoidable -- the board wants a single spread, not a scatter -- so
+ * this reuses the SAME reference-book ordering nfl-sharp.js already applies
+ * elsewhere in this codebase for "the" market price in this sport (Pinnacle
+ * first; the rest of nfl-sharp.js's SHARP_BOOKS after it), falling through to
+ * whatever books the packet actually has, alphabetically, so the choice stays
+ * deterministic even when none of the usual sharp books were captured for this
+ * game. The chosen book is always reported on the result, so this is a
+ * disclosed selection rule, not a hidden one.
+ *
+ * Returns `{ status: 'unavailable' | 'ineligible', reason }` when the packet
+ * genuinely has nothing a prospective decision could use -- the caller's job
+ * is to record that honestly (an abstained candidate, not a live-table
+ * fallback), never to paper over it.
+ */
+export function resolvePacketMarketQuote(packet) {
+  const source = packet?.sources?.find(s => s.source === 'nfl_quote_tape');
+  if (!source) {
+    return { status: 'unavailable', reason: 'packet carries no nfl_quote_tape source entry at all' };
+  }
+  // Eligibility is whatever the packet itself already decided for its OWN
+  // mode (packet.summary.eligible, computed by ELIGIBLE_BY_MODE above) --
+  // 'received_by_cutoff' only for a prospective packet, but ALSO
+  // 'published_by_cutoff_evidenced' for a labeled historical replay. Checking
+  // `source.claim` against a hardcoded 'received_by_cutoff' here would wrongly
+  // reject a historical packet's legitimately eligible evidence.
+  if (!packet.summary?.eligible?.includes('nfl_quote_tape')) {
+    return { status: 'ineligible', claim: source.claim,
+      reason: source.reason ?? `nfl_quote_tape's claim in this packet is '${source.claim}', which this ` +
+        `packet's own mode ('${packet.mode}') does not admit -- nothing here is eligible` };
+  }
+  const values = source.values ?? [];
+  if (!values.length) {
+    return { status: 'unavailable', reason: `claim is '${source.claim}' but the packet froze no quote values` };
+  }
+
+  const byBook = new Map();
+  for (const v of values) {
+    if (!byBook.has(v.bookmaker_key)) byBook.set(v.bookmaker_key, []);
+    byBook.get(v.bookmaker_key).push(v);
+  }
+  const otherBooksSorted = [...byBook.keys()].filter(b => !SHARP_BOOKS.includes(b)).sort();
+  const bookOrder = [...SHARP_BOOKS, ...otherBooksSorted];
+  const chosenBook = bookOrder.find(b => byBook.has(b));
+  if (!chosenBook) return { status: 'unavailable', reason: 'no book present among the packet\'s frozen quotes' };
+
+  // Within the chosen book, several snapshots may have been received by the
+  // cutoff (the tape is append-only); the latest one is what a decision made
+  // right at the cutoff would have held, the same "last observation before
+  // the moment that matters" rule the rest of this codebase uses for a close.
+  const latestOf = side => side
+    .slice().sort((a, b) => (a.received_at < b.received_at ? -1 : a.received_at > b.received_at ? 1 : 0)).at(-1);
+  const bookValues = byBook.get(chosenBook);
+  const home = latestOf(bookValues.filter(v => v.side_key === 'home'));
+  const away = latestOf(bookValues.filter(v => v.side_key === 'away'));
+  if (!home) {
+    return { status: 'unavailable', reason: `chosen book '${chosenBook}' has no home-side quote in this packet` };
+  }
+
+  return {
+    status: 'available', book: chosenBook, book_selection_rule: 'sharp_books_first_then_alphabetical',
+    home_spread: home.line, home_price: home.american_price,
+    // A missing away-side row still lets the spread be reported (spreads are
+    // symmetric by construction), but never its price -- assuming the price
+    // is symmetric would fabricate a number this packet never actually froze.
+    away_spread: away?.line ?? (home.line == null ? null : -home.line),
+    away_price: away?.american_price ?? null,
+    quote_at: home.received_at, snapshot_at: home.snapshot_at
+  };
 }
 
 /**

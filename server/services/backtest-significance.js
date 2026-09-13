@@ -59,7 +59,25 @@ export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed 
   if (n < 10) return { error: `too few paired observations (${n}) to bootstrap meaningfully` };
 
   const diffs = new Array(iterations);
-  if (groups && groups.length >= n) {
+  // CORRECTED 2026-09-12 sweep item 16(ii): this used to accept any `groups`
+  // array at least as long as `n` (`>=`). `groups[i]` is read for `i` in
+  // [0, n) on the assumption that it is the SAME caller-built array that
+  // `valuesA`/`valuesB` themselves came from, index for index. That holds
+  // when `n` equals `groups.length` exactly. It stops holding the moment a
+  // caller passes a `groups` array sized to ONE of the two value arrays (as
+  // every current caller in offseason-model.js does: `groups: p.groups`,
+  // built in lockstep with the candidate's own `errs`) while the OTHER value
+  // array is shorter -- `n = Math.min(...)` then silently truncates to the
+  // first `n` entries of both `valuesB` and `groups` together, which are
+  // still each other's own pair, but no longer necessarily the same units
+  // `valuesA`'s first `n` entries describe. A `>=` guard cannot tell "these
+  // two arrays were built from the same units" from "these two arrays merely
+  // happen to both be at least this long" -- only exact equality can, so a
+  // mismatched-length `groups` now falls back to the ungrouped resample
+  // below (the same safe fallback the too-SHORT case already used), exactly
+  // like the existing 'groups shorter than n is ignored gracefully' test
+  // already expects for the other direction.
+  if (groups && groups.length === n) {
     const byGroup = new Map();
     for (let i = 0; i < n; i++) {
       const key = groups[i];

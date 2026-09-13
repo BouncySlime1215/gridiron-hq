@@ -306,42 +306,14 @@ export function autoPickCandidates(season, week, policy = NFL_PRODUCTION_POLICY)
   return autoPickDecisionBoard(season, week, policy).selected;
 }
 
-/**
- * Read/cache role only (Giant Plan 8.10, G08). This UPSERTs a MUTABLE latest
- * view -- keyed on (season, week, policy_id, matchup, market, selection),
- * which omits policy_version -- so a re-run after a line moved overwrites
- * what the model actually decided before it moved. That made it unsafe as
- * evidence, which is exactly why nfl-decision-tape.js exists: the append-only
- * tape (nfl_decision_runs / nfl_decision_events), not this table, is the
- * source of truth a grading or audit reads from.
- *
- * `nfl_pick_decisions` is kept — not removed — because it remains a fast,
- * convenient latest-view projection the UI reads (see nfl-decision-tape.js's
- * own header comment). The scheduler job that calls this (scheduler.js's
- * refreshNflDecisionLedger) now ALSO calls recordDecisionRun directly, and
- * that tape write, not this UPSERT, is what the scheduler treats as the
- * record of what was decided.
- */
-export function persistPickDecisions(season, week, decisionBoard) {
-  const at = new Date().toISOString();
-  for (const d of decisionBoard.decisions) {
-    run(`INSERT INTO nfl_pick_decisions
-      (season,week,policy_id,policy_version,matchup,selection,market,line,american_price,book,
-       quote_at,quote_source,edge,disagreement,eligible,abstention_reason,policy_rank,feature_snapshot_json,recorded_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      ON CONFLICT(season,week,policy_id,matchup,market,selection) DO UPDATE SET
-       line=excluded.line,american_price=excluded.american_price,book=excluded.book,
-       quote_at=excluded.quote_at,quote_source=excluded.quote_source,edge=excluded.edge,
-       disagreement=excluded.disagreement,eligible=excluded.eligible,
-       abstention_reason=excluded.abstention_reason,policy_rank=excluded.policy_rank,
-       feature_snapshot_json=excluded.feature_snapshot_json,recorded_at=excluded.recorded_at`,
-      season, week, decisionBoard.policy.id, decisionBoard.policy.version, d.matchup, d.selection,
-      d.market, d.line, d.american_price, d.book, d.quote_at, d.quote_source, d.edge_points,
-      d.disagreement, d.eligible ? 1 : 0, d.abstention_reason, d.policy_rank ?? null,
-      JSON.stringify(d.feature_snapshot ?? {}), at);
-  }
-  return { recorded_at: at, decisions: decisionBoard.decisions.length };
-}
+// `persistPickDecisions` (Giant Plan 8.10 / G08's "read/cache role only" UPSERT
+// straight from a caller-supplied board) was removed in the stage-2 engine
+// unification: it was an independent write path to `nfl_pick_decisions` that
+// could disagree with the tape, and one caller (nfl-market.js's
+// `/sync-and-pick` route) used it with NO tape write at all. Every former
+// caller now calls `recordDecisionRun` (nfl-decision-tape.js) instead, which
+// regenerates `nfl_pick_decisions` FROM its own tape rows as a side effect --
+// see that file's "ONE WRITER" note.
 
 /** No-vig fair probability, via Shin's method (see nfl-devig.js). */
 function noVigProbability(odds, oppositeOdds) {

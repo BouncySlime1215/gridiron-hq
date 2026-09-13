@@ -34,6 +34,16 @@
  * given game never change once the week is complete, so they are computed once
  * and reused across every fit that includes them. That turns the walk-forward
  * from quadratic into roughly linear and is the only reason this is runnable.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * NOT THE SAME ENGINE AS server/modeling/walk-forward.js
+ *
+ * Same name, deliberately not merged (stage-2 engine unification investigated
+ * it): that module's `createWalkForwardSplits` seals the latest season as an
+ * unwalked holdout and requires a timestamped player-level observation; this
+ * file grades every season it is given, including the latest, over per-game
+ * rows with no player identity at all. See that file's own header for the
+ * full reasoning.
  */
 import { rows } from '../db/index.js';
 import { footballFeatures, FEATURES } from './football-first.js';

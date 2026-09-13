@@ -5,7 +5,7 @@
  * systems." `nfl-execution-lifecycle.js` computes realized P&L for a real
  * accepted position, but closing-value grading lived entirely on
  * `nfl_bet_log` — a different table, populated by a different action
- * (`nfl-clv.js#recordBet`), reading a different source
+ * (`clv-core.js#recordBet`), reading a different source
  * (`nfl_line_snapshots`). Nothing mapped an accepted lifecycle event to its
  * own exact contract's close, so the quote history this project spent
  * months collecting never reached the accepted-bet learning loop at all.

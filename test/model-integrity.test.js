@@ -14,7 +14,7 @@ const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine,
   withEphemeralEnsembleArtifacts } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
 const { deriveSignalReliability } = await import('../server/services/nfl-signal-reliability.js');
-const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-neural-replay.js');
+const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-replay.js');
 const { calibratedCoverProbability } = await import('../server/services/nfl-cover-calibration.js');
 const { nflCoordinationAudit } = await import('../server/services/nfl-coordination-audit.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
@@ -1177,7 +1177,7 @@ test('missing MLB boxscore data stays pending until a final participant list con
 /* ------------------------------------------------------------------- CLV */
 
 const { recordBet, gradeClosingLineValue, listBets, clvReport, noVigProbability, fairProbabilityOfOurBet } =
-  await import('../server/services/nfl-clv.js');
+  await import('../server/services/clv-core.js');
 
 const KICKOFF = '2020-01-01T00:00:00Z';
 function stageClose(eventId, market, side, other, line, otherLine, price = -110, otherPrice = -110) {

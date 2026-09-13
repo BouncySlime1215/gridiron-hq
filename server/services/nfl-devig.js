@@ -3,8 +3,9 @@
  *
  * Every no-vig computation in this codebase used to be the same naive
  * formula, reimplemented independently in nfl-market.js, nfl-auto-picks.js,
- * nfl-props.js, nfl-clv.js and nfl-replay.js: take each side's raw implied
- * probability and split the bookmaker's margin proportionally between them
+ * nfl-props.js, clv-core.js (then still nfl-clv.js) and nfl-replay.js: take
+ * each side's raw implied probability and split the bookmaker's margin
+ * proportionally between them
  * (`a / (a + b)`). That is a real de-vig — it does remove the margin and the
  * two outputs do sum to one — but it is not the *correct* one. It implicitly
  * assumes both sides carry an equal share of the vig, which is false for a

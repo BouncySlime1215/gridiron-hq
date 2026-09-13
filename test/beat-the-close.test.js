@@ -91,6 +91,34 @@ test('a signal over its threshold freezes one zero-unit decision and settlement 
   assert.equal(status.by_signal.ratings_vs_open.readable, false, 'one decision is not a read');
 });
 
+test('books polled a few minutes apart in the same round are all reachable, not just whichever was polled last (a6-money-path)', () => {
+  // Real books are polled on separate schedules -- Pinnacle/OddsTrader every 5
+  // minutes, Kambi (BetRivers)/Bovada/FanDuel hourly (book-feeds.js). An
+  // exact-equality join on one event-wide MAX(captured_at) used to require
+  // every book to share that exact instant, which silently dropped every book
+  // except whichever provider happened to be polled last.
+  run(`INSERT OR IGNORE INTO nfl_teams (abbr,name,conference,division) VALUES ('NYJ','New York Jets','AFC','East'),('NE','New England Patriots','AFC','East')`);
+  run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,implied_points,source,fetched_at,gameday,gametime)
+       VALUES (2026,1,'NE','NYJ',1,-3,44,23.5,'test',datetime('now'),'2026-09-13','13:00')`);
+  const snapAt = (book, capturedAt, provider, line, price) => run(`INSERT INTO nfl_line_snapshots
+    (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, capturedAt, 'nfl:2026-09-13:NYJ@NE', '2026-09-13T17:00:01Z',
+  'New England Patriots', 'New York Jets', book, 'spreads', 'New England Patriots', line, price, provider, capturedAt);
+  const t0 = new Date('2026-09-10T15:00:00Z');
+  snapAt('pinnacle', t0.toISOString(), 'free:pinnacle', -3, -110);
+  // BetRivers (kambi), Bovada, FanDuel polled on their own hourly cadence --
+  // each a few minutes behind Pinnacle in this round, still the standing price.
+  snapAt('betrivers', new Date(t0.getTime() - 2 * 60 * 1000).toISOString(), 'free:kambi', -2.5, -105);
+  snapAt('bovada', new Date(t0.getTime() - 4 * 60 * 1000).toISOString(), 'free:bovada', -3, -108);
+  snapAt('fanduel', new Date(t0.getTime() - 12 * 60 * 1000).toISOString(), 'free:fanduel', -3, -112); // outside the 5-minute window
+
+  const best = btc.bestReachable('NE', 'NYJ', 'spreads', 'NE');
+  assert.equal(best.line, -2.5, 'BetRivers has the most points, and it is now visible at all');
+  assert.equal(best.book, 'betrivers');
+  assert.equal(best.books, 3, 'pinnacle, betrivers and bovada are all within the capture window');
+  assert.equal(best.window_dropped, 1, 'fanduel, 12 minutes behind, is reported as dropped rather than silently absent');
+});
+
 test('a decision flagged stale_price_at_decision is excluded from every read but still counted', () => {
   run(`INSERT INTO shadow_decisions (sport,event_key,market,selection,model_version,regime,decision,reason,captured_at,season,week,home_team,away_team,line,american_price,quote_at,settled_at,result,clv_points,feature_snapshot_json)
        VALUES ('NFL','2026:1:GB:MIN','spread','GB','beat-the-close-v1:ratings_vs_open','beat_the_close','observe','test',?,2026,1,'GB','MIN',-1,-118,?,?,'Won',3.2,?)`,

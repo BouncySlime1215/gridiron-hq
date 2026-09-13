@@ -134,6 +134,34 @@ test('groups shorter than n is ignored gracefully (falls back to ungrouped)', ()
 });
 
 /**
+ * 2026-09-12 sweep item 16(ii): the guard used to be `groups.length >= n`, so
+ * a `groups` array LONGER than `n = min(valuesA.length, valuesB.length)` was
+ * accepted and read at indices [0, n) as if it lined up with both value
+ * arrays. This is exactly offseason-model.js's own call shape: `groups:
+ * p.groups` is built in lockstep with the CANDIDATE's own pooled errors
+ * (`pooled[name].groups.push(...groups)` beside `pooled[name].errs.push(...e)`
+ * every season), while the comparison's OTHER side can legitimately be
+ * shorter -- any season where an optional challenger (the code's own example:
+ * `if (gbmModel) { try {...} catch {} }`) failed to fit drops that season
+ * from one pooled array but not the other. `n` then no longer equals
+ * `groups.length`, and the two arrays being compared over the truncated
+ * window are not guaranteed to be the SAME units the docstring requires.
+ */
+test('groups longer than n (item 16ii) is ignored gracefully instead of silently truncated to a mismatched pairing', () => {
+  const a = Array(12).fill(0).map((_, i) => (i % 4 < 2 ? 1 : 9));   // 12 units, the shorter side
+  const b = Array(20).fill(0).map((_, i) => (i % 4 < 2 ? 1 : 9));   // 20 units, the longer side
+  const groups = Array(20).fill(0).map((_, i) => `game${Math.floor(i / 4)}`); // built for b's length, per offseason-model.js's own pattern
+  const grouped = pairedBootstrapDiff(a, b, { iterations: 500, seed: 1, groups });
+  const ungrouped = pairedBootstrapDiff(a, b, { iterations: 500, seed: 1 });
+  assert.equal(grouped.error, undefined);
+  assert.equal(grouped.n, 12, 'n is min(12, 20)');
+  // Falling back to the ungrouped path means an IDENTICAL run (same seed, same
+  // iterations, same truncated a/b) reproduces byte-for-byte -- the surest
+  // proof the mismatched groups array was set aside rather than partially trusted.
+  assert.deepEqual(grouped, ungrouped, 'a length-mismatched groups array must fall back to the exact ungrouped result, not a partially-grouped one');
+});
+
+/**
  * Giant Plan 8.9 (audit-consolidation stage 5): `weeklyClusterBootstrap`
  * (stats-util.js) is the one shared implementation replacing five
  * near-identical hand-rolled copies, one of which was `nfl-replay.js`'s own

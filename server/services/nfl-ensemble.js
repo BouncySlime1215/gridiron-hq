@@ -1372,10 +1372,23 @@ export function* componentPredictionStream({ all, restMap, cal, beforeSeason = n
 
     // One context per week; only the two team names differ between its games.
     const base = { ...buildContext(slate[0], hist, restMap), cal };
+    // CORRECTED 2026-09-12 sweep item 12: `base.hfa` is `slate[0]`'s OWN
+    // per-game value (buildContext already zeroed it via hfaFor when
+    // slate[0] itself is a neutral-site game), not the week's raw home-field
+    // constant. Re-deriving every other game's hfa from `base.hfa` therefore
+    // silently zeroed home-field advantage for every OTHER game in a week
+    // whenever the week's first-sorted game happened to be the neutral one --
+    // confirmed against real 2015+ history: this fires for all 13 real
+    // non-neutral games sharing 2022 week 11 with the neutral ARI game (sorted
+    // first that week), and for the live 2026 week 1 SEA game sharing its
+    // week with the neutral LAR game. `sharedContext` is cached by
+    // `season|week|hist.length`, so this is a cache hit for every game after
+    // the first and costs nothing extra.
+    const rawHfa = sharedContext(slate[0], hist).hfa;
 
     for (const g of slate) {
       const ctx = { ...base, home: g.home, away: g.away,
-        hfa: g.neutral_site ? 0 : base.hfa, neutral: Boolean(g.neutral_site),
+        hfa: g.neutral_site ? 0 : rawHfa, neutral: Boolean(g.neutral_site),
         spread: g.home_spread, total: g.total,
         openSpread: g.open_spread, openTotal: g.open_total,
         temp: g.temp, wind: g.wind, roof: g.roof, div: g.div_game,
@@ -1703,9 +1716,18 @@ export function ensembleLine(season, week, home, away, {
   const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
   if (hist.length < 100) return { error: 'not enough history before this week' };
 
+  // CORRECTED 2026-09-12 sweep item 11: this used to null the opener out for
+  // any already-decided game (`CASE WHEN team_score IS NULL THEN open_spread
+  // END`), so a call against a PAST game read a different open_spread than
+  // `games()` -- fixed for exactly this discrepancy by a3e1841 -- supplies
+  // for the identical row via componentPredictionStream/fitEnsemble. The
+  // opener is fixed well before kickoff regardless of whether the game has
+  // since finished, so hiding it here was never a look-ahead guard, only an
+  // unnoticed second copy of the bug a3e1841 already fixed at `games()`.
+  // market_anchor's replay-graded RMSE and its live prediction for the same
+  // game now read the same number.
   const g = rows(`SELECT team AS home, opponent AS away, spread AS home_spread, total,
-                         CASE WHEN team_score IS NULL THEN open_spread END AS open_spread,
-                         CASE WHEN team_score IS NULL THEN open_total END AS open_total,
+                         open_spread, open_total,
                          temp, wind, roof, rest_days AS home_rest, div_game, neutral_site
                   FROM game_lines WHERE season=? AND week=? AND team=? AND home=1`, season, week, home)[0]
     ?? { home, away, home_spread: null, total: null };
@@ -1834,10 +1856,13 @@ export function challengerSignalWeek(season, week) {
   const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
   _calibrationCache.set(calibrationKey, cal);
   const base = { ...buildContext({ ...slate[0], season, week }, hist, restMap), cal };
+  // See the matching comment in componentPredictionStream: `base.hfa` is
+  // `slate[0]`'s own zeroed-if-neutral value, not the week's raw constant.
+  const rawHfa = sharedContext({ ...slate[0], season, week }, hist).hfa;
   const challengers = MODELS.filter(model => model.challengerOnly);
   return { version: CHALLENGER_SIGNAL_VERSION, season, week, games: slate.map(game => {
     const ctx = { ...base, home: game.home, away: game.away,
-      hfa: game.neutral_site ? 0 : base.hfa, neutral: Boolean(game.neutral_site),
+      hfa: game.neutral_site ? 0 : rawHfa, neutral: Boolean(game.neutral_site),
       spread: game.spread, total: game.total, openSpread: game.open_spread, openTotal: game.open_total,
       temp: game.temp, wind: game.wind, roof: game.roof, div: game.div_game,
       homeRest: game.home_rest, awayRest: restMap.get(`${season}|${week}|${game.away}`) };

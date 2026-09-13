@@ -28,6 +28,8 @@
  *     filled at in size is not a price.
  */
 import { rows, row, run } from '../db/index.js';
+import { fromStoredQuote, normalizeLadder, fillShortfall,
+  POLYMARKET_LADDER_NOTE } from './execution-fill.js';
 
 const GAMMA = 'https://gamma-api.polymarket.com';
 const CLOB = 'https://clob.polymarket.com';
@@ -159,7 +161,7 @@ export async function captureOrderBooks({ minVolume = 1000, limit = 60,
   if (!markets.length) return { error: 'no stored markets above the volume floor', min_volume: minVolume };
 
   const now = new Date().toISOString();
-  let ok = 0;
+  let ok = 0, levelsWritten = 0;
   const spreads = [];
   for (const m of markets) {
     try {
@@ -181,6 +183,20 @@ export async function captureOrderBooks({ minVolume = 1000, limit = 60,
            WHERE condition_id=? AND captured_at=(SELECT MAX(captured_at) FROM polymarket_quotes
                                                  WHERE condition_id=?)`,
       bid, ask, num(bestBid.size), num(bestAsk.size), spread, m.condition_id, m.condition_id);
+
+      // Keep the rest of the ladder. Everything above stores the TOUCH, which
+      // is all `polymarket_quotes` has room for, and for as long as that was
+      // the whole of what capture wrote, no stored history could answer "what
+      // would a $500 stake actually have filled at" — levels two and beyond
+      // were fetched every half hour and discarded every half hour. Levels are
+      // written best-first with an explicit rank so a reader cannot
+      // reintroduce the wrong-end bug this function's own note warns about.
+      const quoteAt = row(`SELECT MAX(captured_at) AS at FROM polymarket_quotes
+                           WHERE condition_id=?`, m.condition_id)?.at;
+      if (quoteAt) {
+        levelsWritten += storeLadder(quoteAt, m.condition_id, 'bid', [...bids].reverse())
+          + storeLadder(quoteAt, m.condition_id, 'ask', [...asks].reverse());
+      }
       spreads.push({ question: (m.question ?? '').slice(0, 60), kind: m.kind,
         bid, ask, spread: r4(spread), mid: r4((bid + ask) / 2),
         bid_size: num(bestBid.size), ask_size: num(bestAsk.size), volume: m.volume });
@@ -188,9 +204,148 @@ export async function captureOrderBooks({ minVolume = 1000, limit = 60,
     } catch { /* one bad book must not stop the sweep */ }
     await new Promise(r => setTimeout(r, 60));
   }
-  return { books_fetched: ok, captured_at: now, spreads: spreads.slice(0, 20),
+  return { books_fetched: ok, captured_at: now, levels_stored: levelsWritten,
+    spreads: spreads.slice(0, 20),
     note: 'Best bid is the LAST bid and best ask the LAST ask — this API returns them sorted away ' +
-      'from the touch, and reading index zero would report a spread several times too wide.' };
+      'from the touch, and reading index zero would report a spread several times too wide. Full ' +
+      'ladders are now persisted to polymarket_order_book_levels best-first, which is what makes a ' +
+      'depth-aware fill measurable on stored history rather than only at the moment of capture.' };
+}
+
+/**
+ * Persist one side's ladder, best-first, returning how many levels were kept.
+ *
+ * The caller reverses the CLOB's array before passing it, so `levels[0]` is the
+ * touch; the rank is written explicitly rather than inferred later from rowid.
+ */
+function storeLadder(capturedAt, conditionId, side, levels) {
+  let written = 0;
+  for (let i = 0; i < levels.length; i++) {
+    const price = num(levels[i]?.price), size = num(levels[i]?.size);
+    if (price == null || size == null || size <= 0 || price <= 0 || price >= 1) continue;
+    run(`INSERT INTO polymarket_order_book_levels (captured_at, condition_id, side, level, price, size)
+         VALUES (?,?,?,?,?,?)
+         ON CONFLICT(captured_at, condition_id, side, level) DO UPDATE SET price=excluded.price, size=excluded.size`,
+    capturedAt, conditionId, side, written, price, size);
+    written++;
+  }
+  return written;
+}
+
+/**
+ * The best book stored history can produce for one market.
+ *
+ * Returns a full ladder when `polymarket_order_book_levels` has one, and
+ * otherwise the one-level book reconstructed from the quote's touch columns,
+ * flagged `truncated` so every fill past level one comes back as a bound
+ * rather than as a number. The distinction is load-bearing and is the reason
+ * this returns a `source` a caller can report.
+ */
+export function storedBook(conditionId, capturedAt = null) {
+  const at = capturedAt ?? row(`SELECT MAX(captured_at) AS at FROM polymarket_quotes
+                                WHERE condition_id=? AND best_bid IS NOT NULL`, conditionId)?.at;
+  if (!at) return null;
+  const levels = rows(`SELECT side, level, price, size FROM polymarket_order_book_levels
+                       WHERE condition_id=? AND captured_at=? ORDER BY side, level`, conditionId, at);
+  if (levels.length) {
+    const pick = side => levels.filter(l => l.side === side).sort((a, b) => a.level - b.level)
+      .map(l => ({ price: l.price, size: l.size }));
+    return { captured_at: at, truncated: false, source: 'polymarket_order_book_levels',
+      bids: normalizeLadder(pick('bid'), 'sell'), asks: normalizeLadder(pick('ask'), 'buy') };
+  }
+  const quote = row(`SELECT best_bid, best_ask, bid_size, ask_size FROM polymarket_quotes
+                     WHERE condition_id=? AND captured_at=?`, conditionId, at);
+  if (!quote) return null;
+  return { captured_at: at, ...fromStoredQuote(quote) };
+}
+
+/**
+ * The measurement this module was missing: what a stake would really fill at,
+ * across every market with a stored book.
+ *
+ * Naive is the incumbent assumption, and it is written down exactly as the
+ * codebase makes it — `live-edge.js` prices at the MID and applies a constant
+ * `costFraction` regardless of size, so `naiveMid` reproduces that rather than
+ * a strawman. Real is the same stake walked through the ladder.
+ *
+ * The headline is `profit_realised_fraction`: the share of a claimed edge that
+ * survives contact with the book. Anything below one is edge the screen
+ * claimed and the fill would not have paid.
+ *
+ * @param {object} opts
+ * @param {number} opts.stake        dollars per market
+ * @param {number} opts.edge         assumed edge in probability points, used to
+ *                                   set a fair value relative to each book
+ * @param {boolean} [opts.naiveAtMid] price the naive leg at the mid (default
+ *                                   true — that is what live-edge.js does)
+ */
+export function fillStudy({ stake = 500, edge = 0.03, naiveAtMid = true, minVolume = 0 } = {}) {
+  const quotes = rows(
+    `SELECT q.condition_id, q.captured_at, q.best_bid, q.best_ask, q.bid_size, q.ask_size,
+            q.volume, m.question, m.kind
+     FROM polymarket_quotes q JOIN polymarket_markets m ON m.condition_id = q.condition_id
+     WHERE q.best_bid IS NOT NULL AND q.best_ask IS NOT NULL
+       AND q.captured_at = (SELECT MAX(captured_at) FROM polymarket_quotes q2
+                            WHERE q2.condition_id = q.condition_id AND q2.best_bid IS NOT NULL)`)
+    .filter(q => (q.volume ?? 0) >= minVolume);
+  if (!quotes.length) {
+    return { error: 'no stored order books', hint: 'run captureOrderBooks()', ladder_note: POLYMARKET_LADDER_NOTE };
+  }
+
+  const perMarket = [];
+  for (const q of quotes) {
+    const book = storedBook(q.condition_id, q.captured_at);
+    if (!book?.asks?.length) continue;
+    const touch = book.asks[0].price;
+    const mid = (q.best_bid + q.best_ask) / 2;
+    const fair = Math.min(0.99, touch + edge);
+    const shares = stake / touch;
+    const s = fillShortfall({ book, side: 'buy', shares, fairValue: fair,
+      naivePrice: naiveAtMid ? mid : touch });
+    if (s.error) continue;
+    perMarket.push({
+      question: (q.question ?? '').slice(0, 54), kind: q.kind,
+      captured_at: q.captured_at, source: book.source ?? 'polymarket_quotes (touch only)',
+      truncated: Boolean(book.truncated), levels_available: book.asks.length,
+      mid: r4(mid), touch: r4(touch), shares_wanted: r4(shares),
+      shares_filled: s.actual.shares_filled, fill_ratio: s.fill_ratio,
+      avg_price: s.actual.avg_price, slippage_vs_touch: s.slippage_vs_touch,
+      naive_expected_profit: s.naive.expected_profit,
+      real_expected_profit: s.actual.expected_profit,
+      profit_realised_fraction: s.profit_realised_fraction,
+      bound: s.actual.bound, capped_by: s.capped_by
+    });
+  }
+  if (!perMarket.length) return { error: 'no market produced a usable ask side' };
+
+  const exact = perMarket.filter(p => p.bound === 'exact');
+  const bounded = perMarket.filter(p => p.bound === 'best_case');
+  const summarise = list => {
+    if (!list.length) return null;
+    const fr = list.map(p => p.profit_realised_fraction).filter(Number.isFinite).sort((a, b) => a - b);
+    const fills = list.map(p => p.fill_ratio).filter(Number.isFinite);
+    return { markets: list.length,
+      mean_fill_ratio: r4(mean(fills)),
+      markets_fully_filled: list.filter(p => p.fill_ratio >= 0.999).length,
+      mean_profit_realised: r4(mean(fr)),
+      median_profit_realised: fr.length ? r4(fr[Math.floor(fr.length / 2)]) : null,
+      naive_total_profit: r4(list.reduce((s2, p) => s2 + (p.naive_expected_profit ?? 0), 0)),
+      real_total_profit: r4(list.reduce((s2, p) => s2 + (p.real_expected_profit ?? 0), 0)) };
+  };
+
+  return {
+    stake, assumed_edge: edge, naive_priced_at: naiveAtMid ? 'mid' : 'touch',
+    markets: perMarket.length,
+    full_ladder_markets: exact.length, touch_only_markets: bounded.length,
+    exact: summarise(exact),
+    best_case_from_touch_only_books: summarise(bounded),
+    worst: perMarket.sort((a, b) => (a.profit_realised_fraction ?? 1) - (b.profit_realised_fraction ?? 1)).slice(0, 12),
+    ladder_note: POLYMARKET_LADDER_NOTE,
+    note: 'The naive leg reproduces what this codebase actually assumes — live-edge.js prices at the ' +
+      'MID with a constant cost fraction and no size limit. profit_realised_fraction below 1 is edge ' +
+      'the screen claimed that a fill would not have paid. Rows marked best_case came from a ' +
+      'touch-only book: their fills are LOWER bounds and their profits UPPER bounds.'
+  };
 }
 
 /**

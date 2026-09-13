@@ -29,6 +29,7 @@
  * that has never been possible before, and both APIs are free and unauthenticated.
  */
 import { rows, row, run } from '../db/index.js';
+import { adjustedYesProbability, kalshiAdverseSelectionHaircut } from './kalshi-adverse-selection.js';
 
 const KALSHI = 'https://api.elections.kalshi.com/trade-api/v2';
 const POLY_GAMMA = 'https://gamma-api.polymarket.com';
@@ -207,10 +208,23 @@ export function exchangeVsBook({ minGap = 0.02 } = {}) {
       ? spreadToProb(b.home_spread) : 1 - spreadToProb(b.home_spread);
     const gap = q.yes_price - bookProb;
     if (Math.abs(gap) < minGap) continue;
+    // The raw gap treats the exchange quote as an unbiased estimate of the
+    // probability. At long-shot prices it is not: the published finding is that
+    // sub-$0.10 Kalshi contracts return about -60% of stake, so a scanner
+    // sorted by gap surfaces the bias first and calls it an edge. The adjusted
+    // gap re-prices the quote through the calibration map before subtracting.
+    const adjustedProb = adjustedYesProbability(q.yes_price);
+    const adjustedGap = adjustedProb == null ? null : adjustedProb - bookProb;
+    const survives = adjustedGap != null && Math.abs(adjustedGap) >= minGap
+      && Math.sign(adjustedGap) === Math.sign(gap);
     out.push({
       matchup: q.event_key, contract: q.subject ?? t.subject, ticker: q.ticker,
       exchange_probability: r4(q.yes_price), book_probability: r4(bookProb),
       gap: r4(gap), open_interest: q.open_interest,
+      adjusted_exchange_probability: r4(adjustedProb),
+      adjusted_gap: r4(adjustedGap),
+      adverse_selection_haircut: r4(kalshiAdverseSelectionHaircut(Math.min(q.yes_price, 1 - q.yes_price))),
+      survives_adverse_selection: survives,
       leans: gap > 0 ? 'exchange is higher on this team than the book'
         : 'exchange is lower on this team than the book'
     });
@@ -218,12 +232,19 @@ export function exchangeVsBook({ minGap = 0.02 } = {}) {
 
   return {
     games_compared: latest.length, disagreements: out.length, min_gap: minGap,
-    divergences: out.sort((a, b2) => Math.abs(b2.gap) - Math.abs(a.gap)),
+    // Ranked by the ADJUSTED gap, so the list is not led by whichever contract
+    // the long-shot bias has moved furthest.
+    disagreements_surviving_haircut: out.filter(d => d.survives_adverse_selection).length,
+    divergences: out.sort((a, b2) => Math.abs(b2.adjusted_gap ?? b2.gap) - Math.abs(a.adjusted_gap ?? a.gap)),
     note: 'The book side is derived from the free ESPN reference spread through a normal model with ' +
       'the measured margin sigma of 14.16, so it is an approximation of a no-vig moneyline rather ' +
       'than a quoted one. Treat small gaps as noise in that conversion; large ones are worth a look.',
     caveat: 'A divergence is not an edge until it is shown that one side systematically leads the ' +
-      'other. That is what the flow log is accumulating toward, and it has not been tested yet.'
+      'other. That is what the flow log is accumulating toward, and it has not been tested yet.',
+    adverse_selection: 'Long-shot quotes are re-priced through kalshi-adverse-selection.js before the ' +
+      'gap is taken, and disagreements_surviving_haircut is the count that is not simply the size the ' +
+      'bias predicts. That curve is calibrated to ONE published number and its shape is a modelling ' +
+      'choice, so treat it as a prior a cheap leg must overcome, not as a measurement.'
   };
 }
 
@@ -291,7 +312,14 @@ export function predictionMarketStatus() {
  */
 export function kalshiFee(price, contracts = 1) {
   if (!Number.isFinite(price) || price <= 0 || price >= 1) return null;
-  return Math.ceil(0.07 * contracts * price * (1 - price) * 100) / 100;
+  // The .toFixed(9) is not cosmetic. 0.07 * 100 * 0.5 * 0.5 evaluates to
+  // 1.7500000000000002 in binary floating point, and Math.ceil then rounds a
+  // fee that is exactly on the cent UP to the next one. That over-states the
+  // fee by $0.01 on 0.38% of (contracts, price) pairs -- including the single
+  // most common case there is, 100 contracts at even money, where it charged
+  // $1.76 for a $1.75 fee. Rounding to nine decimals before the ceiling kills
+  // the residue without touching any fee that genuinely needs rounding up.
+  return Math.ceil(+(0.07 * contracts * price * (1 - price) * 100).toFixed(9)) / 100;
 }
 
 /**

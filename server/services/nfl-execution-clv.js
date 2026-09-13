@@ -49,6 +49,18 @@ import { signedClvPoints, recordClvGrade } from './clv-core.js';
 export const CLV_GRADING_VERSION = 'nfl-clv-v2-c13-c14-canonical-event-full-game';
 
 /**
+ * u5-clv-endpoints (2026 pre-registration, Step 0 item 5): the grading
+ * version for an ABSTAINED decision's grade. Kept textually distinct from
+ * `CLV_GRADING_VERSION` above rather than reused, because the two are priced
+ * against a different "our price" -- an accepted ticket's actual fill vs. the
+ * last price this system observed before declining -- and this file's own
+ * standing rule (see `CLV_GRADING_VERSION`'s doc comment) is that a number
+ * computed under one definition of the input is not comparable with one
+ * computed under another without saying so on the row.
+ */
+export const CLV_GRADING_VERSION_ABSTAINED = `${CLV_GRADING_VERSION}-abstained-decision-price`;
+
+/**
  * The books whose quotes may define a close, and the period a full-game
  * spread may be graded against.
  *
@@ -233,29 +245,72 @@ function spreadClvPoints({ side, ourLine, closeLine }) {
  *
  * `positions` are the graded rows; `coverage` is the denominator the audit
  * asks for, including every position that could NOT be graded and why.
+ *
+ * `includeAbstained` (u5-clv-endpoints, Step 0 item 5): by default this grades
+ * only the ACCEPTED-ticket ledger, exactly as before -- the audit finding this
+ * file opens with (E9) was specifically about accepted positions, and every
+ * existing caller (the `/execution/clv` route, `recordExecutionClvGrades`
+ * below) is entitled to that unchanged behavior and denominator.
+ *
+ * Passing `includeAbstained: true` additionally grades every PASSED
+ * (abstained) opportunity -- a decision the policy actively declined -- so the
+ * denominator can be the full set of decisions the model made on a slate, not
+ * only the ones it chose to bet. EXPIRED and CANCELLED are deliberately left
+ * out: neither is a decision the model made about the contract's merit --
+ * expired means nobody acted before the window closed, cancelled means the
+ * contract itself stopped existing -- so folding them in would inflate the
+ * "decisions considered" count with rows that were never actually judged.
+ *
+ * An abstained opportunity was never accepted, so it has no `accepted` event
+ * to grade from. It is graded instead against the last price this system
+ * actually recorded before declining (the DECISION event, or -- for the rare
+ * case a decision was never logged before the pass -- whatever priced event
+ * came last). That is a different "our price" than an accepted ticket's real
+ * fill, which is why every abstained row is tagged `decision: 'abstained'`
+ * and carries `realized_units: null` rather than a `netRealizedUnits()` that
+ * would otherwise report a truthful-looking zero for a position that was
+ * never actually risked.
  */
-export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS } = {}) {
+export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS, includeAbstained = false } = {}) {
   const accepted = [...listOpportunities({ status: 'accepted', limit }),
     ...listOpportunities({ status: 'settled', limit })];
+  const abstained = includeAbstained ? listOpportunities({ status: 'passed', limit }) : [];
+  const candidates = [...accepted, ...abstained];
   const positions = [];
   const ungraded = [];
 
-  for (const opp of accepted) {
-    const acceptedEvent = rows(`SELECT line, price, stake_units, occurred_at
+  for (const opp of candidates) {
+    const isAbstained = opp.status === 'passed';
+    const acceptedEvent = isAbstained ? null : rows(`SELECT line, price, stake_units, occurred_at
       FROM nfl_execution_lifecycle_events WHERE opportunity_id=? AND state='accepted'`, opp.id)[0];
-    if (!acceptedEvent) { ungraded.push({ id: opp.id, reason: 'no_accepted_event' }); continue; }
+    if (!acceptedEvent && !isAbstained) { ungraded.push({ id: opp.id, reason: 'no_accepted_event' }); continue; }
 
+    // The abstained path: the last priced event this system logged before the
+    // PASSED terminal state, preferring the DECISION state (the price/line
+    // actually judged and declined) but falling back to whatever priced event
+    // exists so a pass recorded straight off OBSERVED still grades.
+    const decisionEvent = isAbstained ? rows(`SELECT line, price, occurred_at
+      FROM nfl_execution_lifecycle_events
+      WHERE opportunity_id=? AND price IS NOT NULL AND state != 'passed'
+      ORDER BY CASE state WHEN 'decision' THEN 0 WHEN 'refreshed' THEN 1 ELSE 2 END, id DESC
+      LIMIT 1`, opp.id)[0] : null;
+    if (isAbstained && !decisionEvent) { ungraded.push({ id: opp.id, reason: 'no_priced_decision_event' }); continue; }
+
+    const referenceEvent = acceptedEvent ?? decisionEvent;
     const kickoff = kickoffForEvent(opp.event_key);
     const { close, reason, observed_close_lines } = closingQuoteForContract({
       eventKey: opp.event_key, market: opp.market, side: opp.side,
-      line: acceptedEvent.line, kickoff, books
+      line: referenceEvent.line, kickoff, books
     });
     if (!close) {
       // Still carries its realized economics: a bet whose close we never
-      // captured did not stop having a result.
+      // captured did not stop having a result. An abstained decision never
+      // had economics to carry, so it reports null rather than a real bet's
+      // zero.
       ungraded.push({ id: opp.id, event_key: opp.event_key, reason,
         observed_close_lines: observed_close_lines ?? null,
-        realized_units: r4(netRealizedUnits(opp.id)) });
+        decision: isAbstained ? 'abstained' : 'accepted',
+        realized_units: isAbstained ? null : r4(netRealizedUnits(opp.id)) });
       continue;
     }
 
@@ -270,15 +325,16 @@ export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS
     // better. It is preserved below under a name that states what it actually
     // is, so any number exported from an earlier report still reconciles --
     // "never silently reinterpret past reports."
-    const acceptedImplied = impliedProbability(acceptedEvent.price);
+    const referenceImplied = impliedProbability(referenceEvent.price);
     const closeImplied = impliedProbability(close.price);
-    const priceClvProbability = acceptedImplied != null && closeImplied != null
-      ? closeImplied - acceptedImplied : null;
+    const priceClvProbability = referenceImplied != null && closeImplied != null
+      ? closeImplied - referenceImplied : null;
 
     positions.push({
       id: opp.id, event_key: opp.event_key, contract_key: opp.contract_key,
-      side: opp.side, accepted_line: acceptedEvent.line, accepted_price: acceptedEvent.price,
-      accepted_at: acceptedEvent.occurred_at, stake_units: acceptedEvent.stake_units,
+      side: opp.side, decision: isAbstained ? 'abstained' : 'accepted',
+      accepted_line: referenceEvent.line, accepted_price: referenceEvent.price,
+      accepted_at: referenceEvent.occurred_at, stake_units: isAbstained ? null : acceptedEvent.stake_units,
 
       // Two different questions, deliberately never merged.
       //
@@ -287,7 +343,7 @@ export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS
       // guaranteed to return zero and would silently stand in for a benchmark
       // that actually moved.
       closing_main_line: close.main_line, closing_main_line_books: close.main_line_books,
-      clv_points: r3(spreadClvPoints({ side: opp.side, ourLine: acceptedEvent.line,
+      clv_points: r3(spreadClvPoints({ side: opp.side, ourLine: referenceEvent.line,
         closeLine: close.main_line })),
 
       // `clv_probability` compares our PRICE with the close at the identical
@@ -298,17 +354,17 @@ export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS
       closing_captured_at: close.captured_at,
       closing_quote_ids: close.quote_ids,
       clv_probability: r4(priceClvProbability),
-      clv_decimal_return: acceptedEvent.price != null && close.price != null
-        ? r4(decimalReturn(acceptedEvent.price) - decimalReturn(close.price)) : null,
+      clv_decimal_return: referenceEvent.price != null && close.price != null
+        ? r4(decimalReturn(referenceEvent.price) - decimalReturn(close.price)) : null,
 
       // Legacy, version-named. Raw American difference: NOT positive-is-better,
       // NOT safe to average across the -100/+100 boundary. Retained only so an
       // older exported number can be matched against this report.
       clv_price_cents_v1_raw_american_difference:
-        Number.isFinite(acceptedEvent.price) && Number.isFinite(close.price)
-          ? r3(close.price - acceptedEvent.price) : null,
+        Number.isFinite(referenceEvent.price) && Number.isFinite(close.price)
+          ? r3(close.price - referenceEvent.price) : null,
 
-      realized_units: r4(netRealizedUnits(opp.id)),
+      realized_units: isAbstained ? null : r4(netRealizedUnits(opp.id)),
       status: opp.status
     });
   }
@@ -318,26 +374,43 @@ export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS
   // Distinct EVENTS, never tickets: two books on the same game are one piece
   // of evidence about that game, not two.
   const independentEvents = new Set(positions.map(p => p.event_key).filter(Boolean)).size;
+  const gradedAccepted = graded.filter(p => p.decision === 'accepted');
+  const gradedAbstained = graded.filter(p => p.decision === 'abstained');
 
   return {
     positions, ungraded,
     coverage: {
+      // Unchanged meaning for anything that read this before includeAbstained
+      // existed: the accepted-ticket count alone.
       accepted_positions: accepted.length,
+      // New, and zero/absent whenever includeAbstained was not requested.
+      abstained_positions: abstained.length,
+      decisions_considered: candidates.length,
       graded_positions: graded.length,
+      graded_accepted: gradedAccepted.length,
+      graded_abstained: gradedAbstained.length,
       ungraded_positions: ungraded.length,
-      coverage_rate: accepted.length ? r4(graded.length / accepted.length) : null,
+      // The denominator this pre-registration exists to fix: over the full
+      // set of decisions considered when includeAbstained is set, and
+      // identical to the old accepted-only rate when it is not.
+      coverage_rate: candidates.length ? r4(graded.length / candidates.length) : null,
       independent_events: independentEvents,
       ungraded_reasons: ungraded.reduce((acc, u) => { acc[u.reason] = (acc[u.reason] ?? 0) + 1; return acc; }, {})
     },
-    // Economics stand on their own denominator. A missing close removes a
-    // position from the CLV sample, never from realized P&L.
+    // Economics stand on their own denominator, and on the ACCEPTED ledger
+    // only -- an abstained decision was never risked, so it contributes
+    // nothing to realized P&L regardless of includeAbstained.
     economics: {
       realized_units: r4(accepted.reduce((sum, o) => sum + netRealizedUnits(o.id), 0)),
       positions_counted: accepted.length,
       note: 'Realized P&L covers every accepted position, including those with no gradeable close. ' +
-        'CLV coverage above is a separate, smaller denominator by construction.'
+        'CLV coverage above is a separate, and (with includeAbstained) larger, denominator by construction.'
     },
     mean_clv_points: graded.length ? r3(graded.reduce((s, p) => s + p.clv_points, 0) / graded.length) : null,
+    mean_clv_points_accepted: gradedAccepted.length
+      ? r3(gradedAccepted.reduce((s, p) => s + p.clv_points, 0) / gradedAccepted.length) : null,
+    mean_clv_points_abstained: gradedAbstained.length
+      ? r3(gradedAbstained.reduce((s, p) => s + p.clv_points, 0) / gradedAbstained.length) : null,
     // Averaged in probability space, which is where averaging is meaningful.
     mean_clv_probability: pricedAtOurLine.length
       ? r4(pricedAtOurLine.reduce((s, p) => s + p.clv_probability, 0) / pricedAtOurLine.length) : null,
@@ -352,9 +425,14 @@ export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS
         'gap, reported as null, never as zero movement.'
     },
     grading_version: CLV_GRADING_VERSION,
+    include_abstained: includeAbstained,
     declared_books: books == null ? 'all_books_present_in_tape' : [...books].sort(),
-    method: 'read-only projection over the accepted-ticket ledger; nothing is written, so grading is ' +
-      'idempotent and a late-arriving close simply becomes gradeable on the next read'
+    method: includeAbstained
+      ? 'read-only projection over the accepted-ticket ledger PLUS every passed (abstained) opportunity, ' +
+        'each graded against its own last-observed price; nothing is written, so grading is idempotent ' +
+        'and a late-arriving close simply becomes gradeable on the next read'
+      : 'read-only projection over the accepted-ticket ledger; nothing is written, so grading is ' +
+        'idempotent and a late-arriving close simply becomes gradeable on the next read'
   };
 }
 
@@ -378,23 +456,34 @@ export function executionClvReport({ limit = 5000, books = DEFAULT_CLOSING_BOOKS
  * under the same CLV_GRADING_VERSION is a no-op. A future bump of
  * CLV_GRADING_VERSION records a new row rather than rewriting the old one,
  * exactly as migration 037 requires.
+ *
+ * `includeAbstained` mirrors `executionClvReport`'s option: passed (abstained)
+ * opportunities are recorded under `CLV_GRADING_VERSION_ABSTAINED`, a distinct
+ * grading version, so a reader of `nfl_clv_grades` can always tell which rows
+ * were priced off a real fill and which off a declined decision's last-seen
+ * quote without re-deriving it from `nfl_execution_opportunities.status`.
  */
-export function recordExecutionClvGrades({ limit = 5000, books = DEFAULT_CLOSING_BOOKS } = {}) {
-  const { positions } = executionClvReport({ limit, books });
+export function recordExecutionClvGrades({ limit = 5000, books = DEFAULT_CLOSING_BOOKS, includeAbstained = false } = {}) {
+  const { positions } = executionClvReport({ limit, books, includeAbstained });
   const bookSet = books == null ? 'all_books_present_in_tape' : [...books].sort();
   let recorded = 0, skipped = 0;
   for (const p of positions) {
+    const gradingVersion = p.decision === 'abstained' ? CLV_GRADING_VERSION_ABSTAINED : CLV_GRADING_VERSION;
     const { inserted } = recordClvGrade({
       opportunityId: p.id,
-      gradingVersion: CLV_GRADING_VERSION,
+      gradingVersion,
       bookSet,
       quoteIds: p.closing_quote_ids ?? [],
       pointClv: p.clv_points,
       priceClvProbability: p.clv_probability,
       closeSource: 'nfl_quote_tape',
-      note: p.closing_line != null ? null : 'no book closed at the exact accepted line; point_clv only'
+      note: p.decision === 'abstained'
+        ? 'abstained decision; graded against last-observed price, never executed'
+        : (p.closing_line != null ? null : 'no book closed at the exact accepted line; point_clv only')
     });
     if (inserted) recorded++; else skipped++;
   }
-  return { recorded, already_graded: skipped, graded_positions: positions.length, grading_version: CLV_GRADING_VERSION };
+  return { recorded, already_graded: skipped, graded_positions: positions.length,
+    grading_version: CLV_GRADING_VERSION, include_abstained: includeAbstained,
+    grading_version_abstained: includeAbstained ? CLV_GRADING_VERSION_ABSTAINED : null };
 }

@@ -27,13 +27,28 @@
  * that makes the whole thing work. An audit whose threshold is chosen after
  * seeing the result is not an audit, it is a description.
  */
-import { rows, row, run } from '../db/index.js';
+import { rows, row, run, db } from '../db/index.js';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { alwaysValidPValue } from './backtest-significance.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
+
+/**
+ * Which of the additive `audit_registry` columns this database actually has.
+ *
+ * Migrations 040 (always_valid_p_anytime/_fixed_sample/_variance_source) and
+ * 041 (declared_sigma/_tau/_sigma_source) are both schema-only until
+ * runMigrations() has actually run against this database — a fixture built
+ * straight off db/index.js's frozen legacy snapshot (see
+ * test/audit-registry-always-valid.test.js) never gets them. Checked live
+ * rather than cached, since it is a single cheap PRAGMA and this file must
+ * behave correctly whether or not migrations have been applied yet.
+ */
+function auditRegistryColumns() {
+  return new Set(db.prepare(`PRAGMA table_info(audit_registry)`).all().map(c => c.name));
+}
 
 /**
  * A hash of the code that will produce the answer.
@@ -75,9 +90,22 @@ function dataSignature() {
  * number exists.
  *
  * @param direction  'above' or 'below'; which side of `threshold` passes
+ * @param declaredSigma,declaredTau  (u5-clv-endpoints) the mSPRT variance/prior
+ *   scale for this hypothesis's always-valid check, fixed HERE — before this
+ *   audit has run even once — rather than left for a producer to estimate
+ *   from the very sequence it is about to test (backtest-significance.js's
+ *   alwaysValidPValue() already refuses to call that anytime-valid; Codex
+ *   correction C17). Optional: a hypothesis with no development-era basis for
+ *   a variance estimate should leave this undeclared rather than fabricate
+ *   one — `declaredSigmaSource` is required whenever `declaredSigma` is given,
+ *   so every declared number carries where it came from on the row itself.
+ * @param declaredSigmaSource  free text citing the development-era evidence
+ *   `declaredSigma` was measured from (a season range, a table, a row count) —
+ *   required together with `declaredSigma`.
  */
 export function preregister({ name, hypothesis, metric, direction = 'above', threshold,
-  requireSignificance = false, requireDeterministic = false } = {}) {
+  requireSignificance = false, requireDeterministic = false,
+  declaredSigma = null, declaredTau = null, declaredSigmaSource = null } = {}) {
   if (!name || !hypothesis || !metric) {
     return { error: 'name, hypothesis and metric are all required — an audit without a stated ' +
       'hypothesis is just a number' };
@@ -89,18 +117,45 @@ export function preregister({ name, hypothesis, metric, direction = 'above', thr
   if (!['above', 'below'].includes(direction)) {
     return { error: "direction must be 'above' or 'below'" };
   }
+  if (declaredSigma != null && !(Number.isFinite(declaredSigma) && declaredSigma > 0)) {
+    return { error: 'declaredSigma must be a positive number when supplied' };
+  }
+  if (declaredSigma != null && !declaredSigmaSource) {
+    return { error: 'declaredSigmaSource is required whenever declaredSigma is supplied — a declared ' +
+      'variance with no cited evidence is indistinguishable from a guess' };
+  }
+  const cols = auditRegistryColumns();
+  const hasSigmaColumns = ['declared_sigma', 'declared_tau', 'declared_sigma_source'].every(c => cols.has(c));
+  if (declaredSigma != null && !hasSigmaColumns) {
+    return { error: 'this database has not run migration 041_audit_registry_declared_sigma yet, so a ' +
+      'declared sigma cannot be persisted — run migrations first rather than silently dropping it' };
+  }
 
-  const res = row(
-    `INSERT INTO audit_registry
-     (name, hypothesis, metric, direction, threshold, preregistered_at, code_hash,
-      data_signature, status, require_significance, require_deterministic)
-     VALUES (?,?,?,?,?,?,?,?,'preregistered',?,?) RETURNING id`,
-    name, hypothesis, metric, direction, threshold,
-    new Date().toISOString(), codeHash(), dataSignature(),
-    requireSignificance ? 1 : 0, requireDeterministic ? 1 : 0);
+  const res = hasSigmaColumns
+    ? row(
+        `INSERT INTO audit_registry
+         (name, hypothesis, metric, direction, threshold, preregistered_at, code_hash,
+          data_signature, status, require_significance, require_deterministic,
+          declared_sigma, declared_tau, declared_sigma_source)
+         VALUES (?,?,?,?,?,?,?,?,'preregistered',?,?,?,?,?) RETURNING id`,
+        name, hypothesis, metric, direction, threshold,
+        new Date().toISOString(), codeHash(), dataSignature(),
+        requireSignificance ? 1 : 0, requireDeterministic ? 1 : 0,
+        declaredSigma, declaredTau, declaredSigmaSource)
+    : row(
+        `INSERT INTO audit_registry
+         (name, hypothesis, metric, direction, threshold, preregistered_at, code_hash,
+          data_signature, status, require_significance, require_deterministic)
+         VALUES (?,?,?,?,?,?,?,?,'preregistered',?,?) RETURNING id`,
+        name, hypothesis, metric, direction, threshold,
+        new Date().toISOString(), codeHash(), dataSignature(),
+        requireSignificance ? 1 : 0, requireDeterministic ? 1 : 0);
 
   return { audit_id: res?.id, name, hypothesis, metric, direction, threshold,
     require_significance: requireSignificance, require_deterministic: requireDeterministic,
+    declared_sigma: hasSigmaColumns ? declaredSigma : null,
+    declared_tau: hasSigmaColumns ? declaredTau : null,
+    declared_sigma_source: hasSigmaColumns ? declaredSigmaSource : null,
     status: 'preregistered',
     note: 'The pass criterion is now locked. Running this audit will seal its result permanently; ' +
       'it cannot be re-run, and a second look requires a new preregistration that the registry will ' +
@@ -216,11 +271,35 @@ export async function runAudit(auditId, producer) {
   // keeps growing can't be re-asked next month against a longer sequence and
   // eventually clear a fixed-N threshold by chance. Only computed when the
   // producer supplies the raw sequence — see runAudit's doc comment above.
+  //
+  // u5-clv-endpoints: sigma/tau PREFER whatever this audit declared at
+  // preregistration time (see `preregister`'s declaredSigma) over whatever
+  // the producer passes for this one run — a value fixed before the audit
+  // ever ran is the one the plan's own standing rule asks for; a producer
+  // override is accepted as a fallback for callers that predate this option,
+  // never the other way around, so a producer cannot quietly out-vote a
+  // sigma the row already committed to.
   const sequence = Array.isArray(result?.sequence) ? result.sequence.filter(Number.isFinite) : null;
+  const sigmaForTest = Number.isFinite(a.declared_sigma) ? a.declared_sigma
+    : (Number.isFinite(result?.always_valid_sigma) ? result.always_valid_sigma : undefined);
+  const tauForTest = Number.isFinite(a.declared_tau) ? a.declared_tau
+    : (Number.isFinite(result?.always_valid_tau) ? result.always_valid_tau : undefined);
   let alwaysValid = null;
-  if (sequence && sequence.length >= 5) {
-    const av = alwaysValidPValue(sequence, { tau: result?.always_valid_tau, sigma: result?.always_valid_sigma });
-    if (!av.error) alwaysValid = av;
+  // Explicit and queryable (u5-clv-endpoints, Step 0 item 5): every reason
+  // the always-valid gate could not be evaluated is named here rather than
+  // left to collapse into an unexplained NULL, whether or not this database
+  // has run migration 040 yet — `avReason` is what gets persisted to
+  // `always_valid_variance_source` below when it has, and is always present
+  // on the in-memory result either way.
+  let avReason = null;
+  if (!sequence) {
+    avReason = 'no_sequence_supplied';
+  } else if (sequence.length < 5) {
+    avReason = 'sequence_too_short';
+  } else {
+    const av = alwaysValidPValue(sequence, { tau: tauForTest, sigma: sigmaForTest });
+    if (av.error) avReason = 'always_valid_pvalue_error';
+    else alwaysValid = av;
   }
   // Codex correction C17: the sequential p-value is only anytime-valid when
   // sigma was declared in advance. When it is a plug-in estimate from the
@@ -228,33 +307,14 @@ export async function runAudit(auditId, producer) {
   // audit is sealed on first run and never re-run, so a single look is exactly
   // the regime a fixed-sample p-value is valid in -- but it is no longer
   // LABELLED as something it is not.
-  //
-  // TODO (Giant Plan Section 8.5): p_always_valid and p_fixed_sample_only
-  // answer different questions, and this still collapses them into one
-  // number before the gate below, exactly as before. The schema for the
-  // honest fix -- always_valid_p_anytime, always_valid_p_fixed_sample,
-  // always_valid_variance_source as separate persisted columns -- now exists
-  // (server/migrations/040_audit_registry_always_valid_split.js), but wiring
-  // this function to WRITE them turned out riskier than the migration alone:
-  // audit_registry's existing always_valid_p/_significant/_n columns were
-  // added via server/db/schema/core-and-fantasy.js's frozen legacy-schema
-  // snapshot (a verbatim transcript of this file's old import-time ALTERs,
-  // checked against scripts/schema-snapshot.mjs — see that file's own header
-  // comment), NOT via server/migrations/, and test/audit-registry-always-
-  // valid.test.js only ever imports server/db/index.js (which applies that
-  // frozen snapshot) and never calls runMigrations(). Writing to columns
-  // that only exist after runMigrations() has actually run would make every
-  // test in that suite throw `no such column`. Adding the three new columns
-  // to the frozen legacy file instead would fix that, but core-and-fantasy.js
-  // is documented as a byte-for-byte transcript of history, not a place for
-  // new columns going forward -- doing so is exactly the drift
-  // scripts/schema-snapshot.mjs exists to catch. Left as schema-only (the
-  // migration is written and correct for any database that DOES run the
-  // numbered migrations) until that test fixture's setup is deliberately
-  // changed to call runMigrations(), which is a decision for whoever owns
-  // that test, not something to route around silently here.
   const alwaysValidP = alwaysValid ? (alwaysValid.p_always_valid ?? alwaysValid.p_fixed_sample_only) : null;
   const alwaysValidSignificant = alwaysValid ? alwaysValidP < correctedAlpha : null;
+  // The queryable reason this row's always-valid check landed where it did:
+  // 'declared_in_advance' / 'plugin_from_evaluated_sequence' when a number
+  // WAS computed, or one of the explicit `avReason` values above when it
+  // could not be. Never silently NULL with no explanation on a migrated
+  // database.
+  const varianceSource = alwaysValid ? alwaysValid.variance_source : avReason;
 
   // require_significance now demands BOTH gates. If the producer didn't
   // supply a sequence, the always-valid gate cannot be evaluated and the
@@ -264,19 +324,41 @@ export async function runAudit(auditId, producer) {
     ? (meetsThreshold && significant === true && alwaysValidSignificant === true)
     : meetsThreshold;
 
-  run(`UPDATE audit_registry SET status='sealed', ran_at=?, observed=?, passed=?, p_value=?,
-       sample_size=?, detail_json=?, void_reason=?, significant=?,
-       always_valid_p=?, always_valid_significant=?, always_valid_n=? WHERE id=?`,
-  new Date().toISOString(), observed, passed ? 1 : 0,
-  Number.isFinite(result?.p_value) ? result.p_value : null,
-  Number.isFinite(result?.sample_size) ? result.sample_size : null,
-  JSON.stringify(result?.detail ?? null),
-  dataMoved ? 'data signature changed since preregistration (result kept, flagged)' : null,
-  significant == null ? null : (significant ? 1 : 0),
-  alwaysValidP,
-  alwaysValidSignificant == null ? null : (alwaysValidSignificant ? 1 : 0),
-  alwaysValid ? alwaysValid.n : null,
-  auditId);
+  // Migration 040's always_valid_p_anytime/_fixed_sample/_variance_source
+  // columns are schema-only until runMigrations() has actually run against
+  // this database (test/audit-registry-always-valid.test.js deliberately
+  // never does — see that migration's own header). Writing them only when
+  // present keeps this function correct on both an unmigrated fixture and a
+  // fully migrated one, rather than requiring every caller to migrate first.
+  const hasSplitColumns = ['always_valid_p_anytime', 'always_valid_p_fixed_sample', 'always_valid_variance_source']
+    .every(c => auditRegistryColumns().has(c));
+  const sealSql = hasSplitColumns
+    ? `UPDATE audit_registry SET status='sealed', ran_at=?, observed=?, passed=?, p_value=?,
+         sample_size=?, detail_json=?, void_reason=?, significant=?,
+         always_valid_p=?, always_valid_significant=?, always_valid_n=?,
+         always_valid_p_anytime=?, always_valid_p_fixed_sample=?, always_valid_variance_source=? WHERE id=?`
+    : `UPDATE audit_registry SET status='sealed', ran_at=?, observed=?, passed=?, p_value=?,
+         sample_size=?, detail_json=?, void_reason=?, significant=?,
+         always_valid_p=?, always_valid_significant=?, always_valid_n=? WHERE id=?`;
+  const sealParams = [
+    new Date().toISOString(), observed, passed ? 1 : 0,
+    Number.isFinite(result?.p_value) ? result.p_value : null,
+    Number.isFinite(result?.sample_size) ? result.sample_size : null,
+    JSON.stringify(result?.detail ?? null),
+    dataMoved ? 'data signature changed since preregistration (result kept, flagged)' : null,
+    significant == null ? null : (significant ? 1 : 0),
+    alwaysValidP,
+    alwaysValidSignificant == null ? null : (alwaysValidSignificant ? 1 : 0),
+    alwaysValid ? alwaysValid.n : null,
+  ];
+  if (hasSplitColumns) {
+    sealParams.push(
+      alwaysValid?.p_always_valid ?? null,
+      alwaysValid?.p_fixed_sample_only ?? null,
+      varianceSource);
+  }
+  sealParams.push(auditId);
+  run(sealSql, ...sealParams);
 
   return {
     audit_id: auditId, name: a.name, hypothesis: a.hypothesis,
@@ -294,9 +376,12 @@ export async function runAudit(auditId, producer) {
       significant: alwaysValidSignificant, sigma: alwaysValid.sigma, tau: alwaysValid.tau,
       note: alwaysValid.note
     } : (a.require_significance ? {
-      p_always_valid: null, significant: null,
-      note: 'no per-unit sequence supplied by the producer: the always-valid gate could not be ' +
-        'evaluated, so this audit cannot pass a significance requirement on the raw p-value alone'
+      p_always_valid: null, significant: null, reason: avReason,
+      note: avReason === 'no_sequence_supplied'
+        ? 'no per-unit sequence supplied by the producer: the always-valid gate could not be ' +
+          'evaluated, so this audit cannot pass a significance requirement on the raw p-value alone'
+        : `the always-valid gate could not be evaluated (${avReason}), so this audit cannot pass a ` +
+          'significance requirement on the raw p-value alone'
     } : null),
     reproducible,
     sample_size: result?.sample_size ?? null,
@@ -352,6 +437,9 @@ export function auditHistory({ alpha = 0.05 } = {}) {
       always_valid_p_anytime: r4(a.always_valid_p_anytime),
       always_valid_p_fixed_sample: r4(a.always_valid_p_fixed_sample),
       always_valid_variance_source: a.always_valid_variance_source ?? null,
+      declared_sigma: a.declared_sigma ?? null,
+      declared_tau: a.declared_tau ?? null,
+      declared_sigma_source: a.declared_sigma_source ?? null,
       preregistered_at: a.preregistered_at, ran_at: a.ran_at,
       flag: a.void_reason
     })),

@@ -28,11 +28,16 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 // canonical team codes come from this table. Without it `teamCodeFor` returns
 // null for every name, and the packet refuses to build rather than letting
 // null === null match every game in the kickoff window.
+// SEA/SF are added alongside the original four so a team-scoping test can
+// seed a THIRD real game (SEA @ SF) in the same week as ATL-CAR and CHI-DET,
+// without disturbing any existing test's fixture.
 db.exec(`INSERT INTO nfl_teams (id,abbr,name,conference,division) VALUES
   (1,'ATL','Atlanta Falcons','NFC','South'),
   (2,'CAR','Carolina Panthers','NFC','South'),
   (3,'CHI','Chicago Bears','NFC','North'),
-  (4,'DET','Detroit Lions','NFC','North')`);
+  (4,'DET','Detroit Lions','NFC','North'),
+  (5,'SEA','Seattle Seahawks','NFC','West'),
+  (6,'SF','San Francisco 49ers','NFC','West')`);
 
 const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS } =
   await import('../server/services/nfl-t60-packet.js');
@@ -49,6 +54,27 @@ const { recordRevision } = await import('../server/services/nfl-bitemporal.js');
 function storeInjuryRevision(gsisId, { season = GAME.season, week = GAME.week,
   publishedAt, observedAt = publishedAt, provenance = 'captured',
   value = { report_status: 'Questionable', practice_status: 'Limited', injury: 'Ankle' } } = {}) {
+  recordRevision({ entity: `player:${gsisId}:${season}:${week}`, feature: 'injury_report',
+    value, publishedAt, observedAt, provenance, sourceId: 'nflverse_injuries',
+    entitySeason: season, entityWeek: week });
+}
+
+/**
+ * The same revision, but ALSO backed by an `nfl_injuries` row carrying a real
+ * `team` — the shape nfl-advanced.js's syncInjuries actually produces in
+ * production (GIANT_PLAN_BUILD_REPORT.md §2.2: "nfl_injuries is still written
+ * in the same transaction as every real revision"). `storeInjuryRevision`
+ * above deliberately leaves `nfl_injuries` untouched, which only exercises
+ * the OTHER permissive branch of the query's `(ni.team IS NULL OR ni.team IN
+ * (?, ?))` filter. To actually prove team-scoping rejects a real cross-game
+ * row, the LEFT JOIN has to have a team to reject in the first place.
+ */
+function storeInjuryRevisionWithTeam(gsisId, team, { season = GAME.season, week = GAME.week,
+  publishedAt, observedAt = publishedAt, provenance = 'captured',
+  value = { report_status: 'Questionable', practice_status: 'Limited', injury: 'Ankle' } } = {}) {
+  run(`INSERT INTO nfl_injuries (season,week,gsis_id,team,full_name,position,report_status,modified_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    season, week, gsisId, team, `${gsisId} Player`, 'WR', value.report_status ?? 'Questionable', observedAt);
   recordRevision({ entity: `player:${gsisId}:${season}:${week}`, feature: 'injury_report',
     value, publishedAt, observedAt, provenance, sourceId: 'nflverse_injuries',
     entitySeason: season, entityWeek: week });
@@ -429,4 +455,109 @@ test('C11: the corrected predicate is indexed, not merely correct', () => {
   assert.match(detail, /USING INDEX/, `the quote scan must use an index — plan was: ${detail}`);
   assert.doesNotMatch(detail, /SCAN nfl_quote_tape\b(?!.*USING)/,
     `nfl_quote_tape must not be table-scanned — plan was: ${detail}`);
+});
+
+/* ======================================================================
+ * GIANT_PLAN_BUILD_REPORT.md §2.2 — dedicated regression.
+ *
+ * The injuries read against `nfl_feature_revisions` has no team of its own to
+ * filter on (`entity` is `player:<gsisId>:<season>:<week>` — see
+ * nfl-advanced.js:394), so a merge reintroduced the exact cross-game leak G22
+ * had already fixed for the old `nfl_injuries.modified_at` read: without a
+ * team filter, this game's packet would absorb every OTHER game's injury
+ * revisions for the same week too. The fix synthesized during that merge
+ * (LEFT JOIN back onto `nfl_injuries` purely to recover `team`, then
+ * `ni.team IS NULL OR ni.team IN (?, ?)`) was flagged explicitly: "no test in
+ * the repo exercises team-scoping of this specific (bitemporal) path... the
+ * single highest-synthesis-risk line in this entire merge." These two tests
+ * are that regression.
+ * ====================================================================== */
+
+test('GIANT_PLAN §2.2: this game does not absorb another same-week game\'s injury revisions', () => {
+  // Three real games, one shared week: ATL-CAR (GAME, under test), CHI-DET,
+  // and SEA-SF. Nothing about `freezeT60Packet` looks up a schedule to learn
+  // who else is playing — the leak this guards against is purely a same
+  // season/week match against `nfl_feature_revisions`, so seeding these as
+  // three independently-named games (same convention the C11 kickoff test
+  // above already uses for CHI-DET) is enough to exercise it for real.
+  const UNRELATED_1 = { season: GAME.season, week: GAME.week, home: 'CHI', away: 'DET', kickoff: KICKOFF };
+  const UNRELATED_2 = { season: GAME.season, week: GAME.week, home: 'SEA', away: 'SF', kickoff: KICKOFF };
+
+  // Baselines first (deltas, not absolutes) — earlier tests in this file
+  // already left season-2026/week-3 injury revisions on the shared fixture
+  // DB (e.g. GSIS-2, which has no matching `nfl_injuries` row and so
+  // legitimately passes every game's filter via the `ni.team IS NULL`
+  // branch). That is expected, documented behavior, not this test's concern.
+  const beforeGame = sourceIn(freezeT60Packet(GAME), 'nfl_injuries');
+  const beforeU1 = sourceIn(freezeT60Packet(UNRELATED_1), 'nfl_injuries');
+  const beforeU2 = sourceIn(freezeT60Packet(UNRELATED_2), 'nfl_injuries');
+
+  // Positive control: a revision for OUR OWN team, recorded the same way the
+  // leak attempt below will be. This must count, so a later zero-delta for
+  // the unrelated games can't be misread as "the query stopped counting
+  // anything at all" rather than "team-scoping is doing its job."
+  storeInjuryRevisionWithTeam('GSIS-ATL-1', 'ATL',
+    { publishedAt: '2026-09-19T12:00:00Z', observedAt: '2026-09-19T12:05:00Z' });
+  const afterOwnTeam = sourceIn(freezeT60Packet(GAME), 'nfl_injuries');
+  assert.equal(afterOwnTeam.rows, beforeGame.rows + 1, 'our own team\'s revision must be counted');
+  assert.equal(afterOwnTeam.rows_now, beforeGame.rows_now + 1);
+
+  // The leak attempt: two OTHER real games, each getting injury revisions for
+  // the exact same season/week as GAME. Before the team-scoping fix, none of
+  // these had anything stopping them from matching GAME's season/week filter.
+  storeInjuryRevisionWithTeam('GSIS-CHI-1', 'CHI',
+    { publishedAt: '2026-09-19T13:00:00Z', observedAt: '2026-09-19T13:05:00Z' });
+  storeInjuryRevisionWithTeam('GSIS-DET-1', 'DET',
+    { publishedAt: '2026-09-19T13:10:00Z', observedAt: '2026-09-19T13:15:00Z' });
+  storeInjuryRevisionWithTeam('GSIS-SEA-1', 'SEA',
+    { publishedAt: '2026-09-19T13:20:00Z', observedAt: '2026-09-19T13:25:00Z' });
+  storeInjuryRevisionWithTeam('GSIS-SF-1', 'SF',
+    { publishedAt: '2026-09-19T13:30:00Z', observedAt: '2026-09-19T13:35:00Z' });
+
+  const afterLeakAttempt = sourceIn(freezeT60Packet(GAME), 'nfl_injuries');
+  assert.equal(afterLeakAttempt.rows, afterOwnTeam.rows,
+    'four other games\' teams just received injury revisions for this exact season/week — none of them may ' +
+    'count toward what ATL-CAR could have known');
+  assert.equal(afterLeakAttempt.rows_now, afterOwnTeam.rows_now,
+    'rows_now is computed inside the SAME team-filtered query as rows — an unrelated game\'s revision must be ' +
+    'invisible here entirely, not merely excluded from cutoff eligibility');
+
+  // And those four revisions are real, not silently lost — proving this is
+  // team-SCOPING, not a bug that happens to also drop the unrelated rows.
+  // Each belongs to its own game's packet, and only its own game's.
+  const afterU1 = sourceIn(freezeT60Packet(UNRELATED_1), 'nfl_injuries');
+  assert.equal(afterU1.rows_now, beforeU1.rows_now + 2,
+    'CHI-DET\'s own packet gains exactly its own two teams\' revisions');
+  const afterU2 = sourceIn(freezeT60Packet(UNRELATED_2), 'nfl_injuries');
+  assert.equal(afterU2.rows_now, beforeU2.rows_now + 2,
+    'SEA-SF\'s own packet gains exactly its own two teams\' revisions — not CHI-DET\'s, and not ATL-CAR\'s');
+});
+
+test('GIANT_PLAN §2.2 boundary: an unresolved-team revision (ni.team IS NULL) still counts here', () => {
+  // The LEFT JOIN exists ONLY to recover a team to filter on. When
+  // `nfl_injuries` itself has no team for a player — a real case: a snapshot
+  // taken during the player's bye week, or before a trade/signing resolved
+  // their team — the code explicitly keeps the row rather than dropping it:
+  // "the same permissive rule G22 already applied to nfl_news_events'
+  // nullable team" (GIANT_PLAN_BUILD_REPORT.md §2.2). This is the other half
+  // of the filter (`ni.team IS NULL OR ...`) that the leak test above does
+  // not exercise, and it must keep working even though the fix's whole point
+  // is to REJECT other teams — this one team value is explicitly not that.
+  const before = sourceIn(freezeT60Packet(GAME), 'nfl_injuries');
+
+  run(`INSERT INTO nfl_injuries (season,week,gsis_id,team,full_name,position,report_status,modified_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    GAME.season, GAME.week, 'GSIS-BYE-1', null, 'Bye Week Player', 'RB', 'Questionable', '2026-09-19T14:00:00Z');
+  recordRevision({ entity: `player:GSIS-BYE-1:${GAME.season}:${GAME.week}`, feature: 'injury_report',
+    value: { report_status: 'Questionable', practice_status: 'Limited', injury: 'Knee' },
+    publishedAt: '2026-09-19T14:00:00Z', observedAt: '2026-09-19T14:05:00Z',
+    provenance: 'captured', sourceId: 'nflverse_injuries',
+    entitySeason: GAME.season, entityWeek: GAME.week });
+
+  const after = sourceIn(freezeT60Packet(GAME), 'nfl_injuries');
+  assert.equal(after.rows_now, before.rows_now + 1,
+    'a revision whose matching nfl_injuries row has team IS NULL is retained, not dropped');
+  assert.equal(after.rows, before.rows + 1,
+    'it was observed before the cutoff, so it counts toward what this game\'s decision could have known');
+  assert.equal(after.claim, 'received_by_cutoff');
 });

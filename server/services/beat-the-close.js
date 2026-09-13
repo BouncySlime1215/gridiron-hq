@@ -27,7 +27,7 @@ import { teamEventVector } from './nfl-event-archive.js';
 import { currentNflWeek } from './weekly-learning.js';
 import { gameCutoff } from './game-cutoff.js';
 import { verifiedEventMarketLatency } from './nfl-news-market-latency.js';
-import { isFreshQuote } from './book-feeds.js';
+import { isFreshQuote, STALE_BOOK_HOURS } from './book-feeds.js';
 import { gameWeather, STADIUMS } from './nfl-weather.js';
 import { nfeloFeatures } from './nfelo.js';
 import { externalRatingsFeatures } from './nfl-external-ratings.js';
@@ -82,17 +82,68 @@ export function openerFor(season, week, home, away, market, names = teamNames())
   return live ? { line: live.line, at: live.at, source: 'free:pinnacle:first-capture' } : null;
 }
 
-/** Pinnacle's latest line at or before `before` (default now). */
+/**
+ * How close to kickoff a quote has to be to count as the real close, no
+ * caveats. Settlement (below) passes `before = kickoff`; a capture inside
+ * this window IS the close. Past it but inside STALE_BOOK_HOURS (book-feeds.js
+ * — the same bound the shopping board already uses for "the aggregator
+ * stopped tracking this book"), it is the best reachable stand-in, and is
+ * marked as one; past STALE_BOOK_HOURS there is no reachable line at all.
+ */
+const NEAR_KICKOFF_HOURS = 6;
+
+/**
+ * Pinnacle's line closest to `before` (settlement passes kickoff), tiered by
+ * how far that line actually sits from `before`:
+ *   1. a live `nfl_line_snapshots` capture within NEAR_KICKOFF_HOURS — the
+ *      real close, `is_fallback: false`.
+ *   2. the nearest live capture at or before `before` regardless of tier 1,
+ *      when it lands inside STALE_BOOK_HOURS instead — accepted, but
+ *      `is_fallback: true` with the actual gap recorded, since it stands in
+ *      for a close it is not.
+ *   3. failing that, the archive's `phase='close'` row, gated by the SAME
+ *      window against `before` rather than trusted on its label alone: on a
+ *      live week that row can be a one-time sync from days before kickoff —
+ *      verified against real 2026 week 1 data, every archived "close" row for
+ *      games not yet played sits 197-2,491 hours from its own kickoff, not a
+ *      closing line at all. It earns tier 1 or tier 2 on the same gap check a
+ *      live capture would, never a free pass.
+ * Beyond STALE_BOOK_HOURS in every tier: no reachable line — return null and
+ * let the caller keep waiting rather than settle against noise. A quote is
+ * never taken from after `before` — CLV must not leak in-game price action.
+ */
 export function pinnacleLineAt(season, week, home, away, market, before = null, names = teamNames()) {
-  const side = market === 'spreads' ? (names.get(home) ?? home) : 'Over';
+  const liveSide = market === 'spreads' ? (names.get(home) ?? home) : 'Over';
+  const archiveSide = market === 'spreads' ? home : 'Over';
   const live = row(`SELECT line, captured_at at FROM nfl_line_snapshots
     WHERE provider='free:pinnacle' AND market=? AND home_team=? AND away_team=? AND side=? ${before ? 'AND captured_at<=?' : ''}
-    ORDER BY captured_at DESC LIMIT 1`, ...[market, names.get(home) ?? home, names.get(away) ?? away, side, ...(before ? [before] : [])]);
-  if (live) return { line: live.line, at: live.at, source: 'free:pinnacle' };
+    ORDER BY captured_at DESC LIMIT 1`, ...[market, names.get(home) ?? home, names.get(away) ?? away, liveSide, ...(before ? [before] : [])]);
   const archived = row(`SELECT line, book_updated_at at FROM nfl_odds_archive
     WHERE season=? AND week=? AND home=? AND market=? AND side=? AND book='pinnacle' AND phase='close' LIMIT 1`,
-  season, week, home, market, market === 'spreads' ? home : 'Over');
-  return archived ? { line: archived.line, at: archived.at, source: 'archive:pinnacle:close' } : null;
+  season, week, home, market, archiveSide);
+
+  // A plain "what's the line right now" read (signalsFor's pinnacle_move_so_far,
+  // no `before`) has no kickoff to be near — keep the old, unflagged preference
+  // for a live capture over the archive, with no fallback bookkeeping.
+  if (!before) return live ? { line: live.line, at: live.at, source: 'free:pinnacle', is_fallback: false }
+    : archived ? { line: archived.line, at: archived.at, source: 'archive:pinnacle:close', is_fallback: false } : null;
+
+  const beforeMs = Date.parse(before);
+  const gapHours = at => Math.abs(beforeMs - Date.parse(at)) / 3.6e6;
+  const candidates = [];
+  if (live) candidates.push({ line: live.line, at: live.at, gap: gapHours(live.at), fromLive: true });
+  if (archived) candidates.push({ line: archived.line, at: archived.at, gap: gapHours(archived.at), fromLive: false });
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.gap - b.gap);
+  const best = candidates[0];
+  if (best.gap > STALE_BOOK_HOURS) return null; // nothing reachable close enough to trust — stay waiting.
+  const isFallback = best.gap > NEAR_KICKOFF_HOURS;
+  const source = best.fromLive
+    ? (isFallback ? 'free:pinnacle:fallback-window' : 'free:pinnacle')
+    : (isFallback ? 'archive:pinnacle:close:fallback' : 'archive:pinnacle:close');
+  return { line: best.line, at: best.at, source, is_fallback: isFallback,
+    ...(isFallback ? { fallback_reason: `no ${best.fromLive ? 'Pinnacle capture' : 'live Pinnacle capture; nearest source is an archived close row'} within `
+      + `${NEAR_KICKOFF_HOURS}h of kickoff; used the nearest available line, ${r3(best.gap)}h away` } : {}) };
 }
 
 /**
@@ -296,7 +347,9 @@ export function settleBeatTheClose({ now = new Date().toISOString() } = {}) {
       result = edge > 0 ? 'Won' : edge < 0 ? 'Lost' : 'Push';
     }
     run(`UPDATE shadow_decisions SET settled_at=?, clv_points=?, result=?, outcome_json=? WHERE id=?`,
-      now, r3(clv), result, JSON.stringify({ close_line: close.line, close_at: close.at, close_source: close.source, kickoff, stake_units: 0 }), d.id);
+      now, r3(clv), result, JSON.stringify({ close_line: close.line, close_at: close.at, close_source: close.source,
+        close_is_fallback: close.is_fallback === true, close_fallback_reason: close.fallback_reason ?? null,
+        kickoff, stake_units: 0 }), d.id);
     settled++;
   }
   return { version: BEAT_THE_CLOSE_VERSION, settled, waiting };
@@ -326,11 +379,16 @@ function cleanDecisions({ signal = null, throughSeason = null, throughWeek = nul
   if (signal) { filters.push('model_version=?'); params.push(`${BEAT_THE_CLOSE_VERSION}:${signal}`); }
   if (throughSeason != null) { filters.push('(season < ? OR (season = ? AND week <= ?))'); params.push(throughSeason, throughSeason, throughWeek); }
   const decisions = rows(`SELECT id, season, week, home_team, away_team, market, selection, model_version, line, american_price, quote_at,
-      captured_at, settled_at, result, clv_points, feature_snapshot_json FROM shadow_decisions
+      captured_at, settled_at, result, clv_points, feature_snapshot_json, outcome_json FROM shadow_decisions
     WHERE ${filters.join(' AND ')} ORDER BY captured_at DESC`, ...params);
   for (const d of decisions) {
     try { d.feature = JSON.parse(d.feature_snapshot_json || '{}'); } catch { d.feature = {}; }
+    let outcome = {}; try { outcome = JSON.parse(d.outcome_json || '{}'); } catch { /* leave empty */ }
     d.stale_price = d.feature.stale_price_at_decision === true;
+    // Never let a fallback close quote (see pinnacleLineAt) read as an ordinary
+    // settlement — carry the flag through to every consumer of this list.
+    d.close_is_fallback = outcome.close_is_fallback === true;
+    d.close_fallback_reason = outcome.close_fallback_reason ?? null;
   }
   const clean = decisions.filter(d => !d.stale_price);
   return { all: decisions, clean, excludedStale: decisions.length - clean.length };
@@ -366,7 +424,7 @@ export function beatTheCloseStatus() {
     excluded_stale: excludedStale,
     excluded_stale_rule: 'decisions whose chosen quote was stamped more than STALE_BOOK_HOURS before the board are kept as rows but excluded from every read above',
     event_to_move_window: window ? { ...window, examples: window.examples?.slice(0, 8) } : null,
-    decisions: decisions.slice(0, 60).map(d => ({ ...d, feature_snapshot_json: undefined })),
+    decisions: decisions.slice(0, 60).map(d => ({ ...d, feature_snapshot_json: undefined, outcome_json: undefined })),
     snapshots, latest_signals: latestSignals,
     gate: 'Phase 3: ≥ 200 settled decisions with a week-clustered CLV interval above zero; a signal whose live CLV interval sits below zero two weeks running is retired. Stake stays 0.',
     authority: 'shadow only; no staking authority' };

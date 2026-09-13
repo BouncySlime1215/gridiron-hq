@@ -320,7 +320,7 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
   // revision and are invisible here until the affected weeks are re-synced --
   // see PIPELINE_REPORT.md.
   //
-  // MERGE NOTE (integration, G22 x Giant Plan 8.14): the entity-suffix filter
+  // MERGE NOTE (integration, G22 x Giant Plan 8.14): the season/week filter
   // below only scopes by season/week, same as the pre-G22 `nfl_injuries` read
   // this replaces — without a team filter this game's packet would absorb
   // every OTHER game's injury revisions for the same week too, the identical
@@ -337,7 +337,14 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
   // the evidence rather than silently drops it" rule G22 already applied to
   // nfl_news_events below. No test in this repo yet exercises the team-
   // scoping of this specific (bitemporal) path — flagged for review.
-  const injurySuffix = `:${season}:${week}`;
+  //
+  // entity_season/entity_week (migration 050) replace a `fr.entity LIKE '%' ||
+  // ':season:week'` here: a leading-wildcard LIKE can't use a btree index --
+  // EXPLAIN QUERY PLAN confirmed a `SCAN fr` -- and this runs on the live
+  // tier's synchronous path (t60-runner.js -> freezeT60Packet). recordRevision
+  // populates both columns explicitly for week-scoped features going forward;
+  // nothing backfills them for older rows (see the migration's own note),
+  // which is a non-issue today since the table holds 0 production rows.
   const injuries = rows(`SELECT
       SUM(CASE WHEN fr.observed_at <= ? THEN 1 ELSE 0 END) by_cutoff,
       COUNT(*) total,
@@ -346,9 +353,9 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
     FROM nfl_feature_revisions fr
     LEFT JOIN nfl_injuries ni
       ON ni.gsis_id || ':' || ni.season || ':' || ni.week = substr(fr.entity, 8)
-    WHERE fr.feature = 'injury_report' AND fr.entity LIKE '%' || ?
+    WHERE fr.feature = 'injury_report' AND fr.entity_season = ? AND fr.entity_week = ?
       AND (ni.team IS NULL OR ni.team IN (?, ?))`,
-  cutoffAt, cutoffAt, injurySuffix, homeCode, awayCode)[0];
+  cutoffAt, cutoffAt, season, week, homeCode, awayCode)[0];
   entries.push(sourceEntry({ source: 'nfl_injuries',
     rowsByCutoff: injuries?.by_cutoff ?? 0, rowsTotal: injuries?.total ?? 0,
     receivedAt: injuries?.received_by_cutoff ?? injuries?.received_ever ?? null, cutoffAt,

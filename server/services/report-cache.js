@@ -21,7 +21,7 @@
  * "no model rebuild, data sync, or full-table hash on a read request."
  */
 import { Worker } from 'node:worker_threads';
-import { rows, run } from '../db/index.js';
+import { rows, run, db } from '../db/index.js';
 import { fingerprint } from './compute-cache.js';
 
 /**
@@ -78,6 +78,30 @@ function currentFingerprint(name) {
 
 const inflight = new Map();
 
+/**
+ * Reclaim WAL space right after a report worker's connection has closed --
+ * the one moment we know for certain nothing on the growth tier is still
+ * holding a multi-second read open on this file. `journal_mode=WAL`'s own
+ * automatic checkpoint never truncates the -wal file's on-disk size even
+ * when it fully succeeds (only TRUNCATE/RESTART mode does), so without this
+ * the file is a high-water mark of whatever the busiest overlap ever
+ * reached and only grows -- see db/index.js's journal_size_limit comment.
+ *
+ * A short, dedicated busy_timeout: this runs on the main thread between
+ * requests, and the shared connection's normal 15s timeout would be a real
+ * stall if another report's worker (serveReport's on-demand refresh can run
+ * concurrently with the scheduled sweep) is still mid-query. Best-effort --
+ * a busy/blocked attempt here just waits for the next report's own exit.
+ */
+function reclaimWal() {
+  const restoreTo = db.prepare('PRAGMA busy_timeout').get()?.timeout ?? 15000;
+  try {
+    db.exec('PRAGMA busy_timeout = 250');
+    db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+  } catch { /* another connection is busy right now; the next report's exit will try again */ }
+  finally { db.exec(`PRAGMA busy_timeout = ${restoreTo}`); }
+}
+
 /** Stored answer, never computed here. */
 export function serveReport(name, { refreshIfStale = true } = {}) {
   const spec = REPORTS[name];
@@ -121,7 +145,10 @@ export function refreshReport(name, { force = false } = {}) {
     };
     worker.once('message', msg => finish(msg.error ? null : msg.value, msg.error ?? null));
     worker.once('error', err => finish(null, err.message));
-    worker.once('exit', code => { if (inflight.has(name)) finish(null, `worker exited with code ${code}`); });
+    worker.once('exit', code => {
+      if (inflight.has(name)) finish(null, `worker exited with code ${code}`);
+      reclaimWal();
+    });
     worker.unref();
   });
   inflight.set(name, job);

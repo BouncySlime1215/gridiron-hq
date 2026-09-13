@@ -55,9 +55,16 @@ const iso = value => {
  * Record one revision. Recording the same revision twice is a no-op, not a
  * second observation: re-reading an unchanged feed must not look like the
  * source said it again.
+ *
+ * `entitySeason`/`entityWeek` are optional: most features are not week-
+ * scoped, and this store treats `entity` as an opaque key for them. A caller
+ * that IS recording something tied to one game week (the injury sync is the
+ * first) should pass both, so a reader can filter on them directly instead
+ * of a leading-wildcard LIKE against `entity` -- see migration 050 and
+ * nfl-t60-packet.js's injury read, the query that scan cost.
  */
 export function recordRevision({ entity, feature, value, publishedAt, observedAt = new Date().toISOString(),
-  validFrom = null, provenance, sourceId }) {
+  validFrom = null, provenance, sourceId, entitySeason = null, entityWeek = null }) {
   if (!entity || !feature) throw new Error('entity and feature are required');
   if (!PROVENANCE[provenance]) throw new Error(`unknown provenance: ${provenance}`);
   if (!sourceId) throw new Error('sourceId is required; an unattributed fact is not evidence');
@@ -73,10 +80,10 @@ export function recordRevision({ entity, feature, value, publishedAt, observedAt
     .update([rawHash, observed, provenance].join('|')).digest('hex').slice(0, 32);
   run(`INSERT OR IGNORE INTO nfl_feature_revisions
     (revision_id,entity,feature,valid_from,published_at,observed_at,provenance,source_id,
-     value_json,raw_hash,version,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+     value_json,raw_hash,version,created_at,entity_season,entity_week)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   revisionId, entity, feature, iso(validFrom), published, observed, provenance, sourceId,
-  valueJson, rawHash, BITEMPORAL_VERSION, new Date().toISOString());
+  valueJson, rawHash, BITEMPORAL_VERSION, new Date().toISOString(), entitySeason, entityWeek);
   return { revision_id: revisionId, entity, feature, published_at: published, observed_at: observed, provenance };
 }
 

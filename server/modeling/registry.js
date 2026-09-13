@@ -1,4 +1,5 @@
 import { configurationHash } from './contracts.js';
+import { governedComparison, GOVERNED_COMPARISON_VERSION } from './governed-comparison.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'archived']);
 const REQUIRED_GATES = ['schema', 'leakage', 'data_quality', 'baseline_improvement', 'tests'];
@@ -13,6 +14,15 @@ function assertPromotable(candidate) {
   const gates = candidate.result?.gates ?? {};
   for (const gate of REQUIRED_GATES) {
     if (gates[gate] !== true) throw new Error(`promotion blocked: ${gate} gate failed`);
+  }
+  // A governed comparison, once attached, OUTRANKS the gate flag beside it.
+  // `baseline_improvement` was previously a boolean anyone writing a result
+  // could assert, which is the whole reason a challenger could be promoted on
+  // its own say-so. It cannot now be set true over a comparison that says
+  // otherwise: the statistics win, and the disagreement is named in the error.
+  const comparison = candidate.result?.comparison;
+  if (comparison && comparison.verdict !== 'promote') {
+    throw new Error(`promotion blocked: governed comparison verdict '${comparison.verdict}' — ${comparison.reason}`);
   }
 }
 
@@ -44,7 +54,79 @@ export class ModelRegistry {
     return this.transition(id, 'cancelling', { cancellation_requested: true });
   }
 
-  compare(ids) { return ids.map(id => this.store.get(id)).filter(Boolean); }
+  /**
+   * Fetch experiments AND say, with statistics, whether any of them beats the
+   * first one. Every candidate is compared against `baseline` (the first id by
+   * default), so the answer does not depend on which order a caller listed them.
+   *
+   * An experiment carries the evidence for this in
+   * `result.losses` — `{metricName: number[]}`, lower-is-better, one entry per
+   * held-out observation, aligned across experiments — and optionally
+   * `result.groups`, one cluster key per observation. Experiments without
+   * `result.losses` are still returned; they simply cannot be compared, and the
+   * reason is reported rather than silently omitted.
+   *
+   * The previous implementation of this method was `ids.map(...).filter(Boolean)`
+   * with no statistics of any kind, which is why every challenge this project
+   * has run so far graded its own homework.
+   */
+  compare(ids, { baseline = null, primaryMetric = null, ...options } = {}) {
+    const experiments = ids.map(id => this.store.get(id)).filter(Boolean);
+    const baselineId = baseline ?? experiments[0]?.id ?? null;
+    const incumbent = experiments.find(e => e.id === baselineId) ?? null;
+
+    const comparisons = experiments
+      .filter(e => e.id !== baselineId)
+      .map(candidate => {
+        const why = comparabilityError(incumbent, candidate);
+        if (why) return { challenger: candidate.id, incumbent: baselineId, comparable: false, reason: why };
+        return {
+          challenger: candidate.id, incumbent: baselineId, comparable: true,
+          ...governedComparison({
+            incumbent: { label: baselineId, losses: incumbent.result.losses },
+            challenger: { label: candidate.id, losses: candidate.result.losses },
+            groups: candidate.result.groups ?? incumbent.result.groups ?? null,
+            primaryMetric, ...options
+          })
+        };
+      });
+
+    return {
+      experiments, baseline: baselineId, primary_metric: primaryMetric,
+      comparison_version: GOVERNED_COMPARISON_VERSION, comparisons,
+      promotable: comparisons.filter(c => c.comparable && c.verdict === 'promote').map(c => c.challenger)
+    };
+  }
+
+  /**
+   * Run the governed comparison and WRITE its verdict onto the challenger, so
+   * `baseline_improvement` becomes a derived fact rather than an assertion.
+   *
+   * This is the wiring that matters. `assertPromotable` already refuses to
+   * promote over a comparison whose verdict is not 'promote'; this is how a
+   * comparison gets attached in the first place, and it sets the gate from the
+   * verdict rather than trusting whatever the result arrived with.
+   */
+  challenge(challengerId, { against, primaryMetric = null, ...options } = {}) {
+    const challenger = this.store.get(challengerId);
+    if (!challenger) throw new Error('challenger not found');
+    const incumbent = this.store.get(against);
+    if (!incumbent) throw new Error('incumbent not found');
+    const why = comparabilityError(incumbent, challenger);
+    if (why) throw new Error(`cannot run a governed comparison: ${why}`);
+
+    const comparison = governedComparison({
+      incumbent: { label: incumbent.id, losses: incumbent.result.losses },
+      challenger: { label: challenger.id, losses: challenger.result.losses },
+      groups: challenger.result.groups ?? incumbent.result.groups ?? null,
+      primaryMetric, ...options
+    });
+
+    const result = { ...challenger.result, comparison,
+      gates: { ...(challenger.result?.gates ?? {}), baseline_improvement: comparison.verdict === 'promote' } };
+    this.store.update(challengerId, { result, updated_at: new Date().toISOString() });
+    return comparison;
+  }
 
   promote(id, actor) {
     if (!can(actor, 'model:promote')) throw new Error('forbidden: model:promote required');
@@ -62,6 +144,17 @@ export class ModelRegistry {
     return this.store.atomicPromote(versionId, { action: 'rollback', gates: candidate.result.gates,
       rolled_back_by: actor.id, promoted_at: new Date().toISOString() });
   }
+}
+
+/** Why two experiments cannot be compared, or null when they can. */
+function comparabilityError(incumbent, candidate) {
+  if (!incumbent) return 'baseline experiment not found';
+  if (!incumbent.result?.losses) return 'baseline carries no result.losses to compare against';
+  if (!candidate.result?.losses) return 'challenger carries no result.losses';
+  const shared = Object.keys(incumbent.result.losses)
+    .filter(m => Array.isArray(candidate.result.losses[m]));
+  if (!shared.length) return 'no metric is present on both experiments';
+  return null;
 }
 
 export class MemoryModelStore {

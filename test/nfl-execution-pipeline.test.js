@@ -77,6 +77,68 @@ test('resolveQuoteBasis: prefers the real multi-book quote tape when this event 
   assert.equal(basis.quote.price, -120, 'latest usable quote, not the first poll');
 });
 
+test('resolveQuoteBasis: the kickoff lookup is an indexed range, not a full scan of the quote tape (regression: date-boundary fix)', () => {
+  // Six independent build reports across 2026-09-13 documented this exact
+  // test file's own `resolveQuoteBasis` test as a persistent, never-diagnosed
+  // failure ("actual: undefined" where 'quote_tape' was expected). The one
+  // concrete, still-present defect this investigation found in the matching
+  // logic itself -- as opposed to the already-fixed (commit fcf7e1f)
+  // unpinned-decisionAt issue this exact test used to carry -- is that the
+  // provider-event lookup wrapped `commence_time` in `julianday()` for an
+  // exact-equality match. Migration 029 and nfl-t60-packet.js's own C11 fix
+  // already established that this makes every index on the column unusable,
+  // forcing a full scan of a table that holds 1.3M+ rows in production; see
+  // date-util.js's `instantSpellingRange` for the shared, indexable
+  // replacement this file now uses. This locks the corrected shape in place
+  // the same way nfl-t60-packet.test.js's own "the corrected predicate is
+  // indexed" test does for its sibling query -- so a future edit that
+  // reaches back for `julianday(...)=julianday(?)` fails loudly here instead
+  // of silently reintroducing a full-table-scan-on-every-decision regression.
+  const plan = db.prepare(`EXPLAIN QUERY PLAN
+    SELECT DISTINCT provider,provider_event_id,home_team,away_team
+    FROM nfl_quote_tape WHERE commence_time>=? AND commence_time<?`)
+    .all('2026-09-13T17:00:00.000Z', '2026-09-13T17:00:01.000Z');
+  const detail = plan.map(step => step.detail).join(' | ');
+  assert.match(detail, /USING INDEX/, `the kickoff lookup must use an index — plan was: ${detail}`);
+  assert.doesNotMatch(detail, /SCAN nfl_quote_tape\b(?!.*USING)/,
+    `nfl_quote_tape must not be table-scanned by the kickoff lookup — plan was: ${detail}`);
+});
+
+test('resolveQuoteBasis: the kickoff match is inclusive of the exact instant, spelling-agnostic within that second, and never bleeds into an adjacent second', () => {
+  const kickoffIso = '2026-09-06T18:00:00Z'; // a kickoff no other test in this file touches
+  const eventPayload = (id, commenceTime) => ([{ id, commence_time: commenceTime,
+    home_team: 'Kansas City Chiefs', away_team: 'Baltimore Ravens',
+    bookmakers: [{ key: 'draftkings', title: 'DraftKings', markets: [{ key: 'spreads', last_update: '2026-09-05T10:00:00Z',
+      outcomes: [{ name: 'Kansas City Chiefs', point: -3.5, price: -110 }, { name: 'Baltimore Ravens', point: 3.5, price: -110 }] }] }] }]);
+
+  // The exact kickoff instant, spelled WITH an explicit millisecond
+  // component -- exactly what `contract.kickoff` itself always looks like
+  // (`Date#toISOString()` always includes milliseconds), unlike the bare 'Z'
+  // spelling every other event in this file ingests. Must still match.
+  ingestQuoteSnapshot(eventPayload('exact-instant-ms-spelled', '2026-09-06T18:00:00.000Z'),
+    { requestedAt: '2026-09-05T10:00:05Z', sourceRef: 'boundary_exact' });
+  // One millisecond BEFORE the window: inclusive start must not leak backward.
+  ingestQuoteSnapshot(eventPayload('one-ms-early', '2026-09-06T17:59:59.999Z'),
+    { requestedAt: '2026-09-05T10:00:06Z', sourceRef: 'boundary_early' });
+  // Exactly one second AFTER kickoff -- a genuinely different instant:
+  // exclusive end must not leak forward.
+  ingestQuoteSnapshot(eventPayload('one-second-late', '2026-09-06T18:00:01.000Z'),
+    { requestedAt: '2026-09-05T10:00:07Z', sourceRef: 'boundary_late' });
+
+  const contract = contractKey({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
+    commenceTime: kickoffIso, market: 'spreads', side: 'home', line: -3.5 });
+  const candidate = { book: 'draftkings', american_price: -110, quote_at: '2026-09-05T09:00:00Z' };
+  const basis = resolveQuoteBasis(candidate, contract, { decisionAt: '2026-09-05T10:00:10Z' });
+  // If either boundary leaked, two or three of these rows would resolve to
+  // the same commence_time window and this would fail loudly as
+  // 'ambiguous_provider_event' (basis.provenance undefined) rather than
+  // silently picking the wrong one.
+  assert.equal(basis.provenance, 'quote_tape',
+    'the millisecond-spelled row at the exact kickoff instant must be found');
+  assert.equal(basis.provider_event_id, 'exact-instant-ms-spelled',
+    'neither the one-ms-early nor the one-second-late row may be mistaken for this kickoff');
+});
+
 test('resolveQuoteBasis: falls back to the decision board\'s own single captured price when the tape has nothing for this event, and labels it as a single sample', () => {
   const contract = contractKey({ homeTeam: 'Kansas City Chiefs', awayTeam: 'Baltimore Ravens',
     commenceTime: '2026-11-01T18:00:00Z', market: 'spreads', side: 'home', line: -2.5 }); // an event the tape never saw

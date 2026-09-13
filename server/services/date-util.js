@@ -48,3 +48,36 @@ export function zonedDateTime(date, time = '12:00', timeZone = 'America/New_York
 export function nflKickoffDate(gameday, gametime = '23:59') {
   return zonedDateTime(gameday, gametime, 'America/New_York');
 }
+
+/**
+ * The half-open `[from, to)` string range that matches every ISO-8601
+ * spelling of one exact whole-second instant in a TEXT column -- with or
+ * without a fractional-seconds component -- WITHOUT wrapping that column in a
+ * SQL function.
+ *
+ * `nfl_quote_tape.commence_time` holds both "...:00Z" (as sent verbatim by
+ * most feeds) and "...:00.000Z" (round-tripped through `Date#toISOString()`,
+ * which every kickoff computed in this codebase is). The obvious join --
+ * `julianday(commence_time) = julianday(?)` -- treats both spellings as the
+ * same instant correctly, but wrapping the column in `julianday()` makes
+ * every index on it unusable, forcing a full scan of the whole table on
+ * every call. Migration 029 and `nfl-t60-packet.js` already fixed exactly
+ * this for the T-60 evidence packet's own kickoff lookup by comparing the
+ * raw column against a one-second range instead; this is that same fix,
+ * shared, so every other caller matching this column gets the identical
+ * correct-and-indexable behavior rather than a second, easy-to-forget copy
+ * of the reasoning.
+ *
+ * Half-open and one second wide because every kickoff this project computes
+ * lands on a whole second (`nflKickoffDate`/`zonedDateTime` never produce
+ * fractional seconds, and `contractKey()`'s own `kickoff` field is always
+ * `new Date(...).toISOString()`) -- so `[T.000Z, (T+1s).000Z)` is exactly
+ * "this whole second, spelled any way," and never reaches into the next one.
+ * Returns `null` for an unparsable instant rather than a range that would
+ * silently match nothing (or, worse, everything).
+ */
+export function instantSpellingRange(instant) {
+  const at = new Date(instant).getTime();
+  if (!Number.isFinite(at)) return null;
+  return { from: new Date(at).toISOString(), to: new Date(at + 1000).toISOString() };
+}

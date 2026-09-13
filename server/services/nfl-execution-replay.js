@@ -69,6 +69,7 @@
 import { rows } from '../db/index.js';
 import { breakEvenRate } from './nfl-execution.js';
 import { executionTime } from './nfl-execution-validation.js';
+import { instantSpellingRange } from './date-util.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const iso = v => new Date(v).toISOString();
@@ -352,7 +353,18 @@ export function timelineFromQuoteTape({ providerEventId, market, sideKey, book, 
   const args = [providerEventId, market, book];
   const filters = ['q.provider_event_id=?', 'q.market=?', 'q.bookmaker_key=?'];
   if (provider) { filters.push('q.provider=?'); args.push(provider); }
-  if (commenceTime) { filters.push('julianday(q.commence_time)=julianday(?)'); args.push(commenceTime); }
+  // Codex date-boundary fix: same function-wrapped-column mistake as
+  // resolveQuoteBasis's own kickoff lookup (see date-util.js's
+  // `instantSpellingRange` for the full rationale) -- an unindexable exact
+  // match on a computed `julianday()` value, replaced with the same
+  // half-open one-second range already established by migration 029 and
+  // nfl-t60-packet.js for this exact column. A `commenceTime` that fails to
+  // parse matches nothing, rather than silently matching every row.
+  if (commenceTime) {
+    const window = instantSpellingRange(commenceTime);
+    filters.push(window ? 'q.commence_time>=? AND q.commence_time<?' : '0');
+    if (window) args.push(window.from, window.to);
+  }
   if (period) { filters.push('q.period=?'); args.push(period); }
   if (mode) { filters.push('b.mode=?'); args.push(mode); }
   const records = rows(`SELECT q.quote_id,q.batch_id,q.snapshot_at,q.book_updated_at,

@@ -7,7 +7,7 @@
 import { row, rows } from '../db/index.js';
 import { contractKey } from './nfl-contract-key.js';
 import { teamResolver } from './team-codes.js';
-import { nflKickoffDate } from './date-util.js';
+import { nflKickoffDate, instantSpellingRange } from './date-util.js';
 import { autoPickDecisionBoard } from './nfl-auto-picks.js';
 import { recordDecisionRun, findDecisionEvent } from './nfl-decision-tape.js';
 import { NFL_PRODUCTION_POLICY } from './nfl-policy.js';
@@ -44,8 +44,18 @@ function resolveQuoteBasis(candidate, contract, { decisionAt = new Date().toISOS
   const decisionTime = executionTime(decisionAt);
   if (!Number.isFinite(decisionTime) || typeof candidate.book !== 'string' || !candidate.book.trim()) return null;
   const resolve = teamResolver();
-  const matches = rows(`SELECT DISTINCT provider,provider_event_id,home_team,away_team
-    FROM nfl_quote_tape WHERE julianday(commence_time)=julianday(?)`, contract.kickoff)
+  // Codex date-boundary fix: `julianday(commence_time)=julianday(?)` wraps the
+  // column in a function, which makes every index on it unusable -- a full
+  // scan of the whole (1.3M+ row, in production) quote tape on every call.
+  // Migration 029 and nfl-t60-packet.js already fixed this exact problem for
+  // the T-60 packet's own kickoff lookup; `instantSpellingRange` is that same
+  // fix, shared, so this call site gets the identical indexable, spelling-
+  // agnostic match instead of a second copy of the reasoning (or a second
+  // copy of the mistake). See date-util.js for the inclusive-start/exclusive-
+  // end/one-second-wide rationale.
+  const kickoffWindow = instantSpellingRange(contract.kickoff);
+  const matches = !kickoffWindow ? [] : rows(`SELECT DISTINCT provider,provider_event_id,home_team,away_team
+    FROM nfl_quote_tape WHERE commence_time>=? AND commence_time<?`, kickoffWindow.from, kickoffWindow.to)
     .filter(e => resolve(e.home_team)?.abbr === contract.home && resolve(e.away_team)?.abbr === contract.away);
   const identities = new Map(matches.map(e => [`${e.provider}|${e.provider_event_id}`, e]));
   if (identities.size > 1) return { error: 'ambiguous_provider_event' };

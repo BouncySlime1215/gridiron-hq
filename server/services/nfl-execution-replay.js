@@ -355,13 +355,13 @@ export function timelineFromQuoteTape({ providerEventId, market, sideKey, book, 
   if (commenceTime) { filters.push('julianday(q.commence_time)=julianday(?)'); args.push(commenceTime); }
   if (period) { filters.push('q.period=?'); args.push(period); }
   if (mode) { filters.push('b.mode=?'); args.push(mode); }
-  const records = rows(`SELECT q.quote_id,q.batch_id,q.snapshot_at,q.book_updated_at,q.created_at,
-      q.side_key,q.line,q.american_price,b.requested_at,b.mode
+  const records = rows(`SELECT q.quote_id,q.batch_id,q.snapshot_at,q.book_updated_at,
+      q.side_key,q.line,q.american_price,b.requested_at,b.received_at,b.mode
     FROM nfl_quote_tape q JOIN nfl_quote_batches b ON b.batch_id=q.batch_id
     WHERE ${filters.join(' AND ')} ORDER BY q.snapshot_at,q.quote_id`, ...args);
   const batches = new Map();
   for (const q of records) {
-    const receipt = Math.max(executionTime(q.created_at), executionTime(q.requested_at), executionTime(q.snapshot_at));
+    const receipt = Math.max(executionTime(q.received_at), executionTime(q.requested_at), executionTime(q.snapshot_at));
     const at = clock === 'received' ? receipt : executionTime(q.snapshot_at);
     if (!Number.isFinite(at)) continue;
     const batch = batches.get(q.batch_id) ?? { at, quotes: [] };
@@ -377,7 +377,7 @@ export function timelineFromQuoteTape({ providerEventId, market, sideKey, book, 
     const terms = new Set(batch.quotes.map(q => `${q.line}|${q.american_price}`));
     if (terms.size !== 1) { timeline.push({ ...common, type: 'ambiguous' }); continue; }
     const q = batch.quotes[0];
-    const receivedAt = Math.max(executionTime(q.created_at), executionTime(q.requested_at), executionTime(q.snapshot_at));
+    const receivedAt = Math.max(executionTime(q.received_at), executionTime(q.requested_at), executionTime(q.snapshot_at));
     timeline.push({ ...common, type: 'quote', price: q.american_price, line: q.line,
       quote_id: q.quote_id, source_snapshot_at: q.snapshot_at, book_updated_at: q.book_updated_at,
       received_at: Number.isFinite(receivedAt) ? new Date(receivedAt).toISOString() : null,

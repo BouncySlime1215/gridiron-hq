@@ -130,7 +130,7 @@ test('late received and historical backfilled quotes do not become live decision
   ingest('2026-09-12T10:00:00Z', { historical: true, receivedAt: '2026-09-12T10:08:00Z' });
   assert.equal(resolve().error, 'no_compatible_quote_history');
   assert.equal(resolve(-3.5, { allowHistorical: true }).provenance, 'quote_tape_historical_diagnostic');
-  mutateFixture("UPDATE nfl_quote_tape SET created_at='unknown'");
+  mutateFixture("UPDATE nfl_quote_batches SET received_at='unknown'");
   assert.equal(resolve(-3.5, { allowHistorical: true }).quote.received_at, null, 'unknown receipt must not throw or become prospective evidence');
 });
 

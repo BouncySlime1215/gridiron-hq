@@ -31,6 +31,7 @@ import { gamePlayerAvailability } from './nfl-player-value.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
 import { rosterStrengthWeek } from './nfl-roster-strength.js';
 import { signalReliabilityFor } from './nfl-signal-reliability.js';
+import { buildConformal } from './conformal.js';
 
 const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to be the modern game
 const EVAL_FROM = 2022;    // frozen calibration boundary retained for the established ensemble
@@ -275,51 +276,108 @@ function dynamicStrength(hist) {
 }
 
 /**
- * Empirical predictive distribution around the point forecast. Residual shape
- * comes only from games completed before the target week. Similar spread/total
- * environments are preferred when at least 120 prior games exist.
+ * Mondrian bins for the ensemble's conformal interval (Giant Plan 7.3, fix #18).
+ * Bucketed on the market's |spread| — the one pre-kickoff feature that actually
+ * sorts games by how variable their margin turns out to be.
  */
-function predictiveDistribution(hist, { margin, total, homeSpread, marketTotal, disagreement }) {
+const ENSEMBLE_SPREAD_BINS = [3, 6.5, 10];
+const ENSEMBLE_TOTAL_BINS = [44, 48];
+const ENSEMBLE_MIN_BIN = 150;
+const ENSEMBLE_MIN_CALIBRATION = 200;
+
+/**
+ * Split-conformal predictive distribution around the point forecast.
+ *
+ * What this replaces, and why. The previous version pooled every residual in
+ * history, re-centred them on their own median, and then multiplied the spread
+ * of that pool by `1 + min(0.25, disagreement / 30)`. Two separate problems:
+ *
+ *   1. The pool was effectively unconditional. A "similar environment" cohort
+ *      was attempted (|spread| within 2.5 and total within 6) but it fell back
+ *      to all history whenever fewer than 120 comparable games existed, and the
+ *      fallback is the common case early in a season — so most games got one
+ *      global residual shape, the same defect fix #15 names in nfl-market.js.
+ *   2. `disagreement / 30` has no derivation. Thirty is not a measured quantity;
+ *      the multiplier was a plausible-looking knob, and a knob that widens an
+ *      interval without a coverage argument cannot make it better calibrated —
+ *      it can only make it wider, which is not the same thing. That is exactly
+ *      why this function has always carried `production_eligible: false`.
+ *
+ * What replaces it is a split-conformal interval, Mondrian-binned by the
+ * market's spread bucket. The residual pool is the same one this function
+ * already used (actual margin minus the market's margin, from games completed
+ * strictly before this one), but the interval is now the bin's own
+ * ceil((n+1)·level) order statistic of |residual| — a finite-sample coverage
+ * statement rather than a shape assumption plus a fudge factor.
+ *
+ * `production_eligible` deliberately stays false. A better mechanism is not a
+ * promotion; that decision belongs to the promotion gate in staking.js, on
+ * forward-settled evidence, not to the function describing itself.
+ */
+export function predictiveDistribution(hist, { margin, total, homeSpread, marketTotal, disagreement }) {
   if (margin == null) return null;
   const all = hist.filter(x => x.home_spread != null).map(x => ({
     spread: x.home_spread, total: x.total,
     margin_residual: (x.home_score - x.away_score) - (-x.home_spread),
     total_residual: x.total == null ? null : (x.home_score + x.away_score) - x.total
   }));
-  let conditional = all.filter(x => homeSpread != null && Math.abs(Math.abs(x.spread) - Math.abs(homeSpread)) <= 2.5 &&
-    (marketTotal == null || x.total == null || Math.abs(x.total - marketTotal) <= 6));
-  const cohort = conditional.length >= 120 ? conditional : all;
-  if (cohort.length < 100) return null;
-  const marginResiduals = cohort.map(x => x.margin_residual);
-  const residualMedian = quantile(marginResiduals, 0.5) ?? 0;
-  const inflation = 1 + Math.min(0.25, Math.max(0, disagreement ?? 0) / 30);
-  const marginSamples = marginResiduals.map(x => Math.round(margin + (x - residualMedian) * inflation));
-  const grade = marginSamples.map(x => homeSpread == null ? null : Math.sign(x + homeSpread));
-  // The moneyline call is the same margin samples graded at a threshold of zero
-  // instead of the spread line. It is deliberately NOT a second, independently
-  // fitted distribution: home winning outright and home covering a spread are
-  // both just thresholds on one shared margin distribution, so deriving both
-  // from marginSamples is what keeps them arithmetically unable to disagree.
+  if (all.length < ENSEMBLE_MIN_CALIBRATION) return null;
+
+  // Centre the calibration set the same way the point forecast is centred, so
+  // the residuals being quantiled are residuals of THIS forecast and not of a
+  // systematically different one.
+  const marginCentre = quantile(all.map(x => x.margin_residual), 0.5) ?? 0;
+  const marginCal = buildConformal(
+    all.map(x => ({ key: Math.abs(x.spread), residual: x.margin_residual - marginCentre })),
+    { edges: ENSEMBLE_SPREAD_BINS, minBin: ENSEMBLE_MIN_BIN });
+
+  const totalRows = all.filter(x => Number.isFinite(x.total_residual) && x.total != null);
+  const totalCentre = totalRows.length ? (quantile(totalRows.map(x => x.total_residual), 0.5) ?? 0) : 0;
+  const totalCal = totalRows.length >= ENSEMBLE_MIN_CALIBRATION
+    ? buildConformal(totalRows.map(x => ({ key: x.total, residual: x.total_residual - totalCentre })),
+      { edges: ENSEMBLE_TOTAL_BINS, minBin: ENSEMBLE_MIN_BIN })
+    : null;
+
+  // The bin's own residual sample, applied to this game's point forecast. Every
+  // probability below is a threshold read on this one sample, which is what
+  // keeps cover, win and push arithmetically unable to contradict each other.
+  const marginKey = homeSpread == null ? Math.abs(margin) : Math.abs(homeSpread);
+  const binResiduals = marginCal.residualsFor(marginKey);
+  const marginSamples = binResiduals.map(x => Math.round(margin + x));
+  const grade = marginSamples.map(x => (homeSpread == null ? null : Math.sign(x + homeSpread)));
   const winGrade = marginSamples.map(x => Math.sign(x));
-  const totalResiduals = cohort.map(x => x.total_residual).filter(Number.isFinite);
-  const totalMedian = quantile(totalResiduals, 0.5) ?? 0;
-  const totalSamples = total == null ? [] : totalResiduals.map(x => Math.round(total + (x - totalMedian)));
+
+  const totalKey = marketTotal ?? total;
+  const totalSamples = total == null || !totalCal ? []
+    : totalCal.residualsFor(totalKey).map(x => Math.round(total + x));
+
   const q = values => ({
     p10: r2(quantile(values, 0.10)), p25: r2(quantile(values, 0.25)),
     p50: r2(quantile(values, 0.50)), p75: r2(quantile(values, 0.75)), p90: r2(quantile(values, 0.90))
   });
+  const iv80 = marginCal.interval(margin, marginKey, 0.80);
+  const iv50 = marginCal.interval(margin, marginKey, 0.50);
+  const detail = marginCal.describe(marginKey, 0.80);
+
   return {
-    method: 'cutoff-safe empirical market-residual distribution with disagreement inflation',
-    sample_size: cohort.length, conditional_cohort: conditional.length >= 120,
+    method: 'mondrian split-conformal on pre-kickoff market residuals',
+    sample_size: binResiduals.length,
+    calibration_total: marginCal.calibration_n,
+    conditional_cohort: !detail.borrowed_pool,
+    conformal: { ...detail, level: 0.80, bins: marginCal.bins, centre: r2(marginCentre) },
     margin_quantiles: q(marginSamples), total_quantiles: totalSamples.length ? q(totalSamples) : null,
     home_cover_probability: homeSpread == null ? null : r2(grade.filter(x => x > 0).length / grade.length),
     away_cover_probability: homeSpread == null ? null : r2(grade.filter(x => x < 0).length / grade.length),
     push_probability: homeSpread == null ? null : r2(grade.filter(x => x === 0).length / grade.length),
     home_win_probability: r2(winGrade.filter(x => x > 0).length / winGrade.length),
     away_win_probability: r2(winGrade.filter(x => x < 0).length / winGrade.length),
-    margin_interval_80: [r2(quantile(marginSamples, 0.1)), r2(quantile(marginSamples, 0.9))],
-    margin_interval_50: [r2(quantile(marginSamples, 0.25)), r2(quantile(marginSamples, 0.75))],
-    uncertainty_width_80: r2(quantile(marginSamples, 0.9) - quantile(marginSamples, 0.1)),
+    margin_interval_80: iv80 ? [r2(iv80[0]), r2(iv80[1])] : null,
+    margin_interval_50: iv50 ? [r2(iv50[0]), r2(iv50[1])] : null,
+    uncertainty_width_80: iv80 ? r2(iv80[1] - iv80[0]) : null,
+    // Reported, no longer applied. The old code multiplied the interval by
+    // 1 + disagreement/30; it is kept visible as a diagnostic so the number can
+    // be studied against realised coverage instead of silently widening a bet.
+    model_disagreement_margin: disagreement == null ? null : r2(disagreement),
     positive_ev_threshold_at_minus_110: 0.5238,
     calibration_state: 'research_distribution_only',
     production_eligible: false

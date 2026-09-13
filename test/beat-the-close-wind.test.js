@@ -22,6 +22,13 @@ const btc = await import('../server/services/beat-the-close.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
+// Frozen before every fixture's kickoff (commence_time '2026-09-13T17:00:01Z')
+// so slateSignals() never excludes these games as already kicked off -- see
+// the same pattern in beat-the-close.test.js. Without this, decideBeatTheClose()
+// defaults `now` to the real wall clock, which eventually passes kickoff and
+// makes every assertion below fail (or pass vacuously) for good.
+const now = '2026-09-09T17:00:00Z';
+
 // GB is outdoor in STADIUMS; KC is outdoor; MIN is indoor — used below to
 // confirm a dome never produces the signal at all.
 run(`INSERT OR IGNORE INTO nfl_teams (abbr,name,conference,division) VALUES
@@ -56,7 +63,7 @@ function seedWeather(home, windKmh, source = 'open-meteo-forecast') {
 test('wind at or above threshold, total unmoved: freezes an Under decision', () => {
   seedGame('GB', 'CHI', { totalOpen: 44, totalNow: 44 });
   seedWeather('GB', 28);
-  const result = btc.decideBeatTheClose({ season: 2026, week: 1 });
+  const result = btc.decideBeatTheClose({ season: 2026, week: 1, now });
   const wind = result.decisions.find(d => d.signal === 'wind_total');
   assert.ok(wind, `expected a wind_total decision among ${JSON.stringify(result.decisions)}`);
   assert.equal(wind.side, 'Under');
@@ -66,7 +73,7 @@ test('wind at or above threshold, total unmoved: freezes an Under decision', () 
 test('wind below threshold: no decision', () => {
   seedGame('KC', 'DEN', { totalOpen: 46, totalNow: 46 });
   seedWeather('KC', 14);
-  const result = btc.decideBeatTheClose({ season: 2026, week: 1 });
+  const result = btc.decideBeatTheClose({ season: 2026, week: 1, now });
   assert.ok(!result.decisions.some(d => d.signal === 'wind_total' && d.game === 'DEN at KC'));
 });
 
@@ -75,7 +82,7 @@ test('wind is high but the total already moved down since the opener: no decisio
   // CHI (outdoor, unlike DET's dome) as home, distinct from the other tests' home teams.
   const teams = seedGame('CHI', 'GB', { totalOpen: 45, totalNow: 43.5 });
   seedWeather('CHI', 30);
-  const result = btc.decideBeatTheClose({ season: 2026, week: 1 });
+  const result = btc.decideBeatTheClose({ season: 2026, week: 1, now });
   assert.ok(!result.decisions.some(d => d.signal === 'wind_total' && d.game === `${teams.away} at ${teams.home}`),
     'the rule requires the total to NOT have already moved down; betting after the fact is not the measured edge');
 });
@@ -97,7 +104,7 @@ test('the reachable-quote check still applies: no price, no decision, even with 
   run(`INSERT INTO nfl_odds_archive (eid,season,week,home,away,commence_time,book,market,side,phase,line,price,book_updated_at,source,fetched_at)
        VALUES (?,2026,1,'BUF','NYJ','2026-09-13T17:00:01Z','pinnacle','totals','Over','open',42,-110,'2026-05-15T14:00:00Z','test',datetime('now'))`, eid);
   seedWeather('BUF', 30);
-  const result = btc.decideBeatTheClose({ season: 2026, week: 1 });
+  const result = btc.decideBeatTheClose({ season: 2026, week: 1, now });
   assert.ok(!result.decisions.some(d => d.game === 'NYJ at BUF'));
   assert.ok(result.no_reachable_price > 0);
 });

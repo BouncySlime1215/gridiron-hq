@@ -57,7 +57,7 @@ test('Bovada coupon parses spreads, totals and moneylines for the whole game', (
   assert.ok(seaNe.every(q => q.commence_time === '2026-09-10T00:20:00.000Z'));
 });
 
-test('Kambi converts thousandth-point lines and keeps the per-outcome change stamp', () => {
+test('Kambi converts thousandth-point lines and is captured directly, so no aggregator staleness stamp', () => {
   const quotes = feeds.__test.parseKambi(fixture('kambi-nfl.json'));
   const seaNe = quotes.filter(q => q.home === 'SEA' && q.away === 'NE');
   assert.ok(seaNe.length >= 6);
@@ -65,7 +65,11 @@ test('Kambi converts thousandth-point lines and keeps the per-outcome change sta
   assert.equal(spread.line, -3.5, '-3500 thousandths is -3.5');
   assert.equal(spread.price, -109);
   assert.equal(spread.book, 'betrivers');
-  assert.equal(spread.book_updated_at, '2026-08-31T13:32:34Z');
+  // Kambi's own endpoint is hit directly, like Pinnacle/Bovada/FanDuel — the
+  // fixture's `changedDate` (2026-08-31T13:32:34Z) is when Kambi last moved
+  // the price, not a signal that our capture might be stale, and must not
+  // reach isFreshQuote's aggregator-only 72-hour clock (book-feeds.js).
+  assert.equal(spread.book_updated_at, null, 'a direct capture carries no aggregator staleness stamp');
   const total = seaNe.find(q => q.market === 'totals' && q.side === 'Over');
   assert.equal(total.line, 44.5);
   assert.equal(seaNe.find(q => q.market === 'h2h' && q.side === 'NE').price, 160);
@@ -111,6 +115,21 @@ test('the direct FanDuel feed outranks the aggregator copy of the same FanDuel l
   const merged = feeds.__test.mergeQuotes({ oddstrader: aggregated, fanduel: direct });
   assert.equal(merged.length, direct.length);
   assert.ok(merged.every(q => q.provider === 'fanduel' && q.price !== -999));
+});
+
+test('a direct feed on its own cadence still outranks a LATER oddstrader capture of the same book', () => {
+  // The fast job (oddstrader+pinnacle, every 5 min) and slow job
+  // (kambi+bovada+fanduel, hourly) never share a captureBookFeeds() call, so
+  // the same-call priority check above never fires for bovada/fanduel. This
+  // is the cross-call path: a direct capture recorded moments ago must still
+  // suppress an aggregator's copy of that same book in a SEPARATE, later call.
+  feeds.__resetDirectBookCoverage();
+  const direct = feeds.__test.parseFanduel(fixture('fanduel-nfl.json'));
+  feeds.__test.recordDirectBooks('fanduel', direct); // the slow job's own capture, moments ago
+  const aggregated = direct.map(q => ({ ...q, book: 'fanduel', line: q.line == null ? null : q.line + 1, price: -999 }));
+  // The fast job's own, separate call: oddstrader only, no fanduel key at all.
+  const merged = feeds.__test.mergeQuotes({ oddstrader: aggregated });
+  assert.equal(merged.length, 0, 'the aggregator copy of a directly-covered book must not double-write as a new source');
 });
 
 test('OddsTrader aggregator maps its provider ids to book keys and keeps the change timestamp', () => {

@@ -1,4 +1,4 @@
-export const name = '041_audit_registry_declared_sigma';
+export const name = '046_audit_registry_declared_sigma';
 
 /**
  * u5-clv-endpoints (2026 pre-registration, Step 0 item 5).

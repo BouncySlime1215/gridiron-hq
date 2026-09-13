@@ -127,7 +127,7 @@ export function preregister({ name, hypothesis, metric, direction = 'above', thr
   const cols = auditRegistryColumns();
   const hasSigmaColumns = ['declared_sigma', 'declared_tau', 'declared_sigma_source'].every(c => cols.has(c));
   if (declaredSigma != null && !hasSigmaColumns) {
-    return { error: 'this database has not run migration 041_audit_registry_declared_sigma yet, so a ' +
+    return { error: 'this database has not run migration 046_audit_registry_declared_sigma yet, so a ' +
       'declared sigma cannot be persisted — run migrations first rather than silently dropping it' };
   }
 

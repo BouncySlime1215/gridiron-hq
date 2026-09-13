@@ -1,0 +1,245 @@
+{
+  "generated_at": "2026-09-13T10:30:42.347Z",
+  "registry_summary": {
+    "total_trials_registered": 55,
+    "scored": 52
+  },
+  "effective_trial_count": {
+    "n_raw": 52,
+    "n_effective": 31.784636351768036,
+    "tau_integrated_autocorrelation_time": 1.6360105374339913,
+    "m_pairs_used": 3,
+    "note": "Geyer initial monotone sequence estimator; 3 paired lag-block(s) used (cap 17)"
+  },
+  "deflated_sharpe_ratio": {
+    "sr0_expected_max_sharpe_under_null": 0.1644926475441135,
+    "dsr": 0.3488950916387498,
+    "inputs": {
+      "sharpe": 0.11167656571008165,
+      "n": 57,
+      "skewness": -0.31980107453341616,
+      "kurtosis": 1.1022727272727284,
+      "nTrialsEffective": 31.784636351768036,
+      "sharpeStdAcrossTrials": 0.07843777521531324
+    },
+    "best_observed_trial": {
+      "label": "football-first beats the closing spread (real: 33-24, audit_registry#14)",
+      "sharpe": 0.11167656571008165,
+      "n": 57
+    },
+    "sharpe_cross_section": {
+      "n_trials": 15,
+      "mean": -0.026279311729801212,
+      "std": 0.07843777521531324,
+      "trials": [
+        {
+          "label": "unified-all-inputs-v1",
+          "sharpe": 0.0486,
+          "n": 209
+        },
+        {
+          "label": "unified-all-inputs-v2-roster",
+          "sharpe": 0.0469,
+          "n": 213
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": 0.0469,
+          "n": 213
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": 0.0469,
+          "n": 213
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": 0.0469,
+          "n": 213
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0736,
+          "n": 282
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0736,
+          "n": 282
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0792,
+          "n": 273
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0792,
+          "n": 273
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0792,
+          "n": 273
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0792,
+          "n": 273
+        },
+        {
+          "label": "CLV across five seasons (powered) (real: 468-447, audit_registry#9)",
+          "sharpe": -0.0247,
+          "n": 915
+        },
+        {
+          "label": "team trend predicts the game total (real: 85-109, audit_registry#13)",
+          "sharpe": -0.1727,
+          "n": 194
+        },
+        {
+          "label": "football-first beats the closing spread (real: 33-24, audit_registry#14)",
+          "sharpe": 0.1117,
+          "n": 57
+        },
+        {
+          "label": "football-first beats the closing spread (five held-out seasons) (real: 117-125, audit_registry#15)",
+          "sharpe": -0.0807,
+          "n": 242
+        }
+      ]
+    }
+  },
+  "probability_of_backtest_overfitting": {
+    "method": "combinatorially symmetric cross-validation (Bailey, Borwein, López de Prado & Zhu 2015)",
+    "subsets": 4,
+    "combinations_evaluated": 6,
+    "strategies": 4,
+    "periods": 4,
+    "pbo": 0.16666666666666666,
+    "logits_mean": 0.5797311700588809
+  },
+  "is_market_identity": {
+    "real_fit_artifacts": 848,
+    "component_cutoff_rows": 26288,
+    "residual_gate_passed_count": 0,
+    "nonzero_residual_weight_count": 0,
+    "artifacts_with_zero_residual_components": 848,
+    "fraction_market_identity": 1
+  },
+  "production_decision_board": {
+    "real_rows": 16,
+    "eligible": 0,
+    "zero_edge": 16,
+    "abstention_reasons": {
+      "calibration_not_proven": 16
+    }
+  },
+  "execution_census": {
+    "nfl_execution_opportunities": 0,
+    "nfl_execution_log": 0,
+    "nfl_bet_log": 0,
+    "nfl_replay_bets": 0,
+    "forward_picks": 0,
+    "nfl_teaser_executions": [
+      {
+        "id": 1,
+        "candidate_id": "wong:71e048497ad792e8ce",
+        "logged_at": "2026-09-11T01:00:32.321Z",
+        "mode": "paper",
+        "book": "draftkings",
+        "status": "open",
+        "settled_at": null,
+        "profit_units": null
+      }
+    ],
+    "nfl_teaser_execution_legs": 2,
+    "nfl_teaser_price_ledger": 1,
+    "shadow_decisions_total": 189,
+    "shadow_decisions_by_decision": {
+      "abstain": 128,
+      "observe": 61
+    },
+    "shadow_decisions_settled": 8
+  },
+  "clv_reference_book_declaration": {
+    "full_tape_book_universe": [
+      "barstool",
+      "betmgm",
+      "betonlineag",
+      "betrivers",
+      "betus",
+      "bodog",
+      "bookmaker",
+      "bovada",
+      "caesars",
+      "circasports",
+      "draftkings",
+      "everygame",
+      "fanatics",
+      "fanduel",
+      "foxbet",
+      "gtbets",
+      "heritage",
+      "intertops",
+      "lowvig",
+      "mybookieag",
+      "pinnacle",
+      "pointsbetus",
+      "sportsbetting",
+      "sugarhouse",
+      "superbook",
+      "twinspires",
+      "unibet",
+      "unibet_us",
+      "williamhill_us",
+      "wynnbet"
+    ],
+    "execution_book_for_the_one_real_teaser_position": "draftkings",
+    "declared_reference_book_set": [
+      "barstool",
+      "betmgm",
+      "betonlineag",
+      "betrivers",
+      "betus",
+      "bodog",
+      "bookmaker",
+      "bovada",
+      "caesars",
+      "circasports",
+      "everygame",
+      "fanatics",
+      "fanduel",
+      "foxbet",
+      "gtbets",
+      "heritage",
+      "intertops",
+      "lowvig",
+      "mybookieag",
+      "pinnacle",
+      "pointsbetus",
+      "sportsbetting",
+      "sugarhouse",
+      "superbook",
+      "twinspires",
+      "unibet",
+      "unibet_us",
+      "williamhill_us",
+      "wynnbet"
+    ],
+    "mechanism": "clv-core.js#referenceBookQuotes(quotes, { executionBook }) -- excludes the accepted/execution book from the close reference set by default"
+  },
+  "archive_book_depth": {
+    "grouping": "(event_id, market) over nfl_line_snapshots",
+    "overall": {
+      "total_groups": 7890,
+      "single_book_groups": 487,
+      "mean_span_days": 13.69
+    },
+    "pre_september_2026": {
+      "total_groups": 6732,
+      "single_book_groups": 0,
+      "mean_span_days": 12.11
+    }
+  }
+}

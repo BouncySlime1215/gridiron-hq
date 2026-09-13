@@ -132,9 +132,17 @@ test('rankBooks never recommends the book furthest from the field in the wrong d
   // an uninformative 0 for both directions here — a tie the old unsigned code
   // and the new signed code would both technically "pass" trivially. Seed a
   // real spread of close margins before this is the first caller.
+  //
+  // GIANT PLAN 29: `marginDistribution()` now bounds its query to
+  // `MEASUREMENT_SEASONS` (1999-2024), matching the window
+  // `margin-distribution.js` excludes 2025/2026 corrupted-spread seasons from.
+  // A season of 4000 used to work here only because the query was unbounded —
+  // it is now silently excluded, which would empty the pmf in this isolated
+  // fresh database and break every lineMoveValue call below. The synthetic
+  // season has to sit inside the measured window for the seed to be seen.
   const margins = db.prepare(`INSERT INTO game_lines
     (season,week,team,opponent,home,spread,total,team_score,opp_score) VALUES (?,?,?,?,1,?,?,?,?)`);
-  for (let m = -10; m <= 10; m++) margins.run(4000, (m + 11), 'MMM', 'NNN', -3, 44, 24 + m, 24);
+  for (let m = -10; m <= 10; m++) margins.run(2010, (m + 11), 'MMM', 'NNN', -3, 44, 24 + m, 24);
   // Each quote is one side's own signed number, so — exactly as routeBet
   // always calls it for spreads — a HIGHER line is always better for this
   // side, whether it is the favorite's or the underdog's own number.

@@ -22,15 +22,19 @@
  * are visible before the bet is placed.
  *
  * KEY NUMBERS ARE WHY LINE SHOPPING IS WORTH MORE THAN PRICE SHOPPING.
- * NFL margins are not smooth. Measured over 7,276 games in this database:
+ * NFL margins are not smooth. Measured over 6,991 games in this database,
+ * seasons 1999-2024 (GIANT PLAN 29: 2025 and 2026 are excluded here for the
+ * same reason `margin-distribution.js` excludes them -- `game_lines.spread`
+ * is corrupted in both, see `EXCLUSION_REASON` -- and these figures now match
+ * that module's own measurement of the same population exactly):
  *
- *     margin of  3  ->  15.12% of games
+ *     margin of  3  ->  15.08% of games
  *     margin of  7  ->   9.03%
- *     margin of  6  ->   5.99%
- *     margin of 10  ->   5.51%
+ *     margin of  6  ->   6.08%
+ *     margin of 10  ->   5.59%
  *
  * A half point from 5.5 to 5.0 is worth almost nothing. A half point from
- * 3.5 to 3.0 is worth roughly half of that 15.12% mass, because it converts
+ * 3.5 to 3.0 is worth roughly half of that 15.08% mass, because it converts
  * a loss into a push on the single most common margin in football. Treating
  * all half points as equal is the mistake that makes line shopping look
  * marginal; weighting them by the actual margin distribution is what makes it
@@ -48,6 +52,32 @@
 import { rows } from '../db/index.js';
 import { fromMarginDistribution, expectedNetReturn, profitMultiple }
   from '../betting/nfl/contracts/spread-probabilities.js';
+import { MEASUREMENT_SEASONS, EXCLUDED_SEASONS, EXCLUSION_REASON }
+  from '../betting/nfl/strategy/teaser-leg-rates.js';
+
+/**
+ * GIANT PLAN 29. Every query in this file that builds a margin (or margin-
+ * residual, or margin-by-posted-line) distribution used to read `game_lines`
+ * with no season bound at all -- unlike `margin-distribution.js`, which
+ * excludes 2025 and 2026 for a measured, specific reason: `game_lines.spread`
+ * is corrupted in both (`EXCLUSION_REASON`, imported rather than restated so
+ * the two modules cannot drift apart). That defect is in `spread`, not in
+ * `team_score`/`opp_score`, so `marginDistribution()` below was not wrong on
+ * its own terms -- but this file computes the empirical margin distribution
+ * teaser and shopping-board pricing lean on, and having it answer a different
+ * question (1999-2026, partial-and-corrupted-spread seasons included) than
+ * every other consumer of the same "the NFL margin distribution" phrase
+ * (1999-2024) is a correctness bug by inconsistency even where the raw column
+ * queried is clean: two call sites asking "what is margin 3's share of
+ * football" should not get two different answers depending on which file
+ * they imported from. So every query below is bounded to `MEASUREMENT_SEASONS`
+ * as well, and 2026 is additionally an in-progress season -- its completed
+ * games so far are a handful of early weeks, not a representative sample of a
+ * full season, which is its own reason not to fold them into a distribution
+ * meant to describe the whole game.
+ */
+const SEASON_BOUND = 'AND season BETWEEN ? AND ?';
+const seasonArgs = () => [MEASUREMENT_SEASONS.from, MEASUREMENT_SEASONS.to];
 
 /**
  * An American price below 100 in magnitude is a parsing failure, not a price.
@@ -91,7 +121,8 @@ let marginCache = null;
 export function marginDistribution() {
   if (marginCache) return marginCache;
   const g = rows(`SELECT team_score, opp_score FROM game_lines
-                  WHERE team_score IS NOT NULL AND opp_score IS NOT NULL AND home = 1`);
+                  WHERE team_score IS NOT NULL AND opp_score IS NOT NULL AND home = 1
+                  ${SEASON_BOUND}`, ...seasonArgs());
   const freq = new Map();
   for (const x of g) {
     const m = Math.abs(x.team_score - x.opp_score);
@@ -216,7 +247,8 @@ let residualCache = null;
 export function marginResidualDistribution() {
   if (residualCache) return residualCache;
   const games = rows(`SELECT team_score, opp_score, spread FROM game_lines
-    WHERE team_score IS NOT NULL AND opp_score IS NOT NULL AND spread IS NOT NULL AND home = 1`);
+    WHERE team_score IS NOT NULL AND opp_score IS NOT NULL AND spread IS NOT NULL AND home = 1
+    ${SEASON_BOUND}`, ...seasonArgs());
   const freq = new Map();
   for (const g of games) {
     const residual = (g.team_score - g.opp_score) + g.spread;
@@ -274,7 +306,8 @@ let marginByLineCache = null;
 function marginsByPostedLine() {
   if (marginByLineCache) return marginByLineCache;
   const games = rows(`SELECT team_score, opp_score, spread FROM game_lines
-    WHERE team_score IS NOT NULL AND opp_score IS NOT NULL AND spread IS NOT NULL AND home = 1`);
+    WHERE team_score IS NOT NULL AND opp_score IS NOT NULL AND spread IS NOT NULL AND home = 1
+    ${SEASON_BOUND}`, ...seasonArgs());
 
   // BOTH sides of every game, each from its own point of view.
   //
@@ -440,6 +473,18 @@ export function bestExecution(quotes, { takingPoints = true } = {}) {
   const bettorSigned = line => (Number.isFinite(line) ? (takingPoints ? line : -line) : null);
   const refSigned = bettorSigned(refLine);
 
+  // GIANT PLAN 29. What blindly taking the MEDIAN book's own line and price
+  // would return, under the identical distribution every quote below is
+  // scored against. Subtracting this from a quote's own expected_net_return
+  // is what `edge_vs_median` is: the improvement from shopping, with the
+  // reference line's own historical cover-rate level (see the note on
+  // `edge_vs_median` on the returned object) present in both terms and
+  // cancelling out of the difference.
+  const referenceProbabilities = refSigned != null ? referenceCoverBaseline(refSigned) : null;
+  const referenceExpectedReturn = referenceProbabilities
+    ? referenceProbabilities.win * (refPrice - 1) - referenceProbabilities.loss
+    : null;
+
   const scored = usable.map(q => {
     // Value of this book's line versus the median line, in win probability.
     const lineEdge = refLine != null && Number.isFinite(q.line)
@@ -470,6 +515,27 @@ export function bestExecution(quotes, { takingPoints = true } = {}) {
         americanPrice: q.american_price })
       : null;
 
+    // GIANT PLAN 29. `expected_net_return` above is the ABSOLUTE expected
+    // return of this book's contract, under a distribution built from the
+    // reference line's own historical cover rate -- which the 2026-09-10
+    // audit measured as carrying a real underdog bias (+6.5 covers 53.53%
+    // historically, +10 covers 55.28%, both against a 52.38% break-even). That
+    // bias is a property of WHICH REFERENCE LINE this side sits at, not of how
+    // well this book was shopped, and it is the same for every book quoting
+    // this side -- so it is fine to rank BOOKS WITHIN one side by
+    // expected_net_return (the bias is a shared additive term and the order
+    // is unaffected), but it is not fine to rank SIDES OR EVENTS against each
+    // other by it, because two sides can sit at reference lines with
+    // different bias levels. `edge_vs_median` is the number that isolates the
+    // part that actually is about shopping: this book's own expected return
+    // minus what blindly taking the median book would have returned, both
+    // priced under the identical distribution, so the shared bias term
+    // present in both cancels out of the subtraction. See `bestExecution`'s
+    // own docstring and `nfl-shopping-board.js`, which leads its cross-side
+    // leaderboard on this field for exactly this reason.
+    const edgeVsMedian = expected != null && referenceExpectedReturn != null
+      ? expected - referenceExpectedReturn : null;
+
     return { ...q,
       // Retained as DIAGNOSTICS. The plan: "Until qualified, present price/line
       // improvement as a diagnostic, not modeled profit." They describe how
@@ -480,6 +546,7 @@ export function bestExecution(quotes, { takingPoints = true } = {}) {
       loss_probability: probabilities?.loss ?? null,
       push_probability: probabilities?.push ?? null,
       expected_net_return: r4(expected),
+      edge_vs_median: r4(edgeVsMedian),
       // The old field name, kept so nothing silently reads a different number
       // under the same name: it is now null, because the quantity it used to
       // hold was never a total edge.
@@ -560,6 +627,10 @@ export function bestExecution(quotes, { takingPoints = true } = {}) {
     best: scored[0], median_line: refLine, median_price_decimal: r4(refPrice),
     books_compared: usable.length,
     expected_net_return: scored[0].expected_net_return,
+    // GIANT PLAN 29: the leaderboard-safe number. See `edge_vs_median`'s own
+    // comment above `scored`'s construction for why `expected_net_return`
+    // cannot be compared ACROSS sides/events and this can.
+    edge_vs_median: scored[0].edge_vs_median,
     // Explicitly NOT qualified: these probabilities come from the market's own
     // posted number and an empirical residual distribution, not from a
     // qualified Gridiron forecast. Sizing paths must refuse to treat this as

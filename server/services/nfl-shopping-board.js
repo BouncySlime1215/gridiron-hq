@@ -187,7 +187,7 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
           best_book: null, best_line: null, best_price: null, median_line: exec.median_line,
           line_edge: null, price_edge: null,
           win_probability: null, loss_probability: null, push_probability: null,
-          expected_net_return: null, qualified: false,
+          expected_net_return: null, edge_vs_median: null, qualified: false,
           unpriceable_reason: exec.reason,
           all: exec.all
         });
@@ -209,18 +209,38 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
         // probability from the ranking-only line_edge scalar.
         win_probability: exec.best.win_probability, loss_probability: exec.best.loss_probability,
         push_probability: exec.best.push_probability,
-        // Codex correction C05: the board now ranks by expected net return at
-        // the exact offered line AND price, under the same distribution that
-        // produced the probabilities above. The old `edge_vs_median` scalar
-        // was `line_edge * 2 + price_edge`, a heuristic that contradicted the
-        // economics attached to it -- it ranked +2.5/+100 above +3/-150 while
-        // its own expected returns were -0.1500 and -0.1417.
+        // Codex correction C05 got this right WITHIN one side: rank the books
+        // quoting a single event/side by expected net return at each book's
+        // own line and price, under one distribution, rather than by the old
+        // `line_edge * 2 + price_edge` heuristic that once ranked +2.5/+100
+        // above +3/-150 while its own computed EVs were -0.1500 and -0.1417.
+        // Kept here as a diagnostic.
         expected_net_return: exec.best.expected_net_return,
+        // GIANT PLAN 29. `expected_net_return` is NOT safe to sort or lead a
+        // display with ACROSS different sides and events, and this board used
+        // to do exactly that. It carries the reference LINE's own historical
+        // cover rate -- the same "underdog bias" the 2026-09-10 audit found
+        // baked into `coverProbabilities` (+6.5 covers 53.53% historically,
+        // +10 covers 55.28%, both above the 52.38% break-even purely on
+        // twenty years of who that number happened to favour). That bias is
+        // identical for every book quoting one side, so it cancels out of a
+        // WITHIN-side ranking -- comparing books at the same reference line --
+        // but this board's leaderboard compares DIFFERENT sides and events,
+        // each sitting at its own reference line with its own bias level, and
+        // `expected_net_return` would put the board's largest historical dog
+        // bias at the top regardless of whether that particular book actually
+        // shopped any better than its own median. `edge_vs_median` is
+        // `bestExecution`'s answer to that: this book's expected return minus
+        // what blindly taking the median book's own line and price would have
+        // returned, both under the identical distribution, so the shared bias
+        // term cancels and what is left is the genuine improvement from
+        // shopping. This is the field the board now leads on.
+        edge_vs_median: exec.best.edge_vs_median,
         // How this row was ranked. `price_only` means the module could not
         // value the NUMBER on this contract and compared prices at the most
         // common one instead — true for moneylines (no number) and totals (a
         // total is not a margin).
-        ranked_by: exec.ranked_by ?? 'expected_net_return',
+        ranked_by: exec.ranked_by ?? 'edge_vs_median',
         compared_at_line: exec.compared_at_line ?? null,
         // NOT an edge over the market. These probabilities are implied by the
         // market's own reference line, so a positive number here means a
@@ -234,10 +254,17 @@ export function shoppingBoard({ market = 'spreads', limit = 40 } = {}) {
   }
   return rowsOut
     .sort((a, b) => {
-      if (a.expected_net_return == null && b.expected_net_return == null) return 0;
-      if (a.expected_net_return == null) return 1;
-      if (b.expected_net_return == null) return -1;
-      return b.expected_net_return - a.expected_net_return;
+      // GIANT PLAN 29: lead on edge_vs_median (within-side improvement over
+      // the median book), not the absolute expected_net_return -- see the
+      // long comment above where each row is built for why the absolute
+      // number is not comparable across sides. A row with no distribution at
+      // all (price_only, or fully unpriceable) has neither field and sorts
+      // last either way.
+      const av = a.edge_vs_median, bv = b.edge_vs_median;
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return bv - av;
     })
     .slice(0, limit);
 }
@@ -436,9 +463,26 @@ export function executionBoardSummary() {
     sides_priced: spreads.length,
     events: new Set(spreads.map(r => r.event_id)).size,
     shoppable_sides: shoppable.length,
+    // GIANT PLAN 29. THE LEADING NUMBERS. `edge_vs_median` is the honest
+    // within-side improvement from shopping (see the long comment in
+    // `shoppingBoard` above) -- it is safe to average and to headline because,
+    // unlike `expected_net_return`, it does not carry the reference line's own
+    // historical cover-rate bias. This is what `betting-hub.js` now puts in
+    // the human-facing headline.
+    mean_edge_vs_median_when_shoppable: shoppable.length
+      ? r4(shoppable.reduce((s, r) => s + (r.edge_vs_median ?? 0), 0) / shoppable.length) : null,
+    best_edge_vs_median: spreads[0]?.edge_vs_median ?? null,
     // Mean over the sides where shopping actually beats the median book. The
     // all-sides mean is the wrong number: half of any dispersion is by
     // definition below median and is not an available improvement.
+    //
+    // KEPT AS A DIAGNOSTIC ONLY, not the lead. `expected_net_return` (and
+    // therefore this mean, and `best_expected_return` below) is the ABSOLUTE
+    // return implied by each side's own reference line, which the
+    // 2026-09-10 audit measured as carrying a real historical underdog bias
+    // -- it is not comparable across different sides/events and must not be
+    // used to rank or headline this board. See `mean_edge_vs_median_when_shoppable`
+    // and `best_edge_vs_median` above for the numbers that are safe to lead with.
     mean_expected_return_when_shoppable: shoppable.length
       ? r4(shoppable.reduce((s, r) => s + r.expected_net_return, 0) / shoppable.length) : null,
     best_expected_return: spreads[0]?.expected_net_return ?? null,
@@ -446,7 +490,9 @@ export function executionBoardSummary() {
     // reader cannot infer profitability from a positive number above.
     qualified: false,
     qualification_note: 'expected returns here are computed against the market\'s own reference line. ' +
-      'They rank obtainable contracts and measure execution quality; they are not evidence of an edge.',
+      'They rank obtainable contracts and measure execution quality; they are not evidence of an edge. ' +
+      '`edge_vs_median` isolates the shopping improvement itself; `expected_net_return` additionally ' +
+      'carries that reference line\'s own historical cover-rate level and is not comparable across sides.',
     middles_found: middles.length,
     positive_ev_middles: middles.filter(m => (m.ev_per_unit ?? 0) > 0).length,
     arbitrage_found: middles.filter(m => m.arbitrage).length,

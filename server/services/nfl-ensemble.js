@@ -26,6 +26,7 @@ import { availabilityDeficit } from './nfl-availability.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { weatherSplits, isIndoors, WINDY_MPH, COLD_F } from './nfl-weather-response.js';
 import { mean } from './stats-util.js';
+import { dieboldMariano, naivePairedT } from './forecast-comparison.js';
 import { ENSEMBLE_FIT_VERSION } from './nfl-forecast-identity.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
@@ -1445,11 +1446,41 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     const slope = denominator > 0 ? fitSignal.reduce((s, x, i) => s + x * fitActual[i], 0) / denominator : 0;
     const baselineMse = scoreActual.length ? mean(scoreActual.map(x => x ** 2)) : null;
     const residualMse = scoreActual.length ? mean(scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2)) : null;
-    const paired = scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2 - x ** 2);
-    const pairedMean = paired.length ? mean(paired) : null;
-    const pairedSd = paired.length > 1
-      ? Math.sqrt(paired.reduce((sum, x) => sum + (x - pairedMean) ** 2, 0) / (paired.length - 1)) : null;
-    const residualT = pairedSd > 0 ? pairedMean / (pairedSd / Math.sqrt(paired.length)) : null;
+    // CORRECTED 2026-09-12 (Giant Plan 7.2, FIX #2): this comparison used to be
+    // an ad hoc paired t-test over per-game squared errors. That statistic
+    // assumes the per-game loss differentials are independent, and here they
+    // are emphatically not: every game on one Sunday slate is scored by the
+    // SAME `slope`, fitted once on the earlier block and then held fixed, and
+    // shares one week of market state, injury news and weather. Fourteen games
+    // off one slate are far closer to one observation than to fourteen, and
+    // the paired t divides by sqrt(n) using the inflated n -- so it reports a
+    // statistic larger than the evidence supports, and this is the gate that
+    // decides which components earn residual weight.
+    //
+    // Diebold-Mariano with the Harvey-Leybourne-Newbold small-sample
+    // correction is the standard instrument for the question actually being
+    // asked ("is forecast A more accurate than forecast B on dependent data").
+    // The week is the forecast period, so each week's slate collapses to one
+    // loss differential and the test runs over the series of weeks; the
+    // reference is t with (weeks - 1) degrees of freedom rather than a normal.
+    //
+    // Worth knowing before reading the two numbers side by side: DM* reduces
+    // EXACTLY to the paired t when the horizon is 1 and there is no clustering
+    // (asserted in test/diebold-mariano.test.js). So the gap between
+    // `residual_dm_t` and `residual_paired_t` below is not two tools
+    // disagreeing -- it is a direct measurement of how much within-week
+    // dependence the old statistic was spending as though it were evidence.
+    const scoreWeekLabels = rs.week.slice(splitIdx);
+    const modelLoss = scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2);
+    const marketLoss = scoreActual.map(x => x ** 2);
+    // horizon 1: the slate is the period, and one week's forecast does not
+    // overlap the next week's information set. Clustering, not the horizon, is
+    // what carries the dependence in this particular design.
+    const dm = dieboldMariano(modelLoss, marketLoss, { horizon: 1, clusters: scoreWeekLabels });
+    // The superseded statistic, still computed and still reported -- an audit
+    // that cannot see what the old gate would have said cannot check this one.
+    const legacyPaired = naivePairedT(modelLoss, marketLoss);
+    const residualT = legacyPaired.ok ? legacyPaired.statistic : null;
     const marketRmse = baselineMse == null ? null : Math.sqrt(baselineMse);
     const modelRmse = residualMse == null ? null : Math.sqrt(residualMse);
     const residualGain = marketRmse == null || modelRmse == null ? null : marketRmse - modelRmse;
@@ -1463,6 +1494,20 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
       residual_rmse: residualMse == null ? null : r2(Math.sqrt(residualMse)),
       market_residual_rmse: baselineMse == null ? null : r2(Math.sqrt(baselineMse)),
       residual_rmse_gain: r2(residualGain),
+      // The statistic the gate reads. Same sign convention as the paired t it
+      // replaces: negative means the component beat the market.
+      residual_dm_t: dm.ok ? r2(dm.statistic) : null,
+      // One-sided "this component is more accurate than the market", on
+      // t with (weeks - 1) df. Small p = real incremental skill.
+      residual_dm_p: dm.ok ? +dm.pLess.toFixed(4) : null,
+      residual_dm_df: dm.ok ? dm.df : null,
+      // The sample size the test actually has (weeks), next to the one the old
+      // paired t claimed (games). The ratio is the inflation that was being
+      // counted as evidence.
+      residual_dm_weeks: dm.ok ? dm.periods : null,
+      residual_dm_ok: dm.ok,
+      residual_dm_reason: dm.ok ? null : dm.reason,
+      // Superseded; retained for audit continuity, never read by a gate.
       residual_paired_t: r2(residualT),
       // The size of the OUT-OF-FOLD score block, not the total pool -- this is
       // the sample size the gate below actually requires 250 of.
@@ -1505,8 +1550,22 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     // multi-season OOF-1 standard used elsewhere (e.g. nfl-cover-calibration.js's
     // forward gate). Excluded challengers have no weight in either
     // normalization, even when their score is strong.
+    //
+    // The significance leg of this gate now reads the Diebold-Mariano
+    // statistic (FIX #2, above) instead of the paired t. Two changes follow
+    // from that, both deliberate:
+    //   - the threshold is a one-sided 5% P-VALUE rather than a fixed -1.645.
+    //     -1.645 is the normal critical value; DM* is referred to t with
+    //     (weeks - 1) degrees of freedom, where the 5% critical value depends
+    //     on how many weeks were actually scored. Hard-coding -1.645 would
+    //     quietly re-import the large-sample assumption HLN exists to remove.
+    //   - a component whose DM test could not be computed at all (too few
+    //     complete weeks in the score block, zero variance) fails the gate.
+    //     No statistic means no evidence, which is not the same as evidence of
+    //     no skill, but it is equally not grounds for production weight.
     m.residual_diagnostic_passed = m.residual_n >= 250
-      && m.residual_rmse_gain >= 0.03 && m.residual_paired_t <= -1.645;
+      && m.residual_rmse_gain >= 0.03
+      && m.residual_dm_ok === true && m.residual_dm_p <= 0.05;
     m.residual_gate_passed = (includeChallengers || !m.challenger_only)
       && m.residual_diagnostic_passed;
     m.residual_weight = m.residual_gate_passed ? Math.exp(-0.7 * m.residual_rmse) : 0;

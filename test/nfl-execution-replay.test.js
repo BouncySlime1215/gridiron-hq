@@ -231,6 +231,35 @@ test('timelineFromQuoteTape: ordinary silence for this book (no sibling evidence
   assert.equal(result.outcome, 'stale_unknown', 'unexplained silence is unknown availability, never a confirmed removal');
 });
 
+test('timelineFromQuoteTape: the commenceTime guard matches by exact kickoff instant regardless of ISO millisecond spelling, and never crosses into an adjacent second', () => {
+  // resolveQuoteBasis passes `contract.kickoff` here as a defensive re-check
+  // that a reused provider_event_id (e.g. a rescheduled game) still refers to
+  // THIS kickoff, not a different one under the same identity. The old
+  // predicate, `julianday(q.commence_time)=julianday(?)`, wraps the column in
+  // a function -- the same date-boundary anti-pattern already fixed for
+  // resolveQuoteBasis's own kickoff lookup and, earlier, for
+  // nfl-t60-packet.js (migration 029/032). This is the regression test for
+  // that guard specifically: three batches share one provider_event_id, only
+  // one of them at the actual kickoff instant.
+  const payload = (commenceTime, price) => ([{ id: 'espn-reschedule-1', commence_time: commenceTime,
+    home_team: 'Kansas City Chiefs', away_team: 'Baltimore Ravens',
+    bookmakers: [{ key: 'draftkings', markets: [{ key: 'spreads', last_update: '2026-09-11T10:00:00Z',
+      outcomes: [{ name: 'Kansas City Chiefs', point: -3.5, price }, { name: 'Baltimore Ravens', point: 3.5, price: -110 }] }] }] }]);
+  // The corrected kickoff, spelled WITH milliseconds -- exactly what
+  // `contract.kickoff` always looks like -- must match.
+  ingestQuoteSnapshot(payload('2026-09-11T18:00:00.000Z', -110), { requestedAt: '2026-09-11T10:00:05Z', sourceRef: 'reschedule_exact' });
+  // One millisecond before the window: inclusive start must not leak backward.
+  ingestQuoteSnapshot(payload('2026-09-11T17:59:59.999Z', -150), { requestedAt: '2026-09-11T10:00:06Z', sourceRef: 'reschedule_early' });
+  // One full second after kickoff: exclusive end must not leak forward.
+  ingestQuoteSnapshot(payload('2026-09-11T18:00:01.000Z', 150), { requestedAt: '2026-09-11T10:00:07Z', sourceRef: 'reschedule_late' });
+
+  const timeline = timelineFromQuoteTape({ providerEventId: 'espn-reschedule-1', market: 'spreads',
+    sideKey: 'home', book: 'draftkings', commenceTime: '2026-09-11T18:00:00Z' });
+  assert.equal(timeline.length, 1, 'only the batch at the exact kickoff instant may appear');
+  assert.equal(timeline[0].type, 'quote');
+  assert.equal(timeline[0].price, -110, 'must be the exact-instant batch, not the early or late one');
+});
+
 /* ---- Codex audit finding E7: never claim what nobody looked at ---- */
 
 test('E7: a horizon past the last observation is labelled EXTRAPOLATED, not silently modeled as observed', () => {

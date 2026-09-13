@@ -1436,6 +1436,200 @@ export function componentIds() {
   }));
 }
 
+/* ------------------------------------------------------- joint raw-blend fit */
+
+/**
+ * How many multiples of the design's own scale to try when choosing the ridge
+ * strength in `chooseRawBlendLambda`. Expressed as multipliers rather than raw
+ * point-scale numbers so the same grid works whether a walk-forward window
+ * holds two hundred rows or twenty thousand: the chosen multiplier is scaled
+ * by trace(X'X)/k, the average per-component sum of squares, which is the
+ * same unit the ridge penalty competes against on the diagonal of the normal
+ * equations.
+ */
+const RAW_BLEND_RIDGE_GRID = [0.02, 0.05, 0.15, 0.5, 1.5, 5, 15, 50];
+
+/** Below this many rows a k-parameter joint fit is not attempted at all. */
+const RAW_BLEND_MIN_ROWS = 30;
+
+/** `X'X` and `X'y` for a plain (no-intercept) linear design. */
+function jointNormalEquations(X, y) {
+  const k = X[0].length;
+  const XtX = Array.from({ length: k }, () => new Array(k).fill(0));
+  const Xty = new Array(k).fill(0);
+  for (let i = 0; i < X.length; i++) {
+    const row = X[i];
+    for (let a = 0; a < k; a++) {
+      Xty[a] += row[a] * y[i];
+      for (let b = a; b < k; b++) XtX[a][b] += row[a] * row[b];
+    }
+  }
+  for (let a = 0; a < k; a++) for (let b = 0; b < a; b++) XtX[a][b] = XtX[b][a];
+  return { XtX, Xty };
+}
+
+/**
+ * theta = (X'X + lambda*I)^-1 X'y -- the same closed form `massey()` uses
+ * above, ridge added to the diagonal and solved by the same Gaussian
+ * elimination (`solve`, defined near the top of this file). Unlike massey's
+ * design there is no null space to pin here: the components are not a
+ * paired-comparison system, and lambda > 0 alone makes the matrix positive
+ * definite whether or not the columns are collinear.
+ */
+function jointRidgeCoefficients(XtX, Xty, lambda) {
+  const A = XtX.map((row, i) => row.map((v, j) => (i === j ? v + lambda : v)));
+  return solve(A, Xty);
+}
+
+/**
+ * Choose the ridge strength with a single chronological holdout inside the
+ * fitting window itself, using the same complete-week boundary
+ * `completeWeekSplit` already gives the residual slope a few dozen lines
+ * below: an earlier block picks among the grid, a later, disjoint block
+ * scores the choice.
+ *
+ * This is not a claim of rigorously cross-validated regularisation -- it is
+ * one split, not a rolling k-fold, for the same reason the residual slope
+ * above only gets one split (see the M05 comment above `scored`): a rolling
+ * scheme means re-solving a k-parameter ridge system before every scored
+ * game, which is a lot of linear algebra to spend on a knob this coarse.
+ * When the window is too small to hold anything out, or every candidate
+ * produces a non-finite fit, the grid's own middle value is used rather than
+ * either extreme -- a moderate default, not a tuned one.
+ */
+function chooseRawBlendLambda(X, y, weekKeys, grid) {
+  const scaleOf = XtX => {
+    const k = XtX.length;
+    let trace = 0;
+    for (let i = 0; i < k; i++) trace += XtX[i][i];
+    return k && trace > 0 ? trace / k : 1;
+  };
+  const fallback = () => scaleOf(jointNormalEquations(X, y).XtX) * grid[Math.floor(grid.length / 2)];
+
+  const splitIdx = completeWeekSplit(weekKeys);
+  if (!splitIdx) return fallback();
+  const fitX = X.slice(0, splitIdx), fitY = y.slice(0, splitIdx);
+  const scoreX = X.slice(splitIdx), scoreY = y.slice(splitIdx);
+  if (fitX.length < RAW_BLEND_MIN_ROWS || !scoreX.length) return fallback();
+
+  const { XtX, Xty } = jointNormalEquations(fitX, fitY);
+  const scale = scaleOf(XtX);
+  let bestLambda = null, bestRmse = Infinity;
+  for (const mult of grid) {
+    const lambda = mult * scale;
+    const beta = jointRidgeCoefficients(XtX, Xty, lambda);
+    if (!beta.every(Number.isFinite)) continue;
+    let sq = 0;
+    for (let i = 0; i < scoreX.length; i++) {
+      let pred = 0;
+      for (let j = 0; j < beta.length; j++) pred += scoreX[i][j] * beta[j];
+      sq += (pred - scoreY[i]) ** 2;
+    }
+    const rmse = Math.sqrt(sq / scoreX.length);
+    if (rmse < bestRmse) { bestRmse = rmse; bestLambda = lambda; }
+  }
+  return bestLambda ?? scale * grid[Math.floor(grid.length / 2)];
+}
+
+/**
+ * The raw blend's actual weighting mechanism: a genuine joint regression of
+ * the realised outcome on every eligible component's own prediction,
+ * simultaneously, instead of the old `rawWeight`'s exp(-0.7 * standalone
+ * RMSE) per component in isolation.
+ *
+ * WHY THE OLD FORMULA WAS WRONG. Each component's weight depended only on its
+ * own walk-forward RMSE against the outcome, never on how it related to any
+ * OTHER component. Two consequences followed mechanically, not as edge
+ * cases: a component two RMSE points worse than the market still kept
+ * exp(-0.7*2) ~= 25% of a perfect component's relative weight, because
+ * nothing in the formula could push a consistently-worse signal toward zero
+ * once its own RMSE stopped changing; and two components that both mostly
+ * restate the market (market_anchor, market_regression) were each scored and
+ * weighted as though they were independent evidence, double-counting the one
+ * opinion they actually share. Measured against real history this raw blend
+ * ran ~1.2-1.4 RMSE points WORSE than the market it was built from across two
+ * full audits (n=138 and n=153) -- structurally so, since no per-component
+ * formula can ever discount a component for being redundant with another
+ * one. A joint fit prices both problems correctly: OLS on correlated columns
+ * already splits credit between them, and ridge is what keeps that split
+ * from becoming unstable when ~20 columns are fit on a walk-forward window
+ * that is not always large relative to that count.
+ *
+ * MISSING VALUES: mean-imputed, per component, using only the rows in THIS
+ * window -- not listwise deletion. `forecast-combination.js`'s own reduction
+ * step already made the case for this: "listwise deletion over a set of
+ * columns costs whatever the WORST column costs." Several components here
+ * (e.g. `pace_total`) never produce a margin at all, so requiring every
+ * column present on every row would gut the training set for components that
+ * simply have nothing to do with the target. A component's own column mean
+ * is an aggregate of games already strictly before the cutoff, so imputing
+ * with it introduces no lookahead -- it is a statistic of the past, not of
+ * the row being imputed. A component that NEVER produces a value for this
+ * target at all (its column is entirely missing across the window) is
+ * dropped from the design rather than imputed with an undefined mean, and
+ * gets weight zero -- exactly what the old `!m[key]` check produced for it.
+ *
+ * NON-NEGATIVITY. `ensembleLine`'s blend computes
+ * `sum(component_prediction * weight) / sum(weight)` -- a weighted AVERAGE of
+ * the components' own point forecasts, which is only a coherent combination
+ * when every weight is >= 0. (A negative weight would not "subtract" the
+ * component from the blend; it would flip the sign of its prediction inside
+ * the average, which nothing downstream expects and which the old formula
+ * could never produce either -- `blend()` in `ensembleLine` and the replay in
+ * `nfl-ensemble-rank.js` both already filter on `weight > 0`.) An
+ * unconstrained ridge solution can absolutely go negative -- that is exactly
+ * what a correct joint fit does to a component that is redundant with a
+ * better one once both are seen together. The coefficients are therefore
+ * clipped to zero and the survivors renormalised to sum to one. This is a
+ * simplification of a true ridge-constrained NNLS (which would re-solve
+ * under the constraint rather than clip after the fact), chosen because it
+ * is one closed-form solve plus an O(k) pass rather than an iterative QP, it
+ * runs once per weekly walk-forward cutoff across a full historical replay,
+ * and the practical goal -- a redundant or under-performing component's
+ * contribution collapses toward zero instead of merely shrinking -- is met
+ * either way: clipping cannot leave a genuinely harmful component with
+ * positive weight, it can only be more conservative than true NNLS about how
+ * much weight the survivors receive.
+ *
+ * Returns a `Map` from every id in `ids` to a weight in [0, 1], the positive
+ * ones summing to 1, or `null` when the window has too few rows for a
+ * k-parameter fit to mean anything -- callers should treat `null` exactly
+ * like an all-zero result, which is what the old formula also produced
+ * whenever a window had no eligible games at all.
+ */
+export function jointComponentWeights(rows, ids, { key, actualKey, lambdaGrid = RAW_BLEND_RIDGE_GRID } = {}) {
+  const zeroMap = () => new Map(ids.map(id => [id, 0]));
+  if (!ids.length) return zeroMap();
+  const usableIds = ids.filter(id => rows.some(r => Number.isFinite(r[key]?.[id])));
+  if (!usableIds.length) return zeroMap();
+
+  const validRows = rows.filter(r => Number.isFinite(r[actualKey]));
+  if (validRows.length < RAW_BLEND_MIN_ROWS) return null;
+
+  const means = new Map(usableIds.map(id => {
+    const vals = validRows.map(r => r[key]?.[id]).filter(Number.isFinite);
+    return [id, vals.length ? mean(vals) : 0];
+  }));
+  const X = validRows.map(r => usableIds.map(id => {
+    const v = r[key]?.[id];
+    return Number.isFinite(v) ? v : means.get(id);
+  }));
+  const y = validRows.map(r => r[actualKey]);
+  const weekKeys = validRows.map(r => r.week_key);
+
+  const lambda = chooseRawBlendLambda(X, y, weekKeys, lambdaGrid);
+  const { XtX, Xty } = jointNormalEquations(X, y);
+  const beta = jointRidgeCoefficients(XtX, Xty, lambda);
+  const out = zeroMap();
+  if (!beta.every(Number.isFinite)) return out;
+
+  const positive = beta.map(b => Math.max(0, b));
+  const sum = positive.reduce((s, v) => s + v, 0);
+  if (!(sum > 0)) return out;
+  usableIds.forEach((id, j) => out.set(id, +(positive[j] / sum).toFixed(4)));
+  return out;
+}
+
 /**
  * Grades every model walk-forward and derives its weight.
  *
@@ -1484,9 +1678,19 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // apart. Everything about which games are eligible, in which order, and what
   // context each component sees is unchanged — only its home moved.
   const windows = replayWindows({ all, beforeSeason, beforeWeek });
+  // Every raw-window game's full row of component predictions, gathered once
+  // so `jointComponentWeights` below can fit its regression on exactly the
+  // same walk-forward rows the per-component RMSEs (still computed just below
+  // for diagnostics and for the 'equal'/'inverse_mse' alternate weighting
+  // modes) are drawn from.
+  const rawWindowRows = [];
   for (const row of componentPredictionStream({ all, restMap, cal, beforeSeason, beforeWeek })) {
     const { actual_margin: actualMargin, actual_total: actualTotal,
       market_margin: marketMargin, week_key: key, in_raw_weight_window: inRawWindow } = row;
+    if (inRawWindow) {
+      rawWindowRows.push({ margins: row.margins, totals: row.totals,
+        actual_margin: actualMargin, actual_total: actualTotal, week_key: key });
+    }
     for (const m of MODELS) {
       const margin = row.margins[m.id] ?? null;
       const total = row.totals[m.id] ?? null;
@@ -1612,26 +1816,52 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     };
   });
 
-  // Exponential performance weighting gives meaningfully more influence to the
-  // best prior forecasts. Inverse-MSE made a weak model with 17 RMSE nearly as
-  // influential as the market near 14 RMSE, so a crowd of correlated mediocre
-  // models could overwhelm the strongest prior merely by being numerous.
-  const rawWeight = (m, key) => {
-    // Challenger status controls production authority, not whether the unified
-    // engine may hear the forecast. Candidate audits set includeChallengers so
-    // every raw output enters the blend with the same cutoff-safe weighting as
-    // established components. The default champion remains unchanged.
-    if (m.challenger_only && !includeChallengers) return 0;
-    if (!m[key]) return 0;
-    if (weighting === 'equal') return 1;
-    if (weighting === 'inverse_mse') return 1 / m[key] ** 2;
-    return Math.exp(-0.7 * m[key]);
-  };
-  const wsum = key => scored.reduce((s, m) => s + rawWeight(m, key), 0);
-  const mW = wsum('margin_rmse'), tW = wsum('total_rmse');
+  // Challenger status controls production authority, not whether the unified
+  // engine may hear the forecast. Candidate audits set includeChallengers so
+  // every raw output enters the blend with the same cutoff-safe weighting as
+  // established components. The default champion remains unchanged. Every
+  // weighting mode below applies this gate identically -- it is exactly the
+  // old `rawWeight`'s first check, kept in one place instead of three.
+  const blendEligible = m => includeChallengers || !m.challenger_only;
+
+  if (weighting === 'equal' || weighting === 'inverse_mse') {
+    // Harmless legacy paths, left exactly as they were: per-component
+    // standalone weighting, still keyed only to that component's own RMSE.
+    // Both remain valid `modelOptions.weighting` values elsewhere
+    // (nfl-forecast-identity.js, nfl-experiments.js), but nothing in the
+    // repository fits either one against real history for edge -- the
+    // confirmed defect (see `jointComponentWeights`) was specifically that
+    // the DEFAULT ('exponential', the fall-through below) path could never
+    // concentrate weight on the market no matter what the data showed. Only
+    // that path changes here.
+    const rawWeight = (m, key) => {
+      if (!blendEligible(m)) return 0;
+      if (!m[key]) return 0;
+      return weighting === 'equal' ? 1 : 1 / m[key] ** 2;
+    };
+    const wsum = key => scored.reduce((s, m) => s + rawWeight(m, key), 0);
+    const mW = wsum('margin_rmse'), tW = wsum('total_rmse');
+    for (const m of scored) {
+      m.margin_weight = mW ? +(rawWeight(m, 'margin_rmse') / mW).toFixed(4) : 0;
+      m.total_weight = tW ? +(rawWeight(m, 'total_rmse') / tW).toFixed(4) : 0;
+    }
+  } else {
+    // DEFAULT ('exponential'): a genuine joint regression across every
+    // eligible component's own prediction, replacing exp(-0.7 * standalone
+    // RMSE) per component in isolation. See `jointComponentWeights` above for
+    // the full rationale and the measured defect this fixes.
+    const eligibleIds = scored.filter(blendEligible).map(m => m.id);
+    const marginWeights = jointComponentWeights(rawWindowRows, eligibleIds,
+      { key: 'margins', actualKey: 'actual_margin' });
+    const totalWeights = jointComponentWeights(rawWindowRows, eligibleIds,
+      { key: 'totals', actualKey: 'actual_total' });
+    for (const m of scored) {
+      m.margin_weight = blendEligible(m) ? (marginWeights?.get(m.id) ?? 0) : 0;
+      m.total_weight = blendEligible(m) ? (totalWeights?.get(m.id) ?? 0) : 0;
+    }
+  }
+
   for (const m of scored) {
-    m.margin_weight = mW ? +(rawWeight(m, 'margin_rmse') / mW).toFixed(4) : 0;
-    m.total_weight = tW ? +(rawWeight(m, 'total_rmse') / tW).toFixed(4) : 0;
     // Since the M05 fix above, the slope is fit on an earlier chronological
     // block and this gain/t-statistic is graded on a later, disjoint block --
     // a real (if single-split, not fully rolling) out-of-fold test, not a

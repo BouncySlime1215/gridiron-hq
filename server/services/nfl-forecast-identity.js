@@ -47,9 +47,29 @@ import { createHash } from 'node:crypto';
 // the superseded gate, in front of components that no longer produce the same
 // numbers. Bumping is the whole mechanism that prevents that.
 //
-// A weight, slope or calibration fitted under v9 or v10 describes a different
-// estimator and may not be reused as though it reflected this one.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v11-dm-gate-conformal-interval-weather-response';
+// v12 (2026-09-13, confirmed-defect fix): `margin_weight`/`total_weight` --
+// the RAW blend's weights (`blendMode: 'raw'`), never the gated
+// `residual_weight` production actually serves under `market_residual` -- no
+// longer come from exp(-0.7 * standalone RMSE) per component in isolation.
+// That formula could not tell a genuinely predictive component from a
+// redundant restatement of one already in the blend, because each
+// component's weight depended only on its own error and never on its
+// relationship to any other component. Measured against real history the raw
+// blend ran ~1.2-1.4 RMSE points WORSE than the market it was built from
+// across two full audits (n=138, n=153) -- not fixable by retuning the -0.7
+// constant, since the formula structurally cannot concentrate weight on
+// market-anchored components no matter what the data shows.
+// `margin_weight`/`total_weight` are now a single ridge-regularised joint
+// regression of the realised outcome on every eligible component's own
+// prediction simultaneously (see `jointComponentWeights` in
+// nfl-ensemble.js), which is what lets two correlated components split
+// credit instead of each being paid in full. The 'equal' and 'inverse_mse'
+// `weighting` alternatives are untouched by this bump; only the default
+// ('exponential') path moved.
+//
+// A weight, slope or calibration fitted under v9, v10 or v11 describes a
+// different estimator and may not be reused as though it reflected this one.
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v12-raw-blend-joint-ridge-regression';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

@@ -393,7 +393,8 @@ export async function syncInjuries(seasons) {
             recordRevision({
               entity: `player:${gsisId}:${rSeason}:${rWeek}`, feature: 'injury_report',
               value: { report_status: reportStatus, practice_status: practiceStatus, injury },
-              publishedAt, observedAt, provenance, sourceId: 'nflverse_injuries'
+              publishedAt, observedAt, provenance, sourceId: 'nflverse_injuries',
+              entitySeason: rSeason, entityWeek: rWeek
             });
             revised++;
           } catch (revisionError) {

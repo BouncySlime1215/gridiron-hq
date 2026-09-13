@@ -50,7 +50,8 @@ function storeInjuryRevision(gsisId, { season = GAME.season, week = GAME.week,
   publishedAt, observedAt = publishedAt, provenance = 'captured',
   value = { report_status: 'Questionable', practice_status: 'Limited', injury: 'Ankle' } } = {}) {
   recordRevision({ entity: `player:${gsisId}:${season}:${week}`, feature: 'injury_report',
-    value, publishedAt, observedAt, provenance, sourceId: 'nflverse_injuries' });
+    value, publishedAt, observedAt, provenance, sourceId: 'nflverse_injuries',
+    entitySeason: season, entityWeek: week });
 }
 
 const KICKOFF = '2026-09-20T17:00:00Z';

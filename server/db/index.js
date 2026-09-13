@@ -16,7 +16,23 @@ db.exec(`
   PRAGMA foreign_keys = ON;
   PRAGMA journal_mode = WAL;
   PRAGMA busy_timeout = 15000;
+  PRAGMA journal_size_limit = 67108864;
 `);
+// journal_size_limit: SQLite's own automatic checkpoint (the one that fires
+// after every commit once the WAL crosses wal_autocheckpoint, default 1000
+// pages) checkpoints WAL content into the main file but never shrinks the
+// -wal file on disk -- confirmed empirically: a checkpoint can report
+// checkpointed==log (a full, unblocked pass) and the file's byte size still
+// does not move. Only TRUNCATE-mode (or RESTART) checkpointing actually
+// truncates, and only once it can do so with zero other active connections.
+// report-cache.js's worker reads (a 60-90s replay per report, on the growth
+// tier, overlapping the live tier's own write cadence) mean that clean
+// moment is rare, so without a cap the file is a high-water mark that only
+// grows -- this is how server/data.sqlite-wal reached ~3.3GB over 2.5 days
+// (2026-09-13). This cap bounds the worst case to roughly one
+// autocheckpoint-threshold's overshoot past 64MB instead of unbounded
+// growth; report-cache.js additionally forces an opportunistic TRUNCATE
+// checkpoint after each report's worker connection closes.
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS schema_migrations (

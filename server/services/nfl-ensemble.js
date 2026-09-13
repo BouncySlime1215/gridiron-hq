@@ -77,8 +77,65 @@ function awayRest() {
 
 /* ----------------------------------------------------- rating primitives */
 
-/** Massey: least-squares ratings that best explain observed margins. */
-function massey(hist) {
+/**
+ * Ridge strength for the Massey paired-comparison system.
+ *
+ * `massey()` below solves the normal equations of the paired-comparison design
+ * in which every game contributes a row with +1 in the home team's column, -1
+ * in the away team's, and the observed margin as its response. Zero here
+ * recovers the ordinary least-squares estimator exactly, including its
+ * sum-to-zero pin, so a zero is a genuine no-op rather than an approximation
+ * of one — `test/ensemble-massey-ridge.test.js` asserts that identity.
+ *
+ * WHY THIS IS ZERO, and what was measured to put it there.
+ *
+ * Shrinkage makes the ESTIMATOR better and the FORECAST no better. Swept over
+ * lambda in {0,1,2,5,10,20,50,100,200,500} on the deterministic league fixture
+ * (`test/helpers/seed-league-history.js`, ten seasons), the component's own
+ * walk-forward margin RMSE bottoms out at lambda = 50, and that win replicates
+ * on five independent fixture seeds — 13.823 -> 13.583 mean RMSE, better in
+ * 5 of 5. But the held-out ensemble forecast (2024-2025, n = 206 per seed) does
+ * not move with it: 12.2675 -> 12.2720 mean, WORSE in 4 of 5 seeds by about
+ * four hundredths of a point. This component carries roughly a tenth of the
+ * margin weight, the market anchor and market regression carry twice that
+ * between them, and melo and dynamic_state already supply opponent-adjusted
+ * strength — so a sharper Massey is largely redundant information by the time
+ * it reaches the blend.
+ *
+ * A measured non-improvement is not a reason to ship the change silently at a
+ * nonzero default, so the default is the old behaviour exactly. The estimator
+ * stays because it is the correct closed form, it is now testable, and one
+ * constant is all that stands between it and production if the same sweep ever
+ * runs against real NFL history — which this branch could not do.
+ *
+ * Caveat worth carrying forward: the fixture schedules a near-balanced rotating
+ * round-robin, which is the regime where opponent-aware shrinkage has least to
+ * add. Real NFL schedules are genuinely unbalanced, so this measurement may
+ * understate the ridge rather than overstate it.
+ */
+const MASSEY_RIDGE_LAMBDA = 0;
+
+/**
+ * Massey: least-squares ratings that best explain observed margins, with
+ * optional ridge shrinkage toward a prior.
+ *
+ * Closed form: theta_hat = (X'X + lambda*I)^-1 (X'y + lambda*gamma), where X is
+ * the paired-comparison design (+1 home, -1 away), y the observed margins and
+ * gamma a prior rating vector. `X'X` is assembled directly as the Massey
+ * matrix — games played on the diagonal, negated meeting counts off it — so no
+ * n-by-g design matrix is ever materialised.
+ *
+ * Identification. `X'X` has the all-ones vector in its null space, so ordinary
+ * least squares needs an explicit constraint; the lambda = 0 branch keeps the
+ * historical pin (overwrite the last row with a sum-to-zero condition). With
+ * lambda > 0 the system is already full rank and the pin is not merely
+ * unnecessary but harmful: it discards one team's own equation. Centring is
+ * preserved for free instead — `X'y` is orthogonal to the all-ones vector by
+ * construction (every game adds +m to one column and -m to another), the prior
+ * is centred below, and the all-ones vector is an eigenvector of
+ * (X'X + lambda*I), so the solution stays orthogonal to it.
+ */
+function massey(hist, { lambda = MASSEY_RIDGE_LAMBDA, prior = null } = {}) {
   const teams = [...new Set(hist.flatMap(g => [g.home, g.away]))];
   const idx = new Map(teams.map((t, i) => [t, i]));
   const n = teams.length;
@@ -91,9 +148,26 @@ function massey(hist) {
     A[i][i]++; A[j][j]++; A[i][j]--; A[j][i]--;
     b[i] += m; b[j] -= m;
   }
-  // Ratings are only identified up to a constant, so pin the mean at zero.
-  for (let k = 0; k < n; k++) A[n - 1][k] = 1;
-  b[n - 1] = 0;
+  if (!(lambda > 0)) {
+    // Ratings are only identified up to a constant, so pin the mean at zero.
+    for (let k = 0; k < n; k++) A[n - 1][k] = 1;
+    b[n - 1] = 0;
+    const x = solve(A, b);
+    return new Map(teams.map((t, i) => [t, x?.[i] ?? 0]));
+  }
+  // A prior that is not centred would shift every rating by its mean, which the
+  // identification above deliberately fixes at zero. Centre it rather than
+  // silently moving the whole league.
+  const gamma = new Array(n).fill(0);
+  if (prior) {
+    let sum = 0, seen = 0;
+    for (let k = 0; k < n; k++) {
+      const v = prior.get(teams[k]);
+      if (Number.isFinite(v)) { gamma[k] = v; sum += v; seen++; }
+    }
+    if (seen) { const mid = sum / seen; for (let k = 0; k < n; k++) gamma[k] -= mid; }
+  }
+  for (let k = 0; k < n; k++) { A[k][k] += lambda; b[k] += lambda * gamma[k]; }
   const x = solve(A, b);
   return new Map(teams.map((t, i) => [t, x?.[i] ?? 0]));
 }
@@ -776,7 +850,7 @@ export function completeWeekSplit(weekKeys) {
  * lets a fixture assert the window and the split boundary directly, rather
  * than inferring them from a fitted artifact.
  */
-export const __testables = { scheduleFaced, completeWeekSplit };
+export const __testables = { scheduleFaced, completeWeekSplit, massey, MASSEY_RIDGE_LAMBDA };
 
 /** Builds the context object every model reads, from games strictly earlier. */
 const _sharedContextCache = new Map();

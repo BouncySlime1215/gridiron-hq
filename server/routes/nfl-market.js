@@ -386,9 +386,17 @@ r.post('/execution/:id/accept', requireModelPermission('model:execute'), (req, r
  * Closing-line value over the ACCEPTED-ticket ledger (Codex audit finding
  * E9). A read-only projection, so calling it repeatedly is idempotent by
  * construction and a late-arriving close simply becomes gradeable.
+ *
+ * `?includeAbstained=1` (u5-clv-endpoints, Step 0 item 5) additionally grades
+ * every passed/abstained opportunity, so the denominator can be every
+ * decision the model made on a slate rather than only the ones it bet.
+ * Defaults to false -- unchanged accepted-only behavior for any existing caller.
  */
-r.get('/execution/clv', requireModelPermission('model:execute'), (_req, res, next) => {
-  try { res.json(executionClvReport()); } catch (e) { next(e); }
+r.get('/execution/clv', requireModelPermission('model:execute'), (req, res, next) => {
+  try {
+    const includeAbstained = ['1', 'true'].includes(String(req.query.includeAbstained ?? '').toLowerCase());
+    res.json(executionClvReport({ includeAbstained }));
+  } catch (e) { next(e); }
 });
 
 /** Settle every accepted position whose game now has a real final score. Safe to call repeatedly — already-settled positions are simply skipped. */

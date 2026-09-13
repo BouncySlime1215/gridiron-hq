@@ -119,6 +119,22 @@ test('a moved quote creates a second run while the first stays byte-identical', 
   assert.equal(decisionRun(before.run_id).content_hash, beforeRow.content_hash);
 });
 
+test('u2-market-identity: is_market_identity persists on the event and round-trips as a real boolean', () => {
+  const marketIdentity = record([decision({ matchup: 'GB at DET', selection: 'DET', is_market_identity: true })]);
+  const realOpinion = record([decision({ matchup: 'NYJ at NE', selection: 'NE', is_market_identity: false })]);
+
+  const [flagged] = decisionRunEvents(marketIdentity.run_id);
+  const [opinion] = decisionRunEvents(realOpinion.run_id);
+  assert.equal(flagged.is_market_identity, 1);
+  assert.equal(opinion.is_market_identity, 0);
+
+  // Flipping ONLY this field on otherwise-identical numbers is a genuinely
+  // different decision, not a formatting change — it changes the content hash.
+  assert.notEqual(marketIdentity.content_hash,
+    record([decision({ matchup: 'GB at DET', selection: 'DET', is_market_identity: false })],
+      { observation: observation() }).content_hash);
+});
+
 test('a policy version change is a different run even with identical numbers', () => {
   const a = record([decision()], { policyVersion: '1.0.0' });
   const b = record([decision()], { policyVersion: '1.1.0' });
@@ -193,6 +209,10 @@ test('C01: EVERY material field independently changes the content hash', () => {
     expected_return: { decisions: [decision({ expected_return: -0.02 })] },
     push_probability: { decisions: [decision({ push_probability: 0.08 })] },
     eligibility: { decisions: [decision({ eligible: false, abstention_reason: 'edge_below_threshold' })] },
+    // u2-market-identity: whether this decision's base forecast was a real
+    // model opinion or the market line served verbatim (see nfl-ensemble.js).
+    // A run that flips this on the same numbers is a different decision.
+    is_market_identity: { decisions: [decision({ is_market_identity: true })] },
     policy_version: { policyVersion: '2.0.0' },
     engine_mode: { engineMode: 'candidate' },
     horizon: { horizon: 'T-1440' },

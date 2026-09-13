@@ -1651,6 +1651,17 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   const residualWeightSum = scored.reduce((s, m) => s + m.residual_weight, 0);
   for (const m of scored) m.residual_weight = residualWeightSum
     ? +(m.residual_weight / residualWeightSum).toFixed(4) : 0;
+  // SWEEP STEP 0 ITEM 3 (2026-09-12): across every fit artifact ever persisted
+  // (848 artifacts / 26,288 component-cutoff rows, checked read-only against
+  // real production history), residual_gate_passed has NEVER once been true.
+  // That is not a property of one unlucky cutoff -- it means market_residual
+  // has, in practice, always fallen through to `marketMargin` verbatim below,
+  // and spread_edge has been identically 0 at every cutoff that ever shipped.
+  // `residual_gate_pass_count` makes that a queryable fact of THIS cutoff's fit
+  // rather than something only visible by re-deriving it from 26k stored rows,
+  // and `ensembleLine`'s `is_market_identity` (below) is the per-game flag
+  // downstream code and audits actually branch on.
+  const residualGatePassCount = scored.filter(m => m.residual_gate_passed).length;
 
   const result = {
     models: scored,
@@ -1660,7 +1671,13 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     residual_evaluated_weeks: windows.weeks.length,
     games: all.length,
     calibration: cal, weighting, input_mode: inputMode,
-    weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 }
+    weight_cutoff: beforeSeason == null ? null : { season: beforeSeason, week: beforeWeek ?? 1 },
+    residual_gate_pass_count: residualGatePassCount,
+    // True exactly when NO component earned residual weight at this cutoff --
+    // the honest, queryable version of "market_residual has no independent
+    // opinion here." Independent of blendMode: this describes what the fit
+    // itself has to offer, not which blend a particular caller requested.
+    zero_residual_components_at_cutoff: residualGatePassCount === 0
   };
   _cache.set(cacheKey, result);
   if (_artifactPersistenceEnabled) {
@@ -1757,6 +1774,19 @@ export function ensembleLine(season, week, home, away, {
   // market. The in-sample residual diagnostic is not proof of independent skill.
   // The no-signal fallback is precisely the spread.
   const margin = blendMode === 'market_residual' ? residualMargin : rawMargin;
+  // SWEEP STEP 0 ITEM 3: `market_residual` returns `marketMargin` verbatim,
+  // by construction, whenever no component has residual weight (see the
+  // fallback in `residualMargin` above) -- this is production's blend mode
+  // (nfl-auto-picks.js) and, checked read-only against real history, has been
+  // true at EVERY cutoff ever fit (0 of 848 stored fit artifacts / 26,288
+  // component-cutoff rows ever passed the gate). `is_market_identity` names
+  // that plainly rather than leaving a caller to notice spread_edge is 0: it
+  // is true only when the served forecast IS the market line by arithmetic,
+  // not merely close to it because the models happened to agree with the
+  // market. `raw` mode never falls back to the market this way, so it is
+  // always false there even if a model's own output happens to match the line.
+  const isMarketIdentity = blendMode === 'market_residual'
+    && marketMargin != null && residualWeight === 0;
   const disagreementMargin = sd(marginVals);
   const distribution = predictiveDistribution(hist, { margin, total, homeSpread: g.home_spread,
     marketTotal: g.total, disagreement: disagreementMargin });
@@ -1784,6 +1814,11 @@ export function ensembleLine(season, week, home, away, {
       models_contributing_total: totalVals.length,
       confidence: confidenceFrom(sd(marginVals), margin, marketMargin),
       blend_mode: blendMode,
+      // Every audit/replay run declares its blend explicitly (blend_mode,
+      // above) and now also declares, honestly, whether that blend actually
+      // produced a real model opinion for this game or just the market line
+      // with no independent view -- see the sweep note on `isMarketIdentity`.
+      is_market_identity: isMarketIdentity,
       residual_models_contributing: residualModels.length,
       distribution,
       player_availability: playerAvailability

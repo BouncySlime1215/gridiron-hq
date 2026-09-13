@@ -155,6 +155,12 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
       probability_difference: incremental,
       calibration_eligible: calibrationEligible,
       calibration_status: calibrated.reason,
+      // Hoisted to the top level (also nested under feature_snapshot's
+      // coordinated_decision_head) so the decision tape and any direct reader
+      // of the board can see it without parsing JSON. See the sweep note at
+      // coordinated_decision_head.is_market_identity for what this means and
+      // how it was validated against real history.
+      is_market_identity: e.is_market_identity === true,
       promoted_finding_veto: veto.vetoed ? { segment_key: veto.segment_key, reason: veto.reason } : null,
       detail: `Ensemble edge ${edge > 0 ? '+' : ''}${edge} · disagreement ${e.model_disagreement_margin}`,
       edge_points: edge == null ? null : Math.abs(edge), disagreement: e.model_disagreement_margin,
@@ -175,6 +181,16 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
         coordinated_decision_head: {
           version: COORDINATED_DECISION_VERSION,
           target: 'actual margin minus pregame market margin', base_blend: e.blend_mode,
+          // SWEEP STEP 0 ITEM 3: whether the base blend above actually produced
+          // an independent model opinion for this game, or fell through to the
+          // market line by arithmetic because zero components passed the
+          // residual promotion gate. Checked read-only against real production
+          // history (2026-09-12): 0 of 848 stored ensemble fit artifacts ever
+          // passed that gate, so this has been true of every base_blend this
+          // board has ever served. A neural override does not change this flag
+          // -- it describes the base blend's own honesty, independent of
+          // whatever sits on top of it.
+          is_market_identity: e.is_market_identity === true,
           neural: { version: neural.version ?? null, residual: neural.residual ?? null,
             authority: neural.authority ?? 'unavailable', used: Boolean(neuralUsed) },
           production_rule: 'market-residual base; neural output only after its forward gate passes'
@@ -195,7 +211,14 @@ function computeDecisionBoard(season, week, policy = NFL_PRODUCTION_POLICY, mode
     });
   }
   return { ...applyNflPolicy(out, policy),
-    engine_mode: modelOptions.includeChallengers ? 'candidate' : 'champion' };
+    engine_mode: modelOptions.includeChallengers ? 'candidate' : 'champion',
+    // Explicit at the board level, not just inferable per-game: every
+    // audit/replay/production run of this board declares which blend it used.
+    blend_mode: modelOptions.blendMode,
+    // How many of this week's games actually got a market-identity forecast
+    // out of that blend. See coordinated_decision_head.is_market_identity.
+    market_identity_games: out.filter(d => d.is_market_identity).length,
+    total_games: out.length };
 }
 
 export function autoPickCandidates(season, week, policy = NFL_PRODUCTION_POLICY) {
@@ -223,17 +246,20 @@ export function persistPickDecisions(season, week, decisionBoard) {
   for (const d of decisionBoard.decisions) {
     run(`INSERT INTO nfl_pick_decisions
       (season,week,policy_id,policy_version,matchup,selection,market,line,american_price,book,
-       quote_at,quote_source,edge,disagreement,eligible,abstention_reason,policy_rank,feature_snapshot_json,recorded_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       quote_at,quote_source,edge,disagreement,eligible,abstention_reason,policy_rank,
+       is_market_identity,feature_snapshot_json,recorded_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(season,week,policy_id,matchup,market,selection) DO UPDATE SET
        line=excluded.line,american_price=excluded.american_price,book=excluded.book,
        quote_at=excluded.quote_at,quote_source=excluded.quote_source,edge=excluded.edge,
        disagreement=excluded.disagreement,eligible=excluded.eligible,
        abstention_reason=excluded.abstention_reason,policy_rank=excluded.policy_rank,
+       is_market_identity=excluded.is_market_identity,
        feature_snapshot_json=excluded.feature_snapshot_json,recorded_at=excluded.recorded_at`,
       season, week, decisionBoard.policy.id, decisionBoard.policy.version, d.matchup, d.selection,
       d.market, d.line, d.american_price, d.book, d.quote_at, d.quote_source, d.edge_points,
       d.disagreement, d.eligible ? 1 : 0, d.abstention_reason, d.policy_rank ?? null,
+      d.is_market_identity ? 1 : 0,
       JSON.stringify(d.feature_snapshot ?? {}), at);
   }
   return { recorded_at: at, decisions: decisionBoard.decisions.length };

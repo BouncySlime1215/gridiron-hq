@@ -146,6 +146,13 @@ function decisionContentFingerprint(d) {
     cover_calibration: snap.cover_calibration ?? null,
     active_model_ids: [...(snap.active_model_ids ?? [])].sort(),
     input_mode: snap.input_mode ?? null,
+    // SWEEP STEP 0 ITEM 3: whether this decision's base forecast was a real
+    // model opinion or the market line served verbatim because zero
+    // components passed the residual promotion gate. Part of the content
+    // hash on purpose -- a run that flips from a real opinion to market
+    // identity (or back) on the same numbers is a different decision, not a
+    // formatting change.
+    is_market_identity: d.is_market_identity === true,
     neural_authority: snap.coordinated_decision_head?.neural?.authority ?? null,
     neural_version: snap.coordinated_decision_head?.neural?.version ?? null,
     neural_used: snap.coordinated_decision_head?.neural?.used ?? null,
@@ -456,10 +463,10 @@ export function recordDecisionRun(season, week, decisionBoard, {
             book, quote_at, quote_source, quote_id,
             edge, edge_points, projected_margin, market_margin,
             model_probability, implied_probability, probability_difference,
-            forecast_identity, cover_calibration,
+            forecast_identity, cover_calibration, is_market_identity,
             disagreement, eligible, calibration_eligible, calibration_status,
             abstention_reason, promoted_finding_veto_json, policy_rank, feature_snapshot_json)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, d.matchup, d.home_team ?? null, d.away_team ?? null, d.market,
       d.selection ?? null, d.side ?? null, d.line ?? null, d.american_price ?? null,
       d.book ?? null, d.quote_at ?? null, d.quote_source ?? null, d.quote_id ?? null,
@@ -470,7 +477,7 @@ export function recordDecisionRun(season, week, decisionBoard, {
       forecast.signed_edge_points ?? null, d.edge_points ?? null,
       forecast.projected_margin ?? null, forecast.market_margin ?? null,
       d.model_probability ?? null, d.implied_probability ?? null, d.probability_difference ?? null,
-      snap.forecast_identity?.id ?? null, snap.cover_calibration ?? null,
+      snap.forecast_identity?.id ?? null, snap.cover_calibration ?? null, d.is_market_identity ? 1 : 0,
       d.disagreement ?? null, d.eligible ? 1 : 0, d.calibration_eligible ? 1 : 0,
       d.calibration_status ?? null, d.abstention_reason ?? null,
       d.promoted_finding_veto ? JSON.stringify(d.promoted_finding_veto) : null,

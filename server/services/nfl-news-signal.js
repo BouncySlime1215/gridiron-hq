@@ -113,6 +113,79 @@ function candidatePlayers(item) {
   return [...unique.values()];
 }
 
+const escapeRegExp = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// A period after "Jr"/"Sr"/a roman numeral/a single initial is part of a
+// NAME, not a sentence end -- naively splitting there tears a player's own
+// name in half (real example: "Michael Penix Jr. shined in his return to
+// full practice" split right after "Jr." into "...Michael Penix Jr." /
+// "shined in...", which then matched the story's OTHER player instead,
+// because the actual status clause no longer contained Penix's name).
+const SENTENCE_ABBREVIATIONS = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v', 'mr', 'mrs', 'ms', 'dr', 'st', 'vs']);
+/**
+ * Sentence/line boundaries, plus a bare " - " separator (common in terse
+ * feed headlines joining two unrelated claims, e.g. "Player A returns to
+ * practice - Player B: quote") -- still no NLP dependency, just a second
+ * hand-written boundary alongside the punctuation one, matching this file's
+ * existing regex-only style. A period is skipped as a boundary when the word
+ * immediately before it is a known name abbreviation or a single initial.
+ */
+function splitIntoClauses(text) {
+  const str = String(text ?? '');
+  const clauses = [];
+  let start = 0;
+  const boundaryRe = /([.!?])\s+|\r?\n+| - /g;
+  let match;
+  while ((match = boundaryRe.exec(str))) {
+    if (match[1] === '.') {
+      const word = /([A-Za-z]+)\.?$/.exec(str.slice(0, match.index))?.[1]?.toLowerCase() ?? '';
+      if (word.length <= 1 || SENTENCE_ABBREVIATIONS.has(word)) continue;
+    }
+    clauses.push(str.slice(start, match.index + match[0].length));
+    start = match.index + match[0].length;
+  }
+  clauses.push(str.slice(start));
+  return clauses.map(s => s.trim()).filter(Boolean);
+}
+
+const NAME_SUFFIXES = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
+function lastNameOf(fullName) {
+  const parts = String(fullName ?? '').trim().split(/\s+/).filter(Boolean);
+  while (parts.length > 1 && NAME_SUFFIXES.has(parts.at(-1).toLowerCase().replace(/\.$/, ''))) parts.pop();
+  return parts.at(-1) ?? fullName;
+}
+
+/**
+ * A story naming several players does not mean every one of them shares the
+ * story's first-matching status: a single injury report can say one player
+ * is a full participant in the same paragraph that says another remains
+ * limited, and the old code matched every rule against the WHOLE story text
+ * for every entity, so whichever status/body-part happened to appear
+ * anywhere in the text landed on ALL of them (confirmed against real synced
+ * signals: e.g. news_id 88956/88968, where a Ravens report differentiating
+ * Zay Flowers from Devontez Walker still stored the identical status AND
+ * the identical body_part -- Teddye Buchanan's "knee" -- for both players).
+ *
+ * Each player's rule matching is restricted here to the clause(s) that
+ * actually name them: their full name, or their last name when it is
+ * unique among this story's OTHER candidate players (common in injury-
+ * report shorthand, "Panthers RB Brooks..."). A clause naming several
+ * players together ("Released A, B and C") still resolves to that same
+ * clause for each of them -- a genuinely joint claim, not a bug -- while
+ * clauses about different players stop bleeding into each other. A
+ * single-player story is returned unchanged: its whole text was already
+ * "local" to that one player, so behavior there is identical to before.
+ */
+function localTextForPlayer(text, entity, allEntities) {
+  if (allEntities.length <= 1) return text;
+  const last = lastNameOf(entity.name);
+  const lastIsUnique = allEntities.filter(other => lastNameOf(other.name).toLowerCase() === last.toLowerCase()).length === 1;
+  const nameRe = new RegExp(`\\b${escapeRegExp(entity.name)}\\b`, 'i');
+  const lastRe = lastIsUnique ? new RegExp(`\\b${escapeRegExp(last)}\\b`, 'i') : null;
+  const clauses = splitIntoClauses(text).filter(clause => nameRe.test(clause) || (lastRe && lastRe.test(clause)));
+  return clauses.length ? clauses.join(' ') : text;
+}
+
 export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {}) {
   const since = new Date(Date.now() - sinceDays * 86400000).toISOString();
   const items = rows(`SELECT id,team_id,headline,body,published_at,source,source_url,source_type,
@@ -136,15 +209,16 @@ export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {})
     const text = `${item.headline ?? ''}. ${item.body ?? ''}`.slice(0, 1600);
     const players = candidatePlayers(item);
     if (!players.length) { skippedNoPlayer++; continue; }
-    const bodyPart = BODY_PARTS.find(part => new RegExp(`\\b${part}\\b`, 'i').test(text)) ?? null;
     const reliability = parse(item.reliability_json, {});
     const reliabilityCap = Number.isFinite(reliability.score) ? clamp(reliability.score) : 0.85;
     const verification = newsSourceVerification(item);
     let itemSignals = 0;
     for (const entity of players) {
       const key = normalizePlayerName(entity.name), team = teamForEntity(entity, item.team_id);
+      const localText = localTextForPlayer(text, entity, players);
+      const bodyPart = BODY_PARTS.find(part => new RegExp(`\\b${part}\\b`, 'i').test(localText)) ?? null;
       for (const rule of STATUS_RULES) {
-        const match = text.match(rule.re);
+        const match = localText.match(rule.re);
         if (!match) continue;
         insert.run(item.id, key, entity.id == null ? null : String(entity.id), entity.name, team,
           'availability', rule.status, bodyPart, rule.unavailable, null,
@@ -153,7 +227,7 @@ export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {})
         signals++; itemSignals++; break;
       }
       for (const rule of ROLE_RULES) {
-        const match = text.match(rule.re);
+        const match = localText.match(rule.re);
         if (!match) continue;
         insert.run(item.id, key, entity.id == null ? null : String(entity.id), entity.name, team,
           'role', rule.status, null, null, rule.delta,

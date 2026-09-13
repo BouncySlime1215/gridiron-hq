@@ -63,3 +63,20 @@ test('news normalization attributes sources, canonicalizes URLs, extracts entiti
   assert.equal(clusters[0].preferred.source_type, 'official');
   assert.throws(() => normalizeNewsItem({ ...raw, source: 'AI analysis' }), /not a valid reporting source/);
 });
+
+test('extractEntities requires a bare team abbreviation to appear in its exact case, so "WAS"/"NO" do not collide with the ordinary words "was"/"no"', () => {
+  const identity = { players: [], teams: [
+    { id: 32, name: 'Washington Commanders', abbr: 'WAS' },
+    { id: 23, name: 'New Orleans Saints', abbr: 'NO' }
+  ] };
+  // Plain English "was"/"no" must not resolve to a team -- this misattributed
+  // 192 of 298 WAS/NO-tagged stories in the real corpus before the fix.
+  assert.deepEqual(extractEntities('He was injured in practice and there is no timetable for his return', identity).teams, []);
+  // A genuine, capitalized abbreviation still resolves.
+  assert.deepEqual(extractEntities('Hill: Not returning to NO for 10th season', identity).teams.map(t => t.id), [23]);
+  // The full team name still matches case-insensitively, exactly as before.
+  assert.deepEqual(extractEntities('washington commanders sign a veteran lineman', identity).teams.map(t => t.id), [32]);
+  // A caller-supplied custom alias (not the bare abbr) still matches case-insensitively too.
+  const aliased = { players: [], teams: [{ id: 23, name: 'New Orleans Saints', abbr: 'NO', aliases: ['no'] }] };
+  assert.deepEqual(extractEntities('no changes to the depth chart', aliased).teams.map(t => t.id), [23]);
+});

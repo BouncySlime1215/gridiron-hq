@@ -1,0 +1,132 @@
+{
+  "generated_at": "2026-09-13T10:03:21.411Z",
+  "registry_summary": {
+    "total_trials_registered": 55,
+    "scored": 52,
+    "declared_pending": 2,
+    "void_or_error": 1,
+    "by_kind": {
+      "component_model_1of21": 21,
+      "residual_model_variant": 1,
+      "segment_search_space": 1,
+      "audit_registry_hypothesis": 15,
+      "candidate_input_audit": 5,
+      "candidate_robustness_audit": 6,
+      "segment_definition_finding": 1,
+      "family_ablation": 5
+    }
+  },
+  "effective_trial_count": {
+    "n_raw": 52,
+    "n_effective": 31.784636351768036,
+    "tau_integrated_autocorrelation_time": 1.6360105374339913,
+    "m_pairs_used": 3,
+    "note": "Geyer initial monotone sequence estimator; 3 paired lag-block(s) used (cap 17)"
+  },
+  "deflated_sharpe_ratio": {
+    "sr0_expected_max_sharpe_under_null": 0.18087772656107703,
+    "dsr": 0.30545709572702145,
+    "inputs": {
+      "sharpe": 0.11167656571008165,
+      "n": 57,
+      "skewness": -0.31980107453341616,
+      "kurtosis": 1.1022727272727284,
+      "nTrialsEffective": 31.784636351768036,
+      "sharpeStdAcrossTrials": 0.08625094598012244
+    },
+    "best_observed_trial": {
+      "label": "football-first beats the closing spread (33-24 per WORK_LOG)",
+      "sharpe": 0.11167656571008165,
+      "n": 57,
+      "skewness": -0.31980107453341616,
+      "kurtosis": 1.1022727272727284
+    },
+    "sharpe_cross_section": {
+      "n_trials": 13,
+      "mean": -0.02373748667114586,
+      "std": 0.08625094598012244,
+      "trials": [
+        {
+          "label": "unified-all-inputs-v1",
+          "sharpe": 0.0486,
+          "n": 209
+        },
+        {
+          "label": "unified-all-inputs-v2-roster",
+          "sharpe": 0.0469,
+          "n": 213
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": 0.0469,
+          "n": 213
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": 0.0469,
+          "n": 213
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": 0.0469,
+          "n": 213
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0736,
+          "n": 282
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0736,
+          "n": 282
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0792,
+          "n": 273
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0792,
+          "n": 273
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0792,
+          "n": 273
+        },
+        {
+          "label": "unified-all-inputs-v3-isolated-roster",
+          "sharpe": -0.0792,
+          "n": 273
+        },
+        {
+          "label": "simulator beats closing line ATS",
+          "sharpe": -0.1925,
+          "n": 84
+        },
+        {
+          "label": "football-first beats the closing spread (33-24 per WORK_LOG)",
+          "sharpe": 0.1117,
+          "n": 57
+        }
+      ]
+    }
+  },
+  "probability_of_backtest_overfitting": {
+    "method": "combinatorially symmetric cross-validation (Bailey, Borwein, López de Prado & Zhu 2015)",
+    "subsets": 4,
+    "combinations_evaluated": 6,
+    "strategies": 4,
+    "periods": 4,
+    "pbo": 0.16666666666666666,
+    "logits_mean": 0.5797311700588809
+  },
+  "honest_gaps": [
+    "The individual per-component observed statistic behind \"0 of 21 models beat the closing line\" (commit 73f930f, 2026-08-27) does not survive anywhere in the repo, git history, or server/data.sqlite -- only the aggregate finding does. Each of the 21 components is registered with a real family-level ablation-delta proxy (docs/evidence/2026-09-10/family-contribution-2021-2025.json), flagged `individual_value_reconstructable: false`, and EXCLUDED from the Sharpe cross-section (no bet ledger).",
+    "Segment/bucket combinations that fell below nfl-replay.js's minBets threshold (25, or 30 from the season-end orchestrator) in any specific historical run are never logged by analyzeErrors() and cannot be reconstructed. The search space and threshold rule are registered (real, from source); individual dropped attempts are not.",
+    "The PBO/CSCV calculation uses a real but small (4-period, 4-strategy) matrix -- the only real, same-window, multi-strategy per-period series this project's surviving evidence provides. Treat it as a demonstration on genuine data, not a high-power estimate. Its low PBO here is mechanical, not strong robustness evidence: three of the four strategies (v1/v2-roster/v3-isolated-roster) are near-duplicates of each other and all dominate the fourth (the champion-only baseline) in most periods, so the IS-best is almost always also above the OOS median regardless of genuine skill. A real PBO estimate needs more, genuinely distinct strategies and more periods than survive in this project's evidence.",
+    "audit_registry rows 1 and 14 do not persist real per-bet prices; both are treated at this project's own standard -110 convention (the same convention its own break-even thresholds, e.g. 0.5238, assume)."
+  ]
+}

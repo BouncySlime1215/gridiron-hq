@@ -16,6 +16,7 @@
  */
 import { rows } from '../db/index.js';
 import { teamWeeks, playerWeeks } from './nfl-pbp.js';
+import { weatherSplits } from './nfl-weather-response.js';
 
 const div = (a, b) => (b > 0 ? a / b : null);
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -357,13 +358,7 @@ export function gameContext(season, week, team) {
     return { epa: h.features.off_epa_per_play, ...line };
   }).filter(x => x.epa != null);
 
-  const dome = withCtx.filter(x => x.roof === 'dome' || x.roof === 'closed');
-  const outdoor = withCtx.filter(x => x.roof && x.roof !== 'dome' && x.roof !== 'closed');
-  const cold = withCtx.filter(x => x.temp != null && x.temp < 32);
-  const warm = withCtx.filter(x => x.temp != null && x.temp >= 32);
-  const windy = withCtx.filter(x => x.wind != null && x.wind >= 15);
-  const calm = withCtx.filter(x => x.wind != null && x.wind < 15);
-  const delta = (a, b) => (a.length && b.length ? r3(avg(a.map(x => x.epa)) - avg(b.map(x => x.epa))) : null);
+  const splits = weatherSplits(withCtx);
 
   const hour = g?.gametime ? Number(String(g.gametime).split(':')[0]) : null;
   return {
@@ -383,9 +378,9 @@ export function gameContext(season, week, team) {
     closing_spread: g?.spread ?? null,
     closing_total: g?.total ?? null,
     implied_team_total: g?.implied_points ?? null,
-    dome_epa_delta: delta(dome, outdoor),
-    cold_epa_delta: delta(cold, warm),
-    wind_epa_delta: delta(windy, calm)
+    dome_epa_delta: splits.dome_epa_delta,
+    cold_epa_delta: splits.cold_epa_delta,
+    wind_epa_delta: splits.wind_epa_delta
   };
 }
 

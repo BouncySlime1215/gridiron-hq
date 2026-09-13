@@ -29,6 +29,8 @@
  * that has never been possible before, and both APIs are free and unauthenticated.
  */
 import { rows, row, run } from '../db/index.js';
+import { shinDevig, americanToProb } from './nfl-devig.js';
+import { teamCodeFor, canonicalTeamCode } from './team-codes.js';
 
 const KALSHI = 'https://api.elections.kalshi.com/trade-api/v2';
 const POLY_GAMMA = 'https://gamma-api.polymarket.com';
@@ -160,6 +162,70 @@ export async function capturePolymarket({ limit = 200 } = {}) {
       volume: num(m.volume), liquidity: num(m.liquidity) })) };
 }
 
+/** Any feed's spelling of a team, as a canonical code. Pure fallback when nfl_teams is empty. */
+const code = value => teamCodeFor(value) ?? canonicalTeamCode(value);
+
+/**
+ * The sportsbook's real no-vig moneyline for each game, de-vigged with Shin's method.
+ *
+ * This is the number `exchangeVsBook` actually wants and, until now, did not have.
+ * A Kalshi contract is a moneyline: it pays if the team wins, full stop. Comparing
+ * it to a spread pushed through a normal curve compares two different quantities
+ * and calls the difference a disagreement — most of what that produced was the
+ * conversion's own error, not the venues disagreeing about anything.
+ *
+ * `nfl_line_snapshots` already stores both sides of the moneyline (`market='h2h'`)
+ * as real American prices, which is exactly the two-outcome input Shin's method in
+ * nfl-devig.js takes. So the fair probability is quoted, not modelled.
+ *
+ * WHICH BOOK. Shin de-vigs one book's two-sided pair, so a book has to be chosen.
+ * The lowest-overround pair per game wins: the tightest two-sided market is the
+ * sharpest estimate available, and it is also the one where the de-vig assumption
+ * matters least, because there is less margin to misallocate in the first place.
+ */
+export function bookMoneylineNoVig() {
+  const quotes = rows(
+    `SELECT s.event_id, s.book, s.home_team, s.away_team, s.side, s.price, s.captured_at
+     FROM nfl_line_snapshots s
+     JOIN (SELECT event_id, book, MAX(captured_at) AS mx FROM nfl_line_snapshots
+           WHERE market = 'h2h' AND price IS NOT NULL
+           GROUP BY event_id, book) l
+       ON s.event_id = l.event_id AND s.book = l.book AND s.captured_at = l.mx
+     WHERE s.market = 'h2h' AND s.price IS NOT NULL`);
+
+  // Collect both sides of each (event, book) pair before de-vigging: a lone side
+  // is a half-quote, and a half-quote cannot be de-vigged by any method.
+  const pairs = new Map();
+  for (const q of quotes) {
+    const k = `${q.event_id}|${q.book}`;
+    if (!pairs.has(k)) pairs.set(k, { ...q, sides: new Map() });
+    pairs.get(k).sides.set(code(q.side), Number(q.price));
+  }
+
+  const best = new Map();
+  for (const p of pairs.values()) {
+    if (p.sides.size !== 2) continue;
+    const [[teamA, oddsA], [teamB, oddsB]] = [...p.sides];
+    const piA = americanToProb(oddsA), piB = americanToProb(oddsB);
+    if (piA == null || piB == null) continue;
+    const fair = shinDevig(oddsA, oddsB);
+    if (!fair) continue;
+
+    const key = `${code(p.away_team)}@${code(p.home_team)}`;
+    const hold = piA + piB - 1;
+    const prior = best.get(key);
+    // Lowest overround wins. A negative overround (a crossed two-sided quote,
+    // usually two stale sides of one book) is not "sharpest" — it is broken — so
+    // compare on distance from a fair book rather than on the raw signed hold.
+    if (prior && Math.abs(prior.hold) <= Math.abs(hold)) continue;
+    best.set(key, {
+      hold, book: p.book, captured_at: p.captured_at, z: fair.z,
+      probByTeam: new Map([[teamA, fair.probA], [teamB, fair.probB]])
+    });
+  }
+  return best;
+}
+
 /**
  * Where the exchange disagrees with the sportsbook.
  *
@@ -169,6 +235,11 @@ export async function capturePolymarket({ limit = 200 } = {}) {
  *
  * Reported as a gap in probability points. A three-point gap on a near-even
  * game is roughly two-thirds of a point of spread, which is real.
+ *
+ * The book side comes from `bookMoneylineNoVig()` above wherever a two-sided
+ * moneyline is stored, so the gap is against a quoted fair price on the same
+ * contract rather than against a spread pushed through a curve. Each row says
+ * which of the two it got, because the number means different things.
  */
 export function exchangeVsBook({ minGap = 0.02 } = {}) {
   const latest = rows(
@@ -191,26 +262,53 @@ export function exchangeVsBook({ minGap = 0.02 } = {}) {
     if (!bookByGame.has(k)) bookByGame.set(k, b);
   }
 
-  // Spread to win probability, using the margin standard deviation measured
-  // from real games rather than an assumed one.
+  // The quoted no-vig moneyline, where both sides of one are stored.
+  const fairByGame = bookMoneylineNoVig();
+
+  // The fallback, for games with no two-sided moneyline stored: the free ESPN
+  // reference spread pushed through a normal model with the margin standard
+  // deviation measured from real games. It is an approximation of a no-vig
+  // moneyline rather than a quoted one, which is why it is now the fallback
+  // and no longer the only path.
   const SIGMA = 14.16;
   const normCdf = z => 0.5 * (1 + erf(z / Math.SQRT2));
   const spreadToProb = spread => normCdf(-spread / SIGMA);
 
   const out = [];
+  let devigged = 0, approximated = 0;
   for (const q of latest) {
-    const b = bookByGame.get(q.event_key);
-    if (!b || !Number.isFinite(b.home_spread)) continue;
     const t = parseKalshiNflTicker(q.ticker);
     if (!t) continue;
-    const bookProb = t.subject === t.home
-      ? spreadToProb(b.home_spread) : 1 - spreadToProb(b.home_spread);
+    const subject = code(q.team ?? t.subject);
+
+    const fair = fairByGame.get(q.event_key);
+    const quoted = fair?.probByTeam.get(subject);
+
+    let bookProb = null, method = null, source = null;
+    if (quoted != null) {
+      bookProb = quoted;
+      method = 'shin_devig_moneyline';
+      source = fair.book;
+      devigged++;
+    } else {
+      const b = bookByGame.get(q.event_key);
+      if (!b || !Number.isFinite(b.home_spread)) continue;
+      bookProb = t.subject === t.home
+        ? spreadToProb(b.home_spread) : 1 - spreadToProb(b.home_spread);
+      method = 'spread_normal_approx';
+      source = 'espn_line_moves';
+      approximated++;
+    }
+
     const gap = q.yes_price - bookProb;
     if (Math.abs(gap) < minGap) continue;
     out.push({
       matchup: q.event_key, contract: q.subject ?? t.subject, ticker: q.ticker,
       exchange_probability: r4(q.yes_price), book_probability: r4(bookProb),
       gap: r4(gap), open_interest: q.open_interest,
+      book_method: method, book_source: source,
+      book_hold: method === 'shin_devig_moneyline' ? r4(fair.hold) : null,
+      shin_z: method === 'shin_devig_moneyline' ? r4(fair.z) : null,
       leans: gap > 0 ? 'exchange is higher on this team than the book'
         : 'exchange is lower on this team than the book'
     });
@@ -218,10 +316,15 @@ export function exchangeVsBook({ minGap = 0.02 } = {}) {
 
   return {
     games_compared: latest.length, disagreements: out.length, min_gap: minGap,
+    devigged_from_quoted_moneyline: devigged,
+    approximated_from_spread: approximated,
     divergences: out.sort((a, b2) => Math.abs(b2.gap) - Math.abs(a.gap)),
-    note: 'The book side is derived from the free ESPN reference spread through a normal model with ' +
-      'the measured margin sigma of 14.16, so it is an approximation of a no-vig moneyline rather ' +
-      'than a quoted one. Treat small gaps as noise in that conversion; large ones are worth a look.',
+    note: 'Where both sides of a book moneyline are stored, the book probability is that pair ' +
+      "de-vigged with Shin's method (nfl-devig.js) — a quoted fair price, and the same quantity a " +
+      'Kalshi contract pays on. Rows marked spread_normal_approx have no two-sided moneyline ' +
+      'stored and fall back to the ESPN spread through a normal model with the measured margin ' +
+      'sigma of 14.16; their gaps carry that conversion error on top of any real disagreement, so ' +
+      'the two kinds of row are not comparable to each other.',
     caveat: 'A divergence is not an edge until it is shown that one side systematically leads the ' +
       'other. That is what the flow log is accumulating toward, and it has not been tested yet.'
   };

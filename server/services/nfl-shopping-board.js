@@ -84,7 +84,7 @@ export function signedMarginDistribution() {
  * with a stale `book_updated_at` is dropped here too before two books are
  * ever compared as if both were live.
  */
-const CAPTURE_WINDOW_MS = 5 * 60 * 1000;
+export const CAPTURE_WINDOW_MS = 5 * 60 * 1000;
 
 let _quoteCache = new Map();
 export function clearShoppingBoardCache() { _quoteCache = new Map(); }

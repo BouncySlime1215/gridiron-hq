@@ -1,0 +1,152 @@
+{
+  "generated_at": "2026-09-13T11:17:35.412Z",
+  "source_db": "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite",
+  "note": "READ-ONLY measurement. avg_price slippage beyond the touch is not measurable from this table -- every stored book has exactly one level. See header comment.",
+  "snapshots": 65624,
+  "distinct_markets": 181,
+  "by_stake": [
+    {
+      "stake": 50,
+      "n": 65624,
+      "fully_filled_pct": 76.2,
+      "mean_fill_ratio": 0.8626,
+      "median_fill_ratio": 1,
+      "p10_fill_ratio": 0.304,
+      "naive_overstatement_pct": 13.74
+    },
+    {
+      "stake": 100,
+      "n": 65624,
+      "fully_filled_pct": 65,
+      "mean_fill_ratio": 0.7822,
+      "median_fill_ratio": 1,
+      "p10_fill_ratio": 0.152,
+      "naive_overstatement_pct": 21.78
+    },
+    {
+      "stake": 250,
+      "n": 65624,
+      "fully_filled_pct": 51.2,
+      "mean_fill_ratio": 0.6558,
+      "median_fill_ratio": 1,
+      "p10_fill_ratio": 0.0608,
+      "naive_overstatement_pct": 34.42
+    },
+    {
+      "stake": 500,
+      "n": 65624,
+      "fully_filled_pct": 37.6,
+      "mean_fill_ratio": 0.5485,
+      "median_fill_ratio": 0.5578,
+      "p10_fill_ratio": 0.0304,
+      "naive_overstatement_pct": 45.15
+    },
+    {
+      "stake": 1000,
+      "n": 65624,
+      "fully_filled_pct": 29,
+      "mean_fill_ratio": 0.4326,
+      "median_fill_ratio": 0.2789,
+      "p10_fill_ratio": 0.0152,
+      "naive_overstatement_pct": 56.74
+    },
+    {
+      "stake": 2500,
+      "n": 65624,
+      "fully_filled_pct": 22.1,
+      "mean_fill_ratio": 0.3247,
+      "median_fill_ratio": 0.1116,
+      "p10_fill_ratio": 0.0061,
+      "naive_overstatement_pct": 67.53
+    },
+    {
+      "stake": 5000,
+      "n": 65624,
+      "fully_filled_pct": 18.8,
+      "mean_fill_ratio": 0.2624,
+      "median_fill_ratio": 0.0558,
+      "p10_fill_ratio": 0.003,
+      "naive_overstatement_pct": 73.76
+    }
+  ],
+  "touch_depth_dollars": {
+    "p10": 15.2,
+    "p25": 55.52,
+    "median": 278.88,
+    "p75": 1857.35,
+    "p90": 17070.09,
+    "mean": 10440.67
+  },
+  "worst_at_500": [
+    {
+      "question": "Will Maxx Crosby play for San Francisco 49ers next?",
+      "captured_at": "2026-08-29T17:34:25.712Z",
+      "ask_size": 6.22,
+      "best_ask": 0.004,
+      "fill_ratio": 0
+    },
+    {
+      "question": "Will Maxx Crosby play for New York Jets next?",
+      "captured_at": "2026-08-29T17:34:25.712Z",
+      "ask_size": 5,
+      "best_ask": 0.036,
+      "fill_ratio": 0.0004
+    },
+    {
+      "question": "Will Tyreek Hill play for the Chicago Bears next?",
+      "captured_at": "2026-08-29T17:34:25.712Z",
+      "ask_size": 20.4,
+      "best_ask": 0.011,
+      "fill_ratio": 0.0004
+    },
+    {
+      "question": "Spread: IND (-3.5)",
+      "captured_at": "2026-08-29T19:48:43.285Z",
+      "ask_size": 15,
+      "best_ask": 0.019,
+      "fill_ratio": 0.0006
+    },
+    {
+      "question": "Will Kansas City Chiefs win the 2026 AFC West?",
+      "captured_at": "2026-08-31T18:26:22.155Z",
+      "ask_size": 0.9,
+      "best_ask": 0.33,
+      "fill_ratio": 0.0006
+    },
+    {
+      "question": "Will Carolina Panthers win the 2027 NFL NFC Championship?",
+      "captured_at": "2026-08-29T17:34:25.712Z",
+      "ask_size": 13.9,
+      "best_ask": 0.029,
+      "fill_ratio": 0.0008
+    },
+    {
+      "question": "Will Minnesota Vikings win the 2027 NFL NFC Championship?",
+      "captured_at": "2026-08-29T17:34:25.712Z",
+      "ask_size": 13.7,
+      "best_ask": 0.037,
+      "fill_ratio": 0.001
+    },
+    {
+      "question": "49ers vs. Rams: O/U 47.5",
+      "captured_at": "2026-09-11T01:14:38.131Z",
+      "ask_size": 1,
+      "best_ask": 0.48,
+      "fill_ratio": 0.001
+    },
+    {
+      "question": "1H Spread: Seahawks (-2.5)",
+      "captured_at": "2026-09-10T01:11:02.110Z",
+      "ask_size": 5,
+      "best_ask": 0.14,
+      "fill_ratio": 0.0014
+    },
+    {
+      "question": "49ers vs. Rams",
+      "captured_at": "2026-09-04T08:35:41.854Z",
+      "ask_size": 2.19,
+      "best_ask": 0.34,
+      "fill_ratio": 0.0015
+    }
+  ]
+}

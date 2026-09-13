@@ -294,8 +294,16 @@ r.get('/status', (req, res, next) => {
       // those are the ones that do not require beating the market.
       edges: [
         { id: 'execution', label: 'Shop for the best price', live: !board.stale && board.shoppable_sides > 0,
-          headline: board.shoppable_sides > 0
-            ? `${board.shoppable_sides} bets where one book pays more · best is ${(board.best_expected_return * 100).toFixed(1)}% better`
+          // GIANT PLAN 29: `best_edge_vs_median`, not `best_expected_return` --
+          // the latter carries each side's own reference-line historical cover
+          // bias (a real underdog can clear "best" on that number alone,
+          // regardless of whether any book actually beat its own median), so
+          // it cannot lead a cross-side headline. `best_edge_vs_median` is the
+          // number that isolates what shopping itself was worth. See
+          // `executionBoardSummary()` and `shoppingBoard()` in
+          // nfl-shopping-board.js.
+          headline: board.shoppable_sides > 0 && Number.isFinite(board.best_edge_vs_median)
+            ? `${board.shoppable_sides} bets where one book pays more · best is ${(board.best_edge_vs_median * 100).toFixed(1)}% better than the median book`
             : 'No current prices to compare',
           detail: board.stale
             ? 'The saved prices are old. Comparing books only works if every price was read at the same moment, so this needs a fresh pull.'

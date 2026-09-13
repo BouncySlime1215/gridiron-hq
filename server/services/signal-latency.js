@@ -200,16 +200,54 @@ export function bookLagDistribution({ sinceDays = 60, windowHours = 48 } = {}) {
   const since = new Date(Date.now() - sinceDays * 86400000).toISOString();
   const signals = rows(`SELECT news_id,team,published_at FROM nfl_news_signals
     WHERE verification_state='verified' AND published_at>=? AND team IS NOT NULL ORDER BY published_at`, since);
+  if (!signals.length) {
+    return { books: [], observations: 0, target_per_book: 10,
+      note: 'No verified signals with a team in the study window; nothing to match against the quote tape.' };
+  }
   const names = new Map(rows('SELECT abbr,name FROM nfl_teams').map(team => [team.abbr, team.name]));
+  // Upper-bound the scan at the latest point any signal in this batch could
+  // still use: no signal's own cutoff (published_at + windowHours) exceeds
+  // this, so every row a later per-signal filter keeps is still included --
+  // this is a behavior-preserving tightening, not a narrower study. Before
+  // this fix there was NO upper bound at all: the query ran from `since` to
+  // whatever instant `captured_at` happened to reach by the time the call
+  // executed, which only grows as the season's capture volume does (measured
+  // 2026-09-13: one week of Week 1 games alone put 667K rows / 522MB through
+  // this query; see migration 045's note for the full before/after numbers).
+  const latestCutoff = new Date(new Date(signals[signals.length - 1].published_at).getTime()
+    + windowHours * 3600000).toISOString();
   const snapshots = rows(`SELECT captured_at,event_id,home_team,away_team,book,side,line
-    FROM nfl_line_snapshots WHERE market='spreads' AND captured_at>=datetime(?,'-24 hours')
-    ORDER BY captured_at`, since);
+    FROM nfl_line_snapshots WHERE market='spreads' AND captured_at>=datetime(?,'-24 hours') AND captured_at<=?
+    ORDER BY captured_at`, since, latestCutoff);
+  // Group once by the exact team-name string each row was captured under,
+  // instead of re-scanning the whole snapshot set for every signal below.
+  // This is the dominant cost the query bound above does not touch: with
+  // signals in the hundreds and snapshot rows in the hundreds of thousands, a
+  // per-signal `snapshots.filter(...)` is O(signals x snapshots). Measured
+  // end-to-end against a full copy of the real 2026-09-13 database (502
+  // verified signals, 669K spreads rows in the bounded window): the old
+  // per-signal filter took 77.8-91.7s wall clock across repeated runs (the
+  // SQL query itself, separately measured, was ~2-4s of that); grouping by
+  // team first brought the same function, same inputs, byte-identical output
+  // (23 books, 3,637 observations both ways), down to 12.8-16.8s -- a ~5.5x
+  // wall-clock reduction. Peak RSS did not move much (~760-770MB before and
+  // after): that memory is the snapshot rows themselves, which both versions
+  // must hold at once; this fix cuts the redundant re-scanning of them, not
+  // how many are loaded.
+  const byTeamName = new Map();
+  for (const snap of snapshots) {
+    if (!byTeamName.has(snap.home_team)) byTeamName.set(snap.home_team, []);
+    byTeamName.get(snap.home_team).push(snap);
+    if (!byTeamName.has(snap.away_team)) byTeamName.set(snap.away_team, []);
+    byTeamName.get(snap.away_team).push(snap);
+  }
   const observations = [];
   for (const signal of signals) {
     const teamName = names.get(signal.team) ?? signal.team;
     const cutoff = new Date(new Date(signal.published_at).getTime() + windowHours * 3600000).toISOString();
-    const relevant = snapshots.filter(s => (s.home_team === teamName || s.away_team === teamName
-      || s.home_team === signal.team || s.away_team === signal.team) && s.captured_at <= cutoff);
+    const candidates = teamName === signal.team ? (byTeamName.get(teamName) ?? [])
+      : [...(byTeamName.get(teamName) ?? []), ...(byTeamName.get(signal.team) ?? [])];
+    const relevant = candidates.filter(s => s.captured_at <= cutoff);
     const groups = new Map();
     for (const snap of relevant) {
       const key = `${snap.event_id}|${snap.book}|${snap.side}`;

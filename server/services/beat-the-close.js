@@ -28,6 +28,7 @@ import { currentNflWeek } from './weekly-learning.js';
 import { gameCutoff } from './game-cutoff.js';
 import { verifiedEventMarketLatency } from './nfl-news-market-latency.js';
 import { isFreshQuote, STALE_BOOK_HOURS } from './book-feeds.js';
+import { CAPTURE_WINDOW_MS } from './nfl-shopping-board.js';
 import { gameWeather, STADIUMS } from './nfl-weather.js';
 import { nfeloFeatures } from './nfelo.js';
 import { externalRatingsFeatures } from './nfl-external-ratings.js';
@@ -151,21 +152,52 @@ export function pinnacleLineAt(season, week, home, away, market, before = null, 
  * favourable line, then price, among books whose OWN price is not stale
  * (see `isFreshQuote` — the aggregator can serve a cached number for a book
  * it has not actually re-polled, which is not a real reachable price).
+ *
+ * Books are polled on separate schedules (book-feeds.js: Pinnacle and
+ * OddsTrader every 5 minutes; Kambi/Bovada/FanDuel hourly), so their
+ * `captured_at` values legitimately differ by minutes even when every one is
+ * still the current standing price. This used to join on one event-wide
+ * MAX(captured_at) by exact equality, which silently dropped every book
+ * except whichever provider happened to be polled last -- the identical bug
+ * `nfl-shopping-board.js#simultaneousQuotes` was fixed for, with the same
+ * bounded `CAPTURE_WINDOW_MS` reused here so the two call sites can't drift
+ * apart on what "simultaneous" means.
  */
 export function bestReachable(home, away, market, side, names = teamNames()) {
   const sideName = side === home ? (names.get(home) ?? home) : side === away ? (names.get(away) ?? away) : side;
-  const latest = row(`SELECT MAX(captured_at) at FROM nfl_line_snapshots WHERE provider LIKE 'free:%' AND market=? AND home_team=? AND away_team=?`,
-    market, names.get(home) ?? home, names.get(away) ?? away)?.at;
-  if (!latest) return null;
-  const allQuotes = rows(`SELECT book, line, price, book_updated_at FROM nfl_line_snapshots WHERE captured_at=? AND market=? AND home_team=? AND away_team=? AND side=?`,
-    latest, market, names.get(home) ?? home, names.get(away) ?? away, sideName);
-  const quotes = allQuotes.filter(q => isFreshQuote(latest, q.book_updated_at));
+  const homeName = names.get(home) ?? home, awayName = names.get(away) ?? away;
+  // Each book's OWN latest row for this side, joined back to its own
+  // captured_at rather than to one shared timestamp every book must match.
+  const allQuotes = rows(`SELECT s.book, s.line, s.price, s.book_updated_at, s.captured_at
+     FROM nfl_line_snapshots s
+     JOIN (SELECT book, MAX(captured_at) AS captured_at FROM nfl_line_snapshots
+           WHERE provider LIKE 'free:%' AND market=? AND home_team=? AND away_team=? AND side=?
+           GROUP BY book) latest
+       ON latest.book = s.book AND latest.captured_at = s.captured_at
+     WHERE s.provider LIKE 'free:%' AND s.market=? AND s.home_team=? AND s.away_team=? AND s.side=?`,
+    market, homeName, awayName, sideName, market, homeName, awayName, sideName);
+  if (!allQuotes.length) return null;
+
+  const freshest = allQuotes.reduce((m, q) => (Date.parse(q.captured_at) > Date.parse(m) ? q.captured_at : m), allQuotes[0].captured_at);
+  // A book whose own latest poll trails the freshest book here by more than
+  // the capture window is excluded from the comparison and reported as such
+  // -- rather than just being invisible, the way the old equality join left it.
+  const withinWindow = allQuotes.filter(q => Date.parse(freshest) - Date.parse(q.captured_at) <= CAPTURE_WINDOW_MS);
+  const windowDropped = allQuotes.length - withinWindow.length;
+
+  const quotes = withinWindow.filter(q => isFreshQuote(q.captured_at, q.book_updated_at));
   if (!quotes.length) return null;
   // A bettor wants the largest line for a spread side (more points) or an under, the smallest for an over; then the best price.
   const wantHigh = market === 'spreads' || side === 'Under';
   const ordered = [...quotes].sort((a, b) => (wantHigh ? b.line - a.line : a.line - b.line) || b.price - a.price);
-  const { book_updated_at, ...best } = ordered[0];
-  return { ...best, captured_at: latest, books: quotes.length, stale_dropped: allQuotes.length - quotes.length };
+  const { book_updated_at, captured_at, ...best } = ordered[0];
+  return { ...best, captured_at: freshest, books: quotes.length,
+    // Dropped for a stale book_updated_at stamp among the books actually
+    // compared (unchanged meaning from before this fix).
+    stale_dropped: withinWindow.length - quotes.length,
+    // New: dropped only because that book's own latest poll fell outside the
+    // capture window -- previously these books vanished with no count at all.
+    window_dropped: windowDropped };
 }
 
 /* ------------------------------------------------------------- signals */

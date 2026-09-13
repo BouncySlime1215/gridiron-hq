@@ -37,6 +37,7 @@ import { rows } from '../db/index.js';
 import { randn, withRandomSeed, random } from './stats-util.js';
 import { learnedProfiles, blendedProfiles, expectedPointsSurface, expectedPoints, RATE_SPEC } from './nfl-sim-learn.js';
 import { simulationCalibrationFor, calibrateSimulationContext } from './nfl-sim-calibration.js';
+import { simulatorShapeReport, walkForwardShapeCalibration } from './nfl-sim-shape-calibration.js';
 import * as P from './nfl-sim-policy.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -906,6 +907,56 @@ export function simulateRemainder({
 }
 
 /**
+ * Raw SIGNED integer margins, for auditing the engine's distribution shape.
+ *
+ * Same argument as `simulatePlaySample` below: the audit is about shape, and
+ * every summary the engine already returns destroys the thing being audited.
+ * `simulateMatchup`'s `key_numbers` block is the closest existing view and it
+ * is not close enough — it reports |margin| only, so a fault that lands on ONE
+ * side of zero (a home-field coin flip of a full touchdown, which put a
+ * discrete spike at +7 and nothing at -7) is folded in half and disappears
+ * before anybody can see it. That is not hypothetical; it is what shipped.
+ *
+ * Returns the margins themselves, one per trial, pooled across whatever set of
+ * matchups the caller enumerates. `nfl-sim-shape-calibration.js` is the
+ * consumer.
+ *
+ * Deterministic: each matchup is seeded independently, for the reason spelled
+ * out at length in `calibrationReport` — an audit metric that moves between
+ * runs can be re-rolled until it passes.
+ */
+export function simulateMarginSample({
+  trials = 500, games = 40, season = null, homeFieldPoints = 1.6, seed = 1000
+} = {}) {
+  const prof = blendedProfiles({ season });
+  const teams = [...prof.teams.keys()].sort();
+  if (teams.length < 4) return { error: 'not enough team profiles to sample', margins: [], totals: [] };
+  const surface = epFor(prof.league);
+  const ep = y => expectedPoints(surface, y);
+
+  const margins = [], totals = [];
+  const pairings = [];
+  for (let i = 0; i < games; i++) {
+    const h = teams[i % teams.length];
+    const a = teams[(i * 7 + 3) % teams.length];
+    if (a === h) continue;
+    pairings.push([h, a]);
+    const H = prof.teams.get(h), A = prof.teams.get(a);
+    const homeCtx = buildContext(H, A, prof.league);
+    const awayCtx = buildContext(A, H, prof.league);
+    withRandomSeed(seed + i, () => {
+      for (let t = 0; t < trials; t++) {
+        const g = simulateGame(homeCtx, awayCtx, ep, { homeFieldPoints, spread: null });
+        margins.push(g.home - g.away);
+        totals.push(g.home + g.away);
+      }
+    });
+  }
+  return { margins, totals, matchups: pairings.length, trials_each: trials,
+    profile_season: prof.season, profile_cutoff: prof.cutoff, home_field_points: homeFieldPoints };
+}
+
+/**
  * Raw play outcomes, for auditing the engine against the real play log.
  *
  * Deliberately returns the underlying yardage rather than a summary — the
@@ -945,7 +996,16 @@ export function simulatePlaySample({ trials = 20000, season = null, seed = 99 } 
  * internals, so this compares simulated aggregates against every completed game
  * in this database. Reported rather than asserted — and reported when it fails.
  */
-export function calibrationReport({ trials = 300, games = 40, season = null } = {}) {
+export function calibrationReport({ trials = 300, games = 40, season = null,
+  // The shape half needs a bigger sample than the moment half and for a
+  // different reason: a moment converges on a few thousand games, whereas the
+  // mirror-ratio spike statistic is a second difference of log counts in
+  // single one-point bins, and its standard error falls only as the square
+  // root of the count in those bins. At 1,200 x 40 the +/-7 bins hold roughly
+  // 1,600 games each, which puts the statistic's standard error near 0.043 in
+  // log-ratio units — enough to resolve the 0.17 the engine actually shows.
+  // Anything much smaller reports a spike check that cannot see a spike.
+  shapeChecks = true, shapeTrials = 1200, shapeGames = 40 } = {}) {
   const prof = blendedProfiles({ season });
   const teams = [...prof.teams.keys()];
   if (teams.length < 4) return { error: 'not enough team profiles to calibrate' };
@@ -993,15 +1053,44 @@ export function calibrationReport({ trials = 300, games = 40, season = null } = 
       gap: r2(sdGap), tolerance: 3.5, pass: Math.abs(sdGap) < 3.5 }
   ];
 
+  // The shape half. Three moments cannot see a spike or a missing overtime —
+  // both of which this engine has actually shipped while these three checks
+  // said "calibrated" — so the mass checks are merged in here rather than
+  // living in a separate report nobody runs. `shape.checks` carries its own
+  // pass flags, and an ungraded one (pass: null, because no real corpus is
+  // attached to measure its reference from) counts as neither pass nor fail.
+  const shape = shapeChecks === false ? null
+    : simulatorShapeReport({ sampler: simulateMarginSample,
+        trials: shapeTrials, games: shapeGames, season });
+  const shapeGraded = shape?.checks?.filter(c => c.pass != null) ?? [];
+  const allPass = checks.every(c => c.pass) && shapeGraded.every(c => c.pass);
+
   return {
     simulated_matchups: simTotals.length, trials_each: trials,
     actual_games: actual.length, season: prof.season,
-    checks, calibrated: checks.every(c => c.pass),
-    failing: checks.filter(c => !c.pass).map(c => c.check),
+    checks, moment_checks_pass: checks.every(c => c.pass),
+    shape, shape_checks_pass: shapeGraded.length ? shapeGraded.every(c => c.pass) : null,
+    calibrated: allPass,
+    failing: [...checks.filter(c => !c.pass), ...shapeGraded.filter(c => !c.pass)].map(c => c.check),
     note: 'Compared against every completed game since 2021 in this database. Passing is a FLOOR — it ' +
       'says the engine plays plausible football, not that it beats a market. A simulator can be ' +
-      'perfectly calibrated to the league average and still have no edge on any single game.'
+      'perfectly calibrated to the league average and still have no edge on any single game. ' +
+      '`checks` are the three MOMENTS this report has always had; `shape` is the distribution and ' +
+      'key-number mass, which is what a moment check structurally cannot see — see ' +
+      'nfl-sim-shape-calibration.js. For the strong, season-by-season held-out version run ' +
+      '`simulatorWalkForwardShape()`.'
   };
+}
+
+/**
+ * The held-out shape harness, bound to this engine's own sampler.
+ *
+ * Thin on purpose: the scoring lives in `nfl-sim-shape-calibration.js`, which
+ * deliberately does not import this file, so the dependency runs one way and
+ * the scorer stays testable against a fixed margin sample.
+ */
+export function simulatorWalkForwardShape(options = {}) {
+  return walkForwardShapeCalibration({ sampler: simulateMarginSample, ...options });
 }
 
 /**

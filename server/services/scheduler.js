@@ -635,6 +635,12 @@ async function refreshPropCapture() {
                     WHERE settled=0 AND season IS NOT NULL AND week IS NOT NULL
                       AND commence_time <= ?`, new Date().toISOString());
   const settlement = due.map(x => ({ ...x, ...settlePropQuotes(x) }));
+  // Deliberately routine (force defaults to false): only re-touches rows still
+  // NULL/'legacy_unclassified' so every tick stays cheap. To re-run today's
+  // matcher against rows a since-fixed matcher bug stamped with some other
+  // terminal status, run scripts/backfill-prop-quote-reconcile.mjs once —
+  // do not flip this to force:true, that would force-rescan the whole table
+  // every tick.
   return { captured, closing, settlement, reconciliation: reconcilePropQuoteMatches(), archive: propClvStatus() };
 }
 
@@ -651,6 +657,9 @@ async function refreshFreePropClv() {
                     WHERE settled=0 AND season IS NOT NULL AND week IS NOT NULL
                       AND commence_time <= ?`, new Date().toISOString());
   const settlement = due.map(x => ({ ...x, ...settlePropQuotes(x) }));
+  // See the comment on the same call in refreshPropCapture above: routine,
+  // non-forced, by design. Use scripts/backfill-prop-quote-reconcile.mjs for
+  // a one-time force:true re-pass after a matcher fix.
   return { captured, settlement, reconciliation: reconcilePropQuoteMatches(), archive: propClvStatus() };
 }
 

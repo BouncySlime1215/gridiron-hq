@@ -873,9 +873,15 @@ export function alters(db) {
   if (!snapshotColumns.has('gridiron_engine_version')) {
     db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN gridiron_engine_version TEXT');
   }
-  if (!snapshotColumns.has('mode')) {
-    db.exec('ALTER TABLE weekly_prediction_snapshots ADD COLUMN mode TEXT');
-  }
+  // `mode` (cold_start_structural_only vs position_ensemble) is NOT added here.
+  // This fragment is 000_legacy_schema's, and that migration is frozen: its
+  // up() only ever runs on a database that has never recorded it, so an ALTER
+  // added here after the fact is a silent no-op on every database that
+  // already has -- which, per that file's own comment, is every database
+  // that matters (confirmed live: this is exactly how the column went
+  // missing on the live database for four days). See migrations/
+  // 051_weekly_prediction_snapshot_mode.js, which is where this column is
+  // actually added now, the way every other post-baseline schema change is.
 
   // ---- server/services/weekly-weight-store.js (lines 29-32); no-op on a fresh DB, the CREATE already carries epoch_id.
   const fitColumns = new Set(db.prepare('PRAGMA table_info(weekly_ensemble_fits)').all().map(item => item.name));

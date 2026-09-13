@@ -1,4 +1,4 @@
-export const name = '046_research_trials_detail';
+export const name = '048_research_trials_detail';
 
 /**
  * Giant Plan Step 2b (purged-evaluation stage): `research_trials` (038) is

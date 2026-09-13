@@ -1,4 +1,4 @@
-export const name = '045_backfill_open_spread_pinnacle_2022_2025';
+export const name = '047_backfill_open_spread_pinnacle_2022_2025';
 
 /**
  * 2026-09-12 sweep, item 13: `game_lines.open_spread` is silently wrong (not

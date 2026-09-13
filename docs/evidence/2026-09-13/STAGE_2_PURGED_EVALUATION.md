@@ -24,7 +24,7 @@ row lands in exactly one of `trainRows`/`purgedRows`, never both.
 038's general-purpose `research_trials` ledger (Giant Plan §8.3) — narrower
 than `audit_registry` (§8.9's model-materiality ledger) or
 `nfl_candidate_findings` (segment-bias ledger), and exactly the shape those
-two didn't fit. Migration `046_research_trials_detail.js` adds `detail_json`
+two didn't fit. Migration `048_research_trials_detail.js` adds `detail_json`
 / `source_ref` columns it needed to carry a trial's real identity and where
 it came from.
 
@@ -152,7 +152,8 @@ exactly why they don't.
 
 ## Commit
 
-`server/migrations/046_research_trials_detail.js`,
+`server/migrations/048_research_trials_detail.js` (renumbered from 046 during
+integration to avoid colliding with another branch's 046),
 `server/services/{purged-walk-forward,research-trials,trial-statistics}.js`,
 `scripts/{backfill-historical-trial-registry,run-purged-evaluation}.mjs`,
 `test/{purged-walk-forward,research-trials,trial-statistics}.test.js`, this

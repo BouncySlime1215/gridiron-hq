@@ -35,7 +35,7 @@ import { modelCatalog, ensembleWeek, ensembleLine, featureContracts, clearEnsemb
 import { replaySeason, trainingIteration, validateAdjustment, saveTrainingAudit, latestTrainingAudit,
   candidateInputComparison, saveCandidateInputAudit, latestCandidateInputAudit } from '../services/nfl-replay.js';
 import { shopSlate, numberDisagreement, snapshotLines, closingLineValue } from '../services/line-shopping.js';
-import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/nfl-clv.js';
+import { recordBet, listBets, gradeClosingLineValue, clvReport, clvBySource } from '../services/clv-core.js';
 import { sharpBoard, sharpDivergence, steamMoves, sharpScorecard } from '../services/nfl-sharp.js';
 import { runIfStale } from '../services/scheduler.js';
 import { stakeFor, safeStakeFor, evaluateSizing, slateRiskCheck } from '../services/staking.js';

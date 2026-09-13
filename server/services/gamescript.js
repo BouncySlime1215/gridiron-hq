@@ -158,7 +158,7 @@ export async function syncCurrentLines(season, weeks = 18) {
       WHERE season=? AND week=? AND team=?`);
   // Freezes the true close. Only ever runs while `now` is strictly before this
   // game's kickoff, so the last write it makes for a given game IS the close —
-  // the same "last observation strictly before kickoff" definition nfl-clv.js
+  // the same "last observation strictly before kickoff" definition clv-core.js
   // uses for props (closingConsensus), just kept as one column instead of a
   // snapshot table since this job already polls hourly and only needs the last
   // value, not the whole tape. Once kickoff passes this is never called again

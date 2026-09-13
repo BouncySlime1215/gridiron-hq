@@ -1709,7 +1709,21 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
  */
 export function ensembleLine(season, week, home, away, {
   weighting = 'exponential', families = null, blendMode = 'raw', includeEvidence = true,
-  includeChallengers = false, excludeModels = []
+  includeChallengers = false, excludeModels = [],
+  // Integration stage 1 (2026-09-12): when a caller has a frozen T-60 evidence
+  // packet for this exact game, it passes the market number(s) the packet
+  // actually froze here instead of letting this function read game_lines for
+  // them -- see nfl-auto-picks.js's autoPickDecisionBoardForPacket and
+  // nfl-t60-packet.js's resolvePacketMarketQuote. `undefined` on a field means
+  // "no override, read game_lines as before"; an explicit `null` means "the
+  // packet was checked and had nothing eligible" and must NOT fall back to a
+  // live read for that field -- silently doing so would let the one input the
+  // packet actually carries real values for quietly come from the present
+  // instead of from what was frozen, defeating the whole point of a
+  // packet-sourced board. `source` is a label (e.g. 'frozen_packet') recorded
+  // on the result so the caller can see, per field, where each number came
+  // from -- see the `market_data_source` on the returned `ensemble` object.
+  marketOverride = null
 } = {}) {
   const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
   const reliability = includeChallengers ? signalReliabilityFor(season, week)
@@ -1717,7 +1731,13 @@ export function ensembleLine(season, week, home, away, {
   const excludedKey = [...excludeModels].sort().join(',');
   const excluded = new Set(excludeModels);
   const familyKey = families?.length ? [...new Set(families)].sort().join(',') : '*';
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|families:${familyKey}|${includeEvidence ? 'evidence' : 'forecast'}`;
+  // A market override changes the actual inputs to this line, so it must be
+  // part of the cache key -- otherwise a live call and a packet-sourced call
+  // for the identical game would collide on the same cached result, and
+  // whichever ran first would silently answer for both.
+  const overrideKey = marketOverride
+    ? `override:${marketOverride.home_spread ?? 'null'},${marketOverride.total ?? 'null'}` : 'override:none';
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|families:${familyKey}|${includeEvidence ? 'evidence' : 'forecast'}|${overrideKey}`;
   // Every family ablation follows the same blend and distribution path as the
   // full model. Shared contexts and fitted artifacts remain cached below.
   if (_lineCache.has(lineKey)) return _lineCache.get(lineKey);
@@ -1748,6 +1768,21 @@ export function ensembleLine(season, week, home, away, {
                          temp, wind, roof, rest_days AS home_rest, div_game, neutral_site
                   FROM game_lines WHERE season=? AND week=? AND team=? AND home=1`, season, week, home)[0]
     ?? { home, away, home_spread: null, total: null };
+  // `game_context` below covers every field this query read OTHER than
+  // home_spread/total: weather, rest, division and neutral-site status.
+  // Nothing overrides those today (see the marketOverride doc above) -- they
+  // are always this live game_lines row -- so `market_data_source` always
+  // reports 'game_lines' for them, honestly, rather than only tracking the
+  // two fields an override CAN reach and leaving the rest unstated.
+  const marketDataSource = { home_spread: 'game_lines', total: 'game_lines', game_context: 'game_lines' };
+  if (marketOverride && 'home_spread' in marketOverride) {
+    g.home_spread = marketOverride.home_spread;
+    marketDataSource.home_spread = marketOverride.source ?? 'frozen_packet';
+  }
+  if (marketOverride && 'total' in marketOverride) {
+    g.total = marketOverride.total;
+    marketDataSource.total = marketOverride.source ?? 'frozen_packet';
+  }
   const ctx = { ...buildContext({ ...g, season, week, home, away }, hist, restMap),
     home, away, cal: fit.calibration };
 
@@ -1828,6 +1863,11 @@ export function ensembleLine(season, week, home, away, {
       projected_total: r2(total),
       market_spread: g.home_spread ?? null,
       market_total: g.total ?? null,
+      // Where market_spread/market_total (and the weather/rest/div/neutral
+      // context folded into every model's ctx above) actually came from --
+      // 'game_lines' unless a caller supplied marketOverride. Visible on every
+      // line, live or packet-sourced, so a reader never has to guess.
+      market_data_source: marketDataSource,
       spread_edge: margin != null && marketMargin != null ? r2(margin - marketMargin) : null,
       total_edge: total != null && g.total != null ? r2(total - g.total) : null,
       model_disagreement_margin: r2(disagreementMargin),

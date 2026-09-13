@@ -47,7 +47,7 @@
  * would need the same thing: real settled rows to decompose.
  *
  * Checked directly (2026-09-04): `forward_picks` has 0 rows and `nfl_bet_log`
- * (nfl-clv.js) has 0 rows. There is nothing settled to attribute — not a thin
+ * (clv-core.js) has 0 rows. There is nothing settled to attribute — not a thin
  * sample that would produce a wide-error estimate, an *empty* one. Building a
  * decomposition function against zero rows would be scaffolding around a
  * placeholder, not a measurement, and it could not be tested against anything

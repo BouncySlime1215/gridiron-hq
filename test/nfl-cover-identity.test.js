@@ -19,7 +19,12 @@ mock.module('../server/services/nfl-replay.js', { namedExports: { replaySeason: 
     week: Math.floor(i / 8) + 1, american_price: -110, opposite_price: -110, edge_points: (i % 7) + 1 })) };
 } } });
 let neural = { production_eligible: false, predicted_margin: null, version: 'neural-fixture-v1' };
-mock.module('../server/services/nfl-ensemble.js', { namedExports: { ensembleWeek: (_s, _w, options) => [{
+mock.module('../server/services/nfl-ensemble.js', { namedExports: {
+  // Only autoPickDecisionBoardForPacket (nfl-auto-picks.js, integration
+  // stage 1) calls ensembleLine directly; this fixture never exercises that
+  // path, so the stub only needs to exist for the static import to resolve.
+  ensembleLine: () => ({ error: 'ensembleLine is not faked in this fixture' }),
+  ensembleWeek: (_s, _w, options) => [{
   home: 'KC', away: 'BAL', input_mode: options.includeChallengers ? 'all-inputs' : 'champion-inputs',
   reliability_controller: { version: 'fixture-controller' }, models: [
     { id: 'raw-only', margin: 4, margin_weight: 1, residual_weight: 0 },

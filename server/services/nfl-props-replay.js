@@ -23,6 +23,15 @@
  * Prop juice is also worse than sides. These grade at -115, the common prop
  * price, so break-even is 53.49% rather than 52.38%. A model that clears 52.4%
  * on props is still losing money.
+ *
+ * Confirmed distinct from nfl-replay.js during the stage-2 engine-unification
+ * pass, not merged: this replays PLAYER PROPS against a synthetic proxy line
+ * this module builds itself (no historical prop market exists to read), at a
+ * fixed -115, with its own permutation-test null; nfl-replay.js replays game
+ * SIDES/TOTALS against the real stored closing number from game_lines, at
+ * stored historical prices, under the production policy engine. Different
+ * inputs, different line source, different grading math, different validation
+ * method — a genuinely separate diagnostic, not a duplicate.
  */
 import { rows } from '../db/index.js';
 

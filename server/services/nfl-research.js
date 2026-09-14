@@ -11,6 +11,8 @@ import { featureContracts, registry, recordGateAudit, gateAudits, evidenceManife
 import { featureContracts as ensembleFeatureContracts } from './nfl-ensemble.js';
 import { nflIntelligence } from './model-intelligence.js';
 import { nflEvidenceCoverage } from './nfl-evidence.js';
+import { declareTrial, scoreTrial, scoredTrialSequence } from './research-trials.js';
+import { effectiveTrialCount, deflatedSharpeRatio, reconstructBetReturns, sharpeStatsFromReturns } from './trial-statistics.js';
 
 /**
  * The ensemble's REAL family list, read from the model catalog rather than
@@ -152,6 +154,76 @@ export function latestNflFeatureAblations() {
     policy: JSON.parse(x.policy_json), results: JSON.parse(x.results_json) };
 }
 
+const OVERFITTING_TRIAL_KIND = 'nfl_operations_sharpe';
+// Geyer's own minimum for a real autocorrelation-time estimate
+// (trial-statistics.js's geyerIntegratedAutocorrelationTime: below this it
+// returns tau=1, i.e. explicitly "no correction applied rather than an
+// unstable one"). Below that floor, correcting for repeated looks is not
+// meaningfully possible yet, so this gate fails closed rather than passing
+// on a correction it cannot actually compute.
+const MIN_LIVE_TRIALS_FOR_DSR = 8;
+const DSR_PASS_THRESHOLD = 0.95;
+
+/**
+ * The overfitting/safeguard audit the research corpus flagged as missing: a
+ * naive win/ROI number does not say whether it is real skill or just the
+ * best-looking result of repeatedly re-evaluating the same frozen policy as
+ * more data lands. This registers each `persist:true` run's exact-policy
+ * result as one more REAL, live, chronologically-timestamped trial (never
+ * backfilled -- "now" really is when this evidence was observed, which is
+ * exactly what a live call is, not the silent defaulting research-trials.js
+ * warns against for a *backfill*), keyed on the result's own content so
+ * re-running against unchanged data does not inflate the trial count. Once
+ * enough real live trials exist, asks whether the best Sharpe ratio seen
+ * across them survives Bailey & López de Prado's deflation for how many
+ * effectively-independent looks (Geyer's autocorrelation-time correction)
+ * that history represents.
+ *
+ * This is deliberately scoped to this project's OWN live re-evaluation
+ * history, not the hand-backfilled `candidate_input_audit` trial kinds
+ * `scripts/run-purged-evaluation.mjs` reports on -- those were reconstructed
+ * from committed/documented history with real but transcribed numbers, a
+ * one-time demonstration explicitly documented as not a repeatable, high-
+ * power estimate. A live promotion gate needs a live, ongoing, automatically
+ * -growing sequence, not a hand-transcribed snapshot re-read forever.
+ */
+function overfittingGate(overall, persist) {
+  if (persist && overall && Number(overall.bets) > 0) {
+    const key = JSON.stringify({ bets: overall.bets, wins: overall.wins, losses: overall.losses, units: overall.units });
+    const rec = reconstructBetReturns(overall);
+    const stats = rec ? sharpeStatsFromReturns(rec.returns) : null;
+    if (stats && Number.isFinite(stats.sharpe)) {
+      const now = new Date().toISOString();
+      const detail = { n: stats.n, skewness: stats.skewness, kurtosis: stats.kurtosis, source: 'nflOperations exact_policy overall' };
+      declareTrial({ kind: OVERFITTING_TRIAL_KIND, key, declaredAt: now, metric: 'sharpe', value: stats.sharpe, status: 'scored', detail });
+      scoreTrial(OVERFITTING_TRIAL_KIND, key, { scoredAt: now, metric: 'sharpe', value: stats.sharpe, detail });
+    }
+  }
+
+  const sequence = scoredTrialSequence({ kind: OVERFITTING_TRIAL_KIND, normalize: t => t.value });
+  const label = 'Best observed edge survives correction for repeated live looks at the same evidence';
+  if (sequence.length < MIN_LIVE_TRIALS_FOR_DSR) {
+    return { id: 'overfitting_correction', label, passed: false,
+      actual: `${sequence.length} live trial(s) registered`,
+      target: `≥ ${MIN_LIVE_TRIALS_FOR_DSR} live trials before a deflated-Sharpe correction can be computed at all` };
+  }
+
+  const sharpeValues = sequence.map(t => t.z);
+  const mean = sharpeValues.reduce((s, v) => s + v, 0) / sharpeValues.length;
+  const std = Math.sqrt(sharpeValues.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(1, sharpeValues.length - 1));
+  const bestIndex = sharpeValues.reduce((best, v, i) => (v > sharpeValues[best] ? i : best), 0);
+  const best = sequence[bestIndex];
+  const effN = effectiveTrialCount(sharpeValues);
+  const dsr = deflatedSharpeRatio({ sharpe: best.z, n: best.detail?.n ?? null, skewness: best.detail?.skewness ?? 0,
+    kurtosis: best.detail?.kurtosis ?? 3, nTrialsEffective: effN.n_effective, sharpeStdAcrossTrials: std });
+  return { id: 'overfitting_correction', label,
+    passed: dsr.dsr != null && dsr.dsr >= DSR_PASS_THRESHOLD,
+    actual: dsr.dsr != null
+      ? `DSR=${dsr.dsr.toFixed(4)} over ${effN.n_effective.toFixed(2)} effective trials (${sequence.length} raw, tau=${effN.tau_integrated_autocorrelation_time.toFixed(2)})`
+      : 'unavailable',
+    target: `DSR ≥ ${DSR_PASS_THRESHOLD}` };
+}
+
 export function nflOperations({ persist = false, refreshResidual = false } = {}) {
   const residual = refreshResidual ? refreshNflResidualAudit() : latestNflResidualAudit() ?? refreshNflResidualAudit();
   const acc = residual.accuracy ?? accuracy();
@@ -180,7 +252,8 @@ export function nflOperations({ persist = false, refreshResidual = false } = {})
     { id: 'clv', label: 'Closing-line value available and positive', passed: clv.available === true && (clv.average_clv ?? null) > 0,
       actual: clv.available ? clv.average_clv ?? 'capturing; not scored' : 'unavailable', target: '> 0 average CLV' },
     { id: 'pregame_coverage', label: 'Current team snapshot coverage', passed: (pregame[0]?.teams ?? 0) >= 32,
-      actual: pregame[0]?.teams ?? 0, target: '32 teams' }
+      actual: pregame[0]?.teams ?? 0, target: '32 teams' },
+    overfittingGate(overall, persist)
   ];
   const evidence = { accuracy: acc, residual, calibration, exact_policy: overall,
     error_analysis: replay?.result?.analysis ?? null, pregame: pregame[0] ?? null,

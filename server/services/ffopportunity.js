@@ -38,7 +38,7 @@ async function seasonCsv(season) {
   return parseCsv(await response.text());
 }
 
-export async function syncFfOpportunity(seasons = [2022, 2023, 2024, 2025]) {
+export async function syncFfOpportunity(seasons = [2022, 2023, 2024, 2025, 2026]) {
   const wanted = [...new Set(seasons.map(Number).filter(Number.isInteger))].sort();
   const upsert = db.prepare(`INSERT INTO nfl_ffopportunity_weekly
     (season,week,player_gsis_id,player_name,team,position,

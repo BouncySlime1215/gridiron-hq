@@ -568,7 +568,7 @@ export function gameInjuryCarryover(season, week, home, away) {
 }
 
 /** Decompose every final game that has a play log; idempotent. */
-export function backfillGameVariance({ seasons = [2021, 2022, 2023, 2024, 2025] } = {}) {
+export function backfillGameVariance({ seasons = [2021, 2022, 2023, 2024, 2025, 2026] } = {}) {
   const games = rows(`SELECT season,week,team home,opponent away,spread FROM game_lines
     WHERE home=1 AND team_score IS NOT NULL AND opp_score IS NOT NULL AND season IN (${seasons.map(() => '?').join(',')})
     ORDER BY season,week,team`, ...seasons);

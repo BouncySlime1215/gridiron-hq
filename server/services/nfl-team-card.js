@@ -220,7 +220,7 @@ export function matchupTeamCards(season, week, home, away, options = {}) {
     evidence_hash: hash({ home: homeCard.evidence_hash, away: awayCard.evidence_hash }) };
 }
 
-export function backfillTeamCards({ seasons = [2021, 2022, 2023, 2024, 2025], startWeek = 5,
+export function backfillTeamCards({ seasons = [2021, 2022, 2023, 2024, 2025, 2026], startWeek = 5,
   endWeek = 18, onProgress = null } = {}) {
   const games = rows(`SELECT season,week,team FROM game_lines
     WHERE home=1 AND season IN (${seasons.map(() => '?').join(',')}) AND week BETWEEN ? AND ?

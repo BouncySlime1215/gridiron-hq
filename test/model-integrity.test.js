@@ -14,6 +14,7 @@ const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine,
   withEphemeralEnsembleArtifacts } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
 const { runModelWatch } = await import('../server/services/nfl-model-watch.js');
+const { backfillTeamFeatureVectors } = await import('../server/services/nfl-weekly-feature-store.js');
 const { deriveSignalReliability } = await import('../server/services/nfl-signal-reliability.js');
 const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-replay.js');
 const { calibratedCoverProbability } = await import('../server/services/nfl-cover-calibration.js');
@@ -1435,6 +1436,18 @@ test('cross-season data audit default window tracks the current season, not a st
   const audit = nflDataConsistencyAudit();
   assert.ok(audit.seasons.includes(currentSeason),
     `expected the default audit window to include ${currentSeason}, got ${JSON.stringify(audit.seasons)}`);
+});
+
+test('team feature vector backfill defaults to a window that includes the current season', () => {
+  // Same regression class again: this is the actual feature-freezing job that
+  // feeds the model. A default season window stuck at last year means running
+  // it with no arguments -- exactly how an ad hoc admin/backfill call is most
+  // likely to be invoked -- silently never freezes this season's team vectors.
+  db.prepare(`INSERT INTO game_lines (season,week,team,opponent,home,gameday,gametime,spread,spread_odds)
+    VALUES (2026,5,'LAR','SF',1,'2026-10-05','13:00',-3,-110)`).run();
+  const result = backfillTeamFeatureVectors();
+  assert.ok(result.targets >= 1,
+    `expected the default season window to pick up the inserted 2026 game, got 0 targets (result=${JSON.stringify(result)})`);
 });
 
 test('model-watch drift loop defaults to a window that includes the current season', () => {

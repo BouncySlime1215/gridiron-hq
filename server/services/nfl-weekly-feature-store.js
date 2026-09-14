@@ -305,7 +305,7 @@ export function getFrozenPlayerFeatureVector(season, week, playerId) {
   return item ? { ...item, vector: parse(item.vector_json), missing: parse(item.missing_json, []) } : null;
 }
 
-export function backfillTeamFeatureVectors({ seasons = [2021, 2022, 2023, 2024, 2025],
+export function backfillTeamFeatureVectors({ seasons = [2021, 2022, 2023, 2024, 2025, 2026],
   startWeek = 5, endWeek = 18, onProgress = null } = {}) {
   const targets = rows(`SELECT DISTINCT season,week,team FROM game_lines
     WHERE season IN (${seasons.map(() => '?').join(',')}) AND week BETWEEN ? AND ?
@@ -326,7 +326,7 @@ export function backfillTeamFeatureVectors({ seasons = [2021, 2022, 2023, 2024, 
   return { version: WEEKLY_FEATURE_STORE_VERSION, targets: targets.length, frozen, existing, failures };
 }
 
-export function backfillPlayerFeatureVectors({ seasons = [2021, 2022, 2023, 2024, 2025],
+export function backfillPlayerFeatureVectors({ seasons = [2021, 2022, 2023, 2024, 2025, 2026],
   startWeek = 5, endWeek = 18, teams = null, onProgress = null } = {}) {
   const teamFilter = teams?.length ? ` AND current.team IN (${teams.map(() => '?').join(',')})` : '';
   const targets = rows(`SELECT current.season,current.week,current.player_id,current.player_name,

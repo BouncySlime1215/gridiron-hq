@@ -193,7 +193,7 @@ async function fetchTeamRankings(date) {
  * the ~70-request backfill a one-time cost. Team names the resolver cannot
  * place are returned under `unresolved` with the weeks they appeared in.
  */
-export async function syncTeamRankings({ seasons = [2022, 2023, 2024, 2025], current = true, pauseMs = 1500, onProgress = null } = {}) {
+export async function syncTeamRankings({ seasons = [2022, 2023, 2024, 2025, 2026], current = true, pauseMs = 1500, onProgress = null } = {}) {
   const today = appDate();
   const weeks = seasons.length
     ? rows(`SELECT season, week, MIN(gameday) first_gameday FROM game_lines

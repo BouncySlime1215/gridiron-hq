@@ -78,7 +78,7 @@ function injuryStatus(row) {
   return row.report_status || row.practice_status || 'listed';
 }
 
-export function materializeInjuryEvents(seasons = [2021, 2022, 2023, 2024, 2025]) {
+export function materializeInjuryEvents(seasons = [2021, 2022, 2023, 2024, 2025, 2026]) {
   const sourceUrl = `${RELEASE}/injuries/injuries_{season}.csv`;
   const items = rows(`SELECT season,week,team,gsis_id,full_name,position,report_status,
       practice_status,injury,modified_at FROM nfl_injuries
@@ -147,7 +147,7 @@ function gameAvailability(season, week, team) {
   return kickoff ? new Date(kickoff.getTime() - 90 * 60000).toISOString() : null;
 }
 
-export async function syncWeeklyRosterEvents(seasons = [2021, 2022, 2023, 2024, 2025]) {
+export async function syncWeeklyRosterEvents(seasons = [2021, 2022, 2023, 2024, 2025, 2026]) {
   let reviewed = 0, inserted = 0;
   const failures = [];
   for (const season of seasons) {
@@ -201,7 +201,7 @@ export async function syncWeeklyRosterEvents(seasons = [2021, 2022, 2023, 2024, 
   return { reviewed, inserted, failures };
 }
 
-export async function syncVerifiedEventArchive({ seasons = [2021, 2022, 2023, 2024, 2025],
+export async function syncVerifiedEventArchive({ seasons = [2021, 2022, 2023, 2024, 2025, 2026],
   includeWeeklyRosters = true } = {}) {
   const injuriesSync = await syncInjuries(seasons);
   const injuries = materializeInjuryEvents(seasons);

@@ -1,7 +1,11 @@
 /** Cross-season coverage audit for every input family used by the NFL engine. */
 import { db, rows } from '../db/index.js';
 
-const SEASONS = [2021, 2022, 2023, 2024, 2025];
+// Extend this every season. A coverage audit that stops at last year cannot
+// report on the season actually being played right now — the exact class of
+// blind spot this audit exists to catch.
+const SEASONS = [2021, 2022, 2023, 2024, 2025, 2026];
+const SEASON_MIN = SEASONS[0], SEASON_MAX = SEASONS[SEASONS.length - 1];
 const CORE_FEATURES = [
   'net_epa_per_play', 'off_epa_per_play', 'def_epa_per_play',
   'off_epa_neutral_wp', 'def_epa_neutral_wp',
@@ -22,7 +26,7 @@ function tableCoverage(table, { team = false, note = null, modelUse = 'context' 
   if (!exists(table)) return { id: table, model_use: modelUse, note, seasons: SEASONS.map(season => ({ season, rows: 0, weeks: 0, teams: team ? 0 : null })) };
   const teamSql = team ? ',COUNT(DISTINCT team) teams' : '';
   const found = new Map(rows(`SELECT season,COUNT(*) rows,COUNT(DISTINCT week) weeks${teamSql}
-    FROM ${table} WHERE season BETWEEN 2021 AND 2025 GROUP BY season`).map(item => [item.season, item]));
+    FROM ${table} WHERE season BETWEEN ${SEASON_MIN} AND ${SEASON_MAX} GROUP BY season`).map(item => [item.season, item]));
   return { id: table, model_use: modelUse, note, seasons: SEASONS.map(season => {
     const item = found.get(season) ?? {};
     return { season, rows: Number(item.rows ?? 0), weeks: Number(item.weeks ?? 0), teams: team ? Number(item.teams ?? 0) : null };
@@ -70,7 +74,7 @@ function lineCoverage() {
       ROUND(AVG(rest_days IS NOT NULL),3) rest,
       ROUND(AVG(roof IS NOT NULL),3) roof,ROUND(AVG(surface IS NOT NULL),3) surface,
       ROUND(AVG(temp IS NOT NULL),3) temperature,ROUND(AVG(wind IS NOT NULL),3) wind
-    FROM game_lines WHERE season BETWEEN 2021 AND 2025 GROUP BY season ORDER BY season`);
+    FROM game_lines WHERE season BETWEEN ${SEASON_MIN} AND ${SEASON_MAX} GROUP BY season ORDER BY season`);
 }
 
 function payloadValidity() {
@@ -99,17 +103,17 @@ function payloadValidity() {
         AND away.team_score=gl.opp_score AND away.opp_score=gl.team_score) reciprocal_games
     FROM game_lines gl LEFT JOIN game_lines away
       ON away.season=gl.season AND away.week=gl.week AND away.team=gl.opponent
-    WHERE gl.home=1 AND gl.season BETWEEN 2021 AND 2025 GROUP BY gl.season ORDER BY gl.season`) : [];
+    WHERE gl.home=1 AND gl.season BETWEEN ${SEASON_MIN} AND ${SEASON_MAX} GROUP BY gl.season ORDER BY gl.season`) : [];
   const snaps = exists('nfl_snaps') ? rows(`SELECT season,COUNT(*) rows,
       SUM(player IS NULL OR team IS NULL OR week IS NULL) invalid_identity,
       SUM(COALESCE(offense_snaps,0)+COALESCE(defense_snaps,0)>0) active_rows,
       COUNT(DISTINCT player) players FROM nfl_snaps
-    WHERE season BETWEEN 2021 AND 2025 GROUP BY season ORDER BY season`) : [];
+    WHERE season BETWEEN ${SEASON_MIN} AND ${SEASON_MAX} GROUP BY season ORDER BY season`) : [];
   const usage = exists('player_week_usage') ? rows(`SELECT season,COUNT(*) rows,
       SUM(player_id IS NULL OR week IS NULL) invalid_identity,
       SUM(COALESCE(attempts,0)+COALESCE(carries,0)+COALESCE(targets,0)>0) opportunity_rows,
       COUNT(DISTINCT player_id) players FROM player_week_usage
-    WHERE season BETWEEN 2021 AND 2025 GROUP BY season ORDER BY season`) : [];
+    WHERE season BETWEEN ${SEASON_MIN} AND ${SEASON_MAX} GROUP BY season ORDER BY season`) : [];
   const ngs = SEASONS.map(season => {
     const items = exists('nfl_ngs') ? rows('SELECT stats FROM nfl_ngs WHERE season=?', season) : [];
     let parseFailures = 0, numericPayloads = 0;
@@ -145,13 +149,13 @@ function classify(feeds) {
     'nfl_snaps', 'nfl_ngs', 'player_week_usage', 'player_week_snaps'];
   const comparable = SEASONS.every(season => coreIds.every(id => count(id, season) > 0));
   return { comparable_2021_core: comparable, classes: [
-    { id: 'core_game_and_player', seasons: '2021–2025', comparable,
+    { id: 'core_game_and_player', seasons: `${SEASON_MIN}–${SEASON_MAX}`, comparable,
       policy: 'Eligible for cross-season replay; required fields must be present and never imputed as zero.' },
-    { id: 'injury_reports', seasons: '2023–2025', comparable: false,
+    { id: 'injury_reports', seasons: `2023–${SEASON_MAX}`, comparable: false,
       policy: 'Availability signal abstains before 2023; never interpret absence as healthy.' },
-    { id: 'pfr_charting', seasons: '2024–2025', comparable: false,
+    { id: 'pfr_charting', seasons: `2024–${SEASON_MAX}`, comparable: false,
       policy: 'PFR charting abstains before 2024 and is evaluated only on coverage-matched windows.' },
-    { id: 'depth_snapshots', seasons: '2021–2025', comparable: true,
+    { id: 'depth_snapshots', seasons: `${SEASON_MIN}–${SEASON_MAX}`, comparable: true,
       policy: 'Weekly nflverse archives cover 2021–2024; timestamped live snapshots cover 2025 onward.' }
   ] };
 }

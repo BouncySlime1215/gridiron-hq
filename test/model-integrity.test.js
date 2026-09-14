@@ -13,6 +13,7 @@ const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../
 const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine,
   withEphemeralEnsembleArtifacts } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
+const { runModelWatch } = await import('../server/services/nfl-model-watch.js');
 const { deriveSignalReliability } = await import('../server/services/nfl-signal-reliability.js');
 const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-replay.js');
 const { calibratedCoverProbability } = await import('../server/services/nfl-cover-calibration.js');
@@ -1422,7 +1423,31 @@ test('cross-season data audit blocks incomplete coverage instead of filling miss
   assert.equal(audit.comparable_2021_core, false);
   assert.match(audit.verdict, /not coverage-consistent/);
   assert.ok(audit.guardrails.some(rule => /never converted to numeric zero/.test(rule)));
-  assert.deepEqual(audit.seasons, [2021, 2022, 2023, 2024, 2025]);
+  assert.deepEqual(audit.seasons, [2021, 2022, 2023, 2024, 2025, 2026]);
+});
+
+test('cross-season data audit default window tracks the current season, not a stale hardcoded year', () => {
+  // Regression for the class of bug where every season-scoped default array in
+  // the codebase quietly stopped at 2025: a coverage audit whose whole job is
+  // noticing a missing/broken season cannot do that job for whichever season
+  // is actually being played if its own default window excludes it.
+  const currentSeason = new Date().getFullYear();
+  const audit = nflDataConsistencyAudit();
+  assert.ok(audit.seasons.includes(currentSeason),
+    `expected the default audit window to include ${currentSeason}, got ${JSON.stringify(audit.seasons)}`);
+});
+
+test('model-watch drift loop defaults to a window that includes the current season', () => {
+  // Same regression class as the data-consistency audit above: the daily
+  // drift watch exists specifically to catch the model quietly degrading "as
+  // another season of data lands" (see nfl-model-watch.js's own docstring).
+  // A hardcoded default season list that stops at last year cannot do that
+  // for the season actually being played.
+  const currentSeason = new Date().getFullYear();
+  const result = runModelWatch({ includeHeadSearch: false });
+  assert.ok(result.seasons.includes(currentSeason),
+    `expected the default watch window to include ${currentSeason}, got ${JSON.stringify(result.seasons)}`);
+  assert.equal(result.production_eligible, false, 'the watch loop must never self-promote');
 });
 
 test('signal reliability controller is shrink-only, evidence-gated, and ignores apparent winners', () => {

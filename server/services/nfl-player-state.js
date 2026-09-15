@@ -45,12 +45,22 @@ function stableEntity(item) {
 
 /** Materialize only deterministic, official-wire transaction claims. */
 export function syncRosterEventsFromNews({ before = null, limit = 5000 } = {}) {
+  // published_at<=before alone is not enough for a historical-replay caller:
+  // a transaction wire can be published before the cutoff but not actually
+  // ingested into news_items (ingested_at, the pipeline's own receipt clock --
+  // see server/news/store.js's upsertNormalizedNewsItem, which only advances
+  // ingested_at when content genuinely changes) until after it. Requiring
+  // ingested_at<=before too is what makes a wire genuinely "knowable as of
+  // cutoff" rather than knowable only in hindsight -- the same class of
+  // look-ahead risk closed in nfl-news-signal.js's playerNewsSignal/
+  // teamNewsSignals (created_at). When `before` is not given at all this
+  // materializes everything up to now, so there is no cutoff to leak across.
   const items = rows(`SELECT n.id,n.headline,n.published_at,n.entities_json,n.source,n.source_url,
       n.reliability_json,t.abbr team
     FROM news_items n LEFT JOIN nfl_teams t ON t.id=n.team_id
     WHERE n.source='ESPN Transactions' AND n.published_at IS NOT NULL
-      ${before ? 'AND n.published_at<=?' : ''}
-    ORDER BY n.published_at,n.id LIMIT ?`, ...[...(before ? [before] : []), limit]);
+      ${before ? 'AND n.published_at<=? AND n.ingested_at<=?' : ''}
+    ORDER BY n.published_at,n.id LIMIT ?`, ...[...(before ? [before, before] : []), limit]);
   const insert = db.prepare(`INSERT INTO nfl_player_roster_events
     (player_id,espn_id,gsis_id,player_name,event_type,from_team,to_team,roster_status,
      effective_at,news_id,source,source_url,confidence,verification_state,evidence,event_key)

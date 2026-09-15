@@ -237,8 +237,17 @@ function newsFor(line, beforeIso) {
   const since = Number.isFinite(Date.parse(beforeIso)) ? new Date(Date.parse(beforeIso) - 7 * 86400000).toISOString() : beforeIso;
   const teamIds = rows(`SELECT id,abbr FROM nfl_teams WHERE abbr IN (?,?)`, line.home, line.away);
   const ids = teamIds.map(team => team.id);
+  // published_at<=beforeIso alone is not enough: a story can be published
+  // before the cutoff but not actually ingested into news_items (ingested_at,
+  // the pipeline's own receipt clock -- see server/news/store.js and its
+  // upsertNormalizedNewsItem, which only advances ingested_at when content
+  // genuinely changes) until after it. Requiring ingested_at<=beforeIso too
+  // is what makes a story genuinely "knowable as of cutoff" rather than
+  // knowable only in hindsight -- the same class of look-ahead risk closed
+  // in nfl-news-signal.js's playerNewsSignal/teamNewsSignals (created_at).
   const feedStories = ids.length ? rows(`SELECT COUNT(*) n FROM news_items WHERE published_at<=? AND published_at>=?
-    AND team_id IN (${ids.map(() => '?').join(',')})`, beforeIso, since, ...ids)[0]?.n ?? 0 : 0;
+    AND ingested_at<=?
+    AND team_id IN (${ids.map(() => '?').join(',')})`, beforeIso, since, beforeIso, ...ids)[0]?.n ?? 0 : 0;
   let burdenEdge = r3((away.unavailable_burden ?? 0) - (home.unavailable_burden ?? 0));
   // A raw research opinion, not a hard-coded production weight. Each verified
   // unavailable player contributes probability x source confidence; the

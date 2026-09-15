@@ -120,7 +120,7 @@ def rest_by_team_week(con):
             for r in con.execute('SELECT season,week,team,rest_days FROM game_lines')}
 
 
-def build_chronology(games):
+def build_chronology(games, quarantine=None):
     """Publication times, result history and a game index, from the same rows.
 
     Returns `(history, week_end, game_map)`:
@@ -132,6 +132,13 @@ def build_chronology(games):
     `week_end` is the LAST game of the week rather than the first: a team-week
     feature derived from a full week of play cannot be knowable before the
     week's final game has been played and published.
+
+    `quarantine`, if given, is a dict this function appends to under
+    `'games_excluded'` for every row it drops, naming the identity and reason
+    -- so an unusable game is counted and named rather than vanishing with no
+    trace (Codex plan Stage 1: quarantine invalid records, don't silently
+    erase them). Optional and additive so existing direct callers/tests that
+    only want `(history, week_end, game_map)` are unaffected.
     """
     history = collections.defaultdict(list)
     week_end = {}
@@ -140,6 +147,11 @@ def build_chronology(games):
         game_map[(g['season'], g['week'], g['team'])] = g
         day = stamp(g['gameday'])
         if day is None or g['team_score'] is None or g['opp_score'] is None:
+            if quarantine is not None:
+                reason = 'unparseable_or_missing_gameday' if day is None else 'missing_final_score'
+                quarantine.setdefault('games_excluded', []).append({
+                    'season': g['season'], 'week': g['week'], 'team': g['team'],
+                    'opponent': g.get('opponent'), 'reason': reason})
             continue
         ready = day + RESULT_PUBLICATION_LAG
         key = (g['season'], g['week'])
@@ -153,13 +165,17 @@ def build_chronology(games):
     return history, week_end, game_map
 
 
-def load_team_week_features(con, week_end, through_season=2025):
+def load_team_week_features(con, week_end, through_season=2025, quarantine=None):
     """Play-by-play derived team-week features, stamped with publication time.
 
     A week whose publication instant is unknown is DROPPED rather than given a
     default. A feature with no knowable availability cannot be used by a
     cutoff-safe model, and assigning it one is exactly the leak this module
     exists to prevent.
+
+    `quarantine`, if given, collects every dropped row under
+    `'team_week_features_excluded'` with its identity and reason. Optional and
+    additive, same contract as `build_chronology`'s `quarantine` parameter.
     """
     pbp = collections.defaultdict(list)
     for r in con.execute(
@@ -167,10 +183,18 @@ def load_team_week_features(con, week_end, through_season=2025):
             (through_season,)):
         ready = week_end.get((r['season'], r['week']))
         if ready is None:
+            if quarantine is not None:
+                quarantine.setdefault('team_week_features_excluded', []).append({
+                    'season': r['season'], 'week': r['week'], 'team': r['team'],
+                    'reason': 'no_publication_instant_for_week'})
             continue
         try:
             parsed = json.loads(r['features'])
         except (TypeError, ValueError):
+            if quarantine is not None:
+                quarantine.setdefault('team_week_features_excluded', []).append({
+                    'season': r['season'], 'week': r['week'], 'team': r['team'],
+                    'reason': 'unparseable_json'})
             continue
         pbp[r['team']].append((ready, parsed))
     for values in pbp.values():
@@ -262,11 +286,12 @@ def shared_setup(db_path, through_season=2025):
     "everything above this line mirrors market_lab.build_dataset's setup".
     """
     con = read_only_connection(db_path)
+    quarantine = {'games_excluded': [], 'team_week_features_excluded': []}
     try:
         games = load_games(con, through_season)
         rest = rest_by_team_week(con)
-        history, week_end, game_map = build_chronology(games)
-        pbp = load_team_week_features(con, week_end, through_season)
+        history, week_end, game_map = build_chronology(games, quarantine=quarantine)
+        pbp = load_team_week_features(con, week_end, through_season, quarantine=quarantine)
     finally:
         con.close()
     return {
@@ -275,4 +300,12 @@ def shared_setup(db_path, through_season=2025):
         'history': history, 'week_end': week_end, 'game_map': game_map, 'pbp': pbp,
         'result_publication_lag_days': RESULT_PUBLICATION_LAG.days,
         'settled_label_lag_days': SETTLED_LABEL_LAG.days,
+        # Every game/feature row this setup excluded, named and counted rather
+        # than silently vanished -- see build_chronology/load_team_week_features.
+        'quarantine': {
+            'games_excluded_count': len(quarantine['games_excluded']),
+            'games_excluded': quarantine['games_excluded'],
+            'team_week_features_excluded_count': len(quarantine['team_week_features_excluded']),
+            'team_week_features_excluded': quarantine['team_week_features_excluded'],
+        },
     }

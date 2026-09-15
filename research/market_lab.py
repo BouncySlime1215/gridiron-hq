@@ -74,13 +74,22 @@ def build_dataset(db_path):
     con.execute('BEGIN')  # consistent read snapshot while the live collector runs
     games = [dict(x) for x in con.execute('''SELECT season,week,team,opponent,spread,total,
         team_score,opp_score,gameday,rest_days,div_game FROM game_lines WHERE home=1 AND season<=2025 ORDER BY season,week''')]
+    # Quarantine, not silent loss: every row this dataset builder excludes,
+    # anywhere below, is counted under a named reason and returned alongside
+    # the good rows (Codex plan Stage 1: "quarantine invalid records...do not
+    # silently rewrite original evidence or erase failed experiments"). This
+    # counter used to start only at the archive/quote-pairing block further
+    # down; games and team-week features dropped here, earlier, vanished
+    # with no count at all.
+    dropped = collections.Counter()
     history = collections.defaultdict(list)
     week_end = {}
     game_map = {}
     for g in games:
         game_map[(g['season'],g['week'],g['team'])] = g
         d = stamp(g['gameday'])
-        if d is None or g['team_score'] is None or g['opp_score'] is None: continue
+        if d is None or g['team_score'] is None or g['opp_score'] is None:
+            dropped['game_missing_gameday_or_score'] += 1; continue
         # End of gameday plus 48h; intentionally conservative publication proxy.
         ready = d + timedelta(days=3)
         k = (g['season'],g['week']); week_end[k] = max(week_end.get(k,ready),ready)
@@ -90,9 +99,11 @@ def build_dataset(db_path):
     pbp = collections.defaultdict(list)
     for r in con.execute('SELECT season,week,team,features FROM nfl_team_week_features WHERE season<=2025'):
         ready = week_end.get((r['season'],r['week']))
-        if ready is None: continue
+        if ready is None:
+            dropped['feature_missing_publication_instant'] += 1; continue
         try: f=json.loads(r['features'])
-        except (TypeError,ValueError): continue
+        except (TypeError,ValueError):
+            dropped['feature_unparseable_json'] += 1; continue
         pbp[r['team']].append((ready,f))
     for v in history.values(): v.sort(key=lambda z:z[0])
     for v in pbp.values(): v.sort(key=lambda z:z[0])
@@ -102,7 +113,7 @@ def build_dataset(db_path):
     con.close()
     by_game=collections.defaultdict(dict)
     for q in archive: by_game[(q['eid'],q['market'])][(q['phase'],q['side'])]=q
-    dropped=collections.Counter(); out=[]
+    out=[]  # `dropped` already declared above -- accumulate into the same counter, don't reset it
     for (eid,market), qs in by_game.items():
         sample=next(iter(qs.values())); pos=sample['home'] if market=='spreads' else 'Over'
         neg=sample['away'] if market=='spreads' else 'Under'

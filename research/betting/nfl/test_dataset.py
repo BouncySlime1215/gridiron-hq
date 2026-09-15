@@ -113,6 +113,45 @@ class SharedChronologyTests(unittest.TestCase):
         kc_weeks = len(pbp.get('KC', []))
         self.assertEqual(kc_weeks, 2, 'week 3 has no publication instant and is dropped, not defaulted')
 
+    def test_dropped_rows_are_quarantined_with_a_reason_not_silently_lost(self):
+        """Codex plan Stage 1: quarantine invalid records, don't erase them.
+        shared_setup's optional quarantine tracking must count and name every
+        row build_chronology/load_team_week_features drops -- not just make
+        it disappear the way test_a_week_with_no_known_publication_instant_is_DROPPED
+        (above) shows the un-tracked call still can."""
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            db = str(Path(tmp.name) / 'quarantine.sqlite')
+            con = sqlite3.connect(db)
+            con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT,
+                opponent TEXT, home INTEGER, spread REAL, total REAL, team_score INTEGER,
+                opp_score INTEGER, gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
+            con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
+                team TEXT, features TEXT)''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,1,'KC','BAL',1,-3,44,27,20,'2024-09-05',7,0,'dome')''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,1,'BAL','KC',0,3,44,20,27,'2024-09-05',7,0,'dome')''')
+            con.execute("INSERT INTO nfl_team_week_features VALUES (2024,1,'KC','{\"net_epa_per_play\": 0.05}')")
+            # No final score -- must be quarantined, not silently dropped.
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,2,'KC','SF',1,-1,44,NULL,NULL,'2024-09-12',7,0,'dome')''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,2,'SF','KC',0,1,44,NULL,NULL,'2024-09-12',7,0,'dome')''')
+            # Unparseable JSON -- must be quarantined too.
+            con.execute("INSERT INTO nfl_team_week_features VALUES (2024,1,'BAL','not-json')")
+            con.commit()
+            con.close()
+
+            setup = shared.shared_setup(db)
+            q = setup['quarantine']
+            self.assertEqual(q['games_excluded_count'], 1)
+            self.assertEqual(q['games_excluded'][0]['reason'], 'missing_final_score')
+            self.assertEqual(q['team_week_features_excluded_count'], 1)
+            self.assertEqual(q['team_week_features_excluded'][0]['reason'], 'unparseable_json')
+        finally:
+            tmp.cleanup()
+
 
 class CutoffTests(unittest.TestCase):
     def test_fold_cutoff_is_a_week_before_the_earliest_decision(self):

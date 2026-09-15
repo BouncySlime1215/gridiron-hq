@@ -1,0 +1,76 @@
+{
+  "verified_claims": [
+    "nflfastR: success is defined from epa (if_else on epa, helper_additional_functions.R ~L75). The beginner's guide filter `wp > .20 & wp < .80 & down <= 2 & qtr <= 2 & half_seconds_remaining > 120` is at vignettes/beginners_guide.Rmd L259. vegas_wp is documented as 'win probability taking into account pre-game spread' (ep_wp_calculators.R ~L148). Package license is MIT.",
+    "Baldwin OSF (the post now shows a 2021-02-05 date): the EP model used leave-one-season-out CV over 2000-2019 with five era dummies. The base wp model has no spread; only the Vegas variant uses it.",
+    "Gridiron nfl-pbp.js L290-293 counts plays with side wp between 0.1 and 0.9 into nwp_* fields. nfl_team_week_features covers 2016-2025 with 5,363 team-game rows (about 2,680 games), checked by a read-only query.",
+    "nfelounits (github.com/greerreNFL/nfelounits): no LICENSE file; last commit 2026-09-08. Every smoothing factor quoted matches config.json (0.0622/0.0474/0.0502/0.0326/0.0256/0.0131). So do reversions (pass off 0.0, pass def 0.4759, rush off 0.391, rush def 0.5355, ST 0.3396/0.2667), pass_off_qb_reversion 0.5092 and turnover discounts (INT 0.0961, QB fumble 0.1668, non-QB fumble 0.6451).",
+    "nfelounits DataLoader drops plays with null or zero EPA, kneels and two-point tries, and uses regular season only; there is no win-probability garbage-time filter. The pace discount is a Lorentzian `sf * 1/(1+(z/threshold)^2)`. QB adjustment is QB-Elo difference /25 and is non-zero only when a non-Week-1 starter plays. Weather midpoints are hard-coded at 32F and 18 mph, and the pass wind discount height (5.08) is far larger than rush (0.87).",
+    "nfelounits Analytics/README over 5,065 games gives log loss: units_elo 0.623, 538 QB Elo 0.6224, 538 base 0.6287, market 0.6093.",
+    "nfelo config.json in-season blend: margin_weight 0.7382, wepa_weight 0.1506, pff_weight 0.1113. The nfelo game-grade article (2019-12-26) found 60% margin / 20% WEPA / 20% PFF best for basic Elo.",
+    "WEPA repo: model_config v3 features are tos_three_quarters_int, special_teams_all, d_plays_all_boosted. The window type is team_halves, WepaWeights.smoother exists with a softmax blend, and there is no LICENSE file.",
+    "nfeloqb model_config.json has 0.0886, 0.0346 and 0.0371; no LICENSE file.",
+    "momentumnfl (github.com/renenunezg/momentumnfl): MIT license, last commit 2026-09-10. It has solve_ridge (prior-precision GLS), fit_joint_scoring and competitive_drive_mask, with GARBAGE_MARGIN {1:28, 2:21, 3:16} and 14 for late quarters, judged by score_differential at the first scrimmage play of each drive. Recency weight is 0.5**(dweek/half_life). DEFAULT_CONFIG has prior SD 0.25 ppd and HFA prior 2\u00b11 points.",
+    "momentumnfl EPA scale is clipped to [0.1, 2.0], and points and EPA are combined by an inverse-covariance two-stage fit. ENGINE_GRID half-lives are {inf, 12, 6}; PRESEASON_GRID is carryover {0.5, 0.6, 0.7} x win_total_blend {0.2, 0.35, 0.5}. The QB layer uses a 1,000-dropback span, 52-week calendar half-life and 200 shrink dropbacks. tests/test_leakage_guard.py exists. The README says 2022-2025 is 'repeatedly inspected retrospective validation, not a fresh holdout' and could not separate QB coefficients between 0.25 and 0.75.",
+    "538 methodology (Wayback snapshot): K=20; MOV multiplier ln(PD+1)*2.2/(EloDiff*0.001+2.2); HFA about 48 plus 4 per 1,000 miles; bye +25; playoff x1.2; EloDiff/25 = spread; revert 1/3 toward 1505; Vegas win totals used since 1990. The VALUE formula coefficients match. QB rating EWMA is 0.1 for individuals and 20 games for teams, x3.3 to Elo. Veterans with 10-100 starts revert 1/4. The team preseason QB rating is 1/3 prior plus 2/3 projected starter. nfl-elo-game repo is MIT (its code sets HFA=65, not 48).",
+    "Goldberg OSF 2020-08-20: 10-game lagged opponent mean adjustment; accuracy 0.6404 vs 0.6348; no significance test.",
+    "Bud Davis 2021-10-12 (college football): play-level one-hot offense/defense/HFA ridge; RidgeCV alphas 75-325; about 150-200 selected for full seasons, higher for partial seasons.",
+    "Anderson OSF 2021-06-27: Student-t with nu=6, sigma_off ~ N(.06,.03), sigma_def ~ N(.03,.03).",
+    "arXiv:2506.03057 exists: Skripnikov & Sivadanam 2025, partially regularized elastic-net ordinal regression; drive-level data; FBS 2014-2020 and NFL 2009-2017; no numbers in the abstract.",
+    "Lichtenstein OSF 2020-12-29: EMA best for pass offense EPA, running average best for rushing and point differential; no numeric R2 given.",
+    "nfelo EPA tiers page: 'weight of 1.6 for offensive EPA and 1.0 for defensive EPA' is best for predicting future net EPA; no derivation shown."
+  ],
+  "refuted_or_unverifiable": [
+    {
+      "claim": "WEPA's feature-definition modules are not in the public repo, so the exact weights can't be verified.",
+      "problem": "False. The public repo (origin github.com/greerreNFL/wepa) has wepa/engine/features/definitions/ with about 65 modules, including tos_three_quarters_int.py, special_teams_all.py and plays_all_boosted.py. data/weights_point_in_time.csv publishes per-season point-in-time weights and forward R2 lift. The weights can be verified."
+    },
+    {
+      "claim": "WEPA claims a '7.5% median lift' in R2 over raw EPA, 'inconsistent across windows' (their own words).",
+      "problem": "Misquoted. The methodology page says '3.75% median lift', and that it 'was lower and more volatile than a simple downweighting of opponent EPA'. The word 'inconsistent' does not appear. The omitted point matters for design: plain opponent-EPA downweighting beat WEPA on that measure."
+    },
+    {
+      "claim": "WEPA down-weights plays at extreme win probability and up-weights close-game plays on a bell curve.",
+      "problem": "This describes the 2020 v1 article, not the current model. The v3 model_config features are turnovers with INTs at 0.75, all special teams, and defensive plays with non-turnovers at half weight. No win_prob_* feature is selected. So nfelo's current WEPA has no win-probability weighting."
+    },
+    {
+      "claim": "DVOA R2 of 0.263 point-in-time vs 0.278 with end-of-season opponent adjustments is a measured lookahead inflation.",
+      "problem": "Overstated. The article compares point-in-time season DVOA through 8 games with the average of DVOA game grades through 8 games. The two differ in more than lookahead, and the author calls the gap 'not large'. At most it is weak, confounded evidence of leakage, not a clean measurement."
+    },
+    {
+      "claim": "nfelounits update rule is a plain EWMA, new = old + sf*(observed - expected), with implied half-lives of 10.8-52.6 games.",
+      "problem": "Partly wrong. Unit.py uses a Holt-style update with a trend term; trend sf is non-zero for pass off 0.0408, rush def 0.0232 and ST def 0.0186. The quoted half-lives ignore the trend and the pace discount, so treat them as rough."
+    },
+    {
+      "claim": "nfelounits weather sigmoid midpoints are 18 mph wind and 32F.",
+      "problem": "Incomplete. The code subtracts 5 mph and caps wind at 30 before the s-curve, so the effective raw-wind midpoint is about 23 mph."
+    },
+    {
+      "claim": "Gridiron's garbage-time filter keeps plays with wp between 0.1 and 0.9.",
+      "problem": "Imprecise. It is not a filter on all features: it fills a separate nwp_* subset (nwp_plays, nwp_epa, nwp_succ) alongside unfiltered aggregates."
+    },
+    {
+      "claim": "nfelounits log loss 0.623 is a fair benchmark that the redesign should roughly match.",
+      "problem": "Optimistic benchmark. The config is one all-history optimization, which the report concedes. The QB adjustment also uses the game's actual QB (UnitModel.py: 'actual starter value'), not a pregame projected starter. Both flatter nfelounits relative to a strictly point-in-time model."
+    },
+    {
+      "claim": "momentumnfl publishes no accuracy numbers against the closing line.",
+      "problem": "Not contradicted: the README grep found no numeric MAE/log-loss figures. But the repo does have a validate-prospective command reporting pure/blended/closing MAE, so 'no numbers published' only holds for the README."
+    },
+    {
+      "claim": "Store the nflverse release date for each season file because EPA is revised.",
+      "problem": "Only works going forward. nflverse does not publish historical versions of EPA, so backfilled seasons cannot be made point-in-time for EP-model revisions. Unverifiable as a backfill remedy."
+    }
+  ],
+  "recommendations_to_drop_or_change": [
+    "Rec 1/4 (hyperparameter grids): per-unit half-life x per-unit reversion x per-unit prior precision x garbage-time mode (3) x turnover-discount variants x QB layer is dozens of hyperparameters and thousands of combinations. That is too many for about 12 development seasons (~3,200 games), and 2016+ holds only ~2,680. Tie hyperparameters across units (for example one offense set and one defense set, with ST fixed longer), cap the grid at a few dozen trials, and log every trial in the F06 registry.",
+    "Rec 1: ST offense/defense per team are weakly identified and nfelounits' ST sf is near zero. Consider one ST net term per team or heavy fixed shrinkage, rather than two free ST parameters per team.",
+    "Rec 1: play-level X'WX treats plays as independent and understates parameter uncertainty. Bud Davis' alpha range is from college football and does not transfer. momentumnfl, the named reference, fits at team-game drive level. Prefer drive- or game-level observations with plays only as weights.",
+    "Rec 2: nfelounits' turnover discounts and reversion rates were optimized over all history, including any 2018+ evaluation seasons. Using them as grid centers mildly contaminates the holdout. Center grids on theory-neutral values (for example 0 and 0.5), or accept and disclose the leak.",
+    "Rec 3: drop the premise that the 'most tuned model uses no garbage-time filter' supports the null. WEPA v3 also drops win-probability weighting, which is consistent. But WEPA's own page says simple opponent downweighting beat WEPA, so test a turnover-discount/opponent-downweight variant before any wp weighting.",
+    "Rec 7: remove the DVOA 0.263 vs 0.278 gap as justification. Point-in-time opponent adjustment is still required on first principles.",
+    "Rec 7: the release-date tracking only protects future seasons. Do not claim backfilled seasons are revision-point-in-time.",
+    "Rec 8: nfelounits' 0.623 is an in-sample-tuned, actual-starter benchmark. A strictly point-in-time model should expect slightly worse, not parity. Frame parity with nfelo/538 as optimistic."
+  ],
+  "corrected_summary": "What survives verification. Local clones, primary web pages, and a read-only query of Gridiron's DB were all checked.\n\n(1) nflverse basics: success comes from epa; the EP model used leave-one-season-out CV over 2000-2019 with era dummies; base wp has no spread, while vegas_wp does; nflverse ships no official garbage-time rule.\n\n(2) nfelounits (no license) is an opponent-adjusted six-unit EPA model. It uses a Holt-style (EWMA + trend) residual update and a slow league-baseline EWMA. It has no wp garbage filter, and instead shrinks updates when a game's play count is abnormal (Lorentzian pace discount). Defense and ST revert more in the offseason than offense (pass off 0.0 but 0.51 toward the Week-1 QB; pass def 0.48; rush def 0.54). Turnover discounts are INT 0.096, QB fumble 0.167, non-QB fumble 0.645. Over 5,065 games, log loss is 0.623 vs 538 QB Elo 0.6224 vs market 0.6093. That benchmark is in-sample tuned and uses the actual game QB, so it is optimistic.\n\n(3) WEPA (no license) is fully public. Feature definitions and per-season point-in-time weights are in the repo, and v3 uses turnovers (INT x0.75), special teams, and defensive plays. It has no win-probability weighting. Its own methodology page reports only a 3.75% median R2 lift, 'lower and more volatile than a simple downweighting of opponent EPA'. nfelo's live blend is margin 0.738 / WEPA 0.151 / PFF 0.111.\n\n(4) Opponent adjustment options:\n- Goldberg lagged opponent mean: accuracy 0.640 vs 0.635, untested for significance.\n- Bud Davis play-level one-hot ridge (college football, alpha about 150-200).\n- Anderson Student-t hierarchical: nu=6, with defense prior spread half of offense.\n- Skripnikov & Sivadanam 2025 elastic-net ordinal regression (drive-level, no numbers checked).\nThe DVOA 0.263 vs 0.278 gap is confounded weak evidence, not a measured lookahead.\n\n(5) momentumnfl (MIT, active) is the best adoptable analogue. It refits a joint prior-precision ridge weekly and guards against leakage with a test. It drops garbage-time drives by score margin (28/21/16/14). Its target fuses points per drive with EPA per drive: EPA is scaled by a slope clipped to [0.1, 2], then the two are combined with inverse-covariance weights. Recency is 0.5^(dweek/6); priors are 0.25 ppd SD and HFA 2\u00b11 points. Grids: half-life {inf,12,6}, carryover {0.5,0.6,0.7} x win-total blend {0.2,0.35,0.5}. The QB layer uses a 1,000-dropback span, 52-week half-life and 200 prior dropbacks. It openly admits 2022-2025 is not a fresh holdout.\n\n(6) 538 Elo and QB VALUE parameters are as quoted (MIT code). nfeloqb's refit alphas are 0.0886/0.0346/0.0371.\n\n(7) Offense is stickier than defense. Support: nfelo's 1.6/1.0 guidance (no derivation), Anderson's priors, and nfelounits' reversion rates. There is no primary out-of-sample evidence that wp garbage-time filters help. Lichtenstein's EMA-vs-running-average findings are directional only.\n\n(8) Gridiron's nfl_team_week_features covers 2016-2025 (about 2,680 games) and has wp 0.1-0.9 subset features, not a global filter.\n\nRecommendations that survive:\n- One point-in-time weekly ridge/Bayesian state estimator in JS, with continuous shrinkage replacing binary gates.\n- Points-per-drive plus EPA-per-drive fusion following momentumnfl.\n- Garbage-time handling and turnover discounts treated as a small set of tested options.\n- A market-free preseason prior for bet decisions.\n- A QB starter taken from the bitemporal pregame snapshot.\n- Backfill features to 2006 or earlier.\n- Hyperparameters tied across units with a small, registered grid, given about 270 games per season.\n- Parameters from nfelounits/538 are in-sample tuned: use them only as disclosed grid centers.\n- Expect to fall slightly short of nfelo/538 parity, and well short of the closing line.\n- EPA revision tracking protects future seasons only.",
+  "reliability": "medium"
+}

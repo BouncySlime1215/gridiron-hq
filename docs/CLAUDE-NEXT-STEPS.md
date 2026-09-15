@@ -1,3 +1,5 @@
+> **Organization-branch navigation:** the [latest consolidated plan](betting-model/plans/LATEST-PLAN.md) contains the current review-driven sequence. This ledger is preserved as implementation history; older “next actions” below are not a second current plan.
+
 # Gridiron HQ — final NFL spreads implementation plan for Claude
 
 **Reviewed September 10, 2026. Scope: ordinary full-game, pregame NFL spreads.**

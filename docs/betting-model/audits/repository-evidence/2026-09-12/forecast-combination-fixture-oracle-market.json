@@ -1,0 +1,3351 @@
+{
+  "version": "nfl-forecast-combination-v1",
+  "generated_at": "2026-09-12T22:27:21.509Z",
+  "elapsed_ms": 46572,
+  "data_source": {
+    "kind": "synthetic_fixture",
+    "games": 1360,
+    "teams": 16,
+    "seasons": 10,
+    "latent_factors": 3,
+    "noise": 0.35,
+    "market_noise": 1.6,
+    "feature_fields": 41,
+    "note": "synthetic: feature correlation structure is a property of this generator, not of football"
+  },
+  "synthetic": true,
+  "test_seasons": [
+    2022,
+    2023,
+    2024
+  ],
+  "catalog_size": 31,
+  "replay_rows": 1088,
+  "replay_seasons": [
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024
+  ],
+  "arms": [
+    {
+      "key": "independence_only",
+      "label": "greedy independent basis (stage 1 as written)",
+      "reduction": {
+        "maxComponents": 6,
+        "maxExplained": 0.9,
+        "skillScreen": "none"
+      },
+      "common_sample": {
+        "games": 408,
+        "per_method_rows": {
+          "market_only": 408,
+          "incumbent_market_residual": 408,
+          "equal_weight": 408,
+          "equal_weight_all": 408,
+          "inverse_mse": 408,
+          "ols_granger_ramanathan": 408,
+          "constrained_ls": 408,
+          "shrunk_to_equal": 408,
+          "market_anchored_combination": 408,
+          "residual_ols": 408,
+          "residual_constrained": 408
+        }
+      },
+      "pooled": {
+        "market_only": {
+          "n": 408,
+          "rmse": 9.8096,
+          "mae": 7.8125,
+          "bias": 0.4032,
+          "cover_n": 405,
+          "cover_brier": 0.25134,
+          "label": "Market (closing line)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8096,
+            "mae": 7.8125,
+            "bias": 0.4032,
+            "cover_n": 405,
+            "cover_brier": 0.25134
+          }
+        },
+        "incumbent_market_residual": {
+          "n": 408,
+          "rmse": 9.8105,
+          "mae": 7.8142,
+          "bias": 0.4032,
+          "cover_n": 405,
+          "cover_brier": 0.2514,
+          "label": "Incumbent: gated market-residual blend",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8105,
+            "mae": 7.8142,
+            "bias": 0.4032,
+            "cover_n": 405,
+            "cover_brier": 0.2514
+          }
+        },
+        "equal_weight": {
+          "n": 408,
+          "rmse": 10.4279,
+          "mae": 8.4069,
+          "bias": 0.4966,
+          "cover_n": 405,
+          "cover_brier": 0.26934,
+          "label": "Equal weights (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 10.4279,
+            "mae": 8.4069,
+            "bias": 0.4966,
+            "cover_n": 405,
+            "cover_brier": 0.26934
+          }
+        },
+        "equal_weight_all": {
+          "n": 408,
+          "rmse": 11.1031,
+          "mae": 8.9254,
+          "bias": 0.6407,
+          "cover_n": 405,
+          "cover_brier": 0.27928,
+          "label": "Equal weights (all components, no reduction)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 11.1031,
+            "mae": 8.9254,
+            "bias": 0.6407,
+            "cover_n": 405,
+            "cover_brier": 0.27928
+          }
+        },
+        "inverse_mse": {
+          "n": 408,
+          "rmse": 10.2777,
+          "mae": 8.2942,
+          "bias": 0.5261,
+          "cover_n": 405,
+          "cover_brier": 0.26553,
+          "label": "Inverse-MSE weights (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 10.2777,
+            "mae": 8.2942,
+            "bias": 0.5261,
+            "cover_n": 405,
+            "cover_brier": 0.26553
+          }
+        },
+        "ols_granger_ramanathan": {
+          "n": 408,
+          "rmse": 9.8919,
+          "mae": 7.8877,
+          "bias": 0.8021,
+          "cover_n": 405,
+          "cover_brier": 0.25363,
+          "label": "Granger-Ramanathan OLS (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8919,
+            "mae": 7.8877,
+            "bias": 0.8021,
+            "cover_n": 405,
+            "cover_brier": 0.25363
+          }
+        },
+        "constrained_ls": {
+          "n": 408,
+          "rmse": 9.83,
+          "mae": 7.8477,
+          "bias": 0.5096,
+          "cover_n": 405,
+          "cover_brier": 0.25261,
+          "label": "Constrained LS, weights >= 0 summing to 1 (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.83,
+            "mae": 7.8477,
+            "bias": 0.5096,
+            "cover_n": 405,
+            "cover_brier": 0.25261
+          }
+        },
+        "shrunk_to_equal": {
+          "n": 408,
+          "rmse": 9.8875,
+          "mae": 7.8697,
+          "bias": 0.897,
+          "cover_n": 405,
+          "cover_brier": 0.25293,
+          "label": "Stock-Watson shrinkage toward equal weights (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8875,
+            "mae": 7.8697,
+            "bias": 0.897,
+            "cover_n": 405,
+            "cover_brier": 0.25293
+          }
+        },
+        "market_anchored_combination": {
+          "n": 408,
+          "rmse": 9.8128,
+          "mae": 7.8345,
+          "bias": 0.4115,
+          "cover_n": 405,
+          "cover_brier": 0.2518,
+          "label": "Market anchor + shrunk combined departure (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8128,
+            "mae": 7.8345,
+            "bias": 0.4115,
+            "cover_n": 405,
+            "cover_brier": 0.2518
+          }
+        },
+        "residual_ols": {
+          "n": 408,
+          "rmse": 9.8553,
+          "mae": 7.8595,
+          "bias": 0.1304,
+          "cover_n": 405,
+          "cover_brier": 0.2528,
+          "label": "Market + jointly-fit departure weights (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8553,
+            "mae": 7.8595,
+            "bias": 0.1304,
+            "cover_n": 405,
+            "cover_brier": 0.2528
+          }
+        },
+        "residual_constrained": {
+          "n": 408,
+          "rmse": 9.835,
+          "mae": 7.8475,
+          "bias": 0.4365,
+          "cover_n": 405,
+          "cover_brier": 0.25242,
+          "label": "Market + constrained departure weights, b>=0 sum<=1 (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.835,
+            "mae": 7.8475,
+            "bias": 0.4365,
+            "cover_n": 405,
+            "cover_brier": 0.25242
+          }
+        }
+      },
+      "seasons": [
+        {
+          "season": 2022,
+          "cutoffs": 17,
+          "refit": "week",
+          "train_rows": {
+            "first": 680,
+            "last": 808
+          },
+          "test_rows": 136,
+          "basis_usage": [
+            {
+              "id": "recent_form",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "market_anchor",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "colley",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "series_sustain",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "opp_adjusted",
+              "cutoffs": 10,
+              "share": 0.588
+            },
+            {
+              "id": "rest_travel",
+              "cutoffs": 9,
+              "share": 0.529
+            },
+            {
+              "id": "rush_eff_matchup",
+              "cutoffs": 8,
+              "share": 0.471
+            },
+            {
+              "id": "market_regression",
+              "cutoffs": 7,
+              "share": 0.412
+            }
+          ],
+          "reduced_ids": [
+            "rush_eff_matchup",
+            "market_anchor",
+            "recent_form",
+            "colley",
+            "series_sustain",
+            "opp_adjusted"
+          ],
+          "basis_churn": 1.33,
+          "methods": {
+            "market_only": {
+              "n": 136,
+              "rmse": 10.0923,
+              "mae": 7.989,
+              "bias": 0.0993,
+              "cover_n": 135,
+              "cover_brier": 0.24914,
+              "fit_summary": {}
+            },
+            "incumbent_market_residual": {
+              "n": 136,
+              "rmse": 10.0923,
+              "mae": 7.989,
+              "bias": 0.0993,
+              "cover_n": 135,
+              "cover_brier": 0.24914,
+              "fit_summary": {
+                "gated_components": [],
+                "collapses_to_market": true,
+                "weights": []
+              }
+            },
+            "equal_weight": {
+              "n": 136,
+              "rmse": 11.0149,
+              "mae": 8.903,
+              "bias": -0.0391,
+              "cover_n": 135,
+              "cover_brier": 0.27156,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "colley",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.1667
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.1667
+              }
+            },
+            "equal_weight_all": {
+              "n": 136,
+              "rmse": 11.9303,
+              "mae": 9.5729,
+              "bias": -0.0113,
+              "cover_n": 135,
+              "cover_brier": 0.28814,
+              "fit_summary": {}
+            },
+            "inverse_mse": {
+              "n": 136,
+              "rmse": 10.7903,
+              "mae": 8.7102,
+              "bias": -0.0156,
+              "cover_n": 135,
+              "cover_brier": 0.26616,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1525
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.2246
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.1148
+                  },
+                  {
+                    "id": "colley",
+                    "weight": 0.1382
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1981
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.1718
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.2246
+              }
+            },
+            "ols_granger_ramanathan": {
+              "n": 136,
+              "rmse": 10.1588,
+              "mae": 8.0339,
+              "bias": 0.2376,
+              "cover_n": 135,
+              "cover_brier": 0.25328,
+              "fit_summary": {
+                "intercept": -0.3747,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.3148
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.8759
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": -0.0256
+                  },
+                  {
+                    "id": "colley",
+                    "weight": 0.0591
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1006
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.0105
+                  }
+                ],
+                "weight_sum": 1.3352,
+                "max_abs_weight": 0.8759
+              }
+            },
+            "constrained_ls": {
+              "n": 136,
+              "rmse": 10.1016,
+              "mae": 8.0114,
+              "bias": 0.0584,
+              "cover_n": 135,
+              "cover_brier": 0.2504,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.8472
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0
+                  },
+                  {
+                    "id": "colley",
+                    "weight": 0.0429
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1098
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.8472
+              }
+            },
+            "shrunk_to_equal": {
+              "n": 136,
+              "rmse": 10.1651,
+              "mae": 7.9928,
+              "bias": 0.467,
+              "cover_n": 135,
+              "cover_brier": 0.25132,
+              "fit_summary": {
+                "lambda": 0.9925,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1657
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.8707
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": -0.0242
+                  },
+                  {
+                    "id": "colley",
+                    "weight": 0.0593
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1184
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": -0.0103
+                  }
+                ],
+                "weight_sum": 1.1797,
+                "max_abs_weight": 0.8707
+              }
+            },
+            "market_anchored_combination": {
+              "n": 136,
+              "rmse": 10.1049,
+              "mae": 8.0255,
+              "bias": 0.0809,
+              "cover_n": 135,
+              "cover_brier": 0.24985,
+              "fit_summary": {
+                "beta": 0.0987,
+                "components": [
+                  "rush_eff_matchup",
+                  "market_anchor",
+                  "recent_form",
+                  "colley",
+                  "series_sustain",
+                  "opp_adjusted"
+                ]
+              }
+            },
+            "residual_ols": {
+              "n": 136,
+              "rmse": 10.2426,
+              "mae": 8.1385,
+              "bias": -0.1459,
+              "cover_n": 135,
+              "cover_brier": 0.25366,
+              "fit_summary": {
+                "intercept": 0,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": -0.014
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": -0.0596
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": -0.0395
+                  },
+                  {
+                    "id": "colley",
+                    "weight": 0.0727
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1261
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": -0.0594
+                  }
+                ],
+                "weight_sum": 0.0263,
+                "max_abs_weight": 0.1261
+              }
+            },
+            "residual_constrained": {
+              "n": 136,
+              "rmse": 10.1513,
+              "mae": 8.0499,
+              "bias": 0.091,
+              "cover_n": 135,
+              "cover_brier": 0.25089,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0
+                  },
+                  {
+                    "id": "colley",
+                    "weight": 0.0494
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.0791
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0
+                  }
+                ],
+                "weight_sum": 0.1285,
+                "max_abs_weight": 0.0791
+              }
+            }
+          },
+          "skipped_cutoffs": []
+        },
+        {
+          "season": 2023,
+          "cutoffs": 17,
+          "refit": "week",
+          "train_rows": {
+            "first": 816,
+            "last": 944
+          },
+          "test_rows": 136,
+          "basis_usage": [
+            {
+              "id": "rush_eff_matchup",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "market_anchor",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "recent_form",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "opp_adjusted",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "colley",
+              "cutoffs": 9,
+              "share": 0.529
+            },
+            {
+              "id": "series_sustain",
+              "cutoffs": 9,
+              "share": 0.529
+            },
+            {
+              "id": "melo",
+              "cutoffs": 8,
+              "share": 0.471
+            },
+            {
+              "id": "market_regression",
+              "cutoffs": 8,
+              "share": 0.471
+            }
+          ],
+          "reduced_ids": [
+            "rush_eff_matchup",
+            "market_anchor",
+            "recent_form",
+            "melo",
+            "opp_adjusted",
+            "market_regression"
+          ],
+          "basis_churn": 1.33,
+          "methods": {
+            "market_only": {
+              "n": 136,
+              "rmse": 9.9255,
+              "mae": 7.6912,
+              "bias": -0.4559,
+              "cover_n": 136,
+              "cover_brier": 0.25285,
+              "fit_summary": {}
+            },
+            "incumbent_market_residual": {
+              "n": 136,
+              "rmse": 9.9282,
+              "mae": 7.6964,
+              "bias": -0.456,
+              "cover_n": 136,
+              "cover_brier": 0.25302,
+              "fit_summary": {
+                "gated_components": [],
+                "collapses_to_market": true,
+                "weights": []
+              }
+            },
+            "equal_weight": {
+              "n": 136,
+              "rmse": 10.2211,
+              "mae": 8.1521,
+              "bias": -0.3766,
+              "cover_n": 136,
+              "cover_brier": 0.27176,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.1667
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.1667
+              }
+            },
+            "equal_weight_all": {
+              "n": 136,
+              "rmse": 10.897,
+              "mae": 8.7617,
+              "bias": -0.1787,
+              "cover_n": 136,
+              "cover_brier": 0.28744,
+              "fit_summary": {}
+            },
+            "inverse_mse": {
+              "n": 136,
+              "rmse": 10.1871,
+              "mae": 8.1489,
+              "bias": -0.2872,
+              "cover_n": 136,
+              "cover_brier": 0.26984,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1424
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.2112
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.1081
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.1653
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.1612
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.212
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.212
+              }
+            },
+            "ols_granger_ramanathan": {
+              "n": 136,
+              "rmse": 10.0136,
+              "mae": 7.803,
+              "bias": 0.1709,
+              "cover_n": 136,
+              "cover_brier": 0.25463,
+              "fit_summary": {
+                "intercept": -1.5377,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.7696
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.3214
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.0078
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0361
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.0856
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.586
+                  }
+                ],
+                "weight_sum": 1.8065,
+                "max_abs_weight": 0.7696
+              }
+            },
+            "constrained_ls": {
+              "n": 136,
+              "rmse": 9.9834,
+              "mae": 7.7834,
+              "bias": -0.2479,
+              "cover_n": 136,
+              "cover_brier": 0.25556,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.306
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.0019
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0667
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.6255
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.6255
+              }
+            },
+            "shrunk_to_equal": {
+              "n": 136,
+              "rmse": 10.0158,
+              "mae": 7.82,
+              "bias": 0.1982,
+              "cover_n": 136,
+              "cover_brier": 0.25562,
+              "fit_summary": {
+                "lambda": 0.9936,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1763
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.3362
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.0068
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0689
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.0048
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.5931
+                  }
+                ],
+                "weight_sum": 1.1861,
+                "max_abs_weight": 0.5931
+              }
+            },
+            "market_anchored_combination": {
+              "n": 136,
+              "rmse": 9.9076,
+              "mae": 7.712,
+              "bias": -0.4461,
+              "cover_n": 136,
+              "cover_brier": 0.25324,
+              "fit_summary": {
+                "beta": 0.0999,
+                "components": [
+                  "rush_eff_matchup",
+                  "market_anchor",
+                  "recent_form",
+                  "melo",
+                  "opp_adjusted",
+                  "market_regression"
+                ]
+              }
+            },
+            "residual_ols": {
+              "n": 136,
+              "rmse": 9.9633,
+              "mae": 7.7147,
+              "bias": -0.6685,
+              "cover_n": 136,
+              "cover_brier": 0.25357,
+              "fit_summary": {
+                "intercept": 0,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.0966
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": -0.0697
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": -0.0091
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.094
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": -0.0276
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": -1.968
+                  }
+                ],
+                "weight_sum": -1.8838,
+                "max_abs_weight": 1.968
+              }
+            },
+            "residual_constrained": {
+              "n": 136,
+              "rmse": 9.9309,
+              "mae": 7.7183,
+              "bias": -0.3921,
+              "cover_n": 136,
+              "cover_brier": 0.25385,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.009
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0729
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0
+                  }
+                ],
+                "weight_sum": 0.0819,
+                "max_abs_weight": 0.0729
+              }
+            }
+          },
+          "skipped_cutoffs": []
+        },
+        {
+          "season": 2024,
+          "cutoffs": 17,
+          "refit": "week",
+          "train_rows": {
+            "first": 952,
+            "last": 1080
+          },
+          "test_rows": 136,
+          "basis_usage": [
+            {
+              "id": "rush_eff_matchup",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "market_anchor",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "recent_form",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "melo",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "opp_adjusted",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "market_regression",
+              "cutoffs": 17,
+              "share": 1
+            }
+          ],
+          "reduced_ids": [
+            "rush_eff_matchup",
+            "market_anchor",
+            "recent_form",
+            "melo",
+            "opp_adjusted",
+            "market_regression"
+          ],
+          "basis_churn": 1,
+          "methods": {
+            "market_only": {
+              "n": 136,
+              "rmse": 9.3975,
+              "mae": 7.7574,
+              "bias": 1.5662,
+              "cover_n": 134,
+              "cover_brier": 0.25202,
+              "fit_summary": {}
+            },
+            "incumbent_market_residual": {
+              "n": 136,
+              "rmse": 9.3975,
+              "mae": 7.7574,
+              "bias": 1.5662,
+              "cover_n": 134,
+              "cover_brier": 0.25202,
+              "fit_summary": {
+                "gated_components": [],
+                "collapses_to_market": true,
+                "weights": []
+              }
+            },
+            "equal_weight": {
+              "n": 136,
+              "rmse": 10.0214,
+              "mae": 8.1657,
+              "bias": 1.9056,
+              "cover_n": 134,
+              "cover_brier": 0.26465,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.1667
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.1667
+              }
+            },
+            "equal_weight_all": {
+              "n": 136,
+              "rmse": 10.429,
+              "mae": 8.4416,
+              "bias": 2.1121,
+              "cover_n": 134,
+              "cover_brier": 0.26206,
+              "fit_summary": {}
+            },
+            "inverse_mse": {
+              "n": 136,
+              "rmse": 9.8329,
+              "mae": 8.0236,
+              "bias": 1.8809,
+              "cover_n": 134,
+              "cover_brier": 0.26052,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1427
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.2118
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0.1086
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.1629
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.1618
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.2122
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.2122
+              }
+            },
+            "ols_granger_ramanathan": {
+              "n": 136,
+              "rmse": 9.4908,
+              "mae": 7.8261,
+              "bias": 1.9978,
+              "cover_n": 134,
+              "cover_brier": 0.25296,
+              "fit_summary": {
+                "intercept": -1.0802,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.5111
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.4607
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": -0.0047
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0501
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.0407
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.4644
+                  }
+                ],
+                "weight_sum": 1.5223,
+                "max_abs_weight": 0.5111
+              }
+            },
+            "constrained_ls": {
+              "n": 136,
+              "rmse": 9.3901,
+              "mae": 7.7483,
+              "bias": 1.7183,
+              "cover_n": 134,
+              "cover_brier": 0.25182,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.0005
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.4393
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0651
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.4952
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.4952
+              }
+            },
+            "shrunk_to_equal": {
+              "n": 136,
+              "rmse": 9.468,
+              "mae": 7.7962,
+              "bias": 2.0259,
+              "cover_n": 134,
+              "cover_brier": 0.25182,
+              "fit_summary": {
+                "lambda": 0.9944,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.0949
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.4704
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": -0.0056
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0742
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": -0.0153
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.468
+                  }
+                ],
+                "weight_sum": 1.0867,
+                "max_abs_weight": 0.4704
+              }
+            },
+            "market_anchored_combination": {
+              "n": 136,
+              "rmse": 9.4129,
+              "mae": 7.7661,
+              "bias": 1.5997,
+              "cover_n": 134,
+              "cover_brier": 0.25229,
+              "fit_summary": {
+                "beta": 0.0923,
+                "components": [
+                  "rush_eff_matchup",
+                  "market_anchor",
+                  "recent_form",
+                  "melo",
+                  "opp_adjusted",
+                  "market_regression"
+                ]
+              }
+            },
+            "residual_ols": {
+              "n": 136,
+              "rmse": 9.3383,
+              "mae": 7.7254,
+              "bias": 1.2055,
+              "cover_n": 134,
+              "cover_brier": 0.25115,
+              "fit_summary": {
+                "intercept": 0,
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.1188
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.0857
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": -0.017
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0896
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": -0.0286
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": -2.3103
+                  }
+                ],
+                "weight_sum": -2.0618,
+                "max_abs_weight": 2.3103
+              }
+            },
+            "residual_constrained": {
+              "n": 136,
+              "rmse": 9.408,
+              "mae": 7.7743,
+              "bias": 1.6105,
+              "cover_n": 134,
+              "cover_brier": 0.25252,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "rush_eff_matchup",
+                    "weight": 0.0168
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.0783
+                  },
+                  {
+                    "id": "recent_form",
+                    "weight": 0
+                  },
+                  {
+                    "id": "melo",
+                    "weight": 0.0632
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0
+                  }
+                ],
+                "weight_sum": 0.1583,
+                "max_abs_weight": 0.0783
+              }
+            }
+          },
+          "skipped_cutoffs": []
+        }
+      ],
+      "significance": {
+        "ranking": [
+          {
+            "method": "market_only",
+            "label": "Market (closing line)",
+            "rmse": 9.8096,
+            "cover_brier": 0.25134,
+            "n": 408
+          },
+          {
+            "method": "incumbent_market_residual",
+            "label": "Incumbent: gated market-residual blend",
+            "rmse": 9.8105,
+            "cover_brier": 0.2514,
+            "n": 408
+          },
+          {
+            "method": "market_anchored_combination",
+            "label": "Market anchor + shrunk combined departure (reduced set)",
+            "rmse": 9.8128,
+            "cover_brier": 0.2518,
+            "n": 408
+          },
+          {
+            "method": "constrained_ls",
+            "label": "Constrained LS, weights >= 0 summing to 1 (reduced set)",
+            "rmse": 9.83,
+            "cover_brier": 0.25261,
+            "n": 408
+          },
+          {
+            "method": "residual_constrained",
+            "label": "Market + constrained departure weights, b>=0 sum<=1 (reduced set)",
+            "rmse": 9.835,
+            "cover_brier": 0.25242,
+            "n": 408
+          },
+          {
+            "method": "residual_ols",
+            "label": "Market + jointly-fit departure weights (reduced set)",
+            "rmse": 9.8553,
+            "cover_brier": 0.2528,
+            "n": 408
+          },
+          {
+            "method": "shrunk_to_equal",
+            "label": "Stock-Watson shrinkage toward equal weights (reduced set)",
+            "rmse": 9.8875,
+            "cover_brier": 0.25293,
+            "n": 408
+          },
+          {
+            "method": "ols_granger_ramanathan",
+            "label": "Granger-Ramanathan OLS (reduced set)",
+            "rmse": 9.8919,
+            "cover_brier": 0.25363,
+            "n": 408
+          },
+          {
+            "method": "inverse_mse",
+            "label": "Inverse-MSE weights (reduced set)",
+            "rmse": 10.2777,
+            "cover_brier": 0.26553,
+            "n": 408
+          },
+          {
+            "method": "equal_weight",
+            "label": "Equal weights (reduced set)",
+            "rmse": 10.4279,
+            "cover_brier": 0.26934,
+            "n": 408
+          },
+          {
+            "method": "equal_weight_all",
+            "label": "Equal weights (all components, no reduction)",
+            "rmse": 11.1031,
+            "cover_brier": 0.27928,
+            "n": 408
+          }
+        ],
+        "best_by_rmse": "market_only",
+        "alpha": 0.05,
+        "vs_baseline": [
+          {
+            "method": "market_only",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8096,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": -1,
+            "dm_p_one_sided_better": 0.1611,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": -0.6377,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          },
+          {
+            "method": "equal_weight",
+            "baseline": "incumbent_market_residual",
+            "rmse": 10.4279,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 3.5143,
+            "dm_p_one_sided_better": 0.9995,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 3.5453,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "equal_weight_all",
+            "baseline": "incumbent_market_residual",
+            "rmse": 11.1031,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 4.7868,
+            "dm_p_one_sided_better": 1,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 5.103,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "inverse_mse",
+            "baseline": "incumbent_market_residual",
+            "rmse": 10.2777,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 3.0388,
+            "dm_p_one_sided_better": 0.9981,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 3.0693,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "ols_granger_ramanathan",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8919,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 1.8375,
+            "dm_p_one_sided_better": 0.964,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 1.8035,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "constrained_ls",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.83,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 0.675,
+            "dm_p_one_sided_better": 0.7486,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 0.5519,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          },
+          {
+            "method": "shrunk_to_equal",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8875,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 1.8332,
+            "dm_p_one_sided_better": 0.9636,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 1.6953,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "market_anchored_combination",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8128,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 0.1357,
+            "dm_p_one_sided_better": 0.5537,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 0.1319,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          },
+          {
+            "method": "residual_ols",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8553,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 1.0995,
+            "dm_p_one_sided_better": 0.8616,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 1.1422,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          },
+          {
+            "method": "residual_constrained",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.835,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 0.9115,
+            "dm_p_one_sided_better": 0.8168,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 0.8561,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          }
+        ],
+        "vs_best": [
+          {
+            "best": "market_only",
+            "other": "incumbent_market_residual",
+            "dm_statistic": -1,
+            "dm_p_best_better": 0.1611,
+            "distinguishable": false
+          },
+          {
+            "best": "market_only",
+            "other": "equal_weight",
+            "dm_statistic": -3.5195,
+            "dm_p_best_better": 0.0005,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "equal_weight_all",
+            "dm_statistic": -4.7893,
+            "dm_p_best_better": 0,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "inverse_mse",
+            "dm_statistic": -3.0445,
+            "dm_p_best_better": 0.0019,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "ols_granger_ramanathan",
+            "dm_statistic": -1.868,
+            "dm_p_best_better": 0.0338,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "constrained_ls",
+            "dm_statistic": -0.7087,
+            "dm_p_best_better": 0.2409,
+            "distinguishable": false
+          },
+          {
+            "best": "market_only",
+            "other": "shrunk_to_equal",
+            "dm_statistic": -1.8638,
+            "dm_p_best_better": 0.0341,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "market_anchored_combination",
+            "dm_statistic": -0.1904,
+            "dm_p_best_better": 0.4249,
+            "distinguishable": false
+          },
+          {
+            "best": "market_only",
+            "other": "residual_ols",
+            "dm_statistic": -1.1207,
+            "dm_p_best_better": 0.1339,
+            "distinguishable": false
+          },
+          {
+            "best": "market_only",
+            "other": "residual_constrained",
+            "dm_statistic": -0.9484,
+            "dm_p_best_better": 0.1737,
+            "distinguishable": false
+          }
+        ],
+        "best_distinguishable_from_equal_weight": {
+          "dm_statistic": -3.5195,
+          "p": 0.0005,
+          "distinguishable": true
+        }
+      }
+    },
+    {
+      "key": "skill_then_independence",
+      "label": "skill screen first, then independent basis",
+      "reduction": {
+        "maxComponents": 6,
+        "maxExplained": 0.9,
+        "skillScreen": "top_n",
+        "skillTopN": 12
+      },
+      "common_sample": {
+        "games": 408,
+        "per_method_rows": {
+          "market_only": 408,
+          "incumbent_market_residual": 408,
+          "equal_weight": 408,
+          "equal_weight_all": 408,
+          "inverse_mse": 408,
+          "ols_granger_ramanathan": 408,
+          "constrained_ls": 408,
+          "shrunk_to_equal": 408,
+          "market_anchored_combination": 408,
+          "residual_ols": 408,
+          "residual_constrained": 408
+        }
+      },
+      "pooled": {
+        "market_only": {
+          "n": 408,
+          "rmse": 9.8096,
+          "mae": 7.8125,
+          "bias": 0.4032,
+          "cover_n": 405,
+          "cover_brier": 0.25134,
+          "label": "Market (closing line)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8096,
+            "mae": 7.8125,
+            "bias": 0.4032,
+            "cover_n": 405,
+            "cover_brier": 0.25134
+          }
+        },
+        "incumbent_market_residual": {
+          "n": 408,
+          "rmse": 9.8105,
+          "mae": 7.8142,
+          "bias": 0.4032,
+          "cover_n": 405,
+          "cover_brier": 0.2514,
+          "label": "Incumbent: gated market-residual blend",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8105,
+            "mae": 7.8142,
+            "bias": 0.4032,
+            "cover_n": 405,
+            "cover_brier": 0.2514
+          }
+        },
+        "equal_weight": {
+          "n": 408,
+          "rmse": 10.8097,
+          "mae": 8.6623,
+          "bias": 0.6647,
+          "cover_n": 405,
+          "cover_brier": 0.27296,
+          "label": "Equal weights (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 10.8097,
+            "mae": 8.6623,
+            "bias": 0.6647,
+            "cover_n": 405,
+            "cover_brier": 0.27296
+          }
+        },
+        "equal_weight_all": {
+          "n": 408,
+          "rmse": 11.1031,
+          "mae": 8.9254,
+          "bias": 0.6407,
+          "cover_n": 405,
+          "cover_brier": 0.27928,
+          "label": "Equal weights (all components, no reduction)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 11.1031,
+            "mae": 8.9254,
+            "bias": 0.6407,
+            "cover_n": 405,
+            "cover_brier": 0.27928
+          }
+        },
+        "inverse_mse": {
+          "n": 408,
+          "rmse": 10.7564,
+          "mae": 8.614,
+          "bias": 0.6582,
+          "cover_n": 405,
+          "cover_brier": 0.27189,
+          "label": "Inverse-MSE weights (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 10.7564,
+            "mae": 8.614,
+            "bias": 0.6582,
+            "cover_n": 405,
+            "cover_brier": 0.27189
+          }
+        },
+        "ols_granger_ramanathan": {
+          "n": 408,
+          "rmse": 10.3282,
+          "mae": 8.1969,
+          "bias": 0.8768,
+          "cover_n": 405,
+          "cover_brier": 0.26045,
+          "label": "Granger-Ramanathan OLS (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 10.3282,
+            "mae": 8.1969,
+            "bias": 0.8768,
+            "cover_n": 405,
+            "cover_brier": 0.26045
+          }
+        },
+        "constrained_ls": {
+          "n": 408,
+          "rmse": 10.4044,
+          "mae": 8.2779,
+          "bias": 0.5559,
+          "cover_n": 405,
+          "cover_brier": 0.26293,
+          "label": "Constrained LS, weights >= 0 summing to 1 (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 10.4044,
+            "mae": 8.2779,
+            "bias": 0.5559,
+            "cover_n": 405,
+            "cover_brier": 0.26293
+          }
+        },
+        "shrunk_to_equal": {
+          "n": 408,
+          "rmse": 10.3593,
+          "mae": 8.2109,
+          "bias": 0.9352,
+          "cover_n": 405,
+          "cover_brier": 0.26071,
+          "label": "Stock-Watson shrinkage toward equal weights (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 10.3593,
+            "mae": 8.2109,
+            "bias": 0.9352,
+            "cover_n": 405,
+            "cover_brier": 0.26071
+          }
+        },
+        "market_anchored_combination": {
+          "n": 408,
+          "rmse": 9.8171,
+          "mae": 7.8381,
+          "bias": 0.4332,
+          "cover_n": 405,
+          "cover_brier": 0.25191,
+          "label": "Market anchor + shrunk combined departure (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8171,
+            "mae": 7.8381,
+            "bias": 0.4332,
+            "cover_n": 405,
+            "cover_brier": 0.25191
+          }
+        },
+        "residual_ols": {
+          "n": 408,
+          "rmse": 9.8623,
+          "mae": 7.8481,
+          "bias": 0.3633,
+          "cover_n": 405,
+          "cover_brier": 0.2526,
+          "label": "Market + jointly-fit departure weights (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8623,
+            "mae": 7.8481,
+            "bias": 0.3633,
+            "cover_n": 405,
+            "cover_brier": 0.2526
+          }
+        },
+        "residual_constrained": {
+          "n": 408,
+          "rmse": 9.8296,
+          "mae": 7.8352,
+          "bias": 0.4391,
+          "cover_n": 405,
+          "cover_brier": 0.25174,
+          "label": "Market + constrained departure weights, b>=0 sum<=1 (reduced set)",
+          "own_sample": {
+            "n": 408,
+            "rmse": 9.8296,
+            "mae": 7.8352,
+            "bias": 0.4391,
+            "cover_n": 405,
+            "cover_brier": 0.25174
+          }
+        }
+      },
+      "seasons": [
+        {
+          "season": 2022,
+          "cutoffs": 17,
+          "refit": "week",
+          "train_rows": {
+            "first": 680,
+            "last": 808
+          },
+          "test_rows": 136,
+          "basis_usage": [
+            {
+              "id": "massey",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "series_sustain",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "dynamic_state",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "second_half_eff",
+              "cutoffs": 16,
+              "share": 0.941
+            },
+            {
+              "id": "field_position",
+              "cutoffs": 16,
+              "share": 0.941
+            },
+            {
+              "id": "pressure_response",
+              "cutoffs": 1,
+              "share": 0.059
+            },
+            {
+              "id": "trenches",
+              "cutoffs": 1,
+              "share": 0.059
+            }
+          ],
+          "reduced_ids": [
+            "massey",
+            "series_sustain",
+            "second_half_eff",
+            "field_position",
+            "dynamic_state"
+          ],
+          "basis_churn": 1.4,
+          "methods": {
+            "market_only": {
+              "n": 136,
+              "rmse": 10.0923,
+              "mae": 7.989,
+              "bias": 0.0993,
+              "cover_n": 135,
+              "cover_brier": 0.24914,
+              "fit_summary": {}
+            },
+            "incumbent_market_residual": {
+              "n": 136,
+              "rmse": 10.0923,
+              "mae": 7.989,
+              "bias": 0.0993,
+              "cover_n": 135,
+              "cover_brier": 0.24914,
+              "fit_summary": {
+                "gated_components": [],
+                "collapses_to_market": true,
+                "weights": []
+              }
+            },
+            "equal_weight": {
+              "n": 136,
+              "rmse": 11.4747,
+              "mae": 9.2202,
+              "bias": -0.0164,
+              "cover_n": 135,
+              "cover_brier": 0.27755,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.2
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.2
+                  },
+                  {
+                    "id": "second_half_eff",
+                    "weight": 0.2
+                  },
+                  {
+                    "id": "field_position",
+                    "weight": 0.2
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.2
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.2
+              }
+            },
+            "equal_weight_all": {
+              "n": 136,
+              "rmse": 11.9303,
+              "mae": 9.5729,
+              "bias": -0.0113,
+              "cover_n": 135,
+              "cover_brier": 0.28814,
+              "fit_summary": {}
+            },
+            "inverse_mse": {
+              "n": 136,
+              "rmse": 11.3987,
+              "mae": 9.1508,
+              "bias": -0.0189,
+              "cover_n": 135,
+              "cover_brier": 0.27583,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.1784
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.2215
+                  },
+                  {
+                    "id": "second_half_eff",
+                    "weight": 0.1803
+                  },
+                  {
+                    "id": "field_position",
+                    "weight": 0.2091
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.2106
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.2215
+              }
+            },
+            "ols_granger_ramanathan": {
+              "n": 136,
+              "rmse": 10.5124,
+              "mae": 8.2917,
+              "bias": 0.3012,
+              "cover_n": 135,
+              "cover_brier": 0.25124,
+              "fit_summary": {
+                "intercept": -0.743,
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": -0.2621
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.2938
+                  },
+                  {
+                    "id": "second_half_eff",
+                    "weight": 0.4984
+                  },
+                  {
+                    "id": "field_position",
+                    "weight": 0.6255
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.3122
+                  }
+                ],
+                "weight_sum": 1.4678,
+                "max_abs_weight": 0.6255
+              }
+            },
+            "constrained_ls": {
+              "n": 136,
+              "rmse": 10.7133,
+              "mae": 8.5256,
+              "bias": -0.058,
+              "cover_n": 135,
+              "cover_brier": 0.25717,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.6751
+                  },
+                  {
+                    "id": "second_half_eff",
+                    "weight": 0
+                  },
+                  {
+                    "id": "field_position",
+                    "weight": 0.1541
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.1708
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.6751
+              }
+            },
+            "shrunk_to_equal": {
+              "n": 136,
+              "rmse": 10.5381,
+              "mae": 8.3143,
+              "bias": 0.4732,
+              "cover_n": 135,
+              "cover_brier": 0.2513,
+              "fit_summary": {
+                "lambda": 0.9938,
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": -0.2509
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.443
+                  },
+                  {
+                    "id": "second_half_eff",
+                    "weight": 0.2672
+                  },
+                  {
+                    "id": "field_position",
+                    "weight": 0.4513
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.3251
+                  }
+                ],
+                "weight_sum": 1.2358,
+                "max_abs_weight": 0.4513
+              }
+            },
+            "market_anchored_combination": {
+              "n": 136,
+              "rmse": 10.1028,
+              "mae": 8.0306,
+              "bias": 0.0833,
+              "cover_n": 135,
+              "cover_brier": 0.24952,
+              "fit_summary": {
+                "beta": 0.1165,
+                "components": [
+                  "massey",
+                  "series_sustain",
+                  "second_half_eff",
+                  "field_position",
+                  "dynamic_state"
+                ]
+              }
+            },
+            "residual_ols": {
+              "n": 136,
+              "rmse": 10.2053,
+              "mae": 8.0769,
+              "bias": 0.0785,
+              "cover_n": 135,
+              "cover_brier": 0.2522,
+              "fit_summary": {
+                "intercept": 0,
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.113
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1466
+                  },
+                  {
+                    "id": "second_half_eff",
+                    "weight": -0.0434
+                  },
+                  {
+                    "id": "field_position",
+                    "weight": -0.0693
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": -0.0366
+                  }
+                ],
+                "weight_sum": 0.1104,
+                "max_abs_weight": 0.1466
+              }
+            },
+            "residual_constrained": {
+              "n": 136,
+              "rmse": 10.1335,
+              "mae": 8.0507,
+              "bias": 0.0887,
+              "cover_n": 135,
+              "cover_brier": 0.25023,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.0497
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.0804
+                  },
+                  {
+                    "id": "second_half_eff",
+                    "weight": 0
+                  },
+                  {
+                    "id": "field_position",
+                    "weight": 0
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0
+                  }
+                ],
+                "weight_sum": 0.1302,
+                "max_abs_weight": 0.0804
+              }
+            }
+          },
+          "skipped_cutoffs": []
+        },
+        {
+          "season": 2023,
+          "cutoffs": 17,
+          "refit": "week",
+          "train_rows": {
+            "first": 816,
+            "last": 944
+          },
+          "test_rows": 136,
+          "basis_usage": [
+            {
+              "id": "series_sustain",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "dynamic_state",
+              "cutoffs": 17,
+              "share": 1
+            },
+            {
+              "id": "melo",
+              "cutoffs": 12,
+              "share": 0.706
+            },
+            {
+              "id": "pressure_response",
+              "cutoffs": 10,
+              "share": 0.588
+            },
+            {
+              "id": "field_position",
+              "cutoffs": 9,
+              "share": 0.529
+            },
+            {
+              "id": "massey",
+              "cutoffs": 6,
+              "share": 0.353
+            },
+            {
+              "id": "early_down_eff",
+              "cutoffs": 3,
+              "share": 0.176
+            },
+            {
+              "id": "second_half_eff",
+              "cutoffs": 2,
+              "share": 0.118
+            },
+            {
+              "id": "opp_adjusted",
+              "cutoffs": 2,
+              "share": 0.118
+            },
+            {
+              "id": "trenches",
+              "cutoffs": 2,
+              "share": 0.118
+            },
+            {
+              "id": "epa_net",
+              "cutoffs": 2,
+              "share": 0.118
+            },
+            {
+              "id": "situational",
+              "cutoffs": 2,
+              "share": 0.118
+            },
+            {
+              "id": "explosive",
+              "cutoffs": 1,
+              "share": 0.059
+            },
+            {
+              "id": "explosive_pass",
+              "cutoffs": 1,
+              "share": 0.059
+            },
+            {
+              "id": "success_rate",
+              "cutoffs": 1,
+              "share": 0.059
+            },
+            {
+              "id": "pass_eff_matchup",
+              "cutoffs": 1,
+              "share": 0.059
+            }
+          ],
+          "reduced_ids": [
+            "pressure_response",
+            "dynamic_state",
+            "series_sustain",
+            "pass_eff_matchup"
+          ],
+          "basis_churn": 4,
+          "methods": {
+            "market_only": {
+              "n": 136,
+              "rmse": 9.9255,
+              "mae": 7.6912,
+              "bias": -0.4559,
+              "cover_n": 136,
+              "cover_brier": 0.25285,
+              "fit_summary": {}
+            },
+            "incumbent_market_residual": {
+              "n": 136,
+              "rmse": 9.9282,
+              "mae": 7.6964,
+              "bias": -0.456,
+              "cover_n": 136,
+              "cover_brier": 0.25302,
+              "fit_summary": {
+                "gated_components": [],
+                "collapses_to_market": true,
+                "weights": []
+              }
+            },
+            "equal_weight": {
+              "n": 136,
+              "rmse": 10.6793,
+              "mae": 8.4779,
+              "bias": -0.0569,
+              "cover_n": 136,
+              "cover_brier": 0.27783,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "pressure_response",
+                    "weight": 0.25
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.25
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.25
+                  },
+                  {
+                    "id": "pass_eff_matchup",
+                    "weight": 0.25
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.25
+              }
+            },
+            "equal_weight_all": {
+              "n": 136,
+              "rmse": 10.897,
+              "mae": 8.7617,
+              "bias": -0.1787,
+              "cover_n": 136,
+              "cover_brier": 0.28744,
+              "fit_summary": {}
+            },
+            "inverse_mse": {
+              "n": 136,
+              "rmse": 10.653,
+              "mae": 8.4451,
+              "bias": -0.0573,
+              "cover_n": 136,
+              "cover_brier": 0.27655,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "pressure_response",
+                    "weight": 0.2319
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.2673
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.2811
+                  },
+                  {
+                    "id": "pass_eff_matchup",
+                    "weight": 0.2196
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.2811
+              }
+            },
+            "ols_granger_ramanathan": {
+              "n": 136,
+              "rmse": 10.5135,
+              "mae": 8.1848,
+              "bias": 0.33,
+              "cover_n": 136,
+              "cover_brier": 0.26653,
+              "fit_summary": {
+                "intercept": 0.8532,
+                "weights": [
+                  {
+                    "id": "pressure_response",
+                    "weight": -0.1992
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.22
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.8622
+                  },
+                  {
+                    "id": "pass_eff_matchup",
+                    "weight": -0.0856
+                  }
+                ],
+                "weight_sum": 0.7974,
+                "max_abs_weight": 0.8622
+              }
+            },
+            "constrained_ls": {
+              "n": 136,
+              "rmse": 10.4912,
+              "mae": 8.1458,
+              "bias": -0.0621,
+              "cover_n": 136,
+              "cover_brier": 0.26697,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "pressure_response",
+                    "weight": 0
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.2268
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.7732
+                  },
+                  {
+                    "id": "pass_eff_matchup",
+                    "weight": 0
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.7732
+              }
+            },
+            "shrunk_to_equal": {
+              "n": 136,
+              "rmse": 10.5517,
+              "mae": 8.1942,
+              "bias": 0.347,
+              "cover_n": 136,
+              "cover_brier": 0.26688,
+              "fit_summary": {
+                "lambda": 0.9957,
+                "weights": [
+                  {
+                    "id": "pressure_response",
+                    "weight": -0.1181
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.2443
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.8036
+                  },
+                  {
+                    "id": "pass_eff_matchup",
+                    "weight": 0.1435
+                  }
+                ],
+                "weight_sum": 1.0733,
+                "max_abs_weight": 0.8036
+              }
+            },
+            "market_anchored_combination": {
+              "n": 136,
+              "rmse": 9.9278,
+              "mae": 7.7269,
+              "bias": -0.4166,
+              "cover_n": 136,
+              "cover_brier": 0.25391,
+              "fit_summary": {
+                "beta": 0.085,
+                "components": [
+                  "pressure_response",
+                  "dynamic_state",
+                  "series_sustain",
+                  "pass_eff_matchup"
+                ]
+              }
+            },
+            "residual_ols": {
+              "n": 136,
+              "rmse": 9.9323,
+              "mae": 7.687,
+              "bias": -0.3827,
+              "cover_n": 136,
+              "cover_brier": 0.25273,
+              "fit_summary": {
+                "intercept": 0,
+                "weights": [
+                  {
+                    "id": "pressure_response",
+                    "weight": 0.0682
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.0644
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.0929
+                  },
+                  {
+                    "id": "pass_eff_matchup",
+                    "weight": -0.0916
+                  }
+                ],
+                "weight_sum": 0.1339,
+                "max_abs_weight": 0.0929
+              }
+            },
+            "residual_constrained": {
+              "n": 136,
+              "rmse": 9.9255,
+              "mae": 7.6978,
+              "bias": -0.3887,
+              "cover_n": 136,
+              "cover_brier": 0.25271,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "pressure_response",
+                    "weight": 0
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.0406
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.0991
+                  },
+                  {
+                    "id": "pass_eff_matchup",
+                    "weight": 0
+                  }
+                ],
+                "weight_sum": 0.1397,
+                "max_abs_weight": 0.0991
+              }
+            }
+          },
+          "skipped_cutoffs": []
+        },
+        {
+          "season": 2024,
+          "cutoffs": 17,
+          "refit": "week",
+          "train_rows": {
+            "first": 952,
+            "last": 1080
+          },
+          "test_rows": 136,
+          "basis_usage": [
+            {
+              "id": "series_sustain",
+              "cutoffs": 12,
+              "share": 0.706
+            },
+            {
+              "id": "dynamic_state",
+              "cutoffs": 11,
+              "share": 0.647
+            },
+            {
+              "id": "market_anchor",
+              "cutoffs": 11,
+              "share": 0.647
+            },
+            {
+              "id": "market_regression",
+              "cutoffs": 11,
+              "share": 0.647
+            },
+            {
+              "id": "melo",
+              "cutoffs": 10,
+              "share": 0.588
+            },
+            {
+              "id": "colley",
+              "cutoffs": 8,
+              "share": 0.471
+            },
+            {
+              "id": "pressure_response",
+              "cutoffs": 6,
+              "share": 0.353
+            },
+            {
+              "id": "opp_adjusted",
+              "cutoffs": 5,
+              "share": 0.294
+            },
+            {
+              "id": "pass_eff_matchup",
+              "cutoffs": 3,
+              "share": 0.176
+            },
+            {
+              "id": "explosive_pass",
+              "cutoffs": 3,
+              "share": 0.176
+            },
+            {
+              "id": "field_position",
+              "cutoffs": 3,
+              "share": 0.176
+            },
+            {
+              "id": "epa_net",
+              "cutoffs": 3,
+              "share": 0.176
+            },
+            {
+              "id": "early_down_eff",
+              "cutoffs": 3,
+              "share": 0.176
+            },
+            {
+              "id": "explosive",
+              "cutoffs": 2,
+              "share": 0.118
+            },
+            {
+              "id": "recent_form",
+              "cutoffs": 2,
+              "share": 0.118
+            },
+            {
+              "id": "massey",
+              "cutoffs": 2,
+              "share": 0.118
+            },
+            {
+              "id": "point_diff",
+              "cutoffs": 1,
+              "share": 0.059
+            }
+          ],
+          "reduced_ids": [
+            "massey",
+            "market_anchor",
+            "series_sustain",
+            "market_regression",
+            "opp_adjusted",
+            "dynamic_state"
+          ],
+          "basis_churn": 2.83,
+          "methods": {
+            "market_only": {
+              "n": 136,
+              "rmse": 9.3975,
+              "mae": 7.7574,
+              "bias": 1.5662,
+              "cover_n": 134,
+              "cover_brier": 0.25202,
+              "fit_summary": {}
+            },
+            "incumbent_market_residual": {
+              "n": 136,
+              "rmse": 9.3975,
+              "mae": 7.7574,
+              "bias": 1.5662,
+              "cover_n": 134,
+              "cover_brier": 0.25202,
+              "fit_summary": {
+                "gated_components": [],
+                "collapses_to_market": true,
+                "weights": []
+              }
+            },
+            "equal_weight": {
+              "n": 136,
+              "rmse": 10.2387,
+              "mae": 8.289,
+              "bias": 2.0674,
+              "cover_n": 134,
+              "cover_brier": 0.26341,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.1667
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.1667
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.1667
+              }
+            },
+            "equal_weight_all": {
+              "n": 136,
+              "rmse": 10.429,
+              "mae": 8.4416,
+              "bias": 2.1121,
+              "cover_n": 134,
+              "cover_brier": 0.26206,
+              "fit_summary": {}
+            },
+            "inverse_mse": {
+              "n": 136,
+              "rmse": 10.1825,
+              "mae": 8.2461,
+              "bias": 2.0506,
+              "cover_n": 134,
+              "cover_brier": 0.26318,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.1379
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.1924
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1688
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.1927
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0.147
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.1613
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.1927
+              }
+            },
+            "ols_granger_ramanathan": {
+              "n": 136,
+              "rmse": 9.9485,
+              "mae": 8.1142,
+              "bias": 1.9991,
+              "cover_n": 134,
+              "cover_brier": 0.26356,
+              "fit_summary": {
+                "intercept": 0.0103,
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.1058
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.4244
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1061
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.4799
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": -0.0503
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.0015
+                  }
+                ],
+                "weight_sum": 1.0674,
+                "max_abs_weight": 0.4799
+              }
+            },
+            "constrained_ls": {
+              "n": 136,
+              "rmse": 9.9957,
+              "mae": 8.1624,
+              "bias": 1.7877,
+              "cover_n": 134,
+              "cover_brier": 0.26465,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.0314
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.5063
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.0804
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.3727
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.0093
+                  }
+                ],
+                "weight_sum": 1,
+                "max_abs_weight": 0.5063
+              }
+            },
+            "shrunk_to_equal": {
+              "n": 136,
+              "rmse": 9.9776,
+              "mae": 8.1242,
+              "bias": 1.9855,
+              "cover_n": 134,
+              "cover_brier": 0.26392,
+              "fit_summary": {
+                "lambda": 0.9944,
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.1069
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.4202
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.1065
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0.4811
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": -0.0489
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.0022
+                  }
+                ],
+                "weight_sum": 1.0681,
+                "max_abs_weight": 0.4811
+              }
+            },
+            "market_anchored_combination": {
+              "n": 136,
+              "rmse": 9.4073,
+              "mae": 7.757,
+              "bias": 1.633,
+              "cover_n": 134,
+              "cover_brier": 0.25229,
+              "fit_summary": {
+                "beta": 0.1546,
+                "components": [
+                  "massey",
+                  "market_anchor",
+                  "series_sustain",
+                  "market_regression",
+                  "opp_adjusted",
+                  "dynamic_state"
+                ]
+              }
+            },
+            "residual_ols": {
+              "n": 136,
+              "rmse": 9.4338,
+              "mae": 7.7803,
+              "bias": 1.3941,
+              "cover_n": 134,
+              "cover_brier": 0.25286,
+              "fit_summary": {
+                "intercept": 0,
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.1417
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.0323
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.0895
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": -2.1179
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": -0.0484
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0.0105
+                  }
+                ],
+                "weight_sum": -1.8923,
+                "max_abs_weight": 2.1179
+              }
+            },
+            "residual_constrained": {
+              "n": 136,
+              "rmse": 9.416,
+              "mae": 7.7571,
+              "bias": 1.6172,
+              "cover_n": 134,
+              "cover_brier": 0.25229,
+              "fit_summary": {
+                "weights": [
+                  {
+                    "id": "massey",
+                    "weight": 0.0509
+                  },
+                  {
+                    "id": "market_anchor",
+                    "weight": 0.0635
+                  },
+                  {
+                    "id": "series_sustain",
+                    "weight": 0.0698
+                  },
+                  {
+                    "id": "market_regression",
+                    "weight": 0
+                  },
+                  {
+                    "id": "opp_adjusted",
+                    "weight": 0
+                  },
+                  {
+                    "id": "dynamic_state",
+                    "weight": 0
+                  }
+                ],
+                "weight_sum": 0.1842,
+                "max_abs_weight": 0.0698
+              }
+            }
+          },
+          "skipped_cutoffs": []
+        }
+      ],
+      "significance": {
+        "ranking": [
+          {
+            "method": "market_only",
+            "label": "Market (closing line)",
+            "rmse": 9.8096,
+            "cover_brier": 0.25134,
+            "n": 408
+          },
+          {
+            "method": "incumbent_market_residual",
+            "label": "Incumbent: gated market-residual blend",
+            "rmse": 9.8105,
+            "cover_brier": 0.2514,
+            "n": 408
+          },
+          {
+            "method": "market_anchored_combination",
+            "label": "Market anchor + shrunk combined departure (reduced set)",
+            "rmse": 9.8171,
+            "cover_brier": 0.25191,
+            "n": 408
+          },
+          {
+            "method": "residual_constrained",
+            "label": "Market + constrained departure weights, b>=0 sum<=1 (reduced set)",
+            "rmse": 9.8296,
+            "cover_brier": 0.25174,
+            "n": 408
+          },
+          {
+            "method": "residual_ols",
+            "label": "Market + jointly-fit departure weights (reduced set)",
+            "rmse": 9.8623,
+            "cover_brier": 0.2526,
+            "n": 408
+          },
+          {
+            "method": "ols_granger_ramanathan",
+            "label": "Granger-Ramanathan OLS (reduced set)",
+            "rmse": 10.3282,
+            "cover_brier": 0.26045,
+            "n": 408
+          },
+          {
+            "method": "shrunk_to_equal",
+            "label": "Stock-Watson shrinkage toward equal weights (reduced set)",
+            "rmse": 10.3593,
+            "cover_brier": 0.26071,
+            "n": 408
+          },
+          {
+            "method": "constrained_ls",
+            "label": "Constrained LS, weights >= 0 summing to 1 (reduced set)",
+            "rmse": 10.4044,
+            "cover_brier": 0.26293,
+            "n": 408
+          },
+          {
+            "method": "inverse_mse",
+            "label": "Inverse-MSE weights (reduced set)",
+            "rmse": 10.7564,
+            "cover_brier": 0.27189,
+            "n": 408
+          },
+          {
+            "method": "equal_weight",
+            "label": "Equal weights (reduced set)",
+            "rmse": 10.8097,
+            "cover_brier": 0.27296,
+            "n": 408
+          },
+          {
+            "method": "equal_weight_all",
+            "label": "Equal weights (all components, no reduction)",
+            "rmse": 11.1031,
+            "cover_brier": 0.27928,
+            "n": 408
+          }
+        ],
+        "best_by_rmse": "market_only",
+        "alpha": 0.05,
+        "vs_baseline": [
+          {
+            "method": "market_only",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8096,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": -1,
+            "dm_p_one_sided_better": 0.1611,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": -0.6377,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          },
+          {
+            "method": "equal_weight",
+            "baseline": "incumbent_market_residual",
+            "rmse": 10.8097,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 4.3864,
+            "dm_p_one_sided_better": 1,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 4.5433,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "equal_weight_all",
+            "baseline": "incumbent_market_residual",
+            "rmse": 11.1031,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 4.7868,
+            "dm_p_one_sided_better": 1,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 5.103,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "inverse_mse",
+            "baseline": "incumbent_market_residual",
+            "rmse": 10.7564,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 4.2752,
+            "dm_p_one_sided_better": 1,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 4.3977,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "ols_granger_ramanathan",
+            "baseline": "incumbent_market_residual",
+            "rmse": 10.3282,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 2.7944,
+            "dm_p_one_sided_better": 0.9963,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 2.9046,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "constrained_ls",
+            "baseline": "incumbent_market_residual",
+            "rmse": 10.4044,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 3.4015,
+            "dm_p_one_sided_better": 0.9993,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 3.3214,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "shrunk_to_equal",
+            "baseline": "incumbent_market_residual",
+            "rmse": 10.3593,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 2.9961,
+            "dm_p_one_sided_better": 0.9979,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 3.0865,
+            "significantly_better": false,
+            "significantly_worse": true,
+            "reason": null
+          },
+          {
+            "method": "market_anchored_combination",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8171,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 0.2685,
+            "dm_p_one_sided_better": 0.6053,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 0.2778,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          },
+          {
+            "method": "residual_ols",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8623,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 1.4259,
+            "dm_p_one_sided_better": 0.9199,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 1.3315,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          },
+          {
+            "method": "residual_constrained",
+            "baseline": "incumbent_market_residual",
+            "rmse": 9.8296,
+            "baseline_rmse": 9.8105,
+            "dm_statistic": 0.6476,
+            "dm_p_one_sided_better": 0.7399,
+            "dm_periods": 51,
+            "dm_observations": 408,
+            "naive_paired_t": 0.6403,
+            "significantly_better": false,
+            "significantly_worse": false,
+            "reason": null
+          }
+        ],
+        "vs_best": [
+          {
+            "best": "market_only",
+            "other": "incumbent_market_residual",
+            "dm_statistic": -1,
+            "dm_p_best_better": 0.1611,
+            "distinguishable": false
+          },
+          {
+            "best": "market_only",
+            "other": "equal_weight",
+            "dm_statistic": -4.39,
+            "dm_p_best_better": 0,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "equal_weight_all",
+            "dm_statistic": -4.7893,
+            "dm_p_best_better": 0,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "inverse_mse",
+            "dm_statistic": -4.2791,
+            "dm_p_best_better": 0,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "ols_granger_ramanathan",
+            "dm_statistic": -2.8,
+            "dm_p_best_better": 0.0036,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "constrained_ls",
+            "dm_statistic": -3.4074,
+            "dm_p_best_better": 0.0007,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "shrunk_to_equal",
+            "dm_statistic": -3.0019,
+            "dm_p_best_better": 0.0021,
+            "distinguishable": true
+          },
+          {
+            "best": "market_only",
+            "other": "market_anchored_combination",
+            "dm_statistic": -0.3057,
+            "dm_p_best_better": 0.3805,
+            "distinguishable": false
+          },
+          {
+            "best": "market_only",
+            "other": "residual_ols",
+            "dm_statistic": -1.4563,
+            "dm_p_best_better": 0.0758,
+            "distinguishable": false
+          },
+          {
+            "best": "market_only",
+            "other": "residual_constrained",
+            "dm_statistic": -0.6802,
+            "dm_p_best_better": 0.2498,
+            "distinguishable": false
+          }
+        ],
+        "best_distinguishable_from_equal_weight": {
+          "dm_statistic": -4.39,
+          "p": 0,
+          "distinguishable": true
+        }
+      }
+    }
+  ]
+}

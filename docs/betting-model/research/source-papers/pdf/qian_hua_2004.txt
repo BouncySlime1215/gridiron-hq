@@ -1,0 +1,956 @@
+                                                                 JOURNAL OF INVESTMENT MANAGEMENT, Vol. 2, No. 3, (2004), pp. 1–15
+                                                                                                                     © JOIM 2004
+    JOIM
+    www.joim.com
+
+
+
+
+                              ACTIVE RISK AND INFORMATION RATIO
+                                           Edward Qian∗ and Ronald Hua a
+
+
+              One of the underlying assumptions of the Fundamental Law of Active Management is
+              that the active risk of an active investment strategy equates estimated tracking error by
+              a risk model. We show there is an additional source of active risk that is unique to each
+              strategy. This strategy risk is caused by variability of the strategy’s information coefficient
+              over time. This implies that true active risk is often different from, and in many cases,
+              significantly higher than the estimated tracking error given by a risk model. We show
+              that a more consistent estimation of information ratio is the ratio of average information
+              coefficient to the standard deviation of information coefficient. We further demonstrate
+              how the interaction between information coefficient and investment opportunity, in terms
+              of cross sectional dispersion of actual returns, influences the IR. We then provide supporting
+              empirical evidence and offer possible explanations to illustrate the practicality of our findings
+              when applied to active portfolio management.
+
+
+
+
+1 Introduction                                                  IC refers to the cross-sectional correlation coeffi-
+                                                                cient between forecasts of excess returns and actual
+Information ratio (IR), the ratio of average excess             returns. For equity portfolios—the focus of the
+return to active risk, is an important performance              present paper, the breadth is the number of stocks
+measure for active investment management. One                   within a select universe. In mathematical terms, the
+result regarding ex ante IR is Grinold’s (1989) Fun-            relationship is
+damental Law of Active Management, which states                                              √
+                                                                                    IR = IC N                    (1)
+that the expected IR is the expected information
+coefficient (IC) times the square root of breadth.              Throughout the paper, the bar denotes the expected
+                                                                value.
+a
+ Putnam Investments, One Post Office Square, Boston, MA
+02109, USA.                                                     Equation (1), while providing insight to active man-
+∗
+  Corresponding author. 2100 Capital Group, 28 State Street,    agement, is based on several simplified assumptions.
+Suite 3700, Boston, MA 02109, USA. Tel.: 617-788-3902;          Various studies re-examine this result when dif-
+e-mail: eddie.qian@2100capital.com                              ferent assumptions are used. For instance, one of
+
+
+THIRD QUARTER 2004                                                                                                              1
+2    EDWARD QIAN AND RONALD HUA
+
+
+
+the assumptions is that active portfolio is a pure       present paper. We use active risk and tracking error
+long–short portfolio free of long-only constraint.       interchangeably.
+Grinold and Kuhn (2000) examine how IR devi-
+ates from Eq. (1) under the long-only and other          It is no surprise that the variability of IC plays a
+portfolio constraints using simulation techniques.       role in determining the active risk. Just imagine
+Recently, Clarke et al. (2002) developed a frame-        two investment strategies, both taking the same
+work for measuring such deviations by including          risk-model tracking error σmodel over time. The first
+a “transfer coefficient” on the right-hand side of       strategy is blessed with perfect foresight and it gen-
+Eq. (1). In addition to the long-only constraint,        erates constant excess return every single period. In
+they also study the impact of constraints in terms       other words, it has a constant positive IC for all
+of turnover as well as factors such as size and          periods such that std(IC) is zero. Such a risk-free
+style. Both studies conclude that portfolio con-         strategy, admittedly hard to find, has constant excess
+straints generally tend to lower ex ante IR, as given    return, and thus, no active risk whatsoever. How-
+in Eq. (1).                                              ever, the risk model is not aware of the prowess of
+                                                         the strategy and dutifully predicts the same track-
+Equation (1) hinges on another simplified assump-        ing error all the time. In this case, the risk model
+tion regarding active risk of investment strategies.     undoubtedly overestimates the active risk. In con-
+Namely, it assumes that the active risk of an invest-    trast, the second strategy is extremely volatile with
+ment strategy is identical to the tracking error         large swings in its excess return, i.e. its IC varies
+estimate by a risk model. Our research shows that        between −1 and +1 with a large std(IC). As a result,
+ex post active risk often significantly exceeds the      its active risk might be much larger than the risk
+target tracking error by risk models, even after         model estimate. Thus, the two strategies with iden-
+appropriately controlling risk exposures specified by    tical risk-model tracking error have very different
+a risk model. In this paper, we will unveil an addi-     active risk in actuality.
+tional source of active risk that accounts for this
+discrepancy. This new source of risk stems from the      In practice, the difference between active invest-
+variability of IC, i.e. the correlation between fore-    ment strategies is not that extreme. However,
+casts and actual returns. Hence, it is unique to each    our experience shows that risk-model tracking
+investment strategy and we shall refer to it as strat-   error given by most commercially available risk
+egy risk. Mathematically, it is the standard deviation   models routinely and seriously underestimates the
+of IC, i.e. std(IC).                                     ex post active risk.1 This underestimation could have
+                                                         serious practical consequences. For example, an
+The previous research mentioned above, while             enhanced index product with low risk-model track-
+acknowledging the average IC of different strate-        ing error but high standard deviation of IC could be
+gies, assumes that all strategies have the same active   far more risky, because the true active risk is larger.
+risk if they have the same target tracking error.
+This simplified assumption is not adequate in char-      Our results will enable portfolio managers to obtain
+acterizing different investment strategies. As we        more accurate estimates of active risk of their active
+will show below, the true active risk is a com-          strategies, and as a result, better estimates of IR.
+bination of the risk-model risk and the strategy         Furthermore, they can be used jointly with the
+risk. Although there are other alternative mea-          results of Grinold and Kuhn (2000) and Clarke et al.
+surements of active risk, we consider standard           (2002) by portfolio managers to provide realistic
+deviation of excess return or tracking error in the      IR estimates.
+
+
+JOURNAL OF INVESTMENT MANAGEMENT                                                           THIRD QUARTER 2004
+                                                                        ACTIVE RISK AND INFORMATION RATIO       3
+
+
+
+2 Notations and main results                               studying the measurement error of risk models over
+                                                           a single rebalancing period. In those studies (e.g.
+To facilitate our analysis, we introduce the following     Hartmann et al., 2002), one analyzes the perfor-
+notations and terminologies.                               mance of risk models over a single, relatively short
+                                                           period, during which the examined portfolios are
+• Risk-model tracking error, denoted as σmodel : It is     bought and held. The approach is to compare pre-
+  the tracking error or the standard deviation of          dicted tracking errors of a risk model to the realized
+  excess returns estimated by a generic risk model         tracking errors using either daily or weekly excess
+  such as BARRA, and it is also referred to as risk-       returns for many simulated portfolios. Hartman
+  model risk or target tracking error.                     et al. (2002) attribute the difference between the
+• Strategic risk, denoted as std(IC): It is the stan-      estimated risk and the ex post tracking error to sev-
+  dard deviation of IC of an investment strategy           eral items: estimation error in covariances in a risk
+  over time. It is unique to each active investment        model, time varying nature of covariances, serial
+  strategy, conveying strategy-specific risk profile.      auto-correlations of excess returns, and the drift of
+• Active risk, denoted as σ : It is the active risk or     portfolio weights over a given period. Depending
+  tracking error of an investment strategy measured        on how these factors play out in a given period,
+  by the standard deviation of excess returns over         a risk model can overestimate as well as under-
+  time.                                                    estimate with seemingly equal probability ex post
+                                                           tracking errors of simulated portfolios. There is no
+                                                           clear evidence of bias one way or the other.
+Our main result regarding the active risk is the fol-
+lowing: the active risk is a product of the strategy       In contrast, we study the active risk of an investment
+risk, the square root of breadth, and the risk-model       strategy over multiple rebalancing periods, during
+tracking error:                                            which the active portfolio is traded periodically
+                            √                              based on the forecasts of that investment strategy.
+               σ = std(IC) N σmodel               (2)
+                                                           While it is useful to consider the single-period active
+This result has several clear implications. First, the     risk of a buy-and-hold portfolio, it is arguably more
+active risk is not the same for different investment       practical to analyze the active risk over multiple
+strategies due to varying levels of strategy risks.        rebalancing periods. Our analysis reveals a clear
+Second, only rarely does the active risk equal the         underestimation bias of risk-model risk even if the
+risk-model tracking error. It happens only when            risk model is adequate. This is because using a risk
+strategy risk, std(IC), is exactly equal to the recipro-   model alone is not enough to accurately estimate
+cal of the square root of N . This is true in an ideal     the true active risk. Only through consideration of
+situation, in which the standard deviation of IC is        strategy risk can an unbiased estimate of active risk
+proportional to the sampling error of a correlation        be obtained.
+coefficient, which is the reciprocal of the square root
+of N . In reality, however, as our empirical results       Because of more realistic estimate of active risk, our
+will show, the standard deviation of IC bears little       estimate of IR is different from that of Eq. (1). We
+relationship to this theoretical sampling error, and       shall show that IR of an investment strategy is
+is significantly different for different strategies.
+
+We note that our paper is not a critique of any                                        IC
+risk model because our focus is not the same as                               IR =                            (3)
+                                                                                     std(IC)
+
+
+THIRD QUARTER 2004                                                          JOURNAL OF INVESTMENT MANAGEMENT
+4    EDWARD QIAN AND RONALD HUA
+
+
+
+Equation (3) is very intuitive. Since IR measures       Under these conditions, Appendix A gives the exact
+the ratio of average excess return to the standard      solution for the active weights wi,t for security i
+deviation of excess return, if IC were the sole         and time t. The excess return for the period is the
+determinant of excess return, then IR would be          summed product of the active weights wi,t and the
+the ratio of average IC to the standard deviation       subsequent actual return ri,t . To reflect dollar and
+of IC. In most of the cases we have studied, IR         factor neutral constraints, we recast the summed
+is lower than that of Eq. (1) because the true          product expression by adjusting both the forecasts
+active risk tends to be higher than the risk-model      and the actual returns to obtain
+tracking error.
+                                                                                  
+                                                                                  N
+                                                                       αt = λ−1
+                                                                             t          Ri,t Fi,t         (4)
+                                                                                  i=1
+
+3 Cross-sectional IC and single-period                  where λ is a risk-aversion parameter used in the opti-
+  excess return                                         mization, R is the risk-adjusted actual return, and
+                                                        F is the risk-adjusted forecast. They are the “raw”
+To derive the IR of an active investment strategy       return or forecast adjusted for dollar and factor neu-
+over multiple periods, we start by calculating a        trality, and then normalized by security specific risk
+single-period excess return, which is the summed        (Appendix A).
+product of active weights and subsequent realized
+actual returns. We use active mean–variance opti-       So far, our derivation of Eq. (4), in Appendix A,
+mization to derive the active weights under the         has been standard. Similar analyses can be found in
+following framework. First, we model security risk      Grinold (1989) and Clarke et al. (2002). From this
+by a generic multi-factor fundamental risk model,       point on, our analysis uses a different approach. In
+such as the BARRA risk model. Second, the opti-         previous work (Grinold, 1994; Clarke et al., 2002),
+mal active weights are selected by mean–variance        one makes an assumption about the expected
+optimization while neutralizing portfolio exposures     returns of individual securities, such as “Alpha is
+to all risk factors, in addition to being dollar neu-   Volatility Times IC Times Score” (Grinold, 1994).
+tral. We have done so for two reasons. First, the       The validity of such a normative approach, which
+alpha factors we shall study in the empirical sec-      has its origin in risk modeling, is questionable in
+tion below are employed by quantitative managers        reality. We shall adapt a descriptive approach with
+mostly to exploit stock specific returns. The second    no assumptions regarding individual securities.2 We
+reason is more technical. Imposing binding con-         write Eq. (4) as the covariance between the risk-
+straints on all risk factors allows us to derive an     adjusted returns and forecasts, which in turn can be
+analytical solution for the optimal portfolio weights   rewritten as a product of IC and their dispersions.3
+without knowing the historical covariance matrices      We have
+of risk factor returns. While it is certainly possi-
+ble to extend our analysis to strategies that also      αt = λ−1
+                                                              t (N − 1)[cov(R t , Ft ) + avg(Rt )avg(Ft )]
+take factor bets, the research is out of the scope         = λ−1
+                                                              t (N − 1)ICt dis(Rt )dis(Ft )               (5)
+of this article. While we reasonably expect that dif-
+ferent factor-related strategies would have their own   We use Rt and Ft to denote the cross-sectional col-
+component of strategy risk, practitioners should use    lections of the risk-adjusted returns and forecasts,
+caution when applying our results directly to those     and ICt = corr(Rt , Ft ). The average term in Eq. (5)
+strategies.                                             vanishes because we have made avg(Rt ) = 0 (see
+
+
+JOURNAL OF INVESTMENT MANAGEMENT                                                           THIRD QUARTER 2004
+                                                                      ACTIVE RISK AND INFORMATION RATIO        5
+
+
+
+Appendix A). Equation (5) states that the single-        thus deserves some discussion. In theory, if the
+period excess return is proportional to the IC of        risk model truly describes the return of every single
+that period and the dispersions of the risk-adjusted     security, then each risk-adjusted return Ri,t is close
+returns and forecasts for that period. The intuition     to a standard normal random variable. The base
+is clear: the excess return is a function of IC, which   case estimation for the dispersion of a large num-
+measures the forecast’s cross-sectional ranking abil-    ber of such random variables is unity.5 Later, we
+ity, the dispersion of the forecasts, which reflects     shall see that this is approximately true for certain
+the perceived cross-sectional opportunity, and the       risk models. This dispersion represents the degree
+dispersion of the actual returns, which represents       of opportunity in the market. For a given level of
+the actual cross-sectional opportunity.                  IC and risk-model risk, a greater opportunity leads
+                                                         to a higher excess return.
+The risk-model risk, on the other hand, depends
+only on the dispersion of the forecasts through the
+optimal active weights. They are related by (see         4 Information ratio
+Appendix A)
+                        √                                We derive IR of an investment strategy over multi-
+          σmodel ≈ λ−1
+                     t     N − 1 dis(Ft )       (6)      ple periods. Equation (7) is close to a mathematical
+                                                         identity. While it is always true ex post, we now
+In other words, the risk-model risk is the disper-       use it in ex ante by considering its expectation and
+sion of the risk-adjusted forecasts (which varies        standard deviation, i.e. the expected excess return
+from period to period) times the square root of          and the expected active risk. Among the four terms
+N − 1 divided by the risk-aversion parameter.            affecting the excess return, we assume that the num-
+Equations (5) and (6) show that, while the excess        ber of stocks does not change over time and the
+return depends on IC and both dispersions, the           risk-model tracking error remains constant. For the
+risk-model risk is only a function of the forecast       two remaining terms that do change over time, IC
+dispersion. In other words, the risk-model risk          is associated with greater variability than the disper-
+is independent of IC since the risk model has            sion of the risk-adjusted returns. Therefore, as a first
+no knowledge of the information content of the           approximation we treat the latter also as a constant.
+forecasts.
+
+We shall maintain a constant level of risk-model         4.1 The simple case
+tracking error4 by varying the risk aversion param-
+eter accordingly. Combining Eqs. (5) and (6)             Assuming dis(Rt ) is constant and equal to its mean,
+produces the relationship                                the expected excess return is
+                     √                                                         √
+            αt ≈ ICt N σmodel dis(Rt )           (7)                ᾱt = ICt N σmodel dis(Rt )           (8)
+                                                         The expected excess return is, therefore, the average
+We have replaced N − 1 with N , which is justi-          IC (skill) times the square root of N (breadth) times
+fied when N is large enough. The excess return of        the risk-model tracking error (risk budget) times the
+an active strategy in a single period is IC times the    dispersion of actual returns (opportunity).
+square root of breadth times the risk-model track-
+ing error times the dispersion of the risk-adjusted      The expected active risk is
+returns. Among the four terms in Eq. (7), the                                   √
+dispersion of the risk-adjusted returns is new and                σ = std(IC) N σmodel dis(Rt )              (9)
+
+
+THIRD QUARTER 2004                                                        JOURNAL OF INVESTMENT MANAGEMENT
+6    EDWARD QIAN AND RONALD HUA
+
+
+
+The standard deviation of IC measures the consis-          Appendix B, the active risk is little affected by the
+tency of forecast quality over time. Therefore, the        correlation because the coefficient of variation of
+active risk is the standard deviation of IC (strategy      dis(Rt ) is much smaller than that of IC and one.
+risk) times the square root of N (breadth) times the       Combining Eqs. (9) and (10) produces the new IR
+risk-model tracking error (risk budget) times the          estimate
+dispersion of actual returns (opportunity).                              ICt                        std[dis(Rt )]
+                                                              IR =              + ρ[ICt , dis(Rt )]
+                                                                      std(ICt )                        dis(Rt )
+The ratio of Eq. (8) to (9) produces Eq. (3); i.e.
+IR is the ratio of the average IC to the standard                                                             (11)
+deviation of IC, or IR of IC. We also note that            The second term captures the correlation effect on
+when the mean dispersion is unity, Eq. (9) reduces         IR. It has two factors. The first is the correlation
+to Eq. (2).                                                between IC and the dispersion over time and the
+                                                           second term is the coefficient of variation of the
+                                                           dispersion. As we mentioned earlier, the coefficient
+4.2 A better estimation of IR                              of variation of the dispersion is usually small. There-
+                                                           fore, the effect of the second term is typically small
+In reality, the variability in the dispersion of the       unless the correlation between IC and the disper-
+risk-adjusted return dis(Rt ) is small but, nonethe-       sion becomes very high, either positive or negative.
+less, non-zero. What happens to IR if we include           For most practical purposes, Eq. (3), i.e. the first
+this variability? The following insight from Eq. (7)       term in Eq. (11), approximates IR well enough.
+helps us to understand how the interaction between         Nonetheless, Eq. (11) is an improvement.
+the IC and the dispersion affects the excess return.
+To produce a high positive excess return for a sin-        5 Empirical examinations
+gle period, we need high and positive IC as well as
+high dispersion. Conversely, when IC is negative,          To demonstrate that Eq. (9) is a more consistent
+we would like a low dispersion so that the negative        estimator of ex ante active risk, we study empirical
+excess return would be small in magnitude. This            results of 60 quantitative equity strategies. To ensure
+argument implies that, over the long run, the per-         practical relevance, these strategies are based on a
+formance will benefit from a positive correlation          set of quantitative factors commonly used by active
+between IC and the dispersion. On the other hand,          managers. The set encompasses a wide range of well-
+a negative correlation will hurt the average excess        known market anomalies, and thus provides a good
+return.                                                    representation of different categories of quantitative
+                                                           strategies deployed by active managers.
+Appendix B shows that the expected excess return
+including this correlation effect is                       We first briefly describe the data. Then, we apply
+      √                                                    the analysis to the Russell 3000 indices to demon-
+ᾱt = N σmodel {ICt dis(Rt )                               strate our theoretical result. To assess the statistical
+       + ρ[ICt , dis(Rt )]std(ICt )std[dis(Rt )]}          significance of the differences in the strategy risk,
+                                                    (10)   we provide a closer examination of two valuation
+                                                           factors—gross profit to enterprise value and forward
+The additional term consists of the correlation            earnings yield. We introduce a strategy-specific scal-
+between IC and the dispersion, and the standard            ing constant κ and use it in conjunction with a
+deviations of IC and the dispersion. According to          risk model to provide a consistent forecast of ex post
+
+
+JOURNAL OF INVESTMENT MANAGEMENT                                                             THIRD QUARTER 2004
+                                                                       ACTIVE RISK AND INFORMATION RATIO      7
+
+
+
+active risk. Lastly, we suggest different ways to fore-   reconstitution activities of Russell indices. How-
+cast strategy risk and ascertain the efficacy of such     ever, the fluctuation is insignificant as to alter the
+predictions.                                              analysis.
+
+                                                          In terms of portfolio construction, we form optimal
+5.1 The data                                              long–short portfolios on a quarterly basis. Subse-
+                                                          quently, cross-sectional analyses of alpha and IC and
+The quarterly data used in our analysis span 1987         dispersion of the risk-adjusted returns are computed
+to 2003, with 67 quarters in total. The alpha fac-        on a quarterly basis. We set the constant risk-model
+tors come from a proprietary database and they            tracking error at 2.5% per quarter. Additionally, to
+include seven different categories: price momen-          control risk exposures appropriately, we neutralize
+tum, earnings momentum, earnings surprise, val-           active exposures to all BARRA risk factors (market
+uation, accruals, financial leverage, and operating       beta, 13 systematic risk factors, and 55 industry risk
+efficiency. The values for beta, systematic risk fac-     factors) when rebalancing portfolios each quarter.
+tors, industry risk factors, and stock specific risk      Hence, the risk-model risk is 100% stock specific
+come from the BARRA US E3 equity risk model.              according to the risk model. The results below
+To ensure factor accuracy and to prevent undue            are collected on a quarterly basis and are annual-
+influence from outliers, we first exclude stocks that     ized for the purposes of this paper. For example,
+have factor values exceeding five standard devia-         the annualized target tracking error would be 5%,
+tions on each side. Next, we bring factor values          provided there is no serial auto-correlation in alpha.
+between three and five standard deviations to the
+three standard deviation values. The actual num-
+ber of stocks that are tested against the Russell         5.2 The Russell 3000 universe
+3000 index is, therefore, fewer than 3000. In addi-
+tion, the number of stocks fluctuates from quarter        Figure 1 shows the histogram of ex post active
+to quarter due to data availability as well as the        risk of the 60 strategies. Although the risk-model
+
+                                 10
+
+                                                                 mean = 7.7%
+                                  8                              std = 1.7%
+
+
+
+
+                     frequency
+                                  6
+
+
+
+                                  4
+
+
+
+                                  2
+
+
+
+                                  0
+                                      <1.8%
+                                       2.0%
+                                       2.5%
+                                       3.0%
+                                       3.5%
+                                       4.0%
+                                       4.5%
+                                       5.0%
+                                       5.5%
+                                       6.0%
+                                       6.5%
+                                       7.0%
+                                       7.5%
+                                       8.0%
+                                       8.5%
+                                       9.0%
+                                       9.5%
+                                      10.0%
+                                      10.5%
+                                      11.0%
+                                      11.5%
+                                      12.0%
+                                      12.5%
+                                      13.0%
+                                      13.5%
+
+Figure 1 Histogram of the ex post active risk of equity strategies.
+
+
+THIRD QUARTER 2004                                                        JOURNAL OF INVESTMENT MANAGEMENT
+8    EDWARD QIAN AND RONALD HUA
+
+
+
+tracking error is targeted at 5% for all strategies,      the model underestimates the ex post active risk by
+the ex post active risks differ widely with substantial   50% or more. Figure 2 resembles Figure 1 quite
+upward bias, indicating the risk model’s propen-          closely except that the x-axis is rescaled by the risk-
+sity to underestimate active risk. The average active     model tracking error of 5%. A scatter plot of the
+risk is 7.7% and the standard deviation is 1.7%.          active risk and κ (Figure 3) confirms the observa-
+The highest active risk turns out to be 13.1% while       tion. Additionally, Table 1 reports the estimated
+the lowest is just 5.0%. In other words, almost all       coefficients of the regression using the scaling con-
+strategies experienced ex post risk higher than the       stant κ to explain ex post active risk. The R-squared
+risk-model tracking error.                                of this regression is 98%, indicating that Eq. (9)
+                                                          is a highly accurate approximation of the ex post
+To gauge the risk model’s estimation bias in relative     active risk despite the assumption that dis(Rt ) is
+terms, we rearrange Eq. (9) to derive a scaling con-      constant over time. More importantly, it seems pos-
+stant κ that approximates the ratio of true active risk   sible that practitioners can use the scaling constant
+to the risk-model risk, in terms of the standard devi-    κ to adjust risk-model tracking error to achieve a
+ation of IC for each factor and the average number        consistent forecast of active risk. We demonstrate
+of stocks over time:                                      this adjustment below.
+                          √           σ
+             κ = std(IC) N ≈                      (12)
+                                   σmodel                 5.3 Information content of strategy risk:
+We have neglected the dispersion of returns, dis(Rt ),        an example
+because it turns out to be very close to unity with
+a value at 1.01 and a standard deviation of 0.15.         The strategy risks of these quantitative strategies
+By this measure, the BARRA E3 model shows                 vary greatly. Naturally, one wonders about the
+remarkable internal consistency. Figure 2 shows           statistical significance of their differences. These
+the histogram of the scaling constant κ for all 60        differences are important in terms of forecasting
+strategies. Note that for a majority of strategies        portfolio active risk that incorporates strategy risk.
+
+                                14
+
+
+                                12
+                                                                      mean = 1.5
+                                10
+                                                                      std = 0.3
+
+
+
+
+                    frequency
+                                 8
+
+
+                                 6
+
+
+                                 4
+
+
+                                 2
+
+
+                                 0   <0.35
+                                      0.40
+                                      0.50
+                                      0.60
+                                      0.70
+                                      0.80
+                                      0.90
+                                      1.00
+                                      1.10
+                                      1.20
+                                      1.30
+                                      1.40
+                                      1.50
+                                      1.60
+                                      1.70
+                                      1.80
+                                      1.90
+                                      2.00
+                                      2.10
+                                      2.20
+                                      2.30
+                                      2.40
+                                      2.50
+                                      2.60
+                                      2.70
+                                     >2.85
+Figure 2 Histogram of the scaling constant κ of equity strategies.
+
+
+JOURNAL OF INVESTMENT MANAGEMENT                                                            THIRD QUARTER 2004
+                                                                                                 ACTIVE RISK AND INFORMATION RATIO     9
+
+
+
+                                           14.0%
+
+                                                       y = 0.0528x - 0.0034
+                                                              2
+                                                             R = 0.9815
+                                           11.5%
+
+
+
+
+                     ex post active risk
+                                            9.0%
+
+
+
+
+                                            6.5%
+
+
+
+
+                                            4.0%
+                                                0.90    1.10      1.30   1.50    1.70     1.90    2.10     2.30   2.50
+                                                                          scaling constant k
+
+Figure 3 Scatter plot of ex post active risk and scaling constant.
+
+Table 1 Summary statistics of coefficient estimates.
+                                           Coefficients        Standard error    t-Stat          P-value     Lower 95%       Upper 95%
+Intercept                                  −0.0034             0.0015            −2.3260         0.0235      −0.0063         −0.0005
+Scaling constant κ                          0.0528             0.0009            55.9084         0.0000       0.0509          0.0547
+
+
+Table 2 Summary statistics of valuation factors.
+             Average                           STD of           IR of     Average         STD of         IR of     Average      Average
+             Alpha                             Alpha            Alpha     IC              IC             IC        dis(R)       N
+GP2EV        6.2%                              6.9%             0.90      2.4%            2.7%           0.91      1.01         2738
+E2P          3.3%                              8.7%             0.38      1.4%            3.4%           0.41      1.00         2487
+
+
+In other words, after appropriately controlling risk                            Table 2 shows the summary statistics of these two
+exposures specified by the BARRA E3 model in                                    factors. For GP2EV, the standard deviation of IC
+our case, does the standard deviation of ICs pro-                               equals 2.7%; it is 3.4% for E2P. The ex post tracking
+vide additional insight regarding the risk profile of                           errors are 6.9% and 8.7%, respectively. Since both
+an equity strategy? The answer to this question is                              standard deviations are estimated over 67 quarters,
+“yes” in many cases. Here we select two valuation                               the degree of freedom equals 66. The variance ratio
+factors—gross profit to enterprise value (GP2EV)                                of the two factors is (3.4 × 3.4)/(2.7 × 2.7) = 1.58
+and forward earnings yield based on IBES FY1 con-                               and α equals 0.032. Thus, in this example, there is
+sensus forecast (E2P)—for a closer examination.                                 enough evidence to reject the null hypothesis that
+We test the statistical significance of the difference                          these two factors, from the same valuation category,
+between the two strategy risks using the F -test.                               have the same strategy risk at a 5% confidence level.
+
+
+THIRD QUARTER 2004                                                                                  JOURNAL OF INVESTMENT MANAGEMENT
+10     EDWARD QIAN AND RONALD HUA
+
+
+
+Our results indicate that the strategy risks of factors   the target tracking error at 5%/κ (the adjusted
+selected from different categories, more often than       risk-model tracking error), and for comparison,
+not, are statistically different.                         Figure 5 shows active risk of portfolios targeting
+                                                          the same tracking error at 5% (the original risk-
+                                                          model tracking error). We would like to emphasize
+5.4 Consistent estimator of active risk                   again that the adjusted risk-model tracking error
+                                                            ∗
+                                                          σmodel  is unique to each equity strategy depending
+Can practitioners use strategy risk in conjunction        on its κ estimates, while the risk-model tracking
+with a risk model to compute a more consistent active     error σmodel is the same for all strategies. From
+                                                          these two histograms, it is obvious that σmodel  ∗
+risk forecast? As a first attempt to answer this ques-
+tion, we divide the testing period into two halves:       is a more consistent estimator of active risk. First,
+in-sample period (1986–1994) and out-of-sample            the average ex post active risk is 4.7% when using
+                                                            ∗
+                                                          σmodel , and 7.6% when using σmodel . Thus, the
+period (1995–2003). In the in-sample period, we
+estimate κ according to Eq. (12) for each of the          expected ex post active risk is much closer to our
+60 equity strategies. Then, in the out-of-sample          target of 5% with no bias when using the adjusted
+period, we adjust the risk-model tracking error by        risk-model tracking error. Second, the adjusted
+1/κ, using strategy-specific κ to compensate the risk     risk-model tracking error also provides a tighter,
+model’s bias in estimating active risk. The adjusted      more bell-shaped distribution of ex post active
+risk-model tracking error is                              risks. The standard deviation of ex post active risk
+                                                          is 0.76% when using σmodel ∗    , and 1.45% when
+                   ∗                 σmodel
+                  σmodel =                        (13)    using σmodel . It is apparent that in this shorter
+                                       κ                  period, the risk model experienced a similar prob-
+Figure 4 shows the distribution of ex post active         lem of underestimating the true active risks of many
+risks in the out-of-sample period when we set             strategies.
+
+
+
+                                18
+
+
+                                15
+                                                                   mean = 4.7%
+                                                                   std = 0.8%
+                                12
+
+
+
+                    frequency
+                                 9
+
+
+                                 6
+
+
+                                 3
+
+
+                                 0   <1.8%
+                                      2.0%
+                                      2.5%
+                                      3.0%
+                                      3.5%
+                                      4.0%
+                                      4.5%
+                                      5.0%
+                                      5.5%
+                                      6.0%
+                                      6.5%
+                                      7.0%
+                                      7.5%
+                                      8.0%
+                                      8.5%
+                                      9.0%
+                                      9.5%
+                                     10.0%
+                                     10.5%
+                                     11.0%
+                                     11.5%
+                                     12.0%
+                                     12.5%
+                                     13.0%
+                                     13.5%
+                                      >14.3
+Figure 4 Histogram of the ex post active risks using adjusted model TE (1995–2003).
+
+
+JOURNAL OF INVESTMENT MANAGEMENT                                                          THIRD QUARTER 2004
+                                                                                                                    ACTIVE RISK AND INFORMATION RATIO   11
+
+
+
+                                               12
+
+
+                                               10
+                                                                                                                     mean = 7.6%
+                                                                                                                     std = 1.5%
+                                                        8
+
+
+
+                     frequency
+                                                        6
+
+
+                                                        4
+
+
+                                                        2
+
+
+                                                        0    <1.8%
+                                                              2.0%
+                                                              2.5%
+                                                              3.0%
+                                                              3.5%
+                                                              4.0%
+                                                              4.5%
+                                                              5.0%
+                                                              5.5%
+                                                              6.0%
+                                                              6.5%
+                                                              7.0%
+                                                              7.5%
+                                                              8.0%
+                                                              8.5%
+                                                              9.0%
+                                                              9.5%
+                                                             10.0%
+                                                             10.5%
+                                                             11.0%
+                                                             11.5%
+                                                             12.0%
+                                                             12.5%
+                                                             13.0%
+                                                             13.5%
+                                                              >14.3
+
+Figure 5 Histogram of the ex post active risks using 5% Model TE (1995–2003).
+                                                            0.055
+
+                                                                        y = 0.4941x + 0.0138
+                                                                               2
+                                                                              R = 0.5169
+
+
+
+
+                          out-of-sample strategy risk
+                                                            0.045
+
+
+
+
+                                                            0.035
+
+
+
+
+                                                            0.025
+
+
+
+
+                                                            0.015
+                                                                0.015     0.020   0.025   0.030   0.035    0.040     0.045   0.050   0.055
+
+                                                                                          in-sample strategy risk
+
+Figure 6 Scatter plot of in-sample strategy risk versus out-of-sample strategy risk.
+
+5.5 Persistence of strategy risk                                                                   assumes that strategy risk persists from the in-
+                                                                                                   sample period to the out-of-sample period. One
+Naturally, one must be able to forecast the strat-                                                 implication of this methodology is that the relative
+egy risk, std(IC), with reasonable accuracy in order                                               ranking of strategy risks stays the same in both peri-
+to provide a consistent forecast of active risk using                                              ods. We employ the in-sample and out-of-sample
+Eq. (9). The application of the scaling constant κ                                                 specification to show this is indeed the case.
+above constitutes a simplistic form of forecasting
+strategy risk—using the strategy risk estimated in                                                 Figure 6 shows the scatter plot of strategy risks mea-
+the in-sample period as the forecast of the out-of-                                                sured in the in-sample period (x-axis) versus that in
+sample period. Our simplistic forecasting method                                                   the out-of-sample period (y-axis). The R-squared
+
+THIRD QUARTER 2004                                                                                                      JOURNAL OF INVESTMENT MANAGEMENT
+12    EDWARD QIAN AND RONALD HUA
+
+
+
+Table 3 Summary statistics of coefficient estimates.
+                          Coefficients    Standard error    t-Stat     P-value     Lower 95%       Upper 95%
+Intercept                 0.0138          0.0020            7.0245     0.0000      0.0099          0.0178
+In-sample strategy risk   0.4941          0.0622            7.9449     0.0000      0.3697          0.6186
+
+
+of the regression, using in-sample strategy risks       reasonable to expect this, because, by definition,
+to explain the variability of out-of-sample strategy    the risk-model risk only accounts for tracking error
+risks, is 52%. Table 3 shows the summary statis-        caused by risk factors and specific risks specified
+tics of the coefficient estimates of this regression.   by a risk model. However, all active strategies are
+The null hypothesis, that in-sample strategy risks      exposed to alpha factors, which must have explana-
+have no explanation power of the variability of the     tory power for cross-sectional returns beyond the
+out-of-sample strategy risks, is rejected at a 1%       power provided by the risk model. This cross-
+confidence level. Hence, it is plausible that, using    sectional correlation between the alpha factor and
+this simplistic forecast method in conjunction with     the actual returns introduces additional risk not
+Eq. (9), active managers can improve their ability      embedded in the risk model. Equation (9) provides
+to assess portfolio active risk.                        a way to capture both the risk-model risk and the
+                                                        strategy risk associated with alpha factors.
+
+6 Conclusion                                            This fact alone does not imply the deficiency of a
+                                                        risk model, because the job of a risk model is to
+Among active equity managers, it is commonly            capture the majority of cross-sectional dispersion
+known that ex post active risk often exceeds the tar-   in security returns embedded in commonly speci-
+get tracking error specified by a risk model. We        fied risk factors. While it is plausible that a given
+attribute this deviation to an additional source of     risk model might be improved with additional risk
+active risk—the strategy risk. Measured as the stan-    factors, it is unrealistic to expect a risk model to
+dard deviation of IC, strategy risk is unique to each   include all possible fundamental factors in all possi-
+investment strategy conveying a strategy-specific       ble variations, as is often the case when active equity
+risk profile. Furthermore, through analytical deriva-   managers search for alpha factors. Combining the
+tions, we show that a consistent estimator of active    risk-model risk and the strategy risk represents a
+risk must incorporate strategy risk in conjunction      reasonable and realistic solution to the issue.
+with the risk-model tracking error. Consequently,
+we provide a practical extension to the Fundamen-       Our empirical survey of commonly used quantita-
+tal Law of Active Management: ex ante IR equal          tive equity strategies confirms our analytical results.
+to the ratio of average IC to the standard deviation    The difference in strategy risk is often statistically
+of IC. Additionally, we also demonstrate that IR        significant. We also illustrate how to use strategy risk
+depends not only on the strength of IC, but also        to recalibrate the risk-model tracking error so that
+on the correlation between IC and the dispersion        the ex ante active risk reaches a target level. While
+of the risk-adjusted returns over time.                 more sophisticated methods to forecast strategy risk
+                                                        await further research, such a simple modification
+Empirical evidence shows that risk models sys-          has already proven far superior to just using the
+tematically underestimate ex post active risk. It is    risk-model risk alone.
+
+
+JOURNAL OF INVESTMENT MANAGEMENT                                                          THIRD QUARTER 2004
+                                                                        ACTIVE RISK AND INFORMATION RATIO           13
+
+
+
+In addition to these benefits, our analysis also         subject to
+enables practitioners to estimate the ex ante excess                              wt · i = 0
+                                                                                                                  (A.2)
+return and active risk more accurately, without the                            wt · Bt = 0
+daunting task of optimized back tests. This is espe-     The subscript t denotes the period. For clarity, we
+cially true for market neutral equity hedge fund         omit it from our notation hereafter. In Eqs. (A.1)
+strategies with fewer portfolio constraints because      and (A.2), f = (f1 , f2 , . . . , fN ) is the vector of alpha
+our risk-constrained optimization closely resembles      factors or forecasts of excess returns over an index at
+those strategies. For long-only active strategies, or    time t; w = (w1 , w2 , . . . , wN ) the vector of active
+other kinds of strategies with more constraints,         weights against the index; B = (β1 , β2 , . . . , βM )
+our estimation could be combined with those of           the matrix of risk factors with each βi a vector of
+Grinold and Kahn (2000) and Clarke et al. (2002)         risk factor; i = (1, 1, . . . , 1) the vector of ones; λ
+to provide a more realistic IR estimate. Finally, for    the risk-aversion parameter; and V the covariance
+active equity managers, our analytical framework         matrix. The number of risk factors is M .
+can be applied in a number of ways to provide
+a rigorous risk specification of equity investment       The covariance matrix V in a multi-factor risk model
+strategies in terms of diversification benefit across    takes a special form:
+strategies and most importantly better portfolio IR.
+For example, Sorensen et al. (2003) illustrate a way                        V = B · B · B + S                 (A.3)
+to combine multiple alpha sources more efficiently       where B is the covariance matrix of risk fac-
+in an unconditional framework to achieve the high-       tors, and S = diag(σ12 , σ22 , . . . , σN2 ) is the diago-
+est portfolio IR. Alternatively, we can also apply the   nal matrix of stock-specific risks. Equation (A.3)
+analysis in a conditional framework to take advan-       assumes zero correlation between stock-specific
+tage of certain market conditions through tactical       risks. Because we require that the active weights
+rotations of active investment strategies. These rota-   are factor neutral, and there is no systematic risk
+tion tactics can be grounded on careful examination      in the active weights whatsoever, we can reduce the
+of how the strategy excess return and the strat-         objective function (A.1) to the following, provided
+egy risk respond to different macro-environment,         that we keep all the constraints
+market segments (style or sector), and seasonal
+                                                                                 1
+influences.                                                            f  · w − λ · (w  · S · w)       (A.4)
+                                                                                 2
+                                                         We can now solve the optimization of (A.4) with
+                                                         the constraints (A.2) analytically using the method
+Appendix A: optimal active weights                       of Langrangian multipliers. We switch from matrix
+and excess return                                        notation to using summations. The new objective
+                                                         function including M + 1 Langrangian multipliers
+This appendix provides mathematical details of the       (1 for the dollar neutral constraint and M for M risk
+results in Section 1 regarding the optimal active        factors) is
+weights and the excess return.
+                                                         
+                                                         N
+                                                                      1  2 2
+                                                                             N                N
+                                                               fi wi − λ wi σi − l1   wi
+The active weights is the solution of the following                   2
+                                                         i=1                i=1               i=1
+optimization problem: Maximize
+                                                                  
+                                                                  N                              
+                                                                                                 N
+
+                     1                                     − l2         wi β1i − · · · − lM +1         wi βMi   (A.5)
+           ft · wt − λt · (wt · Vt · wt )     (A.1)             i=1                            i=1
+                     2
+
+THIRD QUARTER 2004                                                           JOURNAL OF INVESTMENT MANAGEMENT
+14     EDWARD QIAN AND RONALD HUA
+
+
+
+Taking the partial derivative with respect to wi and       all risk factors. We have
+equating it to zero gives
+                                                                           
+                                                                           N                     
+                                                                                                 N
+                                                                 2
+                                                                σmodel =         wi2 σi2 = λ−2          Fi2   (A.9)
+         fi − l1 − l2 β1i − · · · − lM +1 βMi
+wi = λ−1                                          (A.6)                    i=1                    i=1
+                          σi2
+
+The values of Langrangian multipliers are deter-           The residual variance is, therefore, the sum of the
+mined by the constraints through a system of               risk-adjusted forecasts squared. Therefore,
+                                                                          
+linear equations.                                                         N
+                                                                          
+                                                           σmodel = λ−1           2
+                                                                                Fi,t
+                                                                       t
+Given the active weights, the portfolio excess return
+                                                                             i=1
+is the summed product of the active weights and the                     √      
+                                                                     −1
+actual excess returns                                             = λt    N − 1 [dis(Ft )]2 + [avg(Ft )]2
+                                                                        √
+       
+       N                                                          ≈ λ−1
+                                                                     t    N − 1 dis(Ft )            (A.10)
+ α=          wi r i
+       i=1
+                                                           We have assumed that avg(Ft ) ≈ 0 and this
+                                                           approximation is quite accurate in practice.
+             
+             N
+               fi − l1 − l2 β1i − · · · − lM +1 βMi
+        −1
+     =λ                                               ri
+             i=1
+                                 σi2
+                                                           Appendix B: The information ratio
+                                                  (A.7)
+                                                           This appendix presents the exact results regarding
+To arrive at Eq. (4) with the risk-adjusted forecast       the expected excess return and active risk. To obtain
+and the risk-adjusted return, we replace the return        the expected excess return and active risk based on
+ri by ri − k1 − k2 β1i − · · · − kM +1 βM 1i , where       Eq. (7) we must find the expected value and variance
+(k2 , . . . , kM +1 ) are the returns to M risk factors.   of a product of two random variables. We use x
+This does not change the equation due to the con-          and y to denotes IC and the dispersion of the risk-
+straints placed on the active weights. We choose the       adjusted returns.
+value of k1 to make the risk-adjusted return mean
+zero. Defining                                             Elementary statistical calculation tells us that
+       fi − l1 − l2 β1i − · · · − lM +1 βMi                                E (xy) = x̄ ȳ + ρσx σy            (B.1)
+Fi =
+                        σi
+                                                  (A.8)    The barred variables are averages and σ denotes the
+     ri − k1 − k2 β1i − · · · − kM +1 βM 1i
+Ri =                                                       standard deviation, and ρ is the correlation. Identi-
+                      σi                                   fying IC as the variable x and the dispersion of the
+Eq. (A.7) becomes Eq. (4).                                 risk-adjusted returns as the variable y, we obtain the
+                                                           expected excess return as in Eq. (10).
+We next calculate the residual variance or equiva-
+lently the risk-model tracking error as the sum of         We can also obtain the variance of x times y as
+active weights squared times the specific variance.                    Var(xy) = σx2 σy2 + ρ 2 σx2 σy2
+The active portfolio has no market risk within the
+risk model because the active weights are neutral to                                + x̄ 2 σy2 + ȳ 2 σx2     (B.2)
+
+
+JOURNAL OF INVESTMENT MANAGEMENT                                                               THIRD QUARTER 2004
+                                                                                ACTIVE RISK AND INFORMATION RATIO              15
+
+
+
+When σy /ȳ  1 and σy /ȳ  σx /x̄, i.e. the                       narrow range to accommodate portfolio drift and changing
+coefficient of variation for the dispersion of the risk-            risk model estimates.
+                                                                  5
+adjusted returns is much less than 1 and much less                  The variance of N such independent variables is a scaled
+                                                                    chi-square distribution if their mean is zero. It can be proven
+than the coefficient of variation for IC, the variance
+                                                                    that when N is large, the dispersion is close to unity, using
+can be approximated by                                              the approximation of a chi-square distribution (Keeping,
+                                                                    1995).
+                     Var(xy) = ȳ 2 σx2                 (B.3)
+
+This approximation justifies using Eq. (9) for the
+active risk.                                                      References
+
+                                                                  Clarke, R., de Silva, H., and Thorley, S. (2002). “Port-
+                                                                    folio Constraints and the Fundamental Law of Active
+Notes                                                               Management.” Financial Analyst’s Journal 58(5), 48–66.
+                                                                  Freeman, J. D. (2002). “Portfolio Construction and Risk
+1
+  This problem has also been recognized by other practition-        Management: Long–Short/Market-Neutral Portfolios.”
+  ers. For example, Freeman (2002) notes that “if a manager is      In: AIMR Conference Proceeding: Hedge Fund Management.
+  optimizing the long-short portfolio, he or she better assume      Pp. 41–46.
+  that the tracking error forecast (of a risk model) will be at   Grinold, R. C. (1989). “The Fundamental Law of Active
+  least 50 percent too low.”                                        Management.” Journal of Portfolio Management 15(3),
+2
+  Grinold (1994) proposed this alpha formula mainly for             30–37.
+  translating cross-sectional z scores into alpha inputs for an   Grinold, R. C. (1994). “Alpha is Volatility Times IC Times
+  optimizer. While such a prescription holds true for a lin-        Score.” Journal of Portfolio Management 20(4), 9–16.
+  ear time series forecast model, it is not theoretically valid   Grinold, R. C. and Kahn, R. N. (2000). “The Efficiency
+  with cross-sectional z scores. We demonstrate in the paper,       Gains of Long–Short Investing.” Financial Analyst’s Journal
+  that such a prescription is not necessary in deriving IR.         56(6), 40–53.
+  Furthermore, while it is necessary to use a risk model for      Hartmann, S., Wesselius, P., Steel, D., and Aldred, N.
+  individual securities in the mean-variance optimization to        (2002). “Laying the Foundations: Exploring the Pitfalls of
+  form the optimal portfolio, it is not necessary and perhaps       Portfolio Construction and Optimization.” Working Paper,
+  overreaching to assume returns of individual securities fol-      ABN AMRO.
+  low the prescription of the risk model. Instead of such a       Keeping, E. S. (1995). Introduction to Statistical Inference.
+  normative approach, we take a descriptive one, making             New York: Dover, p. 87.
+  no explicit assumptions about the expected return of each       Sorensen, E. H., Qian, E., Hua, R., and Schoen, R. (2004).
+  security.                                                         “Multiple Alpha Sources and Active Management.” Journal
+3
+  Later in the paper, we will use the time series standard          of Portfolio Management 30(2), 39–45.
+  deviation as well. To avoid confusion we shall use disper-
+  sion when describing cross-sectional standard deviation and
+  standard deviation when describing time series standard
+  deviation.
+4
+  It is difficult to maintain a constant level of risk-model      Keywords: Portfolio management; portfolio opti-
+  tracking error for all time. One often targets it within a      mization; active risk
+
+
+
+
+THIRD QUARTER 2004                                                                    JOURNAL OF INVESTMENT MANAGEMENT
+

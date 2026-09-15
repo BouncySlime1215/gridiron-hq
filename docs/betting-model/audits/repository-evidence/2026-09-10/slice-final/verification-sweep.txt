@@ -1,0 +1,20 @@
+### CI CONDITIONS (isolated DB + network guard)
+ℹ tests 1496
+ℹ pass 1472
+ℹ fail 0
+ℹ skipped 24
+### REAL DEVELOPMENT DATABASE
+ℹ tests 1496
+ℹ pass 1494
+ℹ fail 0
+ℹ skipped 2
+### typecheck
+pass
+### lint
+Syntax checked 578 JavaScript files; TypeScript/TSX is covered by npm run typecheck.
+### build
+pass
+### startup smoke
+Application startup smoke passed on isolated database (32 teams).
+### python research parity
+OK

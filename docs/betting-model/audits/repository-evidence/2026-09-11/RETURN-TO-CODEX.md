@@ -1,0 +1,278 @@
+# Return to Codex — September 11, 2026
+
+**Status: evidence, not instructions.** The single active plan remains
+[`docs/CLAUDE-NEXT-STEPS.md`](../../../plans/archive/CLAUDE-WORK-QUEUE-at-ffe4e72.md); its §0 status register is updated to match this
+document. Commits referenced here: `dd13278`, `e02b362`, `8659613`, `d643567`, `61cde5a`, `e867ecc`, `03cf3e0`.
+
+Read §1 first. It is the only part that changes how the previous review should be read.
+
+---
+
+## 1. C03's caveat was not a caveat. It was a blind spot, and it hid two startup-fatal defects.
+
+The register recorded C03 as *"exercised against fixture databases only. No installation carrying real
+execution rows exists to upgrade — which is why this was never hit."* That sentence was true and it was the
+wrong conclusion to draw from it.
+
+Two migrations shipped that **could not run on the developer's own database**:
+
+| Migration | The write | The guard it hit | Rows in the live DB |
+|---|---|---|---|
+| `031_decision_identity` | `UPDATE nfl_decision_runs SET content_hash = …` | `nfl_decision_runs_no_update` (installed by 027) | 0 — so this one was luck |
+| `032_quote_receipt_clock` | `UPDATE nfl_quote_batches SET received_at = …` | `nfl_quote_batches_no_update` | **1,154** |
+
+`runMigrations()` is awaited before any route module imports. So this is not a bad row: it is an application
+that cannot start, deterministically, on every boot, with 031 already committed and the database pinned one
+migration short. The failure mode is self-perpetuating — each restart re-attempts and re-fails.
+
+**Neither was reachable from an empty fixture.** The tables existed in the fixture; they held no rows; the
+`UPDATE` matched nothing; the trigger never fired; every test passed. The two were found three days apart by
+two different readers, both by running the migration against real data.
+
+The generalisable lesson, stated for the register rather than for this incident: **a table that exists in the
+fixture and holds no rows is a table whose migration is untested.** "Populated upgrade" has to mean populated
+in the tables the migration actually writes to.
+
+### What now prevents the third one
+
+Fixtures in `test/migration-027-populated-upgrade.test.js` now seed a legacy decision run *and* two legacy
+quote batches, so both backfills execute under test. More usefully, a new test reads every migration and every
+trigger installed by the schema and by migrations, and fails on any `UPDATE`/`DELETE` against a protected table
+that does not lift and restore that exact trigger.
+
+**That scan immediately found a third latent instance**: `007_model_permissions_and_upgrade_guard` makes
+`model_audit_log` append-only and `008_model_actor_foreign_keys` backfills it with an `UPDATE`. It has never
+fired only because 007 and 008 ship together and the log is empty when they run. Luck, not design. Fixed.
+
+### The real installation is now upgraded
+
+Rehearsed first on an 8.7 GB `VACUUM INTO` copy: 031–034 applied in 52.6s, all 1,154 batches labelled
+`legacy_request_time_only`, all 1,384,350 `nfl_quote_tape` rows intact, both triggers restored. Then applied to
+the developer's own 9.0 GB database, which now sits at **035_alt_spread_capture**. C03 advances
+`tested → installed`, and required return #3 is delivered against a real installation rather than a fixture.
+
+---
+
+## 2. Numbers in the plan and in the code that were wrong
+
+Each of these was asserted somewhere and is now measured. All four corrections move **against** the project.
+
+**`teaserEV` modelled two outcomes where there are three.** `p^legs × payout − 1` prices a pushed leg as a
+total loss. A push removes the leg and reduces the ticket. On the cross-both family at +100 the module read
+**+9.70%**; the correct figure is **+9.06%**. The correction lowers expected value. It arrived in the same week
+as a widened leg set and a good observed price, and it would have been easy to read a maths fix as a discovery.
+
+**The same-week leg correlation has the opposite sign on the family actually bet.** The `+0.082` this project
+quotes is real, and belongs to the **classic six-line Wong window over 1999–2025**. On the eight-line
+cross-both family, 1999–2024: joint 54.00% against `p²` of 54.85%, **ρ = −0.044**, bootstrap CI
+[−0.091, −0.004], over 8,224 same-week pairs. Independently reproduced. So assuming independence is mildly
+**optimistic** here, not conservative — it overstates a two-leg ticket by about 0.85pp.
+
+**`z = 1.99` was not cluster-robust.** Clustering same-week legs gives SE 1.29pp rather than 1.17pp, so the
+classic window is **z = 1.80**, one-sided p = 0.036. Still clears the bar, less comfortably than the docstring
+claims.
+
+**`wongHistory()` computed its headline across corrupted seasons.** It had no season bound, so the quoted
+74.69% spanned 1999–**2025**. See §3. Bounded to 1999–2024, the eight-number family measures **2,894 legs,
+26 pushes, 2,868 decided, 74.06%**.
+
+---
+
+## 3. Data defects found, with the check that establishes each
+
+These matter to any future analysis and none was known when the plan was written.
+
+**`game_lines.spread` is corrupted for 2025 and 2026, and 2026 is live.** Integer share of closing spreads:
+
+| 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---|---|---|---|---|
+| 49.5% | 51.1% | 48.4% | 47.7% | **24.9%** | **16.2%** |
+
+Against `nfl_odds_archive`'s real books, `game_lines` is off by exactly 0.5 in 57% of 2025 games where the real
+close is an integer. Integers −1, −2, −4, −5, −8, −9, −12, −13, −15 are entirely absent from 2025. The 2026
+ESPN feed shows the same signature. Ten books agree with each other; `game_lines` is the outlier.
+
+**`game_lines.open_spread` is stored home-perspective on BOTH rows for 2022–2025.** Antisymmetry over
+game pairs:
+
+| season | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---|---|---|---|---|---|---|---|
+| antisymmetric | 256/256 | 251/251 | 272/272 | **5/267** | **4/285** | **1/285** | **4/285** | 271/271 |
+
+(The handful in 2022–2025 are pick'em games, where both readings coincide.) Uncorrected, this inflates apparent
+line movement from ~1.0 to ~5.3 points per game. **Any analysis using `open_spread` for 2022+ is working with
+garbage.** Repairing it (negate the away row) validates against `nfl_odds_archive` openers at median
+|difference| = 0.00, 100% within one point, n = 347.
+
+**`closing_spread` and `closing_total` are NULL outside 2026** — 0 non-null in 2022–2025, 542 of 544 in 2026.
+`game_lines.spread` *is* the closing spread.
+
+**Correction, found by auditing this document rather than the code.** An earlier revision grouped `book_count`
+with those two and asserted it was present in 2026. That is false: `book_count` is NULL in **all 15,096 rows of
+every season, 2026 included**, and the claim was flagged "verified directly" while being wrong. The query that
+produced it did show `has_bookcount = 0` for 2026; the error was in reading the output, not in running it. It is
+corrected here rather than quietly fixed because a false statement carrying a verification label is the most
+damaging kind in a document whose subject is whether the numbers can be trusted.
+
+**`nfl_odds_archive` carries ~2.6% junk rows** — 1,198 rows sit more than 3 points from the same-phase
+cross-book median (2.64% of 45,386, or 2.68% of 44,742 if groups with fewer than three books are excluded; both
+denominators are defensible and the document previously stated only the second). All 11 books affected; worst
+are `mybookieag` (361) and `bodog` (203).
+
+Of those far rows, **20.8% sit within a point of the exact mirror of the consensus** — a 2022 PIT line of −7.0
+against a +7.0 consensus is the canonical shape. An earlier revision called these "exact sign flips"; exact
+mirrors are only about 6.8%, and the 20.8% figure reproduces only under the near-mirror definition. The
+distinction matters because a sign-flip diagnosis implies a specific parsing bug, while a near-mirror population
+is consistent with several causes.
+
+This was material: it manufactured the one apparently significant result in §4 below.
+
+**DraftKings is absent from `nfl_quote_tape` for the 2026 season.** Zero rows; the newest DK row is from
+January. Its live board is in `nfl_line_snapshots`, scraped hourly and second-hand. Separately,
+`simultaneousQuotes()` pins each event to its single newest capture instant, so every slow-tier book is shadowed
+by a fresher fast-tier row and disappears from the shopping board entirely — DK, FanDuel, BetMGM, Circa, bet365,
+Caesars and BetRivers, almost all of the time.
+
+---
+
+## 4. What the measurement concluded
+
+The plan's §9.1 stages family adaptation behind a frozen first comparison. That comparison has still not been
+run. What *has* been run is the narrower question of whether any existing signal selects bets, and the answer is
+uniformly negative:
+
+| Question | Result | Reproducible today? | How much it establishes |
+|---|---|---|---|
+| Does the ensemble's edge predict how games land vs the spread? | **r = −0.007**, p = 0.72, n = 2,761 | **No** | The universe is real (2,761 is exactly the scored-with-spread count for 2016–2025) but the per-game edge series was never persisted — `nfl_ensemble_fit_artifacts` stores model-level weights only, `nfl_replay_bets` is empty, and the four v10 artifacts that exist cover 2026 weeks 1–2. Not recomputable without a fresh multi-hour walk-forward, which would not reproduce this number anyway. |
+| Do game features predict margin dispersion? | 522 feature×target pairs, **501 tested**, 0 survive BH q<0.10 | No | **The strongest of the four.** Not because of the BH result — zero survivors is the modal outcome under a true null at m=501 — but because the raw p-histogram is indistinguishable from uniform: 25 below 0.05 against 25.05 expected, the 50th percentile of the null. (An earlier revision wrote "87 × 6 = 501". It is 522; 21 pairs were dropped for coverage.) |
+| Is there a better key-number window than the classic one? | **4,060** searched; best max-z **2.87** | No | Safe regardless of the bootstrap: 2.87 is below the naive Bonferroni threshold of 4.22 before any allowance for dependence. The previously quoted ceiling of **4.26 is suspect as a 95% quantile** — for 4,060 independent one-sided tests that quantile is 4.44, and positive correlation can only push it down, so 4.26 would imply more effective independent tests than were run. It is plausible as a 99% quantile. The figure is withdrawn pending the script; the conclusion does not depend on it. |
+| Do market-structure signals separate qualifying legs? | **6 pre-registered** hypotheses, discovery/holdout, all null, Holm p ≥ 0.99 | No | **Nearly uninformative, and previously overstated here.** The holdout could only detect 3.35–9.86pp of leg rate. The entire edge over break-even is 3.35pp at +100 and 1.69pp at −110. A test with no power across the whole economically relevant range cannot license acting as though selection is absent; Holm p ≥ 0.99 was close to guaranteed either way. |
+
+**The aggregate previously reported here — "~4,600 formal tests, zero survivors" — is withdrawn.** Four disjoint
+families were each corrected within themselves and never jointly; summing their counts implies a family-wise
+statement nobody computed, which makes the headline *less* rigorous than its parts rather than more. It also
+averages one genuinely informative null, one safe null, and one uninformative null into a single number that
+hides exactly the difference a reviewer needs.
+
+**A coincidence this document cannot resolve.** The stated MDE floor of 3.35pp equals, to three significant
+figures, the family's own margin over break-even at +100 (74.06% − 70.71% = 3.35pp). Separately, a 3.35pp MDE
+needs roughly 5,400 legs at an even split, while the cross-both family holds 2,894 in total — a
+discovery/holdout split leaves 1,000–1,400 in holdout, implying 6.6–7.8pp. Either the MDE was computed on a much
+larger universe than the teaser family, or the margin-over-break-even was mistakenly reported as an MDE floor.
+The script does not exist, so it cannot be settled from here. **Treat the 3.35pp figure as unverified.**
+
+Two findings from that work are worth carrying forward independently of any conclusion:
+
+**σ(margin − spread) ≈ 12.7 with no detectable dependence on the line.** Gaussian-MLE log-σ slope on
+|spread|, 2016–2022: −0.0008, p = 0.86 (independently reproduced at −0.000816, p = 0.80, n = 1,906). σ is 12.73
+at a 1-point spread and 12.64 at a 10-point spread.
+
+An earlier revision said the spread carries *zero* dispersion information and used that affirmatively. **That
+is too strong for what a null establishes.** The 95% CI on the slope is [−0.0071, +0.0055], which across the
+usable range admits σ anywhere from about 11.5 to 13.7. Propagated to a teased dog leg (+2.5 → +8.5) that is a
+2.9pp swing in leg rate — against a total edge of 3.35pp. The data are consistent with a dispersion effect large
+enough to consume nearly the whole edge. This is an absence of detected signal, not a demonstration of zero
+information, and it cannot carry the weight of "the strongest available prior".
+
+**The shipped disagreement-inflation term has no support.** `nfl-ensemble.js:220` widens the predictive
+interval by `1 + min(0.25, disagreement/30)`. Measured: −0.64% per SD, p = 0.70 — wrong sign — and it flips sign
+between panels. Not a bug; not a measurement either.
+
+**The one apparently significant result was a data defect.** A cross-book "book advantage" signal passed
+discovery (p = 0.0005), holdout (p < 0.0001) and Holm (0.0002). Trimming to physically plausible disagreement
+(|advantage| ≤ 1.0 point) removes 1.3–3.2% of rows and collapses it to p = 0.396 / 0.910. The tail was the junk
+archive rows in §3. Worth recording as the shape of a false positive this database can produce.
+
+**Power, which is the honest frame for every null above.** The realised holdout could only have detected effects
+worth 3.35–9.86pp of leg rate. To detect a 1pp gap at 80% power needs **60,317 legs ≈ 543 seasons**. These nulls
+do not establish absence; they establish that the question is unanswerable at any sample this project will ever
+have. That argues against acting on a *future* significant result from this family too.
+
+---
+
+## 4a. A provenance problem the reviewer should weigh before anything in §4
+
+Of the five measurement claims in §4, **four have no stored artifact of any kind** — no script, no JSON, no
+database row, no clone on disk. They exist only as prose in this document and in the September 10 handoff. The
+analyses were run by agents whose working directories were not preserved.
+
+That is not a claim that the numbers are wrong. Two claims that *can* be checked (the dispersion slope, and the
+data defects in §3) reproduce essentially to the digit, which is some evidence the others were produced
+carefully. But it does mean **§4 cannot be audited by rerunning it**, and a reviewer is entitled to weight it
+accordingly.
+
+One detail sharpens this. The most specific figures — max-z 2.87, the 4.26 ceiling, the six pre-registered
+hypotheses, Holm ≥ 0.99, the 3.35–9.86pp MDE range, the 60,317-leg power figure — appear for the first time in
+*this* reviewer-facing document, with no predecessor in the handoff it summarises. The handoff says only "4,060
+candidates searched, none survive." Given that an agent in this project has already been caught stating a
+confident falsehood about the database (that DraftKings data was in `nfl_quote_tape`; there is none for the 2026
+season), that provenance pattern is worth naming rather than leaving for the reviewer to discover.
+
+**The fix is not to rerun the analyses.** It is that any future analysis whose result is meant to survive must
+persist its script and its intermediate output as evidence, in the same way the code corrections persist tests.
+An analysis that cannot be rerun is a memory, not a measurement.
+
+## 5. What has not moved
+
+Stated plainly, because the register should not read as if the work advanced further than it did.
+
+- **Nothing is `qualified`.** The highest state reached is now `installed` (C03), and that is a deployment fact,
+  not an evidential one.
+- **Required return #4 is still not delivered.** No forecast consumes the frozen packet; every run still records
+  `data_identity_status: unfrozen_live_tables`. There is still no packet-to-decision trace showing a news fact's
+  real numerical influence.
+- **The hosted Node 22 CI job has still never been run.** Local runtime is Node 25. Current suite: 1,618 tests,
+  1,579 pass, 0 fail, 39 skipped.
+- **C12 remains `connected`.** The T−60 runner has still never run against a real slate; zero prospective
+  observations exist.
+- **Slices 7 and 8 remain open**, correctly, behind §9.1's staging.
+- **The historical record is unchanged and must stay unchanged**: 153 spread bets, −11.855 units, −7.75% ROI.
+
+---
+
+## 6. The one thing that did advance, and why it is not a counterexample
+
+Work outside the plan established that the **two-team six-point teaser** is the single defensible bet this
+database supports: 2,894 legs at 74.06% on the eight lines where six points crosses both 3 and 7, stable across
+eras, and mechanical rather than predictive — it exploits the margin distribution, not a forecast.
+
+This is **not** a qualification and should not be recorded as one. It is a known public edge, it is thin
+(break-even −120.22 on two legs), and its decisive input had never been observed: `nfl_teaser_price_ledger` held
+**zero rows** until 2026-09-10, when the first real price was recorded (DraftKings, +100, push reduces). Between
+−110 and −130 the same bet runs +4.16% to −3.37%. The football was never the binding constraint; the price was,
+and it was assumed rather than measured for the entire life of the module.
+
+That is the same class of error as the clock mislabel in C11 and the case-sensitivity in C09: **a confident
+number resting on an input nobody had checked.** It belongs in the register as a pattern, not as a result.
+
+---
+
+## 7. Addendum, later the same day: the first prospective observation exists
+
+§5 above says C12 is still `connected` and that the T−60 runner has never run against a real slate. **That stopped being true a few hours after it was written**, and the correction is worth making precisely because it is the only state advance in this document that is evidential rather than administrative.
+
+On 2026-09-10 the runner executed against the live Thursday game and froze a packet at a real cutoff:
+
+```
+event_key            nfl|2026-09-10|SF@LAR
+kickoff_at           2026-09-11T00:35:00.000Z
+cutoff_at            2026-09-10T23:35:00.000Z   (T−60)
+capture_started_at   2026-09-10T23:37:32.161Z
+capture_finished_at  2026-09-10T23:37:33.148Z
+state                frozen
+packet_hash          e2bcd98ffa8c863488a37ce2ee8ac3c2bd1aa34cc48e861e8348f6ef772259f4
+last_error           (none)
+```
+
+Every number this project has ever produced before this row was retrospective. This one is not.
+
+**What it does not establish, stated before anyone reads it as more than it is:**
+
+- `decision_run_id` is **empty**. No forecast consumed the packet. This is evidence that a packet can be frozen on time against a real slate, not that anything used it. Required return #4 remains undelivered and this does not touch it.
+- It is **one game**. Coverage for week 1 is 1 of 16; the fifteen Sunday games are correctly held `beyond_scheduling_horizon` until T−24h and will open on Saturday.
+- The capture finished **2 minutes 32 seconds after the cutoff instant**. That is the runner noticing the cutoff on its 5-minute tier, not a late freeze of a stale packet — but the lag is real and should be measured across a full slate rather than assumed benign from n=1.
+- It depends on an ordinary process staying alive. **A restart across a cutoff loses that game permanently**, and there is no backfill that can honestly recreate it.
+
+The meaningful test is Sunday: fifteen cutoffs, and the first coverage numbers this project will have — how often a packet actually freezes, how often a quote is there, how often a capture is missed. Those are the numbers §4's power analysis says nothing else can substitute for.
+
+C12 and slice 5 advance `connected → observed` in the register on the strength of this row, and on nothing else.

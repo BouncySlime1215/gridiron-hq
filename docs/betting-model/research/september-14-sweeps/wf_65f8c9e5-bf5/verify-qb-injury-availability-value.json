@@ -1,0 +1,75 @@
+{
+  "verified_claims": [
+    "nfeloqb repo exists (github.com/greerreNFL/nfeloqb), has no license, and was pushed 2026-09-12. Resources/data_loader.py holds the 538 VALUE formula exactly as quoted (-2.2 Att, +3.7 Cmp, +11.3 PassTD, -14.1 INT, +15.9 RushTD, and so on).",
+    "nfeloqb model_config.json values match the report: player_sf 0.0886; league regression height 0.265 with midpoint 182.82 starts; career regression height 0.820 with midpoint 66.63 starts; rookie_draft_intercept 9.872; rookie_draft_slope -4.619; undrafted rookie treated as pick 300; player_team_adj_allotment_disc 0.10.",
+    "qb_model.py:182 is `qb_adj = qb_expected_value - team_off_value` (team-relative), and elo.py:109-110 multiplies by 3.3 to get Elo points.",
+    "The 25-Elo-per-point conversion is confirmed in code: greerreNFL/nfelo nfelo/Utilities/odds.py:112 `dif = spread * 25`. nfelo config.json has `qb_weight: 1`, applied in Model/Nfelo.py:144-149. greerreNFL/nfelo also has no license.",
+    "fivethirtyeight/nfl-elo-game is MIT-licensed, last pushed 2023-05 (unmaintained), and its forecast.py has no QB code.",
+    "MEASURED QB adjustment sizes replicate from qb_elos.csv (2010-2025, adj/25): n=8,726 (report says 8,758); mean -0.12; SD 1.25; 1st percentile -5.05; 99th percentile +1.88. At a starter change: n=797, mean -1.47, median -0.84, 10th percentile -4.70. With the same QB as the previous game: SD 1.04.",
+    "Gregory-Smith (2021), Economic Inquiry 59(2):829-847, verified from the full-text PDF. Data 2011-2015; 2,555 observations. When the backup QB takes the field in-game, win probability drops 28 percentage points, 'equivalent to giving the other team 9.5 points on the spread'. One extra point of spread is worth 3% win probability. The market does not predict in-game injuries. Backups average 16 fewer passer-rating points, and passer rating captures about half the effect.",
+    "PFF WAR (PFF R&D, Dec 12, 2019): replacement level is a 3-13 team; Brees 2011 = 5.54 WAR; elite QB seasons run about 4.1-5.5; QB WAR season-to-season correlation 0.62. The Sloan paper by Eager & Chahrouri exists.",
+    "Seth & Brown (PFF, June 14, 2021) give Prescott's Week 6 2020 projection as +0.14 WAR and assume Questionable = 73% to play.",
+    "Footballguys Injury Index covers 2017-2023: 71% of Questionable players played and 5.9% of Doubtful players played. It reports team-level variation in how designations are used. Note it covers QB/RB/WR/TE only.",
+    "nfelo analysis page: replacement QBs covered 46% of first starts for below-average starters and 54% for above-average starters; the 0.459 correlation comes from a sample of 19 QBs.",
+    "ESPN (2016): Probable was removed after about 95% of Probable players played. Out = will not play, Doubtful = unlikely, Questionable = uncertain. PFN: the game status report is due 4:00 p.m. ET two days before the game, practice reports run Wed/Thu/Fri, and Thursday games get Wednesday reports.",
+    "nflreadr injuries dictionary has one report_status, one practice_status and one date_modified per row. It also includes gsis_id.",
+    "Repo/DB checks, read-only: nfl_feature_revisions has 0 rows. valueAsKnown has zero call sites (confirmed in the nfl-bitemporal.js notes; the only grep hit is its definition). nfl_injuries.modified_at is NULL for every 2025 and 2026 row. nfl_nfelo_qb starts in 2020. game_lines.closing_spread is NULL for every 2016-2025 row."
+  ],
+  "refuted_or_unverifiable": [
+    {
+      "claim": "Football Outsiders AGL correlates with wins at only about 0.2-0.3",
+      "problem": "Unverifiable. The footballoutsiders.com domain no longer resolves (the site is defunct), so the cited page cannot be opened. Drop the number or mark it as unverified."
+    },
+    {
+      "claim": "Glazer, Binney & Seth (2025) weighted injury burden",
+      "problem": "Unverifiable: the journal page returns 403. The report already admits it has no effect sizes. Authors and title are unconfirmed."
+    },
+    {
+      "claim": "The closing line fully absorbs QB information (residual slope 0.07 +/- 0.17)",
+      "problem": "Overstated. The 95% interval is about -0.26 to +0.40 points per point of QB adjustment, so the test cannot rule out material underpricing. The QB-change subsample (SE 0.24) is weaker still. The honest reading is 'no detectable residual', not 'fully absorbs'."
+    },
+    {
+      "claim": "About 40% of QB information arrives after the open (open-to-close slope 0.41)",
+      "problem": "Not established. (1) Opener provenance is mixed: 2020-21 have no source label, 2022-25 are 'pinnacle_archive_reopen' re-opens, and 34 of the 2022 rows are 'unresolved_legacy_median'. (2) nfl_nfelo_qb was downloaded in a single snapshot (all fetched_at = 2026-09-14), so the qb_adj values and starter identity are hindsight, not what was known at the open. (3) Reading a slope as a '% of info' share requires the close-on-qb_adj slope as a denominator, which the report never measured."
+    },
+    {
+      "claim": "closing_spread is NULL for 2018-2025",
+      "problem": "Understated: it is NULL for every season checked, 2016-2025 (it is populated only for 2026). The substitution of `spread` applies to all historical seasons."
+    },
+    {
+      "claim": "qb_elos.csv is nfeloqb's model output",
+      "problem": "The nfeloqb README says the CSV uses 538's original model for all seasons before 2023 and the re-optimized nfeloqb model only from 2023 on. So the 2010-2022 MEASURED distributions describe 538's values, and 538 back-filled its QB adjustments retroactively, not point in time."
+    },
+    {
+      "claim": "Rookie prior is a draft-slot curve with intercept 9.872 and slope -4.619",
+      "problem": "Incomplete. The code applies the slope to log(draft_number), adds a regressed team/league average, and caps the result at (1 + rookie_league_cap = -0.203) times the league average. A reimplementation that uses a linear slope would be wrong."
+    },
+    {
+      "claim": "A backup making his first start gets 10% of the team's other QB adjustments",
+      "problem": "Only conditionally true. QB.get_value applies it only when season_starts == 0, the team has nonzero season adjustments, AND value_vs_team < -10."
+    },
+    {
+      "claim": "The nfelo 0.459 correlation shows the previous starter predicts his replacement",
+      "problem": "Context is narrower. It covers starting QBs who moved to a team that kept its head coach (19 QBs since 1999), not replacement QBs in general. The 46%/54% cover rates come from a separate analysis whose sample size is not stated."
+    },
+    {
+      "claim": "MEASURED play rates by status x practice (e.g. Questionable/DNP 45%; QB Questionable/DNP 19%, n=16)",
+      "problem": "Not independently replicated. The name-only join (nfl_snaps has no player ID) can be biased either way, not just toward lower bounds, and QB cells are n=14-81. Also, nfl_injuries in the DB starts in 2021, not 2020."
+    },
+    {
+      "claim": "Inactives are released 90 minutes before kickoff",
+      "problem": "Consistent with common practice, but no primary source was verified (PFN does not state it, and the official PDFs return 404). Keep it as an unverified operational assumption."
+    }
+  ],
+  "recommendations_to_drop_or_change": [
+    "Rec 5 (treat the 2020-2024 final status as 'known at Friday 4 p.m.') introduces look-ahead. The stored row is the last revision, which can include Saturday or game-day downgrades and later corrections, and the DB has no 2020 injury rows. Change it to: for 2021-2024, keep only rows whose modified_at is at or before the decision time (thousands of distinct stamps exist); otherwise label the value as known at inactives, usable only for kickoff-60 decisions. Also drop 2023-2024 rows with NULL modified_at (148 and 261 rows) from pre-kickoff training.",
+    "Rec 6 (backfill pre-2020 QB values from qb_elos.csv) is look-ahead, not 'mild leakage'. Pre-2023 rows are 538's retroactively computed values, keyed on who actually started, with parameters tuned on the full history. Use them only as a benchmark or challenger. Any training feature must be recomputed in-house, point in time, from nflverse play-by-play, with starter identity taken from timestamped depth-chart or announcement data.",
+    "Change Rec 1 so the nfeloqb parameter values (EWMA 0.0886, regression midpoints, 3.3, rookie curve with log(pick) and cap) are weak priors inside a ridge or empirical-Bayes fit, not fixed constants. They were optimized on all history, including the validation years. With about 270 games per season, refit at most 1-2 hyperparameters walk-forward, inside the trial registry (F06).",
+    "Rec 2 priors are internally inconsistent with the report's own measurements (Questionable/DNP prior 0.35 vs 45% measured across positions and 19% for starting QBs). Fit one pooled logistic model (status x practice) with a single QB offset term and shrinkage. Do not add a team random effect until there are several seasons of timestamped data, because the per-team sample is tiny.",
+    "Rec 3: define 'starters' only from snap shares in weeks before the decision, and 'out' only from timestamp-filtered injury status. Limit it to about 4 position-group coefficients with a strong prior toward zero, and do not expect the walk-forward to separate them from noise within 2-3 seasons.",
+    "Remove 'the closing line fully absorbs QB info' and '40% arrives after the open' as design drivers. Re-run the test with a registered protocol, point-in-time QB values and a single opener source (2022-25 Pinnacle re-opens) before building any open-timing bet logic on it.",
+    "Rec 4 is fine (grade on CLV at decision time), but do not size or enable QB-driven bets from the 9.5-point in-game estimate. It is an in-game, no-preparation, win-probability upper bound, not a pregame spread effect."
+  ],
+  "corrected_summary": "What survives verification:\n\n(1) The 538/nfelo QB structure is confirmed in code.\n- The VALUE formula is exact. Each QB has an EWMA with alpha 0.0886 and offseason regression toward the league average (0.265, midpoint about 183 starts) and toward the career average (0.82, midpoint about 67 starts).\n- The rookie prior is 9.872 - 4.619*log(pick), with undrafted = 300, blended with a regressed team/league average and capped.\n- The game adjustment is team-relative (QB expected value minus the team's rolling offensive value), times 3.3 Elo. nfelo converts Elo to points at 25 Elo per point (odds.py) and applies the QB adjustment at qb_weight = 1.\n- So 1 VALUE unit is about 0.132 points. nfelo and nfeloqb have no license, so reimplement rather than copy. fivethirtyeight/nfl-elo-game is MIT but unmaintained since 2023 and has no QB code.\n\n(2) Magnitudes, replicated from qb_elos.csv 2010-2025.\n- Team-game QB adjustments: SD about 1.25 points, 1st percentile about -5 points.\n- Starter-change games: mean -1.47, median -0.84, 10th percentile -4.7.\n- Caveat: the pre-2023 rows are 538's retroactively computed values, not point in time.\n\n(3) Gregory-Smith (2021, Economic Inquiry 59(2):829-847), verified in full text.\n- Data 2011-15. An in-game starting-QB injury costs 28 percentage points of win probability, about 9.5 spread points at 3% per point.\n- The market does not predict these injuries. Backups average 16 fewer passer-rating points, and passer rating explains about half the effect.\n- This is an in-game upper bound, not a pregame planned-start value.\n\n(4) PFF WAR (PFF R&D 2019): replacement level is a 3-13 team, elite QB seasons run about 4.1-5.5 WAR, and year-to-year correlation is 0.62. Seth & Brown (2021): Prescott +0.14 WAR/game, Questionable = 73%. The conversion to points is the report's own derivation.\n\n(5) Designation base rates.\n- Footballguys 2017-23 (skill positions only): Questionable 71% played, Doubtful 5.9%.\n- Probable was removed in 2016 after about 95% of Probable players played.\n- The game status report is due 4 p.m. ET two days before the game, after Wed/Thu/Fri practice reports.\n- The 90-minute inactives rule is unverified but standard.\n- The report's measured status x practice rates are plausible but unreplicated, name-joined, and small-n for QBs.\n\n(6) Time safety is confirmed as poor.\n- nfl_injuries keeps one final row per player-week. modified_at is NULL for all 2025-26 rows and for some 2023-24 rows.\n- nfl_feature_revisions has 0 rows, and valueAsKnown has no callers.\n- nfl_nfelo_qb is a single 2026-09-14 download starting in 2020, so it is hindsight data.\n- closing_spread is NULL for all of 2016-2025.\n- Opener provenance is mixed (2022-25 are Pinnacle re-opens).\n\n(7) The market-efficiency test shows no detectable residual QB effect against the close, but the interval (about -0.26 to +0.40) does not prove full pricing. The '40% after the open' claim is not established.\n\nNon-QB effects: no verified per-position points figures exist. The FO AGL correlation (site offline) and Glazer et al. 2025 (403) are unverifiable.\n\nDesign guidance that survives:\n- Build a point-in-time, in-house QB state from play-by-play, using the nfeloqb structure as weak priors under shrinkage.\n- Compute expected QB value as p_play*starter + (1-p_play)*backup, from a pooled, shrunk logistic model.\n- Filter injury status by modified_at at or before the decision time (2021-24); otherwise treat it as known only at inactives.\n- Never use snaps-played or the historical 'who started' fields as pregame inputs.\n- Treat qb_elos.csv only as a benchmark.\n- Grade QB-driven bets on CLV, and re-run the market-absorption test under the trial registry before relying on it.",
+  "reliability": "medium"
+}

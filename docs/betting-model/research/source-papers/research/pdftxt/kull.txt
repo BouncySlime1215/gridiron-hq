@@ -1,0 +1,654 @@
+    Beta calibration: a well-founded and easily implemented improvement on
+                     logistic calibration for binary classifiers
+
+
+
+                Meelis Kull                    Telmo de Menezes e Silva Filho                     Peter Flach
+            University of Bristol             Universidade Federal de Pernambuco               University of Bristol
+            University of Tartu                      Centro de Informática
+
+
+                         Abstract                                  the classifier approximates, in some sense, the class poste-
+                                                                   rior, although the approximation can be crude: for example,
+     For optimal decision making under variable class              a constant classifier predicting the overall class distribution
+     distributions and misclassification costs a classi-           for every instance is perfectly calibrated in this sense. Cal-
+     fier needs to produce well-calibrated estimates of            ibration is closely related to optimal decision making and
+     the posterior probability. Isotonic calibration is a          cost-sensitive classification, where we wish to determine
+     powerful non-parametric method that is however                the predicted class that minimises expected misclassifica-
+     prone to overfitting on smaller datasets; hence a             tion cost averaged over all possible true classes. The better
+     parametric method based on the logistic curve is              our estimates of the class posterior are, the closer we get to
+     commonly used. While logistic calibration is de-              the (irreducible) Bayes risk. A sufficiently calibrated clas-
+     signed for normally distributed per-class scores,             sifier can be simply thresholded at a threshold directly de-
+     we demonstrate experimentally that many clas-                 rived from the misclassification costs. Thresholds can also
+     sifiers including Naive Bayes and Adaboost suf-               be derived to optimally adapt to a change in class prior, or
+     fer from a particular distortion where these score            to a combination of both. In contrast, for a poorly cali-
+     distributions are heavily skewed. In such cases               brated classifier the optimal thresholds cannot be obtained
+     logistic calibration can easily yield probability             without optimisation.
+     estimates that are worse than the original scores.            Some learning algorithms are designed to yield well-
+     Moreover, the logistic curve family does not in-              calibrated probabilities. These include decision trees,
+     clude the identity function, and hence logistic               whose leaf probabilities are optimal on the training set
+     calibration can easily uncalibrate a perfectly cal-           (Provost and Domingos, 2003); as trees suffer from high
+     ibrated classifier.                                           variance, using Laplace smoothing and no pruning is rec-
+     In this paper we solve all these problems with                ommended (Ferri et al., 2003). Logistic regression is an-
+     a richer class of calibration maps based on the               other example of a learning algorithm that often produces
+     beta distribution. We derive the method from                  well-calibrated probabilities; as we show in this paper, this
+     first principles and show that fitting it is as easy          only holds if the specific parametric assumptions made by
+     as fitting a logistic curve. Extensive experiments            logistic regression are met, which cannot be guaranteed in
+     show that beta calibration is superior to logistic            general. Many other learning algorithms do not take suf-
+     calibration for Naive Bayes and Adaboost.                     ficient account of distributional factors (e.g., support vec-
+                                                                   tor machines) or make unrealistic assumptions (e.g., Naive
+                                                                   Bayes) and need to be calibrated in post-processing. Well-
+1   INTRODUCTION                                                   established calibration methods include logistic calibration,
+                                                                   also known as ‘Platt scaling’ in reference to the author who
+A predictive model can be said to be well-calibrated if its        introduced it for support vector machines (Platt, 2000) and
+predictions match observed distributions in the data. In par-      isotonic calibration, also known as the ROC convex hull
+ticular, a probabilistic classifier is well-calibrated if, among   method and pair-adjacent-violators (Zadrozny and Elkan,
+the instances receiving a predicted probability vector p , the     2002; Fawcett and Niculescu-Mizil, 2007).
+class distribution is approximately distributed as p. Hence        Isotonic calibration is a non-parametric method that uses
+                                                                   the convex hull of the model’s ROC curve to discretise
+Proceedings of the 20th International Conference on Artificial
+                                                                   the scores into bins; the slope of each segment of the con-
+Intelligence and Statistics (AISTATS) 2017, Fort Lauderdale,
+Florida, USA. JMLR: W&CP volume 54. Copyright 2017 by              vex hull can be interpreted as an empirical likelihood ratio,
+the author(s).                                                     from which a calibrated posterior probability for the corre-
+       Beta calibration: a well-founded and easily implemented improvement on logistic calibration for binary classifiers
+
+
+sponding bin can be derived. Hence the resulting calibra-                                                      γ=1                    γ=4               γ = 20
+tion map is a non-decreasing, piecewise constant function.
+
+
+
+                                                                          µlogistic(s; γ , δ)
+                                                                                                 1
+Logistic calibration is a parametric method which assumes
+that the scores within each class are normally distributed                                      0.5
+with the same variance, from which the familiar sigmoidal
+calibration map can be derived with two parameters: a lo-                                        0
+cation parameter m specifying the midpoint of the sigmoid                                             0         0.5       1 0          0.5     1 0          0.5   1
+at which the calibrated score is 0.5; and a shape parameter                                                                            s
+γ specifying the slope of the sigmoid at this midpoint. Be-
+ing a parametric model, logistic calibration tends to require             Figure 1: Examples of logistic curves with parameters γ ∈
+less labelled data to fit the sigmoid; however, it can produce            {1, 4, 20}, m ∈ {0.25, 0.5, 0.75} and δ = −mγ.
+bad results due to model mismatch.
+The main contributions of this paper are (i) a demonstration              do not want to learn perfect calibration maps on the train-
+that such model mismatch is a real danger for a range of                  ing data, because these would overfit and would be far from
+widely used machine learning models and can make clas-                    being calibrated on the test data. For example, if the model
+sifiers less calibrated; and (ii) the derivation of a new and              f outputs a different score on each training instance, then
+richer parametric family which fixes this in a principled and             the training-perfect calibration map would produce only the
+flexible way. The outline of the paper is as follows. In Sec-             0/1-probabilities µ(si ) = yi , which in most cases would be
+tion 2 we discuss the logistic calibration method and its                 overly confident and overfitting.
+properties. Section 3 introduces our new beta calibration
+method. In Section 4 we report on a wide range of exper-
+                                                                          2.2                   Logistic Family of Calibration Maps
+iments showing that beta calibration is superior to logistic
+calibration and the preferred calibration method for smaller              Logistic calibration was proposed by (Platt, 2000) to reduce
+datasets. Section 5 concludes.                                            overfitting by introducing a strong inductive bias which
+                                                                          considers only calibration maps of the following form:
+2     LOGISTIC CALIBRATION
+                                                                                                                                            1
+                                                                                                          µlogistic (s; γ, δ ) =
+2.1   What Is Calibration?                                                                                                         1 + 1/ exp(γ · s + δ )
+
+                                                                          where γ, δ are real-valued parameters with γ ≥ 0 to ensure
+The aim of calibration in binary classification is to take an
+                                                                          that the calibration map is monotonically non-decreasing.
+uncalibrated scoring classifier s = f (x) and apply a cali-
+                                                                          Monotonicity is enforced assuming that higher model out-
+bration map µ on top of it to produce calibrated probabili-
+                                                                          put scores suggest higher probability to be positive. For
+ties µ( f (x)). Formally, a scoring classifier is perfectly cal-
+                                                                          easier interpretability we introduce the parameter m =
+ibrated on a dataset if for each of its output scores s the
+                                                                          −δ /γ. This implies δ = −mγ, yielding the following al-
+proportion of positives within instances with model output
+                                                                          ternative parametrisation:
+score s is equal to s. Denoting the instances in the dataset
+by x1 , . . . , xn and their binary labels by y1 , . . . , yn , a model                                                                      1
+ f is calibrated on this dataset if for each of its possible out-                                 µlogistic (s; γ, −mγ) =                                         (1)
+                                                                                                                                   1 + 1/ exp(γ · (s − m))
+puts si = f (xi ) the following holds:
+                                                                          The parameter m determines the value of s for which the
+                        si = E[Y | f (X) = si ]                           calibrated score is 1/2; the slope of the calibration map at
+                                                                          s = m is γ/4. Figure 1 shows a variety of shapes that the
+where the random variables X,Y denote respectively the                    logistic calibration map can take.
+features and label of a uniformly randomly drawn instance
+from the dataset, where the labels Y = 1 and Y = 0 stand
+                                                                          2.3                   Fitting the Logistic Calibration Maps
+for a positive and negative, respectively. This expectation
+can be rewritten as follows (I[·] is the indicator function):             In order to fit the parameters of logistic regression we
+                                                                          need to decide how we measure the goodness of fit. I.e.,
+                                ∑nj=1 y j · I[ f (x j ) = si ]
+           E[Y | f (X) = si ] =                                           we need to measure how good the probability estimates
+                                 ∑nj=1 I[ f (x j ) = si ]                 p̂i = µlogistic (si ; γ, δ ) are, given the actual labels yi . A well-
+                                                                          known method to evaluate any estimates p̂i is to use log-
+For any fixed model f there exists a uniquely determined                  loss, which penalises predicting p̂i for a positive instance
+calibration map which produces perfectly calibrated prob-                 with a loss of − ln p̂i and for a negative instance with a loss
+abilities on the given dataset. That calibration map can be               of − ln(1 − p̂i ). E.g., the fully confident predictions p̂i = 0
+defined as µ(si ) = E[Y | f (X) = si ]. However, usually we               and p̂i = 1 incur loss 0 if correct, and loss ∞ if wrong,
+                                                                        Meelis Kull, Telmo de Menezes e Silva Filho, Peter Flach
+
+
+     1.0                                                               1.0
+                                                                                                                           figure. The red line shows that our proposed beta calibra-
+             empirical                                                           empirical
+
+
+     0.8
+             sigmoid
+             isotonic
+                                                                       0.8
+                                                                                 sigmoid
+                                                                                 isotonic
+                                                                                                                           tion method provides a similar fit to isotonic calibration on
+             beta                                                                beta
+                                                                                                                           this dataset. Note that this calibration map has an inverse-
+p̂
+     0.6
+
+                                                                  p̂
+                                                                       0.6
+                                                                                                                           sigmoid shape, which is outside of the logistic family of
+     0.4                                                               0.4                                                 calibration maps. This is no coincidence: the inverse sig-
+     0.2                                                               0.2
+                                                                                                                           moid is appropriate for classifiers that tend to produce ex-
+     0.0                                                               0.0
+                                                                                                                           treme scores close to 0 or 1, such as Adaboost. The logistic
+       0.0       0.2      0.4       0.6        0.8   1.0                 0.0         0.2       0.4       0.6   0.8   1.0
+                                s                                                                    s                     family, on the other hand, assumes that scores are too close
+             (a) landsat-satellite                                                           (b) vowel                     to the midpoint and need to be pulled to the extremes.
+Figure 2: Calibration maps for two datasets. The x-axis repre-                                                             On the right we see a dataset again without a clear sig-
+sents uncalibrated scores. The “empirical” dots show the true-                                                             moidal pattern in the uncalibrated scores. Here isotonic
+positive rates obtained from 10 bins of the uncalibrated scores                                                            calibration provides the best fit, but beta calibration learns
+produced by Adaboost.
+                                                                                                                           a calibration map that is almost the identity, which at least
+                                                                                                                           does not make matters worse like logistic calibration does.
+whereas the least confident prediction p̂i = 0.5 has loss ln 2                                                             Note that the identity map is not a member of the logistic
+regardless of the correct label. The overall log-loss can be                                                               family.
+expressed as follows:                                                                                                      In order to derive beta calibration from first principles we
+                                          n
+                                                                                                                           first revisit a derivation of logistic calibration itself.
+             LL(p̂, y) = ∑ yi (− ln p̂i ) + (1 − yi )(− ln(1 − p̂i ))
+                                    i=1                                                                                    2.5   Logistic Calibration from First Principles
+
+where p̂ = ( p̂1 , . . . , p̂n ) and y = (y1 , . . . , yn ). Log-loss can                                                  We show that the parametric assumption made by logistic
+be rewritten as follows:                                                                                                   calibration is exactly the right one if the scores output by a
+                                                           n                                                               classifier are normally distributed within each class around
+                         LL(p̂, y) = − ln ∏ p̂yi i (1 − p̂i )1−yi                                                          class means s+ and s− with the same variance σ 2 . This
+                                                       i=1
+                                                                                                         !                 gives class-specific probability density functions (PDFs)
+
+                                              = − ln                                                                                    p(s|+) = C exp[−(s − s+ )2 /(2σ 2 )]
+                                                               ∏ p̂i ∏ (1 − p̂i )
+                                                               yi =1           yi =0                                                  p(s|−) = C exp[−(s − s− )2 /(2σ 2 )]
+which is the negative log-likelihood of the labels in the                                                                             √
+                                                                                                                           with C = 1/ 2πσ , hence the likelihood ratio is
+data. This implies that minimising log-loss is equivalent
+to maximising log-likelihood, which is a common fitting                                                                               p(s|+)
+                                                                                                                            LR(s) =          = exp[(−(s − s+ )2 + (s − s− )2 )/(2σ 2 )]
+method known as maximum likelihood estimation (MLE).                                                                                  p(s|−)
+In practice, the logistic calibration maps can be fitted by                                                                        = exp[(2(s+ − s− )s − (s+2 − s−2 ))/(2σ 2 )]
+minimising log-loss using some gradient-based optimisa-                                                                            = exp[(s+ − s− )/σ 2 (s − (s+ + s− )/2)]
+tion procedure, such as the “minimize” function provided                                                                           = exp[γ(s − m)]
+by SciPy (Jones et al., 2001), which uses a quasi-Newton
+method to perform the optimisation. However, as the task                                                                   with γ = (s+ − s− )/σ 2 and m = (s+ + s− )/2. For γ > 0 this
+is simply univariate logistic regression with feature s and                                                                is a monotonically increasing function with LR(m) = 1.
+label y, it can be solved using the standard logistic regres-
+                                                                                                                           We then derive a calibrated probability as follows:1
+sion functionality in any machine learning toolkit, such as
+WEKA (Hall et al., 2009), Scikit-learn (Pedregosa et al.,                                                                                                  1                1
+                                                                                                                            µlogistic (s; γ, −mγ) =               =
+2011), etc.                                                                                                                                           1 + LR(s)−1   1 + exp[−γ(s − m)]
+                                                                                                                           giving the exact same form as in Eq.(1).
+2.4           Why Logistic Calibration Can Fail
+                                                                                                                           Conversely, it is easy to see that every function of this form
+As mentioned in the introduction, logistic calibration can                                                                 corresponds to some pair of Gaussians with equal variance.
+fail if its parametric assumptions are not met. We now                                                                     Indeed, one can choose Gaussians with unit variance and
+demonstrate that this failure can be substantial and can ac-                                                               with the means s+ = m+γ/2 and s− = m−γ/2 on positives
+tually lead to ‘calibrated’ scores that are worse than the                                                                 and negatives, respectively.
+original. Figure 2 shows two datasets where the score dis-                                                                     1 Here we assume a uniform prior over the classes, hence the
+tortions (black dots) are clearly not sigmoidal. Isotonic cal-                                                             likelihood ratio equals the posterior odds. Adapting to a non-
+ibration (green line) captures this but logistic calibration                                                               uniform prior can be done by moving the decision threshold on
+(blue) line results in a very poor fit, particularly in the left                                                           the calibrated probability away from 1/2.
+       Beta calibration: a well-founded and easily implemented improvement on logistic calibration for binary classifiers
+
+
+3     BETA CALIBRATION                                                3.2   Examples of Beta Calibration
+
+3.1   Beta Calibration from First Principles                          A simple case where beta calibration gives exactly the
+                                                                      right calibration map is the following. Suppose we have
+The derivation of logistic calibration assumes normal dis-            k features, each being a copy of the same perfectly cali-
+tribution of scores within each class. For probabilistic clas-        brated feature with values x = (x1 , . . . , xn ) on the training
+sifiers such as Naive Bayes the Gaussians are unreasonable            instances. Naive Bayes would consider these features inde-
+due to infinite support, because the probabilities are always                                       xk
+                                                                      pendent and output s = xk +(1−x)  k on these instances. This
+in the range [0, 1]. Hence it makes sense to derive an al-            pushes the probability estimates towards the extremes and
+ternative parametric family of calibration functions using            the perfect calibration map must bring these back to their
+distributions with finite support. A natural choice is the            original calibrated values x. Since s/(1−s) = (x/(1−x))k ,
+beta distribution which has PDF                                                                                          1/k −1
+                                                                                                                            s
+                                                                      the perfect calibration map is x = 1/(1 + (1−s)         1/k     ),
+                                    sα−1 (1 − s)β −1                  which belongs to the beta calibration family with the pa-
+                  p(s; α, β ) =                                       rameters a = b = 1/k and c = 0.
+                                       B(α, β )
+                                                                      As another example, suppose that we do not know that the
+where α > 0 and β > 0 are shape parameters and B(α, β )               scores s are already calibrated and we still apply calibra-
+is the normalising beta function.                                     tion. In such a case we would like the calibration procedure
+Now assume that the scores on both classes are beta-                  to learn the identity mapping. Since the identity function
+distributed with parameters α0 , β0 and α1 , β1 , respectively.       does not belong to the logistic family, logistic calibration
+The likelihood ratio then becomes                                     would uncalibrate the scores. However, the beta calibra-
+                                                                      tion family does contain the identity function, parametrised
+                          sα1 −1 (1 − s)β1 −1  sα0 −1 (1 − s)β0 −1   by a = b = 1 and c = 0, and hence would keep the scores
+LR(s; α0 , β0 , α1 , β1 ) =                                           calibrated.
+                                 B(α1 , β1 )           B(α0 , β0 )
+                          s α   −1 (1 − s) β   −1   B(α1 , β1 )
+                              1              1                       Similarly as for logistic calibration we can define a mid-
+                        = α −1
+                          s 0 (1 − s)β0 −1 B(α0 , β0 )                point m such that LR(m) = 1, which gives K = ma /(1−m)b
+                                sa                                   and hence the alternative parametrisation
+                        =           b
+                                         K
+                          (1 − s)
+                                                                             LR(s; a, b, c) = LR(s; a, b, b ln(1 − m) − a ln m)
+where a = α1 − α0 , b = β0 − β1 , and K =                                                        sa           ma
+B(α1 , β1 )/B(α0 , β0 ). For later convenience we use                                       =
+                                                                                              (1 − s)b (1 − m)b
+the parametrisation with K = e−c :
+
+                                         sa     −c                   Figure 3 shows a variety of shapes that the beta calibration
+                 LR(s; a, b, c) =            b
+                                                e
+                                      (1 − s)                         maps can take for different values of a (horizontally), b
+                                                                      (vertically) and m (within each figure). The panels on the
+As before, we can turn this likelihood ratio into a calibrated        descending diagonal shows cases where a = b; we refer to
+probability µbeta (s; a, b, c) = 1/(1 + LR(s; a, b, c)−1 ),           this as beta[a=b] calibration. On the bottom right we see the
+which finally gives the beta calibration map family:                  familiar sigmoid shapes which are achieved with a = b > 1.
+                                                                      The midpoint can be moved using m, but notice the curves
+                                          1                           are not translation-invariant as logistic sigmoids are. On the
+             µbeta (s; a, b, c) =       .          
+                                               sa                     top left we see pure inverse-sigmoid curves a = b < 1 that
+                                    1+1   ec (1−s)b
+                                                                      are able to correct for extreme probabilities. The middle
+                                                                      panel shows that the family includes the identity map on the
+We will require each calibration map to be monotonically
+                                                                      diagonal, which can be pulled away in either direction by
+non-decreasing, which implies a, b ≥ 0. Conversely, it is
+                                                                      varying m, resulting in non-sigmoidal curves that would be
+easy to see that every function of this form corresponds to
+                                                                      appropriate if one class suffers from extreme scores while
+some two beta distributions for the scores on positives and
+                                                                      the other tends to be scored towards the middle. It can be
+negatives. For this consider any a, b > 0 and c ∈ R and
+                                                                      shown that the beta[a=b] calibration family is closed under
+fix α0 = 1, α1 = 1 + a, β0 = M + b, β1 = M for some value
+                                                                      inversion.
+M ≥ 0. Then indeed a = α1 −α0 and b = β0 −β1 , it remains
+to be shown that B(α1 , β1 )/B(α0 , β0 ) = e−c . For this note        The off-diagonal panels show various asymmetries that can
+that the value of B(x + a, y)/B(x, y + b) is 0 for x = 1, y = 0       be introduced by allowing a 6= b. These asymmetries are
+but tends to ∞ when x → ∞ while y = 1. Due to continuity              strongest if one parameter is larger than 1 while the other
+there must exist values x, y for which this ratio equals e−c .        is smaller than 1.
+                                                            Meelis Kull, Telmo de Menezes e Silva Filho, Peter Flach
+
+
+                                a = 0.2              a=1                a=5
+                                                                                                Algorithm 1 Beta[a=b] calibration via logistic regression
+                     1                                                                          Require: ytrain and strain are the label and model output
+                                                                                                    score vectors on training instances, stest is the model
+                    0.5                                                               b = 0.2       output score vector on test instances
+                                                                                                              strain
+                                                                                                 1: s0 ← ln 1−s
+                                                                                                                 train
+                     0
+                                                                                                 2: (a, c) ← fit univariate logistic regression to predict
+
+
+
+µbeta(s; a, b, c)
+                     1
+                                                                                                    ytrain from s0
+                                                                                                                            sa
+                                                                                      b=1
+                    0.5                                                                          3: p̂test ← 1/(1 + 1/(ec (1−stest )a ))
+                                                                                                                               test
+                                                                                                 4: return p̂test
+                     0
+                     1
+                                                                                                Algorithm 2 Beta calibration via logistic regression
+                    0.5                                                               b=5       Require: ytrain and strain are the label and model output
+                                                                                                    score vectors on training instances, stest is the model
+                     0                                                                              output score vector on test instances
+                           0      0.5        1 0      0.5       1 0         0.5   1
+                                                                                                 1: s0 ← ln strain
+                                                       s
+                                                                                                 2: s00 ← − ln(1 − strain )
+                                                                                                 3: (a, b, c) ← fit bivariate logistic regression to predict
+Figure 3: Examples of beta curves with parameters a, b ∈
+                                                                                                    ytrain from s0 and s00
+{0.2, 1, 5}, m ∈ {0.25, 0.5, 0.75} and c = b ln(1 − m) −                                                                     sa
+a ln m.                                                                                          4: p̂test ← 1/(1 + 1/(ec (1−stest )b ))
+                                                                                                                               test
+                                                                                                 5: return p̂test
+
+3.3                 Fitting the Parameters
+                                                                                                variate logistic regression) for fitting the beta[a=b] calibra-
+One way of fitting beta calibration maps is to minimise log-                                    tion maps, as shown in Algorithm 1. Note that the operators
+loss with the same methods as in logistic regression. This                                      in the algorithm apply on vectors component-wise.
+can be performed using any optimisation tool, supplying it
+with the objective function and its gradient. However, in                                       Furthermore, it turns out that we can use bivariate logis-
+the following we derive results which reduce these tasks                                        tic regression to fit the full 3-parameter beta calibration
+to fitting logistic regression in a different feature space, al-                                maps. This is due to our result stated in Proposition 2
+lowing to implement beta calibration by simply calling any                                      showing that applying the beta calibration map with param-
+logistic regression implementation, which is contained in                                       eters a, b, c gives the same result as applying the bivariate
+all standard machine learning toolkits.                                                         logistic regression model on the log-scores and negative-
+                                                                                                log-complement-scores with the same parameters a, b, c.
+Proposition 1. For any a ≥ 0                                          and     c, s ∈ R:
+                                    s                                                           The resulting beta calibration algorithm is shown as Algo-
+µbeta (s; a, a, c) = µlogistic (ln 1−s ; a, c).
+                                                                                                rithm 2.
+
+Proof. It is sufficient to prove that the corresponding like-                                   Proposition 2. For any a, b ≥ 0 and c, s ∈ R:
+lihood ratios are equal.                                                                        µbeta (s; a, b, c) = µbilogistic (ln s, − ln(1 − s); a, b, c), where
+                                                                                                µbilogistic (s0 , s00 ; a, b, c) = 1/(1 + 1/ exp[as0 + bs00 + c]) is
+                                            s                        s                          the bivariate logistic regression model family.
+                          LRlogistic (ln        ; a, c) = exp[a ln        + c]
+                                          1−s                      1−s
+                                                  a
+                                              s                                                 Proof. It is sufficient to prove that the corresponding like-
+                                        =              ec = LRbeta (s; a, a, c)
+                                            1−s                                                 lihood ratios are equal.
+
+                                                                                                              LRbilogistic (ln s, − ln(1 − s); a, b, c)
+                                                                                                               = exp[a ln s − b ln(1 − s) + c]
+The result in Proposition 1 shows that applying the beta
+calibration map with two parameters a and c where b = a                                                             sa
+                                                                                                               =          ec = LRbeta (s; a, b, c)
+gives the same result as applying the logistic calibration                                                       (1 − s)b
+map on the log-odds, i.e. on the log-ratios of scores
+and there complements, with γ = a and δ = c. There-
+fore, the optimal parameter values in minimising log-loss
+of beta-calibrated probabilities and in minimising log-loss                                     One subtle issue with Algorithms 1 and 2 is that in principle
+of the logistic-calibrated log-odds-transformed scores coin-                                    fitting might result in either a < 0 or b < 0 or both, yielding
+cide also. Hence, we can use logistic calibration (i.e. uni-                                    calibration maps that are either monotonically decreasing
+      Beta calibration: a well-founded and easily implemented improvement on logistic calibration for binary classifiers
+
+Table 1: Description of the 41 classification datasets from        Table 1 for details. Multiclass datasets were transformed
+UCI used for the experiments.                                      into binary by calling the biggest class positive and the
+                                                                   other classes negative. We compared the performance of
+    Name                    Samples     Features   Classes         beta calibration, beta[a=b] calibration, beta[m=1/2] calibra-
+    abalone                    4177           8          3         tion, isotonic calibration, logistic calibration and uncali-
+    autos                       159          25          6         brated probabilities, in terms of Brier score (BS) and log-
+    balance-scale               625           4          3         loss (LL), which are both proper scoring rules (Kull and
+    car                        1728           6          4         Flach, 2015) and hence well-founded measures for assess-
+    cleveland                   297          13          5
+    credit-approval             653          15          2         ing the quality of predicted probabilities. Supplementary
+    dermatology                 358          34          6         material additionally evaluates accuracy.
+    diabetes                    768           8          2
+    ecoli                       336           7          8         The results were obtained from 10 times 5-fold cross-
+    flare                      1389          10          6         validation, totalling 50 executions. Within each execution
+    german                     1000          20          2         we used 3-fold internal cross-validation with 2 folds for
+    glass                       214           9          6         learning the model and 1 for fitting the calibration map.
+    heart-statlog               270          13          2         Thus, three calibrated classifiers were generated during
+    hepatitis                   155          19          2
+    horse                       300          27          2         each execution, the outputs of these three were averaged
+    ionosphere                  351          34          2         to provide predictions on the test fold. The same method-
+    iris                        150           4          3         ology was used in the paper proposing the logistic calibra-
+    landsat-satellite          6435          36          6         tion (Platt, 2000). All experiments were written in Python
+    letter                    35000          16         26         and the code is publicly available2 . The detailed tables of
+    libras-movement             360          90         15
+    lung-cancer                  96        7129          2         results are available in the Supplementary material.
+    mfeat-karhunen             2000          64         10         For Naive Bayes (NB), we used the implementation pro-
+    mfeat-morphological        2000           6         10
+    mfeat-zernike              2000          47         10         vided by Scikit-learn (Pedregosa et al., 2011). For boost-
+    mushroom                   8124          22          2         ing we used 200 decision stumps as weak learners and
+    optdigits                  5620          64         10         implemented two different versions of the standard Ad-
+    page-blocks                5473          10          5         aboost algorithm. The first is the original Adaboost with
+    pendigits                 10992          16         10         probabilities extracted in the standard way as in (Fried-
+    scene-classification       2407         294          2
+    segment                    2310          19          7         man et al., 2000), we refer to it as Ada-O. The second is
+    shuttle                  101500           9          7         the one implemented in Scikit-learn’s based on Adaboost
+    sonar                       208          60          2         method SAMME (Zhu et al., 2009), we refer to it as Ada-
+    spambase                   4601          57          2         S. These versions turn out to be quite different, as Ada-O
+    tic-tac                     958           9          2         tends to push the probabilities to the extremes similarly to
+    vehicle                     846          18          4
+    vowel                       990          10         11         NB, whereas Ada-S pulls them towards 0.5. Therefore, we
+    waveform-5000              5000          40          3         expect beta calibration to outperform logistic calibration on
+    wdbc                        569          30          2         Ada-O and NB, while being comparably good on Ada-S.
+    wpbc                        194          33          2
+    yeast                      1484           8         10         For statistical comparisons between the calibration meth-
+    zoo                         101          16          7         ods we followed (Demšar, 2006) and conducted the Fried-
+                                                                   man test based on the average ranks across the data sets
+                                                                   to verify whether the differences between algorithms were
+or not monotonic at all. This did not ever happen in our ex-       statistically significant. In case of significance at 5% con-
+periments but if this situation is important to be avoided         fidence level we proceeded to a post-hoc analysis based on
+then logistic regression should be fitted with constraints         Nemenyi statistics producing critical difference diagrams
+a, b ≥ 0. Alternatively, one could still use non-constrained       identifying pairwise significant differences.
+logistic regression, but after this explicitly check if the con-
+straints are satisfied. The variables with negative coeffi-        We first compared the full 3-parameter beta calibration
+cients could then be eliminated (i.e., the respective coeffi-      with logistic and isotonic calibration methods, as well as
+cient fixed to be zero) and unconstrained logistic regression      with the uncalibrated probabilities, across all 3x2 settings
+could be fitted again.                                             (NB, Ada-S, Ada-O; LL, BS). The critical difference dia-
+                                                                   grams are shown in Figure 4 for LL and in Figure 5 for BS.
+                                                                   As expected, beta calibration was significantly better than
+4   EXPERIMENTS                                                    logistic calibration on NB and Ada-O, both for LL and BS.
+                                                                   Furthermore, on LL beta calibration was even significantly
+We evaluated the effect of applying beta calibration and           better than isotonic calibration, while being on par under
+its variations to the scores produced by Naive Bayes and
+Adaboost on 41 datasets from UCI (Lichman, 2013), see                 2 https://betacal.github.io
+                                       Meelis Kull, Telmo de Menezes e Silva Filho, Peter Flach
+
+               CD                                                                     CD
+                1        2         3    4                                             1      2         3     4    5
+    beta                                                                   beta
+  logistic                                                              beta[a=b]
+  isotonic                                                               logistic
+uncalibrated                                                          beta[m = 1/2]
+                                                                      uncalibrated
+                    (a) Naive Bayes
+                                                                                           (a) Naive Bayes
+               CD
+                                                                                      CD
+                1        2         3    4
+                                                                                      1      2         3     4    5
+    beta
+  logistic                                                                 beta
+uncalibrated                                                            beta[a=b]
+  isotonic                                                            beta[m = 1/2]
+                                                                         logistic
+                                                                      uncalibrated
+                      (b) Ada-O
+                                                                                             (b) Ada-O
+               CD
+                1        2         3    4                                             CD
+    beta                                                                              1      2         3     4    5
+  logistic
+  isotonic                                                                 beta
+uncalibrated                                                          beta[m = 1/2]
+                                                                         logistic
+                                                                        beta[a=b]
+                       (c) Ada-S                                      uncalibrated
+
+
+Figure 4: Critical difference diagrams for log-loss with Naive                                   (c) Ada-S
+Bayes, Ada-O and Ada-S as base classifiers, Friedman test p-
+values are 6.9e−17, 1.0e−12 and 4.7e−15, respectively.               Figure 6: Critical difference diagrams for log-loss on parametric
+                                                                     methods with Naive Bayes, Ada-O and Ada-S classifiers, Fried-
+                                                                     man test p-value are 1.2e−20, 1.6e−15 and 2.8e−17.
+               CD
+                1        2         3    4
+    beta                                                                              CD
+  isotonic
+  logistic                                                                            1      2         3     4    5
+uncalibrated
+                                                                           beta
+                                                                        beta[a=b]
+                    (a) Naive Bayes                                      logistic
+                                                                      beta[m = 1/2]
+                                                                      uncalibrated
+               CD
+                                                                                           (a) Naive Bayes
+                1        2         3    4
+    beta
+  isotonic                                                                            CD
+uncalibrated
+  logistic                                                                            1      2         3     4    5
+                                                                           beta
+                      (b) Ada-O                                         beta[a=b]
+                                                                      beta[m = 1/2]
+                                                                      uncalibrated
+                                                                         logistic
+               CD
+                1        2         3    4                                                    (b) Ada-O
+  isotonic
+    beta
+  logistic                                                                            CD
+uncalibrated
+                                                                                      1      2         3     4    5
+                       (c) Ada-S                                           beta
+                                                                      beta[m = 1/2]
+                                                                         logistic
+                                                                        beta[a=b]
+Figure 5: Critical difference diagrams for Brier score with Naive     uncalibrated
+Bayes, Ada-O and Ada-S as base classifiers, Friedman test p-
+values are 1.0e−14, 3.7e−06 and 5.8e−13, respectively.                                           (c) Ada-S
+
+                                                                     Figure 7: Critical difference diagrams for Brier score on para-
+                                                                     metric methods with Naive Bayes, Ada-O and Ada-S classifiers,
+BS. With Ada-S the probabilities tend to be pulled towards           Friedman test p-values are 2.4e−18, 1.4e−06 and 1.6e−13.
+0.5 and the logistic fits reasonably well, here beta calibra-
+tion performed comparably to logistic calibration (beta cal-
+ibration was non-significantly better). To summarise, no
+                                                                     in Figure 6 for LL and in Figure 7 for BS. Among the three
+other method was ever significantly better than beta cali-
+                                                                     variants the 3-parameter version was either the best or tied
+bration, and beta calibration was significantly better than
+                                                                     with the best (i.e., not significantly worse than the best)
+all other methods for NB and Ada-O according to LL. Full
+                                                                     for all settings (NB, Ada-O, Ada-S and LL, BS). Hence
+results on Ada-O for LL are shown in Table 2.
+                                                                     the experiments show that the full 3-parameter version of
+We then continued to compare the variants of beta calibra-           beta calibration is a versatile parametric calibration method
+tion, leaving the non-parametric isotonic out of the picture.        which is preferable to logistic regression, especially if the
+The critical difference diagrams for this analysis are shown         model has pushed the scores towards the extremes.
+      Beta calibration: a well-founded and easily implemented improvement on logistic calibration for binary classifiers
+
+Table 2: Log-loss results with Ada-O classifier. Best results    well as a host of other maps including the identity map. We
+are marked in bold and subscripts indicate the ranks (before     derived the method from first principles making one simple
+rounding to 3 decimal digits).                                   parametric assumption: that the per-class scores of the clas-
+                                                                 sifier each follow a beta distribution. This is particularly
+    dataset    uncalibrated    beta    isotonic   logistic       suitable for classifiers that score on a bounded scale, for
+    abalone      0.6122       0.6121    0.6264    0.6143         which the Gaussian assumption underlying logistic calibra-
+    autos        0.4274       0.2831    0.4163    0.2872         tion is incoherent. The two beta distributions can be quite
+    balance      0.0494       0.0371    0.0413    0.0382         different in shape, giving the family much more flexibility
+    car          0.1142       0.1091    0.1224    0.1193         than the logistic family, which has to assume homoscedas-
+    clevela      0.4963       0.4171    0.5234    0.4292
+    credit-      0.3603       0.3412    0.4444    0.3381         ticity to keep the calibration map monotonic. This added
+    dermato      0.0364       0.0191    0.0353    0.0212         flexibility is also visible in the fact that the beta calibra-
+    diabete      0.5063       0.4841    0.5254    0.4952         tion maps have three parameters (one for location, two for
+    ecoli        0.3264       0.1451    0.2243    0.1592         shape) as opposed to the logistic maps which have only two
+    flare        0.4041       0.4042    0.4214    0.4083         (one for location and one shape parameter fixing the slope
+    german       0.5113       0.5062    0.5384    0.5061
+    glass        0.6964       0.4892    0.5603    0.4851         at the midpoint). If the full flexibility is not required we
+    heart-s      0.5704       0.4271    0.5573    0.4432         can force the two shape parameters of the beta calibration
+    hepatit      0.8054       0.3921    0.4313    0.4112         family to be the same, which gives symmetric curves but
+    horse        0.6424       0.4131    0.5243    0.4182         still includes inverse sigmoids as well as sigmoids.
+    ionosph      0.3814       0.2031    0.2963    0.2272
+    iris         0.1274       0.0002    0.0001    0.0003         Our second contribution is that we connect beta calibration
+    landsat      0.0412       0.0401    0.0433    0.0534         back to logistic calibration, by formulating it as a logis-
+    letter       0.0373       0.0352    0.0351    0.0444         tic regression problem over features constructed from the
+    libras-      0.5894       0.1001    0.1843    0.1122
+    lung-ca      0.1934       0.1391    0.1893    0.1392         classifier’s score s. In particular, the two-parameter version
+    mfeat-k      0.0624       0.0271    0.0483    0.0322         of beta calibration can be fitted by performing univariate
+    mfeat-m      0.0404       0.0141    0.0263    0.0142         logistic regression over the feature ln(s/(1 − s)), and the
+    mfeat-z      0.0954       0.0321    0.0633    0.0392         full three-parameter version can be fitted by means of bi-
+    mushroo      0.0004       0.0003    0.0002    0.0001         variate logistic regression with features ln s and − ln(1 − s).
+    optdigi      0.0352       0.0331    0.0444    0.0403
+    page-bl      0.0932       0.0891    0.0983    0.1094         The two-parameter version of beta calibration with a and c
+    pendigi      0.0172       0.0171    0.0234    0.0213         where a = b has been considered before as a linear-in-log-
+    scene-c      0.3844       0.3641    0.3762    0.3783         odds (LLO) calibration method (Lichtenstein et al., 1977;
+    segment      0.0203       0.0101    0.0234    0.0132         Turner et al., 2014) but without a justification.
+    shuttle      0.0002       0.0001    0.0014    0.0003
+    sonar        0.9414       0.4041    0.4863    0.4402         We performed extensive experiments on 41 binary datasets,
+    spambas      0.1622       0.1621    0.1734    0.1673         with Naive Bayes and Adaboost as base classifiers and
+    tic-tac      0.3794       0.3331    0.3403    0.3392         evaluating both log-loss and Brier score. The experiments
+    vehicle      0.0772       0.0681    0.1314    0.0773
+    vowel        0.0762       0.0711    0.0944    0.0853         show that all versions of beta calibration outperform logis-
+    wavefor      0.2532       0.2521    0.2643    0.2714         tic calibration. We have also observed that beta calibra-
+    wdbc         0.2564       0.0891    0.1413    0.1072         tion is a good alternative to isotonic calibration on smaller
+    wpbc         1.0164       0.5002    0.4961    0.5033         datasets, where isotonic calibration might overfit.
+    yeast        0.5102       0.5091    0.5434    0.5143
+    zoo          0.1324       0.0133    0.0131    0.0132         There are several avenues for future work. As beta calibra-
+    rank           3.20        1.27      3.12      2.41          tion is directly minimising log-loss it is perhaps no surprise
+                                                                 that it outperforms isotonic calibration for log-loss, but this
+                                                                 situation is reversed (although not significantly) for Brier
+                                                                 score, and we plan to get a better understanding of this.
+Beta[a=b] calibration has comparable running time to
+                                                                 It would also be interesting to formulate minimising Brier
+logistic calibration and the 3-parameter version can be
+                                                                 score as an alternative optimisation task.
+slightly slower. However, both calibration methods are usu-
+ally orders of magnitude faster than learning of the classi-
+fier itself. Therefore, the overall time for learning a clas-    Acknowledgements
+sifier and calibrating it is not increased considerably when
+moving from logistic calibration to beta calibration.            This work was supported by the SPHERE Interdisci-
+                                                                 plinary Research Collaboration, funded by the UK En-
+                                                                 gineering and Physical Sciences Research Council under
+5   CONCLUDING REMARKS                                           grant EP/K031910/1. TSF was financially supported by
+                                                                 CNPq (Brazilian National Council for Scientific and Tech-
+We introduced a rich and flexible family of calibration          nological Development). All data used are openly available
+maps that includes both sigmoids and inverse sigmoids, as        from the UCI repository (Lichman, 2013).
+                                   Meelis Kull, Telmo de Menezes e Silva Filho, Peter Flach
+
+
+References                                                        J. Zhu, H. Zou, S. Rosset, and T. Hastie. Multi-class Ad-
+                                                                     aBoost. Statistics and its Interface, 2(3):349–360, 2009.
+J. Demšar. Statistical comparisons of classifiers over mul-
+   tiple data sets. J. Machine Learning Research, 7(Jan):
+   1–30, 2006.
+T. Fawcett and A. Niculescu-Mizil. PAV and the ROC con-
+   vex hull. Machine Learning, 68(1):97–106, 2007.
+C. Ferri, P. Flach, and J. Hernández-Orallo. Improving
+  the AUC of probabilistic estimation trees. In 14th Eur.
+  Conf. on Machine Learning, (ECML’03), pages 121–
+  132. Springer, 2003.
+J. Friedman, T. Hastie, R. Tibshirani, et al. Additive lo-
+   gistic regression: a statistical view of boosting (with dis-
+   cussion and a rejoinder by the authors). The Annals of
+   Statistics, 28(2):337–407, 2000.
+M. Hall, E. Frank, G. Holmes, B. Pfahringer, P. Reutemann,
+ and I. H. Witten. The WEKA data mining software:
+ An update. SIGKDD Explor. Newsl., 11(1):10–18, Nov.
+ 2009. ISSN 1931-0145.
+E. Jones, T. Oliphant, P. Peterson, et al. SciPy: Open source
+   scientific tools for Python, 2001. URL http://www.
+   scipy.org/.
+M. Kull and P. Flach. Novel decompositions of proper scor-
+ ing rules for classification: Score adjustment as precur-
+ sor to calibration. In Machine Learning and Knowledge
+ Discovery in Databases (ECML-PKDD’15), pages 68–
+ 85. Springer, 2015.
+M. Lichman. UCI machine learning repository, 2013. URL
+ http://archive.ics.uci.edu/ml.
+S. Lichtenstein, B. Fischhoff, and L. D. Phillips. Calibra-
+   tion of probabilities: The state of the art. In Decision
+   making and change in human affairs, pages 275–324.
+   Springer, 1977.
+F. Pedregosa, G. Varoquaux, A. Gramfort, V. Michel,
+   B. Thirion, O. Grisel, M. Blondel, P. Prettenhofer,
+   R. Weiss, V. Dubourg, J. Vanderplas, A. Passos, D. Cour-
+   napeau, M. Brucher, M. Perrot, and E. Duchesnay.
+   Scikit-learn: Machine learning in Python. J. Machine
+   Learning Research, 12:2825–2830, 2011.
+J. Platt. Probabilities for SV machines. In A. Smola,
+   P. Bartlett, B. Schölkopf, and D. Schuurmans, editors,
+   Adv. Large Margin Classifiers, pages 61–74. MIT Press,
+   2000.
+F. Provost and P. Domingos. Tree induction for probability-
+   based ranking. Machine Learning, 52(3):199–215, 2003.
+B. M. Turner, M. Steyvers, E. C. Merkle, D. V. Budescu,
+  and T. S. Wallsten. Forecast aggregation via recalibra-
+  tion. Machine Learning, 95(3):261–289, 2014.
+B. Zadrozny and C. Elkan. Transforming classifier scores
+  into accurate multiclass probability estimates. In Proc.
+  8th Int. Conf. on Knowledge Discovery and Data Mining
+  (KDD’02), pages 694–699. ACM, 2002.
+

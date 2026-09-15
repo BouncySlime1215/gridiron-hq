@@ -1,0 +1,210 @@
+{
+  "usage_by_feature": [
+    {
+      "feature": "team-analysis",
+      "calls": 536,
+      "input_tokens": 1488635,
+      "output_tokens": 350335,
+      "first": "2026-07-31",
+      "last": "2026-09-14"
+    },
+    {
+      "feature": "nfl_blind_replay_gate",
+      "calls": 203,
+      "input_tokens": 634965,
+      "output_tokens": 36540,
+      "first": "2026-08-24",
+      "last": "2026-08-24"
+    },
+    {
+      "feature": "draft-advice",
+      "calls": 56,
+      "input_tokens": 390554,
+      "output_tokens": 72389,
+      "first": "2026-08-23",
+      "last": "2026-09-08"
+    },
+    {
+      "feature": "nfl-tweet-line-explain",
+      "calls": 557,
+      "input_tokens": 182905,
+      "output_tokens": 47464,
+      "first": "2026-08-27",
+      "last": "2026-09-01"
+    },
+    {
+      "feature": "nfl-news-typed-extraction",
+      "calls": 178,
+      "input_tokens": 119024,
+      "output_tokens": 38065,
+      "first": "2026-08-27",
+      "last": "2026-09-14"
+    },
+    {
+      "feature": "nfl-page-explain-ai",
+      "calls": 32,
+      "input_tokens": 110141,
+      "output_tokens": 5130,
+      "first": "2026-09-04",
+      "last": "2026-09-07"
+    },
+    {
+      "feature": "execution-slate-review",
+      "calls": 28,
+      "input_tokens": 46092,
+      "output_tokens": 9174,
+      "first": "2026-09-07",
+      "last": "2026-09-07"
+    },
+    {
+      "feature": "trade-sense-check",
+      "calls": 9,
+      "input_tokens": 26291,
+      "output_tokens": 4894,
+      "first": "2026-08-23",
+      "last": "2026-09-07"
+    },
+    {
+      "feature": "execution-slate-propose",
+      "calls": 28,
+      "input_tokens": 21640,
+      "output_tokens": 7134,
+      "first": "2026-09-07",
+      "last": "2026-09-07"
+    },
+    {
+      "feature": "draft-advice-latency-bench",
+      "calls": 6,
+      "input_tokens": 24273,
+      "output_tokens": 3699,
+      "first": "2026-09-07",
+      "last": "2026-09-07"
+    },
+    {
+      "feature": "draft-advice-e2e-bench",
+      "calls": 12,
+      "input_tokens": 11742,
+      "output_tokens": 7935,
+      "first": "2026-09-07",
+      "last": "2026-09-07"
+    },
+    {
+      "feature": "draft-advice-retry",
+      "calls": 2,
+      "input_tokens": 13525,
+      "output_tokens": 411,
+      "first": "2026-09-08",
+      "last": "2026-09-08"
+    },
+    {
+      "feature": "nfl-pick-explain-ai",
+      "calls": 11,
+      "input_tokens": 4403,
+      "output_tokens": 2402,
+      "first": "2026-08-27",
+      "last": "2026-09-08"
+    },
+    {
+      "feature": "trade-sense-check-retry",
+      "calls": 1,
+      "input_tokens": 4093,
+      "output_tokens": 381,
+      "first": "2026-09-07",
+      "last": "2026-09-07"
+    },
+    {
+      "feature": "nfl-news-event-typed-extraction",
+      "calls": 1,
+      "input_tokens": 2135,
+      "output_tokens": 1170,
+      "first": "2026-09-08",
+      "last": "2026-09-08"
+    },
+    {
+      "feature": "nfl-press-role-inference",
+      "calls": 1,
+      "input_tokens": 1389,
+      "output_tokens": 1095,
+      "first": "2026-09-08",
+      "last": "2026-09-08"
+    },
+    {
+      "feature": "news-explain",
+      "calls": 2,
+      "input_tokens": 1633,
+      "output_tokens": 491,
+      "first": "2026-08-24",
+      "last": "2026-08-26"
+    },
+    {
+      "feature": "trade-explain",
+      "calls": 3,
+      "input_tokens": 977,
+      "output_tokens": 622,
+      "first": "2026-07-31",
+      "last": "2026-09-02"
+    },
+    {
+      "feature": "draft-grade",
+      "calls": 1,
+      "input_tokens": 696,
+      "output_tokens": 558,
+      "first": "2026-08-26",
+      "last": "2026-08-26"
+    },
+    {
+      "feature": "player-verdict",
+      "calls": 1,
+      "input_tokens": 694,
+      "output_tokens": 172,
+      "first": "2026-08-23",
+      "last": "2026-08-23"
+    },
+    {
+      "feature": "test",
+      "calls": 2,
+      "input_tokens": 200,
+      "output_tokens": 8,
+      "first": "2026-09-04",
+      "last": "2026-09-04"
+    }
+  ],
+  "replay_runs": [],
+  "news_sources": [
+    {
+      "extractor_version": "claude-typed-news-2026.1",
+      "verification_state": "quarantined",
+      "n": 36
+    },
+    {
+      "extractor_version": "claude-typed-news-2026.1",
+      "verification_state": "verified",
+      "n": 163
+    },
+    {
+      "extractor_version": "typed-rules-2026.1",
+      "verification_state": "quarantined",
+      "n": 71
+    },
+    {
+      "extractor_version": "typed-rules-2026.1",
+      "verification_state": "verified",
+      "n": 288
+    }
+  ],
+  "events": [
+    {
+      "source_kind": "news_item",
+      "n": 10
+    },
+    {
+      "source_kind": "press_conference",
+      "n": 20
+    }
+  ],
+  "explanations": [
+    {
+      "n": 28
+    }
+  ]
+}

@@ -1,0 +1,649 @@
+{
+  "observed_at": "2026-09-10T03:17:04.386516+00:00",
+  "source_commit": "969d501e5d318f8ff650d7e239d8647f8b75eb84",
+  "run31": {
+    "id": 31,
+    "status": "complete",
+    "next_ordinal": 70,
+    "code_hash": "23ef8cdcf34250508dfcd106780aa48d4e55133bd573b50e610f6269ae3e7d8a",
+    "data_hash": "ab8a26b8ef1210f59724a64a28c6236699a2bc1d4d218e7fddd68883af04e054"
+  },
+  "compared_run": 27,
+  "weeks": 70,
+  "identical_pick_arrays": 70,
+  "total_picks": 545,
+  "spread_picks": 153,
+  "weekly_comparison": [
+    {
+      "ordinal": 0,
+      "season": 2021,
+      "week": 5,
+      "pick_count": 5,
+      "spread_count": 0,
+      "picks_identical": true,
+      "picks_sha256": "b8f886a1eb47196b7c8d2bbfc48799fdc660120b2592646503a5c49f0b53fe99"
+    },
+    {
+      "ordinal": 1,
+      "season": 2021,
+      "week": 6,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "6cb12072db5b040a46b4882dfe562dbf3a58c2b16fea1d9e64c1315918953319"
+    },
+    {
+      "ordinal": 2,
+      "season": 2021,
+      "week": 7,
+      "pick_count": 9,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "30687c94586ebee9dbdd99de027291a50f35ac5f3656c1a41cec472b27f1c87e"
+    },
+    {
+      "ordinal": 3,
+      "season": 2021,
+      "week": 8,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "dd397a2aec820470db37b069e4a4f0d07ecf66bbe1013abbb723c0bac4ee7c1e"
+    },
+    {
+      "ordinal": 4,
+      "season": 2021,
+      "week": 9,
+      "pick_count": 9,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "eba2939f72ed8a43eea5be937cc954ee07333ef2d4a982cb383f0deb1aab7bf8"
+    },
+    {
+      "ordinal": 5,
+      "season": 2021,
+      "week": 10,
+      "pick_count": 7,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "6f95fa1c8d5739bbc8ddbb70f69ad5b91e7c03c71650a917eaaf4e0a4beb4ba0"
+    },
+    {
+      "ordinal": 6,
+      "season": 2021,
+      "week": 11,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "d2ff67936e0ad9e61ca0638f2ed7e975366c24e9169b0b861beed096593e1da0"
+    },
+    {
+      "ordinal": 7,
+      "season": 2021,
+      "week": 12,
+      "pick_count": 8,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "d3c507d0fedaae72fa2bd8c48325439a9b332988a42d9f0d1a5324d60ff7eb4c"
+    },
+    {
+      "ordinal": 8,
+      "season": 2021,
+      "week": 13,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "64284e449bf7927ac100fbb03fa9b469be1378c0a9c54eda33ae6562e8875ef0"
+    },
+    {
+      "ordinal": 9,
+      "season": 2021,
+      "week": 14,
+      "pick_count": 9,
+      "spread_count": 4,
+      "picks_identical": true,
+      "picks_sha256": "82e11aa81493246a9fba310b21455f8167873872800a2bc7d792713970077c4d"
+    },
+    {
+      "ordinal": 10,
+      "season": 2021,
+      "week": 15,
+      "pick_count": 13,
+      "spread_count": 5,
+      "picks_identical": true,
+      "picks_sha256": "ba146936679e1e308efd79842efcc30c60c52aa41afed69f9aab583add1fefe2"
+    },
+    {
+      "ordinal": 11,
+      "season": 2021,
+      "week": 16,
+      "pick_count": 10,
+      "spread_count": 5,
+      "picks_identical": true,
+      "picks_sha256": "fa0d11cd7cec2cdb9e9342fa6e2712350460e977559eb83377720a883aaf6f20"
+    },
+    {
+      "ordinal": 12,
+      "season": 2021,
+      "week": 17,
+      "pick_count": 8,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "b882342801945c11fc5fbdba082907e4f52ede6c40db25374b6fd9ec98a90d49"
+    },
+    {
+      "ordinal": 13,
+      "season": 2021,
+      "week": 18,
+      "pick_count": 9,
+      "spread_count": 4,
+      "picks_identical": true,
+      "picks_sha256": "e4760eed74b8775f80fcc5bfb0c0b2124c5ea0f9e27036e8e5df83907f64ef95"
+    },
+    {
+      "ordinal": 14,
+      "season": 2022,
+      "week": 5,
+      "pick_count": 8,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "3b6a2baafcd4cd5260ce05979bde406fe92883cbdc2cd71609b3ef1c3da808c6"
+    },
+    {
+      "ordinal": 15,
+      "season": 2022,
+      "week": 6,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "ef32adf4df98f52d01a0d2016cc509d24ca8c2d3a4a22a6947163306ec4e45b0"
+    },
+    {
+      "ordinal": 16,
+      "season": 2022,
+      "week": 7,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "c9922c4d3ca2174c30f0c62b26f30db52028ea01ce9990de9d88efde4de313c2"
+    },
+    {
+      "ordinal": 17,
+      "season": 2022,
+      "week": 8,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "c1d243ee4e9aff0fe54d6673b58cb6c579f5608c7046067f1604d0aef2558328"
+    },
+    {
+      "ordinal": 18,
+      "season": 2022,
+      "week": 9,
+      "pick_count": 8,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "bcb955f6a15a1dc99f83a2a9c9f075085da20abcaa3c0285a0cf1b950135f3d9"
+    },
+    {
+      "ordinal": 19,
+      "season": 2022,
+      "week": 10,
+      "pick_count": 8,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "3d8578d1da806eafc02cca03f6911b97f2c737e5da47bd4238fbf91e4437d1d4"
+    },
+    {
+      "ordinal": 20,
+      "season": 2022,
+      "week": 11,
+      "pick_count": 8,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "9d2581739ebf03a266996627e27bf2409f4764ec8a547005e22c11ed3f92e365"
+    },
+    {
+      "ordinal": 21,
+      "season": 2022,
+      "week": 12,
+      "pick_count": 9,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "9f6d23aaca6845f88cedb3582c70f52f973fb602a47ad9f365b3f3e5a7851fbd"
+    },
+    {
+      "ordinal": 22,
+      "season": 2022,
+      "week": 13,
+      "pick_count": 9,
+      "spread_count": 4,
+      "picks_identical": true,
+      "picks_sha256": "b780fb751bfcea6407a97f72fbe7957a4a83f8ac00095f1ab65770e92464e269"
+    },
+    {
+      "ordinal": 23,
+      "season": 2022,
+      "week": 14,
+      "pick_count": 6,
+      "spread_count": 0,
+      "picks_identical": true,
+      "picks_sha256": "c57825e2f99cae5bc04444485e4286d7d6a52b61354d4b6296aa68fc5dd88607"
+    },
+    {
+      "ordinal": 24,
+      "season": 2022,
+      "week": 15,
+      "pick_count": 7,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "ec1e2ecfdfd9afad687267a281cb5ea619187a1430178ca7ed433517c86e4aeb"
+    },
+    {
+      "ordinal": 25,
+      "season": 2022,
+      "week": 16,
+      "pick_count": 12,
+      "spread_count": 4,
+      "picks_identical": true,
+      "picks_sha256": "9d6742763ef39c441c4835d6372b430ee4fc556af4fc2b7f0e6f9d89fdaad199"
+    },
+    {
+      "ordinal": 26,
+      "season": 2022,
+      "week": 17,
+      "pick_count": 10,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "346d9a6daa8942207d57fc07a53ea1c9505c60e058f1fc330dee4afe3bad6493"
+    },
+    {
+      "ordinal": 27,
+      "season": 2022,
+      "week": 18,
+      "pick_count": 10,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "f350cda3fbfb821861d59c2739d8f7c48038e1a0f5f1bc85b860dc66c296001d"
+    },
+    {
+      "ordinal": 28,
+      "season": 2023,
+      "week": 5,
+      "pick_count": 5,
+      "spread_count": 0,
+      "picks_identical": true,
+      "picks_sha256": "7e617caaf30dcfd722eed7379d47df4e1ddc30e79950b799495c709bc5260465"
+    },
+    {
+      "ordinal": 29,
+      "season": 2023,
+      "week": 6,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "da585eaa9e457a02ff32dc9e09d29e4e33f3bec484b55938fc32c1555e189150"
+    },
+    {
+      "ordinal": 30,
+      "season": 2023,
+      "week": 7,
+      "pick_count": 5,
+      "spread_count": 0,
+      "picks_identical": true,
+      "picks_sha256": "fc7cd7f19596914a063abef42ec5bb307552ac86c301c064b069ed83990c8c0d"
+    },
+    {
+      "ordinal": 31,
+      "season": 2023,
+      "week": 8,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "0f524ca3bcf4474edcc301a08ad982e2ae2786fb970b7120413ecb7b57954cca"
+    },
+    {
+      "ordinal": 32,
+      "season": 2023,
+      "week": 9,
+      "pick_count": 9,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "466a0b4a1d51676e0382da3502650e34af50d22cb84f326529b5f2ec8b9028c0"
+    },
+    {
+      "ordinal": 33,
+      "season": 2023,
+      "week": 10,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "f3fa95adc51a1bc1f27a26d85fa6565d129f09fcd7b8a29fca384f5cdd6d4a50"
+    },
+    {
+      "ordinal": 34,
+      "season": 2023,
+      "week": 11,
+      "pick_count": 8,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "66ee0d4add06687c2d44f76d417ea626f619397e2ddb6d212a2390ad3031b92d"
+    },
+    {
+      "ordinal": 35,
+      "season": 2023,
+      "week": 12,
+      "pick_count": 8,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "d70052e4d36b065d1fcb66bd45995b52f2bc282993f64fe345b41a591f648d37"
+    },
+    {
+      "ordinal": 36,
+      "season": 2023,
+      "week": 13,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "e960bfb06a8ccb6a41f5142ef002709a1240d4e2468063c71ddf94b7b830dfef"
+    },
+    {
+      "ordinal": 37,
+      "season": 2023,
+      "week": 14,
+      "pick_count": 8,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "a7614bb5d34d67c5b7be356b4949d4e56333db0b64d09195353f62fd731cf05a"
+    },
+    {
+      "ordinal": 38,
+      "season": 2023,
+      "week": 15,
+      "pick_count": 9,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "57b29b0b96df92eb4b9514bebdcbbaac51a6e5539f3e60ceb57503f7574b2a09"
+    },
+    {
+      "ordinal": 39,
+      "season": 2023,
+      "week": 16,
+      "pick_count": 8,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "d10cc4801a3679272915eb2fe4f595631f0a0186905446c97e96d609c917902c"
+    },
+    {
+      "ordinal": 40,
+      "season": 2023,
+      "week": 17,
+      "pick_count": 7,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "46c2572233e5eb5c080eaa2c4aea758340a864248a3451d9d5b3817356d145f0"
+    },
+    {
+      "ordinal": 41,
+      "season": 2023,
+      "week": 18,
+      "pick_count": 4,
+      "spread_count": 0,
+      "picks_identical": true,
+      "picks_sha256": "8ecaea624232c5920ebb05fde0613bfcefaff001f3189305a29452731b3e8c06"
+    },
+    {
+      "ordinal": 42,
+      "season": 2024,
+      "week": 5,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "52b435bbb23f5b2ee3ea958a259ac80f366e7b5efff43faed56eafdb85015873"
+    },
+    {
+      "ordinal": 43,
+      "season": 2024,
+      "week": 6,
+      "pick_count": 9,
+      "spread_count": 4,
+      "picks_identical": true,
+      "picks_sha256": "5030feeef3ee0a2f0d266f0a5450956768eb3a7fabd74e5b09cf97814a41d748"
+    },
+    {
+      "ordinal": 44,
+      "season": 2024,
+      "week": 7,
+      "pick_count": 7,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "ec1e20353323c06e987a6aac7b5595797bdeab4a75315e5eee808819f2cde80e"
+    },
+    {
+      "ordinal": 45,
+      "season": 2024,
+      "week": 8,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "647a1f19ad6ca8b865d20ba6efe73ae304d35590096f735665cb23fc8329617b"
+    },
+    {
+      "ordinal": 46,
+      "season": 2024,
+      "week": 9,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "6d61b4d41464849888cfa88cd9ec33c87ff1434199a18fce922bb795c321b65e"
+    },
+    {
+      "ordinal": 47,
+      "season": 2024,
+      "week": 10,
+      "pick_count": 10,
+      "spread_count": 5,
+      "picks_identical": true,
+      "picks_sha256": "252ea5def261571dfba2e7cd202b9b77957beb9d79e3721d4cb33fa2bc0f12a4"
+    },
+    {
+      "ordinal": 48,
+      "season": 2024,
+      "week": 11,
+      "pick_count": 9,
+      "spread_count": 4,
+      "picks_identical": true,
+      "picks_sha256": "48963ae614634ce413a5c3c3a6887c6a55d9d0129fa8814e01d86ac1ac41083a"
+    },
+    {
+      "ordinal": 49,
+      "season": 2024,
+      "week": 12,
+      "pick_count": 9,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "701b8e35ec6404e490ec9f38097f7e18c08875c451d30364ea6906e35d495b6f"
+    },
+    {
+      "ordinal": 50,
+      "season": 2024,
+      "week": 13,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "8a290761f90f3e72171685cb4864208a4f606d70f10470479c5c9b539559f4dc"
+    },
+    {
+      "ordinal": 51,
+      "season": 2024,
+      "week": 14,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "4e7b3727489966b8a5cd83caa412ae919b5c6ac8f9327e89ce2e67b384daf872"
+    },
+    {
+      "ordinal": 52,
+      "season": 2024,
+      "week": 15,
+      "pick_count": 10,
+      "spread_count": 5,
+      "picks_identical": true,
+      "picks_sha256": "da81f50b7e0beedd61699410382a344e7cc6533da8a62269c209844969ab2a86"
+    },
+    {
+      "ordinal": 53,
+      "season": 2024,
+      "week": 16,
+      "pick_count": 8,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "d5fbf30fddb2b0adb1d7b0280d948be593fbfded0bc81a805fe126752878508f"
+    },
+    {
+      "ordinal": 54,
+      "season": 2024,
+      "week": 17,
+      "pick_count": 9,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "27348a9b4bb5f0ebe965719175523b6dfc821d7caf579f13864cc31368dc17e1"
+    },
+    {
+      "ordinal": 55,
+      "season": 2024,
+      "week": 18,
+      "pick_count": 8,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "83f70967ead0fcfed6d434f249143ba160b73f83134dee3c3fadfd3b19859bca"
+    },
+    {
+      "ordinal": 56,
+      "season": 2025,
+      "week": 5,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "dc4d9dc7f685eaa8515a534a742d357f31975429e2f956d77fcd502e2c3c2f84"
+    },
+    {
+      "ordinal": 57,
+      "season": 2025,
+      "week": 6,
+      "pick_count": 7,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "6ea1fde11f8e02769fc41e48da2c7031677eafd853ae3e9dd5dc3916d97ad684"
+    },
+    {
+      "ordinal": 58,
+      "season": 2025,
+      "week": 7,
+      "pick_count": 8,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "77933155b9413776aa70934b7b2ac8ab48e318e00c1a583fc0352e5bb48b3ed8"
+    },
+    {
+      "ordinal": 59,
+      "season": 2025,
+      "week": 8,
+      "pick_count": 4,
+      "spread_count": 0,
+      "picks_identical": true,
+      "picks_sha256": "d950f880f7f6dd9757f57a2cc80f28ec17d5d9a5bde51d8f2131a1fe63d0b48b"
+    },
+    {
+      "ordinal": 60,
+      "season": 2025,
+      "week": 9,
+      "pick_count": 6,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "b4d057070301f2747af7674768e1357f141b28916f889de86f8e446b083defe0"
+    },
+    {
+      "ordinal": 61,
+      "season": 2025,
+      "week": 10,
+      "pick_count": 9,
+      "spread_count": 4,
+      "picks_identical": true,
+      "picks_sha256": "8e48415f2ad8e0cd98a86623269532d38935efb752b2668f87a74831b10f4813"
+    },
+    {
+      "ordinal": 62,
+      "season": 2025,
+      "week": 11,
+      "pick_count": 7,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "f33f5f6ba94d8e650d0cfb89300768d40ba8a746aed2b6e77526fbef14816cf9"
+    },
+    {
+      "ordinal": 63,
+      "season": 2025,
+      "week": 12,
+      "pick_count": 6,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "d70845807c6eb9c33c737f46914fbc73f5e64b028e6f57207523083c29906433"
+    },
+    {
+      "ordinal": 64,
+      "season": 2025,
+      "week": 13,
+      "pick_count": 7,
+      "spread_count": 1,
+      "picks_identical": true,
+      "picks_sha256": "2f77e032a67b14a415b2176395e294110cc53d2c9f95972df82fd22ac52de1a4"
+    },
+    {
+      "ordinal": 65,
+      "season": 2025,
+      "week": 14,
+      "pick_count": 9,
+      "spread_count": 3,
+      "picks_identical": true,
+      "picks_sha256": "1fd3787ca090f49143c7bff2bc00efad6e004e632af9d72fed8181e770b326f5"
+    },
+    {
+      "ordinal": 66,
+      "season": 2025,
+      "week": 15,
+      "pick_count": 8,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "ef4323b5753c3acc764c3a6571c76087fb9111fb37eee5d074567dea28b5ebc2"
+    },
+    {
+      "ordinal": 67,
+      "season": 2025,
+      "week": 16,
+      "pick_count": 8,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "0eeaa7ef379935e4b1949a1fdd690ffe9c353b3b6108329813e15c27fe8bb032"
+    },
+    {
+      "ordinal": 68,
+      "season": 2025,
+      "week": 17,
+      "pick_count": 12,
+      "spread_count": 4,
+      "picks_identical": true,
+      "picks_sha256": "a2a6c1d0e2cc56e601e1b9f402a8e0530107fe1e3c540dbd0105ab3a023e9e80"
+    },
+    {
+      "ordinal": 69,
+      "season": 2025,
+      "week": 18,
+      "pick_count": 12,
+      "spread_count": 2,
+      "picks_identical": true,
+      "picks_sha256": "1067d0b55619650c758a013b0921eaf4d5f0a6a728c7087299d92ad4eb7abce4"
+    }
+  ],
+  "note": "Read-only comparison of stored selections; unchanged history is not new independent evidence."
+}

@@ -1,0 +1,433 @@
+[
+  {
+    "id": "WP01",
+    "title": "Reconcile implementation and preserve baseline",
+    "dependencies": "None; starts the implementation",
+    "existing_files": [
+      "docs/CLAUDE-NEXT-STEPS.md",
+      "docs/reference/model-governance-manual.md"
+    ],
+    "existing_tests": [],
+    "proposed_additions": [],
+    "research_rules": "R01,R09,R25",
+    "code_findings": "C01\u2013C12",
+    "prompt": "agent-prompts/WP01.md"
+  },
+  {
+    "id": "WP02",
+    "title": "Repair defects and gate responsibilities",
+    "dependencies": "WP01",
+    "existing_files": [
+      "server/services/nfl-orthogonal-specialists.js",
+      "server/services/nfl-qbr.js",
+      "server/services/trial-statistics.js",
+      "scripts/run-purged-evaluation.mjs",
+      "server/services/model-governance.js",
+      "server/betting/nfl/contracts/forecast-packet.js"
+    ],
+    "existing_tests": [
+      "test/nfl-qbr.test.js",
+      "test/trial-statistics.test.js",
+      "test/forecast-packet-contract.test.js"
+    ],
+    "proposed_additions": [
+      "test/nfl-specialist-weight-shape.test.js"
+    ],
+    "research_rules": "R04,R11,R27,R28",
+    "code_findings": "C01,C02",
+    "prompt": "agent-prompts/WP02.md"
+  },
+  {
+    "id": "WP03",
+    "title": "Historical identities and exact clocks",
+    "dependencies": "WP01 and ownership agreement for dataset/packet contracts",
+    "existing_files": [
+      "server/services/team-codes.js",
+      "server/services/nfl-contract-key.js",
+      "server/services/nfl-t60-packet.js",
+      "research/betting/nfl/dataset.py"
+    ],
+    "existing_tests": [
+      "test/team-codes.test.js",
+      "test/nfl-t60-packet.test.js",
+      "research/betting/nfl/test_dataset.py"
+    ],
+    "proposed_additions": [
+      "test/nfl-historical-clock-identity.test.js"
+    ],
+    "research_rules": "R01,R02,R03",
+    "code_findings": "C06,C08",
+    "prompt": "agent-prompts/WP03.md"
+  },
+  {
+    "id": "WP04",
+    "title": "Immutable records and validated contracts",
+    "dependencies": "WP02\u2013WP03",
+    "existing_files": [
+      "server/betting/nfl/contracts/forecast-packet.js",
+      "server/services/nfl-bitemporal.js",
+      "server/services/nfl-decision-tape.js",
+      "server/db/migrate.js"
+    ],
+    "existing_tests": [
+      "test/forecast-packet-contract.test.js",
+      "test/nfl-injuries-bitemporal.test.js",
+      "test/migration-027-populated-upgrade.test.js"
+    ],
+    "proposed_additions": [
+      "A new migration allocated after inspecting the current migration sequence; never rewrite an applied migration"
+    ],
+    "research_rules": "R01,R02,R13,R15,R16",
+    "code_findings": "C01,C02,C12",
+    "prompt": "agent-prompts/WP04.md"
+  },
+  {
+    "id": "WP05",
+    "title": "Coverage and source admission",
+    "dependencies": "WP03\u2013WP04",
+    "existing_files": [
+      "server/services/nfl-feature-coverage.js",
+      "server/services/nfl-evidence-dataset.js",
+      "research/betting/nfl/dataset.py"
+    ],
+    "existing_tests": [
+      "test/evidence-dataset.test.js",
+      "research/betting/nfl/test_dataset.py"
+    ],
+    "proposed_additions": [
+      "A source-admission manifest in the existing evidence/artifact layout"
+    ],
+    "research_rules": "R01,R03,R07,R08,R25",
+    "code_findings": "C08",
+    "prompt": "agent-prompts/WP05.md"
+  },
+  {
+    "id": "WP06",
+    "title": "Shared football features and strength priors",
+    "dependencies": "WP03\u2013WP05",
+    "existing_files": [
+      "research/betting/nfl/dataset.py",
+      "research/market_lab.py",
+      "research/tree_lab.py",
+      "server/services/nfl-features.js",
+      "server/services/nfl-team-strength.js",
+      "server/services/nfl-preseason-blend.js"
+    ],
+    "existing_tests": [
+      "research/betting/nfl/test_dataset.py",
+      "research/test_market_lab.py",
+      "research/test_tree_lab.py",
+      "test/nfl-team-strength.test.js",
+      "test/preseason-blend-cutoff.test.js"
+    ],
+    "proposed_additions": [],
+    "research_rules": "R04,R05,R07,R24",
+    "code_findings": "C06 and earlier dataset chronology findings",
+    "prompt": "agent-prompts/WP06.md"
+  },
+  {
+    "id": "WP07",
+    "title": "Exact-horizon quote and betting datasets",
+    "dependencies": "WP03\u2013WP05; coordinate shared dataset ownership with WP06",
+    "existing_files": [
+      "research/betting/nfl/dataset.py",
+      "server/services/nfl-quote-tape.js",
+      "server/services/nfl-contract-key.js",
+      "server/services/nfl-evidence-dataset.js",
+      "server/services/nfl-t60-packet.js"
+    ],
+    "existing_tests": [
+      "research/betting/nfl/test_dataset.py",
+      "test/evidence-dataset.test.js",
+      "test/nfl-t60-packet.test.js"
+    ],
+    "proposed_additions": [
+      "A T\u221260 extraction entry point under research/betting/nfl, sharing the current dataset module"
+    ],
+    "research_rules": "R02,R08,R16,R26",
+    "code_findings": "C03,C04,C06,C12",
+    "prompt": "agent-prompts/WP07.md"
+  },
+  {
+    "id": "WP08",
+    "title": "Historical news source pilot",
+    "dependencies": "WP03\u2013WP05; document schema owner assigned",
+    "existing_files": [
+      "server/news/ingest.js",
+      "server/news/store.js",
+      "server/news/normalize.js",
+      "server/services/press-conference.js"
+    ],
+    "existing_tests": [
+      "test/news-ingest.test.js"
+    ],
+    "proposed_additions": [
+      "A bounded archive backfill runner with absolute date/team/source filters and resume state"
+    ],
+    "research_rules": "R01,R02,R03,R22,R25",
+    "code_findings": "C07",
+    "prompt": "agent-prompts/WP08.md"
+  },
+  {
+    "id": "WP09",
+    "title": "Typed events and historical injury timelines",
+    "dependencies": "WP03\u2013WP04 and initial WP08 material",
+    "existing_files": [
+      "server/services/nfl-news-events.js",
+      "server/services/nfl-news-signal.js",
+      "server/services/nfl-advanced.js",
+      "server/services/nfl-bitemporal.js",
+      "server/services/nfl-t60-packet.js"
+    ],
+    "existing_tests": [
+      "test/nfl-news-events.test.js",
+      "test/nfl-injuries-bitemporal.test.js"
+    ],
+    "proposed_additions": [
+      "An absolute-date-range event extraction/replay interface using existing stores"
+    ],
+    "research_rules": "R01,R03,R20,R22,R23",
+    "code_findings": "C07,C08",
+    "prompt": "agent-prompts/WP09.md"
+  },
+  {
+    "id": "WP10",
+    "title": "Availability and replacement learning",
+    "dependencies": "WP06, WP09 and WP11 protocol; may proceed after baseline launch",
+    "existing_files": [
+      "server/services/nfl-availability.js",
+      "server/services/player-availability.js",
+      "research/betting/nfl/dataset.py"
+    ],
+    "existing_tests": [
+      "test/player-availability.test.js"
+    ],
+    "proposed_additions": [
+      "research/betting/nfl/availability.py",
+      "research/betting/nfl/test_availability.py"
+    ],
+    "research_rules": "R04,R05,R20,R23,R24",
+    "code_findings": "Earlier news/availability integration findings",
+    "prompt": "agent-prompts/WP10.md"
+  },
+  {
+    "id": "WP11",
+    "title": "Registered experiments and bounded model selection",
+    "dependencies": "WP01, WP04\u2013WP05; before comparative model fitting",
+    "existing_files": [
+      "server/services/research-trials.js",
+      "server/modeling/registry.js",
+      "research/requirements.txt",
+      "research/tree_lab.py",
+      "research/market_lab.py"
+    ],
+    "existing_tests": [
+      "test/research-trials.test.js",
+      "test/model-registry-persistence.test.js"
+    ],
+    "proposed_additions": [
+      "A versioned NFL experiment specification under research/betting/nfl"
+    ],
+    "research_rules": "R06,R09,R10,R11,R25",
+    "code_findings": "Statistical promotion integration requires current reconciliation",
+    "prompt": "agent-prompts/WP11.md"
+  },
+  {
+    "id": "WP12",
+    "title": "Weekly nested training and OOF lineage",
+    "dependencies": "WP06\u2013WP07, WP11; availability optional until WP10 ready",
+    "existing_files": [
+      "research/betting/nfl/dataset.py",
+      "research/tree_lab.py",
+      "research/market_lab.py",
+      "server/services/purged-walk-forward.js",
+      "server/services/forecast-combination.js"
+    ],
+    "existing_tests": [
+      "research/betting/nfl/test_dataset.py",
+      "research/test_tree_lab.py",
+      "test/purged-walk-forward.test.js",
+      "test/forecast-combination.test.js"
+    ],
+    "proposed_additions": [
+      "research/betting/nfl/walk_forward.py",
+      "research/betting/nfl/test_walk_forward.py"
+    ],
+    "research_rules": "R04,R05,R07,R08,R09",
+    "code_findings": "C11 reuse requires actual refit verification",
+    "prompt": "agent-prompts/WP12.md"
+  },
+  {
+    "id": "WP13",
+    "title": "Probability, calibration and pushes",
+    "dependencies": "WP04, WP07, WP11\u2013WP12",
+    "existing_files": [
+      "server/betting/nfl/contracts/spread-probabilities.js",
+      "server/betting/nfl/contracts/forecast-packet.js",
+      "server/services/nfl-cover-calibration.js",
+      "server/services/nfl-total-calibration.js",
+      "server/services/conformal.js"
+    ],
+    "existing_tests": [
+      "test/spread-probabilities.test.js",
+      "test/nfl-total-calibration.test.js",
+      "test/forecast-packet-contract.test.js",
+      "test/conformal-finite-sample.test.js"
+    ],
+    "proposed_additions": [
+      "A Python probability/calibration module with parity fixtures for the declared serving contract"
+    ],
+    "research_rules": "R13,R14,R15,R16,R17",
+    "code_findings": "C01,C02,C12",
+    "prompt": "agent-prompts/WP13.md"
+  },
+  {
+    "id": "WP14",
+    "title": "Measurement and actionable error analysis",
+    "dependencies": "WP11\u2013WP13; reuse historical reports as references only",
+    "existing_files": [
+      "server/services/nfl-replay.js",
+      "server/services/nfl-slice-diagnostic.js",
+      "server/services/nfl-family-contribution.js",
+      "server/services/stats-util.js"
+    ],
+    "existing_tests": [
+      "test/nfl-replay-error-analysis.test.js",
+      "test/nfl-family-contribution.test.js",
+      "test/family-contribution-scoring.test.js"
+    ],
+    "proposed_additions": [
+      "A report adapter for the new Python row-level prediction ledger"
+    ],
+    "research_rules": "R08,R09,R11,R24,R28",
+    "code_findings": "C09,C10,C11",
+    "prompt": "agent-prompts/WP14.md"
+  },
+  {
+    "id": "WP15",
+    "title": "Trained-artifact serving and frozen recovery",
+    "dependencies": "WP04, WP07, WP12\u2013WP13",
+    "existing_files": [
+      "server/services/nfl-auto-picks.js",
+      "server/services/nfl-t60-packet.js",
+      "server/betting/nfl/contracts/forecast-packet.js",
+      "server/betting/nfl/strategy/t60-runner.js",
+      "server/services/nfl-decision-tape.js"
+    ],
+    "existing_tests": [
+      "test/t60-runner.test.js",
+      "test/forecast-packet-contract.test.js",
+      "test/nfl-decision-identity-pipeline.test.js"
+    ],
+    "proposed_additions": [
+      "A narrow versioned Python artifact-scoring adapter with integration tests"
+    ],
+    "research_rules": "R01,R02,R15,R16,R27",
+    "code_findings": "C01\u2013C05,C12",
+    "prompt": "agent-prompts/WP15.md"
+  },
+  {
+    "id": "WP16",
+    "title": "Betting policy and related exposure",
+    "dependencies": "WP02, WP07, WP13, WP15",
+    "existing_files": [
+      "server/services/nfl-execution-edge.js",
+      "server/services/nfl-execution-exposure.js",
+      "server/services/nfl-execution-staking-policy.js",
+      "server/services/model-governance.js",
+      "server/services/nfl-auto-picks.js"
+    ],
+    "existing_tests": [
+      "test/nfl-execution-edge.test.js",
+      "test/nfl-execution-exposure.test.js",
+      "test/nfl-execution-decision.test.js"
+    ],
+    "proposed_additions": [],
+    "research_rules": "R16,R19,R23,R27",
+    "code_findings": "C03 and market-specific policy integration",
+    "prompt": "agent-prompts/WP16.md"
+  },
+  {
+    "id": "WP17",
+    "title": "Independent settlement and CLV grading",
+    "dependencies": "WP07, WP13, WP15\u2013WP16",
+    "existing_files": [
+      "server/services/nfl-execution-lifecycle.js",
+      "server/services/nfl-execution-clv.js",
+      "server/services/nfl-execution.js",
+      "server/services/nfl-decision-tape.js"
+    ],
+    "existing_tests": [
+      "test/nfl-execution-lifecycle.test.js",
+      "test/nfl-execution-clv.test.js",
+      "test/nfl-execution-clv-abstained.test.js"
+    ],
+    "proposed_additions": [],
+    "research_rules": "R16,R19,R26,R27",
+    "code_findings": "C12",
+    "prompt": "agent-prompts/WP17.md"
+  },
+  {
+    "id": "WP18",
+    "title": "Reliable jobs, migrations and resource limits",
+    "dependencies": "WP04, WP08\u2013WP09 as available, WP15\u2013WP17",
+    "existing_files": [
+      "server/betting/nfl/strategy/t60-runner.js",
+      "server/db/migrate.js",
+      "server/services/nfl-news-events.js",
+      "server/news/store.js",
+      "server/platform/paths.js"
+    ],
+    "existing_tests": [
+      "test/t60-runner.test.js",
+      "test/nfl-prospective-collection.test.js",
+      "test/migration-027-populated-upgrade.test.js",
+      "test/news-ingest.test.js"
+    ],
+    "proposed_additions": [
+      "Targeted job-recovery, artifact-publication and populated-schema tests"
+    ],
+    "research_rules": "R01,R02,R25",
+    "code_findings": "C05,C07",
+    "prompt": "agent-prompts/WP18.md"
+  },
+  {
+    "id": "WP19",
+    "title": "Challenge the complete system independently",
+    "dependencies": "M3 complete path; can review individual packages earlier",
+    "existing_files": [
+      "test/offline-guard.mjs",
+      "test/forecast-packet-contract.test.js",
+      "test/nfl-replay-error-analysis.test.js",
+      "test/nfl-family-contribution.test.js"
+    ],
+    "existing_tests": [],
+    "proposed_additions": [
+      "An integrated frozen-prediction/chronology challenge suite and self-contained synthetic fixtures"
+    ],
+    "research_rules": "R01\u2013R28",
+    "code_findings": "C01\u2013C12",
+    "prompt": "agent-prompts/WP19.md"
+  },
+  {
+    "id": "WP20",
+    "title": "Prospective ledger and evidence-driven expansion",
+    "dependencies": "WP14\u2013WP19; protocol must be frozen before using future results",
+    "existing_files": [
+      "server/services/research-trials.js",
+      "server/services/model-governance.js",
+      "server/services/nfl-replay.js",
+      "docs/CLAUDE-NEXT-STEPS.md"
+    ],
+    "existing_tests": [
+      "test/research-trials.test.js",
+      "test/nfl-replay-error-analysis.test.js"
+    ],
+    "proposed_additions": [
+      "A versioned prospective protocol and hypothesis-backlog artifact in the existing evidence layout"
+    ],
+    "research_rules": "R09,R10,R12,R24,R27,R28",
+    "code_findings": "C09\u2013C12",
+    "prompt": "agent-prompts/WP20.md"
+  }
+]

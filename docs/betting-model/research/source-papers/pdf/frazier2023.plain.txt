@@ -1,0 +1,3219 @@
+Solving the Forecast Combination Puzzle
+arXiv:2308.05263v1 [econ.EM] 10 Aug 2023
+
+David T. Frazier*, Ryan Covey, Gael M. Martin and Donald Poskitt
+August 11, 2023
+
+Abstract
+We demonstrate that the forecasting combination puzzle is a consequence of the methodology
+commonly used to produce forecast combinations. By the combination puzzle, we refer to the empirical finding that predictions formed by combining multiple forecasts in ways that seek to optimize
+forecast performance often do not out-perform more naive, e.g. equally-weighted, approaches. In particular, we demonstrate that, due to the manner in which such forecasts are typically produced, tests
+that aim to discriminate between the predictive accuracy of competing combination strategies can
+have low power, and can lack size control, leading to an outcome that favours the naive approach. We
+show that this poor performance is due to the behavior of the corresponding test statistic, which has
+a non-standard asymptotic distribution under the null hypothesis of no inferior predictive accuracy,
+rather than the standard normal distribution that is typically adopted. In addition, we demonstrate that
+the low power of such predictive accuracy tests in the forecast combination setting can be completely
+avoided if more efficient estimation strategies are used in the production of the combinations, when
+feasible. We illustrate these findings both in the context of forecasting a functional of interest and
+in terms of predictive densities. A short empirical example using daily financial returns exemplifies
+how researchers can avoid the puzzle in practical settings.
+
+1
+
+Introduction
+
+Since their inception (Stone, 1961 and Bates and Granger, 1969), forecast combination methods have
+garnered a dedicated following due to their flexibility and accuracy (Timmermann, 2006; Aastveit et al.,
+2019). Such methods also align with the zeitgeist of modern econometric thought, in that they are
+designed to accommodate the fact that not all data sources are created equal, and that the models we are
+working with in economics are at best an approximation to reality.
+* Department
+
+of Econometrics
+david.frazier@monash.edu
+
+and
+
+Business
+
+Statistics,
+
+1
+
+Monash
+
+University,
+
+Melbourne,
+
+Australia:
+
+Generally, forecast combinations are constructed by producing forecasts for individual, or constituent
+models, and then combining them via some combination function or weighting scheme. Point forecast
+combinations are typically constructed by taking a weighted average of point forecasts produced by the
+constituent models (Bates and Granger, 1969; Stock and Watson, 2004; Timmermann, 2006; Smith and
+Wallis, 2009; Claeskens et al., 2016). In the case of distributional forecast combinations, two commonly
+used approaches are the linear opinion pool (Stone, 1961; Hall and Mitchell, 2007; Geweke and Amisano,
+2011; Opschoor et al., 2017; Martin et al., 2021), and the beta-transformed linear opinion pool (Ranjan
+and Gneiting, 2010; Gneiting and Ranjan, 2013; Satopää et al., 2014; Baran and Lerch, 2018). The
+weighted average, linear pool and beta-transformed linear pool are all combination functions that map a
+set of forecasts, produced using constituent models, to a single forecast combination.
+Even though the last fifty years has seen these methods rise to prominence among empirical forecasters (Makridakis et al., 2018; Thorey et al., 2018; Wang et al., 2018; Makridakis et al., 2020; Taylor,
+2020), key issues regarding the use and abuse of the methods remain. One of the most interesting issues is
+the so-called ‘forecast combination puzzle’, which is a stylized fact that states that predictions produced
+using complicated combinations of different forecasts, e.g., via optimizing the weights in the combination using some criterion function that encapsulates some aspect of forecast accuracy, do not generally
+outperform simpler procedures (such as equal-weighted combinations). For example, see Stock and
+Watson (2004), Smith and Wallis (2009), Makridakis et al. (2018, 2020) for empirical evidence of this
+phenomenon.
+Explanations for the puzzle range from the increased sampling variability of complex weighting
+schemes (Stock and Watson, 2004; Claeskens et al., 2016), to the similar performance of equallyweighted and optimally-weighted combinations (Elliott, 2011), and to bias in the averages loss functions
+(Chan and Pauwels, 2018). However, all of the above explanations are specific to linear combinations of
+point forecasts evaluated according to mean squared forecast error. To date, there is no single universally
+accepted answer that sufficiently explains this puzzle across both point and distributional forecasts, or
+across different performance measures. See Graefe et al. (2014) for a historical summary of the puzzle.
+Herein, we analyze the forecast combination puzzle in general terms, and through the lens of tests
+of superior forecast accuracy (White, 2000; Hansen, 2005). We demonstrate that the standard two-step
+approach to producing forecast combinations results in tests that have no power against a large class of
+alternatives, including fixed-, random-, and drifting-weighting schemes. This result is a consequence of
+the following unintuitive feature of forecast combinations: when produced in the standard manner, the
+usual test statistic employed to gauge differences in forecasts is such that estimated combination weights
+imparts no sampling variability into the statistic at first-order. This finding extends and renders rigorous
+previous results documented in a variety of contexts, including by Stock and Watson (2004), and Smith
+and Wallis (2009). In particular, Smith and Wallis (2009) argue that “the forecast combination puzzle
+rests on a gain ... that has no practical significance”, and our results make rigorous this statement by
+showing that, in general settings, tests of superior forecast accuracy cannot distinguish between estimated
+
+2
+
+and a large class of forecast combinations, including the equally-weighted combination.
+More generally, we show that in order for the difference between two (sets of) forecast combinations to be meaningful, the combination weights must be surprisingly disparate. Critically, the distance
+between two combination weights needed to yield a test with non-trivial power depends entirely on the
+chosen loss and the variability in the constituent model forecasts. Therefore, when comparing two forecast combinations obtained using the same constituent models but different combination weights, the
+variability in the constituent forecasting models can easily swamp large differences in the forecast distribution due to differences in the combination weights. Consequently, a statistically significant difference
+between two forecast combinations is unlikely to eventuate in practice unless we have: 1) large sample
+sizes, much larger than typically used in empirical applications; and 2) constituent model forecasts that
+have low variability, which ultimately requires that the estimators of the underlying parameters of the
+constituent models also have low variability. Consequently, in empirical applications that require the
+use of high-variance constituent model forecasts, it is unlikely that we will be able to detect differences
+amongst different forecast combination methods.
+We demonstrate that the poor behavior of forecast accuracy tests in this setting results from the test
+statistic having a non-standard asymptotic distribution under the null of no inferior predictive accuracy.
+That is, while the critical values for such tests are typically based on the standard normal distribution, we
+show that in the case of forecast combination methods, an appropriately scaled version of the test statistic
+converges in distribution to a generalized chi-squared distribution. Furthermore, we show that this result
+persists across a large class of forecast combination methods, including those with time-varying weights.
+Lastly, we demonstrate that the forecast combination puzzle can be circumvented in cases where it
+is feasible to produce forecast combinations in a single step. That is, except in trivial cases, forecast
+combinations produced in a single step do not exhibit the forecast combination puzzle, and will always
+yield superior forecast accuracy over standard, or equally-weighted, forecast combination schemes. In
+this way, we build on an extensive investigation of one- and two-step forecast combinations in Zischke
+et al. (2022), which also provides support for the one-step approach. We reiterate that it is the two-step
+approach to producing forecast combinations that is the standard approach adopted in the literature on
+(frequentist) forecast combinations and, hence, the reason why the combination puzzle has been so empirically prevalent. Revisiting the S&P500 returns density prediction example considered in Geweke and
+Amisano (2011), we show that: 1) the forecast combination puzzle is evident in their original example for
+certain classes of volatility models; and 2) the puzzle is entirely resolved if we use forecast combinations
+that are built in a single step.
+Before moving on, we note here the following notations used throughout the remainder of the paper.
+For a probability measure P , a random variable X and a random sequence Xn , we write EP rXs to
+denote the expectation of X under P , plim n Xn to denote the probability limit of Xn as n Ñ 8 (if it
+exists), and Xn ñ X if Xn converges in distribution to X. For some positive sequence Rn , the notations
+Xn “ op pRn q and Xn “ Op pRn q have their usual definitions, see Van Der Vaart (1998) for a textbook
+
+3
+
+treatment. We say that Xn — Rn if there exists constants c and C such that cRn ď Xn ď CRn for all n
+large enough (with probability one). The gradient and hessian of a functional f of x is written ∇x f pxq
+and ∇2xx f pxq, respectively, where for x on the boundary of the domain of f these symbols denote the left
+or right derivatives, whichever of those exist at x.
+
+2
+
+A Brief Motivating Example
+
+We first motivate our analysis by reconsidering the results and discussion in Smith and Wallis (2009) and
+demonstrating that the forecast combination puzzle extends far beyond their initial analysis.
+
+2.1
+
+Revisiting Smith and Wallis (2009)
+
+Our goal is to produce a point forecast for the random variable Yt at time t “ T ` 1 using observed data
+tyt : 1 ď t ď T u and models fj , j “ 1, 2. Denote the point predictions from these models by ỹjt , and
+define the linear combination of point predictions by ỹtη “ η ỹ1t ` p1 ´ ηqỹ2t where 0 ď η ď 1, and
+assume that the parameters underlying the models f1 and f2 have been estimated in a first stage. The
+accuracy of the forecasts is measured according to mean squared forecast error (MSFE).
+Under the assumptions in Smith and Wallis (2009), e.g., ỹjt is unbiased with constant variance, σj2 ,
+and covariance with ỹit , σji , j, i “ 1, 2, the optimal forecast combination weight η is obtained by solving
+minηPr0,1s E tyt ´ ỹtη u2 and is given by η ‹ “ rσ22 ´ σ12 s{pσ12 ` σ22 ´ 2σ12 q.
+Following notational conventions (see, e.g., West, 1996): based on a sample of size T ` 1, we split
+this sample into R in-sample observations used for model fitting, and P out-of-sample observations used
+for forecast evaluation, so that R ` P “ T ` 1. Under this evaluation regime, Smith and Wallis (2009)
+use the out-of-sample MSFE,
+Tÿ
+`1
+ση2 “ P ´1
+pyt ´ ỹtη q2 ,
+t“R`1
+
+to compare two different forecast combinations: 1) the equally-weighted combination, with η “ 1{2;
+2) the sample estimate, η̃, of the optimal combination, η ‹ . The key finding of Smith and Wallis (2009)
+is that, under their assumptions, when η ‹ “ 1{2, i.e. when the optimal approach (‘in population’) is to
+actually equally weight the two forecasts,
+2
+ση“1{2
+´ ση̃2 « ´P ´1
+
+Tÿ
+`1
+
+η“1{2 2
+
+pỹtη̃ ´ ỹt
+
+q ď 0.
+
+t“R`1
+
+That is, when the optimal combination weight is η ‹ “ 1{2 the additional finite-sample noise introduced
+via the estimation of η induces an additional penalty due to estimation error which, in turn, results in
+the fixed-weight scheme displaying superior performance. This finding leads Smith and Wallis (2009) to
+
+4
+
+conclude that “The parameter estimation effect [of the weights] is not large, nevertheless it explains the
+forecast combination puzzle.”
+
+2.2
+
+Extending the Findings of Smith and Wallis (2009)
+
+While the analysis of Smith and Wallis (2009) is insightful, their findings are not immediately generalizable to related situations. For instance, the analysis is based on linear combinations of point forecasts,
+with unbiased constituent forecasts that do not depend on unknown parameters.1 In addition, and most
+importantly, the optimal MSFE weight is assumed to be η ‹ “ 1{2, which coincides with the default
+(equally-weighted) combination that typically underpins the forecast combination puzzle. Finally, this
+analysis does not immediately extend to other loss functions.
+However, there is now mounting evidence to suggest that the forecast combination puzzle extends
+beyond this stylized setup. To this end, we explore scenarios in which we allow for a range of values
+for η ‹ , and a range of values for the fixed weight η that differ from η ‹ , for the case of both the point
+forecast combination of Smith and Wallis (2009) and a distributional forecast combination, and where
+these forecast combinations are estimated using different loss functions.
+Following Section 3.1 of Smith and Wallis (2009), consider that the true DGP is from the AR(2)
+family,
+i.i.d.
+yt “ ϕ1 yt´1 ` ϕ2 yt´2 ` ϵt , ϵt „ N p0, σϵ2 q,
+and that our forecasts are based on a linear pool f ptq of two normal constituent distributional forecasts
+ptq
+ptq
+f1 and f2 :
+ptq
+
+f1 pyq “ N ty; γ1 yt´1 , 1u,
+ptq
+
+f2 pyq “ N ty; γ2 yt´2 , 1u,
+ptq
+
+ptq
+
+f ptq pyq “ ηf1 pyq ` p1 ´ ηqf2 pyq,
+where N tx; µ, Σu denotes the normal pdf evaluated at x with mean µ and variance Σ, γ1 and γ2 are the
+parameters of the constituent models, and η is the weight assigned to the first model.
+We will estimate the parameters of two forecast combinations. First, we consider the distributional
+forecast combination given by the linear pool above, and estimate the parameters (η, γ1 , γ2 ) by minimizing the log loss (or equivalently by maximizing the log likelihood). Second, we consider the point
+forecast combination given by the expectation of the distributional forecast combination, and estimate
+the parameters by minimizing the MSFE. The second combination is identical to the combination considered by Smith and Wallis (2009) and discussed in the previous section. Parameters are estimated in the
+standard two-step fashion, so that γ1 and γ2 are chosen to minimize the selected loss of the first and sec1
+
+It is perhaps more accurate to say that the impact of having to estimate unknown parameters in the constituent models
+does not feature in their analysis.
+
+5
+
+ond constituent models, respectively, and η is estimated by minimizing the loss of the combination given
+the aforementioned estimates for γ1 and γ2 . Section 3.1 discusses such optimal forecast combinations in
+more detail.
+For a given (point or distributional) combination, the parameters ϕ1 , ϕ2 and σϵ2 can be chosen so that
+a desired value of η ‹ is achieved (we refer to Appendix C.1.1 for details). We then test the null of no
+inferior forecast accuracy across a variety of benchmark forecasts constructed using a range of fixed
+weights η P t0.25, 0.5, 0.75u (which includes the equally-weighted benchmark η “ 0.5) against the
+alternative optimally-weighted combination.
+Figure 1 presents the rejection frequency (y-axis) of the test across each fixed weight (rows) in the
+case of the MSFE (for the point forecast combination, left-hand column) and the log loss (for the distributional forecast combination, right-hand column). We present these results for DGP parameter values
+corresponding to a variety of pseudo-true weights η ‹ P t0, 0.25, 0.5, 0.75, 1u (colors) and across a grid
+of values for the sample size T ` 1 (x-axis), comprising the R “ pT ` 1q{2 in-sample observations followed by P “ pT ` 1q{2 out-of-sample observations. For the sake of brevity, we leave a more detailed
+discussion of the specific implementation details for this exercise to Appendix C.1.
+Analyzing each figure we see that, across both loss functions, the probability of rejection under the
+null hypothesis of no inferior forecast accuracy of the benchmark (that is, where the η ‹ value of the color
+equals the η value of the row) is (virtually) zero, and certainly less than 0.05, the nominal size of the test.
+Analyzing the rejection rates in all panels, which are given by the cases where the η values of the color are
+different from the η ‹ value of the row, suggests that the forecast combination puzzle persists even when
+the distance |η ‹ ´η| between η ‹ and the incorrect fixed weight η is large. For example, a test of no inferior
+predictive accuracy of the equally-weighted combination (middle row) against the optimally-weighted
+combination where the truth is η ‹ “ 0.25 (dark blue) has a rejection frequency smaller than 50% across
+all sample sizes less than 1000, whether we are using the MSFE (left-hand panel) or the log loss (righthand panel). Hence, the power of such tests may be quite low in practice even if there are meaningful
+differences between forecasts. Later, in Section 4.5, we will conduct a similar exercise to illustrate how
+this issue of low power can be resolved by producing optimally-weighted forecast combinations in a
+one-step fashion. The production of one-step combinations is described in the next section.
+
+3
+
+Measuring the Accuracy of ‘Optimal’ Forecast Combinations
+
+Now using more formal notation, let Y1 , ¨ ¨ ¨ , YT , . . . denote a sequence of random variables generated
+from the probability triple pY, A , Gq, where Y Ď Rd , d ě 1. Since the true measure G is unknown in
+general, we postulate a class of models Q on Y, which we identify by their distribution functions Q P Q.
+Given an observed sample, y1 , . . . , yT , our goal is to predict some feature of YT `h at a forecast horizon of h ě 1. Since the true model is unknown, there is no single direction of truth with which to predict
+features of interest. The literature has generally maintained that in such cases entertaining multiple mod6
+
+MSFE
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+1.00
+
+1.00
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+η ? = 0.75
+
+η? = 1
+
+Benchmark: η = 0.5
+
+Rejection Frequency
+
+Log Loss
+
+1.00
+
+Benchmark: η = 0.25
+
+1.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+2000
+1.00
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+Benchmark: η = 0.75
+
+1.00
+
+0.00
+0
+
+500
+
+1000
+
+Truth
+
+1500
+
+η? = 0
+
+2000
+
+Sample Size
+
+η ? = 0.25
+
+η ? = 0.5
+
+Figure 1: Estimates (solid) and their 95% confidence intervals (dotted) of the Rejection Frequency (yaxis) for the hypothesis test of no inferior predictive accuracy of a benchmark forecast combination
+with fixed weights (rows) against the alternative optimal forecast combination. The test is conducted
+with observations drawn from DGPs across a range of pseudo-true weights (colors), and across a grid
+of sample sizes (x-axis). Results for a point forecast combination with optimal weights minimizing the
+MSFE are given in the first column, and results for a distributional forecast combination with optimal
+weights minimizing the log loss are given in the second column.
+els is a valid approach that can produce reliable predictions, with the most common approach being to
+produce forecast combinations, as we have highlighted.
+
+3.1
+
+Defining ‘Optimal’ Forecast Combinations
+
+Denote by Fγ1 : Y ˆ Γ1 Ñ Cr0, 1s a probability measure on pY, A q indexed by the parameter γ1 P
+Γ1 Ď Rdγ1 and itself lying in the family FpΓ1 q :“ tFγ1 : γ1 P Γ1 u. For any 1 ď n ď T , let Ωn denote
+the information available to the forecaster at time n, and denote the predictive measure based on time-n
+pnq
+information as Fγ1 :“ Fγ1 p¨ : Ωn q.
+In the majority of forecasting settings, the practitioner entertains a collection of K ă T possible
+statistical models that can each describe, with varying accuracy, the movements of the stochastic process
+7
+
+tYt : t ď T u. We consider that each model is specified using a (semi-) parametric family FpΓj q, which
+depends on Γj Ď Rdγj unknown parameters for each j “ 1, . . . , K. For
+M“
+
+K
+ą
+
+FpΓj q, Γj Ď Rdγj , for each j “ 1, . . . , K,
+
+j“1
+
+denoting the collection of all K constituent models, we can combine these models to produce a forecast
+combination. To this end, and following Gneiting and Ranjan (2013), we consider the combination
+function
+Cη : Y ˆ M ˆ E Ñ Cr0, 1s,
+
+pFγ1 , ¨ ¨ ¨ , FγK q ÞÑ Cη pFγ1 , ¨ ¨ ¨ , FγK q,
+
+η P E Ď Rdη .
+
+Common choices for the combination family C :“ tCη : η P Eu include the linear pool (see, e.g., Geweke
+and Amisano, 2011), and the Beta-transformed linear pool (Gneiting and Ranjan, 2013).
+Given the family of combination functions, C, and the member model family M, the class of
+1 1
+probability measures used for prediction is the composition of the two: define γ :“ pγ11 , . . . , γK
+q,
+1
+1 1
+θ :“ pη , γ q , Θ :“ E ˆΓ1 ˆ¨ ¨ ¨ˆΓK and consider Qθ : Y ˆC ˆM Ñ Cr0, 1s defined by Qθ “ Cη ˝Mγ .
+We denote by Q the class tQθ : θ P Θu.
+Generally, the parameters of Qθ are unknown and must be estimated. Throughout, we consider that
+the forecaster wishes to obtain ‘optimal’ forecasts in the spirit of Gneiting and Raftery (2007), Gneiting
+and Ranjan (2011), and Martin et al. (2021). Herein, we take optimal to mean that the distributions
+we choose to take out-of-sample are produced by targeting a loss function that measures precisely the
+features of YT `h that are of interest. Following Gneiting and Ranjan (2011), we consider a decisiontheoretic framework for such forecasts. Let Y Ď Rd denote the observation domain, and for some
+k ě 1 let A Ď Rk denote the action space. We consider two mutually exclusive cases: the forecaster
+is interested in measuring predictive accuracy for a functional of the distribution of YT `h , or the entire
+distribution.
+3.1.1
+
+Consistent Scoring Functions
+
+Recall that Q is a class of distributions on Y, and consider a functional U : Q ÞÑ A, Q ÞÑ U rQs Ď A
+that maps a distribution Q P Q to a subset U rQs of the action space. A scoring function is a measurable
+map S : A ˆ Y Ñ r0, 8q. We orient the scoring functions so that a lower score implies a more accurate
+forecast. The scoring function Sp¨, ¨q is Q-consistent for a functional U r¨s if
+for all x P A, Q P Q :
+
+EQ tS pU rQs, Y qu ď EQ rSpx, Y qs ,
+
+8
+
+where Y is a random variable with distribution Q, and here and throughout we assume that any stated
+expectation exists and is finite. We say that Sp¨, ¨q is Q-strictly consistent for T r¨s if
+EQ tS pU rQs, Y qu “ EQ rSpx, Y qs ùñ x “ U rQs.
+If U r¨s admits a strictly consistent scoring function, then it is called elicitable. Here and throughout,
+we consider that the functional we are interested in is elicitable. For several functionals such as mean,
+quantiles and expectiles, this is the case, but there are many functionals, such as variance or expected
+shortfall, that are not elicitable, at least on their own. Some of these functionals are elicitable jointly
+with others, which is the case for the pairs (mean, variance) and (value at risk, expected shortfall), for
+example (Fissler and Ziegel, 2016).
+Assume the forecaster is interested in the case where U r¨s is a particular functional of the distribution of the random variable YT `h , and we have available information ΩT . Then, we are interested in
+pT q
+pT q
+generating predictions at time T ` h, h ě 1, for the functional U rFYT `h s, where we recall that FYT `h
+signifies the distribution of the random variable YT `h conditional on information ΩT . To this end, we
+follow, among others, Patton (2020) and assume that any particular combination model Qθ P Q admits
+pT q
+pT q
+a model for U rFYT `h s of the form mpZT ; θq “ U rQθ s, where ZT P ΩT denotes observable variables in
+the conditioning set and m : ΩT ˆ Θ Ñ A is known up to the unknown θ. We can then produce point
+pT q
+forecasts for U rFYT `h s using mpZT ; θq, and by replacing the unknown θ with
+θpT :“ argmin
+θPΘ
+
+3.1.2
+
+T
+ÿ
+
+S rmpZt ; θq, yt`1 s .
+
+t“1
+
+Proper Scoring Rules
+
+The above approach allows one to produce distributions that generate reliable ‘point forecasts’ for a
+given functional, but there is no reason for these distributions to be accurate in any other respect. In cases
+where we want distributional forecasts that are accurate as complete representations of the uncertainty
+surrounding an unobserved random variable, we can estimate our parameters according a proper scoring
+rule.
+A negatively-orientated proper scoring rule is a function S : Q ˆ Y ÞÑ R such that
+EG rSpG, Y qs ď EG rSpQ, Y qs ,
+for all Q, G P Q. A strictly proper scoring rule is a proper scoring rule that is minimized by G alone.2
+While scoring rules can be used to measure the accuracy of the predictive distribution or densities,
+they can also be used to measure the accuracy of certain features of the distribution: e.g., quantiles,
+2
+
+Scoring rules have a deep connection to decision theory, and we do not review this literature here (see, e.g., Pesaran and
+Skouras, 2002 and Granger and Machina, 2006 for a discussion in the context of economics and financial forecasting).
+
+9
+
+or predictive intervals (see, Gneiting and Raftery, 2007). Throughout the remainder, when we refer
+to scoring rules, it is meant that the action space is either the class of densities/distributions and not
+some functional of it such as quantiles or intervals; we keep this distinction as accuracy for such latter
+quantities can be readily measured using (consistent) scoring functions.
+Similar to the case of scoring functions, producing density forecasts requires estimating θ in the
+combination model Qθ P Q. In this case, we can define an estimator of this parameter by minimizing the
+expected scoring rule over our observed sample
+θpT :“ argmin
+θPΘ
+
+3.1.3
+
+T
+ÿ
+
+ptq
+
+SrQθ , yt`1 s.
+
+t“1
+
+Estimating Forecast Combinations
+
+Regardless of whether one is producing ‘point’ forecasts of a functional or distributional forecasts, producing the ‘optimal predictive’ is categorically the same. Therefore, to simplify the presentation, we
+jointly treat both approaches. Given a collection of realized observations tyt : 1 ď t ď nu, n ď T , we
+search for the most accurate combination predictive distribution Qθ P Q under the given loss function
+L : Q ˆ Y Ñ R.
+The optimal predictive can generally be produced in two possible ways. In cases where it is feasible to
+estimate the parameters jointly, the combination predictive can be produced by estimating the unknown
+model parameters,
+θpn :“ argmin Ln pθq ” argmin
+θPθ
+
+θPθ
+
+n
+ÿ
+
+ptq
+
+ℓt`1 pθq, where ℓt`1 pθq :“ LrQθ , yt`1 s,
+
+(1)
+
+t“1
+pT q
+
+and the predictive distribution at time T ` h can be taken as Qθp . However, due to the dimensionality
+n
+of θ, it is often difficult to estimate θ jointly. Generally, forecast combinations are estimated in two
+steps: first, the constituent model forecasts are produced, and then the combination weights are estimated
+conditional on the constituent model forecasts; see, e.g., Hall and Mitchell (2007); Geweke and Amisano
+(2011); Gneiting and Ranjan (2013). Throughout we assume that such two-step forecast combinations
+are carried out in the spirit proposed in Gneiting and Raftery (2007). Namely, for each constituent model
+we estimate γj , j “ 1, 2, ¨ ¨ ¨ , K, via the estimator
+γ̃jn “ argmin
+γj PΓj
+
+n
+ÿ
+
+ptq
+
+LrQθ , yt`1 s.
+
+(2)
+
+t“1
+
+1
+1
+Collecting the γ̃jn into γ̃n :“ pγ̃1n
+, . . . , γ̃Kn
+q1 , we can then estimate the combination parameters η by
+
+10
+
+maximizing Qθ ÞÑ Ln pθq, conditional on γ “ γ̃n , which yields
+θ̃n “ pη̃n1 , γ̃n1 q1 “ argmin Ln pη, γq s.t. γ “ γ̃n .
+
+(3)
+
+θPΘ
+
+pT q
+
+Once θ̃n have been calculated the predictive distribution Qθ̃ can be used to produce predictions at time
+n
+T ` h.
+pT q
+pT q
+Throughout the remainder, we refer to the predictive distributions Qθp and Qθ̃ as the one-step and
+n
+n
+two-step predictive combinations, respectively.
+Under standard regularity conditions, the extremum estimators θpn and θ̃n will converge to well1
+1
+1
+1
+defined probability limits, which we denote by θ0 :“ pη 0 , γ 0 q1 , and θ‹ :“ pη ‹ , γ ‹ q1 , respectively;3
+i.e., under our regularity conditions we will have
+1
+1
+1
+1
+θpn Ñp θ0 :“ pη 0 , γ 0 q1 and θ̃n Ñp θ‹ :“ pη ‹ , γ ‹ q1 .
+
+(4)
+
+Further, it is well-known, see Newey and McFadden (1994) for details, that one-step and two-step estimators do not coincide in general, so that throughout we can assume that θ0 ‰ θ‹ . If there is no asymptotic
+difference between the one- and two-step estimators, there will be no asymptotic difference between the
+resulting forecast combinations based on these estimators. In most empirical settings, however, significant differences between one- and two-step estimators exist, and so we restrict our attention to this case
+in following analysis.
+For a general discussion on two-step estimation see Newey and McFadden (1994); for a more modern
+treatment see Frazier and Renault (2017); and for a particular approach to measuring the impact of twostep estimation in the context of distributional forecast combinations see Zischke et al. (2022).
+
+3.2
+
+Testing the Accuracy of Forecast Combinations
+
+3.2.1
+
+Evaluation Scheme
+
+Following West (1996), White (2000), and many others, we measure out-of-sample predictive accuracy
+using loss differences of forecasts over a given out-of-sample period. For simplicity, and for consistency
+with the earlier exposition of the analysis of Smith and Wallis (2009), we let h “ 1 denote the horizon
+over which we will make predictions, but note that our results can also accommodate h ě 1 at the cost of
+additional notation. For ease of exposition, we re-introduce the notation introduced in Section 2.1, and
+assume the sample consists of T ` 1 total observations, which we partition into R in-sample periods, and
+P out-of-sample periods, across which we evaluate the predictions, where R ` P “ T ` 1.
+In the approach of West (1996), the information used to estimate θ is increased by one unit for each
+prediction; i.e., at time t “ R ` 1, R observations are used to estimate θ, at time t “ R ` 2, R ` 1
+3
+
+For more precise definitions of θ0 and θ‹ , we refer the interested reader to Appendix A.1.
+
+11
+
+observations are used, and so forth. This formulation is useful as it allows one to update the parameter
+estimates as new information becomes available. However, the resulting out-of-sample loss difference
+at time T ` 1 is then a complex combination of all previous estimators, and also has variability due to
+the P out-of-sample observations themselves. Consequently, disentangling variability due to parameter
+uncertainty, from the innate variability of the average loss difference becomes difficult, and obtaining
+clear intuition regarding the contribution to each of these pieces to the behavior of the out-of-sample
+average loss difference becomes difficult.
+Furthermore, it is critical for us to understand the precise impact of parameter uncertainty on forecast
+accuracy since this effect, while not large, “explains the puzzle” according to Smith and Wallis (2009).
+Therefore, we consider a simple framework that cleanly dissects the two types of sampling variability,
+loss and parameter estimation. This is accomplished by estimating the unknown parameters once using
+R observations, with the resulting estimators then held fixed over the P out-of-sample periods;4 the P
+out-of-sample periods are then used for evaluation only; further, we will also maintain that the in-sample
+period, R, and the out-of-sample period, P , are in rough proportion.5
+Assumption 3.1 (Maintained Assumption). R, P Ñ 8 as T Ñ 8, and c :“ limT R{P , with 0 ă c ă 8.
+3.2.2
+
+Tests of Forecasting Accuracy
+
+Following White (2000) and Hansen (2005), we measure the accuracy of forecasts by testing the null
+hypothesis of no inferior forecast performance using the average loss difference over the P out-of-sample
+pT q
+periods. Consider that we wish to test the accuracy of a benchmark forecast distribution Qϑb , indexed
+pT q
+by unknown parameters ϑb , against an alternative distribution Qθa , indexed by unknown parameters θa .
+pT q
+pT q
+The null hypothesis of no inferior forecast accuracy of the benchmark (Qϑb ) over the alternative (Qθa )
+is
+pT q
+pT q
+(5)
+H0 : EpLrQϑb , YT `1 sq ď EpLrQθa , YT `1 sq.
+To test the null in (5), we approximate the above expectation, and the unknown ϑb , θa , using their
+sample counterparts. For any t ą R, and any sequence of consistent estimators ϑR , θR P Θ of ϑb , θa ,
+respectively, define the average loss difference statistic
+∆P pϑR , θR q :“ P ´1
+
+Tÿ
+`1
+
+dt pϑR , θR q,
+
+dt pϑR , θR q “ ℓt pϑR q ´ ℓt pθR q,
+
+t“R`1
+pt´1q
+
+where we recall that ℓt pθR q “ LrQθR , yt s. The null hypothesis in (5) can then be tested using the
+4
+
+More specifically, instead of the first prediction being based on an estimator θR , obtained using observations 1, . . . , R,
+and the next based on θR`1 , and so forth, we only consider estimators based on R observations (with R Ñ 8 as T Ñ 8).
+5
+We refer to Section 8 of Clark and McCracken (2013) for a discussion on the benefits and disadvantages of various
+splitting schemes for forecast evaluation.
+
+12
+
+standardized statistic
+´1{2
+
+DP pϑR , θR q :“ Ω̂R
+
+?
+P ∆P pϑR , θR q,
+
+(6)
+
+where Ω̂R is a consistent estimator of the asymptotic variance of ∆P pϑb , θa q.
+
+4
+
+Solving the Forecasting Combination Puzzle
+
+4.1
+
+A General Phenomenon
+
+Our results in Section 2.2 demonstrate that even when the optimal combination weight (in population),
+η ‹ , is very different from a fixed, hypothetical combination weight, the standard approach to testing
+for differences in forecasting accuracy does not result in meaningful rejection rates; i.e., even though
+the hypothetical combination weight is inferior to the optimal combination weight, the resulting testing
+procedure does not reliably detect differences. This finding holds across two particular loss functions
+and a host of different values of η ‹ . In this section, we demonstrate that this phenomenon is present in
+any class of forecast combinations produced in the standard manner, i.e., in two steps. Thus we give, for
+the first time, a truly generic explanation for the puzzle that is agnostic to the chosen loss, and which is
+valid under standard regularity conditions.
+To state this result, consider the setting where we are given a known, i.e., hypothesised combination
+weight ηTδ , which we can always represent as
+ηTδ :“ η ‹ ` δT ,
+where η ‹ is as defined in (4), and η ‹ and δT are individually unknown. Consider that the (possibly
+random) sequence tδT : T ě 1u is described by one of the following cases: throughout, let δ P E Ă Rdη
+be some non-zero and bounded vector,
+$
+’
+ξ
+’
+’
+&δ{T ,
+δT — δ{T ξ ,
+’
+’
+’
+%δ{T ξ ,
+
+ξ P r0, 1{4q
+ξ “ 1{4
+
+.
+
+(7)
+
+ξ P p1{4, 8q
+
+The above class of sequences will allow us to evaluate the behavior of the standard testing framework
+for accessing accuracy of different forecast combination methods across a wide range of hypothesized
+combination weights ηTδ . In particular, the case ξ “ 0 yields fixed alternatives, while ξ “ 1{2 yields the
+class of canonical Pitman sequences. As we shall see, the behavior of the test depends crucially on the
+category within which δT resides.
+pT q
+To this end, consider that our benchmark forecast is Qϑb with ϑb “ pηTδ , γ ‹ q, and we wish to test
+the null hypothesis that this benchmark forecast has no inferior forecast performance relative to the
+
+13
+
+pT q
+
+alternative forecast Qθa with θa “ pη ‹ , γ ‹ q. The null hypothesis in (5) then becomes
+pT q
+
+pT q
+
+H0 : EpLrQpηδ ,γ ‹ q , YT `1 sq ď EpLrQpη‹ ,γ ‹ q , YT `1 sq.
+T
+
+The null hypothesis H0 is then tested using the statistic in (6), where the infeasible θa is replaced by
+the feasible estimator, θ̃R “ pη̃R1 , γ̃R1 q1 , and the infeasible ϑb by its feasible counterpart ϑδR “ pηRδ , γ̃R1 q1 ,
+where ηRδ varies according to the neighbourhood of η ‹ defined in (7). The rejection region for the test is
+then defined by the corresponding rejection region
+WP pαq “ tDP : DP pϑδR , θ̃R q ą Φ´1 p1 ´ αqu,
+
+α P p0, 1q,
+
+(8)
+
+where Φ´1 pαq denotes the α-quantile of the standard normal distribution. The following theorem describes the behavior of the resulting test.
+Theorem 4.1. Let Assumptions A.1-A.4, in Appendix A.1 be satisfied.
+(i) If δT — δ{T ξ , with ξ P r0, 1{4q, and |δ 1 ∇η Lpη ‹ ` δ, γ ‹ q| ą 0, then limP PrtWP pαqu “ 1.
+(ii) If δT — δ{T 1{4 , then limP PrtWP pαqu ą α or limP PrtWP pαqu ă α, depending on δ.
+(iii) If δT — δ{T ξ , with ξ P p1{4, 8s, then limT PrtWP pαqu “ 0 for all α P p0, 1q.
+The above result implies that if two forecasts have combination weights that are at least OpT ´1{4`ε q
+apart, for ε ą 0, then the standard testing approach can distinguish between the forecasts. Surprisingly,
+however, if the combination weights are at a distance of CT ´1{4 , the test can be arbitrarily over- or
+under-sized depending on the magnitude of the sequence tδT : T ě 1u. More surprisingly, if two sets
+of combination weights are within a distance of OpT ´1{4´ε q from one another, e.g., a parametric neighbourhood of width OpT ´1{2 q, then the test has no power to detect differences between the combination
+forecasts. Note that this third result also encompasses the case considered in the illustrative example in
+Section 2.1, in which ηTδ “ η ‹ – i.e. the benchmark fixed weight (denoted by η therein) coincided with
+η ‹ – and the test displayed zero empirical size (up to Monte Carlo error).
+As an example of the phenomenon in Theorem 4.1(iii), consider that we have two competing combination forecasts defined by different combination weight schemes such that η̃1 and η̃2 have distinct
+asymptotic distributions, but R1{2 pη̃1 ´ η̃2 q “ Op p1q, then the usual test of the null hypothesis of no inferior predictive accuracy will only detect differences between the two forecasts on very rare occasions,
+and will detect no statistically significant differences between the forecasts with probability converging
+to one.6
+Practically speaking, Theorem 4.1 demonstrates that even if the benchmark forecast, e.g., the equally
+weighted forecast, is far away from the optimally weighted combination forecast, then the standard
+6
+
+We recall that under the maintained assumption on R, P, T , we have that R — P — T , so that OpR1{2 {T 1{2 q “ Op1q.
+
+14
+
+testing approach is unlikely to reject the inadequacy of this benchmark (with probability converging to
+one). In particular, Theorem 4.1(i) demonstrates that the standard test will asymptotically reject the null
+?
+only when T pηTδ ´ η̃R q diverges faster than OpT 1{4 q, i.e., when ξ ă 1{4. Therefore, for all intents and
+purposes, the standard approach to testing for differences in combination forecasts cannot be trusted to
+deliver reliable conclusions in the majority of empirical situations where it is applied.
+Remark 4.1. Part (ii) of Theorem 4.1 is non-standard: in classical hypothesis testing, sequences of alternatives do not in general yield a consistent test, but they display at least some power against such a
+hypothesis. The lack of power in this case is entirely a consequence of the two-step nature with which
+the combinations are produced.
+Remark 4.2. It is possible to obtain results similar to those described above in the original framework
+of West (1996). However, the results are not as intuitive as those presented above, and are much more
+cumbersome to dissect and interpret. Therefore, we adopt a fixed-windows estimation scheme to err on
+the side of simplicity and interpretability instead of technicality.
+
+4.2
+
+The Root of the Puzzle
+
+Theorem 4.1 demonstrates that when comparing between forecast combinations, tests of forecast accuracy behave in non-standard ways. However, it is important to understand the mechanism causing this
+behavior. Recall that standard forecast combinations are produced in two steps: first, we estimate the
+unknown model parameters γ via γ̃R , then the combination weights are estimated via η̃R . In this secpT q
+tion, we show that the two-step nature by which the forecast combination Qθ is produced results in an
+average loss difference whose limiting distribution is non-standard under a large class of combination
+weights.
+To state the asymptotic distribution of the usual loss-difference test statistic ∆P pϑb , θa q, we require the following definitions. Let Lpθq :“ plim P Ñ8 LP pθq{P , Mηη “ ∇ηη Lpη ‹ , γ ‹ q, Mγη “
+´1{2
+∇γη Lpη ‹ , γ ‹ q, and let VP,R :“ ´Mηη t∇η LP pη ‹ , γ ‹ q{P ` Mηγ pγ̃R ´ γ ‹ qu. We note that the above
+?
+exist under Assumptions A.1-A.4 in Appendix A.1, and that VP,R “ Op p1{ P q.
+Lemma 4.1. Let Assumptions A.1-A.4 in Appendix A.1 be satisfied. Recall that ηTδ “ η ‹ ` δT . If
+δT “ δ{T ξ , with ξ P p0, 8s, then, for ϑδR “ pηTδ , γ̃R q,
+`
+˘
+1
+1
+∆P pϑδR , θ̃R q “ }VP,R }2 ´ }J 1{2 ηTδ ´ η ‹ ´ J 1{2 pη̃R ´ η ‹ q ´ VP,R }2 ` op p}pηTδ ´ η ‹ q}2 _ }η̃R ´ η ‹ }q.
+2
+2
+(9)
+The expansion in Lemma 4.1 clarifies the mechanism behind the behavior exhibited in Theorem
+?
+4.1. Recall that the behavior of the standard test is driven by the behavior of P ¨ ∆P pϑδR , θ̃R q, see
+equation (6). However, Lemma 4.1 makes clear that if the sequence tδT : T ě 1u goes to zero fast
+?
+?
+enough, the limit distribution of P ¨ ∆P pϑδR , θ̃R q is degenerate. That is, since VP,R “ Op1{ P q and
+15
+
+?
+?
+pη̃R ´ η ‹ q “ Op p1{ P q under Assumptions A.1-A.4, scaling ∆P pϑδR , θ̃R q by P results in a degenerate
+test statistic unless
+?
+?
+plim P }pηTδ ´ η ‹ q}2 “ plim P }δT }2 ą 0.
+P Ñ8
+
+P Ñ8
+
+?
+When δT “ δ{T ξ , ξ P p1{4, 8s, we have that plim P P }pηTδ ´ η ‹ q}2 “ 0, which yields the result in
+?
+part (iii) of Theorem 4.1. If instead we have δT “ T ´1{4 , the behavior of P ∆P pϑδR , θ̃R q is driven by
+the magnitude of
+1 1{4 ‹
+P pη ´ ηTδ q1 Mηη P 1{4 pη ‹ ´ ηTδ q “ δ 1 Mηη δ ` op p1q,
+2
+which yields the second result in Theorem 4.1. The above term also drives the power of the statistic
+DP pϑR , θ̃R q in the case where δT P r0, 1{4q (i.e., part (i) of Theorem 4.1).7
+To obtain the limit distribution of the out-of-sample average loss difference under the null hypothesis
+pT q
+in (5), based on the benchmark forecast combination Qϑpbq with ϑpbq “ pηTδ , γ ‹ q, and with ηTδ as in (7),
+we require a few additional definitions. Let XP :“ ∇η LP pη ‹ , γ ‹ q{P , ZR,γ :“ pγ̃P ´ γ ‹ q, so that we
+´1{2
+can write VP,R “ ´Mηη pXP ` Mηγ ZR,γ q. Under Assumptions A.1-A.4 in Appendix A.1, we have
+?
+?
+?
+that P XP ñ X „ N p0, ΣX q, where ΣX :“ limP Vart∇η LP pη ‹ , γ ‹ q{ P u and RZR,γ ñ Zγ „
+N p0, Σγ q, and where
+?
+?
+‹
+ΣZ :“ lim Varrtr∇γγ Lpγ1‹ qs´1 ∇γ1 LR pγ1‹ q{ R, . . . , r∇γγ Lpγ1‹ qs´1 ∇γK LR pγK
+q{ Ru1 s.
+RÑ8
+
+Recall that c :“ limT R{P , with 0 ă c ă 8, and by Assumption A.5, for some matrix QV , we have that
+?
+?
+V :“ pV11 , V21 q1 “ L8 pc RVR,R , P VP,R q “ N p0, QV q, for some matrix QV , is the limit (joint) law of
+?
+?
+the terms c RVR,R and P VP,R .
+Corollary 4.1. Under Assumptions A.1-A.5, the statistic P ¨ ∆P pϑδR , θ̃R q has the following behavior.
+(i) If δT — δ{T ξ , with ξ P p0, 1{2q, then P ¨ ∆P pϑδR , θ̃R q Ñ `8, with probability converging to one.
+(ii) If δT “ δ{T 1{2 , and θ‹ P IntpΘq, then
+1
+1
+P ¨ ∆P pϑδR , θ̃R q ñ }X ` c´1 Mηγ Zγ }2M´1
+´ } t1{p1 ` cqu1{2 δ ´ pV1 ´ V2 q}2 .
+ηη
+2
+2
+(iii) If δT “ δ{T ξ , with ξ P p1{2, 8s, and if θ‹ P IntpΘq, then
+1
+1
+P ¨ ∆P pϑδR , θ̃R q ñ }X ` c´1 Mηγ Zγ }2M´1
+´ }V1 ´ V2 }2 .
+ηη
+2
+2
+When δT — δ{T ξ and ξ P p0, 1{2q, the result of Corollary 4.1(i) demonstrates that under the null
+pT q
+hypothesis in (5) with benchmark forecast combination Qϑb , ϑpbq “ pηTδ , γ ‹ q, and alternative forecast
+7
+
+We note, however, that Lemma
+4.1 is not valid, as stated, in the case where δT P r0, 1{4q since the remainder term in (9)
+?
+is no longer negligible, since P }ηTδ ´ η ‹ }2 will diverge. Nonetheless, a similar argument to that used to prove Lemma 4.1
+can be used to deal with this case.
+
+16
+
+pT q
+
+combination Qθa , with θa “ θ‹ , the test statistic P ¨ ∆P pϑδR , θ̃R q, where ϑδR “ pηTδ , γ̃R q, diverges.
+Hence, if η ‹ and ηTδ are sufficiently different, we can accurately learn differences between competing
+forecast combination methods. In contrast, when δT — δ{T ξ , with ξ P r1{2, 8s, Corollary 4.1(ii)-(iii)
+demonstrates that the asymptotic distribution of P ¨ ∆P pϑδR , θ̃R q is non-standard.
+In the regime where δT — δ{T ξ , with ξ P r1{2, 8s, the test statistic P ¨ ∆P pϑδR , θ̃R q converges
+in distribution to a random variable with two components. The first component is a generalized chisquared random variable, which does not admit a closed-form formula for its density or distribution
+function.8 The second component is itself possibly comprised of two components: so long as ξ ě 1{2,
+the second term depends on the difference of two mean-zero but correlated normal random variables,
+which captures the behavior of (a scaled version of) the out-of-sample loss difference due to differences
+in the combination weights, i.e., the η-components, and a centering term that captures the difference
+between ηTδ and η ‹ .9 In the regime where ξ “ 1{2, an additional term is present that captures the fact
+a
+a
+?
+?
+that P pηTδ ´ η‹ q “ p P {T q T pηTδ ´ η ‹ q “ P {pP ` Rqδ, which, since c “ limT R{P converges
+to p1{p1 ` cqq1{2 δ.
+However, it is important to note that since the first component of the asymptotic distribution is a
+generalized chi-squared random variable, even if the second component were not present it would be
+infeasible to obtain closed-form quantiles for the null distribution of the test statistic. In addition, it is
+important to realise that the distribution of this test statistic depends on the loss used in the analysis, the
+choice of constituent models, and the specific combination function chosen. As such, there is no hope
+for a single set of generally applicable critical values, and any simulated critical values will need to be
+application-specific as a consequence.
+While it is not feasible to obtain closed-form quantiles for the null distribution of the test statistic,
+since the second component is always negative, it is possible to deduce a conservative test that uses just
+the critical values of the generalized chi-distribution. That is, since
+1
+1
+1
+}X ` c´1 Mηγ Zγ }2M´1
+´ }V1 ´ V2 }2 ď }X ` c´1 Mηγ Zγ }2M´1
+ηη
+ηη
+2
+2
+2
+we can use the quantiles of the generalized chi-distribution to deduce a conservative, but feasible, test
+pT q
+of the the null that a benchmark forecast Qϑb , with ϑpbq “ pηTδ , γ ‹ q, is not inferior to an alternative
+pT q
+forecast Qθa , with θa “ θ‹ . Such a test will be asymptotically conservative in general, but will not be
+?
+?
+too conservative so long as the differences between RVR,R and P VP,R are small.
+pT q
+To implement such a test, for a given benchmark forecast Qϑpbq based on known combination weight
+ηTδ , we must construct a feasible critical value from the generalized chi-distribution 12 }X`c´1 Mηγ Zγ }2M´1
+ηη
+via simulation. In particular, we start out by first simulating h “ 1, . . . , H realisations for the random
+variables X phq , Z phq from normal distributions where ΣX , ΣZ are replaced with consistent estimators
+Since the quadratic form }X ` Mηγ Zγ }2M´1 cannot be re-written as a quadratic form with an idempotent weighting
+ηη
+matrix, the distribution is not chi-squared.
+9
+This term results from taking a second-order Taylor expansion of the loss difference, and grouping terms appropriately.
+8
+
+17
+
+based on ηRδ , γ̃R , and then, for each h “ 1, . . . , H, we form the statistic
+1
+xηγ Z phq1 }2x´1 ,
+∆phq :“ }X phq ` pP {Rq1{2 M
+Mηη
+2
+xηη and M
+xγη are the usual sample estimate counterparts of the matrices Mηη and Mγη and
+where M
+calculated at ηRδ , γ̃R . Sorting t∆phq : h “ 1, . . . , Hu, we can obtain an α-level critical value by choosing
+the rp1 ´ αqHs-th smallest value, and rejecting the null when the observed value of the statistic P ¨
+∆P pϑδR , θ̃R q exceeds this value.
+p rp1´αqHs , we can define a test of the null hypothesis
+Denoting the above simulated critical value by cv
+pT q
+pT q
+of no inferior predictive accuracy of the benchmark model Qηδ ,γ ‹ against the alternative model Qθ‹ that
+T
+is estimated in two-steps, via the corresponding rejection region
+p rp1´αqHs u,
+WP2s pαq “ t∆P : P ¨ ∆P pϑδR , θ̃R q ą cv
+
+α P p0, 1q.
+
+(10)
+
+Unlike the usual test, based on WP pαq, the test based on the rejection region WP2s pαq explicitly accounts
+for the two-step nature by which P ¨ ∆P pϑδR , θ̃R q is constructed. As we have already seen, failure to
+account for the two-step nature of the forecast combinations does not deliver a test with appropriate size
+control. Conversely, since a test based on WP2s pαq accounts for the two-step nature of the estimation, the
+test should deliver appropriate size control.
+We note that, while it is feasible to use the above simulation method to construct an appropriate critical value for the testing differences between competing forecast combinations, we do not necessarily
+advocate for this approach in general. In particular, while the above procedure would deliver an appropriately sized test, it is unclear if the above test is the most powerful approach, and additional research
+is necessary to determine this. In addition, as we elaborate on in the following Section 4.4, in certain
+cases there is a simpler alternative to adopting the above simulated critical value that allows us to entirely
+avoid the forecast combination puzzle.
+
+4.3
+
+Revisiting the Smith and Wallis (2009) Two-Step Combinations
+
+Meanwhile, in this section, we return to the example setting discussed in Smith and Wallis (2009) and
+demonstrate numerically that the simulated critical value suggested in Section 4.2 delivers a testing
+procedure with approximately correct size under the null hypothesis of no inferior forecast accuracy, and
+also has higher power than the standard approach under the alternative.
+To demonstrate the empirical size of the test, we return to the example in Section 2 and consider
+values of ϕ1 , ϕ2 and σ 2 for the AR(2) family such that, under MSFE (respectively, log-loss), the optimal
+value of the combination weight, η ‹ , obtained under MSFE (respectively, log-loss), is (approximately)
+equal to the benchmark combination weight of 1/2, i.e., the equally-weighted combination benchmark.10
+10
+
+Under log score, a DGP that ensures that the optimal two-step forecast combination weight is (approximately) equal to
+
+18
+
+Under this DGP, we generate 1000 replications across three different samples sizes T “ 1000, 2000
+and 5000. Across each of these datasets, we use the first R “ T {2 observations for training, and the
+remaining P “ T ´ R observations for testing.
+The first three rows of Table 1 compare the size of the standard test of no inferior forecast accuracy,
+based on WP pαq in (8), against the testing approach that caters for the two-step nature of the combination
+forecast construction, via the use of WP2s pαq in (10). In the two-step approach, we use B “ 10000 draws
+to simulate the critical value in all cases. As a comparator, we also present the empirical rejection
+frequency of the standard ‘t-test’ of the null hypothesis that η “ 1{2, based on the correct two-step
+standard error for η̃R . This additional comparator serves as a benchmark of sorts, enabling us to diagnose,
+in some sense, if the rejection rates for the tests are due primarily to differences in the predictive ability
+of the combinations, or are due to differences in the combination weights themselves.
+The results in the table demonstrate that, as already highlighted in Section 2, the standard approach
+has zero size in (nearly) all cases when the benchmark combination weight, 1/2 in this case, is close
+to the optimal combination weight. In contrast, even with an asymptotically conservative critical value,
+accounting for the two-step nature by which the forecasts were produced, via WP2s pαq in (10), results in
+a test that has sizes that are much closer to the nominal level. Depending on the chosen loss, for the finite
+samples used, the test based on WP2s pαq can be slightly over- or under-sized, but delivers results that are
+much closer to the nominal level than does the standard approach.
+The second set of three rows in Table 1, compares the empirical power of the alternative testing
+approaches, under both loss functions, under a DGP that is a relatively small distance away from the
+DGP that delivers an optimal combination weight that is equal to the benchmark combination weight
+of 1/2.11 Across both loss functions, our testing approach has vastly higher power than the standard approach, with the standard testing approach based on the log-loss having zero power under this minor
+deviation from the null hypothesis, and with its power under the MSFE being only around one percent.
+Moreover, the magnitude of the power of the correctly sized test is broadly similar (for any given sample
+size) under the two losses. Interestingly enough, the comparator ‘t-test’ has quite high power under log
+loss, but very different, and much lower power under MSFE.
+Consequently, the results in Table 1 demonstrate empirically that the if one wishes to conduct a test
+of forecast accuracy based on approaches that use forecast combinations, accounting for the two-step
+nature by which these forecasts were produced will be critical in producing tests with good power and
+reliable size.
+1/2 can be obtained by setting pϕ1 , ϕ2 , σ 2 q “ p.4000, ´.4421, 1qJ in the AR(2) model. For MSFE, taking pϕ1 , ϕ2 , σ 2 q “
+p.4000, ´.4070, 1qJ delivers a DGP such that the optimal (two-step) forecast combination weight is (approximately) 1/2. The
+values of pϕ1 , ϕ2 , σ 2 q in both cases were obtained numerically by maximizing the corresponding loss function using a sample
+size of 10 million observations generated from the DGP.
+11
+Under log-loss, the DGP generating the observed data is fixed at pϕ1 , ϕ2 , σ 2 q “ p.40, ´.50, 1qJ , while under MSFE
+we take the DGP generating the data to be pϕ1 , ϕ2 , σ 2 q “ p.40, ´.45, 1qJ . That is, in both cases, the DGP deviates from
+the version that delivered equivalence between the equal-weighted combination and the optimally-weighted combination by
+moving the second root of the AR(2) process, ϕ2 , by -.05.
+
+19
+
+Size
+T “ 1000
+T “ 2000
+T “ 5000
+Power
+T “ 1000
+T “ 2000
+T “ 5000
+
+Two-Step
+0.0202
+0.0240
+0.0322
+Two-Step
+0.1544
+0.3038
+0.6546
+
+MSFE
+T-Test
+0.0348
+0.0330
+0.0392
+MSFE
+T-Test
+0.1426
+0.2536
+0.5450
+
+Stand
+0.0000
+0.0004
+0.0000
+Stand
+0.0122
+0.0108
+0.0102
+
+Log-Loss
+T-Test
+0.1690
+0.3250
+0.5480
+Log-Loss
+Two-Step T-Test
+0.1960 0.3960
+0.3670 0.6980
+0.6870 0.9570
+Two-Step
+0.0530,
+0.0440,
+0.0510,
+
+Stand
+0.0000
+0.0000
+0.0000
+Stand
+0.0000
+0.0000
+0.0000
+
+Table 1: Monte Carlo rejection rates for testing the null hypothesis in (5) under the size and power DGPs
+for the loss functions MSFE and Log-Loss. The table compares the rejection rates of the standard test
+(Stand) and the two-step version based on the rejection region in (10) (Two-Step). The column T-Stat
+gives the empirical rejection rates of the T-test that η “ 1{2.
+
+4.4
+
+Avoiding the Puzzle
+pT q
+
+As noted, the use of a two-step forecast combination, i.e., Qθ̃ , is much more common in practice than a
+R
+pT q
+one-step forecast combination, i.e., Q , where θpR is defined in (1). However, the analysis in Section 4
+θpR
+
+demonstrates that the forecast combination puzzle is entirely due to this (two-step) estimation approach.
+This then begs the question of whether it may be possible to avoid the puzzle altogether by changing the
+way forecast combinations are produced.
+pT q
+In this section we compare the accuracy of the one-step forecast combination, Qθp against the stanR
+
+pT q
+
+dard two-step forecast combination, Qθ̃ . Since the two-step approach is the standard approach in the
+R
+literature, we test that the two-step (benchmark) approach is not inferior to the one-step (alternative)
+approach. The following result demonstrates that if the one-step forecast combination approach is computationally feasible, it will always yield superior forecast performance.
+Theorem 4.2. Under Assumptions A.1-A.5 in Appendix A.1, PrrDP pθ̃T , θpT q ą 0s Ñ 1 as n Ñ 8.
+Theorem 4.2 yields the following immediate corollary on the forecast accuracy of a benchmark
+ew
+equally-weighted combination against the optimally estimated one-step combination: let θR
+“ pK ´1 ι1 , γ̃R1 q1 ,
+with ι a K-dimensional vector of ones.
+ew p
+Corollary 4.2. If η 0 ‰ K ´1 ι, and Assumptions A.1-A.5 in Appendix A.1 are satisfied, then PrrDP pθR
+, θT q ą
+0s Ñ 1 as n Ñ 8.
+
+Remark 4.3. Theorem 4.2 and Corollary 4.2 state that when measuring predictive accuracy using average
+loss differences, optimally estimated one-step forecast combinations always (weakly) outperform twostep forecast combination approaches, including the equally-weighted combination. This result is loss
+function agnostic, and applies to any strictly proper scoring rule or any consistent scoring function.
+
+20
+
+Remark 4.4. In certain cases, joint optimization over the parameters in the forecast combination (i.e., in
+one-step) will not produce a unique minima for the optimization program in (1); for instance, in cases
+where we wish to combine two mean point forecasts from separate regression models, then a one-step
+optimization may yield a set of optimal values. In such cases, the resulting point onto which the one-step
+estimator θpn converges, i.e., θ0 , will not be unique. However, if one is only interested in forecasting accupT q
+racy, then this is immaterial for practice: since the forecasts are constructed from LrQθ , YT `1 s, and are
+pT q
+evaluated using an out-of-sample estimator for ELrQθ , YT `1 s, each of the optima will (asymptotically)
+produce the same level of accuracy for the forecast combination. Moreover, since the assumptions used
+to derive the results in Theorem 4.2 do not require point identification, the results on the accuracy of the
+one-step forecast combination given above will remain valid.
+
+4.5
+
+Revisiting Smith and Wallis (2009) for One- and Two-Step Combinations
+
+In Figure 2, we repeat the simulation of Section 2.2, but for different benchmark-alternative pairs (rows),
+with a view to illustrating the implications of Theorem 4.2 and Corollary 4.2, and thereby illustrating
+the benefits of the one-step combination.12 As before, discussion of implementation details is left to
+Appendix C.2.
+In the first row, we test the benchmark two-step combination against the alternative one-step combination, and find that the rejection frequency (y-axis) quickly converges to one (in favour of the one-step
+combination) as the sample size (x-axis) increases, for combinations optimising both the MSFE (lefthand column) and the log loss (right-hand column) and for all values of η ‹ (colours). This reflects the
+result of Theorem 4.2, and supports preferring the one-step combination over its two-step counterpart
+when optimising the combination to maximise forecast performance.
+In the second row, the hypothesis of no inferior predictive accuracy of the equally-weighted two-step
+benchmark is tested against the alternative one-step combination. Here, we again find that the rejection
+frequency (y-axis) rapidly converges to one as the sample size (x-axis) increases, for DGPs of all limiting
+ew
+is the best-performing two-step combination. This
+two-step weights η ‹ , including η ‹ “ 0.5, where θR
+is due to the fact that the one-step combination θ̂T converges to a higher-performing combination in the
+ew
+limit than is possible for any two-step combination, including θR
+in the case where the optimal two-step
+‹
+‹
+weight η “ 0.5; this follows since even if η “ 0.5 under the two-step approach, the optimal one-step
+weight η 0 ‰ 0.5.
+Displayed in the bottom row are rejection frequencies for the test of no inferior predictive accuracy
+of the equally-weighted two-step benchmark against the optimally-weighted two-step alternative. Rejection frequencies for the same test were also displayed in the middle row of Figure 1, and here we
+see again that for the two-step combination this test is undersized and has low power, even when the
+ew
+equally-weighted vector θR
+is far from optimal (dark blue and green), leading to the forecast combi12
+We omit results for η ‹ “ 0 and η ‹ “ 1 to exclude cases where θ0 “ θ‹ , whereby the one- and two-step parameter
+estimators converge to the same values in the limit, violating Assumption A.3.
+
+21
+
+MSFE
+
+1.00
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+θ̃T vs θ̂T
+
+0.75
+
+0.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+1.00
+
+1.00
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+ew
+θR
+vs θ̂T
+
+Rejection Frequency
+
+Log Loss
+
+1.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+2000
+1.00
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+ew
+θR
+vs θ̃T
+
+1.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+Truth
+
+2000
+
+Sample Size
+
+η ? = 0.25
+
+η ? = 0.5
+
+η ? = 0.75
+
+Figure 2: Estimates of the rejection frequency (y-axis) for the hypothesis test of no inferior predictive
+accuracy of a benchmark forecast combination against an alternative combination (rows, benchmark vs
+alternative). 95% confidence intervals for the rejection frequency only cover the thickness of the line,
+and are omitted. The test is conducted with observations drawn from DGPs across a range of pseudo-true
+weights (colours), and across a grid of sample sizes (x-axis). Results for a point forecast combination
+with optimal weights minimising the MSFE are given in the first column, and results for a distributional
+forecast combination with optimal weights minimising the log loss are given in the second column.
+nation puzzle. Comparing the bottom and middle rows of Figure 2, we find that the power of the test
+increases dramatically to resolve the puzzle when estimating parameters in one step (middle row) rather
+than two (bottom row). The increase in power from one-step estimation is seen across all sample sizes
+(x-axis), all pseudo-true weights (colours) and both losses (columns).
+
+4.6
+
+Revisiting Geweke and Amisano (2011) for One- and Two-Step Combinations
+
+In this section, we give an empirical example which demonstrates that one-step combinations resolve
+the forecast combination puzzle. Specifically, we follow Section 3 of Geweke and Amisano (2011)
+and consider a linear pool comprising the Gaussian exponential GARCHp1, 1q model (“EGARCH”) and
+22
+
+Combination
+Average Log Score
+Equally-Weighted Two Step
+3.3481
+Optimally-Weighted Two Step
+3.3459
+One Step
+3.3596
+Table 2: The average log scores of three forecast combinations for S&P500 returns.
+Benchmark
+Equally-Weighted Two Step
+Equally-Weighted Two Step
+Optimally-Weighted Two Step
+
+Alternative
+Optimally-Weighted Two Step
+One Step
+One Step
+
+p value
+0.8251
+5.675e-05
+6.935e-12
+
+Table 3: P-values (right column) for tests of the null hypothesis that a benchmark combination (left
+column) is not inferior to an alternative combination (right column). All combinations produce one-stepahead distributional forecasts for S&P500 returns, and are evaluated on a log-score basis.
+the GARCHp1, 1q model with i.i.d. Student t errors (“t-GARCH”); this pool is then used to produce
+one-step-ahead distributional forecasts of daily logarithmic S&P500 returns. All parameters (including
+combination weights) are estimated using returns for the 3783 trading days from years 1990 to 2004,
+inclusive (the “training set”). We then evaluate and compare the log-score-based forecasting performance
+of different combinations using returns for the out-of-sample period comprising the 3772 trading days
+from years 2005 to 2019, also inclusive (the “test set”).
+Three different ways of estimating the forecast combinations are compared: equally-weighted twostep estimation, optimally-weighted two-step estimation, and one-step estimation. In the two-step combinations, the EGARCH parameters are first chosen to maximize the average log score of the EGARCH
+one-step-ahead predictive distribution over the training set; likewise for the t-GARCH parameter estimates. To produce the equally-weighted two-step combination, we set the weights to 0.5. The combination weights for the optimally-weighted two-step combination are estimated by maximizing the log score
+of the combination across the training set, with the EGARCH and t-GARCH parameters fixed at their
+first-step values. The one-step combination parameters are jointly chosen to maximize the training-set
+average log score of the one-step-ahead predictive distribution of the combination density, in a single
+optimization program.
+Table 2 contains the training-set average log scores of the three combinations (first column). Consistent with the forecast combination puzzle, even across the training-set the equally-weighted two-step
+combination outperforms the optimally-weighted two-step combination, since it has a higher average log
+score (second column). As suspected, both two-step combinations are beaten by the one-step approach
+over the training-set.
+In Table 3 we display the p values (right column) for three tests of the null hypothesis that a benchmark combination (left column) is not inferior to an alternative combination (middle column). The test
+proceeds according to Section 3.2.2 using the loss differences pertaining to the log scores of the out-of23
+
+sample test set. The asymptotic variance of the loss difference is estimated using the method described
+?
+in Section 4.1 of Okui (2010), with the quadratic spectrum kernel and S “ T . In the first row we
+fail to reject the null hypothesis that the equally-weighted two-step combination is not inferior to the
+optimally-weighted two step combination, reflecting the forecast combination puzzle. The tests displayed in the second and third rows unequivocally reject the null that the benchmark - either the equallyor the optimally-weighted two-step combination - is not inferior to the one-step combination, with both
+null hypotheses rejected at the 1% level. This perfectly reflects the theoretical results in 4.2 and Corollary 4.2 in Section 4.4: we can avoid the puzzle and obtain a higher performing forecast combination by
+estimating all parameters in a single step, rather than the standard two steps.
+
+5
+
+Conclusion
+
+In this paper, we investigate the forecast combination puzzle through the lens of hypothesis testing approaches aimed at discriminating between the relative performances of equally-weighted and optimallyweighted forecast combinations. Forecast combination parameters are optimized according to a scoring
+function or scoring rule for point forecasting and distributional forecasting, respectively, and we thereby
+demonstrate that the forecast combination puzzle is a phenomenon that extends far beyond point forecasts optimized according to the MSFE.
+Our theoretical analysis demonstrates that such hypothesis tests have no local power, and lack size
+control, when applied to hypothesis tests aiming to distinguish between the performance of optimallyand equally-weighted two-step forecast combinations – a result that is unusual for tests of this nature.
+This perverse behavior is entirely due to the fact that the test statistic used to conduct the test does not
+account for the two-step nature by which forecast combinations are produced. Consequently, as we show
+in the paper, under the null hypothesis the limiting distribution of the (appropriately scaled) test statistic
+is not asymptotically normal, but instead converges in distribution to a generalized chi-distribution.
+The source of this problematic property is that all uncertainty in the performance of optimallyweighted two-step forecast combinations derives entirely, at first order, from sampling variability in the
+parameter estimates of the constituent models, with no contribution from the estimation of the weights.
+It is the relative performance of the different approaches to obtaining the weights, however, that is the
+subject of the hypothesis test – a subject that does not contribute (asymptotically, at least) to the sampling
+variability of the performance measure, resulting in a test with no local power.
+An extension to the Monte Carlo exercise of Smith and Wallis (2009) illustrates how this lack of
+local power can permeate throughout the parameter space. By producing the rejection frequencies of
+a variety of hypothesis tests of no inferior forecast accuracy of a fixed-weight benchmark against the
+optimally-weighted two-step alternative, we illustrate that such hypothesis tests can require large sample
+sizes to reject in favor of the optimally-weighted combination, even when the (unknown) best-performing
+weights are very different from the vector of equal weights. This finding was seen repeatedly, for point
+24
+
+and distributional forecast combinations optimized according to different scores, across a diverse range
+of DGP parameter values, and across several fixed-weighted (and not just equally-weighted) benchmark
+combinations. We also revisit a two-model distributional forecast combination of S&P500 returns in
+Geweke and Amisano (2011) to obtain empirical evidence that this phenomenon occurs in practice.
+It is shown that, under mild assumptions, optimizing combination parameters in one step will always
+eventually reject the null hypothesis that it does not have a higher forecast accuracy than an equallyweighted or optimally-weighted two-step benchmark combination. Repeating the Monte Carlo exercise
+for the one-step alternative under the optimally- and equally-weighted two-step benchmarks reveals that
+the low power that is characteristic of the forecast combination puzzle in the case of two-step alternatives
+is absent when the alternative optimally-weighted combination is estimated in one-step. In addition, we
+verify the superiority of one-step combinations in the S&P500 returns example considered in Geweke and
+Amisano (2011) by showing that the one-step density combination delivers superior predictive accuracy
+relative to two-step benchmarks.
+In this way, we argue that the root-cause behind the lack of evidence for the performance of optimallyweighted two-step combinations against their equally-weighted counterparts is an artefact of the way in
+which such combinations are generally produced. Consequently, the “puzzle” is evidenced by the low
+power observed under standard hypothesis testing approaches used to obtain evidence in favor of, or
+against, optimally-weighted combinations produced in the standard two-step manner. Furthermore, we
+demonstrate that if it feasible to produce optimal combinations in a single step, the forecasting puzzle
+can be completely avoided. Hence, if the problem at hand is such that forecast combinations can be
+produced in a one-step fashion, the practitioner will (always) reap appreciable gains, in terms of forecast
+accuracy, by undertaking such a strategy.
+Alternatively, if a one-step approach is infeasible, or if a two-step approach is simply preferable, we
+have demonstrates how the usual testing framework must be altered to accommodate the two-step nature
+by which the combinations were produced, and to ensure that the resulting behavior does not corrupt our
+testing results. In particular, we have show that under a broad range of DGPs, when using a two-step
+forecast combination approach, both the test statistic and the critical value employed must be altered in
+order to deliver a test that has correct size, and meaningful power.
+Before concluding, we note that there are many interesting cases where a forecast combination procedure may seem, at the outset, not to be produced in a two-step fashion, but which upon closer inspection
+reveals that such forecast combinations are actually produced in (at least) a two-step fashion. As an illustrative example, consider the context of volatility forecasting using the HAR model (Corsi, 2009; Corsi
+et al., 2012). By viewing HAR model forecasts as the combination of lagged moving average models
+for realised variance, Clements and Vasnev (2021) document the existence of a forecasting combination
+puzzle in HAR models and show that such models do not generally perform better than a simple weighted
+average of the constituent forecasts.
+Interestingly, the results of Clements and Vasnev (2021) seem to document the existence of a forecast
+
+25
+
+combination puzzle without a ‘first-stage’ estimation step being required to produce the forecasts; at
+face value it then seems that such an example lies outside the scope of our general results. However,
+recall that the “observed value” of realised volatility is not a genuine realisation of “observed data”,
+but a nonparametric estimator of integrated-variance, computed using inter-daily returns. That is, the
+very construction of the realised variance series constitutes a first-stage estimation step, and forecasts
+produced via HAR models can therefore be viewed as two-stage forecast combination methods: the first
+stage estimates the realised variance series, and the second the combination scheme. Hence, the lack of
+power HAR models exhibit to distinguish between equally and optimally weighted forecast combinations
+is also explained by our theoretical results. We leave a full study on such types of first-stage estimation
+steps for future research, but remark that, the heavy use of high-frequency returns, and realised variance
+in particular, in financial forecasting applications would seem to imply the existence of undiscovered
+combination puzzles.
+
+References
+Aastveit, K. A., Mitchell, J., Ravazzolo, F., and van Dijk, H. K. (2019). The evolution of forecast density
+combinations in economics. In Oxford Research Encyclopedia of Economics and Finance. Oxford
+University Press. 1
+Andrews, D. W. (1999). Estimation when a parameter is on a boundary. Econometrica, 67(6):1341–1383.
+30, 31, 32, 38, 39, 41
+Baran, S. and Lerch, S. (2018). Combining predictive distributions for the statistical post-processing of
+ensemble forecasts. International Journal of Forecasting, 34(3):477–496. 2
+Bates, J. M. and Granger, C. W. (1969). The combination of forecasts. Journal of the Operational
+Research Society, 20(4):451–468. 1, 2
+Chan, F. and Pauwels, L. L. (2018). Some theoretical results on forecast combinations. International
+Journal of Forecasting, 34(1):64–74. 2
+Claeskens, G., Magnus, J. R., Vasnev, A. L., and Wang, W. (2016). The forecast combination puzzle: A
+simple theoretical explanation. International Journal of Forecasting, 32(3):754–762. 2
+Clark, T. and McCracken, M. (2013). Advances in forecast evaluation. Handbook of economic forecasting, 2:1107–1201. 12
+Clements, A. and Vasnev, A. L. (2021). Forecast combination puzzle in the har model. Available at
+SSRN: https://ssrn.com/abstract=3875026 or http://dx.doi.org/10.2139/ssrn.3875026. 25
+
+26
+
+Corsi, F. (2009). A simple approximate long-memory model of realized volatility. Journal of Financial
+Econometrics, 7(2):174–196. 25
+Corsi, F., Audrino, F., and Renò, R. (2012). Har modeling for realized volatility forecasting. In Handbook
+of Volatility Models and Their Applications, pages 363–382. John Wiley & Sons, Inc, Hoboken, NJ,
+USA. 25
+Elliott, G. (2011). Averaging and the optimal combination of forecasts. Manuscript, Department of
+Economics, UCSD. 2
+Fissler, T. and Ziegel, J. F. (2016). Higher order elicitability and osband’s principle. The Annals of
+Statistics, 44(4):1680–1707. 9
+Frazier, D. T. and Renault, E. (2017). Efficient two-step estimation via targeting. Journal of Econometrics, 201(2):212–227. 11
+Geweke, J. and Amisano, G. (2011). Optimal prediction pools. Journal of Econometrics, 164(1):130–
+141. 2, 3, 8, 10, 22, 25
+Gill, P. E., Murray, W., and Wright, M. H. (2021). Numerical linear algebra and optimization. SIAM.
+46
+Gneiting, T. and Raftery, A. E. (2007). Strictly proper scoring rules, prediction, and estimation. Journal
+of the American Statistical Association. 8, 10
+Gneiting, T. and Ranjan, R. (2011). Comparing density forecasts using threshold- and quantile-weighted
+scoring rules. Journal of Business & Economic Statistics, 29(3):411–422. 8
+Gneiting, T. and Ranjan, R. (2013). Combining predictive distributions. Electronic Journal of Statistics,
+7:1747–1782. 2, 8, 10
+Graefe, A., Armstrong, J. S., Jones Jr, R. J., and Cuzán, A. G. (2014). Combining forecasts: An application to elections. International Journal of Forecasting, 30(1):43–54. 2
+Granger, C. W. and Machina, M. J. (2006). Forecasting and decision theory. Handbook of Economic
+Forecasting, 1:81–98. 9
+Hall, S. G. and Mitchell, J. (2007). Combining density forecasts. International Journal of Forecasting,
+23(1):1–13. 2, 10
+Hansen, P. R. (2005). A test for superior predictive ability. Journal of Business & Economic Statistics,
+23(4):365–380. 2, 12
+Johnson, S. G. (2022). The nlopt nonlinear-optimization package. 46
+27
+
+Kraft, D. (1988). A software package for sequential quadratic programming. ForschungsberichtDeutsche Forschungs- und Versuchsanstalt fur Luft- und Raumfahrt. 46
+Kraft, D. (1994). Algorithm 733: Tomp–fortran modules for optimal control calculations. ACM Transactions on Mathematical Software (TOMS), 20(3):262–281. 46
+Makridakis, S., Spiliotis, E., and Assimakopoulos, V. (2018). The m4 competition: Results, findings,
+conclusion and way forward. International Journal of Forecasting, 34(4):802–808. 2
+Makridakis, S., Spiliotis, E., and Assimakopoulos, V. (2020). The m4 competition: 100,000 time series
+and 61 forecasting methods. International Journal of Forecasting, 36(1):54–74. 2
+Martin, G. M., Loaiza-Maya, R., Maneesoonthorn, W., Frazier, D. T., and Ramı́rez-Hassan, A. (2021).
+Optimal probabilistic forecasts: When do they work? International Journal of Forecasting. 2, 8
+Newey, W. K. and McFadden, D. (1994). Large sample estimation and hypothesis testing. Handbook of
+Econometrics, 4:2111–2245. 11
+Okui, R. (2010). Asymptotically unbiased estimation of autocovariances and autocorrelations with long
+panel data. Econometric Theory, 26(5):1263–1304. 24
+Opschoor, A., Van Dijk, D., and van der Wel, M. (2017). Combining density forecasts using focused
+scoring rules. Journal of Applied Econometrics, 32(7):1298–1313. 2
+Patton, A. J. (2020). Comparing possibly misspecified forecasts. Journal of Business & Economic
+Statistics, 38(4):796–809. 9
+Pesaran, M. H. and Skouras, S. (2002). Decision-based methods for forecast evaluation. A Companion
+to Economic Forecasting, pages 241–267. 9
+Ranjan, R. and Gneiting, T. (2010). Combining probability forecasts. Journal of the Royal Statistical
+Society: Series B (Statistical Methodology), 72(1):71–91. 2
+Satopää, V. A., Baron, J., Foster, D. P., Mellers, B. A., Tetlock, P. E., and Ungar, L. H. (2014). Combining
+multiple probability predictions using a simple logit model. International Journal of Forecasting,
+30(2):344–356. 2
+Smith, J. and Wallis, K. F. (2009). A simple explanation of the forecast combination puzzle. Oxford
+Bulletin of Economics and Statistics, 71(3):331–355. 2, 4, 5, 11, 12, 18, 24, 42
+Stock, J. H. and Watson, M. W. (2004). Combination forecasts of output growth in a seven-country data
+set. Journal of Forecasting, 23(6):405–430. 2
+Stone, M. (1961). The linear opinion pool. Ann. Math. Statist, 32:1339–1342. 1, 2
+28
+
+Taylor, J. W. (2020). Forecast combinations for value at risk and expected shortfall. International Journal
+of Forecasting, 36(2):428–441. 2
+Thorey, J., Chaussin, C., and Mallet, V. (2018). Ensemble forecast of photovoltaic power with online
+crps learning. International Journal of Forecasting, 34(4):762–773. 2
+Timmermann, A. (2006). Forecast combinations. Handbook of Economic Forecasting, 1:135–196. 1, 2
+Van Der Vaart, A. (1998). Asymptotic Statistics. Cambridge University Press. 3
+van der Vaart, A., van der Vaart, A. W., van der Vaart, A., and Wellner, J. (1996). Weak Convergence and
+Empirical Processes: With Applications to Statistics. Springer Science & Business Media. 30
+Wang, L., Wang, Z., Qu, H., and Liu, S. (2018). Optimal forecast combination based on neural networks
+for time series forecasting. Applied Soft Computing, 66:1–17. 2
+West, K. D. (1996). Asymptotic inference about predictive ability. Econometrica: Journal of the Econometric Society, pages 1067–1084. 4, 11, 15
+White, H. (2000). A reality check for data snooping. Econometrica, 68(5):1097–1126. 2, 11, 12
+Yuan, K.-H. and Jennrich, R. I. (1998). Asymptotics of estimating equations under natural conditions.
+Journal of Multivariate Analysis, 65(2):245–260. 38
+Zischke, R., Martin, G. M., Frazier, D. T., and Poskitt, D. S. (2022). On measuring the sampling variability of estimated combinations of distributional forecasts. Unpublished Manuscript. 3, 11
+
+A
+
+Assumptions and Proofs
+
+A.1
+
+Assumptions and Discussion
+
+We wish to treat cases where the model combination weights, η, are allowed to lie on the boundary
+of the parameter space, and we wish to be agnostic about the asymptotic distribution of the estimated
+parameters in the constituent models. Before stating our maintained assumptions, we recall that Ln pθq “
+řn´1
+ptq
+t“1 ℓt pθq, for some loss function ℓt`1 pθq “ LrPθ , yt`1 s.
+Assumption A.1. The parameter space Θ is compact, and can be written as a Cartesian product of
+intervals with the form r0, cs or r´c, cs, for some 0 ă c ă 8 that can change dimension-by-dimension.
+Remark A.1. The assumption that Θ is a Cartesian product is not onerous since the parameter space is
+a product of closed intervals, and since the requirement that the boundary is ‘on the left’, and at zero, is
+29
+
+without loss of generality: if the j-th element of the parameter vector originally satisfies θj P rc1j , c2j s,
+then we can always consider the translated parameter ϑj “ θj ´ c1 , which lies in r0, c2j ´ c1j s. For
+instance, this assumption is immediately satisfied for combination weights in the case of linear pools.
+Further, this assumption satisfies the conditions on the parameter space necessary to apply the results of
+Andrews (1999).
+Since our goal is not inference on γ ‹ , we maintain the following high-level regularity condition for
+the estimated parameters in the constituent models.
+ř
+‹ 1
+‹
+‹
+Assumption A.2. The population criterion K
+j“1 Lpγk q exists and is uniquely minimized at γ “ pγ1 , . . . , γK q ;
+?
+(ii) npγ̃n ´ γ ‹ q “ Op p1q.
+Together with Assumption A.1, the following conditions give consistency of the one- and two-step
+estimators θpn , θ̃n to their corresponding limit optimizers.
+Assumption A.3. There exists a function θ ÞÑ Lpθq such that: (i) supθPΘ |Ln pθq{n ´ Lpθq| “ op p1q; (ii)
+There exist a non-empty set ΘI Ă Θ with a finite number of elements such that, for each θ0 P ΘI , the
+map θ ÞÑ Lpθq is minimized at θ0 P ΘI , i.e., ΘI :“ arginf Θ Lpθq; η ÞÑ Lpη, γ ‹ q is uniquely minimized
+at η ‹ P E, and θ‹ R ΘI .
+Assumption A.3 differs from the usual point-identification assumption imposed in classical extremum
+estimation problems. Instead, we only require that the one-step estimator is set-identified, and that the
+set contains only a finite collection of values. This is helpful for treating situations where the forecast
+combination delivers unidentified parameter estimates due to the existence of multiple roots in the criterion function. However, from the point of forecasting accuracy whether ΘI is a singleton is irrelevant so
+long as the forecast accuracy associated with the collection of points in ΘI is constant, which is precisely
+what Assumption A.3 stipulates.
+The following assumption allows us to deduce quadratic expansions that we use to establish the
+behavior of tests of forecasting accuracy. In what follows, we recall that ∇θ Lpθq denotes left/right
+(hereafter, l/r) derivatives or standard derivatives, depending on the context.
+Assumption A.4. (i) For some δ ą 0, ϑ P ΘI Y tθ‹ u, and all }θ ´ ϑ} ă δ, Ln pθq and Lpθq admit
+second-order l/r partial derivatives in θ that are continuous with respect to components that can be
+?
+perturbed to the l/r; (ii) for each ϑ P ΘI , ∇θ Ln pϑq “ Op p1q and r∇η Ln pη, γ ‹ q; ∇γ Ln pγ ‹ qs{ n “
+Op p1q; (iii) the matrices ∇ηη Lpη, γ ‹ q|η“η‹ and ∇θθ Lpθq|θ“θ‹ are positive-definite; (iv) For any δn “ op1q,
+supϑPΘI sup}θ´ϑ}ďδn }∇θθ Ln pθq{n ´ ∇θθ Lpθq} “ op p1q.
+Remark A.2. The assumptions regarding the continuous l/r derivatives can be relaxed in cases by replacing the differentiability conditions with a ‘stochastic differentiability’ condition that depend on the
+specific type of loss function, and which are well-known in the literature on empirical processes (see,
+e.g., van der Vaart et al., 1996). Since this complication is not our main interest, we maintain the stronger
+conditions on the l/r derivatives.
+30
+
+Assumptions A.1-A.4 are sufficient to deduce consistency, as well as the rate of convergence, for the
+one-step estimator of the parameters in the forecast combination. The following result follows similar
+arguments to Theorem 2 Andrews (1999), but requires slight alternations since we do note assume the
+existence of a unique minimum for Lpθq. In what follows, define Mθθ pθq :“ ∇θθ Lpθq, with derivatives
+for η and γ defined accordingly.
+Lemma A.1. Suppose Assumptions A.1, A.3 and A.4 are satisfied, then for some ϑ P ΘI the following
+are satisfied.
+?
+(i) npθpn ´ ϑq “ Op p1q,
+?
+?
+(ii) For λn “ npθpn ´ ϑq, and Zn :“ ´Mθθ pϑq´1 ∇θ Ln pϑq{ n,
+1
+1
+Ln pθpn q ´ Ln pϑq “ ´ Zn1 Mθθ pϑqZn ` pλn ´ Zn q1 Mθθ pϑqpλn ´ Zn q ` op p1q.
+2
+2
+A result like Lemma A.1 can also be deduced for the two-step estimator of the combination weights.
+Lemma A.2. Under Assumptions A.1-A.4,
+?
+(i) npη̃n ´ η ‹ q “ Op p1q.
+?
+?
+?
+(ii) For J “ Mηη pθ‹ q, κn “ J 1{2 npη̃n ´η ‹ q, and Vn :“ ´J ´1{2 t∇η Ln pθ‹ q{ n`Mηγ pθ‹ q npγ̃n ´
+γ ‹ qu,
+1
+1
+Ln pθ̃n q ´ Ln pη ‹ , γ̃n q “ ´ }Vn }2 ` }κn ´ Vn }2 ` op p1q.
+2
+2
+Lemma A.2 demonstrates that the two-step criterion has a quadratic expansion that depends on the
+?
+centering variable Vn , which is a linear function of npγ̃n ´ γ ‹ q. This centering sequence is a conse?
+quence of the two-step nature with which the criterion has been optimized, which treats npγ̃n ´ γ ‹ q as a
+fixed quantity. In contrast, a joint expansion of Ln pθ̃n q about θ‹ produces a linear expansion at first-order.
+Lemma A.3. If Assumptions A.1-A.4 are satisfied, then
+?
+n´1{2 tLn pη̃n , γ̃n q ´ Ln pη ‹ , γ ‹ qu “ ∇γ Lpθ‹ q1 npγ̃n ´ γ ‹ q ` op p1q.
+Remark A.3. Lemma A.3 demonstrates that the dominant term in the expansion of tLn pη̃n , γ̃n q´Ln pη ‹ , γ ‹ qu
+?
+?
+is the linear term ∇γ Lpθ‹ q1 npγ̃n ´γ ‹ q. That is, the behavior of npη̃n ´η ‹ q is irrelevant in determining
+?
+the behavior of Ln pθ̃n q{ n. Lemma A.3 is a consequence of the two-step nature of the estimator θ̃n .
+Remark A.4. The above result demonstrates that the estimation, and limiting behavior, of the combination weights has no impact on DP defined in (6): the asymptotic behavior of DP only depends on the
+?
+pseudo-true value η ‹ , and the variation in γ̃R . So long as Rpη̃R ´ η ‹ q “ Op p1q, and even if η ‹ is on
+the boundary of the parameter space, the variability in the estimates of the parameters governing the
+constituent forecasts ultimately determines the behavior of DP .
+31
+
+The following remaining assumptions are used to control the behavior of the average loss difference.
+?
+?
+?
+1
+Assumption A.5. The variable Zn “ rLn pθ‹ q{ n ´ Ln pθ0 q{ n ´ tLpθ‹ q ´ Lpθ0 qu , npγ̃n ´ γ ‹ qs ,
+is such that Zn ñ N p0, Qq. Further, for VP,R :“ ∇η LP pθ‹ q{P ` Mηγ pγ̃R ´ γ ‹ q, we have that
+?
+?
+p RVR,R , P VP,R q ñ N p0, QV q for some positive semi-definite covariance matrix QV .
+
+A.2
+
+Proofs of Main Results
+
+?
+Proof of Theorem 4.1. By part (i) of Lemma A.2, Rpη̃R ´ η ‹ q “ Op p1q, under Assumption 3.1.
+Now, using Assumption A.4(i), and Theorem 6 in Andrews (1999), expand the loss difference around
+‹
+θR
+“ pηR‹ , γ̃R1 q1 , ηR‹ “ δR ` η ‹ , where applicable, all derivatives are again taken to be left/right partial
+derivatives: for a sequence of intermediate values η̄R satisfying }η̄R ´ ηR‹ } ď }η̃R ´ ηR‹ }, we obtain
+?
+?
+1?
+‹
+P ∆P pθ̃R , θR
+P pη̃R ´ ηR‹ q1 t∇2ηη LP pη̄R , γ̃R q {P upη̃R ´ ηR‹ q.
+q “ t∇η LP pηR‹ , γ̃R q{P u1 P pη̃R ´ ηR‹ q `
+2
+From compactness of Θ, Assumption A.1, and differentiability of ∇η LR pη, γ ‹ q in η, Assumption A.4(i),
+the following are satisfied via the usual arguments:
+}∇η LR pηR‹ , γ̃R q{P ´ ∇η LpηR‹ , γ̃R q} “ op p1q,
+
+}∇2ηη LP pη̄R , γ̃R q {P ´ Mηη pη̄R , γ̃R q} “ op p1q.
+
+From the above convergence, and the continuity of the left/right derivatives in Assumption A.4, we can
+conclude that
+?
+?
+?
+‹
+P ∆P pθ̃R , θR
+q “ ∇η LpηR‹ , γ ‹ q1 P pη̃R ´ ηR‹ q ` pη̃R ´ ηR‹ q1 Mηγ pηR‹ , γ ‹ q1 P pγ̃R ´ γ ‹ q ` op p1q
+1?
+`
+P pη̃R ´ ηR‹ q1 Mηη pη̄R , γ ‹ q pη̃R ´ ηR‹ q ` op p1q.
+(11)
+2
+Case (1). Consider that δR “ δ{T ξ , for ξ P r0, 1{4q, then
+?
+?
+?
+?
+P pη̃R ´ ηR‹ q “ P pη̃R ´ η ‹ q ` δR P “ Op p1q ` δR P ,
+?
+where the Op p1q follows since, by Lemma A.2, }η̃R ´ η ‹ } “ Op p1{ P q.
+Consider two cases: ξ “ 0, and ξ P p0, 1{4q. In the case where ξ “ 0, from the definition of ηR‹ ,
+for some ε ą 0, there exists an T pδq large enough such that for all T ą T pδq, }η ‹ ´ ηR‹ } ě γ with γ “
+δ ´ε ą 0. Hence, by Assumption A.3(ii) and the differentiability in A.4(i) plim T Ñ8 }∇η LpηR‹ , γ ‹ q} ą 0
+and plim T Ñ8 |δR1 ∇η LpηR‹ , γ ‹ q| ą 0. Alternatively, in the case where ξ P p0, 1{4q, there exists a T pδq
+large enough such that for all T ą T pδq, }η ‹ ´ ηR‹ } ď γ, and we have plim T Ñ8 |δR1 ∇η LpηR‹ , γ ‹ q| “ 0.
+Applying the above into equation (11) we have that
+?
+?
+?
+1 ‹
+‹
+‹
+pηR‹ , γ ‹ q P pγ̃R ´ γ ‹ q ` Mηη
+pη̄R , γ ‹ q δR u
+P ∆P pθ̃R , θR
+q “ P δR1 t∇η LpηR‹ , γ ‹ q ` op p1q ` Mηγ
+2
+32
+
+?
+P 1 ‹
+δR Mηη pη̄R , γ ‹ q δR
+2
+?
+? 1
+?
+(
+␣
+P
+‹
+pη, γ ‹ q δR ,
+ě P δR t∇η LpηR‹ , γ ‹ q ` Op p1{ P qu `
+inf δR1 Mηη
+2 ηPE
+?
+?
+“ P δR1 t∇η LpηR‹ , γ ‹ q ` Op p1{ P qu `
+
+where the Op p1q term in the second equation follows by Assumption A.2. Taking absolute values, and
+applying the reverse triangle inequality then yields
+?
+?
+(
+␣
+‹
+‹
+pη, γ ‹ q δR || ` op p1q
+q| ě P ||δR1 ∇η Lpη ‹ ` δR , γ ‹ q| ´ | inf δR1 Mηη
+| P ∆P pθ̃R , θR
+ηPE
+
+(12)
+
+In the case where ξ “ 0, it can been seen directly that the term inside the absolute value is non-zero,
+and so the RHS diverges as P Ñ 8. In the case where ξ P p0, 1{4q, rewrite
+?
+?
+P δR “ P δ{T ξ “
+
+c
+
+P
+P `R
+
+?
+a
+P `R
+p1 ` cq´1 T 1{2´ξ ` op1q,
+δ
+“
+Tξ
+
+where c “ limT R{P is as in Assumption 3.1. Consider the second term on the RHS of (12). Since
+?
+ξ ă 1{4, the second term is proportional to P }δR }2 “ CT 1{2´ξ Ñ `8 as T Ñ `8. Consequently,
+the RHS of (12) also diverges so long as ξ P p0, 1{4q.
+Case (2). Applying the same steps as in case (1), we arrive at the inequalities
+?
+P 1 ‹
+δR Mηη pη̄R , γ ‹ q δR
+2
+ηPE
+?
+? 1
+?
+P 1 ‹
+‹
+‹
+δR Mηη pη̄R , γ ‹ q δR
+ě P δR t∇η LpηR , γ q ` Op p1{ P qu ` inf
+ηPE 2
+?
+As discussed in Case (1), when δR “ δ{T ξ , we have that P δR “ CδT 1{2´ξ . However, in the case
+where ξ ě 1{4, we have that
+?
+?
+?
+‹
+P ∆P pθ̃R , θR
+q ď P δR1 t∇η LpηR‹ , γ ‹ q ` Op p1{ P qu ` sup
+
+∇η LpηR‹ , γ ‹ q “ Mηη pη ‹ , γ ‹ qδR ` op}δR }q
+Applying this into the above inequalities yields
+?
+?
+? 1
+?
+P 1 ‹
+‹
+‹
+‹
+2
+P ∆P pθ̃R , θR q ď P δR Mηη pη , γ qδR ` Op p}δR }q ` op P }δR } q ` sup
+δR Mηη pη̄R , γ ‹ q δR
+2
+ηPE
+?
+?
+?
+P 1 ‹
+ě P δR1 Mηη pη ‹ , γ ‹ qδR ` Op p}δR }q ` op P }δR }2 q ` inf
+δR Mηη pη̄R , γ ‹ q δR (13)
+ηPE 2
+
+33
+
+Further, since
+
+?
+P }δR }2 “ C ą 0,
+
+?
+?
+?
+C2 1
+‹
+q ´ C 2 δ 1 Mηη pη ‹ , γ ‹ qδ ďOp p}δR }q ` op P }δR }2 q ` sup
+P ∆P pθ̃R , θR
+δ Mηη pη, γ ‹ q δ
+2
+ηPE
+?
+?
+C2 1
+ěOp p}δR }q ` op P }δR }2 q ` inf
+δ Mηη pη, γ ‹ q δ.
+ηPE
+2
+Since M
+pη, γ ‹ q is continuous in η, the last
+terms in the inequalities are bounded. Letting S1 “
+? ηη
+?
+2
+2
+supηPE 2C δ 1 Mηη pη, γ ‹ q δ and S2 “ inf ηPE 2C δ 1 Mηη pη, γ ‹ q δ the above analysis has demonstrated
+that
+?
+‹
+q ´ C 2 δ 1 Mηη pη ‹ , γ ‹ q ď S1 ` op p1q.
+S2 ` op p1q ď P ∆P pθ̃R , θR
+´?
+¯
+‹
+Hence, depending on S1 and S2 , we have show that limT Pr | P ∆P pθ̃R , θR q| ą 0 ž α.
+?
+Case (3). With δR “ δ{T ξ , and ξ ą 1{4, we see that P }δR }2 “ C}T 1{2´2ξ }. Hence, when ξ ą 1{4,
+?
+P }δR }2 “ op1q. Applying this into the upper bound in equation (13) implies that
+?
+?
+? 1
+?
+P 1 ‹
+‹
+2
+‹
+‹
+P ∆P pθ̃R , θR q ď P δR Mηη pη , γ qδR ` Op p}δR }q ` op P }δR } q ` sup
+δR Mηη pη̄R , γ ‹ q δR
+2
+ηPE
+?
+ď Op p P }δR }2 qt1 ` op p1qu ` Op p}δR }q
+“ op p1q
+
+Proof of Lemma 4.1. Recalling that
+␣
+(
+∆P pϑδT , θ̃R q “ P ´1 tLP pηTδ , γ̃R q ´ LP pη̃R , γ̃R qu “ ´P ´1 LP pη̃R , γ̃R q ´ LP pηTδ , γ̃R q ,
+the result follows by applying Lemma A.2, in particular equation (20) obtained in the proof. For δT —
+δ{T ξ with ξ P p0, 8s, equation (20) implies that
+´?
+”
+!
+)ı¯
+?
+?
+δ 1 1{2
+´1{2
+‹
+‹
+P pη̃R ´ ηT q J
+´J
+∇η LP pθ q{ P ` Mηγ P pγ̃R ´ γ q
+{P
+"
+*
+?
+1?
+´
+P pηTδ ´ η̃R q1 J P pηTδ ´ η̃R q {P ` RP pθq{P,
+2
+
+∆P pϑδT , θ̃R q “
+
+which, recalling the definition of VP,R , can be re-arranged as
+1
+∆P pϑδT , θ̃R q “ pη̃R ´ ηTδ q1 J 1{2 VP,R ´ pηTδ ´ η̃R q1 JpηTδ ´ η̃R q ` RP pθq{P
+2
+
+34
+
+Adding and subtracting 12 }VP,R }2 , we can re-arrange the above equation as
+`
+˘
+1
+1
+∆P pϑδT , θ̃R q “ }VP,R }2 ´ }J 1{2 ηTδ ´ η ‹ ´ J 1{2 pη̃R ´ η ‹ q ´ VP,R }2 ` RP pθq{P
+2
+2
+
+(14)
+
+Under the maintained assumption that R — P , from equation (21) in the proof of Lemma A.2,
+!
+)
+?
+? `
+?
+˘
+RP pϑP q{P ď P ´1 op 1 ` } P pηTδ ´ η ‹ q} ` } P ηTδ ´ η ‹ }2 ` } P pθ̃R ´ θ‹ q}2
+!
+)
+´1{2 δ
+‹
+δ
+‹ 2
+‹ 2
+” op 1 ` P
+}ηT ´ η } ` }ηT ´ η } ` }pθ̃R ´ θ q} ,
+where the last term follows for any ηTδ ´ η ‹ “ op p1q.
+
+Proof of Corrolary 4.1. The result follows by appropriately manipulating the expansion in (14). Multiplying the RHS of equation (14) by P , and re-arranging terms yields
+? `
+?
+?
+˘
+1 ?
+1
+∆P pϑδT , θ̃R q “ ´ }J 1{2 P ηTδ ´ η ‹ ´ J 1{2 P pη̃R ´ η ‹ q ´ P VP,R }2 ` } P VP,R }2 ` RP pθq
+2
+2
+?
+Recalling the definition of VP,R?: (i) since R — P , we have that P VP,R “ Op p1q, and a similar argument
+?
+?
+shows that } P pη̃R ´η ‹ q} “ } ?PR Rpη̃R ´η ‹ q} “ Op p1q; (ii) since ηTδ ´η ‹ “ op p1q under the maintained
+assumptions, the remainder term vanishes as T Ñ `8.
+Using the definitions of XP and ZP stated before the corollary, points (i) and (ii) allow us to rewrite
+the display equation as
+!
+´?
+¯)›2
+?
+?
+?
+›
+δ
+‹
+1{2
+‹
+´1{2
+´1
+P pηT ´ η q ´ J
+P pη̃R ´ η q ´ J
+P XP ` c Mηγ RZR,γ ›
+2
+¯
+?
+1 ´1{2 ´?
+´1
+P XP ` c Mηγ RZR,γ }2 ` op p1q.
+` }J
+2
+
+1›
+P ¨ ∆P pϑδT , θ̃R q “ ´ ›J 1{2
+›
+
+?
+?
+Case (i). When δT — δ{T ξ , with ξ P p0, 1{2q, we have that P pηTδ ´ η ‹ q — P T ´ξ — T 1{2´ξ Ñ `8
+as T Ñ `8 under the maintained assumption on P, R, T . Consequently, since
+!
+´?
+¯)
+?
+?
+J 1{2 P pη̃R ´ η ‹ q ´ J ´1{2
+P XP ` Mηγ P ZR,γ
+“ Op p1q,
+we have that P ¨ ∆P pϑδT , θ̃R q Ñ `8 as T Ñ `8.
+Case (ii). Firstly, we note that when θ‹ P IntpΘq, standard results on the asymptotic behavior of two-step
+estimators can be used to show that
+?
+J 1{2 pη̃R ´ η ‹ q “ ´J ´1{2 t∇η LR pθ‹ q{R ` Mηγ pγ̃R ´ γ ‹ qu ` op p1{ Rq
+
+35
+
+Applying the definitions of XP , and ZR,γ , and the above equation implies that, recalling that c “
+limT P {R,
+?
+?
+?
+?
+?
+?
+1
+1
+P J 1{2 pη̃R ´ η ‹ q ´ P VP,R “ ´ J ´1{2 tXR { R ` Mηγ RZR,γ u ` J ´1{2 tXP { P ` Mηγ RZR,γ u ` op p1q
+c?
+c
+?
+´1
+“c
+RVR,R ´ P VP,R
+?
+?
+Hence, if pc´1 RVR,R , P VP,R q ñ V “ pV11 , V21 q1 , which is guaranteed under Assumption A.5, then,
+by the continuous mapping theorem,
+?
+?
+J 1{2 P pη̃R ´ η ‹ q ´ P VP,R ñ V1 ´ V2 .
+When δT “ δ{T 1{2 , we have that
+assumption on R, P, T , we have that
+ˆ
+
+P
+R`P
+
+?
+?
+` P ˘1{2
+P pηTδ ´ η ‹ q “ δ P T ´ξ “ δ R`P
+. From the maintained
+
+˙1{2
+Ñ t1{p1 ` cqu1{2
+
+as T Ñ `8.
+
+Hence, applying the above two displayed equations yields
+? `
+?
+?
+˘
+1
+´ }J 1{2 P ηTδ ´ η ‹ ´ J 1{2 P pη̃R ´ η ‹ q ´ P VP,R }2 ñ }t1{p1 ` cqu1{2 δ ´ V1 ` V2 }2 .
+2
+?
+Further, recalling the definition of VP,R , and since P VP,R Ñ V2 , we have that
+¯
+?
+1 ?
+1
+1 ´1{2 ´?
+´1
+P XP ` c Mηγ RZR,γ }2 ” } P VP,R }2 ñ }V2 }2 ” }X ` c´1 Mηγ Zγ }2
+` }J
+2
+2
+2
+?
+?
+Since pc´1 RVR,R , P VP,R q ñ V “ pV11 , V21 q1 , any continuous transformation of these components
+also converges in distribution. Hence, the stated result follows.
+Case (iii). The result follows precisely as in case (ii) by taking δ “ 0.
+Proof of Theorem 4.2. By Assumption 3.1, P — R and we can apply the conclusion of Lemma A.3 to
+obtain the following expansion for the loss differences of the two-step combinations:
+
+?
+P tLP pθ̃R q{P ´ LP pθ‹ q{P u “ P ´1{2 tLP pθ̃R q ´ LP pθ‹ qu
+?
+?
+?
+“ P pη̃R ´ η ‹ q1 ∇η LP pη ‹ , γ ‹ q{P ` P pγ̃R ´ γ ‹ q1 ∇γ LP pη ‹ , γ ‹ q{P ` op p1 ` } P pθ̃R
+?
+?
+However, By part (i) of Lemma A.2, we have P pθ̃R ´ θ‹ q — Rpθ̃R ´ θ‹ q “ Op p1q (under Assumption
+3.1). Applying the above, and the fact that t∇η LP pθ‹ qu{P “ op p1q, yields
+?
+?
+?
+?
+P tLP pθ̃R q{P ´ LP pθ‹ q{P u “ op t} P pη̃R ´ η ‹ q}u ` ∇γ Lpθ‹ q P pγ̃R ´ γ ‹ q ` op p} P pγ̃R ´ γ ‹ q}q
+36
+
+?
+“ ∇γ Lpθ‹ q P pγ̃R ´ γ ‹ q ` op p1q.
+
+(15)
+
+From part (ii) of Lemma A.1, with R — P ,
+?
+?
+P tLP pθpR q{P ´ LP pθ0 q{P u “ Op p1{ P q
+
+(16)
+
+Subtracting the two expansion in (15) and (16), we have that
+)
+?
+? !
+P ∆P pθ̃R , θpR q “ P LP pθ̃R q{P ´ LP pθpR q{P
+) ?
+? !
+‹
+0
+p
+“ P rLP pθ̃R q ´ LP pθ qs{P ´ rLP pθR q ´ LP pθ qs{P ` P tLP pθ‹ q{P ´ LP pθ0 q{P u
+? ␣
+?
+(
+“ P LP pθ‹ q{P ´ LP pθ0 q{P ` Op pP ´1{2 q ` op pP ´1{2 q ` ∇γ Lpθ‹ q1 P pγ̃R ´ γ ‹ q
+? ␣
+(
+“ P Lpθ‹ q ´ Lpθ0 q ` Op pP ´1{2 q ` r1 : ∇γ Lpθ˚ q1 sZP
+with ZP as defined in Assumption A.5. By the hypothesis in Assumption A.5, r1 : ∇γ Lpθ˚ q1 sZP is
+asymptotically normal with zero mean and variance Ω “ r1 : ∇γ Lpθ˚ q1 sQr1 : ∇γ Lpθ˚ q1 s1 .
+?
+Now, define Z̃P :“ r1 : ∇γ Lpθ˚ q1 sZP { Ω, and consider the probability
+”
+ı
+”
+ı
+?
+? ␣
+( ?
+Pr ∆P pθ̃R , θpR q{ Ω ď 0 “ Pr Z̃P ` Op pP ´1{2 q ` P Lpθ‹ q ´ Lpθ0 q { Ω ď 0
+?
+„
+ȷ
+(
+P ␣
+´1{2
+0
+‹
+“ Pr Z̃P ` Op pP
+qď ?
+Lpθ q ´ Lpθ q .
+Ω
+?
+?
+Define zP :“ P trLpθ0 q ´ Lpθ‹ qsu { Ω and note that, for any P ě 1, zP ă 0, since, by Assumption
+A.3, Lpθ0 q ă Lpθ‹ q, and zP Ñ ´8 as P Ñ 8.
+Since Z̃P is asymptotically standard normal,
+) !
+)
+ı
+!
+?
+p
+Pr ∆P pθ̃R , θR q{ Ω ď 0 “ Φpzk q ` PrpZ̃P ď zP q ´ Φpzk q ` PrrZ̃P ď zP ` op p1qs ´ PrpZ̃P ď zP q
+”
+
+ď Φpzk q ` sup |PrpZ̃P ď zP q ´ Φpzk q| ` op1q.
+z
+
+Fix ε ą 0. Since zk Ñ ´8 as P Ñ 8, for some P large enough we can conclude that Φpzk q ď ε{2.
+From the convergence Z̃P ñ N p0, 1q, and the continuity of Φpzq, Polya’s Theorem implies that for some
+P large enough,
+ˇ
+ˇ
+ˇ
+ˇ
+sup ˇPrpZ̃P ď zq ´ Φpzqˇ ď ε{2,
+z
+
+?
+and for some P large enough Prr∆P pθ̃R , θpR q{ Ω ď 0s ď ε. Since ε ą 0 is arbitrary, the results
+follows.
+
+37
+
+B
+
+Proofs of Key Lemmas
+
+Proof of Lemma A.1. To prove part (i), we first prove consistency of θpn for some ϑ P ΘI , which can be
+proven by verifying the sufficient conditions in Theorem 2 of Yuan and Jennrich (1998). By A.4(i), the
+?
+function ∇θ Ln pϑq “ Op p1{ nq for each ϑ P ΘI , which satisfies Assumption 1 of Yuan and Jennrich
+(1998). From Assumption A.4(i), for any ϑ P ΘI , there exists a neighbourhood N pϑq, such that for
+each θ P N pϑq, Ln pθq has continuous second-order left/right partial derivatives, ∇θθ Ln pθq, and by
+Assumption A.4(iii), ∇θθ Ln pθq{n converges uniformly to ∇θθ Lpθq, which is non-singular for each ϑ P
+ΘI . Thus, Assumption 2 of Yuan and Jennrich (1998) is satisfied, and we can conclude that θpn :“
+argθPΘ t∇θ Ln pθq “ 0u converges to ϑ, for some ϑ P ΘI .
+Given that θpn “ ϑ ` op p1q, for some ϑ P ΘI , the remainder of the result follows similar arguments
+to Theorem 1 of Andrews (1999). In particular, from Theorem 6 in Andrews (1999) for l/r differentiable
+functions, the following Taylor series expansion is valid: for some ϑ P ΘI ,
+“
+‰?
+?
+?
+1?
+npθ ´ ϑq1 ∇θ Ln pϑq{ n `
+npθ ´ ϑq1 ∇θθ Ln pθ̄q{n npθ ´ ϑq1
+2
+?
+?
+?
+1?
+1
+“ npθ ´ ϑq ∇θ Ln pϑq{ n `
+npθ ´ ϑq1 r∇θθ Lpϑqs npθ ´ ϑq
+2
+“
+‰?
+1?
+1
+npθ ´ ϑq ∇θθ Ln pθ̄q{n ´ ∇θθ Lpϑq npθ ´ ϑq
+`
+2
+
+Ln pθq ´ Ln pϑq “
+
+(17)
+
+for θ̄ an intermediate value satisfying }ϑ ´ θ̄} ď }θ ´ ϑ}. Clearly,
+“
+‰?
+1?
+1 ?
+npθ ´ ϑq1 ∇θθ Ln pθ̄q{n ´ ∇θθ Lpϑq npθ ´ ϑq ď } npθ ´ ϑq}2 }∇θθ Ln pθ̄q{n ´ ∇θθ Lpϑq},
+2
+2
+?
+so that for any }θ´ϑ} “ op1q, we have that the remainder term in (17) is Op} npθ´ϑq}2 q by Assumption
+A.4(iii).
+?
+Recalling the notations Mθθ pθq “ ∇θθ Lpθq, J “ Mθθ pϑq, and Zn “ ´J ´1{2 ∇θ Ln pϑq{ n, we
+obtain
+Rn pθq :“
+
+?
+?
+1?
+Ln pθq ´ Ln pϑq “ ´ npθ ´ ϑq1 J 1{2 Zn `
+npθ ´ ϑq1 J npθ ´ ϑq ` Rn pθq.
+2
+From the definition of θpn , we have Ln pϑq ě Ln pθpn q, so that applying the above equation yields
+?
+?
+1? p
+0 ě Ln pθpn q ´ Ln pϑq “ ´ npθpn ´ ϑq1 J 1{2 Zn `
+npθn ´ ϑq1 J npθpn ´ ϑq ` Rn pθpn q.
+2
+The above equation is precisely the (negative of) equation (7.3) in the proof of Theorem 1 in Andrews
+(1999) and the remainder of the proof follows the same argument.
+?
+Having shown that npθpn ´ ϑq “ Op p1q, for some ϑ P ΘI , the proof of part (ii) of the stated result
+follows the same argument as in Theorem 2 part (b) of Andrews (1999).
+38
+
+Proof of Lemma A.2. To prove the first stated result, we use Theorem 6 in Andrews (1999) for l/r differentiable functions to obtain the following Taylor series expansion:
+?
+?
+?
+1?
+npη ´ η ‹ q1 ∇η Ln pη ‹ , γ̃n q{ n `
+npη ´ η ‹ q1 r∇ηη Ln pη̄, γ̃n q{ns npη ´ η ‹ q1
+2
+␣
+(
+?
+?
+?
+‹ 1
+‹
+´1
+“ npη ´ η q ∇η Ln pθ q{ n ` n ∇ηγ Ln pη ‹ , γ̄qr npγ̃n ´ η ‹ qs
+“
+‰?
+1?
+npη ´ η ‹ q1 n´1 ∇ηη Ln pη̄, γ̃n q npη ´ η ‹ q1
+`
+2
+
+Ln pη, γ̃n q ´ Ln pη ‹ , γ̃n q “
+
+for η̄, γ̄, intermediate values satisfying }η ‹ ´ η̄} ď }η ´ η ‹ } and }γ ‹ ´ γ̄} ď }γ̃n ´ γ ‹ }, respectively.
+Letting
+?
+?
+Rn pη, γ̃n q :“ n pη ´ η ‹ q1 tr∇ηη Ln pη̄, γ̃n q{ns ´ r∇ηη Lpη̄, γ̃n qsu n pη ´ η ‹ q
+?
+?
+´ n pη ´ η ‹ q1 tr∇ηη Lpθ‹ qs ´ r∇ηη Lpη̄, γ̃n qsu n pη ´ η ‹ q
+?
+?
+` npη ´ η ‹ qtn´1 ∇ηγ Ln pη ‹ , γ̄q ´ ∇ηγ Lpθ‹ qu npγ̃n ´ γ ‹ q,
+
+(18)
+
+we have
+␣
+(
+?
+?
+?
+npη ´ η ‹ q1 ∇η Ln pη ‹ , γ̃n q{ n ` ∇ηγ Lpθ‹ q npγ̃n ´ γ ‹ q
+?
+1?
+`
+npη ´ η ‹ q1 r∇ηη Lpθ‹ qs npη ´ η ‹ q1 ` Rn pη, γ̃n q.
+2
+
+Ln pη, γ̃n q ´ Ln pη ‹ , γ̃n q “
+
+(19)
+
+?
+Recalling the notations Mηη pθq “ ∇ηη Lpθq, J “ Mηη pθ‹ q, and Vn “ ´J ´1{2 t∇η Ln pθ‹ q{ n `
+?
+Mηγ pθ‹ q npγ̃n ´ γ ‹ qu, we obtain
+?
+?
+1?
+Ln pη, γ̃n q ´ Ln pη ‹ , γ̃n q “ ´ npη ´ η ‹ q1 J 1{2 pθ‹ qVn `
+npη ´ η ‹ q1 J npη ´ η ‹ q ` Rn pθq.
+2
+
+(20)
+
+From the definition of η̃n , we have Ln pη ‹ , γ̃n q ě Ln pη̃n , γ̃n q, so that applying the above equation yields
+?
+?
+1?
+0 ě Ln pη̃n , γ̃n q ´ Ln pη ‹ , γ̃n q “ ´ npη̃n ´ η ‹ q1 J 1{2 Vn `
+npη̃n ´ η ‹ q1 J npη̃n ´ η ‹ q ` Rn pθ̃n q.
+2
+Now, consider Rn pθ̃n q “ R1n pθ̃n q ` R2n pθ̃n q ` R3n pθ̃n q, corresponding to each of the three terms in
+(18). From the consistency of θ̃n , there exist some δn “ op1q such that }θ̃n ´ θ‹ } ď δn with probability
+converging to one. For the first term, we have
+?
+|R1n pθ̃n q| ď } npη̃n ´ η ‹ q}2
+
+sup
+
+` ?
+˘
+}∇ηη Ln pη̄, γ̃n q{n ´ ∇ηη Lpη̄, γ̃n q} “ op } npη̃n ´ η ‹ q}2
+
+}η´η ‹ }ďδn
+
+39
+
+where the equality follows from Assumption A.4(iv). Similarly, for the third term we have
+?
+|R3n pθ̃n q| ď } npη̃n ´η ‹ q}2
+
+sup
+
+` ?
+˘
+?
+}∇ηγ Ln pη ‹ , γ̄q{n´∇ηγ Lpη ‹ , γ ‹ q} “ op } npη̃n ´ η ‹ q}2 _ } npγ̃n ´ γ ‹ q} ,
+
+}η´η ‹ }ďδn
+
+where the op p1q term follows by consistency of γ̃n , the definition of the intermediate value, γ̄, i.e.,
+}γ̄ ´ γ ‹ } ď }γ ‹ ´ γ̃n }, and continuity of the second derivatives (Assumption A.4(i)). For the second
+term, |R2n pθ̃n q|, a similar argument to the above shows
+?
+?
+?
+?
+|R2n pθ̃n q| ď op p1qp1`} npη̃n ´η ‹ q}} npγ̃n ´γ ‹ q}q “ op p1`} npη̃n ´η ‹ q}qOp p1q “ op p} npη̃n ´η ‹ q}q
+where the Op p1q term in the second equality follows by Assumption A.2. Putting all the terms together
+yields
+?
+?
+(21)
+|Rn pθ̃n q| ď op t1 ` } npη̃n ´ η ‹ q} ` } npη̃n ´ η ‹ q}2 u.
+Now, note that, for ϑn “ pη ‹ , γ̃n qJ , we have that
+n ¨ ∆n pθ̃n , ϑn q ” Ln pη̃n , γ̃n q ´ Ln pη ‹ , γ̃n q.
+?
+Recalling J :“ Mηη pθ‹ q, let κn :“ J 1{2 npη̃n ´ η ‹ q, where J 1{2 exists by Assumption A.4(iii). Using
+the definitions, Vn , κn and equation (21), we can re-arrange
+0 ě Ln pη̃n , γ̃n q ´ Ln pη ‹ , γ̃n q ” n ¨ ∆n pθ̃n , ϑn q
+as
+?
+?
+1
+0 ě n∆n pθ̃n , ϑn q “ ´κ1n Vn ` κ1n κn ` op t1 ` } npη̃n ´ η ‹ q} ` } npη̃n ´ η ‹ q}2 u
+2
+“ ´Op p}κn }q ` }κn }2 {2 ` op p1qt1 ` }J ´1{2 κn } ` }J ´1{2 κn }2 u
+“ ´tOp p1q ´ op p1qu}κn } ` }κn }2 {2 ` op p}κn }2 q ` op p1q,
+“ ´ζn }κn } ` }κn }2 {2 ` op p}κn }2 q ` op p}κn }q,
+where ζn denotes the tOp p1q ´ op p1qu term. Rearranging the LHS of the above equation we have
+ζn2 ě r}κn }t1 ` op p1qu ´ ζn s2 ` op p1q
+and we obtain }κn } ď Op p1q. Since J is non-singular, by Assumption A.4(iv), there exists some c ą 0
+such that
+?
+?
+Op p1q ě }κn } “ }J 1{2 npη̃n ´ η ‹ q} ě c} npη̃n ´ η ‹ q}
+and part (i) of the result follows.
+
+40
+
+To establish part (ii), we use part (i) and the expansion
+?
+n
+Ln pη, γ̃n q ´ Ln pη ‹ , γ̃n q “ ´ npη ´ η ‹ q1 J 1{2 Vn ` pη ´ η ‹ q1 J pη ´ η ‹ q ` Rn pθ̃n q ` op p}η ´ η ‹ }q,
+2
+which, from part (i), we can re-arrange as
+1
+n ¨ ∆n pθ̃n , ϑn q “ Ln pη̃n , γ̃n q ´ Ln pη ‹ , γ̃n q “ ´κ1n Vn ` κ1n κn ` op p1qt1 ` }κn } ` }κn }2 u
+2
+1
+1
+“ }κn ´ Vn }2 ´ Vn1 Vn ` op p1q.
+2
+2
+
+(22)
+
+The op p1q term follows since, by part (i) of the result and Assumption A.2, we have }θ̃n ´ θ‹ } “ Op p1q,
+so that we have Rn pθ̃n q “ op p1q.
+
+Proof of Lemma A.3. Again, Theorem 6 of Andrews (1999) allows us to expand Ln pη, γq around θ “ θ‹ :
+?
+?
+?
+?
+npη ´ η ‹ q1 ∇η Ln pθ‹ q{ n ` npγ ´ γ ‹ q1 ∇γ Ln pθ‹ q{ n
+n
+` pθ ´ θ‹ q1 ∇θθ Mpθ‹ qpθ ´ θ‹ q ` Rn pθq,
+2
+
+Ln pη, γq ´ Ln pη ‹ , γ ‹ q “
+
+where the remainder term Rn pθq is given by
+Rn pθq “
+
+“
+‰
+“
+‰
+n
+n
+pθ ´ θ‹ q1 ∇θθ Ln pθ̄q{n ´ Lpθ̄q pθ ´ θ‹ q ` pθ ´ θ‹ q1 ∇θθ Lpθ̄q ´ Lpθ‹ q pθ ´ θ‹ q.
+2
+2
+
+and θ̄ an intermediate value that satisfies }θ‹ ´ θ̄} ď }θ ´ θ‹ }.
+?
+However, since } npθ̃n ´ θ‹ q} “ Op p1q, by Lemma A.2(a), Assumption A.4(iv) and the definition
+?
+of the intermediate value, we have that |Rn pθ̃n q| ď op t1 ` } npθ̃n ´ θ‹ q}2 u. Consequently,
+¸
+?
+?
+∇η Ln pθ‹ q
+n´1{2
+`
+}Mθθ pθ‹ q1{2 npθ̃n ´ θ‹ q}2 ` op p1{ nq
+‹
+2
+∇γ Ln pθ q
+?
+?
+?
+“ pη̃n ´ η ‹ q1 ∇η Ln pθ‹ q{ n ` npγ̃n ´ γ ‹ q1 ∇γ Ln pθ‹ q{n ` Op p1{ nq ` op p1q.
+
+?
+1
+n´1{2 tLn pθ̃n q ´ Ln pθ‹ qu “ npθ̃n ´ θ‹ q1
+n
+
+˜
+
+?
+From Assumption A.4(ii), ∇η Ln pθ‹ q{ n “ Op p1q, while from Lemma A.2, }η̃n ´ η ‹ } “ op p1q, and the
+first term above is op p1q.
+By Assumption A.4(iv), ∇γ Ln pθ‹ q{n converges in probability to ∇γ Lpθ‹ q. Moreover, by A.3(iii), θ‹
+is only a solution to ∇η Lpθq “ 0, so that ∇γ Lpθ‹ q ‰ 0. Therefore, we can conclude that
+n´1{2 tLn pθ̃n q ´ Ln pθ‹ qu “ op p1q `
+
+41
+
+?
+npγ̃n ´ γ ‹ q1 ∇γ Lpθ‹ q.
+
+C
+
+Numerical Implementation Details
+
+C.1
+
+Extending the Findings of Smith and Wallis (2009)
+MSFE
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+1.00
+
+1.00
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+η ? = 0.75
+
+η? = 1
+
+Benchmark: η = 0.5
+
+Rejection Frequency
+
+Log Loss
+
+1.00
+
+Benchmark: η = 0.25
+
+1.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+2000
+1.00
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+Benchmark: η = 0.75
+
+1.00
+
+0.00
+0
+
+500
+
+1000
+
+Truth
+
+1500
+
+η? = 0
+
+2000
+
+Sample Size
+
+η ? = 0.25
+
+η ? = 0.5
+
+Figure 3: Estimates (solid) and their 95% confidence intervals (dotted) of the Rejection Frequency (yaxis) for the hypothesis test of no inferior predictive accuracy of a benchmark forecast combination
+with fixed weights (rows) against the alternative optimal forecast combination. The test is conducted
+with observations drawn from DGPs across a range of pseudo-true weights (colors), and across a grid
+of sample sizes (x-axis). Results for a point forecast combination with optimal weights minimizing the
+MSFE are given in the first column, and results for a distributional forecast combination with optimal
+weights minimizing the log loss are given in the second column.
+In this section, we detail the computational steps used to produce the results in Section 2.2, which
+extend the simulation exercise given in Section 3.1 of Smith and Wallis (2009). For convenience, the
+results are reproduced in Figure 3. Recall that this simulation exercise is conducted based on data drawn
+from the following zero-mean AR(2) process:
+i.i.d.
+
+yt “ ϕ1 yt´1 ` ϕ2 yt´2 ` ϵt , ϵt „ N p0, σϵ2 q,
+where the data is used to estimate the parameters in the standard two-step fashion, by minimizing the
+42
+
+log loss or the MSFE of a distributional or point forecast combination, respectively, based the following
+model:
+ptq
+
+f1 pyq “ N ty; γ1 yt´1 , 1u,
+ptq
+
+f2 pyq “ N ty; γ2 yt´2 , 1u,
+ptq
+
+ptq
+
+f ptq pyq “ ηf1 pyq ` p1 ´ ηqf2 pyq,
+where N tx; µ, Σu denotes the normal pdf evaluated at x with mean µ and variance Σ, γ1 and γ2 are the
+parameters of the constituent models, and η is the weight assigned to the first model.
+To produce the results, we must first produce the corresponding DGP parameters given a selected
+value for the true optimal combination weight η ‹ . Then for each such η ‹ value of interest, we draw
+samples from the associated induced DGP to conduct the suite of tests represented in Figure 3, and
+iterate on these steps to produce accurate estimates of the rejection frequency.
+C.1.1
+
+Obtaining the DGP Parameters
+
+Given a desired value for η ‹ , we conduct the following steps to obtain DGP parameters pϕ1 , ϕ2 , σϵ2 q for
+which the actual value for η ‹ is as desired.
+i.i.d.
+
+1. Draw zt „ N p0, 1q for t “ 1, 2, . . . , 107 .
+2. Let y0 “ y´1 “ 0 and yt “ ϕ1 yt´1 ` ϕ2 yt´2 ` σϵ zt for t “ 1, 2, . . . , 107 .
+3. Solve the following equality-constrained optimization program:
+min
+
+ϕ1 ,ϕ2 ,σϵ2 ,γ,η
+
+s.t.
+
+´ 1.1 logp1 ` ϕ2 q ´ logp1 ´ ϕ1 ´ ϕ2 q ´ 2 logp1 ` ϕ1 ´ ϕ2 q ´ 0.1 logpϕ21 ` ϕ22 q
+
+(23)
+
+η “ η‹ ,
+
+(24)
+
+Varpyt q “ 1,
+
+(25)
+
+7
+
+10
+1 ÿ B
+Spη, γ, yt q “ 0,
+107 t“1 Bη
+
+(26)
+
+7
+
+10
+1 ÿ B
+Sj pγj , yt q “ 0, j “ 1, 2,
+107 t“1 Bγj
+
+(27)
+
+where Spη, γ, yt q and Sj pγj , yt q is the score13 of the forecast combination and constituent forecast
+j, respectively, of yt .
+13
+
+A score, referring to either a scoring rule or scoring function, is a measure of forecast accuracy. See Section 3 for details.
+
+43
+
+We produce results for S being either the MSFE, in which case
+Spη, γ, yt q “ pEf ptq ryt s ´ yt q2
+“ pηEf ptq ryt s ` p1 ´ ηqEf ptq ryt s ´ yt q2
+1
+
+2
+
+“ pηγ1 yt´1 ` p1 ´ ηqγ2 yt´2 ´ yt q2 ,
+Sj pγj , yt q “ pEf ptq ryt s ´ yt q2
+j
+
+“ pγj yt´j ´ yt q2 ,
+or S being the log loss, so that
+Spη, γ, yt q “ ´ log f ptq pyt q
+ptq
+
+ptq
+
+“ ´ logpηf1 pyt q ` p1 ´ ηqf2 pyt qq
+ˆ
+¯
+´ 1
+¯˙
+´ 1
+2
+´1
+2
+´1
+,
+“ ´ log ηp2πq exp ´ pyt ´ γ1 yt´1 q ` p1 ´ ηqp2πq exp ´ pyt ´ γ2 yt´2 q
+2
+2
+ptq
+
+Sj pγj , yt q “ ´ log fj pyt q
+1
+“ ´ logp2πq ´ pyt ´ γj yt´j q2 .
+2
+
+The criterion function given in Equation (23) above is designed to ensure that the DGP is strictly
+stationary and that η ‹ is identified. The DGP is stationary if and only if the roots of its characteristic
+function lie inside the unit circle, which corresponds to parameter values that satisfy ϕ2 ą ´1, ϕ2 ă 1 ´
+ϕ1 and ϕ2 ă 1 ` ϕ1 . This space of parameter values is sometimes referred to as the ‘stationarity triangle’,
+because it forms a triangle in Euclidean space. Inspecting the first three logarithmic terms in Equation
+(23) reveals that the criterion function is undefined for parameter values that do not correspond to a
+stationary process, and that the criterion function approaches infinity as the vector pϕ1 , ϕ2 q approaches the
+boundary of the stationarity triangle. The final logarithmic term in Equation (23) ensures that the criterion
+function approaches infinity as the vector pϕ1 , ϕ2 q approaches zero, where η ‹ is not identified since
+γ1‹ “ γ2‹ “ 0. Figure 4 displays the stationarity triangle and contours of the criterion function, which is
+minimized at pϕ1 , ϕ2 q “ p0.38, 0.14q when unconstrained. Note that the constants p´4, ´1, ´2, ´0.1q
+with which the logarithmic terms are multiplied in the criterion function are arbitrary, and any other
+collection of negative constants would also suffice.
+The constraints in Equations (24) - (27) ensure that the desired value for the weight η ‹ is actually
+obtained by the resulting DGP, and that the unconditional variance of the DGP is identical across different
+values of η ‹ . The value of the weight itself is chosen in Equation (24), and the unconditional variance of
+the DGP is fixed at unity by the constraint in Equation (25). After solving the Yule-Walker equations for
+the AR(2) process, we obtain the following expression for the unconditional variance of yt as a function
+
+44
+
+1.0
+
+0.5
+
+φ2
+
+0.0
+
+-0.5
+
+-1.0
+-2
+
+-1
+
+0
+
+1
+
+2
+
+φ1
+
+Figure 4: The set of values for the AR(2) parameters pϕ1 , ϕ2 q for which the resulting stochastic process
+is strictly stationary (gray), and contours of the criterion function in Equation (23) in a neighborhood of
+its minimum at pϕ1 , ϕ2 q “ p0.38, 0.14q (black).
+of the parameters pϕ1 , ϕ2 , σϵ2 q:
+Varpyt q “
+
+σϵ2 p1 ´ ϕ2 q
+.
+p1 ´ ϕ21 ´ ϕ22 qp1 ´ ϕ2 q ´ 2ϕ21 ϕ2
+
+The constraint in Equation (26) is the first-order condition for optimizing the weights according to the
+chosen score, across a gigantic sample of 107 observations. By the law of large numbers for stationary
+processes, this average can approximate EDGP rBSpη, γ, yt q{Bηs to any desired degree of accuracy for a
+large enough sample size. Similarly, the constraint in Equation (27) ensures that the first-order condition
+for optimizing the constituent model parameters are satisfied according to the chosen score, across the
+same gigantic sample, and with a large enough sample size the average in the constraint for the j th constituent model can approximate EDGP rBSj pγj , yt q{Bγj s to any desired degree of accuracy. Note that by
+Assumptions A.1 - A.4, pη, γq “ pη ‹ , γ ‹ q is the solution to the problem of setting the above expectations
+to zero, just as the constraints (26) and (27) set the corresponding averages to zero.14 Since the sample
+14
+
+See Section 3.1.3 for more details on estimating optimal forecast combinations, where Equations (2) and (3) define the
+
+45
+
+size of 107 is orders of magnitude larger than the largest hypothesis test sample size of 2000 considered
+in the results displayed in Figure 3, we assume that there is a negligible difference between the desired
+weight imposed in Equation (25) and the actual optimal weight η ‹ corresponding to the DGP which
+solves the optimization program.
+We code the optimization program in R, and solve it using the nloptr package, a library of nonlinear
+optimization routines (Johnson, 2022). In particular, we solve the optimization problem using sequential
+quadratic programming, with an implementation based on Kraft (1988, 1994). See Gill et al. (2021) for
+a textbook treatment of sequential quadratic programming.
+C.1.2
+
+Estimating Rejection Frequency
+
+Once we have a means of obtaining an AR(2) DGP with a selected pseudo-true weight η ‹ , producing
+the required estimates of the rejection frequencies plotted in Figure 3 is straightforward. Briefly, for
+each pseudo-true weight η ‹ (colors), each benchmark weight η (rows), each score (columns), and each
+sample size (x-axis), we conduct 5000 hypothesis tests of no inferior forecast accuracy of the benchmark
+combination against the alternative optimal combination using 5000 samples of the required sample
+size drawn from a DGP with the required η ‹ . The rejection frequency (y-axis) is then estimated as the
+proportion of those tests that reject the null hypothesis. In detail, the steps are as follows.
+1. Obtain the DGP parameters pϕ1 , ϕ2 , σϵ2 q corresponding to each desired pseudo-true weight η ‹ P
+t0, 0.25, 0.5, 0.75, 1u for each score S P tMSFE, log lossu using the method detailed in Appendix
+C.1.1 above.
+2. For each score S “ tMSFE, log lossu, each pseudo-true weight η ‹ P t0, 0.25, 0.5, 0.75, 1u and
+each benchmark weight η P t0.25, 0.5, 0.75u:
+p1q
+
+(a) Draw the sample y1:2000 from the DGP corresponding to S and η ‹ that was found in Step 1.
+p1q
+
+(b) For each such sample, consider the truncated samples y1:T `1 for T ` 1 “ 30, 32, . . . , 2000,
+and for each of these conduct a hypothesis test of no inferior forecast accuracy of: a) the
+benchmark forecast combination with the weight fixed at η, against b) the alternative forecast
+combination with optimal weights, where c) forecast accuracy is measured according to S,
+p1q
+and d) the in-sample and out-of-sample sizes are equal. Record RT `1 “ 1 where the test is
+p1q
+rejected at the 5% level, and RT `1 “ 0 otherwise. This hypothesis test is described in Section
+3.2.2, where R “ P “ pT ` 1q{2.
+p1q
+
+p2q
+
+p5000q
+
+3. Repeat Step 2 5000 times, drawing 5000 samples y1:T `1 , y1:T `1 , . . . , y1:T `1 and obtaining hypothpiq
+esis test results RT `1 for each i “ 1, 2, . . . , 5000, T ` 1 “ 30, 32, . . . , 2000, S, η ‹ and η.
+two-step estimated combinations for which (26) and (27) are the first-order conditions.
+
+46
+
+ř5000 piq
+1
+4. Estimate the rejection frequencies with the statistic r̂T `1 “ 5000
+i“1 RT `1 , and calculate the
+corresponding 95% confidence intervals using standard asymptotics for i.i.d. Bernoulli random
+variables.
+
+C.2
+
+Cause of the puzzle
+MSFE
+
+1.00
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+θ̃T vs θ̂T
+
+0.75
+
+0.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+1.00
+
+1.00
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+0
+
+500
+
+1000
+
+1500
+
+2000
+
+ew
+θR
+vs θ̂T
+
+Rejection Frequency
+
+Log Loss
+
+1.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+2000
+1.00
+
+0.75
+
+0.75
+
+0.50
+
+0.50
+
+0.25
+
+0.25
+
+0.00
+
+ew
+θR
+vs θ̃T
+
+1.00
+
+0.00
+0
+
+500
+
+1000
+
+1500
+
+Truth
+
+2000
+
+Sample Size
+
+η ? = 0.25
+
+η ? = 0.5
+
+η ? = 0.75
+
+Figure 5: Estimates (solid) and their 95% confidence intervals (dotted) of the Rejection Frequency (yaxis) for the hypothesis test of no inferior predictive accuracy of a benchmark forecast combination
+against an alternative combination (rows, benchmark vs alternative). The test is conducted with observations drawn from DGPs across a range of pseudo-true weights (colors), and across a grid of sample sizes
+(x-axis). Results for a point forecast combination with optimal weights minimizing the MSFE are given
+in the first column, and results for a distributional forecast combination with optimal weights minimizing
+the log loss are given in the second column.
+In this section, we address the computational steps used to produce the results in Section 4.5, which
+are re-displayed in Figure 5 for convenience. These steps are almost identical to those described in
+Section C.1 above, with one difference. Whereas in Section C.1.2 we conduct the hypothesis test using
+a benchmark two-step combination with fixed weights η P t0.25, 0.5, 0.75u and an optimally-weighted
+
+47
+
+ew
+ew
+two-step alternative, here we use the (benchmark, alternative) pairs tpθ̃T , θ̂T q, pθR
+, θ̂T q, pθR
+, θ̃T qu, which
+you can see in the labels for the rows of Figure 5.
+
+48
+
+

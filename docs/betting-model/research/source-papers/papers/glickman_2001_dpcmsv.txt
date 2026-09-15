@@ -1,0 +1,955 @@
+Journal of Applied Statistics, Vol. 28, No. 6, 2001, 673- 689
+
+
+
+
+Dynamic paired comparison models with
+stochastic variances
+
+
+
+MARK E. GLICKMAN, Boston University, Boston, MA 02215, USA
+
+
+
+
+abstract In paired comparison experiments, the worth or merit of a unit is measured
+through comparisons against other units. When paired comparison outcomes are collected
+over time and the merits of the units may be changing, it is often convenient to assume
+the data follow a non-linear state-space model. Typical paired comparison state-space
+models that assume a ® xed (unknown) autoregressive variance do not account for the
+possibility of sudden changes in the merits. This is a particular concern, for example, in
+modeling cognitive ability in human development; cognitive ability not only changes over
+time, but also can change abruptly. We explore a particular extension of conventional
+state-space models for paired comparison data that allows the state variance to vary
+stochastically. Models of this type have recently been developed and applied to modeling
+® nancial data, but can be seen to have applicability in modeling paired comparison data.
+ A ® ltering algorithm is also derived that can be used in place of likelihood-based
+ computations when the number of objects being compared is large. Applications to National
+ Football League game outcomes and chess game outcomes are presented.
+
+
+1 Introduction
+Paired comparison data arise when objects are compared to elicit a preference or
+a degree of preference. The literature on paired comparison modeling is vast,
+spanning ® elds such as statistics, marketing, psychology and decision sciences.
+Background on fundamental issues in paired comparison modeling along with
+examples can be found in David (1988) and Bradley (1984). A common situation
+is to observe paired comparison data over time where the underlying value or
+worth of the objects are changing. This might occur, for example, in comparing
+preferences towards the value of marketed products or services, or in the outcomes
+of games played between competitors whose abilities may be changing over time.
+
+Correspondence: Mark E. Glickman, Department of Mathematics and Statistics, Boston University,
+111 Cummington Street, Boston, MA 02215, USA. E-mail: mg@math.bu.edu.
+
+ISSN 0266-4763 print; 1360-0532 online/01/060673-17   © 2001 Taylor & Francis Ltd
+DOI: 10.1080/02664760120059219
+674      M. E. Glickman
+
+Recent works by Glickman (1993, 1999), Fahrmeir & Tutz (1994) and Knorr-
+Held (2000) have adopted a state-space approach to modeling such data where
+the underlying merit parameters change as a Gaussian stochastic process. While
+this approach can often appropriately describe the change in merits, it can be too
+restrictive if the merits can undergo sudden shifts, or if interventions occur that
+change the merit of an object quickly. For example, in a marketing context, if a
+product is reported to be defective or dangerous, it will likely lose merit quickly.
+When comparing human cognitive skill through games such as chess, younger
+players may undergo quick increases in ability (Simonton, 1997), which the simpler
+state-space models cannot capture.
+    This paper describes an extension of the usual state-space models for paired
+comparison data that allows for sudden movement in the underlying merit para-
+meters. The extension is closely related to the stochastic volatility model ( Jacquier
+et al., 1994; Capobianco, 1996; Uhlig, 1997) developed in the context of modeling
+® nancial time series data. Our model involves letting not only the merit of objects
+ change stochastically, but also letting the variance of the state process change
+ stochastically. In this extension, sudden shifts in merit are re¯ ected through the
+ variance of the change in merits becoming large. In Section 2, the model allowing
+ the variance of the state process to vary stochastically is developed. This is followed
+ in Section 3 by an application of the model to a data set on football game outcomes.
+ A ® ltering algorithm is then presented in Section 4, extending an algorithm
+ developed in Glickman (1999), which approximates likelihood-based computations
+ using nearly closed form calculations. A situation in which one might want to use
+ such an algorithm is when many objects are being compared, or many time periods
+ are involved, so that exact likelihood-based methods become computationally
+ intractable. This approach is demonstrated in Section 5 on a data set consisting of
+ chess games played among the best players of all time. We provide a summary of
+ the model and consider directions for extensions in Section 6.
+
+
+2 A stochastic variance paired comparison model
+ Suppose K (t)ij comparisons are to take place between objects i and j at time t. Time
+ is assumed to be discretized into periods of equal duration, so that t, which indexes
+ a time interval, takes on integer values. We treat data observed within a time period
+ as occurring at the start of the period. Let Y (t)ijk be 1 if i is preferred to j in the kth
+ comparison between the two objects at time t, and 0 if j is preferred. Let c (t)      i and
+c (t)
+   j  be the merits  of the objects at time t. We assume    for  ® xed t that the probability
+ i is preferred to j during the kth comparison, given by
+                               ijk 5
+                           P(Y (t)            i 2 c j , h , xi , xj )
+                                     1) 5 F(c (t)   (t)      (t)  (t)
+                                                                                          (1)
+                                                                                  i 2
+                                                                                  (t)   (t)
+where F is a speci® ed probability function monotonically increasing in c          c ,h j
+is a vector of other model parameters and x(t)i and  x
+                                                       (t)
+                                                       j   are covariate information for
+objects i and j at time t. This model, the linear paired comparison model, assumes
+that preference probabilities are functions of the merit parameters only through
+their diþ erence. When there are no other model parameters or covariates, two
+common special cases of this model include the Bradley- Terry model (Bradley &
+Terry, 1952) when F is a standard logistic distribution function, and the Thurstone-
+Mosteller model (Thurstone, 1927; Mosteller, 1951) when F is a Gaussian
+distribution function. In practice, the choice among paired comparison models can
+usually be assessed only with a large amount of data (Stern, 1992). The model
+                                                                                                     Dynamic paired comparison models                                                675
+
+speci® cation in equation (1) is suý ciently general to include many extensions of
+basic linear paired comparison models.
+  The parameters c (t)
+                    i are assumed to change over time through a stochastic process.
+Our model assumes for each object i,
+                                                                                         (t + 1)                   +
+                                                   +
+                                         c (ti 1) ½ c (t)  2
+                                                      i ,r i
+                                                                                                     ~ N(c (t)  2(t 1)
+                                                                                                           i ,r i      )                                                             (2)
+
+so that the innovations in merit follow a normal distribution centered at zero, and
+with a variance that depends on time. Alternative formulations of this component
+of the model can allow for an autoregressive parameter, as we demonstrate in
+Section 3, or a multivariate model that imposes linear restrictions. The latter
+formulation was adopted in Glickman & Stern (1998).
+  We further assume a model for the change in variance,
+                                                               (t + 1)                 2(t)
+                                                                                              , s 2 ~ N(log r 2i , s 2 )
+                                                                                                                            (t)
+                                        log r 2i                              ½r       i                                                                                             (3)
+
+This aspect of the model allows for the innovations in the process for c (t)i to have a
+variance that may be stochastically varying. Because adding the same constant to
+all the c (t)
+          i   results in an equivalent model speci® cation, an additional assumption is
+necessary to ensure identi® ability. This can be accomplished by assuming
+
+                                                                          i ½ x
+                                                                        c (0)             2    ~ N(0, x 2 )                                                                          (4)
+
+                                                            i at t 5
+with a proper prior density assumed for x 2 , so that the c (t)      0 may be viewed
+as drawn from a common distribution centered at zero.
+  Assuming I objects and T time periods, the likelihood for this model can be
+written as
+
+
+      L(c , r 2 , h , s 2 , x   2½
+                                     y, x) 5           (        *
+                                                               i5 1
+                                                                    I
+
+                                                                                  i ½ 0, x
+                                                                              N(c (0)                        2
+                                                                                                                 )   )
+                                                                         (
+                                                                                               (t)
+                                                               T                          K ij
+                                                                                                                                                     (t)
+                                               3       *                       *          *          F(c i 2 c j , h , xi , xj ) ijk
+                                                                                                         (t)   (t)      (t)  (t) y
+
+                                                       t5           1          i< j k 5 1
+
+
+
+
+                                                                                                                                                 )
+                                                                                                                                                                                     (5)
+                                                                                                                                      2   y(t)
+                                           3           (1 2 F(c (t)
+                                                                i 2 c j , h , xi , xj ))
+                                                                      (t)      (t)  (t) 1                                                  ijk
+
+
+
+
+                                                       T2 1                        I
+                                                                                                      + 1)               2(t)                    (t + 1)             2(t)
+                                               3           *              *             N(c (ti              ½ c (t)
+                                                                                                                 i ,r    i      )N(log r 2i                ½ log r   i      , s 2)
+                                                           t5 0 i5 1
+
+                                                                                                                 (t)
+                                        i and r i , and N(´ ½ ´ , ´) is a normal density
+where c and r 2 are the arrays of the c (t)     2
+
+of the ® rst argument with the given mean and variance.
+   Together with equation (1), equations (2) and (3) form a state-space model with
+a stochastic variance for paired comparison data. This model can be viewed as an
+                                                                       (t)
+extension of the more usual constant variance model, where r 2i 5 r 2 is assumed
+for all i and t, in which case equation (3) is no longer a component of the model.
+The constant variance model has been analyzed by Glickman (1993, 1999) and
+Fahrmeir & Tutz (1994). An important limitation of the constant variance model
+is that it does not account for the possibility of sudden shifts, innovations, or
+periods of uncertainty in the process for the c (t)i . For example, in modeling the
+development of human expertise, one might expect bursts of cognitive development
+that would not be predicted by the constant variance model. In a marketing
+676      M. E. Glickman
+
+ context, the worth of a product may change suddenly relative to its competitors,
+ and this change may be poorly described by the constant variance model.
+      The model for the time-varying variance has close connections with stochastic
+ volatility models from ® nance (e.g. Jacquier et al., 1994). Recent work in modeling
+ of ® nancial time series data has explored the applicability of stochastic volatility
+ models in which the variance of a portfolio index or stock price is assumed to be
+ changing according to equation (3). A major diþ erence between our model and
+ more conventional stochastic volatility models is that stochastic volatility assumes
+ the variance of observations is changing, whereas in our model the variance of the
+ process governing the merits is changing. Because the observations in our model are
+ the results of preferences, and are therefore binomial, the variance of observations is
+ determined from the mean. Thus, in the paired comparison situation, it would not
+ be meaningful to assume a stochastic process on the observation variance except
+ as it is translated through the process on the merit parameters. It does make sense
+ in our situation to assume that the underlying process on the merits can undergo
+ sudden shift, and this can be captured through a process assumed on the variance
+ of the merit process.
+      Model ® tting can be accomplished in a Bayesian framework through Markov
+ chain Monte Carlo (MCMC) simulation from the posterior distribution. A choice
+ of a prior distribution, convenient for model ® tting, would assume a product of
+ independent inverse-Gamma densities for s 2 and x 2 with low degrees of freedom
+ to re¯ ect initial uncertainty, and a non-informative density (e.g. normal with large
+ variance, or uniform) on h . Note that the c (t)   i have distributions that are already
+ speci® ed conditionally. Assuming the functional form of F in equation (1) is
+ tractable (e.g. the Bradley- Terry model, the Thurstone- Mosteller model, or various
+                                                (t)
+ extensions), then, given s 2 , x 2 and the r 2i for all i and t, the conditional posterior
+ distribution of the remaining parameters has a form that is common to non-
+ linear state-space models. Recognizing that the Bradley- Terry and the Thurstone-
+ Mosteller models are particular examples of generalized linear models (Critchlow
+ & Fligner, 1991), implementation of the Gibbs sampling steps to simulate the c (t)      i
+                                 (t)
+ and h conditional on the r 2i can follow Zeger & Karim (1991), Karim & Zeger
+                                                                     (t)
+ (1992), Glickman (1993) and Oh (1997). Sampling the r 2i conditional on the
+   (t)  2      2
+c i , s and x , a necessary step in MCMC algorithms for ® tting stochastic volatility
+ models, is straightforward and can be carried out as in Jacquier et al. (1994). When
+ the number of time periods is large, block-sampling strategies using the Metropolis-
+ Hastings algorithm can be employed as described in Shephard & Pitt (1997). The
+ conditional distributions of s 2 and x 2 given the remaining parameters are inverse-
+ Gamma, so that sampling for this step can be performed directly.
+
+
+3 Example: NFL football game outcomes
+The model of Section 2 can be applied to a data set consisting of NFL football
+game outcomes from regular season competition from 1996 to 2000. For the
+football data, the merit (or strength) c (t)  i  of a team can be inferred through game
+outcomes, which are the results of paired comparisons. The results of NFL football
+games are individual scores, and the team that wins is the one with the higher
+score. Speci® cally, the outcome of the kth comparison between teams i and j at
+time t, Y (t)
+          ijk , is 1 if player i defeats j, and 0 if player j defeats i. Very rarely does the
+outcome of a football game result in a tie. Only two ties occurred during regular
+season games between 1996 and 2000, both of which took place in 1997. These
+                                                            Dynamic paired comparison models   677
+
+two games were removed from the analysis. Dynamic models for NFL football
+games have been examined by Glickman & Stern (1998), Harville (1980) and
+Sallas & Harville (1988), treating the score diþ erence as the outcome of interest.
+In this discussion, the binary indicator of the winning team is the outcome variable.
+    The data we examine consist of all decisive game outcomes from 1996 to 1999,
+and the ® rst 10 weeks of game outcomes from 2000, resulting in a total of 1109
+games played among 31 teams. One of the teams, the Cleveland Browns, reformed
+in 1999, so that only 30 teams were included in our data set for 1996- 98. For our
+analysis, game outcomes are grouped into periods of 1 year. We therefore assume
+that team strengths remain constant within a regular season, but may vary between
+seasons. During a season, each team plays 16 games. Because teams competing on
+their home ® eld are understood to have an advantage (e.g. see Glickman & Stern,
+1998), the eþ ect of home ® eld is modeled through an order eþ ect following
+Davidson & Beaver (1977). In game k played during season t between teams i and
+j, let
+
+                     xijk 5
+                       (t)
+                                {     2
+                                          1 if team i plays on its home field
+                                          1 if team j plays on its home field
+
+The model for game outcomes is given by
+                                                            i + x ijk b )
+                                                      exp(c (t)      (t)
+
+                            ijk 5 1) 5
+                        P(Y (t)                                                                (6)
+                                                      i + x ijk b ) + exp(c j )
+                                                exp(c (t)   (t)             (t)
+
+
+where b is the eþ ect of playing on the home ® eld.
+  For NFL football games, a tendency exists for team strengths to regress to the
+mean over time. This happens because strong teams have good players who age
+and therefore become slightly worse over time. Furthermore, poor teams obtain
+better chances at selecting strong players during the draft lottery, and therefore
+tend to improve. Letting q denote an autoregression parameter, we assume
+                                                (t + 1)                       +
+                                                          , q ~ N(q c (t)
+                                  +                                        2(t 1)
+                              c (ti 1) ½ c (t)  2
+                                           i ,r i                     i ,r i      )            (7)
+so that merit parameters move on average towards zero, assuming the magnitude
+of q is inferred to be less than unity. As before, the model for equation (3) describes
+                   (t)
+the change in r 2i over time. A vague but proper prior is assumed for all model
+parameters. The reciprocal of the variances is modeled following a Gamma
+distribution with mean 1 and variance 10.
+   In addition to ® tting the stochastic variance model of equation (3), we also ® t a
+constant variance model assuming
+                                                       , q ~ N(q c (t)
+                                        +
+                                   c (ti 1) ½ c (t)
+                                                i ,r
+                                                     2
+                                                                   i ,r
+                                                                        2
+                                                                          )                    (8)
+        2                                                                         (t)
+where r is a single variance governing the change in c        over time. A vague but
+                                                                                  i
+proper prior distribution is assumed for r 2 in our analysis.
+   Both models were ® t by MCMC simulation, with burn-in periods of 20 000
+iterations, at which point the model was diagnosed to have reached stationarity
+through trace plots and informal diagnostics (e.g. Geweke, 1992). Model summar-
+ies were computed based on the empirical distribution of simulated parameter
+values for every 100th draw for 2000 000 iterations beyond the 20 000th iteration,
+resulting in 2000 draws per parameter. Only every 100th simulated value was saved
+to conserve disk space, and to reduce the eþ ect of autocorrelation of successive
+parameter draws. Because the size of the problem is relatively small (31 teams with
+678      M. E. Glickman
+
+           Table 1. Posterior summaries for regular NFL season 2000 team strengths*
+
+                                     Constant variance                 Stochastic variance
+
+Team                         Posterior mean    Posterior SD     Posterior mean    Posterior SD
+
+Tennessee Titans                   1.127          0.5487              1.529           0.8355
+Minnesota Vikings                  0.824          0.5287              1.072           0.7036
+Miami Dolphins                     0.7841         0.5199              0.8892          0.6567
+Oakland Raiders                    0.7585         0.5394              0.988           0.777
+Indianapolis Colts                 0.581          0.5112              0.7729          0.6636
+New York Jets                      0.5222         0.5176              0.6793          0.6467
+Saint Louis Rams                   0.5105         0.5171              0.5209          0.6716
+Buþ alo Bills                      0.4992         0.5113              0.5639          0.5895
+New York Giants                    0.4724         0.5128              0.5952          0.6581
+Tampa Bay Buccaneers               0.3795         0.5132              0.3896          0.5633
+Washington Redskins                0.3228         0.4892              0.3448          0.5422
+Kansas City Chiefs                 0.3093         0.5223              0.3431          0.5929
+Detroit Lions                      0.2102         0.4853              0.2991          0.563
+Baltimore Ravens                   0.1549         0.4894              0.1766          0.5888
+Pittsburgh Steelers            2   0.01381        0.521               0.001656        0.6053
+Jacksonville Jaguars           2   0.02185        0.5374          2   0.3095          0.6729
+Philadelphia Eagles            2   0.04988        0.5073              0.04097         0.5818
+Green Bay Packers              2   0.05577        0.5134          2   0.1259          0.5863
+New Orleans Saints             2   0.1552         0.5092          2   0.1256          0.6641
+Denver Broncos                 2   0.1787         0.5208          2   0.3635          0.6442
+Dallas Cowboys                 2   0.1959         0.5072          2   0.3262          0.5812
+New England Patriots           2   0.3066         0.5081          2   0.3637          0.6058
+Carolina Panthers              2   0.3517         0.5059          2   0.5142          0.5987
+Seattle Seahawks               2   0.3547         0.5086          2   0.4364          0.5791
+Atlanta Falcons                2   0.601          0.517           2   0.9391          0.6883
+Chicago Bears                  2   0.6011         0.507           2   0.6242          0.6144
+San Diego Chargers             2   0.7667         0.5215          2   1.127           0.7829
+Arizona Cardinals              2   0.8509         0.5322          2   1.189           0.7225
+San Francisco 49ers            2   0.8653         0.5199          2   1.382           0.7459
+Cincinnati Bengals             2   0.9366         0.5491          2   1.232           0.7378
+Cleveland Browns               2   1.129          0.5391          2   1.625           0.7722
+
+*The ® rst two columns display model summaries for the constant variance dynamic model, and the
+second two columns display summaries for the stochastic variance dynamic model.
+
+
+
+® ve time-varying strength parameters), autocorrelation of the MCMC chain was
+ not a problem.
+    Posterior model summaries for the strength parameters in the 2000 season for
+ each model are displayed in Table 1. The table ranks teams according to the
+ posterior means under the constant variance model. Posterior means are compar-
+ able between models, with slightly greater spread of means in the stochastic
+ variance model. While most of the teams rank similarly in both models according
+ to the posterior means, the stochastic variance model infers that the Jacksonville
+ Jaguars were worse in 2000 than in the constant variance model. This inference is
+ made because the Jaguars in 2000 were having an unusually poor season relative
+ to previous years, and the stochastic variance model downweighted the impact of
+ previous seasons’ game outcomes in determining the eþ ect on the 2000 season.
+    It is noteworthy that the posterior uncertainty of the strength parameters, under
+ the constant variance model, is roughly constant, with slightly greater posterior
+ standard deviations for teams that are relatively strong and relatively weak. In
+ comparison, the posterior standard deviations under the stochastic variance model
+                                                    Dynamic paired comparison models                679
+
+
+
+
+Fig. 1. Model summaries for the Atlanta Falcons. Top: posterior means for the c (t)   i in the constant
+variance model, with pointwise approximate 95% central posterior intervals. Middle: posterior means
+for the c (t)
+          i in the stochastic variance model, with pointwise approximate 95% central posterior intervals.
+                                                                        (t)
+                                                                      2
+                                    Bottom: posterior means for the r i .
+
+
+
+ are larger, and vary more in magnitude. This variation is attributable to somewhat
+ larger inferred changes in strength over time, which results in inferred values for
+    (t)
+r 2i typically larger than average. For example, the Jaguars’ posterior standard
+ deviation under the stochastic variance model is large compared with other teams’
+ posterior standard deviations, re¯ ecting the sudden decline in strength in 2000.
+ Further evidence of the eþ ect of sudden shifts in performance can be seen in Figs
+ 1 and 2. Figure 1 shows model summaries for the Atlanta Falcons, who were a
+ below-average team through most of the 1990s, and then suddenly had a strong
+ performance in 1998 (they played in the Superbowl that season, but lost). The
+ plots indicate that the stochastic variance model allowed a greater change in the
+680        M. E. Glickman
+
+
+
+
+                                                                                         (t)
+Fig. 2. Model summaries for the Seattle Seahawks. Top: posterior means for the c i in the constant
+variance model, with pointwise approximate 95% central posterior intervals. Middle: posterior means
+          (t)
+for the c i in the stochastic variance model, with pointwise approximate(t)
+                                                                            95% central posterior intervals.
+                                    Bottom: posterior means for the r 2i .
+
+
+
+strength parameter for the Falcons in 1998 compared with the constant variance
+model. The pointwise posterior standard deviations are also larger than in the
+constant variance model, re¯ ecting the extra uncertainty in the c (t)
+                                                                     i  due to the
+sudden change in performance. In contrast, Fig. 2, which shows analogous informa-
+tion for the Seattle Seahawks, demonstrates that the stochastic variance model
+behaves similarly to the constant variance model when a team’s performances
+remain stable. The posterior mean of the c (t)
+                                           i   and the pointwise posterior standard
+deviations are similar for both models. Compared to the stochastic variance model
+                                                           (t)
+summaries for the Falcons, the posterior means of the r 2i for the Seahawks are
+much lower, which is consistent with the lack of substantial changes in the c (t)
+                                                                              i .
+                                                     Dynamic paired comparison models                  681
+
+   Inference for the autoregression parameter, q , reveals that substantial regression
+to the mean occurred over the ® ve seasons. For the constant variance model, a
+Monte Carlo 95% central posterior interval is (0.294, 0.803). The corresponding
+interval for the stochastic variance model is (0.217, 0.752). The large posterior
+variability in q indicates a lack of substantial information in the data about this
+parameter in both models. In either case, the data provide evidence that team
+strength does shrink, on average, towards the mean over time. Inferences for the
+home ® eld eþ ect parameter, b , are comparable for both models. For the constant
+variance model, a 95% central posterior interval for b is (0.1514, 0.4052), and for
+the stochastic variance model (0.1602, 0.4399). The positive value con® rms that
+an advantage exists for playing on the home ® eld.
+
+
+4 Analysis for comparing many objects
+When many objects are being compared over time, an exact likelihood-based
+approach (e.g. maximum likelihood, Bayesian analysis) may become computa-
+tionally intractable. For example, when rating populations of chess players, or
+competitors in online gaming systems which can attract tens of thousands of
+players, a likelihood-based analysis would not be possible to perform in real time.
+Instead, a simple forward ® ltering algorithm may be preferable. Glickman (1999)
+develops an approximate Bayesian analysis for the constant variance model in
+which the c (t)
+             i are updated sequentially with the acquisition of new data. The result
+of this analysis is an approximation to the marginal posterior distribution for the
+most recent merit parameter for any object. Rather than perform an analysis that
+jointly infers all parameters simultaneously, the approach taken in Glickman (1999)
+involves updating the merit parameter of an object by integrating out information
+about other objects through the prior distribution rather than the posterior distribu-
+tion. While this approach results in a loss of eý ciency, there are computational
+advantages that allow for the derivation of a simple algorithm. The procedure in
+Glickman (1999) can be extended to the stochastic variance model.
+   The algorithm to update objects’ merit parameters proceeds in the following
+manner. It is assumed in the algorithm that s 2 (the variance of the change in
+        (t)
+log r 2i over time) and x 2 (the variance of the c (0)
+                                                   i ) have been estimated and ® xed
+in advance. This can be accomplished by ® tting the model using an exact likelihood
+procedure to a set of data of manageable size, and determining the values of s 2 and
+x 2 that maximize the marginal posterior distribution of these two parameters. For
+ the remainder of the development, these parameters are assumed ® xed.
+                                                                                                   2
+  (1) At the end of the time period t 2 1, each object’s merit parameter, c (ti 1) has
+      an approximating normal                     marginal posterior distribution with known mean
+            2                             (t 2 1)
+      l (ti 1) and variance u 2i                  . Also, each object has a current (and known)
+                                         (t 2 1)
+       variance parameter, r 2i                   , describing the variability of the time change in
+       merit for that object.
+  (2) Collect all comparisons during time period t (time periods are assumed to
+       be equally spaced).
+  (3) For each object individually, perform appropriate                              calculations (described
+                                                                2 (t 2 1)      2 (t)
+       below) to determine             the     updating    of r i         to r i , and then the updating of
+              2              2 (t 2 1)            (t)
+       l (ti 1) tol (t)
+                     i and u i          to u 2i . These are the new parameters for the distribu-
+        tion of c (t)
+                    i .
+
+These calculations are repeated for each time period as data are observed.
+682           M. E. Glickman
+                                                                                                                                                                                    (t)
+  To understand the calculations that result in an estimate of r 2i , suppose an
+                                   2
+object in question has a merit c (t 1) that can be summarized at time t 2 1 by the
+marginal posterior distribution
+                                                                          c (t 1) ~ N(l (t 1) , u 2
+                                                                                        2                              2                  (t 2 1)
+                                                                                                                                                    )                                                               (9)
+Assume that, during period t, this object is compared to others indexed by
+j 5 1, . . . , m, with marginal posterior distributions
+                                                                          c (tj
+                                                                                    2       1)       ~ N(l (tj 2 1) , u 2j (t 1) )          2
+                                                                                                                                                                                                                (10)
+The stochastic variance model assumes
+                                                                                            c (t) ~ N(c (t
+                                                                                                                           2   1)         (t)
+                                                                                                                                    ,r 2 )                                                                      (11)
+
+                                                                 log r 2 ~ N(log r 2
+                                                                        (t)         (t 1)                                             2
+                                                                                          , s 2)                                                                                                                (12)
+                           (t)                                                                                      (t)
+Further, let c Ã be the maximum value of c in the likelihood for period t, integrated
+over the prior distribution of the other objects’ c (t)
+                                                     j , and let m
+                                                                     2
+                                                                       be the associated
+                          (t)
+asymptotic variance of c Ã from the marginalized likelihood. When integrating            over
+                                                                        (t)      (t 2 1)
+the distribution of the other objects’ merits, we assume log r 2j 5 log r 2j              for
+object j, even though this is only true in expectation. Both c Ã (t) and m 2 can be
+computed using iterative numerical procedures (though an approximation is used
+in the algorithm that follows). The distribution of c Ã (t) can be approximated by
+                                                                                             c Ã (t) ~ N(c (t) , m 2 )                                                                                          (13)
+                                                                                                                                                                     (t 2 1)                  (t)
+Combining equations (9), (11) and (13), integrating                   out c         and c , and for
+                                 (t 2 1)         2(t 2 1)                     2(t)
+notational convenience letting a         5 log r          and a (t)
+                                                                    5  log  r     , we have
+                                                    c Ã (t) ~ N(l (t
+                                                                                             2       1)
+                                                                                                          ,u 2
+                                                                                                                 (t 2 1)
+                                                                                                                               + exp(a (t) ) + m 2 )                                                            (14)
+From equation (12), we have
+                                                                                            a (t) ~ N(a (t
+                                                                                                                           2   1)
+                                                                                                                                    , s 2)                                                                      (15)
+Noting that all other parameters are known, the approximate marginal posterior
+density of a (t) is the product of the densities in equations (14) and (15), so that the
+marginal log-posterior, up to an additive constant, is given by
+                                                                                                 2
+                                                     1 (a (t) 2 a (t 1))2
+         log p(a (t) ½ y(t) ) 5                 2
+                                                     2          s 2
+                                                                                                                                                                                                                (16)
+                                                                                                                                                                                      2
+                                                                   + exp(a (t) ) + m 2 ) 2 1 2(t 2 (c1)Ã 2 l (t)) 2
+                                                                                                        (t)  (t 1) 2
+                                                  1        (t 2 1)
+                                                2   log(u 2
+                                                  2                                        2u           + exp(a ) + m
+where y(t) denotes the collection of comparison outcomes during time period t.
+Rather than compute c Ã (t) and m 2 numerically, we use approximations derived in
+                                                              2
+Glickman (1999). In particular, we approximate (c Ã (t) 2 l (t 1)) by a Taylor series
+                                                         2
+expansion through the linear term, and approximate m by the curvature around
+    2
+l (t 1) rather than c Ã (t). This yields
+                                                           m              nj
+
+                      c Ã (t) 2 l (t
+                                       2 1)
+                                              » m 2+              +                 g(u j
+                                                                                                     2 (t 2 1)
+                                                                                                                      jk 2
+                                                                                                                 ) { y(t)
+                                                                                                                                                        2
+                                                                                                                           E( y ½ l (t 1) , l (tj 1) , u 2j
+                                                                                                                                                                 2                 (t 2 1)
+                                                                                                                                                                                             )}                 (17)
+                                                      j5       1 k5            1
+
+
+
+
+          f                                                                                                                                                                                                 g
+with
+                  m                                                                                                                                                                                             2   1
+
+  m 2»                           2(t 2 1) 2                           2                              2              (t 2 1)                                 2                  2             (t 2 1)
+              +         nj g(u j              ) E( y ½ l (t                    1)
+                                                                                    , l (tj 1) , u 2j                           ) {1 2 E( y ½ l (t              1)
+                                                                                                                                                                     , l (tj 1) , u 2j                 )}
+              j5 1
+
+                                                                                                                                                                                                                (18)
+                                                                                                    Dynamic paired comparison models                                              683
+
+where y(t)
+        jk is the result of the kth comparison of the object with object j during
+period t, nj is the number of times the object is compared to object j and
+                                                                                                        1
+                                                                                 )5
+                                                                                               Î 1 + 3u
+                                                                             2
+                                                               g(u                                              2
+                                                                                                                    /p 2
+
+                                                                                                           1
+                                        E( y ½ l , l j , u 2j ) 5
+                                                                                               1 + exp( 2 g(u 2j ) (l 2 l j ))
+                                                                                                                                     (t)
+The algorithm proceeds by estimating a (t) (and therefore r 2 ) by maximizing over
+equation (16). This can be accomplished using a numerical algorithm. For example,
+                                                           2
+because the ® rst term in (16) is maximized by a (t) 5 a (t 1), and the second two
+terms in (16) are maximized by setting
+                                                                         2
+                                                (c Ã (t) 2 l (t 1))2 5 u 2
+                                                                                                    (t 2 1)
+                                                                                                               + exp(a (t) ) + m 2
+                                                    2                             (t 2 1)
+so that a (t) 5 log((c Ã (t) 2 l (t                     1) 2
+                                                               ) 2 u 2                          ) assuming
+                                                                                                                            m 2>0
+                                                                                  (t 2 1) 2                   (t 2 1)
+                                                        (c Ã   (t)
+                                                                     2       l                  ) 2 u 2                 2                                                        (19)
+ the Newton- Raphson algorithm will converge to the maximum quickly if the2 initial
+                                                           2                    2        (t 1)
+ value of a (t) is selected to be between a (t 1) and log((c Ã (t) 2 l (t 1))2 2 u 2 ). If
+ equation (19) is false, then the second two terms reach their supremum when
+ exp(a (t)) is set to zero. In this situation, because these latter two terms are bounded
+ above as a (t) ® 2 ` , the ® rst term dominates, and convergence of the Newton-
+                                                                                            2
+ Raphson algorithm is quick when choosing2 an initial value of a (t) less than a (t 1).
+              2 (t)                        ¢ 2(t)     2(t 1) + 2 (t)
+     Once r         is estimated, we set u        5 u         r , which is the prior variance for
+c (t) accounting for the passage of time from period t 2 1 to t. Now the algorithm of
+                                                                                  (t)
+ Glickman (1999) may be applied directly to obtain l (t) and u 2 , the marginal
+ posterior mean and variance of c (t), the merit parameter for the object in question.
+ These are given by
+                                                                             m            nj
+
+          l (t) 5 l (t 1) +
+                           2                    1                                                    2(t 2 1)                              2             2            (t 2 1)
+                                                                   +                  +                               jk 2
+                                                                                                                 ) { y(t)  E( y ½ l (t         1)
+                                                                                                g(u j                                               , l tj 1), u 2j             )}(20)
+                                  1/u ¢     2(t)    + 1/m        2
+                                                                         j5 1 k5 1
+
+
+
+
+                      (                 )
+                                            2   1
+          2 (t)             1 +1
+      u           5                                                                                                                                                              (21)
+                          u ¢2
+                              (t)
+                                  m 2
+
+  Details of the derivations appear in Glickman (1999).
+       To assess the accuracy of the approximation algorithm, simulated data under
+  varying parameter values were generated, and nominal coverage was compared
+  with the results of simulations. We performed a total of 32 simulation sets, which
+  are summarized in Table 2. We considered two values (0, 0.5) for the prior mean,
+  l , four diþ erent numbers of comparisons, m, (10, 50, 200, 1000) and four diþ erent
+                                                                             (t)
+   values of the standard deviation for the change in log r 2 , s (0, 0.3, 0.7, 1.2).
+   These values were chosen to span a plausible range of values that might be expected
+   in practice. For each ® xed combination of l , m and s , data were generated in the
+                                                  2           2
+   following manner: values of u (t 1) and r (t 1) were ® xed at 0.173 and 0.0576,
+                                                                       2
+   respectively, so that a 95% prior interval around c (t 1) had length 2/3, and that the
+                                        (t 2 1)
+   standard deviation of the c                  was three times larger than the standard deviation
+                                (t 2 1)                               (t)
+   in the      change  of the c         over    time.   A value of r 2 was simulated conditional on
+     2(t 2 1)                                                                   2   2        (t)
+r             and s , and then a value of c was simulated given l (t 1), u (t 1) and r 2 . For
+                                                    (t)
+684       M. E. Glickman
+
+                Table 2. Results of the approximating algorithm on simulated data*
+
+Prior      Number of
+mean      comparisons          s 5 0              s 5 0.3            s 5 0.7             s 5 1.2
+
+l 5 0         m 5 10     (0.5210, 0.9460)    (0.4928, 0.9476)   (0.4892, 0.9450)    (0.4886, 0.9414)
+              m 5 50     (0.4942, 0.9498)    (0.5026, 0.9562)   (0.5042, 0.9504)    (0.4794, 0.9414)
+            m 5 200      (0.5074, 0.9500)    (0.4890, 0.9514)   (0.4822, 0.9450)    (0.4840, 0.9466)
+           m 5 1000      (0.4896, 0.9484)    (0.4922, 0.9482)   (0.4894, 0.9402)    (0.4908, 0.9448)
+l 5 0.5       m 5 10     (0.5048, 0.9524)    (0.4912, 0.9504)   (0.4968, 0.9440)    (0.4932, 0.9384)
+              m 5 50     (0.5082, 0.9486)    (0.5044, 0.9460)   (0.5060, 0.9484)    (0.4924, 0.9398)
+            m 5 200      (0.4984, 0.9466)    (0.5034, 0.9540)   (0.4924, 0.9472)    (0.4930, 0.9436)
+           m 5 1000      (0.4988, 0.9498)    (0.4918, 0.9472)   (0.4914, 0.9446)    (0.4868, 0.9460)
+
+*For each analysis, 5000 replications were simulated and nominal 50 and 95% central posterior intervals
+were constructed. The pairs of values in the parentheses for each analysis consist of the proportion of
+5000 replications in which the simulated value c was contained in the nominal 50 and 95% intervals,
+respectively.
+
+
+                                                                                             2
+the m other objects involved in the comparisons, the collection of l (tj 1) was
+simulated from a normal distribution with mean zero and standard deviation 0.173.
+            2
+The u (tj 1) and r (t) j were generated from scaled v 2 distributions on 20 degrees of
+freedom with means of 0.173 and 0.0576, respectively. Values of c (t)  j were generated
+by the same process as c (t). Finally, the outcome of comparisons were generated
+from the Bradley- Terry model given the generated values of the c (t) and the c (t)   j .
+The algorithm was then applied (ignoring parameter values at time t) to determine
+the parameters l (t) and u (t) of the approximating normal posterior to c (t). Approxi-
+mate 50 and 95% normal central posterior intervals for c (t) were calculated as
+l (t) 6 zu (t) with z 5 0.6745 or 1.96. It was noted whether the generated value of c (t)
+ was contained in this interval. This process was repeated 5000 times, and the
+ fraction of times in which the true parameter value was contained in the intervals
+ is summarized in Table 2.
+    The results of the simulations demonstrate that the algorithm produces close to
+ nominal coverage under varying conditions. Table 2 reveals that the nominal 50
+ and 95% posterior intervals contain roughly 0.5 and 0.95 of the generating value
+ of c (t). The accuracy of the approximation algorithm does not seem to change by
+ varying l . However, there appears to be a small loss of eý ciency when m becomes
+ larger and when s is at its largest. In these cases, the actual coverage is consistently
+ smaller than nominal coverage, indicating that the posterior intervals are not wide
+ enough. The discrepancy does not seem large enough to be of great practical
+ concern.
+
+
+5 Example: best chess players of all time
+The ® ltering algorithm of Section 4 can be applied to a data set consisting of all
+known results of chess games from 1857 to 1991 played among 88 of the world’s
+all-time best chess players. For chess data, the merit (or strength), c (t)  i , of a player
+can be inferred through game outcomes, which are the results of paired compari-
+sons. The outcome of the kth comparison between competitors i and j at time t,
+  (t)
+Y ijk, is 1 if player i defeats j and 0 if player j defeats i. The data set, which consists
+of 15 664 outcomes of games played among 1367 pairs of players, was compiled
+by Prof. Nathan Divinsky. Not all ( 88      2 ) 5 3828 pairs of players competed against
+                                             Dynamic paired comparison models         685
+
+ each other due to non-overlapping chess careers. A detailed account of the data
+ appears in Keene & Divinsky (1989). Several models of chess playing strength
+ have been ® t by these data, including the models of Elo (1978), Joe (1990), Henery
+ (1992) and Glickman (1999).
+    For our analysis, we group game outcomes into periods of 1 year. We therefore
+ act as if all of the games were played simultaneously at the beginning of each year,
+ with innovations in merit and in variance changing over the remainder of the year.
+ The data consist of 135 periods, though some years (e.g. 1859, 1874 and 1875)
+ contain no game outcomes. For years in which no games were recorded, there is
+ no likelihood contribution from data in equation (5), though the terms for the
+                        2 (t)
+ change in c (t)
+               i and r i      still appear.
+    Unlike the football game data, one aspect of chess outcome data for which the
+ model must account is the existence of ties. Not only does this third possible paired
+ comparison outcome occur in chess, but it occurs frequently. Several extensions to
+ common paired comparisons models have addressed ties as a third outcome,
+ including the extensions by Davidson (1970) and Rao & Kupper (1967) to the
+ Bradley- Terry model, and by Greenberg (1965) for the Thurstone- Mosteller
+ model. Instead of treating a tie as a third outcome to the model, we adopt an
+ approach which acts as if ties are not really observed, but that they are viewed as
+ half the contribution of a win and a loss. In other words, we assume two ties
+ contain the same information about players’ strengths as a win followed by a loss
+ (or vice versa). Thus, if pij is the probability that i defeats j, the contribution to the
+ likelihood of a tie would beÏ pij(1 2 pij). This approach to ties in paired comparisons
+ can also be found in Glickman (1999).
+    We carried out the ® ltering algorithm described in Section 4 on these data, and
+ also carried out the ® ltering algorithm in Glickman (1999) as a comparison.
+ Pilot MCMC algorithms were run to estimate initial parameter values by their
+ approximate posterior means. For the ® ltering algorithm described in Section 4, s
+ was set to 0.66, the initial r for each player was set to 0.05, and the prior
+ distribution of each player’s strength, c , was assumed Gaussian with mean and
+ standard deviation of 0 and 0.15, respectively. For the constant variance ® ltering
+ algorithm, r was set at 0.01054, and prior distribution for each player’s strength,
+c , was assumed Gaussian with mean and standard deviation of 0 and 0.2027,
+ respectively.
+    The two models result in comparable inferences. In general, the ® ltered estimates
+ of the c (t)
+           i   have large overlap across the two models. The typical trend for an
+ individual’s c (t)
+                 i   over time is low early in the player’s career, a peak in the middle
+ and then a slow decline towards the end. This ® nding is consistent with previous
+ analyses of this data set ( Joe, 1990; Glickman, 1999).
+    For the constant variance ® ltering results, a typical pattern is that the uncertainty
+ about the c (t)
+               i   tends to decrease and stabilize as the player’s career progresses. The
+ stochastic variance ® ltering algorithm keeps the estimated posterior standard
+ deviation of the c (t)                                                       (t)
+                      i roughly constant. Also, the changes in the mean c i tend to be
+ smoother in the constant variance model, and the corresponding changes in the
+ stochastic variance model are often more jagged.
+    Inferences about two players’ careers help to illustrate the diþ erences between
+ the two algorithms. In Fig. 3, ® ltering results about Max Euwe are displayed, and
+ in Fig. 4 results about Robert Fischer are shown. Both players were world
+ champions for short periods (Euwe in 1935- 37 and Fischer 1972- 74). Euwe
+ continued playing long after his world championship reign, while Fischer quit
+686        M. E. Glickman
+
+
+
+
+Fig. 3. Model summaries for Max Euwe. Top: posterior means for the c (t)           i in the constant variance
+® ltering procedure, with pointwise approximate 95% central posterior intervals. Middle: posterior
+ means for the c (t)
+                 i in the stochastic variance ® ltering procedure, with pointwise approximate 95% central
+                                                                               (t)
+                                                                              2
+                             posterior intervals. Bottom: estimates for the r i .
+
+
+
+
+professional chess arguably at the peak of his career. The plots show that the
+estimates from the stochastic variance ® ltering algorithm change more abruptly
+than in the constant variance model. This is re¯ ected in changes in the r (t)
+                                                                             i  in the
+stochastic variance algorithm. When Euwe had poor results in the late 1940s, the
+stochastic variance algorithm had r (t)
+                                    i experience a corresponding increase to re¯ ect
+the gain in uncertainty in Euwe’s true strength. Similarly, Fischer’s phenomenal
+results in the world championship cycle in the early 1970s is shown in Fig. 4 by
+an increase in the mean strength, but also in an increase in the value of r (t)
+                                                                            i .
+                                                     Dynamic paired comparison models                 687
+
+
+
+
+                                                                                (t)
+Fig. 4. Model summaries for Robert Fischer. Top: posterior means for the c i in the constant variance
+® ltering procedure, with pointwise approximate 95% central posterior intervals. Middle: posterior
+                 (t)
+ means for the c i in the stochastic variance ® ltering procedure, with pointwise
+                                                                                (t)
+                                                                                    approximate 95% central
+                             posterior intervals. Bottom: estimates for the r 2i .
+
+6 Discussion
+The dynamic paired comparison model presented in this paper extends previous
+work by allowing the variance of the state process to change stochastically.
+Considering such models increases the ¯ exibility to describe phenomena where the
+underlying characteristics may undergo sudden shifts or changes in paradigm.
+Fitting the stochastic variance model for paired comparison data can be carried
+out using standard Bayesian computational machinery. For situations where many
+objects are being compared over time, in which case a full likelihood analysis
+may be too computationally intensive, this paper demonstrates an approximating
+algorithm that can be carried out with far less of a computational burden.
+688       M. E. Glickman
+
+  Aside from the increased ¯ exibility, the stochastic variance model has an impor-
+tant bene® t over the constant variance model when, for example, it is suspected
+that interventions may aþ ect the process for the merits. Under the constant variance
+model, the variance in an object’s merit prior to observing data at time t must
+decrease after the data are observed. This is a direct consequence of equation (21),
+where the posterior variance must be less than the prior variance. However, under
+the stochastic variance model, the variance may increase after data are observed.
+This re¯ ects the increased uncertainty about the merit parameter after observing
+unusual data.
+  A variety of extensions can be incorporated into the stochastic variance model.
+                                                                               (t)
+One extension is to incorporate covariate information in the change in r 2i over
+time. For example, in the context of human cognitive development, older people
+                                                   (t)
+may stabilize in merit so that the change in r 2i may be assumed to be negatively
+related with age. Another extension involves using a diþ erent distribution other
+than normal for describing the change in c (t)  i , and log-normal for describing the
+              (t)
+change in r 2i over time. For example, in comparing certain types of ® nancial
+products over time, it may be more reasonable to assume models describing a
+greater probability for small increases in c (t)
+                                              i   but occasional large decreases with
+small probability. In each case, standard Bayesian tools can still be invoked to ® t
+such model extensions.
+
+
+REFERENCES
+Bradley, R. A. (1984) Paired comparisons: some basic procedures and examples. In: P. R. Kirshnajah
+  & P. K. Sen (Eds) Handbook of Statistics 4, pp. 299- 326 (Amsterdam, Elsevier).
+Bradley, R. A. & Terry, M. E. (1952) The rank analysis of incomplete block designs, 1. The method
+  of paired comparisons, Biometrika, 39, pp. 324- 345.
+Capobianco, E. (1996) State-space stochastic volatility models: a review of estimation algorithms,
+  Applied Stochastic Models Data Analysis, 12, pp. 265- 279.
+Critchlow, D. E. & Fligner, M. A. (1991) Paired comparison, triple comparison, and ranking
+  experiments as generalized linear models, and their implementation on GLIM, Psychometrika, 56,
+  pp. 517- 533.
+David, H. A. (1988) The Method of Paired Comparisons, 2nd edn (London, Chapman and Hall).
+Davidson, R. R. (1970) On extending the Bradley- Terry model to accommodate ties in paired
+  comparison experiments, Journal of the American Statistical Association, 65, pp. 317- 328.
+Davidson, R. R. & Beaver, R. J. (1977) On extending the Bradley- Terry model to incorporate within-
+  pair order eþ ects, Biometrics, 33, pp. 693- 702.
+Elo, A. E. (1978) The Rating of Chess Players Past and Present (New York, Arco Publishing).
+Fahrmeir, L. & Tutz, G. (1994) Dynamic stochastic models for time-dependent ordered paired
+  comparison systems, Journal of the American Statistical Association, 89, pp. 1438- 1449.
+Geweke, J. (1992) Evaluating the accuracy of sampling-based approaches to calculating posterior
+  moments. In: J. M. Bernardo, J. O. Berger, A. P. Dawid & A. F. M. Smith (Eds) Bayesian Statistics
+  4 (Oxford, Clarendon Press).
+Glickman, M. E. (1993) Paired comparison models with time-varying parameters, PhD Dissertation,
+  Harvard University Department of Statistics, Cambridge, USA.
+Glickman, M. E. (1999) Parameter estimation in large dynamic paired comparison experiments,
+  Applied Statistics, 48, pp. 377- 394.
+Glickman, M. E. & Stern, H. S. (1998) A state-space model for national football league scores,
+  Journal of the American Statistical Association, 93, pp. 25- 35.
+Greenberg, M. G. (1965) A modi® cation of Thurstone’s law of comparative judgment to accommodate
+  a judgment category of ``equal’’ or ``no diþ erence’’ , Psychology Bulletin, 64, pp. 108- 112.
+Harville, D. (1980) Predictions for National Football League games via linear-model methodology,
+  Journal of the American Statistical Association, 75, pp. 516- 524.
+Henery, R. J. (1992) An extension to the Thurstone- Mosteller model for chess, The Statistician, 41,
+  pp. 559- 567.
+                                                    Dynamic paired comparison models                 689
+
+Jacquier, E., Polson, N. & Rossi, P. (1994) Bayesian analysis of stochastic volatility models (with
+  discussion), Journal of Business Economics and Statistics, 12, pp. 371- 389.
+Joe, H. (1990) Extended use of paired comparison models, with application to chess rankings, Applied
+  Statistics, 39, pp. 85- 93.
+Karim, M. & Zeger, S. L. (1992) Generalized linear models with random eþ ects; Salamander mating
+  revisited, Biometrics, 48, pp. 631- 644.
+Keene, R. & Divinsky, N. (1989) Warriors of the Mind: A Quest for the Supreme Genius of the Chess
+  Board (Brighton, Hardinge Simpole).
+Knorr-Held, L. (2000) Dynamic rating of sports teams, The Statistician (in press).
+Mosteller, F. (1951) Remarks on the method of paired comparisons: I. The least squares solution
+  assuming equal standard deviations and equal correlations, Psychometrika, 16, pp. 3- 9.
+Oh, M. (1997) A Gibbs sampling approach to Bayesian analysis of generalized linear models for binary
+  data, Computational Statistics, 12, pp. 431- 445.
+Rao, P. V. & Kupper, L. L. (1967) Ties in paired-comparison experiments: a generalization of the
+  Bradley- Terry model, Journal of the American Statistical Association, 62, pp. 194- 204.
+Sallas, W. M. & Harville, D. A. (1988) Noninformative priors and restricted maximum likelihood
+  estimation in the Kalman ® lter. In: J. C. Spall (Ed.) Bayesian Analysis of Time Series and Dynamic
+  Models, pp. 477- 508 (New York, Marcel Dekker).
+Shephard, N. & Pitt, M. K. (1997) Likelihood analysis of non-Gaussian measurement time series,
+  Biometrika, 84, pp. 653- 667.
+Simonton, D. K. (1997) Creative productivity: a predictive and explanatory model of career trajectories
+  and landmarks, Psychological Review, 104, pp. 66- 89.
+Stern, H. (1992) Are all linear paired comparison models empirically equivalent?, Mathematical Social
+  Sciences, 23, pp. 103- 117.
+Thurstone, L. (1927) A law of comparative judgment, Psychological Review, 34, pp. 273- 286.
+Uhlig, H. (1997) Bayesian vector autoregressions with stochastic volatility, Econometrica, 65, pp. 59- 73.
+Zeger, S. L. & Karim, M. (1991) Generalized linear models with random eþ ects: a Gibbs sampling
+  approach, Journal of the American Statistical Association, 86, pp. 79- 86.
+

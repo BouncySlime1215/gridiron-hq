@@ -1,0 +1,975 @@
+VU Research Portal
+
+
+
+Forecasting football match results in national league competitions using score-driven
+time series models
+Koopman, Siem Jan; Lit, Rutger
+
+
+
+published in
+International Journal of Forecasting
+2019
+
+DOI (link to publisher)
+10.1016/j.ijforecast.2018.10.011
+
+
+document version
+Publisher's PDF, also known as Version of record
+
+document license
+Article 25fa Dutch Copyright Act
+
+
+Link to publication in VU Research Portal
+
+
+
+
+citation for published version (APA)
+Koopman, S. J., & Lit, R. (2019). Forecasting football match results in national league competitions using score-
+driven time series models. International Journal of Forecasting, 35(2), 797-809.
+https://doi.org/10.1016/j.ijforecast.2018.10.011
+
+
+
+
+General rights
+Copyright and moral rights for the publications made accessible in the public portal are retained by the authors and/or other copyright owners
+and it is a condition of accessing publications that users recognise and abide by the legal requirements associated with these rights.
+
+       • Users may download and print one copy of any publication from the public portal for the purpose of private study or research.
+       • You may not further distribute the material or use it for any profit-making activity or commercial gain
+       • You may freely distribute the URL identifying the publication in the public portal
+
+Take down policy
+If you believe that this document breaches copyright please contact us providing details, and we will remove access to the work immediately
+and investigate your claim.
+
+
+E-mail address:
+vuresearchportal.ub@vu.nl
+
+
+
+
+Download date: 12. Sep. 2026
+                                                     International Journal of Forecasting 35 (2019) 797–809
+
+
+
+                                                        Contents lists available at ScienceDirect
+
+
+                                           International Journal of Forecasting
+                                               journal homepage: www.elsevier.com/locate/ijforecast
+
+
+
+
+Forecasting football match results in national league
+competitions using score-driven time series models
+                                       ∗
+Siem Jan Koopman a,b , , Rutger Lit a
+a
+    Vrije Universiteit Amsterdam and Tinbergen Institute, The Netherlands
+b
+    CREATES, Aarhus University, Denmark
+
+
+
+article                 info                            a b s t r a c t
+
+Keywords:                                               We develop a new dynamic multivariate model for the analysis and forecasting of football
+Bivariate Poisson                                       match results in national league competitions. The proposed dynamic model is based on the
+Ordered probit                                          score of the predictive observation mass function for a high-dimensional panel of weekly
+Skellam
+                                                        match results. Our main interest is in forecasting whether the match result is a win, a
+Probabilistic loss function
+                                                        loss or a draw for each team. The dynamic model for delivering such forecasts can be
+                                                        based on three different dependent variables: the pairwise count of the number of goals,
+                                                        the difference between the numbers of goals, or the category of the match result (win,
+                                                        loss, draw). The different dependent variables require different distributional assumptions.
+                                                        Furthermore, different dynamic model specifications can be considered for generating the
+                                                        forecasts. We investigate empirically which dependent variable and which dynamic model
+                                                        specification yield the best forecasting results. We validate the precision of the resulting
+                                                        forecasts and the success of the forecasts in a betting simulation in an extensive forecasting
+                                                        study for match results from six large European football competitions. Finally, we conclude
+                                                        that the dynamic model for pairwise counts delivers the most precise forecasts while the
+                                                        dynamic model for the difference between counts is most successful for betting, but that
+                                                        both outperform benchmark and other competing models.
+                                                         © 2018 International Institute of Forecasters. Published by Elsevier B.V. All rights reserved.
+
+
+
+
+1. Introduction                                                                    factors that determine whether a goal is scored, including
+                                                                                   the attack strength of the team, the defence strength of
+    The forecasting of football match results is a highly pop-                     the opposing team, the home ground advantage (when
+ular activity. Amongst football supporters, it is common                           applicable), and specific events that take place during the
+to forecast the next match result, and often the individual                        match. We consider the use of three possible observational
+forecasts show a positive bias towards the team that one is                        variables on which to base our forecast of the next match
+supporting. However, even the pundit knows that forecast-                          result in terms of win, loss, or draw. The first variable
+ing a match result is a challenging task. The common way                           is two-dimensional and consists of the numbers of goals
+of betting on a football match is simply to indicate whether                       scored by the two opposing teams during a match. The
+one expects the team to win, lose, or draw its next game.                          second variable is the difference between the numbers of
+Whether the match result is a win, loss or draw depends on                         goals scored. The third variable is simply an indicator of
+the difference between the numbers of goals scored by the                          win, loss, or draw. The informational content of these three
+two opposing teams in a football match. There are many                             consecutive variables is clearly decreasing. For each of the
+                                                                                   variable categories, a variety of dynamic models can be
+  ∗ Correspondence to: Vrije Universiteit Amsterdam School of Business             considered for the forecasting of the match result. Many
+and Economics, De Boelelaan 1105, 1081 HV Amsterdam, The Nether-                   contributions in the statistical literature on the modelling
+lands.                                                                             and forecasting of the three variables have been made. We
+     E-mail address: s.j.koopman@vu.nl (S.J. Koopman).                             refer to Table E.1 in the Appendix for a schematic overview
+
+https://doi.org/10.1016/j.ijforecast.2018.10.011
+0169-2070/© 2018 International Institute of Forecasters. Published by Elsevier B.V. All rights reserved.
+798                            S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809
+
+
+of the main contributions. This literature also extends to                     The second category is the difference between numbers
+other fields such as econometrics and machine learning;                    of goals in a match, and can be regarded as a team’s margin
+two recent examples are the studies by Angelini and De An-                 of victory. In this category we let Z = X − Y be the differ-
+gelis (2017) and Baboota and Kaur (2018). A discussion of                  ence between the numbers of scored goals X and Y , with
+the statistical literature on forecasting football matches,                Z ∈ Z. By modelling Z , we consider the toto probabilities
+together with their relevance to our study, follows.                       as given by P(Z > 0), P(Z = 0), and P(Z < 0) for a
+    Most of the contributions to the statistical literature                home win, draw, and away win, respectively. Modelling
+on the modelling and forecasting of match results focus                    the difference in goals instead means that information is
+on the first variable, where the pairwise observations of                  lost, since, for example, the pairs (X = 0, Y = 1) and
+the numbers of goals scored by the opposing teams are                      (X = 2, Y = 3) produce the same values for Z . On the
+assumed to come from a bivariate distribution. The prob-                   other hand, smaller numbers of summations are needed in
+ability of a given possible match outcome is implied by                    order to obtain toto probabilities from Z than from the pair
+the bivariate distribution, and is given formally by P(X =                 (X , Y ). It is not clear immediately what the overall effect of
+x, Y = y), for x, y ∈ N0 , where X and Y denote the                        modelling Z instead of (X , Y ) would be on the forecasting
+numbers of goals scored by the home and away teams,                        of the toto probabilities. The reasoning behind this relates
+respectively. Hence, we have a probability for any match                   to the accumulation of modelling error, which could po-
+outcome. The main interest usually focuses on forecasting                  tentially be smaller, since a smaller number of probabil-
+the probabilities of a home win, draw, or away win; these                  ity components are being summed compared to the first
+are the toto probabilities and are given by P(X > Y ), P(X =               category. A model for the differences between numbers
+Y ), and P(X < Y ), respectively. The parameters of the                    of goals in football matches is provided by Karlis and
+distribution can be expressed as a function of the compet-                 Ntzoufras (2009), who introduce the Skellam distribution
+ing teams’ strengths of attack and defence. This procedure                 for analysing match results. This distribution was originally
+was first proposed by Maher (1982), who expresses the                      derived by Skellam (1946) as the difference of two in-
+means of the double-Poisson distribution (product of two                   dependent Poisson distributions. However, Karlis and Nt-
+independent Poissons) as team-specific strengths of attack                 zoufras (2009) show that independence is not strictly
+and defence. Dixon and Coles (1997) consider the double-                   necessary, and even the Poisson assumption for the pair
+Poisson distribution as well, and introduce a dependence                   of variables (X , Y ) is not needed. Their analysis keeps the
+parameter for the match results 0−0, 1−0, 0−1 and 1−1.                     parameters of the Skellam distribution static. Lit (2016,
+They also propose a weighting function to down-weight                      Ch. 4) extends the Skellam model to allow for strengths of
+the likelihood contributions of observations from the more                 attack and defence that evolve stochastically over time in
+distant past. Crowder, Dixon, Ledford, and Robinson (2002)                 a non-Gaussian state space framework.
+formulate the model of Dixon and Coles (1997) as a non-                        Rather than modelling toto probabilities via the
+Gaussian state space model with time-varying strengths                     double or bivariate Poisson models or via the Skellam
+of attack and defence, then develop approximating meth-                    models, we can consider the modelling of the toto prob-
+ods for parameter estimation and signal extraction, stating                abilities directly. For this third variable category, this study
+that an exact analysis is too expensive computationally.                   introduces ordered logit or ordered probit models. The
+A bivariate Poisson distribution is also used by Karlis and                modelling of match results in terms of wins, losses, and
+Ntzoufras (2003), who show that the introduction of a                      draws, rather than scores or differences in scores, leads not
+parameter for dependence between the goals scored by the                   only to a more parsimonious model, but also to a simpler
+two teams during a match leads to a more accurate pre-                     estimation procedure. Koning (2000) investigates the bal-
+diction of the outcome of a draw. Rue and Salvesen (2000)                  ance in competition in Dutch professional soccer by means
+incorporate the framework of Dixon and Coles (1997) and                    of an ordered probit model with static team strengths.
+develop a dynamic generalized linear model which is anal-                  A selection of covariates can be introduced in both the
+ysed in continuous time by Markov chain Monte Carlo                        static ordered probit regression model of Goddard and
+methods. Owen (2011) adopts advanced Bayesian methods                      Asimakopoulos (2004) and the static ordered logit model
+for the forecasting of football match outcomes. Goddard                    of Forrest and Simmons (2000). Cattelan, Varin, and Firth
+(2005) explores the inclusion of covariates in a bivariate                 (2013) propose a (semi-)dynamic Bradley–Terry model
+Poisson model. Koopman and Lit (2014) show that a high-                    in which team strengths are modelled by exponentially
+dimensional panel of weekly match results can be analysed                  weighted moving average processes. An early contribution
+effectively within a non-Gaussian state space framework                    is made by Fahrmeir and Tutz (1994), who introduce an
+based on the bivariate Poisson model with stochastically                   ordered logit non-Gaussian state space model that incorpo-
+time-varying attack and defence strengths, and with some                   rates random walks for the team strengths. The estimation
+of the above extensions. Finally, there are many other in-                 of the parameters of this model is carried out by the Kalman
+teresting and original contributions that could be listed in               filter and recursive posterior mode estimation methods.
+this category were space not an issue. For example, Dixon                  The dynamic cumulative link model of Knorr-Held (2000)
+and Robinson (1998) treat the numbers of goals scored by                   has been applied to German Bundesliga data for an analysis
+the competing teams during a match as interacting birth                    based on the extended Kalman filter and smoother. Held
+processes, while Boshnakov, Kharrat, and McHale (2017)                     and Vollnhals (2005) adopt the model of Knorr-Held (2000)
+deal with them within a bivariate distribution based on                    for evaluating the comparative strengths of football teams
+Weibull inter-arrival-times count processes and a copula                   in five European competitions combined in a single data
+function for their dependence.                                             set. The competitions are linked through the inclusion of
+                                S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809                            799
+
+
+European competitions (Champions League, Winners Cup                        this exercise. The losses are evaluated using the Diebold
+and UEFA Cup). Their study concentrates on the compari-                     and Mariano (1995) statistic to test for equal predictive
+son of team strengths within Europe. Forecasting evidence                   accuracy. Furthermore, we determine whether any of the
+for a range of models, in-sample or out-of-sample, is not                   proposed models are capable of turning the forecasts into
+presented. Finally, Hvattum and Arntzen (2010) propose an                   profits in a betting simulation.
+ordered logit model in which team strengths are updated                         The remainder of this forecasting study is organized as
+over time using Elo ratings.                                                follows. Section 2 introduces the general statistical mod-
+    Our research contributes to the literature in a number of               elling framework, while Section 3 discusses the specific de-
+ways. First, we develop a new dynamic multivariate model                    tails of the score-driven football models. Section 4 provides
+for the analysis and forecasting of football match results for              the design of our extended forecasting study, including a
+each of the three variable categories. The dynamic exten-                   data description, presents our empirical findings and dis-
+sions of the static models are based on the class of score-                 cusses various aspects of our analyses. Section 5 concludes.
+driven models in which the time-varying coefficients are                    An Online Appendix provides additional figures, tables, and
+updated as an autoregressive process. The autoregressive                    many technical details related to estimation, score func-
+updating of the time-varying parameter is driven by the                     tions and toto probabilities for the various models that we
+score of the conditional observation probability density                    consider in our study.
+function; see Creal, Koopman, and Lucas (2013) for a dis-
+cussion of this approach. Three features of this class of                   2. The distributions for the three variable categories
+models are particularly attractive in our context:
+                                                                                We develop three corresponding modelling frameworks
+  (i) The score-driven models are observation-driven,
+                                                                            for the three variable categories, then consider the differ-
+      which means that the likelihood is available in closed
+                                                                            ent observational characteristics and propose their corre-
+      form. This allows for a fast estimation process de-
+                                                                            sponding discrete mass functions. The details of maximum
+      spite the challenges involved with the use of high-
+                                                                            likelihood estimation are given in Appendix A. The dynamic
+      dimensional models due to the large numbers of
+                                                                            extensions are developed and discussed in Section 3.
+      teams that participate in European football competi-
+      tions over a number of years. The Kalman filter, which
+                                                                            2.1. Bivariate Poisson distribution
+      is more demanding computationally, is not required
+      for estimation and forecasting.
+                                                                               The outcome of a football match is determined simply
+ (ii) The filtered estimates of the time-varying parameters
+                                                                            by the numbers of goals scored and conceded by a team.
+      in the score-driven models are locally optimal in a
+                                                                            The outcome can be considered as a pair of counts (X , Y ),
+      Kullback–Leibler sense; see Blasques, Koopman, and
+                                                                            where X is the number of goals scored by the home team
+      Lucas (2015).
+                                                                            and Y the number scored by the away team. We assume
+(iii) The forecasting performances of the score-driven
+                                                                            here that the pair of counts (X , Y ) is generated by a bi-
+      models are comparable to those of their parameter-
+                                                                            variate Poisson distribution with intensities λ1 , λ2 > 0
+      driven counterparts; see Koopman, Lucas, and Scharth
+                                                                            for (X , Y ) and with the covariance between (X , Y ) being
+      (2016).
+                                                                            denoted by λ3 ≥ 0. The probability mass function of the
+Second, we conduct an extensive empirical study to de-                      bivariate Poisson distribution is given by
+termine which of the three variable categories leads to
+                                                                                                                                  λx1 λy2
+the most accurate forecasts. Third, as part of our empirical                pBP (X = x, Y = y; λ1 , λ2 , λ3 ) = e−(λ1 +λ2 +λ3 )
+study we also investigate whether dynamic models with                                                                             x! y!
+                                                                               min(x,y)
+time-varying parameters show better forecasting perfor-                         ∑ (x)(y) ( λ3 )k
+mances relative to models with static parameters. We fur-                               k!       ,                                          (1)
+                                                                                   k  k    λ1 λ2
+ther verify whether the dynamic extension of the static                          k=0
+model is achieved best by formulating a time-varying pa-                    see Johnson, Kotz, and Balakrishnan (1997) and Kocher-
+rameter model or by weighting the likelihood contribu-                      lakota and Kocherlakota (1992) for more information. It
+tions over time, as proposed by Dixon and Coles (1997).                     can be shown that
+   We have constructed time series panels of match re-
+                                                                            EBP (X ) = VarBP (X ) = λ1 + λ3 ,
+sults from six European competitions: the English Pre-                                                                                      (2)
+                                                                            EBP (Y ) = VarBP (Y ) = λ2 + λ3 ,      CovBP (X , Y ) = λ3 ,
+mier League, the German Bundesliga, the Spanish Primera
+División, the French Ligue 1, the Italian Serie A, and the                  where Ep , Varp and Covp denote the expectation, variance
+Dutch Eredivisie. We have collected 17 seasons of match                     and covariance, respectively, with respect to density p. For
+results, from 1999−2000 to 2015−2016, of which the first                    λ3 = 0, the bivariate Poisson distribution reduces to the
+ten seasons are used for parameter estimation and the last                  double Poisson distribution. The covariance is a ‘‘shared
+seven are used for the forecasting study. Our out-of-sample                 component’’ in the intensities: a higher λ3 leads to a higher
+forecasting study can be regarded as large, especially rela-                number of equal observations (X = Y ), which in football
+tive to other related forecasting studies in the literature.                are draws.
+Hence, it is a considerable achievement in our forecasting                      In the context of modelling match results in football, we
+study when a model turns out to be the best performer.                      follow the framework developed by Maher (1982), which
+We use the rank probability score as a loss function, and                   has become the standard in the statistics literature on
+explain why this is the most suitable loss function for                     sports modelling. We therefore specify the intensities λ1
+800                                   S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809
+
+
+and λ2 as functions of the latent strengths of attack α and                       rather than 2 in all of the football competitions that we
+defence β of the two opposing teams, and the home ground                          consider. In an ordered probit model, we assume that an
+advantage effect δ . Suppose that home team i welcomes                            unobserved stochastic variable C ∗ determines the category
+away team j for a football match. Then, the intensity λ1,ij ,                     C probabilistically, with C ∗ being given by
+associated with the number of home goals X in this match
+of team i versus team j, and the intensity λ2,ij , associated                     C ∗ = λ6 + η,          η ∼ N (0, ση2 ),                   (6)
+with the corresponding number of away goals Y , can be                            where λ6 is an unknown constant that indicates the
+specified as                                                                      strength of the home team relative to that of the away
+λ1,ij = exp(δ + αi − βj ),         λ2,ij = exp(αj − βi ),             (3)         team, and where η is a random variable that is generated
+                                                                                  by a normal variable with mean zero and variance ση2 . For
+with αm and βm being the attack and defence strengths,                            the ordered probit model, we assume that the variable C is
+respectively, of team m = i, j and i ̸ = j. The home ground                       generated conditional on C ∗ via the equations
+advantage δ can also be made team-specific, but we restrict
+                                                                                          2    if   C ∗ ≤ κ1 ,
+                                                                                        {
+this effect to be equal for all teams.
+                                                                                  C =     1    if   κ1 < C ∗ ≤ κ2 ,                         (7)
+                                                                                          0    if   C ∗ > κ2 ,
+2.2. Skellam distribution
+                                                                                  where the cutoff points κ1 and κ2 and the variance ση2 are
+    The win, loss or draw of a football match is determined                       treated as unknown parameters; see for example Greene
+by the difference between the numbers of goals scored and                         (2012) for a textbook treatment of ordered probit mod-
+conceded by a team. The difference between the numbers                            els, as well as for a more general treatment with more
+of home goals X and away goals Y can be regarded as a                             categories. Given the construction with the unobserved
+team’s margin of victory. We can assume that this differ-                         variable C ∗ and the random variable η, we cannot jointly
+ence in the counts Z = X − Y is distributed according to                          identify the three parameters uniquely. As a result, we
+the Skellam distribution with intensities λ4 , λ5 . The proba-                    constrain the scale of η and set ση2 = 1. An alternative is
+bility mass function of the Skellam distribution is given by
+                                                                                  to set κ1 to zero and choose ση2 freely, together with κ2 .
+                                                                                  For an ordered probit model with categorical observations
+pSk (Z = z ; λ4 , λ5 ) = e−(λ4 +λ5 ) (λ4 /λ5 )z /2 I|z | (2 λ4 λ5 ), (4)          C ∈ {2, 1, 0} and ση2 = 1, the probability density function
+                                                         √
+                                                                                  is given by
+where I|z | (·) is the modified Bessel function of order |z |. The
+mean and variance of Z are given by                                               pOP (C ∈ {2, 1, 0}; λ6 , κ1 , κ2 )
+                                                                                       Φ (κ 1 − λ 6 )                       if   C = 2,
+                                                                                      {
+ESk (Z ) = λ4 − λ5 ,        VarSk (Z ) = λ4 + λ5 .                    (5)
+                                                                                     = Φ (κ2 − λ6 ) − Φ (κ1 − λ6 )          if   C = 1,     (8)
+We refer to the original work of Irwin (1937) and Skel-                                1 − Φ (κ 2 − λ 6 )                   if   C = 0,
+lam (1946) for the derivation of the Skellam distribution
+                                                                                  where Φ (·) is the standard normal cumulative density
+based on the differences between two independent Poisson
+                                                                                  function (cdf). We ensure that the probabilities are all
+distributions. Alzaid and Omair (2010) presented higher
+                                                                                  positive by further restricting the parameters by κ1 < κ2 .
+moments and several other interesting properties of the
+                                                                                      Given the limited amount of information in the category
+Skellam distribution. Karlis and Ntzoufras (2009) showed
+                                                                                  variable of a win, loss or draw of a football match, the
+that the underlying Poisson assumption is not strictly nec-
+                                                                                  framework of Maher (1982) cannot be incorporated in an
+essary and that the Skellam distribution can also be consid-
+                                                                                  ordered probit model. It is also the design of the ordered
+ered by itself as a distribution defined on integers.
+                                                                                  probit model that does not allow the separation of the
+   When modelling football match results in terms of their
+margins of victory, we can also incorporate the framework                         strength of a team into attack and defence strengths. Since
+of Maher (1982) for the Skellam distribution. The intensity                       the relative strength of the home team is represented by
+λ4 is associated with the number of home goals and the                            λ6 , and since it determines the probability of category C ∈
+intensity λ5 with the number of away goals. Hence, the                            {2, 1, 0}, we have
+specifications for λ1,ij and λ2,ij in Eq. (3) can apply similarly                 λ6,ij = γi − γj ,                                         (9)
+to λ4,ij and λ5,ij , respectively, for home team i and away
+team j.                                                                           where γm is the total strength or capability of team m.
+
+2.3. Ordered probit models                                                        3. Score-driven time-varying parameters
+
+   The outcome (win, loss or draw) of a football match                               The treatment of football match results using the three
+can also be considered as an observed variable that we                            observational variables discussed in Section 2 is relatively
+then model directly. In this case, the observed categorical                       straightforward. This is due partly to the assumptions that
+variable C is determined simply by C = 2 for a home                               matches and teams’ efforts in each round of the competi-
+win X > Y (or Z > 0), C = 1 for a draw X = Y (or                                  tion are treated as independent events. However, it is not
+Z = 0), and C = 0 for a home loss X < Y (or Z < 0).                               realistic to treat the numbers of goals scored by a team in a
+The margin of victory is not measured. The variable C can                         series of matches as independent events: a football team’s
+also be interpreted as the credit points for a win, draw or                       strength is likely to be related in part to its performance
+loss of a match, although the credit for a win is 3 points                        in recent matches. Teams’ attack and defence strengths
+                                        S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809                                     801
+
+
+also change over time as their compositions evolve through                          that the predictive density p (yt |ft , Ft ; ψ ∗ ) is conditional
+the years. Several dynamic extensions of the static models                          on the time-varying parameter at time t and has the same
+described above are considered in the statistics and econo-                         functional form as pM (·; ψM ), with M ∈ {BP, Sk, OP}.
+metrics literature, and Appendix C considers a selection of                            The scaling matrix is chosen regularly to be a function
+such existing methods for comparisons.                                              of the variance of the score, so as to take into account
+    However, we contribute by developing an effective and                           the curvature of the log-density at time t, as summarized
+computationally fast approach to the dynamic modelling
+                                                                                                                                             [     ]
+                                                                                    by the Fisher information matrix It |t −1 = Et −1 ∇t ∇t′ .
+of football teams’ attack and defence strengths. These de-                          When it is intricate or impossible to obtain the Fisher
+velopments are presented in Section 3.1, which provides                             matrix analytically, we can take St to be the unity matrix.
+a short review of score-driven time series models, and                              The score-driven updating of parameters has a theoretical
+3.2, which presents the details of its implementation for                           foundation, since the estimates of the time-varying param-
+the models of Section 2. The initialization of the dynamic                          eter are optimal in a Kullback–Leibler sense, see Blasques
+processes are discussed in Appendix D. Section 4 presents                           et al. (2015), and therefore it is not a heuristic method.
+the empirical results from European football league com-
+                                                                                    The details of maximum likelihood estimation are given in
+petitions, which include excellent forecasting results for
+                                                                                    Appendix A.
+our proposed dynamic extensions.
+
+3.1. Score-driven time series models: a short review                                3.2. Score-driven models for football match results
+
+    We consider the class of score-driven models by Creal                              Next, we adopt the score-driven time-varying param-
+et al. (2013) for capturing the dynamic behavior of a pa-                           eter framework for the three densities discussed in
+rameter or a selection of parameters. We address the case                           Section 2. We consider the time-variation for a selection of
+of a panel of time series variables for which yt represents                         parameters in ψ and provide details of its implementation
+the corresponding vector of observations at time t. We as-                          for the modelling of football match results. The relevant
+sume that the data are generated from a distribution with                           score functions for the three densities are given in Ap-
+density function p (yt ; ψ) for which the density functions                         pendix B. We obtain a flexible and effective framework for
+discussed in Section 2 are examples. The observation vector                         the time series analysis and forecasting of football match
+yt can include the pairs of counts for the numbers of goals                         results in large competitions and over many seasons of a
+of each team, the differences between the numbers of goals                          competition.
+in a match, or the indicator of a win, loss or draw. One part
+of the static model parameters in ψ is assumed to be time-
+                                                                                    3.2.1. Bivariate Poisson distribution
+varying and is collected in the time-varying parameter
+vector ft . The remaining static parameters are collected in                             The modelling of football match results via the obser-
+the parameter vector ψ ∗ .                                                          vation pair (xijt , yijt ), where xijt and yijt are the numbers
+    In this framework, the score-driven model is based on                           of goals made by the home team i and the away team
+the predictive density function that is treated as the obser-                       j, respectively, in round t, can be based on the bivariate
+vation density and is given by                                                      Poisson distribution pBP (X = xijt , Y = yijt ; λ1,ij , λ2,ij , λ3 )
+                                                                                    and using the approach of Maher (1982), as reflected in
+yt ∼ p yt |ft , Ft ; ψ ∗ ,         t = 1, . . . , T ,
+         (                )
+                                                                      (10)          Eq. (3). The dynamic model lets us allow the strengths
+where Ft represents the information set available at time t,                        of the teams in attack and defence to be time-varying. In
+consisting of lagged observations {yt −1 , yt −2 , . . .} and past                  particular, we replace αi and βi in Eq. (3) with αit and
+time-varying parameter vectors {ft −1 , ft −2 , . . .}. The score-                  βit , respectively. We then obtain the 2N × 1 time-varying
+driven updating mechanism for the time-varying parame-                              parameter ft which contains αit and βit for all N teams that
+ter ft is given by                                                                  are active in a competition, that is
+
+ft +1 = ω + Bft + Ast ,                                               (11)          ft = (α1t , . . . , αNt , β1t , . . . , βNt )′ ,   t = 1, . . . , T .   (13)
+
+where ω is a vector of unknown constants, the matrices A                            The home ground advantage δ and the covariance λ3 in
+and B are unknown coefficient matrices, and st is the scaled                        ψBP can remain constant over time: they can be treated
+score vector, defined by                                                            as static parameters and are placed in ψ ∗ of the score-
+                              ∂ log p(yt |ft , Ft ; ψ ∗ )                           driven model. The implication of this dynamic extension is
+st = S t · ∇ t ,     ∇t =                                 ,                         that the intensities λk,ij can now be treated as time-varying
+                                       ∂ ft                           (12)
+St = S(ft , Ft ; ψ ∗ ),                                                             intensities that we denote by λk,ijt = λk,ij (ft ), for k = 1,2,
+                                                                                    where λk,ij (·) refers to the functions in Eq. (3).
+with S(·) being a matrix function for scaling the score                                The time-varying updating equation for ft is provided
+vector. A score-driven model updates the factor ft +1 in the                        by Eq. (11). However, it is more efficient to carry out the
+direction of the steepest increase of the log-density at time                       updating at round t for each match result. We assume that
+t given the current parameter ft and the data history Ft . The                      the observation pair (xit , yjt ) is generated by the bivariate
+initialisation of Eq. (11) is discussed in Appendix D. Under                        Poisson and select a subset of ft that is relevant for this
+correct model specification, the score vectors are a mar-                           match, that is
+tingale sequence, since Et −1 (st ) = 0, where Et −1 denotes                                                       )′
+the expectation with respect to p(yt |ft , Ft ; ψ ∗ ). We note                      fijt = αit , αjt , βit , βjt        = Mij ft ,
+                                                                                           (
+                                                                                                                                                            (14)
+802                                       S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809
+
+
+where Mij is the 4 × 2N selection matrix of zeros and ones,                           3.2.2. Skellam distribution
+and is defined implicitly. We update the selected time-                                   When the football match result is modelled in terms of
+varying parameters as in Eq. (11). It reduces to the updating                         the observed margin of victory, zijt = xijt − yijt , we can opt
+                                                                                      for the Skellam distribution in Section 2.2 with a similar
+                                                                                      dynamic extension as for the bivariate Poisson distribution.
+fij,t +1 = ωij + Bij fijt + Aij sijt ,                                  (15)          The probability mass function of the Skellam distribution
+                                                                                      is given by Eq. (4); see also Koopman, Lit, and Lucas (2017)
+with a 4 × 1 vector of constants ωij = Mij ω, 4 × 4 coef-
+                                                                                      for a discussion of its implementation in a dynamic setting.
+ficient matrices Aij = Mij A Mij′ and Bij = Mij B Mij′ , and the
+                                                                                      The time-varying parameter ft has the same composition
+4 × 1 scaled score vector sijt which is defined as in Eq. (12)                        as in Eq. (13), and hence we consider the Skellam pmf
+but with the gradient with respect to the 4 × 1 vector fijt .                         pSk (Z = zijt ; λ4,ijt , λ5,ijt ), where λk,ijt = λk,ij (ft ), for k =
+This updating is then repeated for all N /2 matches in each                           4,5, where λk,ij (·) refers to the corresponding functions in
+round t, and hence the full vector ft is updated effectively.                         Eq. (3). The updating of ft can take place for each match
+From the update ft +1 , we can then make predictions for the                          separately using Eq. (15), where fijt is defined in Eq. (14).
+match results for the next round t + 1 of the competition. In                         The derivation of the score sijt for the Skellam density is
+particular, we can forecast the probabilities of a win, draw,                         presented in Appendix B.3. We set the scaling equal to the
+and loss as described at the end of Section 2.1.                                      unity matrix, that is, Sijt = I4 . The parameter vector ψ ∗
+   The dimension of vector ft is as high as 2N. We may                                is given by ψ ∗ = (a1 , a2 , b1 , b2 , δ)′ , and is estimated by
+therefore want to specify the 2N × 2N coefficient matrices                            maximum likelihood.
+A and B in a parsimonious manner. In our empirical study,
+we specify them as                                                                    3.2.3. Ordered probit
+      [                     ]                 [                 ]                        When we record the data simply as the win, loss or
+          a1 · I N     0                      b 1 · IN      0                         draw of a given football match (that is, we observe cijt ∈
+A=                            ,          B=                       ,
+            0        a2 · I N                    0       b 2 · IN                     {2, 1, 0}), we can model the data using the ordered logit
+                                                                                      model of Section 2.3 with a dynamic extension for the
+such that the attack strengths (α ) rely on the updating
+                                                                                      overall strength (or capability) of the team. Given that we
+coefficients a1 and b1 and the defence strengths (β ) rely on
+                                                                                      cannot separate the strength in defence and attack, we
+the updating coefficients a2 and b2 . The coefficient matrices
+                                                                                      have a more parsimonious model. The strengths are made
+Aij and Bij are then defined similarly, but for N = 2. In this
+                                                                                      time-varying by replacing γi with γit and placing them in
+specification, the coefficient matrices A and B do not have                           the N × 1 vector ft . We have
+team-specific characteristics and there are no spillover
+effects in the dynamic specifications between the teams.                              ft = (γ1t , . . . , γNt )′ ,    t = 1, . . . , T .
+Such specifications can be considered in a straightforward
+                                                                                      As a result, the coefficient λ6,ij has also become time-
+manner because all unknown elements of A and B are
+                                                                                      varying, where we define λ6,ijt = γit −γjt and this indicates
+placed in ψ ∗ .                                                                       the difference in strength between the home team i and
+    The specification of the scaled score sijt = Sijt · ∇ijt in                       the away team j for their football match in round t. This is
+Eq. (15) for the bivariate Poisson is provided in Appendix                            our dynamic version of the ordered logit model for football
+B.2, at least for the derivation of ∇ijt . Since the derivation                       match results of Koning (2000). The cutoff points κ1 and κ2
+of the Fisher matrix is intricate, we set the scaling to the                          (which also represent the home ground advantage) remain
+unity matrix, that is Sijt = I4 . The parameter vector ψ ∗ is                         static coefficients.
+given by                                                                                  The updating of the time-varying team capabilities ft
+                                                                                      can also be done for each match result separately, as is
+ψ ∗ = (a1 , a2 , b1 , b2 , λ3 , δ)′ ,                                   (16)
+                                                                                      implied by Eq. (15), but now fijt is simply the 2 × 1 vector
+and is estimated by maximum likelihood. The estimation                                (γit , γjt )′ , with the 2 × 1 constant vector ωij = (ωi , ωj )′ and
+of ωij in Eq. (14) is discussed in Appendix D.                                        the 2 × 2 coefficient matrices Aij = a1 · I2 and Bij = b1 · I2 .
+   A team plays only once in each round t. Hence, the                                 The derivation of the 2 × 1 score vector sijt for the ordered
+maximum number of matches at time t is N /2. When                                     probit pmf is provided in Appendix B.4. We set the scaling
+every team plays according to schedule, a season consists                             equal to the unity matrix, that is, Sijt = I2 . The parameter
+of T = 2(N − 1) rounds in a competition. In practice,                                 vector is given by ψ ∗ = {a1 , b1 , κ1 , κ2 }, and is estimated by
+                                                                                      maximum likelihood.
+however, some football matches are postponed due to bad
+weather conditions and other external events, and these
+                                                                                      4. Forecasting football match results in Europe
+matches are then played later at some convenient time,
+with additional rounds being inserted in the calendar of
+                                                                                          Our empirical study is a basic and straightforward ex-
+the competition for this purpose. A small set of matches
+                                                                                      ercise: we forecast all match results in the next round of
+are scheduled for such additional rounds. If a team does not
+                                                                                      a football competition, for all rounds in seven yearly com-
+play in round t, its score is set to zero and the updating for                        petitions and for six European football competitions. Thus,
+the strengths of attack and defence reduces to                                        this design of our study involves making almost 15,000
+αm,t +1 = ωm + b1 αmt and βm,t +1 = ωm + b2 βmt ,                                     probabilistic forecasts for the football toto results, which
+                                                                                      are the match results in terms of wins, losses and draws for
+respectively, for any team m that does not play in round t.                           the home team. These probability forecasts are based on a
+                                S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809                     803
+
+
+particular model. We consider all three static models from                  bivariate Poisson model, reveal that the attack strengths of
+Section 2 (using the three different variable categories) and               both teams have been competitive and increasing steadily
+their various dynamic extensions as discussed in Section 3.                 in the 16 seasons from 2000 onwards, while the defence
+This forecasting study is of an exceptional magnitude, and                  strength of Barcelona has been stronger overall since 2004,
+hence allows us to draw strong conclusions concerning                       becoming even stronger in the more recent years. The su-
+which model performs best. The forecast precision mea-                      perior strength of Barcelona over Real Madrid overall since
+surements are based both on the average rank probability                    2004 has been small, but nevertheless clearly visible. This
+score statistics and on losses in a particular betting simula-              conclusion is also supported by the relative probabilities
+tion.                                                                       of a Barcelona win and a Real Madrid win. Considering
+                                                                            now the period since 2008 rather than 2004, we find here
+4.1. Data description                                                       that the probability of a Barcelona win is persistently close
+                                                                            to 0.5, while the Real Madrid win probability is closer
+    We forecast the football toto results for six European                  to 0.35 during the last seven seasons of the sample. We
+football competitions: The English Premier League, Ger-                     note that the strengths and probabilities are displayed for
+man Bundesliga, Spanish Primera División, Italian Serie A,                  each match in the sample, and hence the strengths of the
+France Ligue 1, and the Dutch Eredivisie. For each com-                     two teams are not presented exclusively for the Barcelona
+petition, the total data set consist of 17 seasons of foot-                 versus Real Madrid (and vice versa) matches. We focus
+ball match results. We have partitioned the data set into                   more on those two matches in each season by indicating in
+the in-sample seasons 1999−2009, which are used for ini-                    each plot when these key matches took place and whether
+tial parameter estimation, and the out-of-sample seasons                    each was a win, a draw or a loss for Barcelona. During the
+2009−2016, which are used for our forecasting study. After                  16 seasons in our sample, the rivals played against each
+each football season, the poorest performing team(s) are                    other 32 times, resulting in 14 wins for Barcelona, 8 draws
+relegated and new teams are promoted into the compe-                        and 10 wins for Real Madrid. The home ground advantage
+tition. Hence, the total number of teams in the data set                    effect is not accounted for in these plots in order to obtain
+increases with every season, since the relegated teams                      more precise comparisons.
+remain in the panel because they can re-appear in future
+                                                                                Graphs similar to that in Fig. 1 can be presented for
+seasons. The number of teams relegated varies between
+                                                                            the dynamic extension of the Skellam model, while only
+competitions and across seasons. We refer to Table 1 for
+                                                                            the total strengths can be presented for the dynamic or-
+some descriptive statistics of the six football competitions.
+                                                                            dered probit model, since the separation into attack and
+The data used in our empirical study can be found at http:
+                                                                            defence strengths cannot be identified in the latter frame-
+//www.football-data.co.uk.
+                                                                            work. The total strengths and toto probability estimates
+                                                                            for the dynamic extensions of the Skellam and ordered
+4.2. Estimated strengths from the score-driven model
+                                                                            probit models are presented in Figure E.3 of Appendix E.
+                                                                            When we compare these results amongst the three score-
+   We illustrate our proposed score-driven model empir-
+                                                                            driven models, the paths of the estimated total strengths
+ically as a dynamic extension of our models for football
+match results by presenting in Fig. 1 the time-varying                      are clearly different, although the main patterns appear to
+estimates of the attack, defence and total strengths of the                 be similar. Hence, the question as to which model is best
+two major rival teams in the Spanish Primera división:                      at forecasting the toto outcome is relevant and of interest.
+Barcelona and Real Madrid. We present the estimated                         We have already presented the results for the two rival
+strengths for the dynamic bivariate Poisson model; the                      teams from the Spanish Primera división, but, for the sake
+implementation details for filtering and parameter esti-                    of completeness, we also present graphs similar to Fig. 1,
+mation are discussed in Section 3.2. The graphs in Fig. 1                   with panels of attack, defence and overall strengths and a
+are all based on the values of ft as defined in Eq. (13) and                panel of toto probabilities, for the two main rival teams in
+evaluated recursively by Eq. (11), where ω, A and B are                     the other national football league competitions; see Figures
+replaced by their maximum likelihood estimates, which                       E.4–E.8 in Appendix E. These results merely illustrate that
+are provided in Table 2. These estimates reveal that the                    the estimated attack, defence and overall strengths are
+persistence levels for the dynamic models are very high,                    truly time-varying. It is interesting to view the strength
+with most estimates of b1 and b2 being close to unity.                      increases in the last few years of our sample by teams such
+However, we notice that the persistence is for a weekly                     as Dortmund, Juventus, and Paris SG, as well as the more
+frequency (approximately). For example, an estimate of                      recent strength decreases of Manchester United.
+0.998 for b1 implies a quarterly persistence of 0.99813 =
+0.97 and a yearly persistence of 0.99852 = 0.90. Given how                  4.3. Forecasting: study design and measurement precision
+football teams evolve from one season to another, a yearly
+persistence of 0.90 is rather realistic.                                        We produce probability forecasts for the toto outcomes
+   The estimated toto probabilities are computed as in                      of the next round of matches in six national league compe-
+Eq. (A.1), but with the underlying parameters replaced by                   titions and based on nine model categories, as described in
+their estimates. Since the strengths are time-varying (α                    the introduction and summarised in Table E.1 of Appendix
+and β are in ft ), these probability computations are done                  E. For a description of the static models we refer to Karlis
+repeatedly, before each new football round starts.                          and Ntzoufras (2003), Koning (2000) and Maher (1982)
+   The estimated strengths of attack and defence for                        for example, and for a description of the semi-dynamic
+Barcelona and Real Madrid, as obtained from the dynamic                     models we refer to Dixon and Coles (1997). The details of
+804                                S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809
+
+
+                   Table 1
+                   Descriptive statistics of six football competitions.
+                    Competition                       # Teams          # Matches      Mean(H)     Mean(A)      Var(H)   Var(A)
+                    In-sample, 1999–2009
+                    English Premier League            20               3800           1.503       1.092        1.649    1.181
+                    German Bundesliga                 18               3060           1.673       1.185        1.781    1.274
+                    Spanish Primera división          20               3800           1.533       1.116        1.566    1.169
+                    Italian Serie A                   18/20            3430           1.505       1.089        1.434    1.109
+                    French Ligue 1                    18/20            3578           1.382       0.913        1.381    0.960
+                    Dutch Eredivisie                  18               3060           1.766       1.242        2.195    1.478
+                    Out-of-sample, 2009–2016
+                    English Premier League            20               2660           1.573       1.171        1.752    1.312
+                    German Bundesliga                 18               2142           1.617       1.281        1.804    1.462
+                    Spanish Primera división          20               2660           1.627       1.121        1.947    1.343
+                    Italian Serie A                   20               2660           1.496       1.120        1.497    1.174
+                    French Ligue 1                    20               2660           1.420       1.050        1.409    1.151
+                    Dutch Eredivisie                  18               2142           1.789       1.325        1.956    1.558
+
+                   Notes: The table reports the in-sample and out-of-sample characteristics of the six football competitions that
+                   are considered in our forecasting study. The column ‘# Teams’ reports the number of teams that are active
+                   in one season of the respective competition. For the Italian Serie A, the in-sample data set has 5 × 18 and
+                   5 × 20 teams in a season. For the French Ligue 1, the in-sample data set has 3 × 18 and 7 × 20 teams in a
+                   season. The column labeled Mean(·) and Var(·) are the sample mean and sample variance of home (H) and
+                   away (A) goals.
+
+
+                   Table 2
+                   Maximum likelihood estimates of the parameters in ψ ∗ .
+                                           a1         a2          b1          b2          δ        λ3         κ1         κ2
+                    Biv. Poisson
+                    Premier League         0.012      0.016       1.000       0.999       0.331    0.083
+                    Bundesliga             0.014      0.014       0.999       0.997       0.365    0.043
+                    Primera división       0.015      0.014       0.998       0.999       0.350    0.088
+                    Serie A                0.016      0.021       0.998       0.998       0.365    0.199
+                    Ligue 1                0.014      0.015       0.998       0.998       0.402    0.043
+                    Eredivisie             0.016      0.017       0.998       0.998       0.386    0.052
+                    Skellam
+                    Premier League         0.015      0.018       1.000       0.998       0.341
+                    Bundesliga             0.028      0.014       0.998       0.996       0.386
+                    Primera división       0.016      0.022       1.000       1.000       0.365
+                    Serie A                0.022      0.031       0.998       1.000       0.395
+                    Ligue 1                0.015      0.023       1.000       1.000       0.423
+                    Eredivisie             0.020      0.022       1.000       0.999       0.381
+                    Ordered probit
+                    Premier League         0.027                  0.998                                       −0.665     0.096
+                    Bundesliga             0.026                  0.999                                       −0.647     0.047
+                    Primera división       0.018                  1.000                                       −0.646     0.064
+                    Serie A                0.032                  0.996                                       −0.757     0.109
+                    Ligue 1                0.020                  1.000                                       −0.758     0.079
+                    Eredivisie             0.036                  0.998                                       −0.653     0.042
+
+                   Notes: The table presents the maximum likelihood estimates of the parameters in ψ ∗ for the dynamic
+                   bivariate Poisson, Skellam, and ordered probit models, which are defined in Section 3.2. The initialisation
+                   of f1 is based on static estimates for one year of competition in 1999–2000; see the discussion in Appendix
+                   D. The dataset used to obtain the parameter estimates is from 2000 to 2009; see also Table 1.
+
+
+our dynamic extension based on score-driven models are                             score-driven model, we evaluate ft recursively, and at the
+discussed in Section 3. The probability forecasts for the toto                     end of the estimation sample we obtain ft +1 , from which,
+results are discussed in Appendix A and computed by Eqs.                           together with the static parameter estimates, the proba-
+(A.1), (A.2), and (A.3), where the strengths of attack and                         bility forecasts can be computed. Given the realised match
+defence (or overall strength) are treated as either static or                      results and their forecasts, we can evaluate a loss function
+time-varying.                                                                      to measure the forecast precision; see the details below.
+   Before computing the forecasts for round t + 1, all                             When forecasting the next round of football matches, we
+static parameters (whether in ψ or ψ ∗ ) are re-estimated                          re-estimate the parameter vector after including the foot-
+using all data up to time t. The first forecasts are for the                       ball match results of the most recent round in our data set.
+toto probabilities of all matches in the first round of the                        Hence, we have an expanding estimation sample in order
+football season 2009–2010, and are based on the parameter                          to ensure that we can utilize as much data as possible for
+estimates from the data panel of the previous ten sea-                             estimation. Thus, the procedure for our forecasting study
+sons 1999–2009. These computations are repeated for each                           is simple. After each round of matches, we re-estimate
+model, dynamic extension and method. In the case of the                            the static parameters, filter the time-varying parameters
+                                            S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809                                805
+
+
+
+
+Fig. 1. Estimated strengths for Barcelona and Real Madrid. Notes: The figure displays the estimated attack, defence and total strengths from the score-driven
+dynamic extension of the bivariate Poisson model for the two top teams in the Spanish Primera división: Barcelona (red) and Real Madrid (blue). All panels:
+a dot at the top of the panel represents a win for Barcelona, a dot at the bottom is a win for Real Madrid, and a dot in the middle of the panel represents a
+draw. Top left panel: time series plot of extracted strengths of attack. Top right panel: time series plot of extracted strengths of defence. Bottom left panel:
+sum of extracted strengths of attack and defence. Bottom right panel: probability of toto results from the dynamic bivariate Poisson model: Barcelona win
+(red), Real Madrid win (blue) and draw (black). Note that these graphs do not take the home ground advantage into account; that is, δ is set to zero in
+Eq. (3), to enable better comparisons of the two teams. (For interpretation of the references to colour in this figure legend, the reader is referred to the web
+version of this article.)
+
+
+(if any), and forecast the toto probabilities in the next                               our example, we have RPSI = [(0.5 − 1)2 + (0.9 − 1)2 +
+round. We repeat these steps for each round in the seven                                (1 − 1)2 ]/2 = 0.13 and RPSII = [(0.5 − 1)2 + (0.8 − 1)2 +
+consecutive football seasons and for each of the six football                           (1 − 1)2 ]/2 = 0.145 for Models I and II, respectively. Hence,
+competitions.                                                                           the probability forecasts from Model I are more precise.
+    Given the forecasted probabilities of a win, loss and                               We average the RPS statistic over all football matches in
+draw for a match and the realised toto result for each match                            a round and take this average as our loss function. We
+in a round, we can measure the precision of our forecasts                               facilitate model comparisons by collecting the value of this
+for this round as follows. For example, assume that we have                             loss function, for each round, in a loss vector and using
+two rival models that produce probability forecasts for the                             it to compute the Diebold Mariano (DM) test statistic for
+toto outcome of a football match as follows: Model I has                                equal predictive accuracy; see Diebold and Mariano (1995).
+P(win) = 0.50, P(draw) = 0.40, and P(loss) = 0.10;                                      The DM statistic is distributed asymptotically as a standard
+Model II has P(win) = 0.50, P(draw) = 0.30, and P(loss) =                               normal random variable, and hence rejects the null hy-
+0.20. The outcome of the match is a home win. If we opt for                             pothesis of equal predictive accuracy at the 5% significance
+the log-loss function, we would have log(0.50) as the loss
+                                                                                        level if the DM test statistic is smaller than −1.96 (the
+probability for this match for both models, while the prob-
+                                                                                        benchmark model performs significantly worse) or larger
+abilities assigned to the other possible outcomes P(draw)
+                                                                                        than 1.96 (the benchmark model performs significantly
+and P(away) are ignored. The rank probability score (RPS)
+                                                                                        better). We also report the ARPS, which is defined as the
+is a loss function that accounts for the other probabilities as
+                                                                                        average of the RPS statistic over all rounds in the football
+well; see Epstein (1969) and, for an application to football
+                                                                                        season, and over all seven years in our out-of-sample data
+match results, Constantinou and Fenton (2012). For the
+toto forecasts, the RPS statistic is given by                                           set (it is simply the average of values in the loss vector).
+                                                                                            Finally, given the forecasted probabilities, we can verify
+             3
+             ∑                         )2                                               whether any of the categories home win, draw, or away
+RPS = 0.5                                   ,
+               (
+                    cdff ,k − cdfy,k                                      (17)          win is over- or under-represented in our forecasts. We do
+              k=1                                                                       this by summing the forecasted probabilities in each of
+where cdff ,k and cdfy,k are the cumulative density functions                           the three categories and comparing them with the realised
+of the forecast and the realised outcome, respectively. In                              numbers in each category. The results are provided in Table
+806                                 S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809
+
+
+E.2. We conclude that the shifting of probability mass can                      the in-sample data set, is the best performing forecasting
+be beneficial for some competitions and some models, see                        strategy for all six European football competitions. It is only
+the studies by Dixon and Coles (1997) and Koopman et al.                        for the Spanish Primera división that a constrained version
+(2017).                                                                         of our model with b1 = b2 = 1 (leading to a random walk
+                                                                                updating for the time-varying parameter ft ) performs the
+4.4. Betting simulation                                                         best for forecasting.
+                                                                                    In regard to forecast precision, our score-driven dy-
+   Section 4.3 considered the use of the RPS loss function                      namic extensions outperform both the static model and
+for the purpose of model comparisons in terms of forecast                       the semi-dynamic model extension significantly in almost
+precision. An alternative basis for comparisons of football                     all cases. The Dutch Eredivisie is the exception: the im-
+models is to verify whether a model is able to generate                         provement is not strongly significant. We also learn that
+a profit over the bookmakers’ odds when predicting the                          estimating f1 as part of ψ ∗ introduces too much uncertainty
+outcome of a football match. For this purpose, we perform                       into the parameter space, as the associated forecasts are
+a betting simulation. The resulting profit or loss from this                    significantly worse almost in all cases. The best strategy
+betting exercise provides an additional loss function that                      for initialization (that is, setting a value for f1 ) appears to
+can be used for model comparisons. The design of the                            be obtained by estimating the static model using the first
+betting simulation is as follows. For each match prediction,                    season in the sample.
+we have the bookmakers’ odds together with the forecast                             Tables 3 and 4 provide convincing evidence that the
+probabilities, as described in Section 4.3. On the basis of                     bivariate Poisson and Skellam distributions are preferred
+this information for each football match, we can calculate                      overall. These two models are almost always preferred
+three expected values (EV), namely the EVs for a home win,                      over the ordered probit model. The Dutch Eredivisie is the
+draw, and away win. The expected value of a unit bet on an                      only exception, with the dynamic ordered probit model
+event A is given by                                                             being preferred in terms of forecast precision. However,
+                                                                                the superiority of the ordered probit model over the other
+EV(A) = P(A) {odds(A) − 1} − P(not A) × 1
+                                                                                dynamic models is never significant. Thus, we may con-
+      = P(A)odds(A) − 1,                                                        clude that the condensation of data has a negative impact
+where event A represents a win, a loss or a draw for the                        on the forecast precision: when data is recorded in a more
+home team, P(A) is the probability of event A and odds(A)                       condensed manner, we lose information. The counts of
+is the bookmaker’s odds for event A; see also Koopman                           the numbers of goals made by the two teams in a foot-
+and Lit (2014) for a more detailed description. Our betting                     ball match, or the difference between these two counts,
+strategy is basic: we bet one unit on whichever of the three                    contains more information than the sign of the differ-
+categories (home win, draw, away win) has the highest EV                        ence (and zero). However, we could also have opted for
+and for which it holds that EV > 0. More advanced betting                       some bivariate distribution other than the Poisson, such as
+strategies, such as Kelly betting or alternative versions of                    the bivariate negative binomial distribution; see Famoye
+it, that take into account the odds and EV in order to find                     (2010) for all relevant details. Its dynamic extension can be
+the optimal stake on a wager, will outperform our simple                        implemented in a similar way to the Poisson, but the scaled
+strategy, but are considered to be beyond the scope of this                     score function for updating the time-varying parameters
+paper. An interesting result of this betting simulation is                      will be different. However, the reported data descriptives
+that it allows us to determine whether the models are able                      in Table 1 do not provide much evidence of over-dispersion
+to generate a profit over the bookmakers’ odds with only                        in the number of goals scored, with only some possible
+the past match results as input.                                                evidence for the Dutch Eredivisie competition. Although
+                                                                                we do not report them, we have produced forecasting
+4.5. Results of forecasting study                                               results for the bivariate negative binomial model; however,
+                                                                                we have not found any improvements when compared to
+    Tables 3, 4, and 5 present the forecast comparisons                         the Poisson model.
+based on ARPS, DM statistics, and the losses in our bet-                            The results of the betting simulation for each compe-
+ting simulation study, respectively, where we consider the                      tition, as described in Section 4.4, are presented in Ta-
+three static models and their dynamic extensions with two                       ble 5. When only past match results are considered and no
+initialization strategies. For the dynamic models, we also                      other explanatory variables are used, none of the models
+include the non-stationary specification of b1 = b2 = 1,                        considered are able to beat the bookmaker. Thus, we may
+which implies that the time-varying strengths are mod-                          conclude that improvements in the field of sports mod-
+elled as random walks. This extension allows us to investi-                     elling should be directed towards finding more and bet-
+gate the differences in forecasting capabilities between the                    ter explanatory variables, rather than towards developing
+stationary and the more parsimonious non-stationary dy-                         better models that try to extract more information from
+namic models. We report these forecasting results for the                       noisy data. Overall, the results of the betting simulation
+six European football competitions and present a summary                        show that the dynamic Skellam model outperforms the
+of our findings. Given that we have made an average of                          bivariate Poisson model. In particular, the performance of
+±2500 forecasts for each competition, we may regard our                         the dynamic Skellam model is relatively strong for the
+forecasting study as extensive. We learn from the reported                      larger competitions of England, Germany and Spain. In
+results that our dynamic extension, based on the score-                         accordance with the RPS results, the ordered probit models
+driven model with f1 estimated using the first season of                        also perform poorly in a betting context.
+                                       S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809                                  807
+
+
+Table 3
+Rank probability scores and Diebold–Mariano test results (England, Germany, Spain).
+ Distribution        Type               Additional specifications     Time        # par       England               Germany              Spain
+                                                                                              ARPS         DM       ARPS        DM       ARPS          DM
+                                        ∑N
+ Biv. Poisson        Static                   α =0                    31.20       2N + 2      0.2062       6.17     0.2165      4.76     0.1980        5.98
+                                        ∑iN=1 i
+ Skellam             Static                   α =0                    30.95       2N + 1      0.2068       6.68     0.2167      4.81     0.1983        6.06
+                                        ∑iN=1 i
+ Ordered probit      Static               i=1 αi = 0                  6.68        N +2        0.2083       6.69     0.2173      5.07     0.1989        5.74
+                                        ∑N
+ Biv. Poisson        Semi-dynamic             α =0                    116.47      2N + 2      0.2014       4.15     0.2127      3.35     0.1942        4.28
+                                        ∑iN=1 i
+ Skellam             Semi-dynamic             α =0                    65.53       2N + 1      0.2034       5.55     0.2156      4.47     0.1944        3.88
+                                        ∑iN=1 i
+ Ordered probit      Semi-dynamic         i=1 αi = 0                  40.56       N +2        0.2027       4.39     0.2138      3.88     0.1952        4.01
+ Biv. Poisson        Dynamic            f1 ∈ ψ ∗                      183.30      2N + 6      0.2024       4.69     0.2126      2.99     0.1952        4.54
+ Skellam             Dynamic            f1 ∈ ψ ∗                      252.45      2N + 5      0.2020       4.69     0.2120      2.54     0.1953        4.34
+ Ordered probit      Dynamic            f1 ∈ ψ ∗                      41.65       N +4        0.2030       3.93     0.2140      3.27     0.1962        4.61
+
+ Biv. Poisson        Dynamic            b1 = b2 = 1, f1 static init   1.72        4           0.1987       2.44     0.2095      2.15                   –
+ Skellam             Dynamic            b1 = b2 = 1, f1 static init   1.30        3           0.1982       1.01     0.2092      0.73     0.1918        1.03
+ Ordered probit      Dynamic            b1 = 1, f1 static init        0.80        3           0.2001       3.06     0.2104      2.67     0.1929        3.09
+
+ Biv. Poisson        Dynamic            f1 static init                8.44        6           0.1984       1.22                 –        0.1916        1.57
+ Skellam             Dynamic            f1 static init                3.76        5                        –        0.2089      0.01     0.1918        1.03
+ Ordered probit      Dynamic            f1 static init                1.30        4           0.1996       2.32     0.2103      2.51     0.1929        3.09
+ Biv. Poisson        Dynamic            State space model             1h          6           0.1984       1.26     0.2099      2.10     0.1928        3.04
+
+Notes: The table presents probability forecast losses based on the average rank probability scores (ARPS) obtained by the forecasting of seven seasons of
+match results for each of six European football competitions with an expanding window. The RPS are averaged over the out-of-sample window in order to
+get a summarizing statistic. The Diebold–Mariano (DM) statistic is based on the entire out-of-sample window with one-step-ahead forecasts. The lowest
+ARPS for each column is shaded (in blue). The column ‘# par’ indicates the dimension of the parameter vector ψ or ψ ∗ , where N is the number of teams
+in the data set (all seasons combined). The DM statistic is distributed asymptotically as a standard normal random variable, and hence rejects the null
+hypothesis of equal predictive accuracy at the 5% significance level if the DM test statistic is either smaller than −1.96 (the benchmark model performs
+significantly worse) or larger than 1.96 (the benchmark model performs significantly better). The benchmark model performs the best for each competition.
+The column ‘Time’ indicates the average computer time (in seconds) taken to maximize the log-likelihood function (averaged over the six competitions).
+All computations are performed on a i7-2600, 3.40 GHz desktop PC using four cores. Note that the ‘‘f1 ∈ ψ ∗ ’’ specification has all elements of vector f1
+placed in the parameter vector ψ ∗ that is estimated by maximum likelihood, whereas ‘‘f1 static init’’ has the vector f1 estimated by static regression using
+the first season; see Appendix D.
+
+
+
+Table 4
+Rank probability scores and Diebold–Mariano test results (Italy, France, Netherlands).
+ Distribution        Type               Additional specifications     Time        # par       Italy                 France               Netherlands
+                                                                                              ARPS         DM       ARPS        DM       ARPS          DM
+                                        ∑N
+ Biv. Poisson        Static                   α =0                    31.20       2N + 2      0.2042       3.44     0.2109      4.34     0.1974        2.34
+                                        ∑Ni=1 i
+ Skellam             Static                   α =0                    30.95       2N + 1      0.2049       3.77     0.2113      4.56     0.1976        2.41
+                                        ∑iN=1 i
+ Ordered probit      Static               i=1 αi = 0                  6.68        N +2        0.2050       3.82     0.2126      5.23     0.1973        2.29
+                                        ∑N
+ Biv. Poisson        Semi-dynamic             α =0                    116.47      2N + 2      0.2025       2.78     0.2070      1.28     0.1939        0.58
+                                        ∑iN=1 i
+ Skellam             Semi-dynamic             α =0                    65.53       2N + 1      0.2036       3.45     0.2077      2.02     0.1944        0.88
+                                        ∑iN=1 i
+ Ordered probit      Semi-dynamic         i=1 αi = 0                  40.56       N +2        0.2033       3.12     0.2086      2.66     0.1943        1.05
+ Biv. Poisson        Dynamic            f1 ∈ ψ ∗                      183.30      2N + 6      0.2028       2.60     0.2082      2.55     0.1949        1.17
+ Skellam             Dynamic            f1 ∈ ψ ∗                      252.45      2N + 5      0.2027       2.42     0.2081      2.51     0.1942        0.70
+ Ordered probit      Dynamic            f1 ∈ ψ ∗                      41.65       N +4        0.2031       2.69     0.2093      3.41     0.1938        0.43
+ Biv. Poisson        Dynamic            b1 = b2 = 1, f1 static init   1.72        4           0.2011       2.27     0.2066      1.76     0.1940        0.73
+ Skellam             Dynamic            b1 = b2 = 1, f1 static init   1.30        3           0.2008       0.80     0.2062      1.31     0.1942        1.07
+ Ordered probit      Dynamic            b1 = 1, f1 static init        0.80        3           0.2023       2.89     0.2071      2.21     0.1938        1.08
+
+ Biv. Poisson        Dynamic            f1 static init                8.44        6                        –        0.2060      0.37     0.1936        0.31
+ Skellam             Dynamic            f1 static init                3.76        5           0.2007       0.66                          0.1941        1.01
+ Ordered probit      Dynamic            f1 static init                1.30        4           0.2019       2.22     0.2067      1.59                   –
+ Biv. Poisson        Dynamic            State space model             1h          6           0.2010       1.84     0.2066      1.62     0.1938        0.45
+
+Note: See the notes to Table 3.
+
+
+   Koopman et al. (2016) argued that the forecasting per-                          state space model; in fact, we even report a significant
+formances of univariate score-driven models are compara-                           improvement in some instances. Finally, we also report the
+ble to those of their parameter-driven (state space model)                         number of seconds of computer-time that are needed for
+counterparts. Our study has confirmed this conclusion, but                         maximizing the log-likelihood function for a single model.
+now for a class of multivariate score-driven and state space                       The differences in computing-time for parameter estima-
+models. In terms of forecast precision, the score-driven                           tion are noteworthy: the estimation of the score-driven
+model produces a lower forecast loss than the dynamic                              model requires < 10 s, while that of the state space model
+808                                      S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809
+
+
+Table 5
+Unit losses from betting on matches (all six competitions).
+ Distribution   Type           Additional           ENG             GER            SPA             ITA            FRA             NET            Total
+                               specifications
+                               ∑N
+ Biv. Poisson   Static               α =0           −179.20         −100.28        −275.28         −171.15        −159.95         −133.30        −1019.16
+                               ∑iN=1 i
+ Skellam        Static               α =0           −228.60         −98.46         −318.85         −230.14        −189.40         −113.84        −1179.29
+                               ∑iN=1 i
+ Ordered        Static           i=1 αi = 0         −157.47         −106.21        −258.94         −238.29        −199.65         −107.34        −1067.90
+ probit
+                               ∑N
+ Biv. Poisson   Semi-             i=1   αi = 0      −173.41         −95.11         −254.35         −276.05        −167.47         −145.64        −1112.03
+                dynamic
+                               ∑N
+ Skellam        Semi-             i=1   αi = 0      −168.96         −130.25        −289.94         −268.87                        −122.29        −1056.57
+                dynamic
+                               ∑N
+ Ordered        Semi-             i=1   αi = 0      −186.19         −94.15         −304.19         −236.86        −162.27         −92.19         −1075.85
+ probit         dynamic
+ Biv. Poisson   Dynamic        f1 ∈ ψ ∗             −142.52         −78.00         −251.92                        −188.58         −144.78        −958.29
+ Skellam        Dynamic        f1 ∈ ψ ∗             −128.90         −96.52         −307.68         −220.55        −162.52         −126.55        −1042.72
+ Ordered        Dynamic        f1 ∈ ψ ∗             −178.39         −77.33         −317.47         −168.64        −173.18                        −981.59
+ probit
+ Biv. Poisson   Dynamic        b1 = b2 = 1, f1      −141.19         −79.57         −165.05         −314.59        −210.51         −132.78        −1043.69
+                               static init
+ Skellam        Dynamic        b1 = b2 = 1, f1      −81.54          −107.87        −157.58         −355.38        −183.13         −133.44        −1018.94
+                               static init
+ Ordered        Dynamic        b1 = 1, f1 static    −145.91         −105.41        −282.80         −334.27        −224.66         −106.12        −1199.17
+ probit                        init
+ Biv. Poisson   Dynamic        f1 static init       −157.88         −128.91        −188.53         −268.03        −214.68         −120.59        −1078.62
+ Skellam        Dynamic        f1 static init                                                      −304.06        −206.75         −136.02
+ Ordered        Dynamic        f1 static init       −105.81         −125.77        −262.19         −251.29        −216.84         −87.38         −1049.28
+ probit
+
+The table presents unit losses from a betting simulation based on the forecasts of seven seasons of match results for each of the six European football
+competitions: England (ENG), Germany (GER), Spain (SPA), Italy (ITA), France (FRA), Netherlands (NET), and for all combined (Total). The forecasts are
+generated over time with an expanding window. The betting simulation is based on a simple strategy where a single unit wager is placed on the match
+outcome with the highest expected value. The lowest loss for each column is shaded (in blue). Bookmaker odds are obtained as the average odds taken
+from 10 to 20 large bookmakers.
+
+
+requires approximately one hour. Thus, the score-driven                              models in both forecast precision and lowest betting losses.
+models clearly outperform the state space model, in terms                            The dynamic bivariate Poisson model and the dynamic
+of both forecast precision and computer-time.                                        Skellam model turn out to perform the best for forecast-
+                                                                                     ing overall, while the ordered probit model almost never
+5. Conclusion                                                                        produces a more precise forecast. We may conclude that
+                                                                                     the subsequent merging of data (from two counts, to the
+    We have developed a multivariate score-driven model                              difference in counts, to the sign of the difference) leads
+for analysing a high-dimensional panel of football match                             to a decrease in forecasting performance by reducing the
+results. We then applied this score-driven methodology to                            informational content of the data, which is key for signal
+three classes of models. In the first class, a match result                          extraction.
+is treated as a pairwise observation that is assumed to
+come from the bivariate Poisson distribution. The second                             Appendix A. Supplementary data
+class of models assumes that the difference between the
+numbers of goals, or the margin of victory of a team, is                                Supplementary material related to this article can be
+generated by the Skellam distribution. In the third class of                         found online at https://doi.org/10.1016/j.ijforecast.2018.
+models, the probability of a win, draw, or loss of a match                           10.011.
+is modelled by an ordered probit model. These different
+model classes with their different variables require some-                           References
+what different statistical treatments, but can be extended
+                                                                                     Alzaid, A., & Omair, M. A. (2010). On the Poisson difference distribution
+with time-varying parameters using the same score-driven                                 inference and applications. Bulletin of the Malaysian Mathematical
+framework. All three approaches are able to forecast toto                                Sciences Society, 33(1), 17–45.
+probabilities for football matches in a national league com-                         Angelini, G., & De Angelis, L. (2017). Parx model for football match predic-
+petition. We then used a large-scale forecasting study to                                tions. Journal of Forecasting, 36(7), 795–807.
+                                                                                     Baboota, R., & Kaur, H. (2018). Predictive analysis and modelling football
+investigate which of the three model classes performs best                               results using machine learning approach for English premier league.
+in forecasting the toto probabilities in the next round of the                           International Journal of Forecasting, 34, (in press).
+competition. For this purpose, we have used a large panel                            Blasques, F., Koopman, S. J., & Lucas, A. (2015). Information theoretic
+of match results from six European football competitions                                 optimality of observation driven time series models for continuous
+                                                                                         responses. Biometrika, 102(2), 325–343.
+over a range of seasons. The results of the forecasting study,                       Boshnakov, G., Kharrat, T., & McHale, I. (2017). A bivariate Weibull count
+which included a betting simulation, show that our score-                                model for forecasting association football scores. International Journal
+driven football models outperform a range of benchmark                                   of Forecasting, 33(2), 458–466.
+                                         S.J. Koopman and R. Lit / International Journal of Forecasting 35 (2019) 797–809                                     809
+
+
+Cattelan, M., Varin, C., & Firth, D. (2013). Dynamic Bradley-Terry modelling         Irwin, J. O. (1937). The frequency distribution of the difference between
+    of sports tournaments. Applied Statistics, 62(1), 135–150.                            two independent variates following the same Poisson distribution.
+Constantinou, A. C., & Fenton, N. E. (2012). Solving the problem of in-                   Journal of the Royal Statistical Society, Series A, 100(3), 415–416.
+    adequate scoring rules for assessing probabilistic football forecast             Johnson, N. L., Kotz, S., & Balakrishnan, N. (1997). Discrete multivariate
+    models. Journal of Quantitative Analysis in Sports, 8(1), 1559-0410.                  distributions. New York: John Wiley & Sons.
+Creal, D. D., Koopman, S. J., & Lucas, A. (2013). Generalized autoregressive         Karlis, D., & Ntzoufras, I. (2003). Analysis of sports data by using bivariate
+    score models with applications. Journal of Applied Econometrics, 28(5),               Poisson models. The Statistician, 52(3), 381–393.
+    777–795.                                                                         Karlis, D., & Ntzoufras, I. (2009). Bayesian modelling of football outcomes:
+Crowder, M., Dixon, M. J., Ledford, A., & Robinson, M. (2002). Dynamic                    using the Skellam’s distribution for the goal difference. IMA Journal of
+    modelling and prediction of English football league matches for bet-                  Management Mathematics, 20, 133–145.
+    ting. The Statistician, 51(2), 157–168.                                          Knorr-Held, L. (2000). Dynamic rating of sports teams. The Statistician,
+Diebold, F. X., & Mariano, R. S. (1995). Comparing predictive accuracy.                   49(2), 261–276.
+    Journal of Business & Economic Statistics, 13, 253–265.                          Kocherlakota, S., & Kocherlakota, K. (1992). Bivariate discrete distributions.
+Dixon, M. J., & Coles, S. G. (1997). Modelling association football scores and            New York: Dekker.
+    inefficiencies in the football betting market. Applied Statistics, 46(2),        Koning, R. H. (2000). Balance in competition in Dutch soccer. The Statisti-
+    265–280.                                                                              cian, 49(3), 419–431.
+Dixon, M. J., & Robinson, M. E. (1998). A birth process model for association        Koopman, S. J., & Lit, R. (2014). A dynamic bivariate Poisson model for
+    football matches. The Statistician, 47(3), 523–538.                                   analysing and forecasting match results in the English Premier League.
+Epstein, E. S. (1969). A scoring system for probability forecasts of ranked               Journal of the Royal Statistical Society, Series A, 178(1), 167–186.
+    categories. Journal of Applied Meteorology, 8, 985–987.                          Koopman, S. J., Lit, R., & Lucas, A. (2017). Intraday stochastic volatility
+Fahrmeir, L., & Tutz, G. (1994). Dynamic stochastic models for time-                      in discrete price changes: the dynamic Skellam model. Journal of the
+    dependent ordered paired comparison systems. Journal of the Amer-                     American Statistical Association, 112, 1490–1503.
+    ican Statistical Association, 89(428), 1438–1449.                                Koopman, S. J., Lucas, A., & Scharth, M. (2016). Predicting time-varying
+Famoye, F. (2010). On the bivariate negative binomial regression model.                   parameters with parameter-driven and observation-driven models.
+    Journal of Applied Statistics, 37(6), 969–981.                                        Review of Economics & Statistics, 98(1), 97–110.
+Forrest, D., & Simmons, R. (2000). Making up the results: The work of the            Lit, R. (2016). Time-varying parameter models for discrete valued time series.
+    football pools panel, 1963–1997. The Statistician, 49(2), 253–260.                    Number 642 in Tinbergen Institute research series (Ph.D dissertation),
+Goddard, J. (2005). Regression models for forecasting goals and match                     Amsterdam: Thela Thesis and Tinbergen Institute.
+    results in association football. International Journal of Forecasting, 21,       Maher, M. J. (1982). Modelling association football scores. Statistica Neer-
+    331–340.                                                                              landica, 36(3), 109–118.
+Goddard, J., & Asimakopoulos, I. (2004). Forecasting football results and            Owen, A. (2011). Dynamic Bayesian forecasting models of football match
+    the efficiency of fixed-odds betting. Journal of Forecasting, 23, 51–66.              outcomes with estimation of the evolution variance parameter. IMA
+Greene, W. H. (2012). Econometric analysis. New York: Pearson Education.                  Journal of Management Mathematics, 22, 99–113.
+Held, L., & Vollnhals, R. (2005). Dynamic rating of European football teams.         Rue, H., & Salvesen, O. (2000). Prediction and retrospective analysis of
+    IMA Journal of Management Mathematics, 16, 121–130.                                   soccer matches in a league. The Statistician, 49(3), 399–418.
+Hvattum, L. M., & Arntzen, H. (2010). Using Elo ratings for match result             Skellam, J. G. (1946). The frequency distribution of the difference between
+    prediction in association football. International Journal of Forecasting,             two Poisson variates belonging to different populations. Journal of the
+    26, 460–470.                                                                          Royal Statistical Society, 109(3), 296.
+

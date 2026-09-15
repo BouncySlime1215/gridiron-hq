@@ -1,0 +1,1029 @@
+                                          Evaluating probabilistic classifiers: Reliability diagrams and score
+                                                              decompositions revisited
+                                                        Timo Dimitriadis1,2 , Tilmann Gneiting1,3 , and Alexander I. Jordan1
+                                             1
+                                                 Computational Statistics (CST) Group, Heidelberg Institute for Theoretical Studies, Heidelberg,
+                                                                                             Germany
+                                                             2
+                                                               Institute of Economics, University of Hohenheim, Stuttgart, Germany
+                                                   3
+                                                     Institute for Stochastics, Karlsruhe Institute of Technology (KIT), Karlsruhe, Germany
+
+
+
+
+arXiv:2008.03033v1 [stat.ME] 7 Aug 2020
+                                                                                        August 10, 2020
+
+
+                                                                                             Abstract
+                                                      A probability forecast or probabilistic classifier is reliable or calibrated if the predicted
+                                                  probabilities are matched by ex post observed frequencies, as examined visually in reliability
+                                                  diagrams. The classical binning and counting approach to plotting reliability diagrams has
+                                                  been hampered by a lack of stability under unavoidable, ad hoc implementation decisions.
+                                                  Here we introduce the CORP approach, which generates provably statistically Consistent,
+                                                  Optimally binned, and Reproducible reliability diagrams in an automated way. CORP is
+                                                  based on non-parametric isotonic regression and implemented via the Pool-adjacent-violators
+                                                  (PAV) algorithm — essentially, the CORP reliability diagram shows the graph of the PAV-
+                                                  (re)calibrated forecast probabilities. The CORP approach allows for uncertainty quantifi-
+                                                  cation via either resampling techniques or asymptotic theory, furnishes a new numerical
+                                                  measure of miscalibration, and provides a CORP based Brier score decomposition that gen-
+                                                  eralizes to any proper scoring rule. We anticipate that judicious uses of the PAV algorithm
+                                                  yield improved tools for diagnostics and inference for a very wide range of statistical and
+                                                  machine learning methods.
+
+                                          Keywords: calibration | discrimination ability | probability forecast | reliability diagram | weather
+                                          prediction
+
+
+
+
+                                              We thank Andreas Fink, Peter Knippertz, Peter Vogel and seminar participants at MMMS2 for providing
+                                          data, discussion and encouragement. Our work has been supported by the Klaus Tschira Foundation, by the
+                                          University of Hohenheim, by the Helmholtz Association, and by the Deutsche Forschungsgemeinschaft (DFG,
+                                          German Research Foundation) – Project-ID 257899354 – TRR 165.
+
+
+                                                                                                 1
+1    Introduction
+Calibration or reliability is a key requirement on any probability forecast or probabilistic clas-
+sifier. In a nutshell, a probabilistic classifier assigns a predictive probability to a binary event.
+The classifier is calibrated or reliable if, when looking back at a series of extant forecasts, the
+conditional event frequencies match the predictive probabilities. For example, if we consider all
+cases with a predictive probability of about .80, the observed event frequency ought to be about
+.80 as well. While for many decades researchers and practitioners have been checking calibration
+in myriads of applications (1, 2), the topic is subject to a surge of interest in machine learning
+(3), spurred by the recent recognition that “modern neural networks are uncalibrated, unlike
+those from a decade ago” (4).
+
+
+2    Reliability diagrams: Binning and counting
+The key diagnostic tool for checking calibration is the reliability diagram, which plots the ob-
+served event frequency against the predictive probability. In discrete settings where there are
+                                                        1           9
+only a few predictive probabilities, such as, e.g., 0, 10 , . . . , 10 , 1, this is straightforward. How-
+ever, statistical and machine learning approaches to binary classification generate continuous
+predictive probabilities that can take any value between 0 and 1, and typically the forecast
+values are pairwise distinct. In this ubiquitous setting, researchers have been using the “binning
+and counting” approach, which starts by selecting a certain, typically arbitrary number of bins
+for the forecast values. Then, for each bin, one plots the respective conditional event frequency
+versus the midpoint or average forecast value in the bin. For calibrated or reliable forecasts the
+two quantities ought to match, and so the points plotted ought to lie on, or close to, the diagonal
+(2, 5).
+    In Fig. 1(a,c,e) we show reliability diagrams based on the binning and counting approach
+with a choice of m = 10 equally spaced bins for 24-hour ahead daily probability of precipitation
+forecasts at Niamey, Niger in July–September 2016. They concern three competing forecasting
+methods, including the world-leading, 52-member ensemble system run by the European Centre
+for Medium-Range Weather Forecasts (ENS, 6), a reference forecast called extended probabilistic
+climatology (EPC), and a purely data-driven statistical forecast (Logistic), as described by Vogel
+et al. (7, Fig. 2).
+    Not surprisingly, the classical approach to plotting reliability diagrams is highly sensitive
+to the specification of the bins, and the visual appearance may change drastically under the
+slightest change. We show an example in Fig. 2(a–c) for a fourth type of forecast at Niamey,
+namely, a statistically postprocessed version of the ENS forecast called ensemble model output
+statistics (EMOS), for which choices of m = 9, 10, or 11 equidistant bins yield drastically
+distinct reliability diagrams. This is a disconcerting state of affairs for a widely used data
+analytic tool, and contrary to well-argued recent pleas for reproducibility (8) and stability (9).
+Similar instabilities under the binning and counting approach have been reported for numerical
+measures of calibration, even when the size n of the dataset considered is large (10, p. 6, 11,
+Sect. 3.1).
+    While methods for the choice of the binning and related implementation decisions for re-
+liability diagrams have been proposed in the literature (5, 12, 13), extant approaches lack
+theoretical justification, are elaborate, and have not been adopted by practitioners. Instead,
+researchers across discplines continue to craft reliability diagrams and report associated mea-
+sures of (mis)calibration, such as the Brier score reliability component (14–16), based on ad hoc
+choices. In this light, Stephenson et al. (17, p. 757) call for the development of “nonparametric
+approaches for estimating the reliability curves (and hence the Brier score components), which
+
+
+                                                   2
+                        (a) ENS / Binning and Counting                                       (b) ENS / CORP
+                 1.00                                                                 1.00
+                                                                                                MCB = 0.066
+
+
+
+                 0.75                                                                 0.75
+
+
+
+
+           CEP   0.50                                                           CEP   0.50
+
+
+
+
+                 0.25                                                                 0.25
+
+
+
+
+                 0.00                                                                 0.00
+
+                        0.00         0.25         0.50        0.75   1.00                    0.00         0.25          0.50        0.75   1.00
+                                             Forecast value                                                        Forecast value
+
+                        (c) EPC / Binning and Counting                                       (d) EPC / CORP
+                 1.00                                                                 1.00
+                                                                                                MCB = 0.022
+
+
+
+                 0.75                                                                 0.75
+
+
+
+
+           CEP   0.50                                                           CEP   0.50
+
+
+
+
+                 0.25                                                                 0.25
+
+
+
+
+                 0.00                                                                 0.00
+
+                        0.00         0.25         0.50        0.75   1.00                    0.00         0.25          0.50        0.75   1.00
+                                             Forecast value                                                        Forecast value
+
+                        (e) Logistic / Binning and Counting                                  (f) Logistic / CORP
+                 1.00                                                                 1.00
+                                                                                                MCB = 0.017
+
+
+
+                 0.75                                                                 0.75
+
+
+
+
+           CEP   0.50                                                           CEP   0.50
+
+
+
+
+                 0.25                                                                 0.25
+
+
+
+
+                 0.00                                                                 0.00
+
+                        0.00         0.25         0.50        0.75   1.00                    0.00         0.25          0.50        0.75   1.00
+                                             Forecast value                                                        Forecast value
+
+
+Figure 1: Reliability diagrams for probability of precipitation forecasts over Niamey, Niger (7) in July–September
+2016 under (a,b) ENS, (c,d) EPC, and (e,f) Logistic methods. At left (a,c,e), we show reliability diagrams under
+the binning and counting approach with a choice of ten equally spaced bins. At right (b,d,f), we show CORP
+reliability diagrams with uncertainty quantification through 90% consistency bands. The histograms at bottom
+illustrate the distribution of the n = 86 forecast values.
+
+
+
+
+                                                                            3
+                        (a) EMOS / 9 Equidistant Bins                                       (b) EMOS / 10 Equidistant Bins
+                 1.00                                                                1.00
+
+
+
+
+                 0.75                                                                0.75
+
+
+
+
+           CEP   0.50                                                          CEP   0.50
+
+
+
+
+                 0.25                                                                0.25
+
+
+
+
+                 0.00                                                                0.00
+
+                        0.00        0.25         0.50        0.75   1.00                    0.00        0.25         0.50        0.75   1.00
+                                            Forecast value                                                      Forecast value
+
+                        (c) EMOS / 11 Equidistant Bins                                      (d) EMOS / CORP
+                 1.00                                                                1.00
+                                                                                              MCB = 0.018
+
+
+
+                 0.75                                                                0.75
+
+
+
+
+           CEP   0.50                                                          CEP   0.50
+
+
+
+
+                 0.25                                                                0.25
+
+
+
+
+                 0.00                                                                0.00
+
+                        0.00        0.25         0.50        0.75   1.00                    0.00        0.25         0.50        0.75   1.00
+                                            Forecast value                                                      Forecast value
+
+
+Figure 2: Reliability diagrams for probability of precipitation forecasts over Niamey, Niger (7) in July–September
+2016 with the EMOS method, using the binning and counting approach with a choice of (a) 9, (b) 10, and (c) 11
+equidistant bins, together with (d) the CORP reliability diagram, for which we provide uncertainty quantification
+through 90% consistency bands.
+
+
+also include[d] point-wise confidence intervals.”
+    Here we introduce a new approach to reliability diagrams and score decompositions, which
+resolves these issues in a theoretically optimal and readily implementable way, as illustrated
+on the forecasts at Niamey in Figs. 1(b,d,f) and 2(d). In a nutshell, we use nonparametric
+isotonic regression and the pool-adjacent-violators (PAV) algorithm to estimate conditional event
+probabilities (CEPs), which yields a fully automated choice of bins that adapts to both discrete
+and continuous settings, without any need for tuning parameters or implementation decisions.
+We call this stable, new approach CORP, as its novelty and power include the following four
+properties.
+
+Consistency The CORP reliability diagram and associated numerical measures of (mis)cali-
+bration are consistent in the classical statistical sense of convergence to population characteris-
+tics. We leverage existing asymptotic theory (18–20) to demonstrate that the rate of convergence
+is best possible, and to generate large sample consistency and confidence bands for uncertainty
+quantification.
+
+
+
+
+                                                                           4
+Optimality The CORP reliability diagram is optimally binned, in that no other choice of
+bins generates more skillful (re)calibrated forecasts, subject to regularization via isotonicity (21,
+Thm. 1.10, 22, 23).
+
+Reproducibility The CORP approach does not require any tuning parameters nor imple-
+mentation decision, thus yielding well defined and readily reproducible reliability diagrams and
+score decompositions.
+
+Pool-adjacent-violators (PAV) algorithm based CORP is based on nonparametric iso-
+tonic regression and implemented via the PAV algorithm, a classical iterative procedure with
+linear complexity only (24, 25). Essentially, the CORP reliability diagram shows the graph of
+the PAV-(re)calibrated forecast probabilities.
+
+  In the remainder of the article we provide the details of CORP reliability diagrams and score
+decompositions, and we substantiate the above claims via mathematical analysis and simulation
+experiments.
+
+
+3    The CORP approach: Optimal binning via the pool-adjacent-
+     violators (PAV) algorithm
+The basic idea of CORP is to use nonparametric isotonic regression to estimate a forecast’s
+CEPs as a monotonic, non-decreasing function of the original forecast values. Fortunately, in
+this simple setting there is one, and only one, kind of nonparametric isotonic regression, for
+which the PAV algorithm provides a simple algorithmic solution (24, 25). To each original
+forecast value, the PAV algorithm assigns a (re)calibrated probability under the regularizing
+constraint of isotonicity, as illustrated in textbooks (26, Figs. 2.13 and 10.7), and this solution
+is optimal under a very broad class of loss functions (21, Thm. 1.10). In particular, the PAV so-
+lution constitutes both the nonparametric isotonic least squares and the nonparametric isotonic
+maximum likelihood estimate of the CEPs.
+    The CORP reliability diagram plots the PAV-calibrated probability versus the original fore-
+cast value, as illustrated on the Niamey data in Figs. 1(b,d,f) and 2(d). The PAV algorithm as-
+signs calibrated probabilities to the individual unique forecast values, and we interpolate linearly
+inbetween, to facilitate comparison with the diagonal that corresponds to perfect calibration.
+If a group of (one or more) forecast values are assigned identical PAV-calibrated probabilities,
+the CORP reliability diagram displays a horizontal segment. The horizontal sections can be
+interpreted as bins, and the respective PAV-calibrated probabilities are simply the bin-specific
+empirical event frequencies. For example, we see from Fig. 1(b) that the PAV algorithm assigns
+                                                                       9
+a calibrated probability of .125 to ENS forecast values between 52        and 20
+                                                                              52 , and a calibrated
+                                              21     42
+probability of .481 to ENS values between 52 and 52 . The PAV algorithm guarantees that both
+the number and the positions of the horizontal segments (and hence the bins) in the CORP
+reliability diagram are determined in a fully automated, optimal way.
+    The assumption of nondecreasing CEPs is natural, as decreasing estimates are counterin-
+tuitive, routinely being dismissed as artifacts by practitioners. Furthermore, the constraint
+provides an implicit regularization, serving to stabilize the estimate and counteract overfitting,
+despite the method being entirely nonparametric. Under the binning and counting approach,
+small or sparsely populated bins are subject to overfitting and large estimation uncertainty, as
+exemplified by the sharp upward spike at about .25 in Fig. 2(b). The assumption of isotonicity
+in CORP stabilizes the estimate and avoids artifacts (Fig. 2d).
+
+
+                                                 5
+                        (a)                                                                    (b)
+                 1.00                                                                   1.00
+                              MCB = 0.042                                                            MCB = 0.042
+
+
+
+                 0.75                                                                   0.75
+
+
+
+
+           CEP   0.50                                                             CEP   0.50
+
+
+
+
+                 0.25                                                                   0.25
+
+
+
+
+                 0.00                                                                   0.00
+
+                         0.00           0.25        0.50        0.75   1.00                     0.00           0.25        0.50        0.75   1.00
+                                               Forecast value                                                         Forecast value
+
+                        (c)                                                                    (d)
+                 1.00                                                                   1.00
+                              MCB = 0.039                                                            MCB = 0.039
+
+
+
+                 0.75                                                                   0.75
+
+
+
+
+           CEP   0.50                                                             CEP   0.50
+
+
+
+
+                 0.25                                                                   0.25
+
+
+
+
+                 0.00                                                                   0.00
+
+                         0.00           0.25        0.50        0.75   1.00                     0.00           0.25        0.50        0.75   1.00
+                                               Forecast value                                                         Forecast value
+
+
+Figure 3: CORP reliability diagrams in the setting of (a,b) discretely and (c,d) continuously, uniformly distributed,
+                                                                            √
+simulated predictive probabilities x with a true, miscalibrated CEP of x, with uncertainty quantification via
+(a,c) consistency and (b,d) confidence bands at the 90% level.
+
+
+    In contrast to the binning and counting approach, which has not been subject to asymptotic
+analysis, CORP reliability diagrams are provably statistically consistent: If the predictive prob-
+abilities and event realizations are samples from a fixed, joint distribution, then the graph of
+the diagram converges to the respective population equivalent, as a direct consequence of exist-
+ing large sample theory for nonparametric isotonic regression estimates (18–20). Furthermore,
+CORP is asymptotically efficient, in the sense that its automated choice of binning results in an
+estimate that is as accurate as possible in the large sample limit. In Appendix B we formalize
+these arguments and report on a simulation study, for which we give details in Appendix A, and
+which demonstrates that the efficiency of the CORP approach also holds in small samples.
+    Traditionally, reliability diagrams have been accompanied by histograms or bar plots of the
+marginal distribution of the predictive probabilities, on either standard or logarithmic scales
+(e.g., 27). Under the binning and counting approach, the histogram bins are typically the same
+as the reliability bins. In plotting CORP reliability diagrams, we distinguish discretely and con-
+tinuously distributed classifiers or forecasts. Intuitively, the discrete case refers to forecast values
+that only take on a finite and sufficiently small number of distinct values. Then we show the
+PAV-calibrated probabilities as dots, interpolate linearly inbetween, and visualize the marginal
+distribution of the forecast values in a bar diagram, as illustrated in Fig. 3(a,b). For contin-
+uously distributed forecasts, essentially every forecast takes on a different value, whence the
+
+                                                                              6
+choice of binning becomes crucial. The CORP reliability diagram displays the bin-wise constant
+PAV-calibrated probabilities in horizontal segments, which are linearly interpolated inbetween,
+and we use the Freedman–Diaconis rule (28) to generate a histogram estimate of the marginal
+density of the forecast values, as exemplified in Fig. 3(c,d). In our software implementation (29)
+a simple default is used: If the smallest distance between any two distinct forecast values is
+0.01 or larger, we operate in the discrete setting, and else in the continuous one. The CORP
+reliability diagrams in Figs. 1–3 also display a new measure of miscalibration (MCB), discussed
+in detail later on as we introduce the CORP score decomposition.
+
+
+4    CORP uncertainty quantification
+Bröcker and Smith (30) convincingly advocate the need for uncertainty quantification, so that
+structural deviations of the estimated CEP from the diagonal can be distinguished from devia-
+tions that merely reflect noise. They employ a resampling technique for the binning and counting
+method in order to find consistency bands under the assumption of calibration. For CORP, we
+extend this approach in two crucial ways, by generating either consistency or confidence bands,
+and by using either a resampling technique or asymptotic distribution theory, where we leverage
+existing theory for nonparametric isotonic regression estimates (18–20).
+    Consistency bands are generated under the assumption that the probability forecasts are
+calibrated, and so they are positioned around the diagonal. There is a close relation to the clas-
+sical interpretation of statistical tests and p-values: Under the hypothesized perfect calibration,
+how much do reliability diagrams vary, and how (un)likely is the outcome at hand? In contrast,
+confidence bands cluster around the CORP estimate and follow the classical interpretation of
+frequentist confidence intervals: If one repeats the experiment numerous times, the fraction of
+confidence intervals that contain the true CEP approaches the nominal level. The two methods
+are illustrated in Fig. 3, where the right column (b,d) shows confidence bands, and the left
+column (a,c) shows consistency bands, as do the CORP reliability diagrams in Figs. 1(b,d,f)
+and 2(d).
+    In our adaptation of the resampling approach, for each iteration the resampled CORP re-
+liability diagram is computed, and confidence or consistency bands are then specified by using
+resampling percentiles, in customary ways. For consistency bands, the resampling is based on
+the assumption of calibrated original forecast values, whereas PAV-calibrated probabilities are
+used to generate confidence bands. While resampling works well in small to medium samples,
+the use of asymptotic theory suits cases where the sample size n of the dataset is large – exactly
+when the computational cost of resampling based procedures becomes prohibitive. Existing
+asymptotic theory is readily applicable and operates under weak conditions on the marginal
+distribution of the forecast values, and (strict) monotonicity and smoothness of (true) CEPs
+(18–20).
+    The distinction between discretely and continuously distributed forecasts becomes critical
+here as the asymptotic theory differs between these cases. For discrete forecasts, results of El
+Barmi and Mukerjee (18) imply that the difference between the estimated and the true CEP,
+scaled by n1/2 , converges to a (mixture of) normal distribution(s). For continuous forecasts,
+following Wright (19), the difference between the estimated and the true CEP, magnified by n1/3 ,
+converges to Chernoff’s distribution (31). The distinct scaling laws imply that the convergence
+is faster in the discrete than in the continuous case, since in the former the CORP binning
+stabilizes as it captures the discrete forecast values, and thereafter the amount of samples per
+bin increases linearly, in accordance with the standard n1/2 rate. In either setting, asymptotic
+consistency and confidence bands can be obtained from quantiles of the asymptotic distributions
+in customary ways. As a caveat, both resampling and asymptotic techniques operate under the
+
+
+                                                7
+                                                   Uniform                                                      Linear                                                   Beta Mixture
+                     1.00
+
+
+
+
+                     0.95
+
+
+
+
+                                                                                                                                                                                                            Consistency Bands
+                                                                  ●                                                            ●
+                                                          ●                       ●                                      ●                                                              ●
+                     0.90
+                                                                          ●                                                               ●      ●                               ●             ●     ●
+                                                                                  ●                                                              ●
+                                                                                                                                                                                                     ●
+
+                     0.85
+
+
+
+
+Empirical Coverage
+                     0.80
+
+
+                     1.00
+
+
+
+
+                     0.95
+
+
+
+
+                                                                                                                                                                                                            Confidence Bands
+                     0.90
+
+
+
+
+                     0.85
+
+
+
+
+                     0.80
+
+                                  128             512            2048            8192        128             512              2048              8192         128          512           2048         8192
+                                                                                                             Sample Size
+
+                            Uncertainty Quantification via ● continuous asymptotic theory   discrete asymptotic theory       resampling       Number k of Distinct Forecast Values ● 10 ● 20 ● 50 ● Inf
+
+
+
+
+Figure 4: Empirical coverage, averaged equally over the forecast values, of 90% uncertainty bands for CORP
+reliability diagrams under default choices for 1000 simulation replicates. The upper row concerns consistency
+bands, and the lower row confidence bands. The columns correspond to three types of marginal distributions for
+the forecast values, and colors distinguish discrete and continuous settings, as described in Appendix A. Different
+symbols denote reliance of the bands on resampling, discrete, or continuous asymptotic distribution theory.
+
+
+assumption of independent, or at least exchangeable, forecast cases, which may or may not be
+warranted in practice. We encourage follow-up work in dependent data settings, as recently
+tackled for related types of data science tools (32).
+    In our software implementation (29), we use the following default choices. Suppose that the
+sample size is n and there are k unique forecast values. For consistency bands, if n ≤ 1000, or
+if n ≤ 5000 and n ≤ 50k, we use resampling, else we rely on asymptotic theory. In the latter
+case we employ the discrete asymptotic distribution if n ≥ 8k 2 , while otherwise we use the
+continuous one. For confidence bands, the current default uses resampling throughout, as the
+asymptotic theory depends on the assumption of a true CEP with strictly positive derivative.
+In the simulation examples in Fig. 3, which are based on n = 1024 observations, this implies the
+use of resampling in panels (b,c,d) and of discrete asymptotic theory in panel (a). Fig. 4 shows
+coverage rates of 90% consistency and confidence bands in the simulation settings described in
+Appendix A, based on the default choices. The coverage rates are generally accurate, or slightly
+conservative, especially in large samples.
+
+
+5                           CORP score decomposition: Miscalibration (MCB), discrim-
+                            ination (DSC), and uncertainty (UNC) components
+Scoring rules provide a numerical measure of the quality of a classifier or forecast by assigning
+a score or penalty S(x, y), based on forecast value x ∈ [0, 1] for a dichotomous event y ∈ {0, 1}.
+A scoring rule is proper (33) if it assigns the minimal penalty in expectation when x equals the
+true underlying event probability. If the minimum is unique the scoring rule is strictly proper.
+In practice, for a given sample (x1 , y1 ), . . . , (xn , yn ) of forecast-realization pairs the empirical
+
+
+                                                                                                                   8
+                      Table 1: Scoring rules for probabilistic forecasts of binary events
+
+        Score                        Propriety        Analytic form of S(x, y)
+        Brier                        strict           (x − y)2
+        Logarithmic                  strict           −y log x − (1 − y) log(1 − x)
+        Misclassification error      non-strict       1(x < 12 , y = 1) + 1(x > 21 , y = 0) + 12 1(x = 21 )
+
+
+score
+                                                      n
+                                                   1X
+                                           S̄X =      S(xi , yi )                                             [1]
+                                                   n
+                                                     i=1
+is used for forecast ranking. Table 1 presents examples of proper and strictly proper scoring
+rules. The Brier score and logarithmic score are strictly proper. In contrast, the misclassification
+error is proper, but not strictly proper – all that matters is whether or not a classifier probability
+is on the correct side of 12 .
+    Under any proper scoring rule, the mean score S̄X constitutes a measure of overall predictive
+performance. For several decades, researchers have been seeking to decompose S̄X into intu-
+itively appealing components, typically thought of as reliability (REL), resolution (RES), and
+uncertainty (UNC) terms. The REL component measures how much the conditional event fre-
+quencies deviate from the forecast probabilities, while RES quantifies the ability of the forecasts
+to discriminate between events and non-events. Finally, UNC measures the inherent difficulty of
+the prediction problem, but does not depend on the issued forecast under consideration. While
+there is a consensus on the character and intuitive interpretation of the decomposition terms,
+their exact form remains subject to debate, despite a half century quest in the wake of Murphy’s
+(15) Brier score decomposition. In particular, Murphy’s decomposition is exact in the discrete
+case, but fails to be exact under continuous forecasts, which has prompted the development of
+increasingly complex types of decompositions (16, 17).
+    Here we adopt the general score decomposition advocated forcefully by Siegert (34), and
+discussed by various other authors (e.g., 16, 35). Specifically, let S̄X ,
+                                     n                                   n
+                                 1X                             1X
+                           S̄C =    S(x̂i , yi ),     and S̄R =    S(r, yi )                                  [2]
+                                 n                              n
+                                    i=1                                 i=1
+
+denote the mean score for the original forecast values of Eq. [1], the mean score for Calibrated
+probabilities x̂1 , . . . , x̂n , and the mean score for a constant Reference forecast r, respectively.
+Then S̄X decomposes as                                           
+                                       S̄X = S̄X − S̄C − S̄R − S̄C + S̄R ,                          [3]
+                                            | {z } | {z } |{z}
+                                            MCB             DSC         UNC
+
+where we adopt, in part, terminology proposed by Ehm and Ovcharov (36) and Pohle (37). As
+defined in Eq. [3], the miscalibration component MCB is the difference of the mean scores of the
+original and the calibrated forecasts. Similarly, the DSC component quantifies discrimination
+ability via the difference between the mean score for the reference and the calibrated forecast,
+while the classical measure of uncertainty (UNC) is simply the mean score for the reference
+forecast.
+    In the extant literature, it has been assumed implicitly or explicitly that the calibrated
+and reference forecasts can be chosen at researchers’ discretion (34, 37). We argue otherwise
+and contend that the calibrated forecasts ought to be the PAV-(re)calibrated probabilities, as
+displayed in the CORP reliability P diagram, whereas the reference forecast r ought to be the
+marginal event frequency ȳ = n1 ni=1 yi . We refer to the resulting decomposition as the CORP
+score decomposition, which enjoys the following properties:
+
+                                                       9
+    Table 2: CORP Brier score decomposition for the probability of precipitation forecasts in Figs. 1 and 2.
+
+                                     Forecast    S̄X   MCB     DSC    UNC
+                                     ENS        .266    .066   .044    .244
+                                     EPC        .234    .022   .032    .244
+                                     EMOS       .232    .018   .030    .244
+                                     Logistic   .206    .017   .056    .244
+
+
+
+    • MCB ≥ 0 with equality if the original forecast is calibrated.
+
+    • DSC ≥ 0 with equality if the PAV-calibrated forecast is constant.
+
+    • The decomposition is exact.
+
+In particular, the CORP score decomposition never yields counterintuitive negative values of
+the components, contrary to choices in the extant literature. The cases of vanishing components
+(MCB = 0 or DSC = 0) support the intuitive interpretation of CORP reliability diagrams, in
+that parts away from the diagonal indicate lack of calibration, whereas extended horizontal
+segments are indicative of diminished discrimination ability. For refined statements and proofs
+see Theorem 1 in Appendix C.
+    If S is the Brier score, then in the special case of discrete forecasts with non-decreasing
+CEPs, the MCB, DSC, and UNC terms in Eq. [3] agree with the REL, RES, and UNC compo-
+nents, respectively, in the classical Murphy decomposition, as we demonstrate in Theorem 2 in
+Appendix C. If S is the misclassification error, MCB equals the fraction of cases in which the
+PAV-calibrated probability was on the correct side of 12 , but the original forecast value was not,
+minus the fraction vice versa, with natural adaptations in the case of ties.
+    In Table 2 we illustrate the CORP Brier score decomposition for the probability of precipita-
+tion forecasts at Niamey in Figs. 1–2. The purely data-driven Logistic forecast obtains the best
+(smallest) mean score, the best (smallest) MCB term, and the best (highest) DSC component,
+well in line with the insights offered by the CORP reliability diagrams, and attesting to the
+particular challenges for precipitation forecasts over northern tropical Africa (7).
+    Interestingly, every proper scoring rule admits a representation as a mixture of elementary
+scoring rules (e.g., 33, Sect. 3.2). Consequently, the MCB, DSC, and UNC components of the
+CORP decomposition admit analogous representations as mixtures of the respective components
+under the elementary scores, whence we may plot Murphy diagrams in the sense of Ehm et
+al. (38) for the MCB, DSC, and UNC components.
+
+
+6     Discussion
+Our paper addresses two long-standing challenges in the evaluation of probabilistic classifiers
+by developing the CORP reliability diagram that enjoys theoretical guarantees, avoids artifacts,
+allows for uncertainty quantification, and yields a fully automated choice of the underlying bin-
+ning, without any need for tuning parameters or implementation choices. The associated CORP
+decomposition disaggregates the mean score under any proper scoring rule into components that
+are guaranteed to be non-negative.
+    Of particular relevance is the remarkable fact that CORP reliability diagrams feature op-
+timality properties in both finite sample and large sample settings. Asymptotically, the PAV-
+(re)calibrated probabilities, which are plotted in a CORP reliability diagram, minimize esti-
+mation error, while in finite samples PAV-calibrated probabilities are optimal in terms of any
+proper scoring rule, subject to the regularizing constraint of isotonicity.
+
+                                                       10
+    We believe that the proposals in this paper can serve as a blueprint for the development of
+novel diagnostic and inference tools for a very wide range of data science methods. For example,
+the popular Hosmer–Lemeshow goodness-of-fit test (39) for logistic regression is subject to the
+same types of ad hoc decisions on binning schemes, and hence the same types of instabilities as
+the binning and counting approach (10, p. 6). Tests based on CORP and the MCB miscalibration
+measure are promising candidates for powerful alternatives.
+    Perhaps surprisingly, the PAV algorithm and its appealing properties generalize from prob-
+abilistic classifiers to mean, quantile, and expectile assessments for real-valued outcomes (40).
+In this light, far-reaching generalizations of the CORP approach apply to binary regression in
+general, to standard (mean) regression, where they yield a new mean squared error (MSE) de-
+composition with desirable properties, and to quantile and expectile regression. In all these
+settings, score decompositions have been studied (37, 41), and we contend that the PAV al-
+gorithm ought to be used to generate the Calibrated forecast in the general decomposition in
+Eq. [3], whereas the Reference forecast ought to be the respective marginal, unconditional event
+frequency, mean, quantile, or expectile. We leave these extensions to future work and encourage
+further investigation from theoretical, methodological, and applied perspectives.
+    Open source code for the implementation of the CORP approach in the R language and
+environment for statistical computing (42) is available on GitHub (29).
+
+
+Appendix A: Simulation settings
+Here we give details for the simulation scenarios in Figs. 4–5, where we use simple random
+samples with forecast values drawn from either Uniform, Linear, or Beta Mixture distributions,
+in either the continuous setting, or discrete settings with k = 10, 20, or 50 unique forecast
+values. The binary outcomes are drawn under the assumption of calibration, whence the true
+CEP function coincides with the diagonal.
+    We begin by describing the continuous setting, where the Uniform distribution has a uniform
+density, and the Linear distribution a linearly increasing density with ordinate .40 at x = 0 and
+1.60 at x = 1. The Beta Mixture distribution uses Beta(1, 10) and Uniform components with
+weights 34 and 14 , respectively. In the discrete settings with k unique forecast values we maintain
+the shape of these distributions, but discretize. Specifically, for j = 1, . . . , k the probabilistic
+classifier or forecast attains the value xj = 2j−1
+                                                 2k with probability
+
+                                                    k
+                                                   .X
+                                        pj = q(xj )   q(xi ),
+                                                        i=1
+
+where q is the density in the continuous case. In Fig. 4, we consider discrete settings with k = 10,
+20, and 50 unique forecast values and the continuous case (marked Inf). Fig. 5 uses discrete
+settings with k = 10 and 50 unique forecast values and the continuous case.
+
+
+Appendix B: Statistical efficiency of CORP
+Suppose that we are given a simple random sample (x1 , y1 ), . . . , (xn , yn ) of predictive proba-
+bilities x1 , . . . , xn ∈ [0, 1] and associated realizations y1 , . . . , yn ∈ {0, 1} from an underlying
+population, with the true CEP being non-decreasing.
+    In the case of discretely distributed forecasts that attain a small number k of distinct values
+only, results of El Barmi and Mukerjee (18) imply that the mean squared error (MSE) of the
+estimates in a CORP reliability diagram decays at the standard rate of n−1 . If the binning and
+counting approach separates the distinct forecast values, the traditional reliability diagram and
+
+                                                   11
+                      Uniform                                  Linear                               Beta Mixture
+      0.0300
+
+
+      0.0100
+
+
+
+
+                                                                                                                                 Discrete: k = 10
+      0.0030
+
+
+      0.0010
+
+
+      0.0003
+
+
+       0.100
+
+
+
+
+                                                                                                                                 Discrete: k = 50
+       0.010
+MSE
+
+
+       0.001
+
+
+
+       0.100
+
+
+
+
+                                                                                                                                 Continuous
+       0.010
+
+
+
+
+       0.001
+
+
+
+               128   512        2048   8192    128        512            2048          8192   128    512           2048   8192
+                                                         Sample Size n
+
+                                              CORP   5    10        50   n1 6   n1 3   n1 2
+
+
+
+
+Figure 5: Mean squared error (MSE) of the CEP estimates in CORP reliability diagrams for samples of size n, in
+comparison to the binning and counting approach with m = 5, 10, or 50 fixed bins, or m(n) = [nα ] quantile-spaced
+bins, where α = 61 , 13 , or 12 . Note the log-log scale. The simulation settings are described in Appendix A, and
+MSE values are averaged over 1000 replicates.
+
+
+the CORP reliability diagram are asymptotically the same, and so are the respective asymp-
+totic distributions. However, under the CORP approach the unique forecast values are always
+correctly identified as the sample size increases, while under the binning and counting approach
+this may or may not be the case, depending on implementation decisions.
+    Large sample theory for the continuously distributed case is more involved, and generally
+assumes that the CEP is differentiable with strictly positive derivative. Asymptotic results of
+Wright (19) for the variance and of Dai et al. (43) for the bias imply that the MSE of the CORP
+estimates decays like n−2/3 . We now compare to the binning and counting approach, using either
+m fixed, equidistant bins, or using m = m(n) empirical quantile-dependent bins. For a general
+sequence of m(n) bins, the magnitudes of the asymptotic variance and squared bias are governed
+by the most sparsely populated bin, at a disadvantage relative to the quantile-dependent case.
+    The classical reliability diagram relies on a fixed number m of bins, finds the respective bin-
+averaged event frequencies, and plots them against the bin midpoints or bin-averaged forecast
+values. Any such approach fails asymptotically, with estimates that are in general biased and
+inconsistent. More adequately, a flexible number m(n) of bins can be used, with boundaries
+defined via empirical quantiles of x1 , . . . , xn . Specifically, m(n) bins can be bracketed by 0, the
+empirical quantiles at level j/m(n) for j = 1, . . . , m(n) − 1, and 1. Then, for n sufficiently
+large, each bin covers about n/m(n) data points, and the bin-averaged CEPs converge to the
+true CEPs at the respective true quantiles with an estimation variance that decays like m(n)/n
+and a squared bias that decays like m(n)−2 . When m(n) is of order nα for α ∈ (0, 1), we
+obtain a consistent estimate with an estimation variance that decays like nα−1 and a squared
+bias that decays like n−2α . Consequently, the MSE of the estimates is of order nβ where
+β = max(α − 1, −2α). The optimal choice of the exponent, α = 31 , results in an MSE of
+order n−2/3 . While this asymptotic rate is the same as under the CORP approach, the CORP
+reliability diagram is preferable in finite samples, as we now demonstrate.
+
+
+                                                               12
+    In Fig. 5 we detail a comparison of CORP reliability diagrams to the binning and counting
+approach with either a fixed number m of bins, or m = m(n) = [nα ] empirical-quantile de-
+pendent bins, where [x] denotes the smallest integer less than or equal to x ∈ R. For this, we
+plot the empirical mean squared error (MSE) of the various CEP estimates against the sample
+size n, using settings described in Appendix A. Across colums, the distributions of the forecast
+values differ in shape, across rows, we are in the discrete setting with k = 10 and 50 unique
+forecasts values, and in the continuous setting, respectively. Throughout, the CORP reliability
+diagrams exhibit the smallest MSE, uniformly over all sample sizes and against all alternative
+methods, with the superiority being the most pronounced under non-uniform forecast distri-
+butions with many unique forecast values, as frequently generated by statistical or machine
+learning techniques.
+
+
+Appendix C: Properties of CORP score decomposition
+Consider data (x1 , y1 ), . . . , (xn , yn ) in the form of probability forecasts  and binary outcomes,
+so that x1 , . . . , xn ∈ [0, 1] and y1 , . . . , yn ∈ {0, 1}. Let ȳ = n1 ni=1 yi be the marginal event
+                                                                          P
+frequency, and write x̂1 , . . . , x̂n for the PAV-(re)calibrated probabilities. Furthermore, let S̄X ,
+S̄C , and S̄R denote the mean scores for the original forecast values, (re)calibrated probabilities,
+and a reference forecast, as defined in Eqs. [1] and [2]. With the specific choices of the PAV-
+calibrated probabilities as the (re)calibrated forecasts, and the marginal event frequency ȳ as
+the reference forecast, the CORP score decomposition in Eq. [3] enjoys the following properties.
+
+Theorem 1 For every proper scoring rule S, every set of forecast values, and every set of
+binary outcomes, the CORP decomposition satisfies the following:
+
+ (a) MCB = S̄X − S̄C ≥ 0 with equality if the forecast is calibrated.
+
+ (b) MCB > 0 if the score is strictly proper and the forecast is uncalibrated.
+
+ (c) DSC ≥ 0 with equality if the PAV-calibrated forecast is constant.
+
+ (d) DSC > 0 if the score is strictly proper and the PAV-calibrated forecast is nonconstant.
+
+ (e) The decomposition is exact.
+
+Proof The claims in (a) and (c) rely on the fact that the PAV algorithm generates a calibrated
+forecast that is no worse than the original forecast in terms of any proper scoring rule (21,
+Thm. 1.10, 22, 23). If the original forecast is calibrated, the PAV algorithm leaves it unchanged;
+if the PAV algorithm generates a constant forecast, the constant equals the marginal event
+frequency ȳ.
+    The statements in (b) and (d) follow from the equivalence of (i) and (iii) in Theorem 2.11
+in ref. (44) in concert with Theorem 3 in ref. (45). Finally, the claim in (e) is immediate from
+the definition of the decomposition.                                                            
+
+  In the discrete setting we assume that the unique forecasts values z1 < · · · < zk are issued
+n1 , . . . , nk times, with o1 , . . . , ok of these cases being events, so that n1 + · · · + nk = n and
+o1 + · · · + ok = nȳ. We denote the respective PAV-calibrated probabilities by ẑ1 ≤ · · · ≤ ẑk .
+The classical Brier score decomposition under our choice of the PAV-calibrated forecast as the
+
+
+
+
+                                                  13
+calibrated forecast, and ȳ as the reference forecast, then becomes
+                            k             2    k             2
+                         1X         oj        1X         oj
+                   S̄X =       nj      − zj −       nj      − ȳ + ȳ (1 − ȳ),
+                         n          nj        n          nj        | {z }
+                           j=1                  j=1                    UNC
+                         |        {z        } |        {z        }
+                                   REL                       RES
+
+where the UNC component is the same as in the CORP decomposition in Eq. [3]. Furthermore,
+subject to mild conditions, the decompositions agree in full.
+
+Theorem 2 Under the Brier score, if the sequence o1 /n1 , . . . , ok /nk is nondecreasing, then
+MCB = REL and DSC = RES, respectively.
+
+Proof As the sequence o1 /n1 , . . . , ok /nk is nondecreasing, the PAV-calibrated probabilities
+satisfy ẑj = oj /nj for j = 1, . . . , k. Adopting the arguments in the Appendix of ref. (34), we see
+that MCB = S̄X − S̄C = REL and DSC = RES.                                                           
+
+
+Data availability
+The probability of precipitation forecast data at Niamey, Niger are from the paper by Vogel
+et al. (7, Fig. 2), where the original data sources are acknowledged. Reproduction materials,
+including data and code in the R software environment (42), are available on GitHub (29, 46).
+
+
+References
+   1. D. J. Spiegelhalter, Probabilistic prediction in patient management and clinical trials. Stat. Med. 5,
+      421–433 (1986).
+
+   2. A. H. Murphy, R. L. Winkler, Diagnostic verification of probability forecasts. Int. J. Forecasting 7,
+      435–455 (1992).
+
+   3. P. A. Flach, “Classifier calibration”, in Encyclopedia of Machine Learning and Data Mining (Springer,
+      2016).
+
+   4. C. Guo, G. Pleiss, Y. Sun, K. Q. Weinberger, “On calibration of modern neutral networks,”
+      Proc. 34th Int. Conf. Mach. Learn. (2017).
+
+   5. J. Bröcker, Some remarks on the reliability of categorical probability forecasts. Mon. Wea. Rev. 136,
+      4488–4502 (2008).
+
+   6. ECMWF Directorate, Describing ECMWF’s forecasts and forecasting system. ECMWF Newsl. 133,
+      11–13 (2012).
+
+   7. P. Vogel, P. Knippertz, T. Gneiting, A. H. Fink, M. Klar, A. Schlueter, Statistical forecasts for
+      the occurrence of precipitation outperform global models over northern tropical Africa. Preprint,
+      https://doi.org/10.1002/essoar.10502501.1 (2020).
+
+   8. V. Stodden, M. McNutt, D. H. Bailey, E. Deelman, Y. Gil, B. Hanson, M. A. Heroux, J. P. A. Ioan-
+      nidis, M. Taufer, Enhancing reproducibility for computational methods. Science 354, 1240–1241
+      (2016).
+
+   9. B. Yu, K. Kumbier, Veridical data science. Proc. Natl. Acad. Sci. U.S.A. 117, 3920–3929 (2020).
+
+  10. P. D. Allison, Measures of fit for logistic regression. Paper 1485-2014, SAS Global Forum, Wash-
+      ington DC (2014).
+
+
+                                                    14
+11. A. Kumar, P. Liang, T. Ma, “Verified uncertainty calibration,” Proc. 33rd Conf. Neur. Inform. Pro-
+    cess. Syst. (NeurIPS) (2019).
+
+12. J. B. Copas, Plotting p against x. Appl. Stat. 32, 25–31 (1983).
+
+13. F. Atger, Estimation of the reliability of ensemble-based probabilistic forecasts. Q. J. R. Meteo-
+    rol. Soc. 130, 627–646 (2004).
+
+14. G. W. Brier, Verification of forecasts expressed in terms of probability. Mon. Wea. Rev. 78, 1–3
+    (1950).
+
+15. A. H. Murphy, A new vector partition of the probability score. J. Appl. Meteorol. 12, 595–600
+    (1973).
+
+16. M. Kull, P. Flach, “Novel decompositions of proper scoring rules for classification: Score adjustment
+    as precursor to calibration”, ECML PKDD (2015).
+
+17. D. B. Stephenson, C. A. S. Coelho, I. T. Jolliffe, Two extra components in the Brier score decom-
+    position. Wea. Forecasting 23, 752–757 (2008).
+
+18. H. El Barmi, H. Mukerjee, Inferences under a stochastic ordering constraint. J. Am. Stat. As-
+    soc. 100, 252–261 (2005).
+
+19. F. T. Wright, The asymptotic behavior of monotone regression estimates. Ann. Stat. 9, 443–448
+    (1981).
+
+20. A. Mösching, L. Dümbgen, Montone least squares and isotonic quantiles. El. J. Stat. 14, 24–49
+    (2020).
+
+21. R. E. Barlow, D. J. Bartholomew, J. M. Bremner, H. D. Brunk, Statistical Inference under Order
+    Restrictions (Wiley, 1972).
+
+22. T. Fawcett, A. Niculescu-Mizil, PAV and the ROC convex hull. Mach. Learn. 68, 97–106 (2007).
+
+23. N. Brümmer, J. Du Preez, The PAV algorithm optimizes binary proper scoring rules. Preprint,
+    arXiv:1304.2331 (2013).
+
+24. M. Ayer, H. D. Brunk, G. M. Ewing, W. T. Reid, E. Silverman, An empirical distribution function
+    for sampling with incomplete information. Ann. Math. Stat. 26, 641–647 (1955).
+
+25. J. de Leeuw, K. Hornik, P. Mair, Isotone optimization in R: Pool-adjacent-violators algorithm
+    (PAVA) and active set methods. J. Stat. Softw. 32 (2009).
+
+26. P. Flach. Machine Learning: The Art and Science of Algorithms that Make Sense of Data (Cam-
+    bridge University Press, 2012).
+
+27. T. H. Hamill, R. Hagedorn, J. S. Whitaker, Probabilistic forecast calibration using ECMWF and
+    GFS ensemble reforecasts. Mon. Wea. Rev. 136, 2620–2632 (2008).
+
+28. D. Freedman, P. Diaconis, On the histogram as a density estimator: L2 theory. Z. Wahrschein-
+    lichkeitsth. Verw. Geb. 57, 453–476 (1981).
+
+29. T. Dimitriadis, A. I. Jordan, R Package ’reliabilitydiag’, available at https://github.com/aijordan/
+    reliabilitydiag (2020).
+
+30. J. Bröcker, L. A. Smith, Increasing the reliability of reliability diagrams. Wea. Forecasting 22,
+    651–661 (2007).
+
+31. P. Groeneboom, J. A. Wellner, Computing Chernoff’s distribution. J. Computat. Graph. Stat. 10,
+    388–400 (2001).
+
+
+
+                                                  15
+32. J. Bröcker, Z. Ben Bouallègue, Stratified rank histograms for ensemble forecast verification under
+    serial dependence. Q. J. R. Meteorol. Soc. 146, in press (2020).
+
+33. T. Gneiting, A. E. Raftery, Strictly proper scoring rules, prediction, and estimation. J. Am. Stat. As-
+    soc. 102, 359–379 (2007).
+
+34. S. Siegert, Simplifying and generalising Murphy’s Brier score decomposition. Q. J. R. Meteo-
+    rol. Soc. 143, 1178–1183 (2017).
+
+35. J. Bröcker, Reliability, sufficiency, and the decomposition of proper scores. Q. J. R. Meteo-
+    rol. Soc. 135, 1512–1519 (2009).
+
+36. W. Ehm, E. Y. Ovcharov, Bias-corrected score decomposition for generalized quantiles. Biometrika
+    104, 473–480 (2017).
+
+37. M.-O. Pohle, The Murphy decomposition and the calibration–resolution principle: A new perspec-
+    tive on forecast evaluation. Preprint, arXiv:2005.01835 (2020).
+
+38. W. Ehm, T. Gneiting, A. Jordan, F. Krüger, Of quantiles and expectiles: Consistent scoring func-
+    tions, Choquet representations and forecast rankings (with discussion). J. R. Stat. Soc. Ser. B 78,
+    505–562 (2016).
+
+39. D. W. Hosmer, S. Lemeshow, Goodness-of-fit tests for the multiple logistic regression Model. Com-
+    mun. Stat. A, 9, 1043–1069 (1980).
+
+40. A. I. Jordan, A. Mühlemann, J. F. Ziegel, Optimal solutions to the isotonic regression problem.
+    Preprint, arXiv:1904.04761 (2019).
+
+41. S. Bentzien, P. Friederichs, Decomposition and graphical portrayal of the quantile score. Q. J. R. Me-
+    teorol. Soc. 140, 1924–1934 (2014).
+
+42. R Core Team, R: A language and environment for statistical computing. R Foundation for Statis-
+    tical Computing, Vienna, Austria, https://www.r-project.org/ (2020).
+
+43. R. Dai, H. Song, R. F. Barber, G. Raskutti, The bias of isotonic regression. El. J. Stat. 14, 801–834
+    (2020).
+
+44. T. Gneiting, R. Ranjan, Combining predictive distributions. El. J. Stat. 7, 1747–1782 (2013).
+
+45. H. Holzmann, M. Eulert, The role of the information set for forecasting — with applications to
+    risk management. Ann. Appl. Stat. 8, 595–621 (2014).
+
+46. T. Dimitriadis, A. I. Jordan, Replication material, available at https://github.com/TimoDimi/
+    replication DGJ20 (2020).
+
+
+
+
+                                                  16
+

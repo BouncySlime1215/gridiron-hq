@@ -1,0 +1,96 @@
+{
+  "verified_claims": [
+    "Local tree-lab run exists at server/data/tree-lab/20260908T164200Z-2e46b49a/report.json: 1,795 rows, 86 features, 449 rows dropped as invalid_or_unpaired_timestamps, outer seasons 2023/2024/2025, expanding whole-week inner folds (3) with a 7-day label embargo, families ridge/logistic, HistGB, ExtraTrees, LightGBM, XGBoost, CatBoost, TPOT, market_only/coin_flip/no_move baselines.",
+    "Tree-lab hyperparameters as stated: LightGBM 150 trees, max_depth 4, num_leaves 11, min_child_samples 25, lr 0.04, reg_lambda 5 (also subsample 0.8, colsample 0.7); XGBoost depth 3; CatBoost depth 4, l2_leaf_reg 8; logistic C=0.05 (research/tree_lab.py lines 335-387).",
+    "Cover log-loss: market-only 0.692-0.694; CatBoost 0.701-0.727; logistic 0.705-0.836 (worst); no GBM (LightGBM/XGBoost/CatBoost/HistGB) beat market in any of the 6 market-seasons.",
+    "Residual quantile pinball: market-only best in 5 of 6 (exception XGBoost spreads 2025, 3.625 vs 3.661).",
+    "LightGBM was the worst GBM on line-movement MAE in all 6 market-seasons.",
+    "Market-anchored logit picked shrinkage 0.0; spreads 2025 inner log-loss rose 0.694 (lambda 0) to 0.813 (lambda 1); totals 2025 0.693 to 0.781.",
+    "sklearn and lightgbm are not importable on python3.14 (3.14.3) or python3.12 (which has numpy 2.2.2 only).",
+    "Grinsztajn, Oyallon & Varoquaux 2022 (arXiv 2207.08815) section 3.1: removed datasets with <3,000 samples or <4 features; removed 'too easy' datasets where default logistic/linear regression is within 5% relative of both default ResNet and default HistGB; removed stream-like/time-series data; truncated training to 10,000 samples. Reasons given: irregular targets, uninformative features, non-rotation-invariance.",
+    "McElfresh et al. 2023 (arXiv 2305.02997): 19 algorithms, 176 datasets; NN-vs-GBDT debate 'overemphasized'; light GBDT tuning matters more than family choice; GBDTs better on skewed/heavy-tailed/irregular data; TabPFN best on average despite being limited to 3,000 training rows.",
+    "TabArena (Erickson et al., NeurIPS 2025 D&B spotlight, arXiv 2506.16791): 51 curated IID datasets; GBDTs still strong, deep learning catches up with larger budgets plus ensembling, foundation models strong on smaller data, cross-model ensembles advance SOTA. The core 51 are IID; temporal/grouped tasks are in a separate BeyondArena extension (repo Apache-2.0).",
+    "TabPFN, Hollmann et al., Nature 637:319-326 (Jan 2025): outperforms prior methods on datasets up to 10,000 samples; in-context transformer (needs PyTorch + weights). GitHub license shows NOASSERTION/custom, consistent with 'license not verified'.",
+    "Gu, Kelly & Xiu, RFS 33(5):2223-2273 (2020): trees and neural nets best, attributed to nonlinear predictor interactions.",
+    "Hastie, Tibshirani & Tibshirani (arXiv 1707.08692): best subset better at high SNR, lasso better at low SNR, best subset ~ forward stepwise, relaxed lasso overall winner.",
+    "Friedman 2002, CSDA 38(4):367-378 (PDF text checked): N=500 uses shrinkage 0.005 (N=5000 uses 0.05), 6-terminal-node trees, 1:1 SNR; N=500 optimum f~0.4 with typical 11% absolute-error improvement (22% squared scale); N=5000 optimum ~0.6, median 5%; optimal tree size averaged L=6; subsampling reduces the penalty of larger trees.",
+    "LightGBM Parameters-Tuning 'Deal with Over-fitting' list matches (small max_bin, small num_leaves, min_data_in_leaf/min_sum_hessian_in_leaf, bagging, feature_fraction, lambda_l1/l2, min_gain_to_split, max_depth, extra_trees, path_smooth).",
+    "LightGBM Advanced Topics: missing handling on by default, NaN as missing; min_data_per_group and cat_smooth advised when #data is small or #category large.",
+    "XGBoost monotone constraints doc: +1/-1/0 per feature; with hist, constraints may produce unnecessarily shallow trees; raise max_bin.",
+    "nflfastR xgboost WP model uses monotone_constraints (Open Source Football 2020-09-28 post; prior GITHUB_BUILD_CATALOG.md line 29).",
+    "CatBoost paper (Prokhorenkova et al., arXiv 1706.09516): ordered boosting fights prediction shift from target leakage; abstract says nothing about small data.",
+    "LightGBM init_score is not stored with the model and must be added back at predict time (fact true; see issue #1978, closed into feature-request #2302).",
+    "Buhlmann & Hothorn, Statistical Science 22(4) 2007, doi:10.1214/07-STS242 resolves. mboost is GPL-2 on CRAN.",
+    "Hubacek, Sourek & Zelezny, IJF 35(2):783-796 (2019): decorrelating from bookmaker odds improves profit.",
+    "Walsh & Joshi (arXiv 2303.06021; Machine Learning with Applications 2024): NBA, calibration-based selection +34.69% average ROI vs accuracy-based -35.17%.",
+    "xgboost-scorer exists, MIT, README says 'extremely naive' and binary classification only; 0 stars, last push July 2020 (effectively unmaintained).",
+    "m2cgen last release 0.10.0 on 2022-04-26, Python 3.7-3.10 classifiers, MIT.",
+    "interpretml/interpret is MIT and actively maintained.",
+    "Power arithmetic checks out: 13.55^2-13.45^2 = 2.70 (~1.5% of MSE); paired squared-error t ~ sqrt(v n)/(2 sigma) gives ~1.0 per 270 games and ~5 over 7,000, assuming a perfect residual model.",
+    "Prior research files confirm FIX_AND_ADD_ARCHITECTURE.md #23 only points at tree_lab.py LightGBM quantile regressors; no dedicated GBM-on-small-data report exists in research2."
+  ],
+  "refuted_or_unverifiable": [
+    {
+      "claim": "Cover log-loss: 'no fitted model beat market-only' in all 6; the only exception is TPOT totals 2023 (0.689 vs 0.693).",
+      "problem": "ExtraTrees on totals 2023 scored 0.685, which beats both market (0.693) and TPOT. So there were two fitted models that beat market, not one, and the headline 'in all 6' contradicts its own exception."
+    },
+    {
+      "claim": "LightGBM cover log-loss 0.719-0.748; XGBoost 0.712-0.739.",
+      "problem": "These ranges cover spreads only. Across all 6 market-seasons LightGBM is 0.706-0.748 and XGBoost is 0.697-0.739 (totals 2023)."
+    },
+    {
+      "claim": "Line-movement MAE: no-move won 5 of 6; the only wins were totals 2025 (HistGB/ExtraTrees 1.57 vs 1.64) and TPOT/ExtraTrees on totals 2023.",
+      "problem": "No-move had the lowest outer MAE in only 3 of 6 (spreads 2023, spreads 2025, totals 2024). Spreads 2024: TPOT 1.184 beat no-move 1.191. Totals 2023: ExtraTrees 1.355 beat 1.397, but TPOT (1.442) did not. Totals 2025: every tree family beat no-move 1.642 (ExtraTrees 1.570, HistGB 1.577, TPOT 1.581, CatBoost 1.588, XGBoost 1.592, LightGBM 1.607). The report overstates how dominant the baseline was on movement."
+    },
+    {
+      "claim": "Market-anchored logit result reads as if it holds across the walk-forward.",
+      "problem": "The report only has that branch for test season 2025 (spreads and totals). The 0.694-to-0.813 curve is spreads 2025 only; totals ran 0.693 to 0.781. It is one season, not a multi-season result."
+    },
+    {
+      "claim": "Hubacek & Sir 2020 (arXiv:2010.12508) is 'not peer-reviewed'.",
+      "problem": "Wrong. It was published as Hubacek & Sir, 'Beating the market with a bad predictive model', International Journal of Forecasting 39(2):691-719 (2023), doi:10.1016/j.ijforecast.2022.02.001."
+    },
+    {
+      "claim": "init_score is not saved in the model, citing LightGBM issue #4148.",
+      "problem": "The fact is right but the citation is wrong. #4148 ('Usage of init_score results in no boosting') is about a toy example where no splits had positive gain. The right references are issue #1978 ('include init_score in predict method', closed into feature request #2302)."
+    },
+    {
+      "claim": "McElfresh et al.: TabPFN best on average 'but only for datasets of about 3,000 training rows or fewer'.",
+      "problem": "Misstated. The paper says TabPFN is limited to 3,000 training rows yet was best on average even when randomly subsampled to 3,000 rows on larger datasets. Also, TabPFN was run only on the subset of datasets it supports."
+    },
+    {
+      "claim": "Grinsztajn's benchmark 'was built to find tasks where trees beat linear models'.",
+      "problem": "Overstated. The 'too easy' filter drops datasets where linear is within 5% of BOTH ResNet and HistGB, which keeps tasks that separate model families. The conclusion that it doesn't transfer to low-SNR NFL residuals still holds."
+    },
+    {
+      "claim": "Friedman 2002 'median 11% absolute-error improvement' at N=500, f=0.4.",
+      "problem": "Close but loose. The paper says a 'typical improvement of 11%' at f=0.4 and a median of 11% for about 50% sampling. It also used shrinkage 0.005 only for N=500 (0.05 for N=5000), and its SNR is defined on the absolute-deviation scale over 100 random synthetic 10-d targets."
+    },
+    {
+      "claim": "min_data_in_leaf 150-300 is 'about 3-5% of rows' of ~7,000.",
+      "problem": "Arithmetic error: 150-300 of 7,000 is about 2.1-4.3%. In early walk-forward folds with far fewer rows the percentage is much larger."
+    },
+    {
+      "claim": "The redesign has ~7,000 usable rows (1999+), 10-30x the tree-lab sample.",
+      "problem": "Unverified as effective sample. NGS starts 2016, PFR advanced 2018, snapshots/openers are recent only, and tree-lab already dropped 449 of about 2,244 rows for bad timestamps. The tree-lab limitations also say nfelo historical vintages are not verified as point-in-time. Rows with the full 86-150 point-in-time features are far fewer than 7,000."
+    },
+    {
+      "claim": "TPOT is presented as the only cover exception, i.e. evidence of some signal.",
+      "problem": "TPOT was selected by inner folds in 5 cover market-seasons and was badly miscalibrated out of sample: spreads 2023 0.802 with 243 paper bets and -4.8% ROI. That is evidence of search-driven overfitting, which the report does not mention."
+    }
+  ],
+  "recommendations_to_drop_or_change": [
+    "Rec 1 (offset = current line when betting, close for evaluation): make the offset point-in-time consistent. A residual model trained against the close and served on an earlier line mis-attributes expected line movement: prediction = current line + g(x) leaves out predictable current-to-close drift and double-counts information the close absorbs. Train and grade the bet-time model against the decision-time line, which is only possible on recent seasons. Use close-anchored residuals only for forecast-skill research, never to set lambda, bet gates or stakes.",
+    "Rec 5 (estimate lambda walk-forward): state explicitly that lambda must be fit only on nested out-of-fold predictions from models trained strictly on earlier seasons, never on in-sample fitted values. The shrinkage prior toward 0 must also be pre-registered, not tuned.",
+    "Rec 5 (stake scales with cumulative out-of-sample CLV): CLV needs bet-time quotes, which exist only for recent seasons. Say that the bet gate will rest on a few hundred games for years, so default stake should be zero or minimal until cumulative evidence accrues.",
+    "Rec 3 (GBM regime): the local evidence shows GBMs lost to market on cover at 200-700 rows, and to no-move on movement in 3 of 6. Reorder so the GBM is deferred entirely until an offset + ridge/componentwise-boosted residual has been validated walk-forward. Don't treat it as an 'optional' third stage built now.",
+    "Rec 7 (hand-written numpy histogram GBM + JS evaluator): downgrade to a later, conditional task. It is unbenchmarked engineering, has no parity oracle without install approval, and the local evidence gives no reason to expect gains. A numpy ridge or componentwise L2 boosting from an offset is much simpler to verify and serve from Node.",
+    "Rec 6 (NaN plus _available flags across 1999-2025): add a warning. Structured, era-dependent missingness (NGS/PFR/snapshots only recent) lets trees and ridge learn era from availability flags, confounding non-stationarity. Consider training feature-rich components only on eras where the features exist, or adding explicit era terms.",
+    "Rec 4 (median best iteration over 4-6 season folds then refit on all data): fine, but early folds (e.g. 1999-2002 only) have much smaller n than the refit. Record round counts per training size, or fix rounds and shrink learning rate, so the refit is not under-boosted. Fold construction must also respect the bitemporal feature vintages (F05).",
+    "Rec 8 (pre-register grid): extend it to Huber delta, time-decay weights (risk 3), feature-set and era choices. As written these are extra tunable knobs outside the registry.",
+    "Table (C): replace the LightGBM #4148 citation with #1978/#2302. Mark xgboost-scorer as unmaintained (0 stars, last push 2020). Relabel Hubacek & Sir as IJF 2023 peer-reviewed.",
+    "Section 0 numbers: correct the cover exceptions (ExtraTrees and TPOT on totals 2023), the LightGBM/XGBoost ranges, and the movement tally (no-move best in 3 of 6; all tree families beat no-move on totals 2025). Also note the anchored-logit branch covers 2025 only."
+  ],
+  "corrected_summary": "What survives verification.\n\nLOCAL EVIDENCE (server/data/tree-lab/20260908T164200Z-2e46b49a/report.json; research/tree_lab.py):\n- Setup: 1,795 rows and 86 features, with 449 rows dropped for invalid timestamps. Outer seasons were 2023-2025 with 215-733 training games. There were 3 expanding whole-week inner folds with a 7-day embargo.\n- Moderately regularized GBMs: LightGBM (depth 4 / 11 leaves / min_child 25 / lr 0.04 / lambda 5 / 150 trees), XGBoost (depth 3) and CatBoost (depth 4, l2 = 8). None of them beat de-vigged market-only cover log-loss (0.692-0.694) in any of the 6 market-seasons:\n  - LightGBM 0.706-0.748\n  - XGBoost 0.697-0.739\n  - CatBoost 0.701-0.727\n  - HistGB 0.698-0.727\n- Two non-GBM models beat market on totals 2023 only: ExtraTrees 0.685 and TPOT 0.689.\n- TPOT, picked by inner folds, was badly miscalibrated elsewhere (spreads 2023: 0.802).\n- Line movement: no-move was best in 3 of 6. All tree families beat it on totals 2025 (1.570-1.607 vs 1.642), ExtraTrees on totals 2023, and TPOT on spreads 2024. LightGBM was the worst GBM in all 6.\n- Residual quantiles: market-only best in 5 of 6.\n- The market-anchored logit, run for 2025 only, chose lambda = 0; log-loss rose monotonically with lambda.\n- sklearn and LightGBM are not importable on python3.14 or python3.12 (numpy only).\n- Net: at a few hundred rows, GBMs on raw features add nothing over the market for cover probability. There are weak, single-season hints on totals movement. GBMs on margin residuals with more seasons are untested.\n\nLITERATURE (verified):\n- **Grinsztajn et al. 2022 (arXiv 2207.08815)** excluded datasets under 3,000 samples, 'too easy' datasets (linear within 5% of both ResNet and HistGB) and time-series data. Its tree-over-NN result does not transfer to low-SNR, time-ordered NFL residuals.\n- **McElfresh et al. 2023 (arXiv 2305.02997)**, 19 algorithms on 176 datasets: family choice matters less than light tuning, and GBDTs handle irregular or skewed features. TabPFN was best on average despite a 3,000-row limit.\n- **TabArena (NeurIPS 2025 D&B)** uses 51 IID datasets, with temporal tasks only in the separate BeyondArena. **TabPFN (Nature 2025)** is strong up to 10k samples but needs PyTorch, so it is not usable under the current constraints.\n- **Gu, Kelly & Xiu (RFS 2020)**: trees and NNs win in a huge asset-pricing panel. That is not evidence at about 7k rows.\n- **Hastie, Tibshirani & Tibshirani (2017/2020)**: lasso beats subset selection at low SNR, and relaxed lasso is best overall. This supports continuous shrinkage over binary gates.\n- **Friedman 2002 (CSDA 38:367-378)**: on synthetic targets at 1:1 SNR, subsampling f of about 0.4 (N=500) to 0.6 (N=5,000) with 6-leaf trees and small shrinkage cut error by a typical 11% and 5%. Treat those as an upper bound, not NFL settings.\n- **Library docs:**\n  - LightGBM's overfitting list is confirmed.\n  - LightGBM handles NaN natively.\n  - XGBoost monotone constraints can make hist trees too shallow; raise max_bin.\n  - nflfastR's WP xgboost uses monotone constraints.\n  - LightGBM init_score and XGBoost base_margin must be re-added at prediction time (LightGBM #1978/#2302).\n- **CatBoost ordered boosting** targets prediction shift and makes no small-data claim.\n- **Componentwise L2 boosting:** Buhlmann & Hothorn, Statistical Science 22(4) 2007. The mboost package is GPL-2, so borrow the algorithm only.\n- **Decorrelation from the market:** Hubacek, Sourek & Zelezny, IJF 2019; Hubacek & Sir, IJF 39(2):691-719, 2023, peer-reviewed.\n- **Calibration-based selection:** Walsh & Joshi, MLWA 2024, NBA: +34.69% vs -35.17% ROI. It is a single noisy study, so use it only to justify selecting on log-loss or CRPS.\n- **Power arithmetic is correct.** Even a perfect residual model that cuts RMSE from 13.55 to 13.45 shows about 1 SE per 270-game season and about 5 SE over 7,000 games. Weekly or seasonal pass/fail gates are noise.\n\nRECOMMENDATIONS THAT SURVIVE:\n1. Build offset \u2192 ridge/componentwise-boosted residual first. Defer any GBM until that residual model is validated walk-forward.\n2. Keep the offset point-in-time consistent:\n   - Bet-time models train and grade against the decision-time line, which is only available in recent seasons.\n   - Close-anchored residuals are for forecast research only.\n3. Use a continuous shrinkage weight lambda in [0,1]. Fit it only on nested out-of-fold predictions from strictly earlier seasons, with a pre-registered prior toward 0.\n4. Stake stays zero or minimal until cumulative out-of-sample CLV accrues. That data exists only for recent seasons.\n5. If a GBM is ever tried, use shallow trees (2-6 leaves), heavy min_data_in_leaf, L2, subsampling of 0.4-0.6 rows and columns, and a small learning rate. Pick round count across several season-level embargoed folds, and treat all of these as a pre-registered grid that includes Huber delta, decay weights and feature-era choices.\n6. Treat era-dependent missingness (NGS 2016+, PFR 2018+, recent snapshots) as a non-stationarity confound, not a free 7k-row sample.\n7. Serve from JSON in Node. Don't use m2cgen (last release 2022, Python \u22643.10) or xgboost-scorer (naive, binary-only, unmaintained since 2020) beyond the idea. EBM (interpret, MIT) additive tables remain a plausible JS-servable idea; the export format is unverified.\n8. A numpy GBM needs a LightGBM parity oracle, which requires install approval.\n\nUNVERIFIED:\n- Probst et al. defaults\n- TabPFN license terms\n- EBM JSON export\n- @wlearn/xgboost\n- Training-time estimates for a numpy GBM\n- Whether any GBM beats ridge-on-residual at the real point-in-time sample size",
+  "reliability": "medium"
+}

@@ -1,0 +1,925 @@
+                             A State-Space Model for National Football
+                                                       League Scores
+Mark E. GLICKMANand Hal S. STERN
+
+
+         This articledevelopsa predictivemodel forNationalFootballLeague (NFL) game scoresusingdata fromtheperiod 1988-1993.
+         The parametersof primaryinterest-measuresof team strength-areexpectedto varyover time.Our model accountsfor this
+         source of variabilityby modelingfootballoutcomesusing a state-spacemodel thatassumes team strength    parametersfollow a
+         first-orderautoregressive process.Two sourcesof variationin teamstrengths
+                                                                                 are addressedin ourmodel;week-to-week    changesin
+         teamstrength  due to injuriesand otherrandomfactors,and season-to-season
+                                                                                changesresultingfromchangesin personneland other
+         longer-term  factors.Our model also incorporatesa home-fieldadvantagewhile allowingforthepossibilitythatthe magnitudeof
+         theadvantagemayvaryacrossteams.The aim of theanalysisis to obtainplausibleinferencesconcerningteamstrengths        and other
+         model parameters,and to predictfuturegame outcomes.Iterativesimulationis used to obtainsamplesfromthejoint posterior
+         distribution of all model parameters.Our model appearsto outperform theLas Vegas "bettingline" on a small testset consisting
+         of the last 110 games of the 1993 NFL season.
+         KEY WORDS: Bayesian diagnostics;Dynamicmodels;Kalman filter;MarkovchainMonte Carlo; Predictiveinference.
+
+
+
+                     1. INTRODUCTION                         approaches to non-linearand non-Gaussian state-space
+                                                             models.
+   Predictionproblemsin manysettings(e.g.,finance,   politi-
+                                                               The Las Vegas "pointspread"or "bettingline"of a game,
+cal elections,andin thisarticle,football)are complicatedby
+                                                             providedby Las Vegas oddsmakers,can be viewed as the
+thepresenceof severalsourcesof variationforwhicha pre-
+                                                             "experts"priorpredictivestimateof thedifference    in game
+dictivemodel mustaccount.For NationalFootballLeague scores.A numberof authorshaveexaminedthepointspread
+(NFL) games, team abilitiesmay varyfromyear to year as a predictorof game outcomes,includingAmoako-Adu,
+due to changesinpersonnelandoverallstrategy.    In addition, Marmer,and Yagil (1985), Stern(1991), and Zuber,Gandar,
+teamabilitiesmayvarywithina seasondue to injuries,team and Bowers(1985). Stern,in particular,        showedthatmodel-
+psychology,  and promotion/demotion  of players.Team per- ing the score difference    of a game to have a mean equal to
+formancemay also varydependingon the site of a game. the pointspreadis empiricallyjustifiable.We demonstrate
+This articledescribesan approachto modelingNFL scores thatour model performsat least as well as the Las Vegas
+using a normallinear state-spacemodel thataccountsfor line forpredictinggame outcomesforthelatterhalfof the
+theseimportant  sourcesof variability.                       1993 season.
+  The state-spaceframework    formodelinga systemover          Otherworkon modelingNFL footballoutcomes(Stefani
+timeincorporates  two different randomprocesses.The dis- 1977, 1980; Stern1992; Thompson1975) has not incorpo-
+tribution of thedata at each pointin timeis specifiedcon- ratedthe stochasticnatureof team strengths.       Our model is
+ditionalon a set of time-indexed parameters.  A secondpro- closely relatedto one examinedby Harville (1977, 1980)
+cess describesthe evolutionof the parametersover time. and Sallas and Harville(1988), thoughtheanalysisthatwe
+For manyspecificstate-spacemodels,includingthemodel performdiffersin a numberof ways. We createprediction
+developedin thisarticle,posteriorinferencesaboutparam- inferencesby samplingfromthejointposteriordistribution
+eterscannotbe obtainedanalytically.   We thususe Markov of all model parametersratherthan fixingsome parame-
+                                                             tersat pointestimatespriorto prediction.Our model also
+chain Monte Carlo (MCMC) methods,namelyGibbs sam-
+                                                             describesa richerstructure   in the data, accountingforthe
+pling(Gelfandand Smith1990; Geman and Geman 1984),
+                                                             possibilityof shrinkagetowardsthemeanof teamstrengths
+as a computationaltool for studyingthe posteriordistri-
+                                                             overtime.Finally,theanalysispresentedhereincorporates
+bution of the parametersof our model. Pre-MCMC ap- model checkingand sensitivity              analysisaimed at assessing
+proaches to the analysis of linear state-spacemodels in- thepropriety      of the state-spacemodel.
+clude those of Harrisonand Stevens(1976) and West and
+Harrison(1990). More recentworkon MCMC methodshas              2. A MODEL FOR FOOTBALL GAME OUTCOMES
+been done by Carterand Kohn (1994), Fruhwirth-Schnatter Let
+                                                                   yii,denotethe outcomeof a footballgame between
+(1994), and Glickman (1993), who have developed effi- teami and teami' whereteamsare indexedby theintegers
+cientproceduresforfitting   normallinearstate-spacemod- from1 to p. For our dataset,p = 28. We take yii/to be
+els. Carlin,Polson, and Stoffer(1992), de Jongand Shep- thedifference       betweenthe score of teami and thescore of
+hard (1995), and Shephard(1994) are only a few of the team i'. The NFL game outcomescan be modeled as ap-
+recent contributors  to the growingliteratureon MCMC proximately         normallydistributed   witha meanthatdepends
+                                                             on the relativestrength  of the teamsinvolvedin the game
+                                                             andthesiteofthegame.We assumethatat weekj of season
+  Mark E. Glickmanis AssistantProfessor,Departmentof Mathematics,
+                 Boston,MA 02215. Hal S. Sternis Professor,Depart-
+Boston University,
+mentof Statistics,Iowa Sate University,
+                                      Ames, IA 50011. The authors
+thankthe associate editorand the refereesfor theirhelpfulcomments.                               ? 1998 American Statistical Association
+This workwas partiallysupportedby NationalScience Foundationgrant                         Journal of the American Statistical Association
+DMS94-04479.                                                                  March 1998, Vol. 93, No. 441, Applications and Case Studies
+
+                                                                     25
+
+
+
+
+                                  This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                 All use subject to JSTOR Terms and Conditions
+26                                                                                 Journalof the AmericanStatisticalAssociation,March 1998
+
+
+k, thestrength       or abilityof teami can be summarizedby a cision. This particularparameterization                   for the evolution
+parameter0(k,j)i. We let 0(k,j) denotethevectorof p team- precisionsimplifiesthe distributional                     calculus involvedin
+abilityparametersfor week j of season k. An additional model fitting.                      We let o=(q2w)-1         denote the between-
+set of parameters,        ai , i = 1, .. Ip, measuresthemagnitude season evolutionvariance.Then w. is theratioof variances,
+of team i's advantagewhen playingat its home stadium T2/O2.
+ratherthan at a neutralsite. These home-fieldadvantage                        The matrixO3G mapsthevector0(k,gk) to anothervector
+(HFA) parametersare assumedto be independentof time centeredat 0, andthenshrunkor expandedaround0. We use
+but may varyacross teams.We let ae denotethe vectorof thismappingbecause thedistribution                           of thegameoutcomes
+p HFA parameters.           The meanoutcomefora game between Y(k,j) is a functiononly of differences                  in the team ability
+teami and teami' playedat thesiteof teami duringweek parameters;the distribution                           is unchangedif a constantis
+j of season k is assumedto be                                              added to or subtractedfromeach team's abilityparameter.
+                                                                           The mappingG translatesthedistribution       of teamstrengths
+                           0(k,j)i - 0(k,j)i' + ai.                        to be centeredat 0, thoughit is understoodthatshrinkage
+                                                                           or expansionis actuallyoccurringaroundthe mean team
+We can express the distribution               for the outcomes of all
+                                                                           strength  (whichmay be drifting     overtime).The season-to-
+n(k,j) games playedduringweek j of season k as
+                                                                           season variationis due mainlyto personnelchanges (new
+                                                                           playersor coaches). One would expect/3 < 1, because the
+      Y(k,j)IX(k,j), O(k,j), O        N(X(k,j)O(k,j),O     In(k,j
+                                                             0     ),I
+                                                                           player assignmentprocess is designedto assign the best
+                                                                           youngplayersto the teams withthe weakestperformance
+whereY(k,j) is the vectorof game outcomes,X(k,j) is the
+                                                                           in thepreviousseason.
+n(k,j) x 2p designmatrixforweek j of season k (described
+                                                                              We modelshort-term      changesin teamperformance     byin-
+in detaillater),j(k,j) = (O(k,j), I ) is the vectorof p team- corporating                evolutionof abilityparametersbetweenweeks,
+abilityparametersand p HFA parameters,and 0 is there-
+gressionprecisionof game outcomes.We let T2 = 0-1
+denotethe varianceof game outcomesconditionalon the                           0(k,J+1)10wi 0(k,j)i Oiw,g    N(OwGO(k,j)i (gWw)-1i p)
+mean. The row of the matrixX(k,j) for a game between
+team i and team i' has the value 1 in the ith column(cor- wherethe matrixG is as before,/w is the between-week
+respondingto the firstteam involvedin the game), -1 in regressionparameter,                         and bwwis thebetween-weekevolu-
+the i'th column(the second team),and 1 in the (p + i)th tionprecision.Analogousto thebetween-seasoncomponent
+column(corresponding             to theHFA) if thefirsteamplayed of themodel,we let o-2                           denotethevarianceof
+                                                                                                       (=$w)-'
+on itshomefield.If thegame wereplayedat thesiteof the the between-weekevolution,so thatww = T2/U%. Week-
+second team (teami'), thenhome fieldwould be indicated to-weekchangesrepresentshort-term                            sourcesof variation;
+by a -1 in the (p + i')th column.Essentially,each row forexample,injuriesand teamconfidencelevel. It is likely
+has entries1 and -1 to indicatethe participantsand then that
+                                                                                /w 1, because thereis no reasonto expectthatsuch
+a single entryin the column correspondingto the home short-term                         changeswill tendto equalize the teamparame-
+team'sHFA parameter(1 if it is thefirsteamat home; -1
+                                                                           ters(!w < 1) or accentuatedifferences      (!w > 1).
+ifit is thesecondteam).The designationof one teamas the
+                                                                              Several simplifyingassumptionsbuilt into this model
+firsteamand theotheras thesecondteamis arbitrary                       and
+                                                                           are worthyof comment.We model differences           in football
+does not affecttheinterpretation              of themodel,nor does it
+                                                                           scores,whichcan take on integervalues only,as approxi-
+affectinferences.
+                                                                           matelynormallydistributed      conditionalon team strengths.
+   We take K to be thenumberof seasons of availabledata.
+                                                                           The rulesof footballsuggestthatsome outcomes(e.g., 3 or
+For our particulardatasetthereare K = 6 seasons. We let
+                                                                           7) are muchmorelikelythanothers.Rosner(1976) modeled
+9k, for k = 1,... K, denote the total numberof weeks
+                                                                           game outcomesas a discretedistribution       thatincorporates
+of data availablein season k. Data fortheentireseason are
+                                                                           therulesforfootballscoring.However,previouswork(e.g.,
+availableforseason k,k = 1, ... 5, with9k varyingfrom16
+                                                                           Harville 1980, Sallas and Harville 1988, Stern 1991) has
+to 18. We take 96 = 10, usingthedata fromtheremainder
+                                                                           shownthatthe normalityassumptionis not an unreason-
+of the sixthseason to performpredictiveinference.Addi-
+                                                                           able approximation,     especiallywhen one is not interested
+tionaldetailsaboutthestructure               of thedata are providedin
+                                                                           in computingprobabilitiesfor exact outcomesbut rather
+Section4.
+                                                                           forrangesof outcomes(e.g., whetherthe score difference
+   Our model incorporatestwo sourcesof variationrelated
+                                                                           is greaterthan0). Several parameters,     no ly theregression
+to theevolutionof teamabilityovertime.The evolutionof
+                                                                           varianceT92and theevolutionvarianceso-2 and o-2,are as-
+strength   parametersbetweenthelast week of season k and
+                                                                           sumed to be the same for all teams and for all seasons.
+thefirstweek of season k+ 1 is assumedto be governedby
+                                                                           This rules out the possibilityof teams withespeciallyer-
+                                                                -1         raticperformance.     We exploretheadequacyof thesemod-
+    0(k+ 1,1) IOs I 0(k,9k), I0, ws- N (OsGO(k,9k ) I (owS)        Ip),
+                                                                           eling assumptionsusingposteriorpredictivemodel checks
+where G is the matrixthat maps the vector 0(k,gk) to (Gelman,Meng,and Stern1996; Rubin 1984) in Section5.
+0(k,gk )    ave(O(k,g ) ), !3S is thebetween-season           regression Prior distributions        of model parametersare centeredat
+parameterthatmeasuresthe degreeof shrinkage(!3s < 1) values that seem reasonable based on our knowledgeof
+or expansion(!3s > 1) in team abilitiesbetweenseasons, football.In each case, thechosendistribution                         is widelydis-
+and the productq5wsis the between-seasonevolutionpre- persed,so thatbeforelong the data will play a dominant
+
+
+
+
+                                 This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                All use subject to JSTOR Terms and Conditions
+Glickmanand Stern:A State-Space Model forFootballScores                                                                             27
+
+
+role. We assume thefollowingpriordistributions:                          We assumea priormeanof 3 fortheali,believingthatcom-
+                                                                         petingon one's home fieldconveysa small but persistent
+                   0     gamma(.5,.5(100)),                              advantage.If we let o- = (Wh b)-1 denotethe priorvari-
+                                                                         ance of theHFA parameters,                        for
+                                                                                                   thenourpriordistributions
+                   WW     gamma(.5,.5/60),                               Wh and 0 implythato- has priorharmonic mean of 100/6
+                                                                         based on .5 df.
+                   W.     gamma(.5,.5/16),                                         3. MODEL FITTING AND PREDICTION
+                                                                           We fitand summarizeour model using MCMC tech-
+                         Os     N(.98, 1),                               niques,namelytheGibbs sampler(Gelfandand Smith1990;
+and                                                                      Geman and Geman 1984). Let Y(K,g,) representall ob-
+                                                                         serveddata throughweek (K,9K). The Gibbs sampleris
+                         iw     N(.995,1).                               implementedby drawingalternately  in sequence fromthe
+                                                                         followingthreeconditionalposteriordistributions:
+Our priordistribution on 0 correspondsto a harmonicmean
+of 100, whichis roughlyequivalentto a 10-pointstandard f (0(1, 1) *               (K, g,) Cc: ?Wo i W)h &)w W)s Os ow Y (K, 9K)),
+                                                                                    v               v
+
+deviation,T, for game outcomesconditionalon knowing
+the teams' abilities.This is close to, but a bit lower than, f (ao i W)h &)w W)sI0 (1, ) *         (K,g,,) i CC ?, Os i Ow Y(K,gK))    I
+
+Stern's(1991) estimateof r   =  13.86 derived from a simpler
+                                                              and
+model. In combinationwiththispriorbelief about 0, the
+priordistributions on wwand w. assumeharmonicmeansof                                .. *, (K,gK) va?g: ?oi W):&h, )wi &)si Y(K,gK))-
+                                                               f (OS I w I0(1, 1), *
+j2  and o- equal to 100/60and 100/16,indicatingourbelief
+thatthechangesin teamstrength     betweenseasonsare likely A detaileddescriptionof the conditionaldistributions                      ap-
+to be largerthanshort-term  changesin teamstrength.    Little pears in the Appendix.Once the Gibbs samplerhas con-
+information  is currentlyavailable about cr2 and o2, which verged,inferential          summariesare obtainedby usingtheem-
+is representedby the .5 df. The priordistributions    on the piricaldistribution        of the simulationsas an estimateof the
+regressionparametersassume shrinkagetowardthe mean posteriordistribution.
+team strength,  witha greaterdegreeof shrinkagefor the            An importantuse of the fittedmodel is in the predic-
+evolutionof teamstrengths   betweenseasons.In thecontext tion of game outcomes.Assume thatthe model has been
+of our state-spacemodel,it is not necessaryto restricthe fit via the Gibbs sampler to data throughweek 9K Of
+modulusof the regressionparameters(whichare assumed season K, therebyobtainingm posteriordraws of the
+to be equal foreveryweek and season) to be less than 1, final team-abilityparametersO(K,gK)I the HFA parame-
+as long as our primaryconcernis forparametersummaries ters ae, and the precisionand regressionparameters.De-
+and local predictionratherthanlong-rangeforecasts.            note the entirecollectionof the parametersby r1(K,gK) =
+   The onlyremainingpriordistributions      are thoseforthe ()w Wwo,w, Wh,/w,Os3, q5,O(K,gK) cc). Giventhedesignma-
+initialteamstrengths  in 1988, 0(1,1), and theHFA parame- trix for the next week's games, X(K,gK+1), the poste-
+ters,ae.For teamstrengths   at theonsetof the 1988 season, riorpredictivedistribution            of nextweek's game outcomes,
+we could tryto quantifyourknowledgeperhapsby examin- Y(K,gK+1), is givenby
+ing 1987 finalrecordsand statistics.We havechoseninstead
+to use an exchangeablepriordistribution   as a startingpoint,    Y(K,gK +l) 1Y(K,9K ) I 77(K,gK    )
+ignoringanypre-1988information:
+
+               0(1 1)    w(,
+                          o -N(O, (woo)-11p),                      (1)
+                                                                                   N (X(K,gK+l))                       ),
+wherewe assume that
+                                                                                         +    cTwX(K,gK+1)X(K,gK+1))                (5)
+                    Wo   r,gamma(.5, .5/6).                        (2)
+                                                       A sample fromthisdistribution   may be simulatedby ran-
+Let o- = (w0)-1 denotethepriorvarianceof initialteam domlyselectingvalues of T/(K,gK) fromamong the Gibbs
+                             forwoin combinationwith samplerdrawsand thendrawingY(K,gK+1) fromthedistri-
+         Our priordistribution
+strengths.
+                    on q implies thato-2 has priorhar- butionin (5) for each draw of T/(K,gK). This process may
+the priordistribution
+monicmeanof 100/6 based on .5 df.Thus thea prioridif- be repeatedto constructa sampleof desiredsize. To obtain
+ferencebetweenthe best and worstteamswould be about pointpredictions,    we could calculatethesampleaverageof
+4o- = 16 points.                                       theseposteriorpredictivedraws.It is more efficient,how-
+  We assume thatthe ai have independentpriordistribu- ever,to calculate the sample average of the means in (5)
+tions                                                  across drawsof 'q(K,gK).
+                  a 1|, wi, N(3,(Wh)         Ip)                   (3)                   4.    POSTERIOR INFERENCES
+with                                                                       We use the model describedin the precedingsectionto
+                                                                         analyze regularseason resultsof NFL footballgames for
+                    Wh        gamma(.5,.5/6).                      (4)   theyears 1988-1992 and thefirst10 weeks of 1993 games.
+
+
+
+
+                                   This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                  All use subject to JSTOR Terms and Conditions
+28                                                                                         Journalof the AmericanStatisticalAssociation,March 1998
+
+
+The NFL compriseda totalof 28 teamsduringthese sea-            Table 2. Summaries of the PosteriorDistributions  of Team
+sons. During the regularseason, each team plays a total         Strength and HFA  Parameters   Afterthe First10  Weeks
+                                                                             of the 1993 Regular Season
+of 16 games. The 1988-1989 seasons lasted a totalof 16
+weeks,the 1990-1992 seasons lasted 17 weeks (each team         Parameter                 Mean strength            Mean HFA
+had one offweek), and the 1993 season lasted 18 weeks
+                                                        Dallas Cowboys                 9.06 (2.26, 16.42)   1.62 (-1.94, 4.86)
+(each teamhad two offweeks).We use thelast 8 weeks of San Francisco49ers                7.43 (.29, 14.40)     2.77 (-.76, 6.19)
+1993 games to assess theaccuracyof predictionsfromour BuffaloBills                   4.22 (-2.73, 10.90)        4.25 (.91, 7.73)
+model.For each game we recordedthefinalscore foreach New Orleans Saints              3.89 (-3.04, 10.86)      3.44 (-.01, 6.87)
+                                                        PittsburghSteelers            3.17 (-3.66, 9.96)        3.30 (.00, 6.68)
+teamand thesiteof thegame.Althoughuse of covariatein- MiamiDolphins                   2.03 (-4.79, 8.83)      2.69 (-.81, 6.14)
+formation,suchas game statisticslike rushingyardsgained Green Bay Packers             1.83 (-4.87, 8.66)    2.19 (-1.17, 5.45)
+and allowed,mightimprovetheprecisionof the model fit, San Diego Chargers              1.75 (-5.02, 8.62)    1.81 (-1.70, 5.12)
+no additionalinformationwas recorded.                   New  York Giants              1.43  (-5.38, 8.21)       4.03 (.75, 7.53)
+                                                           Denver Broncos                                         1.18 (-5.75, 8.02)           5.27 (1.90, 8.95)
+                                                           PhiladelphiaEagles                                     1.06 (-5.98, 7.80)          2.70 (-.75, 6.06)
+4.1 Gibbs Sampler Implementation                           New YorkJets                                            .98 (-5.95, 8.00)        1.86 (-1.51, 5.15)
+   A single"pilot"Gibbs samplerwithstarting  values at the Kansas CityChiefs                                       .89 (-5.82, 7.77)            4.13 (.75, 7.55)
+                                                           DetroitLions                                            .80 (-5.67, 7.49)          3.12 (-.31, 6.48)
+priormeanswas runto determineregionsof theparameter HoustonOilers                                                  .72 (-6.18, 7.51)         7.28 (3.79, 11.30)
+space withhighposteriormass. Seven parallelGibbs sam- MinnesotaVikings                                             .25 (-6.57, 6.99)          3.34 (-.01, 6.80)
+plerswerethenrunwithoverdispersedstarting     values rela- Los Angeles Raiders                                     .25 (-6.43, 7.10)          3.21 (-.05, 6.55)
+tiveto thedrawsfromthepilotsampler.Table 1 displaysthe PhoenixCardinals                                          -.15 (-6.64, 6.56)           2.67 (-.69, 5.98)
+                                                           Cleveland Browns                                      -.55 (-7.47, 6.25)         1.53 (-2.04, 4.81)
+startingvalueschosenfortheparameters   in thesevenparal- Chicago Bears                                         -1.37 (-8.18, 5.37)              3.82 (.38, 7.27)
+lel runs.Each Gibbs samplerwas runfor 18,000iterations, WashingtonRedskins                                     -1.46 (-8.36, 5.19)              3.73 (.24, 7.22)
+and convergencewas diagnosedfromplotsand by examin- AtlantaFalcons                                             -2.94 (-9.89, 3.85)           2.85 (-.55, 6.23)
+                                                                  Seahawks                                                                  2.21 (-1.25, 5.52)
+ingthepotentialscale reduction(PSR), as describedby Gel- Seattle
+                                                           Los Angeles Rams
+                                                                                                               -3.17 (-9.61, 3.43)
+                                                                                                              -3.33 (-10.18, 3.37)          1.85 (-1.61, 5.23)
+manand Rubin(1992), of theparameterswi,ws, wo, Wh, Owl     IndianapolisColts                                  -5.29 (-12.11, 1.63)           2.45 (-.97, 5.81)
+and O.; the HFA parameters;and the most recentteam Tampa Bay Buccaneers                                      -7.43 (-14.38, -.68)           1.77 (-1.69, 5.13)
+strength parameters.The PSR is an estimateof the factor CincinnatiBengals                                    -7.51 (-14.74, -.68)             4.82 (1.53, 8.33)
+                                                           New England Patriots                              -7.73 (-14.54, -.87)               3.94 (.55, 7.34)
+by whichthevarianceof thecurrent    distributionof drawsin
+the Gibbs samplerwill decrease withcontinuediterations. NOTE: Values withinparentheses representcentral95% posteriorintervals.
+Values near 1 are indicativeof convergence.In diagnosing
+convergence, parametersthatwererestricted    to be positive means range from9.06 (Dallas Cowboys) to -7.73 (New
+in the model were transformed   by takinglogs. Except for England Patriots),which suggeststhaton a neutralfield,
+the parameteraw, all of the PSRs were less than 1.2. The the best team has close to a 17-pointadvantageover the
+slightlylargerPSR foro-wcould be explainedfromtheplot worstteam.The 95% intervalsclearlyindicatethata con-
+of successivedrawsversusiterationnumber;the strongau- siderableamountof variability                 is associatedwiththeteam-
+tocorrelationin simulationsof wwslowedthemixingof the strength       parameters,    whichmaybe due to thestochasticna-
+differentseries.We concludedthatby iteration,17,000 the tureof teamstrengths.           The distribution       of HFAs variesfrom
+separateseries had essentiallyconvergedto the stationary roughly1.6 points(Dallas Cowboys,ClevelandBrowns)to
+            For each parameter,
+distribution.                    a samplewas obtainedby over 7 points(HoustonOilers).The 7-pointHFA conveyed
+selectingthelast 1,000 values of the 18,000 in each series. to the Oilers is substantiated        by the numerous"blowouts"
+This producedthe finalsample of 7,000 draws fromthe theyhave had on theirhomefield.The HFA parametersare
+posteriordistributionforour analyses.                       centeredaround3.2. This value is consistentwiththe re-
+                                                            sultsof previousmodeling(Glickman1993; Harville 1980;
+4.2 ParameterSummaries                                      Sallas and Harville 1988).
+  Tables 2 and 3 showposteriorsummariesof some model          The distributions     of the standarddeviationparameters
+parameters.The meansand 95% centralposteriorintervals T, 0fo,i0h, Ofw,and o- are shownin Figures1 and 2. The plots
+forteamparametersdescribeteam strengths      afterthe 10th show thateach of the standarddeviationsis approximately
+week of the 1993 regularseason. The teamsare rankedac-
+cordingto theirestimatedposteriormeans. The posterior           Table 3. Summaries of the PosteriorDistributions         of Standard
+                                                                                     Deviationsand Regression ParametersAfterthe First10
+           Table 1. StartingValues forParallel Gibbs Samplers                                 Weeks of the 1993 Regular Season
+
+                                                                                              Parameter                            Mean
+                               Gibbs samplerseries
+Parameter       1      2        3         4        5         6         7                           T                       12.78 (12.23, 13.35)
+                                                                                                  010                         3.26 (1.87, 5.22)
+     wv        10.0   100.0   200.0     500.0   1,000.0   1,000.0  10.0                           OIw                            .88 (.52, 1.36)
+     WS         1.0    20.0    80.0     200.0     800.0       1.0 800.0                           Os                          2.35 (1.14, 3.87)
+      go         .5     5.0    15.0     100.0     150.0     150.0    .5                             7h                        ~~~~~2.28
+                                                                                                                                    (1.48, 3.35)
+     Wh       100.0    20.0     6.0       1.0        .6        .3 100.0                             oBw                          ~~~~~.99
+                                                                                                                                     (.96, 1.02)
+      pw         .6      .8      .99      1.2       1.8        .6   1.8                           f3s                             .82 (.52, 1.28)
+      ps         .5      .8      .98      1.2       1.8       1.8    .6
+                                                                             NOTE: Values withinparentheses representcentral95% posteriorintervals.
+
+
+
+
+                                       This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                      All use subject to JSTOR Terms and Conditions
+Glickmanand Stern:A State-Space Model forFootballScores                                                                                     29
+
+
+                                                                            symmetrically   distributedaroundits mean. The posterior
+                                                                            distribution of T is centeredjust under13 points,indicating
+                                                                            thatthe score difference    for a single game conditionalon
+                                                                            team strengths   can be expectedto varyby about 4T         50
+                                                                            points.The posteriordistribution     of ao, shown in Figure
+                                                                            1 suggeststhatthe normaldistribution       of teams' abilities
+                                                                            priorto 1988 have a standarddeviationsomewherebetween
+                                                                            2 and 5, so thatthea prioridifference   betweenthebest and
+                                                                            worstteamsis near 4cc, 15. This rangeof team strength
+                                                                            appearsto persistin 1993, as can be calculatedfromTable
+                                                                            2. The distribution   of (Jh is centerednear 2.3, suggesting
+                                                                            thatteams' HFAs varied moderatelyarounda mean of 3
+                                                                            points.
+          12.0 12.5 13.0 13.5                                                  As shownin the empiricalcontourplot in Figure 2, the
+                                                                            posteriordistribution   of the between-weekstandarddevi-
+         Regressionstandarddeviation
+                                                                            ation, a, is concentratedon smaller values and is less
+                              (a)
+                                                                            dispersedthanthatof the between-seasonevolutionstan-
+                                                                            dard deviation,a,s This difference    in magnitudeindicates
+                                                                            that the types of changes that occur between weeks are
+                                                                            likelyto have less impacton a team's abilitythanare the
+                                                                            changes thatoccur betweenseasons. The distribution        for
+                                                                            thebetween-weekstandarddeviationis less dispersedthan
+                                                                            thatforthebetween-seasonstandarddeviation,because the
+                                                                            data providemuch more information         about weekly inno-
+                                                                            vationsthanabout changesbetweenseasons. Furthermore,
+                                                                            the contourplot shows a slightnegativeposteriorcorrela-
+                                                                            tion betweenthe standarddeviations.This is not terribly
+                                                                            surprisingif we considerthatthe total variabilitydue to
+                                                                            thepassage of timeoveran entireseason is thecomposition
+                                                                            ofbetween-weekvariability      andbetween-seasonvariability.
+                                                                            If between-weekvariabilityis small,thenbetween-season
+                                                                            variabilitymustbe largeto compensate.An interesting      fea-
+          0     2      4      6     8
+      Initial
+            team strengthstandarddeviation
+                                (b)
+
+
+                                                                             c0
+                                                                                  LO
+
+
+                                                                            .,
+
+
+
+
+                                                                             CZ
+                                                                             ct
+
+
+
+                                                                             CZ
+
+
+
+
+                                                                             CZ
+            I     I   ~   I             I
+
+
+
+
+          0      1     2    3    4    5                                                 0.4               l         l     l       l     I
+                                                                                       0.4     0.6       0.8       1.0   1.2     1.4    1.6
+                HFA standarddeviation
+                                (c)                                                                  Week-to-week
+                                                                                                              evolution
+                                                                                                                     standard
+                                                                                                                            deviation
+
+  Figure1. Estimated   PosteriorDistributions.
+                                           (a) Regression
+                                                        Standard     Figure2. Estimated Joint
+                                                                                            Posterior
+                                                                                                    Distribution
+                                                                                                              oftheWeek-to-Week
+Deviation
+        (i-); (b) theInitialTeamStrengthStandardDeviation(a0O);(c) Evolution
+                                                                           StandardDeviation(cUw)and theSeason-to-Season
+                                                                                                                       Evolution
+HFAStandardDeviation    (ah).                                      StandardDeviation
+                                                                                   (as).
+
+
+
+
+                                      This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                     All use subject to JSTOR Terms and Conditions
+30                                                                                         Journalof the AmericanStatisticalAssociation,March 1998
+
+
+                                                                               4.4    PredictionsforWeeks 12 Through18
+                                                                                 Once game resultsfor a new week were available, a
+                                                                               single-seriesGibbs samplerwas runusingtheentiredataset
+                                                                               to obtaina new set of parameterdraws.The startingval-
+                                                                               ues for the series were the posteriormean estimatesof
+       C~
+                                                                               Ww,Ws,Wo,Wh,/3w, and Os, fromthe end of week 10. Be-
+ 0                                                                             cause theposteriorvariabilityof theseparametersis small,
+                                                                               theadditionof a new week's collectionof gameoutcomesis
+      Cj )
+
+
+
+                                                                               notlikelyto havesubstantial impacton posteriorinferences.
+ CZ
+                                                                               Thus our proceduretakesadvantageof knowingregionsof
+ cn          co                                                                the parameterspace a priorithatwill have highposterior
+ o           c0
+                                                                               mass.Havingobtaineddata fromtheresultsof week 11, we
+                                                                               ran a single-seriesGibbs samplerfor5,000 iterations,sav-
+ 0
+ CZ,
+
+      Co                                                                       ingthelast 1,000forpredictiveinferences. We repeatedthis
+             C)                                                                procedureforweeks 12-17 in an analogousmanner.Point
+                                                                               predictionswerecomputedas describedearlier.In practice,
+                                                                               themodelcould be refitperiodicallyusinga multiple-chain
+                                                                               procedureas an alternativeto using this one-chainupdat-
+                                                                               ing algorithm.This mightbe advantageousin reassessing
+                   0.96        0.98            1.00            1.02            thepropriety  of the model or determiningwhethersignifi-
+                                Week-to-week
+                                           regressioneffect                    cant shiftsin parametervalues have occurred.
+  Figure3. EstimatedJointPosteriorDistribution
+                                             ofthe Week-to-Week 4.5
+                                                                                      ComparisonwithLas Vegas BettingLine
+Regression Effect(,%w)and the Season-to-Season Regression Effect
+(0s)-                                                       We comparedtheaccuracyof our predictionswiththose
+                                                          of the Las Vegas point spread on the 110 games beyond
+turerevealedby the contourplot is the apparentbimodal- the 10thweek of the 1993 season. The mean squarederror
+ityof thejoint distribution. This featurewas not apparent (MSE) forpredictionsfromour model forthese 110 games
+fromexaminingthe marginaldistributions.    Two modes of was 165.0. This is slightlybetterthantheMSE of 170.5 for
+(oW,cs) appear at (.6, 3) and (.9, 2).                    thepointspread.Similarly,themean absoluteerror(MAE)
+  Figure3 showscontoursof thebivariateposteriordistri- fromour model is 10.50, whereasthe analogousresultfor
+butionoftheparameters    /wand Os.The contoursof theplot the point spread is 10.84. Our model correctlypredicted
+displaya concentration  of mass near Os .8 and /w 1.0, the winnersof 64 of the 110 games (58.2%), whereasthe
+as is also indicatedin Table 3. The plot shows a more Las Vegas line predicted63. Out of the 110 predictions
+markednegativeposteriorcorrelationbetweenthese two fromour model,65 producedmean score differences                   that
+parametersthanbetweenthe standarddeviations.The neg-      "beat the  point  spread";  that is, resulted in           that
+                                                                                                           predictions
+ativecorrelationcan be explainedin an analogousmannerto were greaterthanthe point spread when the actual score
+thenegativecorrelationbetweenstandarddeviations,view- difference      was largerthanthe pointspread,or resultedin
+ing the total shrinkageover the season as being the com-  predictions  thatwere lowerthanthepointspreadwhenthe
+positionof thebetween-weekshrinkagesand thebetween-       actual score  difference  was lower.For thissmallsample,the
+season shrinkage.As withthestandarddeviations,thedata     model   fitoutperforms     the pointspread,thoughthe differ-
+providemoreprecisionaboutthebetween-weekregression        ence is not large  enough    to generalize.However,theresults
+parameter thanaboutthebetween-season    regressionparam-
+                                                                  Table 4. Forecasts forNFL Games DuringWeek 11 of
+eter.                                                                           the 1993 Regular Season
+
+4.3               PredictionforWeek 11                                                                   Predicted
+                                                                                                           score    Las Vegas      Actualscore
+   Predictivesummariesfortheweek 11 games of the 1993          Week 11 games                             difference    line    difference
+NFL season are shownin Table 4. The pointpredictions Packers at Saints                      -5.49           -6.0             2 (-14.75, 3.92)
+werecomputedas theaverageof themeanoutcomesacross Oilers at Bengals                           3.35            8.5          35 (-6.05, 12.59)
+all 7,000 posteriordraws.Intervalswereconstructed    empir- Cardinalsat Cowboys -10.77                     -12.5        -5 (-20.25, -1.50)
+                                                                                                                              24 (3.95, 22.58)
+icallyby simulatingsingle-gameoutcomesfromthepredic- 49ers at Buccaneers                     13.01           16.0
+                                                            Dolphinsat Eagles               -1.74             4.0            5 (-10.93, 7.55)
+tivedistributionforeach of the7,000 Gibbs samples.Of the Redskins at Giants                 -6.90           -7.5         -14 (-16.05, 2.35)
+13 games,six of theactualscoredifferences    werecontained Chiefsat Raiders                 -2.57           -3.5            11 (-11.63, 6.86)
+in the50% predictionintervals.All of thewidthsof thein- Falcons at Rams                     -1.46           -3.5            13 (-10.83, 7.93)
+                                                            Brownsat Seahawks                  .40          -3.5           -17 (-8.98, 9.72)
+tervalswere close to 18-19 points.Our pointpredictions Vikingsat Broncos                    -6.18           -7.0             3 (-15.42, 3.25)
+were generallyclose to the Las Vegas line. Games where Jets at Colts                          3.78            3.5           14 (-5.42, 13.19)
+predictionsdiffersubstantially (e.g., Oilersat Bengals) may Bears at Chargers               -4.92           -8.5             3 (-14.31, 4.28)
+reflectinformation  fromthepreviousweek thatour model Billsat Steelers                      -2.26           -3.0         -23 (-1 1.53, 7.13)
+does notincorporate,  such as injuriesof important players. NOTE: Values withinparentheses representcentral50% predictionintervals.
+
+
+
+
+                                         This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                        All use subject to JSTOR Terms and Conditions
+Glickmanand Stern:A State-Space Model forFootballScores                                                                              31
+
+
+                                                                                themodel-fitting  process.In complexmodels,however,    di-
+                                                                                agnosing  invalidassumptions  orlackoffitoftencannotbe
+                                                                                carriedoutusingconventional    methods.  In thissectionwe
+                                                                                examineseveralmodelassumptions     through  theuseofpos-
+E         0
+                                                                                teriorpredictive diagnostics.We includea briefdescription
+                                                                                oftheideabehindposterior    predictivediagnostics.We also
+c)        00~                                                                   describehow modeldiagnostics      wereable to suggestan
+ *0-'~           ~ ~~~~0
+CD       c                              *
+                                       **.                                      improvement   to an earlierversionofthemodel.
+                               0S                                                 The approach   to modelchecking  usingposterior  predic-
+                                                                                tivediagnostics has beendiscussedin detailby Gelmanet
+          .0
+                                                                                al. (1996),andthefoundations   of thisapproachhavebeen
+                                                                                described byRubin(1984).The strategy    is toconstructdis-
+                                                                                crepancy  measuresthataddressparticular     aspectsof the
+                                                                                datathatone suspectsmaynotbe captured        by themodel.
+CD
+                                                                                Discrepancies  maybe ordinary   teststatistics,
+                                                                                                                              or theymay
+                                                                                dependonbothdatavaluesandparameters.        Thediscrepan-
+                                                                                cies are computed  usingtheactualdata,andtheresulting
+                                                                                valuesarecompared     to thereference distributionobtained
+                                                                                usingsimulated  datafromtheposterior   predictive distribu-
+                      20         40           60         80        100          tion.If theactualdataare"typical"ofthedrawsfromthe
+                       Diagnosticusingactualdata                                posterior predictive distributionunderthemodel,thenthe
+                                                                                posterior distributionofthediscrepancy  measurevaluated
+                                        (a)                                     attheactualdatawillbe similar   totheposterior distribution
+                                                                                ofthediscrepancy   evaluated atthesimulated  datasets.
+                                                                                                                                     Oth-
+                                                                                erwise,thediscrepancy    measureprovidesomeindication
+                                                                                thatthemodelmaybe misspecified.
+                                                                                  To be concrete,  we mayconstruct    a "generalized" test
+                                                                                         or discrepancy,
+                                                                                statistic,               D(y; 0), whichmaybe a function
+X)        C                                                                     notonlyof theobserveddata,generically        denotedby y,
+                                                                                butalso of modelparameters,     generically denotedby 0.
+E                                                   .                           We comparetheposterior      distributionof D(y; 0) to the
+                                                                                posterior predictivedistributionofD(y*; 0), wherewe use
+                           0       8          10                  14            y* to denotehypothetical    replicatedata generated under
+                                                                                themodelwiththesame(unknown)        parameter  values.One
+     0,~~~~~~~~~~~~~~r0
+  CO            ~ ~    ~       ~       *0.00/                 e                 possiblesummary    of theevaluation is thetailprobability,
+                                                                                orp value,computed    as
+     Figure .              Bri                               Regres::o
+                                                        nsDfor           V                          Pr(D(y*; 0) > D(y; 0)Iy)
+
+                                                   *0    .0                     or
+               C)~~~~~~~b
+                                                                                                    Pr(D(y*; 0) < D(y; 0)Iy),
+
+                      60       80 100 140                               depending on thedefinition ofthediscrepancy. In practice,
+                                                                        therelevant distributionsor thetailprobabilitycan be ap-
+                               usingactualdata
+                       Diagnostic                                       proximated  through  MonteCarlo integration  by drawing
+                                                                        samplesfromtheposterior                of 0 andthenthe
+                                                                                                    distribution
+                                  (b)                                   posteriorpredictivedistributionofy* given0.
+   Figure4. Estimated  Bivariate DistributionsforRegressionVariance        Thechoiceofsuitablediscrepancy  measures, D, depends
+Diagnostics.(a) Scatterplotof thejointposteriordistributionof D1(y; 0*) ontheproblem.  Wetrytodefine    measuresthatevaluatethe
+and D1(y*;0*) where D1( ;;) is a discrepancymeasuringthe range of fitofthemodeltofeatures         ofthedatathatarenotexplicitly
+regressionvariance estimates among the six seasons and (0*,y*) are
+simulationsfromtheirposteriorand posteriorpredictivedistributions;  (b) accounted forin the model              Herewe consider
+                                                                                                   specification.
+scatterplotof thejointposteriordistributionof D2(y; 0*) and D2(y*;  0*) diagnosticsthatassess thehomogeneity of varianceassump-
+forD2(;.)   a discrepancymeasuringthe range of regressionvariance tionsin themodelanddiagnostics          thatassessassumptions
+estimatesamong the 28 teams.                                            concerning theHFA. The HFA diagnostics    wereusefulin
+                                                                        detectinga failureof an earlierversionof themodel.Our
+here suggestthatthe state-spacemodel yields predictions summary                  measuresD are functions   of Bayesianresiduals
+thatare comparableto thoseimpliedby thebettingline.                     as definedbyChaloner   andBrant(1988)andZellner(1975).
+                                                                        As an alternativeto focusing on summary measures  D, the
+                                                                        individualBayesianresiduals  canbe usedtosearchforout-
+                      5. DIAGNOSTICS
+                                                                        liersor to construct                of residualplots;we
+                                                                                             a "distribution"
+   Model validation     and diagnosisis an important         partof do notpursuethisapproach        here.
+
+
+
+
+                                          This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                         All use subject to JSTOR Terms and Conditions
+32                                                                              Journalof the AmericanStatisticalAssociation,March 1998
+
+
+5.1   Regression Variance                          magnitude oftheHFA overtimebycalculating    theaverage
+  For a particulargameplayedbetweenteamsi andi' at valueof the rij, foreach season,and then examining the
+teami's homefield,let                              range of these averages.Specifically,
+                                                                                      for a posteriorpre-
+                                                   dictivedatasety* and fora draw0* fromtheposterior
+                                   ? ai))2
+             e .2,=: (Yii-(Oi -Oil +               distribution
+                                                              of all parameters,
+                                                                               letD3(y*; 0*) be thediffer-
+
+be the squareddifference    betweentheobservedoutcome
+andtheexpected     outcome underthemodel,whichmight       be
+calleda squaredresidual.  Averages   ofeJi,acrossgamescan
+be interpreted  as estimates ofT2 (thevarianceofyii,given
+its mean).The modelassumesthatT2 is constant          across
+seasonsandforall competing      teams.We consider  twodis-
+crepancymeasuresthatare sensitive       to failuresof these
+assumptions.   Let D1 (y;0) be thedifference   betweenthe        V~~~~~~~~~g so 0 f
+                                                                u LC)                          l
+largestofthesixannualaveragesquaredresidualsandthe
+smallestofthesix annualaveragesquaredresiduals.        Then CO                     0~~~~~~~~~~~
+                                                                              4L~~            1
+D1 (y*;0*) is thevalueofthisdiagnostic     evaluated at sim-            0
+                                                                         oe
+ulatedparameters    0* andsimulatedatay*,andD1(y;0*)          CZ                 0~~~~~~~~~0
+is thevalueevaluated   atthesamesimulated    parameters  but  C.)
+
+usingtheactualdata.Basedon 300 samplesofparameters
+fromtheposterior    distributionandsimulated  datafromthe
+posterior predictive distribution, theapproximate  bivariate
+posterior  distributionof (Di(y; 0*),Di(y*; 0*)) is shown
+onFigure4a. Theplotshowsthatlargeportions        ofthedis-
+tribution ofthediscrepancies   lie bothaboveandbelowthe
+lineDi (y;0*) = DI (y*;0*),withtherelevant    tailprobabil- CZ C~
+ityequalto.35.Thissuggests     thatheyear-to-year variation
+intheregression   variance oftheactualdatais quiteconsis-
+tentwiththatexpectedunderthemodel(as evidenced            by
+thesimulated   datasets).
+   As a seconddiscrepancy     measure, we can computethe                               .    0    0.
+                                                                                                       %
+averagee2, foreach teamand thencalculatethediffer-
+encebetweenthemaximum          of the28 team-specific   esti-  O     ~ ~ ~ ~ ~~~O
+matesandtheminimum        ofthe28 team-specific  estimates. 0                     4p~~~~~~~
+Let D2(y*; 0*) be thevalueofthisdiagnostic     measurefor
+thesimulatedata y* and simulated        parameters  0*, and
+let D2 (y; 0*) be thevaluefortheactualdata and simu-
+latedparameters.   Theapproximate   posteriordistribution of
+(D2(Y; 0*),D2 (Y*; 0*)) basedon thesame300 samplesof estimatesai                     a0              s
+parameters  andsimulatedataareshownon Figure4b.                                          se.
+  The valueof D2 based on theactualdatatendsto be
+largerthanthe value based on the posterior       predictive       Fiur5EtiatdBivariaeoDstricbusiongoaceEfetuaDiagnos
+simulations.  The relevantail probability   P(D2 (y*; 0) >
+D2(Y; 0)IY) is notterribly  small(.14),so we concludethat
+thereis no evidenceofheterogeneous     regression variances
+fordifferent teams.Thuswe likelywouldnotbe interested
+in extending  ourmodelin thedirection     of a nonconstant
+regressionvariance.
+
+
+5.2   Site Effect:A Model DiagnosticsSuccess Story
+  Wecanusea slightly
+                   modified     ofthegameresid-
+                          version
+uals,
+                 -rii = Yii   -(Oi -Oi,
+to searchfora failureof the modelin accounting for tics.rg Sttherp oftHF   oianosticousing   ctheualtData
+HFA.Therii, aretermedsite-effect
+                              residuals,
+                                      becausethey                        4(;0)an
+                                                           d.Etmtdiaitistributionso   4(*  * for Sie-ffc
+                                                    poteigure                                     (;)adisceagnos-
+taketheobservedoutcomeandsubtractoutestimatedteam
+strengths
+        butdo notsubtractouttheHFA. As we didwith
+theregression
+            variance,
+                    we can examinedifferences
+                                            in the
+
+
+
+
+                              This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                             All use subject to JSTOR Terms and Conditions
+Glickmanand Stern:A State-Space Model forFootballScores                                                                      33
+
+
+encebetweenthemaximum            andtheminimum        oftheaver- 5.3 Sensitivity       to Heavy Tails
+age site-effect  residuals  byseason.Usingthesame300 val-              Our model assumesthatoutcomesare normallydis-
+uesof0* andy*as before,        weobtaintheestimated     bivariate
+                                                                    tributed conditional    on theparameters,   an assumption    sup-
+distribution   of (D3(y; 0*), D3(y*; 0*)) shownonFigure5a.
+   Theplotrevealsnoparticular        pattern,  although thereis a   ported  by Stern   (1991).  Rerunning   the model   with t distri-
+tendency    forD3 (y; 0*) tobe lessthanthediscrepancy        eval- butionsin placeofnormaldistributions          is straightforward,
+uatedat thesimulatedatasets.         Thisseemsto be a chance becauset distributions             can be expressed  as scalemixtures
+occurrence    (thetailprobability   equals.21).                     ofnormal   distributions   (see,e.g.,Gelman,   Carlin,Stern,  and
+   We alsoincludeoneotherdiscrepancy           measure, although Rubin1995;andSmith1983).Ratherthanredotheentire
+it willbe evidenthatourmodelfitsthisparticular             aspect analysis,we checkedthe sensitivity          of our inferences     to
+of thedata.We examined         theaveragesite-effect    residuals thenormalassumption           byreweighting   theposterior   draws
+acrossteamsto assesswhether           thesiteeffect   dependson fromtheGibbssamplerby ratiosof importance                    weights
+team.We calculated      theaveragevalueofrinjforeachteam. (relating           thenormalmodelto a variety         of  t models).  The
+LetD4 (y*; 0*) be thedifference      between    themaximum    and reweighting     is easilydoneandprovidesinformation          about
+minimum      of these28 averagesforsimulatedata y*. It howinferences                  wouldbe likelyto changeunderalternative
+shouldbe evidenthatthemodelwillfitthisaspectof the models.Our conclusionis thatusinga robustalternative
+data,becausewe haveuseda separateparameter               foreach
+                                                                    can slightly  alterestimates     of teamstrength    butdoes not
+team'sadvantage.      Theapproximate     bivariate distribution of
+(D4(y; 0*), D4(y*; 0*)) is shownon FigureSb.Thereis no
+                                                                    have  a significant   effect on  the predictive performance.    It
+evidenceoflackoffit(thetailprobability            equals.32).       should  be emphasized     that the ratiosof importance   weights
+   This lastdiscrepancy      measureis includedhere,despite canbe unstable,             so thata moredefinitive    discussion  of in-
+thefactthatitmeasuresa feature         ofthedatathatwe have ference         undera particular     t model(e.g.,4 df)wouldrequire
+explicitly  addressed  inthemodel,becausethecurrent        model a complete      reanalysis   ofthedata.
+was notthefirst     modelthatwe constructed.        Earlier,we fit
+a modelwitha singleHFA parameter            forall teams.Figure
+6 showsthatforthesingleHFA parameter               model,theob-                           6. CONCLUSIONS
+servedvaluesof D4(y; 0*) weregenerally            greaterthanthe       Ourmodelforfootball       gameoutcomes     assumesthateam
+valuesofD4(y*; 0*), indicating       thattheaveragesite-effectstrengths        can changeovertimein a mannerdescribed              by
+residualsvariedsignificantly     morefromteamto teamthan a normalstate-space                 model.In previoustate-space        mod-
+wasexpected     underthemodel(tailprobability        equalto.05). elingof footballscores(Harville1977, 1980; Sallas and
+   Thissuggested      themodelpresented       herein whicheach Harville1988),somemodelparameters                wereestimated     and
+teamhas a separate      HFA parameter.                              thentreated   as fixedinmaking      inferences ontheremaining
+                                                                    parameters.   Suchan approachignoresthevariability          asso-
+                                                                    ciatedwiththeseparameters.         The approachtakenhere,in
+                                                                    contrast, is fullyBayesianin thatwe accountfortheun-
+                                                                    certainty inall modelparameters       whenmaking     posterior or
+                                                                    predictive  inferences.
+                                                                       Our data analysissuggeststhatthemodelcan be im-
+   co                                                               provedin severaldifferent        dimensions.  One could argue
+                                                                    thatteams'abilitiesshouldnotshrinkor expandaround
+                                                                    themeanfromweekto week,and becausetheposterior
+CZ                                                                  distribution  of thebetween-week       regression  parameter   /3,
+                                                                    is notsubstantially    differentfrom1,themodelmaybe sim-
+                                                                    plifiedby setting    it to 1. Also,further  exploration  maybe
+  paamtefo th sieefc.rte.hn.8sprteprmtrs.no                         necessary  to assesstheassumption       ofa heavy-tailed   distri-
+                                                                    butionforgameoutcomes.          Finally,as thegameoffootball
+                                                                    continues  to changeovertime,it maybe necessary            to al-
+eac tem Th vauso,.:y:*            regnrlyagrtantevle                low theevolution     regression  andvariance  parameters   orthe
+ofD.y 0*, sugstn thatth.itdmdlmyntb                     atrn
+                                                                    regression  varianceparameter      to varyovertime.
+sorc ofvaiblt inth obere data
+                                                                       Despitethe roomfor improvement,            we feel thatour
+                                                                    modelcaptures     themaincomponents       ofvariability  infoot-
+          3         4         5          6          7        8
+                                                                    ball game   outcomes.    Recent   advances in Bayesian   compu-
+                                   usingactualdata
+                           Diagnostic
+                                                                    tationalmethods      allowus to fita realisticomplexmodel
+   Figure6. Estimated   Bivariate
+                                DistributionforSite-Effect
+                                                        Diagnostic and diagnosemodelassumptions            thatwouldotherwise      be
+from  a Poor-Fitting
+                   ModeLThescatterplot  showsthelointposterior dis-
+tribution_,             -I/.
+         of-AD(y0*)and D(*;0* IFor a modelthat  includeonlyasingle  difficultto  carry  out. Predictions  from  our  model  seem    to
+                                                                    perform  as well,on average,     as theLas Vegaspointspread,
+                                                                    so ourmodelappearsto trackteamstrengths             in a manner
+                                                                    similarto thatofthebestexpertopinion.
+
+
+
+
+                               This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                              All use subject to JSTOR Terms and Conditions
+34                                                                                                                                               Journalofthe AmericanStatisticalAssociation,March 1998
+
+
+      APPENDIX: CONDITIONAL DISTRIBUTIONS FOR                                                                                  and
+                  MCMC SAMPLING
+                                                                                                                                    W,|0(ij),)     .. * *
+                                                                                                                                                             (K,gK)         I ol      ,    Os,
+                                                                                                                                                                                            OS)    w      Y(K,gK)
+A.1 ConditionalPosteriorDistribution
+                                   of(0(1,1),...                                                                    O(K,gK)
+           a, O)
+                                                                                                                                             gamma(l+(                    (),
+   The conditional posterior distributionof the team strengthpa-
+rameters,HFA parameters, and observation precision q$,is normal-
+gamma-the conditional posterior distributionof X given the evo-
+                                                                                                     ?
+lution precision and regression parameters (w0, Wh, )w, W,, As,p3w )                             6+      (0(k+?1,)   -3sG0(k,9k))/
+is gamma, and the conditional posterior distributionof the team                                         k=l
+strengthsand home-field parameters given all other parameters is
+an (M + 1)p-variate normal distribution,where p is the number of
+                =                                                                                X (O(k+ 1,1) -OS G0(k,9k))))
+teams and M       Ek=1    gk is the total number of weeks for which
+data are available. It is advantageous to sample using results from
+the Kalman filter (Carter and Kohn 1994; Fruhwirth-Schnatter
+1994; Glickman 1993) ratherthan consider this (M + 1)p-variate A.3 ConditionalPosteriorDistribution                 of (s, 3)
+conditional normal distributionas a single distribution.This idea       Conditionalon theremaining                 andthedata,thedistri-
+                                                                                                       parameters
+is summarized here.                                                  butionsof 0, and 3s are independent      randomvariableswithnor-
+   The Kalman filter(Kalman 1961; Kalman and Bucy 1961) is           mal distributions. The distribution   of I3 conditionalon all other
+used to compute the normal-gamma posterior distributionof the parametersis normal,with
+final week's parameters,
+                                                                               v&w, W
+                                                                     )3wl)o, W&h,   &s, 0(1,1) , **  ( K,gK),
+         f (0(K,g9K) a,01 w, Wh, Ww,v Ws, s v3w v Y(K,gK) I
+                                                                                                                                                                                                    a, 0, Y(K,gK)        N(MW,VW
+                                                                                                                                                                                                                               ),
+marginalizing over the previous weeks' vectors of team strength
+                                                                  where
+parameters. This distributionis obtained by a sequence of recur-
+                                                                                                                                                                  VW                 (1+          wwA)-',
+sive computations that alternately update the distribution of pa-
+rameters when new data are observed and then update the distri-                                                                                               Mw= Vw(.995+q5wwB),
+bution reflectingthe passage of time. A sample from this poste-                                                                                                            K gk-I
+rior distributionis drawn. Samples of team strengthsfor previous                                                                                             A                                O'k
+                                                                                                                                                                                              0k,j)G0(k,j),
+weeks are drawn by using a back-filteringalgorithm. This is ac-                                                                                                           k=1        j=1
+complished by drawing recursively from the normal distributions
+for the parameters from earlier weeks,
+                                                                  and
+                                                                                                                                                                          K gk-I
+f(O(k,j)      I0(k,j+3? 1 ) *                0(K,9K)
+                                                                                                                                                            B O-k,j+1)                                         G(k,j)-
+                                                                                                                                                                      k=1        j=1
+                                                            a I 0 Sov, Wh, Ww, Ws, As,                     w, Y(K, gK)     )
+                                                                                                                                                of 3s conditionalon all otherparameters
+                                                                                                                                 The distribution                                     is also
+The result of this procedure is a sample of values from the desired                                                            normal,with
+conditional posterior distribution.
+                                                                                                                               )3s Iw)oI WI,I &)wI WsI 0(1,1 )                       O (K,gK) ), a, 0 Y(K,gK)            N(MS , VS),
+                                   of (wo, Wh, ww,ws)
+A.2 ConditionalPosteriorDistribution
+                                                                                                                               where
+  Conditional on the remaining parameters and the data, the pa-
+                                                                                                                                                                   VS=             (1 + OgWWq-1,
+rameters w0,.wi, ww, and ws are independent gamma random vari-
+ables with                                                                                                                                                        MS= VS(.98+ qw0wD),
+                                                                                                                                                                           K-i
+Wh10(1,1) .... , O(K,gK), a, Xs,A,w,                                      Y(K,gK)
+                                                                                                                                                              C       =          3    0'k,g       )G0(k,9kg)
+
+
+
+                                 gamma               (1+(P2
+                                                        ?1)!(,                      )                                                                                       k=1
+
+                                                                                                                               and
+                                                                                                                                                                           K-i
+Wh 10(l,l),         *   *        (K,gK)        a,    0,     As,)Av        Y(K,gK)
+                                                                                                                                                             D            m          109k+9
+                                                                                                                                                                                          ,R)s (k,gk)
+                                                      (p +                                      -               -                                                          k=1
+                         gamma(                +                   )' 2             +(60(a              3)'(a       3))'
+
+                                                                                                                                                 [ReceivedDecember 1996. RevisedAugust1997.]
+     &Sw |0(1,1),       ....*,     0(K,9K)          , a,    00   As,O     w    Y(K,gK)
+
+
+                                                                                                                                                                          REFERENCES
+              gamma(2 + P Zk=                                (gk
+                                                                     -)                                                        Amoako-Adu,B., Marmer,H., and Yagil,J.(1985), "The Efficiency of Cer-
+                                                                                                                                 tainSpeculativeMarketsand GamblerBehavior,"JournalofEconomics
+                                                                                                                                 and Business,37, 365-378.
+                                                                 K gk-I
+                                                                                                                               Carlin,B. P., Polson, N. G., and Stoffer,D. S. (1992), "A Monte Carlo
+                                                       +(                  -     (O(k,j?1)          -
+                                                                                                           w v-G(k,j))'          Approachto Nonnormaland NonlinearState-SpaceModeling,"Journal
+                                                                                                                                 of theAmericanStatisticalAssociation,87, 493-500.
+                                             2 (60                j1)-3                 G0k))                                  Carter,C. K., and Kohn,R. (1994), "On Gibbs SamplingforState-Space
+                                                                                                                                 Models,"Biometrika,81, 541-553.
+                                                                                                                               Chaloner,K., and Brant,R. (1988), "A Bayesian Approachto OutlierDe-
+                                                                                                                                 tectionand Residual Analysis,"Biometrika,75, 651-659.
+
+
+
+
+                                                                     This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                                                    All use subject to JSTOR Terms and Conditions
+Glickmanand Stern:A State-Space Model forFootballScores                                                                                  35
+
+de Jong,P., and Shephard,N. (1995), "The SimulationSmootherforTime Rubin,D. B. (1984), "BayesianlyJustifiable    and RelevantFrequencyCal-
+  Series Models,"Biometrika,82, 339-350.                                 culationsfor the Applied Statistician,"The Annals of Statistics,12,
+Fruhwirth-Schnatter, S. (1994), "Data Augmentation and DynamicLinear     1151-1172.
+  Models,"Journalof TimeSeriesAnalysis,15, 183-202.                    Sallas, W. M., and Harville,D. A. (1988), "Noninformative  Priors and
+Gelfand,A. E., and Smith,A. F. M. (1990), "Sampling-BasedApproaches      RestrictedMaximumLikelihoodEstimationin the Kalman Filter,"in
+  to CalculatingMarginalDensities,"Journalof theAmericanStatistical      BayesianAnalysisof TimeSeries and DynamicModels, ed. J. C. Spall,
+  Association,85, 972-985.                                               New York:Marcel Dekker,pp. 477-508.
+Gelman,A., Carlin,J.B., Stern,H. S., and Rubin,D. B. (1995), Bayesian Shephard,N. (1994), "PartialNon-GaussianState Space," Biometrika,81,
+  Data Analysis,London: Chapmanand Hall.                                 115-131.
+Gelman,A., Meng, X., and Stern,H. S. (1996), "PosteriorPredictiveAs- Smith,A. F. M. (1983), "Bayesian Approachesto Outliersand Robust-
+  sessmentof Model Fitness via Realized Discrepancies" (withdiscus-      ness,"in SpecifyingStatisticalModels FromParametricto Nonparamet-
+  sion),StatisticaSinica, 6, 733-807.                                    ric, Using Bayesian or Non-BayesianApproaches,eds. J. P. Florens,
+Gelman,A., and Rubin,D. B. (1992), "InferenceFromIterativeSimulation     M. Mouchart,J. P. Raoult,L. Simer,and A. F. M. Smith,New York:
+  Using MultipleSequences,"StatisticalScience,7, 457-511.                Springer-Verlag, pp. 13-35.
+Geman,S., and Geman,D. (1984), "StochasticRelaxation,Gibbs Distri- Stern,H. (1991), "On the Probabilityof Winninga Football Game," The
+  butions,and the Bayesian Restorationof Images,"IEEE Transactions       AmericanStatistician,45, 179-183.
+  on PatternAnalysisand MachineIntelligence,6, 721-741.                        (1992), "Who's NumberOne? RatingFootballTeams,"in Proceed-
+Glickman,M. E. (1993), "PairedComparisonModels WithTime-Varying          ingsof theSectionon Statisticsin Sports,AmericanStatisticalAssocia-
+  Parameters," unpublishedPh.D. dissertation,  HarvardUniversity,Dept.   tion,pp. 1-6.
+  of Statistics.                                                       Stefani,R. T. (1977), "Football and BasketballPredictionsUsing Least
+Harrison,P. J.,and Stevens,C. F. (1976), "BayesianForecasting,"Journal   Squares,"IEEE Transactionson Systems,  Man, and Cybernetics,7, 117-
+  of theRoyal StatisticalSociety,Ser. B, 38, 240-247.                    120.
+Harville,D. (1977), "The Use of LinearModel Methodologyto Rate High            (1980), "ImprovedLeast Squares Football,Basketball,and Soccer
+  School or College FootballTeams,"Journalof theAmericanStatistical      Predictions," IEEE Transactionson Systems,Man, and Cybernetics,  10,
+  Association,72, 278-289.                                               116-123.
+       (1980), "Predictionsfor National Football League Games via Thompson,M. (1975), "On AnyGivenSunday:Fair CompetitorOrderings
+  Linear-ModelMethodology,"Journalof the AmericanStatisticalAs-          WithMaximumLikelihoodMethods,"Journalof theAmericanStatis-
+  sociation,75, 516-524.                                                 ticalAssociation,70, 536-541.
+Kalman,R. E. (1960), "A New Approachto LinearFilteringandPrediction West,M., and Harrison,P. J. (1990), Bayesian Forecastingand Dynamic
+  Problems,"JournalofBasic Engineering,82, 34-45.                        Models, New York: Springer-Verlag.
+Kalman,R. E., and Bucy,R. S. (1961), "New Resultsin Linear Filtering Zellner,A. (1975), "Bayesian Analysisof RegressionErrorTerms,"Jour-
+  and PredictionTheory,"Journalof Basic Engineerinig,  83, 95-108.       nal of theAmericanStatisticalAssociation,70, 138-144.
+Rosner,B. (1976), "An Analysisof ProfessionalFootballScores,"in Man- Zuber,R. A., Gandar,J.M., and Bowers,B. D. (1985), "BeatingtheSpread:
+  agementScience in Sports,eds. R. E. Machol, S. P. Ladany,and D. G.     Testingthe Efficiencyof the GamblingMarketfor National Football
+  Morrison,New York:North-Holland,     pp. 67-78.                        League Games,"Journalof PoliticalEconomy,93, 800-806.
+
+
+
+
+                                  This content downloaded from 128.197.26.12 on Fri, 31 Jan 2014 20:47:50 PM
+                                                 All use subject to JSTOR Terms and Conditions
+

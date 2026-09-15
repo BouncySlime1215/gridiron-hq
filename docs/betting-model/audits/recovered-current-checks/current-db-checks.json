@@ -1,0 +1,199 @@
+{
+  "games_by_season": [
+    {
+      "season": 1999,
+      "n": 259
+    },
+    {
+      "season": 2000,
+      "n": 259
+    },
+    {
+      "season": 2001,
+      "n": 259
+    },
+    {
+      "season": 2002,
+      "n": 267
+    },
+    {
+      "season": 2003,
+      "n": 267
+    },
+    {
+      "season": 2004,
+      "n": 267
+    },
+    {
+      "season": 2005,
+      "n": 267
+    },
+    {
+      "season": 2006,
+      "n": 267
+    },
+    {
+      "season": 2007,
+      "n": 267
+    },
+    {
+      "season": 2008,
+      "n": 267
+    },
+    {
+      "season": 2009,
+      "n": 267
+    },
+    {
+      "season": 2010,
+      "n": 267
+    },
+    {
+      "season": 2011,
+      "n": 267
+    },
+    {
+      "season": 2012,
+      "n": 267
+    },
+    {
+      "season": 2013,
+      "n": 267
+    },
+    {
+      "season": 2014,
+      "n": 267
+    },
+    {
+      "season": 2015,
+      "n": 267
+    },
+    {
+      "season": 2016,
+      "n": 267
+    },
+    {
+      "season": 2017,
+      "n": 267
+    },
+    {
+      "season": 2018,
+      "n": 267
+    },
+    {
+      "season": 2019,
+      "n": 267
+    },
+    {
+      "season": 2020,
+      "n": 269
+    },
+    {
+      "season": 2021,
+      "n": 285
+    },
+    {
+      "season": 2022,
+      "n": 284
+    },
+    {
+      "season": 2023,
+      "n": 285
+    },
+    {
+      "season": 2024,
+      "n": 285
+    },
+    {
+      "season": 2025,
+      "n": 285
+    }
+  ],
+  "decisions": [
+    {
+      "is_market_identity": 1,
+      "calibration_status": "matching_calibration_missing",
+      "abstention_reason": "calibration_not_proven",
+      "n": 65
+    }
+  ],
+  "packets": [
+    {
+      "state": "decided",
+      "n": 1,
+      "linked": 1
+    },
+    {
+      "state": "frozen",
+      "n": 13,
+      "linked": 0
+    },
+    {
+      "state": "scheduled",
+      "n": 1,
+      "linked": 0
+    }
+  ],
+  "fit_count": [
+    {
+      "n": 1390
+    }
+  ],
+  "neural": [
+    {
+      "n": 0
+    }
+  ],
+  "qbr_copies": [
+    {
+      "n": 520
+    }
+  ],
+  "qbr_future": [
+    {
+      "n": 508
+    }
+  ],
+  "current_features": [
+    {
+      "season": 2016,
+      "n": 512
+    },
+    {
+      "season": 2017,
+      "n": 512
+    },
+    {
+      "season": 2018,
+      "n": 512
+    },
+    {
+      "season": 2019,
+      "n": 512
+    },
+    {
+      "season": 2020,
+      "n": 512
+    },
+    {
+      "season": 2021,
+      "n": 561
+    },
+    {
+      "season": 2022,
+      "n": 559
+    },
+    {
+      "season": 2023,
+      "n": 561
+    },
+    {
+      "season": 2024,
+      "n": 561
+    },
+    {
+      "season": 2025,
+      "n": 561
+    }
+  ]
+}

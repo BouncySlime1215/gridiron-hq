@@ -335,36 +335,39 @@ done in this pass (Stage 1 is mapping only; see task note below).
    instead of restating its formula and validity guard.
 
 2. **Chronological training-cutoff rule computed inline in up to seven places instead of the
-   one function that already exists for it** — `research/betting/nfl/dataset.py:217-228`
-   (`fold_cutoff`) is explicitly written as the single definition of "a fold's settled-label
-   cutoff is the earliest scored decision's time, minus a settled-label lag," and its own
-   docstring says: *"Both labs compute this identically today, in four separate places between
-   them."* That is still true: `research/market_lab.py:169-171,251-252,317-318` (3 inline
-   copies) and `research/tree_lab.py:755-756,811-812,901-902,1082-1084` (4 inline copies) each
-   restate `min(stamp(r['decision_at']) for r in scored) - timedelta(days=7)` plus the
-   `season < season and label_at < outer_cutoff` filter by hand, rather than calling
-   `fold_cutoff`/`eligible_training_rows`. All eight copies currently agree (7 days everywhere,
-   matching `dataset.py`'s `SETTLED_LABEL_LAG`), so this is not yet a live disagreement — it is
-   exactly the shape of duplicate the plan asks to catch before it becomes one. Confirmed
-   as still open in the code actually on this branch as of `6874904`. **Recommendation:**
-   `research/betting/nfl/dataset.py::fold_cutoff`/`eligible_training_rows` should be the one
-   owner; migrate `market_lab.py` and `tree_lab.py`'s seven inline copies to call it (a project
-   already in motion per the "share the dataset" work in commit `fced8d9`, which built
-   `dataset.py`'s `shared_setup` as the intended replacement for both labs' own setup code but
-   has not yet switched either lab's fold-boundary logic over to it).
+   one function that already exists for it** — **partially resolved.** The archive-join /
+   timestamp-validation / decision-time chronology both labs' `build_dataset` used to duplicate
+   is now the single `research/betting/nfl/dataset.py::paired_quotes`, called by both
+   `market_lab.build_dataset` and `tree_lab.build_dataset` (verified byte-identical dataset
+   hashes against the real database before/after for both labs). **Still open:** the SEPARATE
+   `fold_cutoff` arithmetic each lab's `run()` computes for its own outer/inner CV folds —
+   `min(stamp(r['decision_at']) for r in scored) - timedelta(days=7)` plus a
+   `season < season and label_at < outer_cutoff` filter — is still inlined seven times
+   (`market_lab.py:130,212,278`; `tree_lab.py:691,747,837,1018`) rather than calling
+   `dataset.py::fold_cutoff`/`eligible_training_rows`. All seven still agree with each other and
+   with `dataset.py`'s `SETTLED_LABEL_LAG`, so this remains a latent-not-live risk, not a bug.
+   **Recommendation, unchanged:** migrate those seven call sites onto `fold_cutoff`/
+   `eligible_training_rows` next.
 
 3. **Quarantine/dropped-row accounting duplicated between the two labs and the shared
-   extraction that was built to replace it** — `research/market_lab.py::build_dataset` and
-   `research/tree_lab.py::build_dataset` each independently maintain a `dropped =
-   collections.Counter()` with the identical reason strings (`game_missing_gameday_or_score`,
-   `feature_missing_publication_instant`, `feature_unparseable_json`, …), per commit `dab3dbe`'s
-   own description of them as "near-identical duplicated dataset builders." Commit `dab3dbe`
-   separately added an equivalent `quarantine` dict, with the same reasons, to
-   `research/betting/nfl/dataset.py::build_chronology`/`load_team_week_features` — but as a new,
-   third copy, not as the thing the two labs call. **Recommendation:** once `market_lab.py`/
-   `tree_lab.py` migrate onto `dataset.py::shared_setup` (see item 2), the `dropped` Counters in
-   both labs collapse into the one `quarantine` dict already built for that purpose; until then
-   a reason string added to one copy (there are three now) will not appear in the other two.
+   extraction that was built to replace it** — **resolved.** `research/market_lab.py::build_dataset`
+   and `research/tree_lab.py::build_dataset` no longer maintain their own `dropped =
+   collections.Counter()` from an independent chronology walk; both now call
+   `research/betting/nfl/dataset.py::build_betting_dataset`, which does the game/feature/quote
+   quarantine once, and each lab's `dropped` Counter is built by summing the reason strings out
+   of that single shared `quarantine` dict. The reason-string vocabulary changed to `dataset.py`'s
+   canonical names (`missing_final_score`, `unparseable_json`, …) as a direct consequence —
+   `research/test_market_lab.py` and `research/test_tree_lab.py` were updated accordingly, and a
+   dataset-hash parity check against the real database confirmed both labs still select exactly
+   the same rows as before the migration.
+
+   Same commit also added `research/betting/nfl/dataset.py::build_football_dataset`: a broad,
+   price-agnostic dataset (1999+, no archived-quote requirement) for team-strength learning,
+   sitting alongside `build_betting_dataset` (still gated to seasons with a real archived quote,
+   2022+ today) rather than replacing it — Stage 2 of the plan (`docs/CLAUDE-NEXT-STEPS.md`
+   section 0.0). Against the real database: 7,291 broad-dataset rows spanning 1999-2026 vs.
+   roughly 150-285 betting-dataset rows per season/market in the 2022+ window the labs were
+   previously confined to.
 
 4. **Not flagged, checked and found to be correctly a single owner:** `FORWARD_SAMPLE_TARGETS`
    (`nfl-policy.js`) is imported, not restated, by `nfl-research.js`'s `forward_sample` gate;

@@ -29,10 +29,10 @@ from tree_lab import (market_no_vig_prob, logit, sigmoid, quantile_coherence_rep
 
 
 class QuarantineTests(unittest.TestCase):
-    """tree_lab.build_dataset duplicates market_lab.build_dataset's chronology
-    setup (see the file's own "everything above this line mirrors" comment),
-    including the same quarantine-counting fix -- verified separately here
-    since it's a separate function, not a shared import."""
+    """tree_lab.build_dataset now shares its chronology with
+    market_lab.build_dataset via research/betting/nfl/dataset.py's
+    build_betting_dataset -- verified separately here since it's a separate
+    call site, not a shared code path guaranteed to stay in sync."""
 
     def test_build_dataset_quarantines_bad_games_and_features_instead_of_silently_dropping_them(self):
         tmp = tempfile.TemporaryDirectory()
@@ -63,9 +63,11 @@ class QuarantineTests(unittest.TestCase):
             con.close()
 
             _, dropped = build_dataset(db)
-            self.assertEqual(dropped.get('game_missing_gameday_or_score'), 1,
+            # Reason strings come from dataset.py's canonical quarantine
+            # vocabulary now -- see market_lab.build_dataset's identical note.
+            self.assertEqual(dropped.get('missing_final_score'), 1,
                 'the scoreless week-2 game must be counted, not vanish with no trace')
-            self.assertEqual(dropped.get('feature_unparseable_json'), 1,
+            self.assertEqual(dropped.get('unparseable_json'), 1,
                 "BAL's unparseable feature row must be counted, not vanish with no trace")
         finally:
             tmp.cleanup()

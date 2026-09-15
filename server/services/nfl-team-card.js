@@ -70,18 +70,47 @@ function tendencies(season, week, team) {
     values, missing: Object.entries(values).filter(([, value]) => value == null).map(([key]) => key) };
 }
 
+const STATUS_RANK = Object.freeze({ out: 1, doubtful: 2, questionable: 3 });
+
+// `nfl_injuries.modified_at` is the SOURCE's own claim about when a report
+// changed, not this system's receipt clock -- gating the cutoff on it alone
+// (as this function used to) is the exact "published_at masquerading as
+// observed_at" leak nfl-bitemporal.js exists to close, and it is not just a
+// filtering bug: `nfl_injuries` is a mutable latest-value table (see
+// test/nfl-injuries-bitemporal.test.js -- "nfl_injuries stays the mutable
+// latest view -- it is no longer the evidence"), so even a correctly-gated
+// row would still hand a Wednesday cutoff Friday's designation if the
+// report_status/practice_status came from that table. nfl-advanced.js's
+// syncInjuries (Giant Plan 8.14) appends every changed report to
+// `nfl_feature_revisions` with a real `observed_at`, so both the cutoff gate
+// AND the reported values below are read from there instead -- the same
+// convention nfl-t60-packet.js's injury read already established. `nfl_injuries`
+// is still consulted, but only for team scoping and player identity (name,
+// position), neither of which is itself under revision.
 function injuryReport(season, week, team, cutoff) {
-  const items = rows(`SELECT gsis_id,full_name,position,report_status,practice_status,injury,modified_at
-    FROM nfl_injuries WHERE season=? AND week=? AND team=?
-      AND (modified_at IS NULL OR modified_at<=?)
-    ORDER BY CASE lower(COALESCE(report_status,''))
-      WHEN 'out' THEN 1 WHEN 'doubtful' THEN 2 WHEN 'questionable' THEN 3 ELSE 4 END,full_name`,
-  season, week, team, cutoff);
-  return { source: 'nflverse_weekly_injury_report', cutoff, players: items.map(item => ({
-    id: item.gsis_id, name: item.full_name, position: item.position,
-    game_status: item.report_status, practice_status: item.practice_status, injury: item.injury,
-    modified_at: item.modified_at
-  })) };
+  const items = rows(`
+    WITH ranked AS (
+      SELECT entity, value_json, published_at, observed_at,
+        ROW_NUMBER() OVER (PARTITION BY entity ORDER BY published_at DESC, observed_at DESC) rn
+      FROM nfl_feature_revisions
+      WHERE feature = 'injury_report' AND entity_season = ? AND entity_week = ? AND observed_at <= ?
+    )
+    SELECT ni.gsis_id, ni.full_name, ni.position, r.value_json, r.published_at, r.observed_at
+    FROM nfl_injuries ni
+    JOIN ranked r ON r.rn = 1 AND r.entity = 'player:' || ni.gsis_id || ':' || ni.season || ':' || ni.week
+    WHERE ni.season = ? AND ni.week = ? AND ni.team = ?`,
+  season, week, cutoff, season, week, team);
+  const players = items.map(item => {
+    const value = parse(item.value_json, {});
+    return { id: item.gsis_id, name: item.full_name, position: item.position,
+      game_status: value.report_status ?? null, practice_status: value.practice_status ?? null,
+      injury: value.injury ?? null, modified_at: item.published_at, observed_at: item.observed_at };
+  }).sort((a, b) => {
+    const rankA = STATUS_RANK[String(a.game_status ?? '').toLowerCase()] ?? 4;
+    const rankB = STATUS_RANK[String(b.game_status ?? '').toLowerCase()] ?? 4;
+    return rankA !== rankB ? rankA - rankB : String(a.name ?? '').localeCompare(String(b.name ?? ''));
+  });
+  return { source: 'nfl_feature_revisions', cutoff, players };
 }
 
 function rosterEvents(team, cutoff) {
@@ -251,3 +280,5 @@ export function teamCardCoverage() {
       MAX(week) last_week,COUNT(DISTINCT evidence_hash) unique_cards
     FROM nfl_team_cards WHERE version=? GROUP BY season ORDER BY season`, TEAM_CARD_VERSION);
 }
+
+export const __test = { injuryReport };

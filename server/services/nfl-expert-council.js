@@ -340,8 +340,20 @@ function shoppingFor(home, away, cutoff) {
   const normalize = value => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const teams = rows(`SELECT abbr,name FROM nfl_teams WHERE abbr IN (?,?)`, home, away);
   const aliases = new Map(teams.map(team => [team.abbr, [normalize(team.abbr), normalize(team.name)]]));
+  // `captured_at<=cutoff` alone is a CONTENT-clock check: for archive-sourced
+  // rows it is the book's own book_updated_at, not when this system actually
+  // received the quote (`received_at`, from nfl_odds_archive.fetched_at --
+  // see migration 052_line_snapshot_receipt_clock.js). Without also requiring
+  // received_at<=cutoff, a historical (e.g. 2022-2025) game's cutoff can see
+  // a closing quote this system did not actually possess until a much later
+  // backfill run -- the same look-ahead class already closed for
+  // news_items.ingested_at and nfl_injuries.modified_at. A row with no known
+  // receipt clock (`received_at IS NULL`, e.g. `legacy_unrecoverable`) is
+  // excluded rather than trusted.
   const snapshots = rows(`SELECT * FROM nfl_line_snapshots WHERE captured_at<=? AND market='spreads'
-    AND (commence_time IS NULL OR commence_time>?) ORDER BY captured_at DESC`, cutoff, cutoff)
+    AND (commence_time IS NULL OR commence_time>?)
+    AND received_at IS NOT NULL AND received_at<=?
+    ORDER BY captured_at DESC`, cutoff, cutoff, cutoff)
     .filter(row => {
       const h = normalize(row.home_team), a = normalize(row.away_team);
       const homeAliases = aliases.get(home) ?? [normalize(home)], awayAliases = aliases.get(away) ?? [normalize(away)];

@@ -24,9 +24,12 @@ run(`INSERT OR IGNORE INTO nfl_teams (abbr,name,conference,division) VALUES ('KC
 // Kickoff Sunday 2026-09-13 13:00 ET = 17:00Z.
 run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,implied_points,source,fetched_at,gameday,gametime)
      VALUES (2026,1,'KC','DEN',1,-3,47,25,'test',datetime('now'),'2026-09-13','13:00')`);
-// Pinnacle opener in the archive: KC -3.
+// Pinnacle opener in the archive: KC -3. `fetched_at` is fixed just after the
+// book posted it (not `datetime('now')` — signalsFor's receipt-clock check
+// (beat-the-close.js's openerFor) requires this to be at or before whatever
+// `now` a test passes, and several tests below pass a `now` fixed in the past).
 run(`INSERT INTO nfl_odds_archive (eid,season,week,home,away,commence_time,book,market,side,phase,line,price,book_updated_at,source,fetched_at)
-     VALUES (9,2026,1,'KC','DEN','2026-09-13T17:00:01Z','pinnacle','spreads','KC','open',-3,-110,'2026-05-15T14:00:00Z','test',datetime('now'))`);
+     VALUES (9,2026,1,'KC','DEN','2026-09-13T17:00:01Z','pinnacle','spreads','KC','open',-3,-110,'2026-05-15T14:00:00Z','test','2026-05-16T00:00:00Z')`);
 const snap = (at, book, side, line, price, provider = 'free:bovada') => run(`INSERT INTO nfl_line_snapshots
   (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, at, 'nfl:2026-09-13:DEN@KC', '2026-09-13T17:00:01Z', 'Kansas City Chiefs', 'Denver Broncos',

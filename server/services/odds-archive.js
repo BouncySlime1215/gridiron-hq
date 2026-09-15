@@ -101,8 +101,9 @@ export function storeArchiveQuotes(quotes, { fetchedAt = new Date().toISOString(
     ON CONFLICT(eid,book,market,side,phase) DO UPDATE SET line=excluded.line, price=excluded.price,
       book_updated_at=excluded.book_updated_at, season=excluded.season, week=excluded.week, fetched_at=excluded.fetched_at`);
   const snapshotStmt = db.prepare(`INSERT OR IGNORE INTO nfl_line_snapshots
-    (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price, provider, book_updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+    (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price, provider, book_updated_at,
+     received_at, receipt_clock_source)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'response_completion')`);
   const gameCache = new Map();
   let archived = 0, snapshots = 0, unmatched = 0;
   const openers = new Map();
@@ -117,12 +118,17 @@ export function storeArchiveQuotes(quotes, { fetchedAt = new Date().toISOString(
         q.phase, q.line, q.price, q.book_updated_at, fetchedAt);
       archived += Number(r.changes ?? 0);
       // Snapshot rows carry the book's own timestamp as captured_at so a cutoff
-      // query sees only what was on the board before kickoff.
+      // query sees only what was on the board before kickoff. That is a
+      // CONTENT clock, not this system's receipt clock -- `fetchedAt` (this
+      // call's real, present-day receipt instant) is stored separately as
+      // `received_at` so a decision-cutoff reader can also check it actually
+      // knew this quote by the cutoff, not just that the book posted it early
+      // enough (see migration 052_line_snapshot_receipt_clock.js).
       const capturedAt = q.book_updated_at ?? q.commence_time;
       const sideName = q.market === 'spreads' || q.market === 'h2h'
         ? (q.side === q.home ? q.home_name : q.away_name) : q.side;
       const s = snapshotStmt.run(capturedAt, `archive:${q.eid}:${q.phase}`, q.commence_time, q.home_name, q.away_name,
-        q.book, q.market, sideName, q.line, q.price, 'archive:oddstrader', q.book_updated_at);
+        q.book, q.market, sideName, q.line, q.price, 'archive:oddstrader', q.book_updated_at, fetchedAt);
       snapshots += Number(s.changes ?? 0);
       if (q.phase === 'open') {
         const o = openers.get(key) ?? { game, spreads: [], totals: [] };

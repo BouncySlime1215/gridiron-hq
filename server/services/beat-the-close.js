@@ -69,12 +69,27 @@ function teamNames() {
   return new Map(rows('SELECT abbr, name FROM nfl_teams').map(t => [t.abbr, t.name]));
 }
 
-/** Pinnacle's opener for a game and market: the archive's opening row, else the earliest live Pinnacle capture. */
-export function openerFor(season, week, home, away, market, names = teamNames()) {
+/**
+ * Pinnacle's opener for a game and market: the archive's opening row, else
+ * the earliest live Pinnacle capture.
+ *
+ * `receiptAsOf`, when given, also requires the archive row's `fetched_at`
+ * (this system's real receipt clock, not the book's own `book_updated_at`
+ * content clock -- see migration 052_line_snapshot_receipt_clock.js) to be at
+ * or before it: a caller simulating a decision as of some instant must not
+ * see an opener this system did not actually hold on file yet. Every current
+ * caller (signalsFor, live-only) passes real wall-clock `now`, against which
+ * an already-recorded archive row's fetched_at is always in the past, so this
+ * is presently a no-op guard rather than an active filter -- it exists so a
+ * future backtest/replay caller of this function cannot reintroduce the same
+ * receipt-clock leak already closed in shoppingFor (nfl-expert-council.js).
+ */
+export function openerFor(season, week, home, away, market, names = teamNames(), receiptAsOf = null) {
   const side = market === 'spreads' ? home : 'Over';
   const archived = row(`SELECT line, book_updated_at at FROM nfl_odds_archive
-    WHERE season=? AND week=? AND home=? AND market=? AND side=? AND book='pinnacle' AND phase='open' LIMIT 1`,
-  season, week, home, market, side);
+    WHERE season=? AND week=? AND home=? AND market=? AND side=? AND book='pinnacle' AND phase='open'
+      ${receiptAsOf ? 'AND fetched_at<=?' : ''} LIMIT 1`,
+  ...(receiptAsOf ? [season, week, home, market, side, receiptAsOf] : [season, week, home, market, side]));
   if (archived) return { line: archived.line, at: archived.at, source: 'archive:pinnacle:open' };
   const live = row(`SELECT line, captured_at at FROM nfl_line_snapshots
     WHERE provider='free:pinnacle' AND market=? AND home_team=? AND away_team=? AND side=?
@@ -112,16 +127,31 @@ const NEAR_KICKOFF_HOURS = 6;
  * Beyond STALE_BOOK_HOURS in every tier: no reachable line — return null and
  * let the caller keep waiting rather than settle against noise. A quote is
  * never taken from after `before` — CLV must not leak in-game price action.
+ *
+ * That invariant used to hold only for the live branch (`captured_at<=?`,
+ * above): the archived branch had no `book_updated_at<=?` filter at all, so
+ * an archived close row whose book_updated_at fell AFTER `before` could still
+ * be picked whenever its gap to `before` was small enough — a quote taken
+ * from after the boundary this function exists to enforce. Fixed below by
+ * gating the archived query the same way the live one already is.
+ *
+ * `receiptAsOf`, when given, additionally requires the archive row's
+ * `fetched_at` (this system's real receipt clock; see migration
+ * 052_line_snapshot_receipt_clock.js) to be at or before it — settleBeatTheClose
+ * passes its own `now` here, so a close this system had not actually
+ * backfilled yet cannot be used to grade CLV, the same receipt-clock leak
+ * already closed in shoppingFor (nfl-expert-council.js).
  */
-export function pinnacleLineAt(season, week, home, away, market, before = null, names = teamNames()) {
+export function pinnacleLineAt(season, week, home, away, market, before = null, names = teamNames(), receiptAsOf = null) {
   const liveSide = market === 'spreads' ? (names.get(home) ?? home) : 'Over';
   const archiveSide = market === 'spreads' ? home : 'Over';
   const live = row(`SELECT line, captured_at at FROM nfl_line_snapshots
     WHERE provider='free:pinnacle' AND market=? AND home_team=? AND away_team=? AND side=? ${before ? 'AND captured_at<=?' : ''}
     ORDER BY captured_at DESC LIMIT 1`, ...[market, names.get(home) ?? home, names.get(away) ?? away, liveSide, ...(before ? [before] : [])]);
   const archived = row(`SELECT line, book_updated_at at FROM nfl_odds_archive
-    WHERE season=? AND week=? AND home=? AND market=? AND side=? AND book='pinnacle' AND phase='close' LIMIT 1`,
-  season, week, home, market, archiveSide);
+    WHERE season=? AND week=? AND home=? AND market=? AND side=? AND book='pinnacle' AND phase='close'
+      ${before ? 'AND book_updated_at<=?' : ''} ${receiptAsOf ? 'AND fetched_at<=?' : ''} LIMIT 1`,
+  ...[season, week, home, market, archiveSide, ...(before ? [before] : []), ...(receiptAsOf ? [receiptAsOf] : [])]);
 
   // A plain "what's the line right now" read (signalsFor's pinnacle_move_so_far,
   // no `before`) has no kickoff to be near — keep the old, unflagged preference
@@ -212,9 +242,9 @@ export function signalsFor(game, { now = new Date().toISOString(), names = teamN
   const out = [];
   const pred = predictGame(game.home, game.away, game.season);
   for (const market of ['spreads', 'totals']) {
-    const opener = openerFor(game.season, game.week, game.home, game.away, market, names);
+    const opener = openerFor(game.season, game.week, game.home, game.away, market, names, now);
     if (!opener) continue;
-    const current = pinnacleLineAt(game.season, game.week, game.home, game.away, market, null, names);
+    const current = pinnacleLineAt(game.season, game.week, game.home, game.away, market, null, names, now);
     const push = (signal, value, detail = {}) => out.push({ market, signal, value: r3(value), opener_line: opener.line, opener_at: opener.at,
       current_line: current?.line ?? null, detail: { ...detail, opener_source: opener.source } });
     if (!pred?.error) {
@@ -365,7 +395,7 @@ export function settleBeatTheClose({ now = new Date().toISOString() } = {}) {
     const kickoff = gameCutoff(d.season, d.week, d.home_team);
     if (!kickoff || kickoff > now) { waiting++; continue; }
     const market = d.market === 'spread' ? 'spreads' : 'totals';
-    const close = pinnacleLineAt(d.season, d.week, d.home_team, d.away_team, market, kickoff, names);
+    const close = pinnacleLineAt(d.season, d.week, d.home_team, d.away_team, market, kickoff, names, now);
     if (!close) { waiting++; continue; }
     // CLV in points toward the side taken, home-perspective lines for spreads.
     const clv = market === 'spreads'

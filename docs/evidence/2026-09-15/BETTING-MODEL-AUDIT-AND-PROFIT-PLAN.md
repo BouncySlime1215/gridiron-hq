@@ -4,8 +4,10 @@
 The one active work-order plan remains [`docs/CLAUDE-NEXT-STEPS.md`](../../CLAUDE-NEXT-STEPS.md).
 If Nick adopts this, reconcile it into that plan rather than running two roadmaps.
 
-Audit performed against the committed tree at git HEAD `43af933` (branch cut from
-`main`). Every code claim below is cited to a file and is verifiable on this checkout.
+Audit originally performed against git HEAD `43af933`. **See §0.1 — that clone was
+32 commits behind `origin/main`, and several defects below were already fixed on
+`main`. §0.1 reconciles every finding to live `main` (post-merge HEAD `bd10899`);
+where the body of this document conflicts with §0.1, §0.1 wins.**
 
 ---
 
@@ -29,6 +31,61 @@ The full integrity suite runs green-enough here to trust the mechanisms:
 temp DB + enforced offline guard). The 21 failures are being triaged separately;
 initial reads indicate data-/environment-dependent cases rather than the core
 model math, but that triage is not yet complete and is tracked in Phase 0 below.
+
+---
+
+## 0.1 Revision 2 — reconciled to live `main` after handoff (HEAD `bd10899`)
+
+The original audit (below) was against a clone **32 commits behind
+`origin/main`**. After the owner pushed the in-flight fix ledger to `main` and
+handed this agent the wheel, `main` was merged in and every defect re-verified
+against live code. Corrected status:
+
+| # | Defect | Status on live `main` | Evidence |
+|---|---|---|---|
+| D1 | Historical news leak (mutable signal table) | **FIXED** | `nfl-news-signal.js` reads now require `created_at<=cutoff` (lines 258–261, 291–292, 304); commits `8587f5b`, `5b74a6a`, `994d32e`; `server/news/store.js` added |
+| D2 | News availability timestamp (`published_at`-only) | **FIXED** | same commits; `created_at` (extraction time) now gates every point-in-time read |
+| injury | Injury cutoff read mutable `nfl_injuries.modified_at` | **FIXED** | `d531841` — `injuryReport` reads cutoff+values from `nfl_feature_revisions` |
+| D6 | Receipt-clock look-ahead in CLV grading | **FIXED** | `ffe4e72`; migration `052_line_snapshot_receipt_clock.js`; `storeArchiveQuotes` now writes `received_at`/`receipt_clock_source`; `shoppingFor`/`beat-the-close` gate on receipt clock |
+| D3 | "Frozen" packet still reads live tables | **OPEN** | `PACKET_BOARD_INPUT_COVERAGE` still `game_context/team_features/total_market: not_in_schema`; `C05` added a retry path, not input freezing |
+| D4a | Model identity omits dataset/param fingerprint | **OPEN (server)** | `nfl-forecast-identity.js` untouched; Python side gained provenance (`research/betting/nfl/model_artifact.py`, `9e707b2`) but the Node serving identity still does not fingerprint the dataset/params |
+| D4b | Probability rounding vs own domain checks | **OPEN** | `nfl-cover-calibration.js` / `nfl-auto-picks.js` untouched; exact repro still pending Codex's local note |
+
+Merged fixes verified green here: `test/nfl-news-signal.test.js`,
+`nfl-expert-council-news-feed-cutoff`, `nfl-expert-council-shopping-receipt-cutoff`,
+`nfl-team-card-injury-cutoff`, `spread-family-adapters` — **30/30 pass**.
+
+**New groundwork on `main` (not yet connected):** `0ce5f97` added
+`server/betting/nfl/forecast/spread-family-adapters.js` + a
+`contracts/forecast-packet.js` — a common packet/probability/qualification
+**shape** over the four families (ensemble, simulation, lineup, direct-cover).
+It is explicitly **not wired into any route/policy/decision path** (only its own
+test imports it), and Family D (direct-cover) is a **documented stub** because the
+`tree_lab.py` joblib classifier has no Node-side consumer. `9e707b2` added a
+versioned Python spread model artifact (`ridge-s2025-…`) with provenance.
+
+**Also note (Stage work already in flight on `main`):** commits `740f844`
+(freeze Stage 1 baseline), `c72206f` (Stage 3: first predeclared team-strength
+model vs market), `ae336c6`/`d8f1a72`/`81a5ed6` (ledger reconciliation, Family D
+finding, gate audit). The market beat both candidates at Stage 3 — consistent with
+"no edge yet."
+
+### Remaining, genuinely-open work (supersedes §5's Phase 1 news/receipt items)
+1. **D3** — freeze the team/weather/context features the forecast consumes into
+   the T-60 packet (or hash their known-at), so a frozen-packet retry is
+   reproducible. [highest priority: it's what makes forward evidence trustworthy]
+2. **D4a** — bind a dataset + learned-parameter fingerprint into the server-side
+   fit/calibration identity (mirror the new Python artifact provenance).
+3. **D4b** — keep full-precision probabilities through all domain/eligibility
+   checks; round only at the edge; add invariants + test.
+4. **Connect the family adapters** to a read-only, gated comparison surface (not
+   production), and build the `tree_lab` joblib → Node bridge (Family D) behind
+   preregistration + purged walk-forward + v1.3 gates.
+5. Then: save every game's prediction with a frozen input hash; weekly retraining
+   promotion loop; dated news/injury backfill (now unblocked by D1/D2/injury fixes).
+
+Everything below this line is the original `43af933` snapshot, retained for the
+record; read §0.1 for current truth.
 
 ---
 

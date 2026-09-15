@@ -1,0 +1,1818 @@
+             The Fundamental Law of Active Management:
+          Time Series Dynamics and Cross-Sectional Properties
+
+                                  Zhuanxin Ding, Ph.D.
+
+                  Portfolio Manager and Head of Quantitative Strategies
+                            Fuller & Thaler Asset Management
+                                 411 Borel Ave, Suite 300
+                                   San Mateo, CA 94402
+                                       650-931-1507
+                                  zding@fullerthaler.com
+
+                               First Draft October 15, 2009
+                                   Revised Feb 24, 2010
+
+                                       ABSTRACT
+
+   I derive a generalized version of the fundamental law of active management under
+   some weak conditions. I show that the original fundamental law of Grinold and
+   various extensions are all special cases of the generalized fundamental law
+   presented in this paper. I also show that cross-sectional ICs are usually different
+   from time series ICs even if the time series ICs are all the same across securities.
+   The fundamental law derived in this paper is quite robust to forecast model
+   specification. Our results show that the variation in IC (IC volatility over time)
+   has a much bigger impact to portfolio IR than the breadth N for a typical
+   investment universe. I extend the fundamental law to models with multiple factors
+   and study the impact of missing one or more return or risk factors to portfolio IR.
+   Our results also show that the transfer coefficient as originally defined by Clarke
+   et al. (2002) is not able to capture the impact of constraints to portfolio IR in the
+   presence of IC variation. I redefine the concept of transfer coefficient using the
+   cross-sectional correlation between the total conditional covariance adjusted
+   active weights and alphas so that the resulting transfer coefficient has the desired
+   property.
+
+
+Since the publication of "The fundamental law of active management" by Grinold (1989)
+two decades ago, it has been widely used in the quantitative investment community as a
+tool to assess a portfolio manager's ability to add value. According to Grinold (1989), the
+fundamental law relates three variables: your skill in forecasting exceptional returns (IC),
+the breadth of your strategy (N), and the value added of your investment strategy (IR).
+Grinold (1989) claims that "based on assumptions that are not quite true and simplified
+with some reasonable approximations" the three variables have the following
+relationship:
+         IR = IC N ,                                                                 (1)
+where IR is the information ratio, IC is the information coefficient, and N is the breadth.
+Even though Grinold (1989) did not give a precise definition of breadth N, portfolio
+
+
+                                                                                           1
+managers or analysts usually use the number of stocks in the investment universe as
+breadth. The derivation of the fundamental law is closely related to another Grinold paper
+(Grinold (1994)) that shows "Alpha is Volatility Times IC Times Score", i.e.,
+       α it = σ ri IC zit −1 ,                                                     (2)
+where σ ri is the residual return (will be defined below) volatility and zit −1 is the
+standardized forecast signal (score) that is known at the end of time t-1. The theoretical
+and empirical development on this line of the fundamental law culminated in the book by
+Grinold and Kahn (2000) titled "Active Portfolio Management." Based on the
+fundamental law, Grinold and Kahn (2000) conclude that "you (portfolio managers) must
+play often and play well to win at the investment management game. It takes only a
+modest amount of skill to win as long as that skill is deployed frequently and across a
+large number of stocks."
+
+Unfortunately, the theoretically calculated IR number from Grinold's fundamental law
+seems to always overestimate the IR a portfolio manager can reach. For example, given a
+forecast signal with a monthly average IC of 0.03 and a selection universe of 1000 stocks,
+the expected annualized IR from Grinold's formula is 3.29 which is beyond even the most
+optimistic portfolio manager's dreams. Portfolio managers are left wondering why
+realized information ratios are only a fraction of their predicted value. Clarke et al. (2002,
+p50) point out "a common rule of thumb in practice is that the theoretical information
+ratio suggested by the fundamental law should be cut in half." However, for the above
+mentioned example, the IR estimate will still be too high even if cut by half (IR=1.64).
+As noted by Grinold (1989, p32) himself "an observed information ratio above 1.5 is rare
+indeed." Of course, it can be the case that the N used in our calculation, which is the
+number of stocks available in the investment universe, is not what meant to be the right
+measure of breadth by Grinold. Grinold (1989) provides a detailed discussion on this
+subject and emphasized the importance of counting only independent bets as breadth.
+Grinold (2007) provides some further discussion on this topic. Unfortunately, it is still
+not a straightforward exercise to determine what breadth should be used in practice.
+
+Clarke et al. (2002) attribute the reduction in performance to the constraints in the
+portfolio construction process and proposed the concept of "the transfer coefficient" to
+account for the leaking of IR from Grinold's original formula. They show that constraints
+in portfolio construction (constraints such as country or sector exposures, long only, etc.),
+leads to suboptimal portfolio weights in terms of alpha generation, thus reducing the
+maximum achievable IR. They developed a framework for measuring the deviation of the
+optimal constrained weights from optimal non-constrained weights and proposed a
+generalized fundamental law as follows:
+         IR = TC IC N ,                                                               (3)
+where TC is the transfer coefficient, defined as the cross-sectional correlation coefficient
+between risk-adjusted expected residual returns and risk-adjusted active weights.
+According to their simulation study, the typical transfer coefficient is in the range of 0.3
+to 0.8. So the original IR calculated from Grinold's formula should be about halved. Even
+so, as discussed above, the TC adjusted IR still appears to be too high.
+
+
+
+
+                                                                                            2
+In order to understand why that happens, we need to examine the assumptions made by
+Grinold in deriving his fundamental law. The original form of the fundamental law by
+Grinold is based on the very unrealistic assumption that time series ICs between an
+individual stock's residual return and its forecast signal are the same across all securities
+and are a constant over time. Grinold (1989, 1994) and Grinold and Kahn (2000) then
+used the time series IC and cross-sectional IC interchangeably. In practice, many
+quantitative managers run a Fama-Mcbeth type cross-sectional regression to get realized
+ICs at different time periods. The ICs calculated this way are far from constant and often
+fluctuate around an average IC. As will be shown later in this paper, the cross-sectional
+IC can be quite different from the time series IC even if all the securities have a same
+time series IC. Qian and Hua (2004) show that a more appropriate IR to use is average IC
+divided by the standard deviation of IC
+               IC
+        IR =       ,                                                                   (4)
+              σ IC
+where σ IC is the standard deviation of IC that Qian and Hua (2004) call "the strategy
+risk." In statistics, the quantity 1 / σ IC2 is a measure of how close (precise) the realized
+information coefficient at time t, IC t , is to the mean IC. In this sense, the Qian and Hua
+formula states that "Information Ratio equals Skill times Precision."
+
+In a more recent paper, Ye (2008) goes one step further to bridge the gap between the
+original Grinold (1989) formula and the Qian and Hua (2004) formula. Based on her
+assumptions, she establishes that
+                    IC
+         IR =                .                                                      (5)
+                          2
+                1 / N + σ IC
+It is obvious that Equation (1) and Equation (4) are special cases of Equation (5) when
+σ IC = 0 (as assumed by Grinold (1989)) or N → ∞ .
+
+With all these different versions of fundamental laws, it can be confusing for practitioners
+to decide which one to use. It is crucial to have a full grasp of the different underlying
+assumptions and the resulting conclusions from these fundamental laws. In this paper, I
+try to set up a coherent econometric modeling structure and show that all the different
+forms of fundamental laws discussed above can be special cases of an even more general
+form of fundamental law based on much weaker assumptions. I will show that time series
+ICs are usually different from cross-sectional ICs even if time series ICs are the same
+across all individual securities. They will be the same only under some strong conditions.
+I will also show that different forms of fundamental laws are a result of either unrealistic
+assumptions (Grinold (1989)) or mis-specified residual return covariance matrices for the
+expected residual return used (Grinold (1989), Qian and Hua (2004), and Ye(2008)).
+When the more relevant conditional residual return covariance matrices are used, we will
+arrive at the more general form of the fundamental law presented in this paper.
+
+The form of the generalized fundamental law derived in this paper is quite robust to
+model specification. If one uses the risk adjusted residual returns in the analysis instead
+of the raw residual returns, one will get the fundamental law in a similar form. Finally I
+
+
+                                                                                                3
+extend the fundamental law to models with more than one factor, and discuss the impact
+of missing one or more return or risk factors to the portfolio IR. I also show that the
+transfer coefficient as defined by Clarke et al. (2002) will not have the desired property
+of measuring the impact of constraints to the portfolio IR in the presence of IC variation.
+I redefine the transfer coefficient as the correlation coefficient between total risk adjusted
+expected residual returns and total risk adjusted active weights (instead of just the
+diagonal portion of the covariance matrix). With this modified definition of the transfer
+coefficient, the resulting constrained portfolio IR is always the product of TC and the
+unconstrained optimal portfolio IR.
+
+Framework and Notation
+
+I will follow the framework and notation in Clarke, de Silva, and Thorley (2002) and Ye
+(2008). A variable with subscript i ( i = 1,L , N ) and t ( t = 1, L , T ) represents the variable
+value for security i at the end of time t. A variable in bold represents a vector or matrix.
+
+Given a benchmark portfolio, the total excess return (i.e., return in excess of the risk-free
+rate) on any stock i can be decomposed into a systematic portion that is correlated with
+the benchmark excess return and a residual return that is not by
+        ritTotal = β it RB , t + rit ,                                                (6)
+where
+        β it       = beta of security i with respect to the benchmark
+        RB , t    = benchmark excess return
+           rit         = realized residual return
+The benchmark and the actively managed portfolios are defined by the weights,
+ wB , it and wP , it , assigned to each of the N stocks in the investable universe respectively. It
+is shown in Clarke et al. (2002) that the portfolio active return, which is defined as the
+managed portfolio total excess return minus the benchmark total excess return, adjusted
+for the managed portfolio's beta with respect to the benchmark, can be written as
+                                      N              N
+        R A,t = RP ,t − β P ,t RB ,t = ∑ wP ,it rit = ∑ ∆wit rit ,                          (7)
+                                      i =1           i =1
+
+where ∆wit is the active weight defined as the difference between the managed portfolio
+weight and the benchmark weight at the beginning of time period t. 1 Note that the active
+weights, ∆wit , sum to 0 because they are differences in two sets of weights that each sum
+to 1. Also note that the stock returns, rit , in (7) are residual, not total, excess returns. As
+pointed out in Clarke, et al. (2002), residuals are the relevant component of security
+returns when performance is measured against a benchmark on a beta-adjusted basis.
+
+We assume that residual returns follow a conditional normal distribution, and define ex
+ante alpha of security i ( i = 1,L , N ) in period t as the expected residual return
+conditional on information available at the end of time period t − 1 : I t −1
+        α t = E (rt | I t −1 ) ,                                                            (8)
+
+
+
+                                                                                                      4
+and we define risk related to the alpha expectation as the conditional covariance of the
+forecast errors
+        Ω t = E[(rt − α t )(rt − α t )' | I t −1 ] ,                                (9)
+where α t and rt are N × 1 vectors with α it and rit as their elements respectively. The
+assumption of asset return normality is one of the fundamental assumptions under
+Markowitz's mean-variance portfolio choice theory, and the mean and covariance matrix
+fully determine a multivariate normal distribution. Under the residual return normality
+assumption, the covariance of the forecast errors is the relevant measure of risk. There is
+risk because there is uncertainty, and risk is associated to the part of return that we are not
+able to predict. If we know the future returns perfectly then there is no uncertainty, hence
+no risk. The conditional risk associated with our alpha estimate should be smaller than
+the total risk around the unconditional alpha expectation. If this is not the case, then the
+forecast provides no additional information and the lagged information set, I t −1 , is
+useless. This is the major difference between the risk model used in this paper and the
+risk models used in Grinold (1989, 1994), Grinold and Kahn (2000), Clarke et al. (2002),
+Qian and Hua (2004), and Ye (2008). Of course, the assumption of stock return normality
+may not be valid in practice, and the return and risk models one uses are very likely mis-
+specified, which may cause theoretically derived results not to reflect what one gets in
+reality. I will give some discussion later on the impact of missing alpha or risk factors in
+conditional mean and covariance modeling.
+
+After having specified the conditional mean and covariance matrix, we will then use the
+mean-variance analysis tool for portfolio construction based on the theory of utility
+maximization. In each period t, the optimal market-neutral portfolio, Pt , is selected to
+maximize the mean-variance utility function:
+                            1                 1
+        Max U t = α Pt − λσ Pt2 = ∆w t ' α t − λ∆w t ' Ω t ∆w t
+         ∆w t               2                 2                 ,                    (10)
+        s.t.    ∆w t '1 = 0
+where
+       α Pt = expected active return on the portfolio
+        σ Pt2 = active risk of the portfolio based on the portfolio holdings
+        λ = a risk-aversion parameter
+        1 = N × 1 vector of 1s
+The solution for this optimization problem is
+               1
+       ∆w t = (Ω t−1α t − κ Ω t−11) ,                                                  (11)
+               λ
+           α t ' Ω t−11
+where κ =               is a scalar.
+            1' Ω t−1 1
+A certain value of λ corresponds to a certain value of σ Pt since
+        ∆w t ' Ω t ∆w t = σ Pt2 .                                                      (12)
+Substituting (11) into (12) and by some straightforward algebra we have
+
+
+
+                                                                                              5
+                1
+        λ=              α t ' Ω t−1α t − κ 1' Ω t−1α t .                              (13)
+             σ Pt
+The optimal portfolio active weight is then
+                          Ω t−1 (α t − κ 1)
+        ∆w t = σ Pt                             ,                                     (14)
+                        α t ' Ω t−1 (α t − κ 1)
+and the expected portfolio return
+        α Pt = ∆w t ' α t
+                                                                                      (15)
+             = σ Pt α t ' Ω t−1 (α t − κ 1) .
+If we assume that the target tracking error remains a constant ( σ Pt = σ P ) at each
+rebalance of the portfolio, a typical practice for many quantitative portfolio managers,
+then the ex ante expected information ratio of the portfolio is
+             α      1 T α
+        IR = Pt = ∑ Pt
+              σ P T t =1 σ P
+                1 T
+            =     ∑ α t ' Ωt−1 (α t − κ 1)
+                T t =1
+                                                                                      (16)
+
+                    (
+            = E α t ' Ω t−1 (α t − κ 1) .     )
+This is a very general result that should hold as long as the residual return has a
+conditional normal distribution with mean α t and covariance matrix Ω t .
+
+From the above discussion, it is clear that the key is how to forecast the alpha and the
+corresponding covariance matrix. As Kahn (1997) points out "active management is
+forecasting." Different forecasts will give us different ex ante expected information
+ratios. In the literature, two different approaches are used to forecast alpha. One uses time
+series models and the other uses a Fama-McBeth type cross-sectional regression
+approach. As for covariance matrix, many people use a risk model that does not have a
+direct relationship with the alpha estimation, such as the commercial risk models by
+BARRA or Northfield. Strictly speaking, a risk model that is detached from the alpha
+model will be a mis-specified risk model for the reasons discussed above. This mis-
+specification usually results in the underestimation of risk when one runs an actual
+portfolio because the very important "strategy risk" is being left out (see Qian and Hua
+(2004), Qian, Hua, and Sorensen (2007)).
+
+Time Series Dynamics
+
+In the original papers about the fundamental law, Grinold (1989, 1994) concluded that
+"alpha is volatility times IC times score" without providing the explicit model
+assumptions and technical derivations of his result. In the endnote of his first paper
+(1989) he did mention that technical details are available upon request. Detailed
+discussions were given instead in Chapters 10 and 11 of the book by Grinold and Kahn
+(2000). Unfortunately, even though their Equation (10.1) is assumed to be for a cross
+section of N assets, the result in (10.16) is derived through a time series model for each of
+the N individual assets. They then use the time series IC and cross-sectional IC
+
+
+                                                                                             6
+interchangeably. The discussion below will show that the result from time series
+modeling assumptions cannot be applied to cross-sectional modeling structures without
+some further assumptions.
+
+If we assume that the true forecasting relationship between the lagged information set,
+I t −1 , and the residual returns, rit , is a linear one factor model as follows
+         rit = g i z it −1 + ε it                                                                 (17)
+for security i over time t = 1, 2, 3, ..., T. In the equation, g i is the time series factor
+return ( g i is just a regression coefficient and is different from the usual definition of
+factor return from a cross-sectional regression) for security i, zit −1 is the factor exposure
+that becomes known at the end of time t-1 that has both time series and cross-sectional
+mean 0 and standard deviation 1 (as assumed by Grinold and Kahn (2000), p268),
+ε it ~ N (0, σ ε2i ) is the idiosyncratic noise that cannot be predicted. We further assume
+        T1) E ( z it −1ε it ) = 0 for all i and t,
+and
+        T2) E (ε it ε jt ) = 0 for i ≠ j .
+T1) is a very general assumption for linear regression models stating that the explanatory
+variable and the residual are not correlated, and T2) assumes that the forecast errors are
+not correlated across stocks so that the idiosyncratic covariance matrix is diagonal. This
+is also a common assumption for idiosyncratic noise.
+
+For ease of exposition, we will focus our attention on population quantity and ignore the
+sample estimation error of the parameters. Basic regression of Equation (17) gives us,
+        g i = Var −1 ( zi ) Cov( zi , ri )
+                     Cov( zi , ri )       Var(ri )
+             =                                       ,                                            (18)
+                    Var( z i ) Var(ri )   Var( z i )
+             = IC ts , iσ ri / σ zi
+where IC ts , i is the time series correlation between residual return rit and forecast
+signal zit −1 , σ ri is the standard deviation (volatility) of residual return rit , and σ z i is the
+standard deviation (volatility) of zit −1 which is 1 by assumption. The time series prediction
+for alpha from this model is
+        α it = E ( rit | I t −1 ) = IC ts , iσ ri zit −1 ,                             (19)
+and the conditional volatility, or forecast error volatility, is
+        σ ε2i = Var(rit | I t −1 ) = (1 − IC ts2 , i )σ r2i .                          (20)
+It should be noted here that σ ri ≠ σ ε i when IC ts ,i ≠ 0 . As we discussed above for
+Equation (9), when the forecast signal zit −1 contains useful information for predicting
+residual return rit , then the resulting error variance ( σ ε2i ) should be smaller than the
+original unconditional residual return variance ( σ r2i ). This is the major difference
+
+
+
+                                                                                                         7
+between the risk estimate here and the risk estimate provided by any commercial risk
+model which has no connection with alpha estimation.
+
+Substituting the alpha and volatility prediction into Equation (16) we have the ex ante
+expected information ratio as
+                (
+        IR = E α t ' Ω t−1 (α t − κ 1)      )
+                  N IC 2 z 2                    N      IC ts ,i zit −1                 (21)
+           = E ∑                               ∑
+                           ts , i it −1
+                                         −    κ                             .
+                  i=1 1 − IC ts2 ,i                            2
+                                                i =1 (1 − IC ts , i )σ ri
+                                                                          
+                                                                         
+If we assume that the cross-sectional distribution of IC ts,i and zit −1 are independent, then as
+N becomes large, we have
+                         IC 2 z 2                          IC ts ,i zit −1  
+        IR = E  N Ecs  ts ,i it2−1  − Nκ Ecs                                 
+                          1    − IC                          (1 − IC ts2 ,i )σ r  
+                                      ts ,i                                   i 
+                                                                                      
+                         IC ts2 ,i                           IC ts ,i                   
+           = E  N Ecs                E z 2
+                                   2  cs it −1
+                                                − Nκ E    
+                                                       cs 
+                                                                                 E   z      
+                                                                                    cs it −1    (22)
+                
+                                                                    2                       
+                         1 − IC ts ,i                   (1 − IC ts ,i )σ ri             
+                 N      IC ts2 ,i
+           =   ∑ 1 − IC
+                i =1
+                                2
+                                        ,
+                                ts ,i
+
+where Ecs stands for the cross-sectional expectation operator. In deriving Equation (22)
+we used the assumption that the forecast signal, zit −1 , is cross-sectionally normalized to
+have mean 0 and standard deviation 1. When all the time series ICs are the same, i.e.
+IC ts , i = IC ts for all i, we have
+                    IC ts
+        IR =                        N ≈ IC ts N .                                                (23)
+                1 − IC ts2
+The approximation holds when IC ts is small which is typically the case in empirical work.
+
+Equation (23) proved that the original fundamental law of Grinold (1989) holds
+approximately under the time series model assumption when ICs are the same across all
+the assets and is small. The reason that the original formula of Grinold (1989) needs to be
+adjusted by 1 − IC ts2 is that we used the conditional volatility of the residual return
+instead of the unconditional one. Some interesting observations can be made from
+Equations (22) and (23). When one has the skill to predict some residual returns perfectly
+(some IC ts ,i = 1 ) then the IR shall go to infinity no matter what the breadth is. This makes
+intuitive sense because if one can predict some residual returns perfectly then she/he can
+make a sure bet on these stocks against the rest of the universe to achieve the desired
+excess return. The IR will be infinity since the optimization is set in such a way that one
+can take a leveraged bet. This is not a feature in the original Grinold formula which states
+that the IR will increase with the square root of N even if IC ts = 1 .
+
+
+
+                                                                                                        8
+If, instead of running a time series regression, we run a "mis-specified" cross-sectional
+regression for the model in Equation (17),
+         rit = f t zit −1 + ξ it                                                        (24)
+for cross-sectional security i = 1, 2 ,..., N at time t. A simple cross-sectional regression
+gives us
+          f t = Ecs ,t (rit z it −1 ) / Ecs ,t ( zit2−1 )
+                         Ecs ,t (rit z it −1 )           Ecs ,t (rit2 )
+               =
+                     Ecs ,t (rit2 ) Ecs ,t ( zit2−1 )   Ecs ,t ( zit2−1 )                     (25)
+               = IC cs ,t d (rt ) / d (z t −1 )
+               = IC cs ,t d (rt ) ,
+where Ecs ,t stands for the cross-sectional expectation operator at time t, IC cs ,t is the
+cross-sectional correlation between residual return rit and forecast signal zit −1 , d (z t −1 ) is
+the cross-sectional standard deviation (dispersion) 2 of zit −1 , which is 1 by assumption,
+and d (rt ) is the cross-sectional residual return dispersion at time t.
+
+The expected value of f t is
+       f = E ( f t ) = E ( Ecs ,t (rit zit −1 )) = Ecs ,t ( E (rit zit −1 ))
+              = Ecs ,t ( E (( g i zit −1 + ε it ) zit −1 ))
+                                     1 N
+              = Ecs ,t ( g i ) =       ∑ gi
+                                     N i =1
+                                                                                              (26)
+
+             1 N
+              =∑ ICts ,iσ ri .
+             N i=1
+On the other hand, if we assume IC cs,t and d (rt ) are independent over t, then from
+Equation (25) we have
+        f = E( ft )
+              = E (IC cs ,t d (rt ))
+                                                                                              (27)
+              = E (IC cs ,t ) E (d (rt ))
+               = IC csδ ,
+where δ = E (d (rt )) is the expected cross-sectional residual return dispersion.
+Substituting (26) into (27) we have
+                     1 N
+          IC cs = ∑ IC ts ,iσ ri / δ ,                                                 (28)
+                     N i =1
+i.e., the expected cross-sectional IC, IC cs , is a weighted average of time series ICs and
+they are usually not the same. If the time series ICs are the same across all securities,
+i.e., IC ts ,i = IC ts for all i then
+
+
+
+
+                                                                                                      9
+                      1 N
+        IC cs = IC ts ∑ σ ri / δ = IC tsσ~r / δ ,                                        (29)
+                     N i=1
+              1 N
+where σ~r = ∑ σ ri is the cross-sectional average of the residual return standard
+              N i =1
+deviation. So as long as σ~r ≠ δ , we have the seemly surprising result that the cross-
+sectional IC cs will be different from the time series IC ts even if the time series ICs are the
+same across all securities.
+
+In the extreme case that all residual return standard deviations are the same, i.e. σ ri = σ r
+for all i, we have σ~ = σ = δ and IC = IC .3 So the discussion here shows that the
+                     r      r             cs       ts
+cross-sectional IC is usually different from the time series IC for an identical set of return
+and factor exposures. They will only be the same under the very strong assumption that
+the residual return volatilities are the same across all securities.
+
+Given the "mis-specified" cross-sectional model prediction for each individual security,
+       α it = IC csδ zit = IC tsσ~r zit ,                                          (30)
+we have the forecast error term as
+       ξ it = IC tsσ ri zit − IC csδ zit + ε it = IC ts (σ ri − σ~r ) zit + ε it , (31)
+which is different from ε it . The conditional covariance matrix has the following elements:
+        ωij = E (ξ it ξ jt )
+              IC 2 (σ − σ~r ) 2 + (1 − IC ts2 )σ r2i when i = j                        (32)
+            =  ts ri
+              0                                            when i ≠ j
+Substituting (32) into (16) we have
+                N           IC 2 σ~ 2 z 2 − κ IC tsσ~r zit     
+        IR = E  ∑ 2 ts r ~it 2                                 .                      (33)
+                i =1 IC ts (σ r − σ r ) + (1 − IC ts2 )σ r2 
+                                i                            i 
+
+
+If we assume that the cross-sectional distribution of σ ri and zit are independent, then as N
+becomes large, we have
+                     N
+                                               1
+        IR = IC ts   ∑ IC (σ / σ~ − 1) + (1 − IC )(σ / σ~ ) .
+                     i =1
+                            2             2             2             2
+                                                                                        (34)
+                            ts   ri   r                 ts   ri   r
+
+When all the residual return volatilities are the same we have
+                IC ts
+        IR =              N ≈ IC ts N ,                                             (35)
+               1 − IC ts2
+which is consistent with the result from time series model. When the individual residual
+return standard deviation varies across securities, the IR we get from the mis-specified
+cross-sectional model will be different from the IR we get from the time series model.
+
+The discussion above shows that the original fundamental law of Grinold (1989, 1994)
+only holds under the assumption that the time series ICs are the same across all the
+securities and the common IC is small. The cross-sectional IC is only the same as the
+
+
+                                                                                               10
+time series IC if an additional assumption is imposed that all residual return standard
+deviations are the same (Ye (2008) made this assumption).
+
+In practice, the above two assumptions (time series ICs and residual return volatilities are
+the same across all securities) are overly restrictive and we can almost surely say they do
+not hold. As an example, I calculated monthly means and standard deviations for time
+series and cross-sectional ICs for book/price ratio (B/P) and Momentum factors for US
+stocks in Table 1. The top panels in Figures 1 and 2 show the time series IC distributions
+for both factors. It can be seen that the time series ICs have a normal-like distribution
+with high dispersion. The bottom panels in Figures 1 and 2 show the cross-sectional IC
+distributions for both factors. It can be seen that the cross-sectional ICs are more highly
+concentrated and are positively skewed.
+
+It is also interesting to see that the average time series ICs for B/P are much higher than
+the average cross-sectional ICs, especially if the time series B/P is not standardized. The
+average time series ICs for momentum are negative whether you standardize them in one
+or both dimensions. The average momentum factor cross-sectional IC is positive only if
+one does not standardize the exposures in the time dimension.
+
+Further research shows that the basic form of the fundamental law under the time series
+model assumptions does not change even if I assume the time series ICs to be different
+across stocks and follow certain cross-sectional distributions (such as a Beta distribution
+in the range of -1 to 1).
+
+  Table 1. Mean and Standard Deviation for Factor IC (Time Series and Cross-Section)
+Factors                             Time Series                Cross-Section
+                             mean       std         n      mean       std       n      t-test
+Original Signal
+B/P                       0.088        0.176      15232   0.017      0.062     412     1.82
+MOM                       -0.028       0.152      15232   0.025      0.099     412     -1.58
+Both Dimension Normalized
+B/P                       0.087        0.175      15232    0.050     0.072     412     0.94
+MOM                       -0.028       0.152      15232   -0.003     0.085     412     -0.74
+
+
+
+
+                                                                                          11
+       Figure 1. Histogram for Time Series and Cross-Sectional Correlation
+                           One dimension standardized
+                                                         Book to Price Ratio                                                                       Momentum
+                          1000                                                                                       1200
+
+                                                                                                                     1000
+                              800
+
+                                                                                                                          800
+
+
+
+     Time Series                                                                                   Time Series
+                              600
+                                                                                                                          600
+                              400
+                                                                                                                          400
+
+                              200
+                                                                                                                          200
+
+
+                                   0                                                                                       0
+                                    -1            -0.5              0            0.5          1                             -1           -0.5              0       0.5           1
+
+
+
+
+                                                         Book to Price Ratio                                                                       Momentum
+                              120                                                                                         120
+
+                              100                                                                                         100
+
+
+                               80                                                                                         80
+
+
+
+              Cross Section                                                                              Cross Section
+                               60                                                                                         60
+
+                               40                                                                                         40
+
+                               20                                                                                         20
+
+
+                                0                                                                                           0
+                               -0.4       -0.3      -0.2     -0.1        0     0.1     0.2   0.3                           -0.6     -0.4          -0.2         0     0.2         0.4
+
+
+
+
+       Figure 2. Histogram for Time Series and Cross-Sectional Correlation
+                          Both dimensions standardized
+                                                         Book to Price Ratio                                                                        Momentum
+                   1000                                                                                                  1200
+
+                                                                                                                         1000
+                         800
+
+                                                                                                                          800
+
+
+
+Time Series                                                                                        Time Series
+                         600
+                                                                                                                          600
+                         400
+                                                                                                                          400
+
+                         200
+                                                                                                                          200
+
+                              0                                                                                             0
+                               -1                -0.5               0           0.5          1                               -1          -0.5              0        0.5              1
+
+
+
+
+                                                         Book to Price Ratio                                                                        Momentum
+                         100                                                                                              120
+
+                                                                                                                          100
+                              80
+
+                                                                                                                           80
+
+
+
+      Cross Section                                                                                       Cross Section
+                              60
+                                                                                                                           60
+                              40
+                                                                                                                           40
+
+                              20
+                                                                                                                           20
+
+
+                              0                                                                                             0
+                              -0.2       -0.1       0        0.1        0.2    0.3     0.4   0.5                           -0.4   -0.3     -0.2     -0.1       0   0.1     0.2    0.3
+
+
+
+
+                                                                                                                                                                                         12
+Cross-Sectional Properties
+
+The above discussion shows the assumption that all time series ICs are the same is not
+realistic. I will show below it is also not necessary in deriving the (generalized)
+fundamental law. In empirical finance work, many people use a Fama-McBeth type
+cross-sectional regression in relating the explanatory variables with asset returns.
+Ibragimov and Müller (2009) find that as long as the cross-sectional coefficient
+estimators are approximately normal (or scale mixtures of normals) and independent, the
+Fama-MacBeth method results in valid inference even for a short panel that is
+heterogeneous over time. Due to the small sample conservativeness result, the approach
+allows for unknown and unmodelled heterogeneity. Peterson (2009) shows that when the
+residuals of a given time period are correlated across firms, the Fama-McBeth method
+produces more efficient estimates than OLS and the standard error will be correct.
+Another advantage is that the assumptions we have to make to achieve the kind of
+fundamental law are much weaker than the assumptions we have to make in the time
+series section.
+
+Assume the basic modeling structures are similar to Equation (17), only this time we
+have the relationship at time t for i = 1, 2, 3, ..., N assets,
+        rit = f t zit −1 + ε it                                                   (36)
+where f t is the cross-sectional factor return at time t, zit −1 is the factor exposure that
+becomes known at the end of time t-1 that has both time series and cross-sectional mean
+0 and standard deviation 1, ε it ~ N (0, σ ε2i ) is the idiosyncratic noise that cannot be
+predicted. We will make the same assumptions as in time series model concerning
+zit −1 and ε it :
+       C1) E ( zit −1ε it ) = 0 for all i and t,
+and
+       C2) E (ε it ε jt ) = 0 for i ≠ j .
+
+Under the above assumptions, we have,
+        f t = IC t d (rt ) ,                                                          (37)
+where d (rt ) is the cross-sectional residual return dispersion assumed to be a constant ( δ )
+over time,4 and IC t is the cross-sectional IC (all the ICs discussed in this section will be
+cross-sectional IC unless otherwise specified) between the residual returns and the
+forecast signals. In empirical work, one needs to get an ex ante estimate for the cross-
+sectional correlation IC t before making an estimate for the alpha. The most common and
+simple method just uses historical average as an estimate. After the fact we can estimate
+the ex post realized IC t using the actual rit and zit −1 . As shown in the bottom panels of
+Figures 1 and 2, usually the cross-sectional factor IC spreads around a mean. For ease of
+exposition below, we will assume that the cross-sectional factor IC t follows a normal
+distribution with mean IC and standard deviation σ IC . 5
+
+
+
+
+                                                                                             13
+When the alpha model has the linear one factor structure in Equation (36) and under the
+above assumptions, we have the conditional expectation (on known z t −1 ) of rt as
+        α t = E (rt | I t −1 ) = ICδ z t −1 ,                                               (38)
+and the conditional covariance as
+                                                        2
+        Ω t = E ((rt − α t )(rt − α t )' | I t −1 ) = σ IC δ 2 z t −1z t −1 '+ Σ t ,        (39)
+where Σ t is the conditional covariance matrix of ε t which should be diagonal according to
+assumption C2) above 6
+       Σ t = diag (σ ε21 , σ ε22 , L , σ ε2n )                                      (40)
+where σ ε2i = σ r2i − (IC 2 + σ IC2 )δ 2 .
+
+Given the above modeling assumptions and by some straightforward algebra, it is shown
+in Appendix A that the ex ante expected portfolio excess return at time t to be
+                         IC
+       α Pt = σ Pt                  ,                                           (41)
+                                 2
+                   1 /(φ N ) + σ IC
+where φ ≥ 1 is a constant that is defined in Appendix A.
+
+So the so-called fundamental law in the more general form should be
+               α               IC
+          IR = Pt =                        .                                          (42)
+                σ Pt     1 /(φ N ) + σ IC2
+The portfolio IR is positively related to the average cross-sectional IC (skill) and the
+square root of N (breadth), but inversely related to the cross-sectional IC standard
+deviation, σ IC (Qian and Hua (2004) call this strategy risk). This result should not be
+surprising to any student of modern portfolio theory. Basically it states that for a portfolio
+built upon a sufficiently large universe (large N ), the main risk of the portfolio comes
+from the bet on the alpha factor that has an uncertain (but positive average) payoff stream
+(strategy risk). As the universe (N) becomes larger, the impact of the idiosyncratic risk
+( 1 /(φ N ) part in the formula) will diminish. Three interesting special cases emerge from
+Equation (42):
+
+     1) if the cross-sectional IC t is a constant over time, i.e., σ IC = 0 , and all the residual
+          return standard deviations ( σ ri ) are the same across assets (hence φ = 1 /(1 − IC 2 ) )
+        then we have IC = IC ts , and the adjusted Fundamental Law of Grinold (1989) we
+                                                                  IC
+        derived in the time series dynamics section: IR =                N ≈ IC N .
+                                                               1 − IC 2
+     2) when the breadth goes to infinity, or N >> 1 /(φσ IC2 ) , then we have the IR formula
+          of Qian and Hua (2004): IR = IC / σ IC . The formula by Qian and Hua (2004) is
+          interesting in that they got the final result almost right even though they used a
+          conditional covariance matrix that is inconsistent with their alpha forecast
+          assumptions. They realized that there is a "strategy risk" which is a form of
+          systematic risk for their bets. But they missed this risk in their ex ante risk model
+
+
+                                                                                                     14
+       because they used a third party risk model that is detached from their alpha
+       model. This is common to all quantitative strategies that use a third party risk
+       model. Lee and Stefek (2008) give a very good discussion on this topic. The ex
+       post realized portfolio risk is mainly from the "strategy risk" that cannot be
+       diversified away by the optimal portfolio. That is why their ex ante target tracking
+       error is so different from the ex post tracking error they derived.
+    3) if all the residual return standard deviations ( σ ri ) are the same at time t but the IC
+        volatility is not zero (hence φ = 1 /(1 − IC 2 − σ IC2 ) ), then we have approximately
+                                                              IC                      IC
+        the IR formula of Ye (2008) IR =                                      ≈
+                                                        2        2          2               2
+                                                (1 − IC − σ IC ) / N + σ IC       1 / N + σ IC
+        (empirically factor IC is in the range of 0.02 to 0.05 and IC standard deviation is
+        around 0.1). The approximation results from Ye (2008) using the unconditional
+        residual return standard deviation in her risk model instead of the conditional
+        idiosyncratic error standard deviation that is consistent with the alpha model. In
+        this formula we will also have the property that IR will go to infinity when IC=1
+        and σ IC = 0 no matter what the breadth (N) is, while Ye's original formula does
+        not have this feature.
+
+It should be noted that the ex ante and ex post IR calculation should be very close if the
+return and risk models are correctly specified (which is a strong assumption!). The
+difference between the ex ante and ex post IR should be a result of standard error in
+parameter estimation. As the sample size gets bigger, the difference should get smaller. If
+this is not the case, then we can be quite sure that the ex ante model specification is
+incorrect. Since we ignored the sample estimation error in this paper, we should expect
+the ex ante and ex post IR to be the same when the model is correctly specified.
+
+As an example, let us look at the realized portfolio excess returns from the above model
+and calculate the ex post IR based on the realized alphas. For ease of exposition, I will
+assume φ = 1 /(1 − IC t2 − σ IC
+                             2
+                                ) (as will be shown in next section, this is true if we use risk-
+adjusted residual returns in analysis). The realized one period portfolio alpha from the
+return and risk model is (based on Equation 41)
+                                 IC t
+        α Pt = σ Pt                                ,                                      (43)
+                    (1 − IC t − σ IC2 ) / N + σ IC
+                             2                  2
+
+
+where σ Pt is the ex ante portfolio tracking error target set as a constant ( σ Pt = σ P ). For a
+specific time period, IC t can be positive or negative which will result in positive or
+negative excess return for the portfolio. The portfolio average excess return over time is
+then
+
+
+
+
+                                                                                               15
+                 1 T
+        α Pt =     ∑ α Pt
+                 T t =1
+                      1 T                IC t
+            =σP         ∑
+                      T t =1 (1 − IC t2 − σ IC2 ) / N + σ IC
+                                                          2
+                                                                                      (44)
+               1 T IC
+            ≈σP ∑ t                   when N is large
+               T t =1 σ IC
+                          IC
+            =σP                ,
+                      σ IC
+and the standard deviation of the portfolio average excess return is
+                                             IC t           
+        Std (α Pt ) = σ P Std                               
+                               (1 − IC 2 − σ 2 ) / N + σ 2 
+                                           t   IC        IC 
+
+                    ≈ σ P Std (IC t ) / σ IC    when N is large                       (45)
+                 =σP .
+The ex post realized portfolio IR is then
+                   α Pt
+        IR =
+                 Std (α Pt )
+                                                                                      (46)
+                 IC
+           ≈          .
+               σ IC
+The approximation holds when N is large. Equation (46) is the same as the ex post IR
+formula derived by Qian and Hua (2004).
+
+The interesting extreme case comes when σ IC = 0 , i.e., the true IC t is a constant over
+time as assumed by Grinold (1989) and Clarke et al (2002). Then the differences among
+the ex post estimated IC t are purely a result of sample estimation error. As N gets larger
+and larger, one gets a more and more precise estimate for IC and the investment risk
+becomes smaller and smaller. The strategy ultimately becomes a money machine when N
+is large enough. As discussed in Qian, Hua and Sorensen (2007, p96), the quantity
+  (1 − IC 2 ) / N is the standard error of the sample correlation coefficient with a sample of
+size N. So Equations (44) and (45) become
+                     1 T       IC t
+         α Pt = σ P ∑
+                    T t =1 (1 − IC t2 ) / N
+                      1 T        IC t
+            ≈σP         ∑
+                      T t =1 (1 − IC 2 ) / N
+                                                                                      (47)
+
+                       IC
+            =σP
+                      σˆ IC
+and
+
+
+
+
+                                                                                             16
+                                     IC t      
+        Std (α Pt ) = σ P Std                  
+                               (1 − IC 2 ) / N 
+                                         t     
+                                σˆ IC
+                    ≈σP                                                               (48)
+                            (1 − IC 2 ) / N
+                 =σP .
+So the portfolio excess return mean and standard deviation estimates here still give
+                 α Pt
+        IR ≈
+               Std (α Pt )
+                                                                                      (49)
+              IC
+           =       .
+             σˆ IC
+I used IC , σˆ IC to distinguish the sample mean and standard deviation from the population
+values for this special case. The results here show that the ex post portfolio excess return
+is proportional to targeted portfolio tracking error, σ P , i.e., the more risk one takes, the
+more return one gets. This is consistent with the fundamentals of financial economics.
+The ex post portfolio excess return is also positively related to one’s skill that is
+represented by the average IC one can achieve, and inversely related to the volatility of
+the skill, σ IC , i.e., the more volatile the skill, the less excess return one can get. The
+result also shows that when the risk model, which is represented by the conditional
+covariance matrix of the forecasting errors, is correctly specified, then the ex post
+realized portfolio tracking error should be very close to the ex ante target tracking error
+one sets.
+
+Figure 3 plots the relationship between portfolio IR and breadth N for various forms of
+the fundamental law discussed above. The parameters are assumed to be IC=0.03,
+σ IC = 0.1 and φ = 2 . The portfolio IR based on the Grinold fundamental law increases at
+the rate of the square root of breadth N. As the breadth increases, the portfolio IR will
+increase without a limit. According to our analysis above, this is true if the manager can
+pick stocks consistently at certain skill level (so that the cross-sectional IC is a constant
+over time). In reality, this is hardly the case. A forecast signal's IC changes constantly
+over time, and σ IC ≠ 0 . Under this more realistic situation, the fundamental law by Qian
+and Hua (2004) sets a "Chinese Wall" as the limit one can achieve. According to Qian
+and Hua, as long as IC / σ IC does not improve, one will not be able to improve the
+performance even if the breadth increases.
+
+The fundamental law by Ye (2008) bridges the gap between Grinold's original formula
+and Qian and Hua's limit formula. At the limit as N → ∞ , it collapses to Qian and Hua's
+formula. The ex ante IR we derived in Equation (42) is more realistic than Ye's
+calculation in that it allows the residual returns to have different standard deviations. It
+can be seen that our IR calculation is higher than Ye's but lower than Qian and Hua's.
+
+                        Figure 3. Various Forms of the Fundamental Law
+
+
+                                                                                             17
+                                                    (IC=0.03, σ IC = 0.1 , φ = 2 )
+
+                    1
+
+
+                   0.9
+
+
+                   0.8
+                                                                    Grinold & Kahn
+
+
+                   0.7
+
+
+                   0.6
+
+
+
+              IR   0.5
+
+
+                                                            Qian & Hua:
+                   0.4                                      "The Chinese Wall"
+
+
+                   0.3
+
+
+                   0.2
+                                                                                            Ye
+                                       Ding
+
+                   0.1
+
+
+                    0
+                         0       100          200     300     400         500        600   700   800   900   1000
+                                                                        Breadth
+
+
+
+Our discussion above shows that the marginal contribution of breadth (N) on portfolio IR
+diminishes as N increases. Here we are using the number of stocks in the selection
+universe as breadth, which may not be the same as what Grinold uses for breadth in his
+original paper. Grinold (1989) gives a quite lengthy discussion on the importance of
+independent bets when determining what N is. For example, one should not count two
+dependent bets as different bets. In practice, it is quite difficult to quantify dependent bets
+and to make appropriate adjustments. The formula in (42) shows that even if N increases,
+the portfolio IR will not improve much for a typical investment universe of 1000 or 2000
+stocks as long as the average IC and volatility of IC stay the same. The important thing is
+to play often (try to increase N) when N is small but to play precisely (low σ IC ) and to
+play well (high IC) when N is already large.
+
+In Figure 3, we assumed φ to be a constant over time. In reality, it is well known that
+stock returns exhibit heteroskedasticity so φ will be time varying too. Figure 4 shows the
+estimated φ values for Russell 1000, 2000 and 3000 universe from 1978:12 to 2009:08
+assuming an IC of 0.03 and σ IC of 0.1. We can observe the following:
+    1) φ is time varying,
+    2) usually the bigger the sample size, the larger the φ is,
+    3) the minimum value of φ is around 1.5, and during most times φ is within the range
+        of (1.5, 2),
+    4) there was a dramatic bubble-burst period for φ during the tech bubble time of 1999
+        to 2002.
+
+                             Figure 4. φ Values for Different Universes over Time
+
+
+                                                                                                                    18
+              4.0
+                            R1000
+                            R2000
+              3.6
+                            R3000
+
+              3.2
+
+
+              2.8
+
+
+              2.4
+
+
+              2.0
+
+
+              1.6
+                    1.5
+              1.2
+                     1980     1985    1990     1995          2000   2005
+
+
+Table 2 shows the average number of stocks ( N ), average φ ( φ ), N φ , and 1 / N φ for
+Russell universes of stocks. It will be seen later that for most quantitative factors people
+use, 1 / N φ is much smaller than the factor IC standard deviation, which suggests that
+for the most commonly used investment universes the Grinold factor ( 1 / N ) has a much
+smaller impact than the Qian and Hua factor ( σ IC ). This is also obvious from Figure 3.
+
+           Table 2. Average Number of Companies and φ for Russell Indices
+                                 (1978:12-2009:8)
+            Index                     N               φ               Nφ         1/ N φ
+ Russell 1000                         949             1.74           1653         0.025
+ Russell 1000 Growth                  507             1.66            843         0.034
+ Russell 1000 Value                   578             1.57            908         0.033
+ Russell 2000                        1833             2.01           3685         0.016
+ Russell 2000 Growth                 1249             1.88           2347         0.021
+ Russell 2000 Value                  1300             1.90           2465         0.020
+ Russell 3000                        2782             2.12           5903         0.013
+ Russell 3000 Growth                 1756             1.95           3425         0.017
+ Russell 3000 Value                  1878             1.99           3729         0.016
+
+
+Robustness of the Fundamental Law to Model Specification
+
+In deriving the generalized fundamental law in Equation (42), we assumed the true
+relationship to be a linear one factor model between the residual return and the forecast
+signal. The residual returns are not risk-adjusted. The cross-sectional heteroskedasticity
+
+
+                                                                                          19
+across residual returns resulted in the φ parameter in Equation (42). In practice, people
+may use risk-adjusted residual return as dependent variable to correct for the cross-
+sectional heteroskedasticity, i.e.,
+                            ~
+        rit = rit / σ rit = f t zit −1 + ε~it ,
+        ~                                                                             (50)
+where ~r is the risk-adjusted residual return, σ is the conditional volatility for residual
+        it                                        rit
+                         ~
+return rit as of time t, f t is the cross-sectional factor return at time t (which will be
+different from the factor return in Equation (36)), zit −1 is the factor exposure that has both
+time series and cross-sectional mean 0 and standard deviation 1, ε~ ~ N (0, σ~ 2 ) is the
+                                                                      it          εi
+idiosyncratic noise that cannot be predicted. Under these assumptions, we will have the
+                                                                                           ~
+cross-sectional IC between risk-adjusted residual return ~
+                                                         rit and zit −1 to be the same as f t ,
+i.e.,
+          ~                            ~
+        IC t = corr(~ rit , zit −1 ) = f t ,                                           (51)
+and
+                     ~
+        σ~ε2i = 1 − IC 2 − σ~IC2 ,                                                     (52)
+         ~                                                    ~
+where IC and σ~ are the mean and standard deviation of IC . By using the same
+                  IC                                              t
+algebra in the previous section, we can get
+                            ~
+         ~                 IC
+        IR =         ~                       .                                          (53)
+               (1 − IC 2 − σ~ 2 ) / N + σ~ 2
+                            IC         IC
+
+The formula is identical to Equation (42) when φ = 1 /(1 − IC 2 − σ IC2 ) , i.e., when the
+residual standard deviations are the same across all the securities. One thing we have to
+                ~
+be aware of is IC and σ~IC2 in Equation (53) will be different from IC and σ IC2 in Equation
+(42).
+
+The above discussion shows that the form of the fundamental law is quite robust to the
+forecast model specification. In both cases, the most important impact to portfolio IR is
+the IC volatility over time. One insight from Equations (42) and (53) is that a quant
+manager should preprocess the residual returns and factor exposures in such a way so that
+the resulting cross-sectional IC will have a higher average and lower standard deviation.
+One disadvantage with the model specification in Equation (50) is that one has to
+estimate the conditional volatility σ rit which can involve estimation errors. A GARCH
+type model will be useful for this purpose.
+
+Multifactor Fundamental Law and the Impact of Missing Factors
+
+The fundamental law we discussed so far only concerns one factor. In practice, analysts
+or portfolio managers rarely use only one factor. Residual return forecast almost always
+involves multiple factors. It will be interesting to see the form of fundamental law with
+multiple factors and study the consequences of missing one or more factors in modeling.
+In deriving the fundamental laws presented in previous sections, we either made the
+assumption that the residual return dispersion is a constant over time or used the risk-
+
+
+                                                                                               20
+adjusted residual return in analysis. But this is not necessary if we work on residual
+security returns and factor returns directly.
+
+If we assume residual returns follow a linear relationship with factor exposures
+        rt = Z t −1Ft + ε t ,                                                              (54)
+where rt is an N × 1 vector of residual returns, Z t −1 is an N × K matrix of factor
+exposures, Ft is a K × 1 vector of factor returns, and ε t is an N × 1 vector of
+idiosyncratic noise. It is shown in Appendix B under some weak regularity conditions
+that the ex ante expected portfolio IR has the following relationship with the expected
+factor return (F) and factor return covariance ( Σ F )
+        IR = F ' (1 /(τ N )I + Σ F ) −1 F
+                                                                                           (55)
+                        -1
+             ≈ F' Σ F   F
+
+where τ = Ecs (1 / σ ε2i ) represents part of the risk related to idiosyncratic noise. As in the
+univariate case, this part of the risk will be diversified away as N gets larger, and the
+remaining dominant risk is the "strategy risk" represented by the factor return covariance
+that cannot be diversified away. When there is only one factor, Equation (55) reduces to
+                                 f
+        IR =
+                ( Ecs (1 / σ ε i )) −1 / N + σ 2f
+                             2
+
+                                                                                           (56)
+               f
+           ≈       .
+               σf
+So the expected portfolio IR is just the IR of the factor-mimicking portfolio.
+
+If, instead of using the raw residual return in Equation (54), we use the risk-adjusted
+residual returns, then the multi-factor fundamental law in Equation (55) becomes (see
+Appendix B)
+        IR = IC' (σ ε2 / N I + Σ IC ) −1 IC
+                                                                                           (57)
+             ≈ IC' Σ -IC1 IC ,
+                    K
+where σ ε = (1 − ∑ (σ IC2 ,k + IC k2 )) is the variance for idiosyncratic noise, IC is the cross-
+         2
+
+                    k =1
+sectional correlation vector between factor exposures and risk-adjusted residual returns,
+and Σ IC is the factor IC covariance matrix. Equation (57) reduces to Equation (53) when
+there is only one factor.
+
+The above conclusion is based on the assumption that the model is correctly specified
+which is almost surely not the case in practice. A natural question to ask is what happens
+if the return or risk model is mis-specified. With the fundamental law in multi-factor
+format, we can easily study the impact of missing one or more return or risk factors. For
+ease of exposition, I will only present the analysis for a 2-factor system here. More
+detailed analysis with missing multiple factors can be found in Appendix B. In the
+analysis below, I will not purposely distinguish risk factors from alpha factors.
+
+
+                                                                                                  21
+Statistically, the only difference should be that the expected IC (or factor return) for risk
+factor is zero while that for alpha factor is different from zero.
+
+For a 2-factor system, Equation (B15) reduces to
+                               IC  2  IC  2      IC1 IC 2                 
+         IR ≈
+                       1           1 
+                                         +    2 
+                                                   −2              ρ IC1 ,IC2 
+                                             
+              1 − ρ IC1 ,IC2   σ IC1   σ IC2 
+                    2                                                          
+                                                     σ IC1 σ IC2              
+                           2                                            2
+               IC         1          IC 2                 IC1 
+            =  1 +                         − ρ                                               (58)
+               σ IC  1 − ρ IC2 ,IC  σ IC       IC1 , IC 2
+                                                             σ IC1 
+               1              1   2      2
+
+
+             IC
+            ≥ 1 .
+               σ IC1
+
+
+where ρ IC1 ,IC2 is the time series correlation of the two factor ICs.
+
+From Equation (58), it is clear that a mis-specified model, whether it is mis-specified in
+the return forecast part or the risk forecast part, will almost always hurt the performance.
+For a missing return factor, the adverse impact comes from both the missing return
+forecast, IC 2 , and the resulting conditional covariance mis-specification, ( 1 − ρ IC2 1 ,IC 2 ).
+For a missing risk factor, the adverse impact only comes from the resulting conditional
+covariance mis-specification ( 1 − ρ IC2 1 ,IC 2 ). This is not surprising indeed! The only
+exception is when the missing factor is a risk factor and the risk factor IC is not time-
+series correlated with the return factor IC (i.e. when IC 2 = 0 and ρ IC1 ,IC2 = 0 ). When the
+risk factor is missing, the ex post realized portfolio tracking error will be larger than the
+ex ante targeted portfolio tracking error by a factor of 1 / 1 − ρ IC2 1 ,IC2 ≥ 1 . So if ρ IC1 ,IC2 is
+small, then the impact of missing a risk factor is small.
+
+
+Fundamental Law with Transfer Coefficient
+
+Clarke et al. (2002) proposed the concept of "transfer coefficient" to incorporate the
+impact of additional constraints into the fundamental law. They define the transfer
+coefficient as the cross-sectional correlation coefficient between the residual return
+volatility adjusted active weights and alphas
+         TC = corr(∆w  ~ σ ,α / σ )
+                        it ri   it     ri
+                       ~
+                cov(∆witσ ri , α it / σ ri )                                          (59)
+             =     ~ σ )d (α / σ )           .
+               d (∆w it ri       it     ri
+
+This definition has the desired property of measuring the impact of constraints on
+portfolio IR when the factor IC is a constant so that σ IC = 0 and the residual return
+covariance is a diagonal matrix. Under this assumption, the transfer coefficient is the
+ratio of the constrained portfolio IR and the unconstrained optimal portfolio IR
+
+
+
+                                                                                                       22
+          ~
+         IR = TC IR ,                                                                 (60)
+so the transfer coefficient does represent the portion of optimal portfolio IR that can be
+transferred into the constrained portfolio.
+
+Ye (2008) extended the transfer coefficient into her version of fundamental law with time
+varying IC. Using her approach, she got the following relationship
+         ~             IC
+        IR =                        .                                                  (61)
+               1 /( N TC 2 ) + σ IC
+                                 2
+
+
+One surprising observation from Equation (61) is that the transfer coefficient as derived
+by Ye (2008) will have diminishing impact as breadth N increases. The constrained
+portfolio IR will approach the unconstrained optimal portfolio IR as N increases (both
+approach IC / σ IC as N → ∞ ) no matter what constraints one imposes on the portfolio.
+This conclusion is quite counter-intuitive to practitioners as it can lead one to believe that
+any portfolio can have the same IR.
+
+So why does this happen? When the cross-sectional IC is time varying as discussed in Ye
+(2008) and this paper, the total risk of the residual return is no longer a diagonal
+covariance matrix. In fact the majority risk comes from the strategy risk which causes
+the off-diagonal elements of the conditional covariance matrix to be non-zero. The
+transfer coefficient will not have the desired property if we only use the diagonal portion
+of the conditional covariance matrix to adjust the weights and alphas in deriving the
+transfer coefficient. Under this more practical situation, the transfer coefficient needs to
+be redefined using the total risk adjusted active weights and alphas as follows:
+                        ∆w~ 'α
+                            t  t
+        TC =                              ,                                            (62)
+                  ~        ~
+                 ∆w ' Ω ∆w α ' Ω −1α
+                    t   t   t   t   t   t
+
+where ∆w  ~ is the active weights of the constrained portfolio. Using this modified transfer
+            t
+coefficient definition, we get the constrained portfolio's expected excess return as,
+        α~Pt = ∆w~ 'α
+                   t    t
+                 ~
+              = ∆w t ' Ω1t / 2 Ω t−1/ 2α t
+                                                                                      (63)
+              = Corr(Ω1t / 2 ∆w ~ , Ω −1/ 2α ) ∆w
+                                                ~ ' Ω ∆w
+                                                       ~ α ' Ω −1α
+                                    t      t t    t  t   t t   t   t
+
+             = TC σ Pt IR ,
+where σ Pt is the targeted portfolio tracking error and IR is the information ratio for the
+                                                                                      ~
+unconstrained optimal portfolio. So the constrained portfolio information ratio ( IR ) , the
+transfer coefficient (TC) and the optimal unconstrained portfolio information ratio (IR)
+have the following relationship
+          ~
+        IR = α Pt / σ Pt
+                                                                                        (64)
+            = TC IR .
+The impact of the constraints on portfolio IR will be the same as in Clarke et al.'s (2002)
+original definition. In this way, a transfer coefficient of 0.5 will reduce the portfolio IR by
+50% from the unconstrained optimal level.
+
+
+
+
+                                                                                             23
+Empirical Factor IR Comparison
+
+In order to compare the differences between the different forms of the fundamental law, I
+calculated the IR that can be achieved by various quantitative factors using different
+formulas. For each factor, I calculate the ex post realized cross-sectional correlation (IC)
+between lagged factor exposures and residual returns, and then calculate the mean and
+standard deviation of the time series IC. The results are then substituted into various
+formulas to generate Table 3. For all the factors considered here, σ IC is much more
+important than 1 / N φ . I calculated σ IC N φ for each factor and they are in the range
+of 4 to 10 which means σ IC is 4 to 10 times more important than 1 / N φ . From the last
+four columns of the table, we can see that the expected IR from the Grinold formula is
+always much higher than the other three while the other three stay very close to each
+other. This is not surprising given the result in Figure 3 and the above discussion.
+
+                Table 3. Factor IR Comparison (monthly, data ends 2009:8)
+
+                          1       IC     IC Stdev     σ IC      IR     IR     IR     IR
+     Factor     Index
+                          Nφ     Mean      σ IC     1/ N φ      GK     QH     YE    DING
+                R1000   0.024    0.014    0.139       5.67     0.44   0.10   0.10    0.10
+  Book to
+  Price         R2000   0.016    0.025    0.113       6.95     1.12   0.22   0.22    0.22
+                R3000   0.013    0.020    0.114       8.76     1.06   0.17   0.17    0.17
+                R1000   0.024    0.039    0.119       4.88     1.21   0.33   0.32    0.32
+  Cash Flow
+  to Price      R2000   0.016    0.066    0.122       7.49     2.93   0.54   0.53    0.54
+                R3000   0.013    0.058    0.111       8.59     3.17   0.52   0.52    0.52
+                R1000   0.024    0.031    0.140       5.70     0.95   0.22   0.21    0.22
+  Earnings to
+  Price         R2000   0.016    0.067    0.120       7.37     2.96   0.56   0.55    0.55
+                R3000   0.013    0.059    0.121       9.35     3.19   0.48   0.48    0.48
+                R1000   0.024    0.019    0.129       5.26     0.58   0.15   0.14    0.14
+  Sales to
+  Price         R2000   0.016    0.026    0.104       6.41     1.16   0.25   0.24    0.25
+                R3000   0.013    0.023    0.107       8.22     1.25   0.22   0.21    0.21
+                R1000   0.024    0.029    0.179       7.31     0.91   0.16   0.16    0.16
+  12-Month
+  Momentum      R2000   0.016    0.055    0.128       7.86     2.46   0.43   0.43    0.43
+                R3000   0.013    0.049    0.137      10.59     2.68   0.36   0.36    0.36
+                R1000   0.024    0.015    0.089       3.63     0.46   0.17   0.16    0.16
+  Share
+  Repurchase    R2000   0.016    0.026    0.084       5.20     1.16   0.31   0.30    0.30
+                R3000   0.013    0.024    0.083       6.38     1.30   0.29   0.28    0.29
+                R1000   0.024    0.022    0.118       4.81     0.67   0.18   0.18    0.18
+  Percent
+  Short         R2000   0.016    0.037    0.105       6.48     1.67   0.36   0.35    0.35
+                R3000   0.013    0.029    0.101       7.80     1.56   0.28   0.28    0.28
+
+
+Empirical findings here show that the theoretically calculated IR number from Grinold's
+fundamental law needs to be cut by much more than half to be realistic. For a typical
+investment universe of 1000 or 2000 stocks, the empirically calculated IR numbers from
+formulas derived by Qian and Hua (2004), Ye (2008) and this paper give a more realistic
+
+
+                                                                                            24
+estimate of achievable IR. For investment universes less than 500, an IR using the
+formula derived in this paper will give a better estimate. The difference will become
+more significant for investment strategies with a much smaller selection universe, such as
+a global macro strategy, or a tactical asset allocation strategy. The idiosyncratic risk still
+plays a role when N is small. Table 4 shows theoretical examples when the investable
+universes have much less choices.
+
+                   Table 4. Theoretical IR Comparison when N is Small
+
+                      GK      QH       YE      DING        GK       QH      YE       DING
+   IC       σ IC                  N=10                                 N=50
+           0.10      0.32     1.00    0.30      0.41      0.32      1.00    0.58      0.71
+  0.10     0.15      0.32     0.67    0.29      0.37      0.32      0.67    0.49      0.55
+           0.20      0.32     0.50    0.27      0.33      0.32      0.50    0.41      0.45
+           0.10      0.47     1.50    0.45      0.61      0.47      1.50    0.87      1.06
+  0.15     0.15      0.47     1.00    0.43      0.56      0.47      1.00    0.73      0.83
+           0.20      0.47     0.75    0.40      0.50      0.47      0.75    0.61      0.67
+                                 N=100                                N=200
+           0.10      0.50     0.50    0.35      0.41      0.50      0.50    0.41      0.45
+  0.05     0.15      0.50     0.33    0.28      0.30      0.50      0.33    0.30      0.32
+           0.20      0.50     0.25    0.22      0.24      0.50      0.25    0.24      0.24
+           0.10      1.00     1.00    0.71      0.82      1.41      1.00    0.82      0.89
+  0.10     0.15      1.00     0.67    0.55      0.60      1.41      0.67    0.60      0.63
+           0.20      1.00     0.50    0.45      0.47      1.41      0.50    0.47      0.49
+
+
+Conclusion
+
+I have derived a generalized version of the fundamental law of active management under
+some weak assumptions. The original fundamental law of Grinold (1989), the generalized
+fundamental laws of Clarke et al. (2002), Qian and Hua (2004), and Ye (2008) are all
+special cases of the fundamental law derived in this paper. I show that cross-sectional ICs
+are usually different from time series ICs, and they will be the same only under the strong
+assumption that either the residual return volatilities are the same across all the securities
+or the ICs are calculated using risk-adjusted residual returns with the forecast signal.
+
+I also show that the form of the fundamental law derived in this paper is quite robust to
+forecast model specification. According to our generalized fundamental law, the variation
+in IC (IC volatility over time) has a much bigger impact to portfolio IR than the breadth
+N for a typical investment universe. The fundamental law by Qian and Hua (2004) sets a
+"Chinese Wall" as the upper limit for the portfolio IR a portfolio manager can reach when
+the cross-sectional IC varies over time. The fundamental law by Grinold (1989) is
+derived under some unrealistic assumptions and always overestimates by a large margin
+the IR a portfolio manager can actually reach. I extend the fundamental law to models
+with multiple factors and study the impact of missing one or more return or risk factors. It
+is shown that a mis-specified model, whether it is mis-specified in the return forecast part
+or risk forecast part, will almost always hurt performance. The exception occurs when a
+
+
+                                                                                             25
+missing risk factor (IC=0) has a zero time series IC correlation with all the other factors.
+For the commonly used quantitative return and risk factors, I found that the impact of a
+missing risk factor is usually small.
+
+Our results also show that the transfer coefficient as originally defined by Clarke et al.
+(2002) is not able to capture the impact of constraints to portfolio IR in the presence of IC
+variation. One will get the wrong conclusion that portfolio constraints do not have much
+impact on portfolio IR in the presence of IC variation when N is large. I redefine the
+concept of transfer coefficient using the cross-sectional correlation between the total
+conditional covariance adjusted weights and alphas. The modified transfer coefficient
+captures the impact of portfolio constraints on portfolio IR as desired.
+
+One insight from this paper is that portfolio managers should try to play well (high IC)
+and play precisely (low σ IC ). Extra efforts should be made to process the information and
+to build models that can increase IC and reduce IC variation.
+
+——————————————————————————————————————————
+I thank Xiaohong Chen, Roger Clarke, Russell Fuller, Tom Fuller, John Kling, Doug Stone, Wei Su, Yixiao
+Sun, Yining Tung, Jia Ye, and two anonymous referees for helpful discussions and comments. Richard
+Grinold provided me with his original technical notes. Yining Tung helped with some empirical
+calculations in the paper.
+——————————————————————————————————————————
+Appendix A
+
+Given the conditional forecasting error covariance matrix in Equation (39) and based on
+the Woodbury matrix identity, we have the inverse matrix of Ω t as
+         Ω t−1 = Σ t−1 − ϕ Σ t−1z t −1z t −1 ' Σ t−1 ,                                                                       (A1)
+where
+                         σ IC2 δ 2
+        ϕ=                                        .                                                                          (A2)
+               1 + σ IC2 δ 2 z t −1 ' Σ t−1z t −1
+Substituting (A1) into Equation (15) we have
+        α Pt = σ Pt α t ' Ω t−1 (α t − κ 1)
+               = σ Pt α t ' ( Σ t−1 − ϕ Σ t−1z t −1z t −1 ' Σ t−1 )(α t − κ 1)
+               = σ Pt α t ' ( Σ t−1 − ϕ Σ t−1z t −1z t −1 ' Σ t−1 )α t − κ α t ' ( Σ t−1 − ϕ Σ t−1z t −1z t −1 ' Σ t−1 )1
+               = σ Pt α t ' Σ t−1α t − ϕ α t ' Σ t−1z t −1z t −1 ' Σ t−1α t − κ α t ' ( Σ t−1 − ϕ Σ t−1z t −1z t −1 ' Σ t−1 )1
+               = σ Pt ICδ (z t −1 ' Σ t−1z t −1 − κ z t −1 ' Σ t−1 1 /(ICδ ))(1 − ϕ z t −1 ' Σ t−1z t −1 )
+               = σ Pt ICδ (z t −1 ' Σ t−1z t −1 − κ z t −1 ' Σ t−1 1 /(ICδ )) /(1 + σ IC2 δ 2 z t −1 ' Σ t−1z t −1 ) .
+                                                                                                                             (A3)
+
+
+
+
+                                                                                                                                    26
+When σ ε i , zit −1 are cross-sectionally independent, then as N becomes large we have
+                                                                                                                       −1
+                         N                         κ N                                   N
+                                                                                                                   
+        α Pt = σ Pt ICδ  ∑ ( zit −1 / σ ε i ) 2 −     ∑    zit −1 / σ ε2i 1 + σ IC2 δ 2 ∑ ( z it −1 / σ ε i ) 2 
+                         i =1                     ICδ i =1                              i =1                    
+                              N                                          N
+             = σ Pt ICδ      ∑ (z
+                             i =1
+                                    it −1   / σ ε i ) 2 /(1 + σ IC2 δ 2 ∑ ( zit −1 / σ ε i ) 2 )
+                                                                        i =1
+
+             = σ Pt IC N δ Ecs ( zit −1 / σ ε i ) 2 /(1 + Nσ IC2 δ 2 Ecs ( zit −1 / σ ε i ) 2 )
+
+             = σ Pt IC N δ Ecs ( zit2−1 ) Ecs (1 / σ ε2i ) /(1 + Nσ IC2 δ 2 Ecs ( zit2−1 ) Ecs (1 / σ ε2i ))
+
+             = σ Pt IC N δ 2 Ecs (1 / σ ε2i ) /(1 + Nσ IC2 δ 2 Ecs (1 / σ ε2i ))
+                                       IC
+             = σ Pt
+                        1 /(δ 2 Ecs (1 / σ ε2i ) N ) + σ IC2
+                              IC
+             = σ Pt                           ,
+                        1 /(φN ) + σ IC2
+                                                                                                                  (A4)
+where
+               1 N 2 1 N 1
+         φ=      ∑σ r ∑
+               N i =1 i N i =1 σ ε2i
+               1 N 2 1 N                   1
+           =     ∑
+               N i =1
+                      σ ri ∑ 2
+                          N i =1 σ ri − (IC + σ IC2 )δ 2
+                                           2
+                                                                                                                  (A5)
+               1 N 2 1 N 1
+           ≥     ∑σ r ∑
+               N i=1 i N i =1 σ r2i
+            ≥ 1.
+The last line in (A5) is based on Jensen's inequality. In the derivation we used the fact
+     1 N
+that   ∑ zit −1 / σ ε2i = 0 when N → ∞ since zit −1 and σ εi are cross-sectionally independent
+     N i =1
+by assumption.
+
+Appendix B
+
+Assume residual security returns rt and security factor exposures Z t −1 are related through
+a linear factor model as follows
+         rt = Z t −1Ft + ε t ,                                                       (B1)
+where rt is an N × 1 vector of residual returns, Z t −1 is an N × K matrix of factor
+exposures that become known at the end of time t-1, Ft is a K × 1 vector of factor
+returns, and ε t | I t −1 ~ N (0, Σ ε ) is an N × 1 vector of idiosyncratic noise with mean 0
+and covariance Σ ε = diag (σ ε21 , σ ε22 , L , σ ε2N ) . The factor exposures are normalized to have
+
+
+
+                                                                                                                            27
+both time series and cross-sectional mean 0 and standard deviation 1, and are cross-
+sectionally orthogonal to each other so that Z t −1 ' Z t −1 / N = I , Other regularity
+assumptions like those in C1) and C2) also apply. We further assume that factor returns
+follow a multivariate normal distribution
+        Ft | I t −1 ~ N (F, Σ F ) .                                                     (B2)
+
+Based on the above assumptions, we have
+        α t = Z t −1F ,                                                                  (B3)
+and
+        Ω t = Z t −1Σ F Z t −1 '+Σ ε .                                                   (B4)
+Applying Woodbury matrix identity, we get the inverse of the conditional covariance
+matrix as
+        Ω t−1 = Σ ε−1 − Σ ε−1Z t −1 ( Σ F−1 + Z t −1 ' Σ ε−1Z t −1 ) −1 Z t −1 ' Σ ε−1 . (B5)
+
+Substituting Equations (B3) and (B5) into the two components of the IR formula in
+Equation (16) we get
+        α t ' Ω t−1α t = F ' Z t −1 ' ( Σ ε−1 − Σ ε−1Z t −1 ( Σ F−1 + Z t −1 ' Σ ε−1Z t −1 ) −1 Z t −1 ' Σ ε−1 )Z t −1F
+                          = F ' Z t −1 ' Σ ε−1Z t −1 (I − ( Σ F−1 + Z t −1 ' Σ ε−1Z t −1 ) −1 Z t −1 ' Σ ε−1Z t −1 )F
+                          = F ' Z t −1 ' Σ ε−1Z t −1 ( Σ F−1 + Z t −1 ' Σ ε−1Z t −1 ) −1 Σ F−1F
+                          = F ' ( Σ F ( Σ F−1 + Z t −1 ' Σ ε−1Z t −1 )(Z t −1 ' Σ ε−1Z t −1 ) −1 ) −1 F                 (B6)
+                          = F ' ((Z t −1 ' Σ ε−1Z t −1 ) −1 + Σ F ) −1 F
+                          = F ' ((Z t −1 ' Σ ε−1Z t −1 / N ) −1 / N + Σ F ) −1 F
+                          = F ' (1 /(τ N ) I + Σ F ) −1 F
+and
+           α t ' Ω t−1 1 = F ' Z t −1 ' ( Σ ε−1 − Σ ε−1Z t −1 ( Σ F−1 + Z t −1 ' Σ ε−1Z t −1 ) −1 Z t −1 ' Σ ε−1 )1
+                         = F ' (I − Z t −1 ' Σ ε−1Z t −1 ( Σ F−1 + Z t −1 ' Σ ε−1Z t −1 ) −1 )Z t −1 ' Σ ε−11
+                                                                                                                        (B7)
+                         = F ' (1 /(τ N ) I + Σ F ) −1 Z t −1 ' Σ ε−11 /(τ N )
+              = 0,
+where we assumed z ki and σ ε i to be cross-sectionally independent and used the facts that
+for k , l = 1, 2, L , K ,
+
+
+
+
+                                                                                                                               28
+                                            1 N z k ,it −1 zl ,it −1
+        Z k ,t −1 ' Σ ε−1Z l ,t −1 / N =      ∑ σ2
+                                            N i =1        εi
+
+                                              z          z         
+                                        = Ecs  k ,it −1 2 l ,it −1 
+                                               σε                  
+                                                          i                                              (B8)
+                                                (                )
+                                        = Ecs z k ,it −1 zl ,it −1 Ecs (1 / σ ε2i )
+                                                            1 N
+                                          Ecs (1 / σ ε2i ) = ∑ (1 / σ ε2i ) = τ      when k = l
+                                        =                   N i =1
+                                          0                                         when k ≠ l
+and
+                                    1 N
+        Z k ,t −1 ' Σ ε−11 / N =      ∑
+                                    N i=1
+                                          ( z k ,it −1 / σ ε2i )
+
+                               = Ecs ( z k ,it −1 / σ ε2i )                                                (B9)
+                               = Ecs ( z k ,it −1 ) Ecs (1 / σ ε2i )
+                               = 0.
+
+So the ex ante expected portfolio IR is
+                (           )
+        IR = E α t ' Ω t−1 (α t − 1)
+             = E( α ' Ω α )t
+                               −1
+                               t    t
+                                                                                                           (B10)
+             = F' (1 /(τ N ) I + Σ F ) −1 F
+             ≈ F' Σ −F1F .
+
+For a one factor model, Equation (B10) simplifies to
+                               f
+        IR =
+                   (             −1
+                                        )
+                Ecs (1 / σ ε2i ) / N + σ 2f
+                                                                                                           (B11)
+                  f
+             ≈         ,
+                 σf
+i.e., the expected portfolio IR is just the IR of the factor-mimicking portfolio. When the
+                                                                                                   1 N 2
+cross-sectional residual return dispersion is a constant, i.e., d (rt ) = δ =                        ∑ σ r , then
+                                                                                                   N i =1 i
+Equation (B11) becomes
+
+
+
+
+                                                                                                                  29
+                                         ICδ
+         IR =
+                  (E (1 / σ )) / N + δ σ
+                       cs
+                                    2
+                                    εi
+                                           −1              2   2
+                                                               IC
+
+                                         IC
+             =                                                                                     (B12)
+                  (δ E (1 / σ )) / N + σ
+                       2
+                               cs
+                                          2
+                                          εi
+                                                −1             2
+                                                               IC
+
+                               IC
+             =
+                             2
+              1 /( N φ ) + σ IC
+where φ is the same as defined in (A5). The formula above is exactly the same as
+Equation (42) which is what should be expected.
+
+By applying the same assumptions for deriving Equation (B12) to Equation                           (B10),
+we get the multifactor fundamental law in terms of IC as follows:
+         IR = F ' (1 /(τ N ) I + Σ F ) −1 F
+
+             = IC' (1 /(φ N ) I + Σ IC ) IC
+                                                      −1
+                                                                                                   (B13)
+                     −1
+           ≈ IC' Σ IC   IC
+where IC = F / δ is the cross-section correlation vector between factor exposures and
+residual security returns, and Σ IC = Σ F / δ 2 is the factor IC covariance matrix. It should
+be emphasized that the results in Equations (B12) and (B13) are only valid when the
+cross-sectional residual return dispersion is a constant. When this assumption is violated,
+then the IR calculated from Equations (B10) and (B11) will usually be smaller than that
+from (B12) and (B13).
+
+To avoid the problem of cross-sectional heteroskedasticity in cross-sectional regression,
+one can use the risk-adjusted residual security returns as the dependant variable, i.e.,
+       ~
+       rt = Λ t−1/ 2rt = Z t −1ICt + ε t
+where Λ t = diag (σ r21 , σ r22 , L , σ r2N ) , and σ r2i is the residual return variance for security i. By
+using the same algebra one can get
+                           (
+         IR = IC' σ ε2 / N I + Σ IC                  ) IC
+                                                     −1
+
+                                                                                                   (B14)
+                               −1
+             ≈ IC' Σ IC        IC
+                   K
+where σ ε2 = 1 − ∑ (σ IC
+                      2           2
+                         , k + IC k ) . It should be emphasized again that the ICs in Equation
+                  k =1
+(B14) are the cross-sectional correlation between risk-adjusted residual security returns
+and factor exposures, while the ICs in Equation (B13) are the correlation between the raw
+residual security returns and factor exposures, hence they will usually be different.
+
+With the fundamental law in multifactor format, we can easily study the impact of
+missing one or more return or risk factors. In the analysis below, I will study the impact
+of missing factors based on factor ICs, the analysis based on factor returns is almost
+identical. I will not purposely distinguish risk factors from alpha factors. Statistically, the
+
+
+                                                                                                         30
+only difference should be that the expected IC (or factor return) for risk factor is zero
+while that for alpha factor is different from zero. I will separate the factors into two
+groups with IC i and Σ ii (i=1,2) as their factor IC and IC covariance respectively. I will
+also assume that the inter-group factor IC covariance to be Σ12 . Under these assumptions,
+we can write Equation (B13) as follows 7
+                      −1
+           IR ≈ IC' Σ IC IC
+                                                  −1
+                                     Σ11 Σ12   IC1 
+                  = (IC1 ' IC 2 ' )                 
+                                     Σ12 ' Σ 22   IC 2                                    (B15)
+                           −1                      −1
+                  = IC1 ' Σ11 IC1 + (IC 2 − Σ12 ' Σ11 IC1 )' E −1 (IC 2 − Σ12 ' Σ11
+                                                                                 −1
+                                                                                    IC1 )
+                           −1
+                  ≥ IC1 ' Σ11 IC1
+                        −1
+where E = Σ 22 − Σ12 ' Σ11 Σ12 .
+
+So IR 2 will be reduced by a amount of
+                       −1                        −1
+        (IC 2 − Σ12 ' Σ11 IC1 )' ( Σ 22 − Σ12 ' Σ11 Σ12 ) −1 (IC 2 − Σ12 ' Σ11
+                                                                            −1
+                                                                               IC1 ) ≥ 0 (B16)
+when the second group of k 2 factors are missing. The impacts come from both alpha
+model mis-specification (when IC 2 ≠ 0 ) and risk model mis-specification (when
+                    −1                     −1
+IC 2 = 0 but IC1 ' Σ11 Σ12 ( Σ 22 − Σ12 ' Σ11 Σ12 ) −1 Σ12 ' Σ11
+                                                              −1
+                                                                 IC1 ) > 0 ).
+
+Alternatively the IR can be expressed as
+                         −1
+           IR ≈ IC 2 ' Σ 22 IC 2 + (IC1 − Σ12 Σ −221 IC 2 )' D −1 (IC1 − Σ12 Σ 22
+                                                                               −1
+                                                                                  IC 2 )      (B17)
+                               −1
+where D = Σ11 − Σ12 Σ Σ12 ' . When IC 2 = 0 , then the missing group is purely risk
+                               22
+factors,
+                       −1              −1                     −1
+           IR = IC1 ' Σ11 IC1 + IC1 ' Σ11 Σ12 ( Σ 22 − Σ12 ' Σ11 Σ12 ) −1 Σ12 ' Σ11
+                                                                                 −1
+                                                                                    IC1
+                                        −1
+                  = IC1 ' ( Σ11 − Σ12 Σ 22 Σ12 ' ) −1 IC1                                     (B18)
+                           −1
+                  ≥ IC1 ' Σ11 IC1 ,
+so the reduction in IR comes only from missed risk allocation. When Σ12 = 0 , i.e., the
+alpha group factor ICs and risk group factor ICs are not correlated, then missing risk
+factors will not impact the final portfolio performance.
+
+
+
+Notes
+1
+    We used the fact that the benchmark residual return is zero in deriving Equation (7), i.e.,
+            N
+
+           ∑w r = 0.
+           i =1
+                   B , it it
+
+This is true because
+
+
+
+                                                                                                  31
+                       N                  N                    N                      N
+           RB ,t = ∑ wB ,it ritTotal = ∑ wB ,it β it RB ,t + ∑ wB ,it rit = RB ,t + ∑ wB ,it rit .
+                    i =1                 i =1                 i =1                    i =1
+2
+    We define the realized cross-sectional residual return dispersion at time t as
+                           1 N                     1 N 2
+           d (rt ) =         ∑
+                           N i=1
+                                 (rit − rt ) 2 =     ∑
+                                                   N i =1
+                                                          (rit − rt 2 ) = Ecs (rit2 − rt 2 ) ,
+
+               1 N
+where rt =       ∑ rit is the average cross-sectional residual return which we will assume to be
+               N i =1
+zero in this article. The expected cross-sectional residual return dispersion is then
+                          1 N 2                   
+           δ = E (d (rt )) = E 
+                          N i=1∑                                    (
+                                     (rit − rt 2 )  = E Ecs (rit2 − rt 2 ) .
+                                                   
+                                                                                     )
+                                                  
+3
+  We can decompose rit as rit = σ r eit where eit ~ N (0, 1) . So
+                                     1 N 2              1 N 2
+           δ = E (d (rt )) = E         ∑                 N∑
+                                           rit  = σ r E 
+                                     N i=1 
+                                                                  eit  = σ r
+                                                                      
+                                                          i =1     
+as N → ∞ by law of large numbers.
+4
+    When we assume the cross-sectional residual return dispersion is a constant, i.e.,
+                           1 N 2
+           d (rt ) =         ∑ rit = d ,
+                           N i =1
+then
+           δ = E (d (rt )) = d .
+On the other hand,
+                              1 N                1 N 2
+           E (d 2 (rt )) =      ∑
+                              N i =1
+                                     E ( r 2
+                                          it ) =   ∑
+                                                 N i =1
+                                                        σ ri = d 2 .
+So we have
+                                         1 N 2
+           δ = E (d (rt )) = d =           ∑σ r .
+                                         N i =1 i
+5
+ The assumption of normality in the information coefficient is approximate because IC is
+bounded by ± 1 .
+
+6
+    The unconditional covariance of rt is E (rt rt ' ) = ( IC 2 + σ IC
+                                                                    2
+                                                                       )δ 2 Σ z + Σ , where Σ z is the
+covariance matrix of z t −1 with 1 in the diagonal.
+
+7
+ The inverse of a partitioned matrix is repeatedly used in the derivation, see Magnus and
+Neudecker (2002, p11) .
+
+
+References
+
+
+
+
+                                                                                                         32
+Clarke, Roger, Harindra de Silva, and Steven Thorley. 2002. “Portfolio Constraints and
+the Fundamental Law of Active Management.” Financial Analysts Journal, vol. 58, no. 5
+(September/October):48–66.
+Grinold, Richard C. 1989. “The Fundamental Law of Active Management.” The Journal
+of Portfolio Management, vol. 15, no. 3 (Spring): 30–38.
+Grinold, Richard C. 1994. “Alpha is Volatility Times IC times Score.” The Journal of
+Portfolio Management, vol. 20, no. 4 (Summer): 9–16.
+Grinold, Richard C. 2007. “Dynamic Portfolio Analysis.” The Journal of Portfolio
+Management, vol. 34, no. 1 (Fall): 12–26.
+Grinold, Richard C., and Ronald N. Kahn. 2000. Active Portfolio Management. 2nd ed.
+New York: McGraw-Hill.
+Ibragimov, R. and Müller, U. (2009). "t-statistic Based Correlation and Heterogeneity
+Robust Inference," forthcoming in the Journal of Business & Economic Statistics.
+Kahn, Ronald, 1997. "Seven Quantitative Insights into Active Management Part 3: The
+Fundamental Law of Active Management," BARRA Newsletter, Winter.
+Lee, Jyh-Huei and Dan Stefek. “Do Risk Factors Eat Alphas.” The Journal of Portfolio
+Management, vol. 34, no. 4 (Summer 2008), pp. 12-25.
+Magnus, Jan R. and Heinz Neudecker. 2002. Matrix Differential Calculus with
+Applications in Statistics and Econometrics. Revised Edition. New York: John Wiley &
+Sons.
+Petersen, M. A. (2009), “Estimating standard errors in finance panel data sets: Comparing
+approaches,” The Review of Financial Studies, 22, 435-480.
+Qian, Edward, and Ronald Hua. “Active Risk and Information Ratio.” The Journal of
+Investment Management, vol 2, no. 3 (2004), pp. 20-34.
+Qian, E., Hua, R., and Sorensen, E.H. (2007). Quantitative Equity Portfolio Management:
+Modern Techniques and Applications, London: CRC Press.
+Sorensen, Eric H., Ronald Hua, Edward Qian, and Robert Schoen. “Multiple Alpha
+Sources and Active Management.” The Journal of Portfolio Management, vol. 30, no. 2
+(Winter 2004), pp. 39-45.
+Sorensen, Eric H., Ronald Hua, and Edward Qian. 2007. “Aspects of Constrained Long–
+Short Equity Portfolios.” The Journal of Portfolio Management, vol. 33, no. 2
+(Winter):12–22.
+Ye, Jia. "How Variation in Signal Quality Affects Performance." Financial Analysts
+Journal, vol. 64, no. 4 (2008), 48-61.
+
+
+
+
+                                                                                        33
+

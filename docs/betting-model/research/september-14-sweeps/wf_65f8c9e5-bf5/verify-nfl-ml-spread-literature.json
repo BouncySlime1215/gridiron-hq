@@ -1,0 +1,84 @@
+{
+  "verified_claims": [
+    "Glickman & Stern (1998): on the last 110 games of 1993 their model's MSE was 165.0 against 170.5 for the Las Vegas line. The authors say the difference is not large enough to generalize. Checked in the PDF text at glicko.net.",
+    "Stekler, GWU RPF WP 2007-001, checked in the PDF text. (1) Harville (1980): market 72% vs model 70% on winners, 1971-77, no ATS record reported. (2) Boulier & Stekler (2003): NYT power scores 61% vs market 66%. (3) Song et al. (2007): systems about 62% on winners, the same as experts, vs the line's 66%; against the spread most systems did no better than a coin flip; about 31,000 real-time forecasts in total. (4) Zuber et al. / Sauer et al. models: 59% profitable in 1983, 39% in 1984, despite explaining 73-81% of variance. (5) Most tests of DP = a + b\u00b7PS fail to reject a=0, b=1. (6) Horse racing: model plus market odds beats either alone.",
+    "Benter (1994), from the annotated copy: pseudo-R\u00b2 is 0.1218 for public odds, 0.1245 for the fundamental model and 0.1396 combined, on 3,198 races. The combination is a logit on log f and log \u03c0. It uses out-of-sample fundamental probabilities, with \u03b1 and \u03b2 fit separately.",
+    "Hub\u00e1\u010dek, \u0160ourek & \u017delezn\u00fd (2019), IJF 35(2):783-796, checked in the full PDF. The loss is MSE \u2212 c\u00b7(p\u0302 \u2212 1/o)\u00b2. Bookmaker accuracy is about 69 \u00b1 2.5% and model accuracy about 66-68.8%. There were 9,093 games. Returns were positive for 0.4 \u2264 C \u2264 0.8. The opt strategy with adaptive settings made \u2205P = 1.63 over 2007-14.",
+    "Moskowitz (2021), JF 76(6), from the abstract. It covers more than 100k contracts across NBA/NFL/MLB/NHL. Momentum (strong) and value (weak) move prices from open to close, and game outcomes completely reverse those moves. The effects are too small to overcome transaction costs.",
+    "trevorData/538NFL exists. 2018 season, 256 games: 538 Elo RMSE 13.57 vs Vegas 13.10, about 122.5 of 256 ATS (below 50%). No license.",
+    "kshreyan/nfl-predict exists. Created 2026-09-13, 0 stars, no license, 27 leakage tests. Spread margin MAE 10.33 vs market 10.08 (n=4,069). Model-only ATS 50.72%. Totals MAE 10.61 vs 10.45. The README says the market wins outright on every metric and that no edge is claimed.",
+    "Baker & McHale (2013), IJF 29(1), abstract: the model is 'marginally outperformed by the betting market' on results, and at least as good as the market on exact scores.",
+    "Clegg & Cartlidge (2023), arXiv 2306.01740, tennis: most published profits came from one bet at erroneously long odds (the 'Hercog' bet), and the strategy made no further profits in later data.",
+    "Kapoor & Narayanan (2023), Patterns: leakage affects at least 294 papers across 17 fields.",
+    "Walsh & Joshi (2024), MLWA 16: +34.69% vs \u221235.17% ROI (NBA). A 2025 corrigendum (MLWA 19, 100627) reports feature-engineering pipeline errors and says the conclusion stands.",
+    "Szalkowski & Nelson (arXiv 1211.4000): betting home underdogs covered 53.5% in 2002-2011 (2,560 games).",
+    "The nfelo market-regression article claims model-plus-market beats the market on Brier. It gives no sample size, no absolute scores and no out-of-sample protocol; the only number is a 65% model weight.",
+    "Sauer (1998), JEL 36(4): the line that profitable wagering rules are 'occasionally reported, but often disappear on subsequent investigation' is attributed to it in secondary sources. It is not in the abstract.",
+    "Licenses checked with the GitHub API: fivethirtyeight/nfl-elo-game is MIT, conorwalsh99/ml-for-sports-betting is MIT, Lisandro79/BeatTheBookie is GPL-3.0, and greerreNFL/nfelo and trevorData/538NFL have no license.",
+    "Report arithmetic checks out. Going from RMSE 13.55 to 13.45 is an MSE drop of about 2.7 (signal SD about 1.6). The per-game SD of the squared-error difference is about 81, giving an SE of about 0.18 RMSE per 270 games and about 0.07 over 2,000. 54% vs 50% at 2\u03c3 needs about 625 bets."
+  ],
+  "refuted_or_unverifiable": [
+    {
+      "claim": "Goto, Takeishi & Yairi (2026, arXiv 2604.17194): 'Features added to odds give only tiny log-loss gains (about 1.003 vs 1.005). Under market efficiency, extra features mostly re-learn what the odds already contain.'",
+      "problem": "This misrepresents the paper. It never adds non-odds features. Every method compared uses betting odds only: odds-to-probability conversions (OO-EPC, Shin, Power) against GLMs fit to historical odds. The ~1.002-1.006 log-loss values compare those methods. The paper's point is that fitting a favourite-longshot-bias parameter beats treating odds as perfectly efficient, which pushes the other way from the report's claim. Drop the citation as support for 'features just re-learn the odds'."
+    },
+    {
+      "claim": "Residual target with shrinkage to zero 'is decorrelated by construction (Hub\u00e1\u010dek)'.",
+      "problem": "This is wrong and misattributed. A residual model shrunk toward zero collapses to the market forecast, which is maximally correlated with the bookmaker. Hub\u00e1\u010dek's decorrelation is an explicit loss penalty (\u2212c\u00b7(p\u0302\u22121/o)\u00b2) that pushes predictions away from the odds. It was tested on NBA moneyline probabilities, not spread residuals. The offset framing may still be sound, but it is not Hub\u00e1\u010dek's mechanism."
+    },
+    {
+      "claim": "Hub\u00e1\u010dek 2019 used 'Pinnacle closing odds, 9,093 games' and 'Without decorrelation and thresholding it went bankrupt.'",
+      "problem": "Both are partly misquoted. Pinnacle closing odds were used only for 2010-2014; earlier seasons used odds gathered from several bookmakers. Without decorrelation and thresholding, the opt strategy still made \u2205P = 0.44; the bankrupt one was the separate max-ep strategy. Also, settings were chosen from a grid, so the +1.63 carries selection optimism, as the report itself notes."
+    },
+    {
+      "claim": "Moskowitz (2021) 'supports grading on CLV'.",
+      "problem": "The abstract says the opposite. Open-to-close moves driven by momentum and value are completely reversed by game outcomes. A bettor who gets the opener ahead of a momentum move shows positive CLV but no positive expected value. Moskowitz is a caveat to using CLV as the sole grade, not support for it."
+    },
+    {
+      "claim": "Gray & Gray (1997) listed among 'profitable findings that later failed', with only 'some inconsistency' out of sample.",
+      "problem": "Cherry-picked. The abstract says the profitability of a number of strategies was confirmed out of sample, with some inconsistency among the rest. The result is mixed, not a failure. Full text not read (Wiley 403)."
+    },
+    {
+      "claim": "For ATS, showing 54% vs 50% at 2\u03c3 needs about 625 bets.",
+      "problem": "The arithmetic is right but the bar is wrong. At \u2212110 the breakeven is 52.38%, so the relevant test is 54% vs 52.38%. That needs roughly 3,800 bets at 2\u03c3, about six times more, which makes the detection problem far worse than stated."
+    },
+    {
+      "claim": "Boulier & Stekler (2003) ranking: market, then probit on NYT power scores, then experts; years 1994-2000.",
+      "problem": "Partly unverifiable. ScienceDirect returned 403, and Stekler's review gives only power scores 61% vs market 66% (about equal to a naive home-team pick). It does not give the expert ranking or the exact years. The review pools 1994-2001 across Boulier & Stekler and Song et al."
+    },
+    {
+      "claim": "Song et al. (2007): 'Against the spread both [systems and experts] were about 50%.'",
+      "problem": "Only the systems half is verified: Stekler says most systems were not as accurate as a coin flip ATS. The experts' ATS figure could not be confirmed from primary text; secondary summaries say only that neither beat the line profitably. Also, about 18,000 of the ~31,000 forecasts were expert forecasts."
+    },
+    {
+      "claim": "Sauer, Brajer, Ferris & Marr (1988) tested the Zuber model out of sample: 59% in 1983, 39% in 1984.",
+      "problem": "The numbers are verified in Stekler, but Stekler credits the models jointly to Zuber et al. and Sauer et al. and does not explicitly describe an out-of-sample test by Sauer of Zuber. The 'canonical overfit' reading is plausible but was not confirmed from the JPE original."
+    },
+    {
+      "claim": "Shank (2018) and Paul & Weinbach (2002) totals findings; Lopez, Matthews & Baumer (2018); Fair & Shiller (1990).",
+      "problem": "Not independently checked in this pass. The report itself says Shank's out-of-sample profitability is unverified. Treat the totals evidence as unconfirmed."
+    },
+    {
+      "claim": "fivethirtyeight/nfl-elo-game is adoptable as a benchmark.",
+      "problem": "The license (MIT) is fine, but the repo is unmaintained: last push May 2023, and FiveThirtyEight has since shut down. Its CSV will not update, so use it for historical benchmarking only."
+    },
+    {
+      "claim": "kshreyan/nfl-predict as a vetted benchmark.",
+      "problem": "The numbers are verified, but the repo is one day old, has no license, and its README was still being edited on 2026-09-14. Its ensemble ATS figure (51.39%) differs from the model-only 50.72% quoted in the report. The numbers can change and nobody else has reproduced them. Cite as an anecdote, not evidence."
+    }
+  ],
+  "recommendations_to_drop_or_change": [
+    "Drop the Goto et al. (2026) citation and the 'decorrelated by construction (Hub\u00e1\u010dek)' justification. Justify the market offset by the a=0, b=1 efficiency evidence and by Benter-style combination instead.",
+    "Rec 5 (grade by CLV) needs a Moskowitz caveat. Grade on both CLV and realized ATS / paired squared error against the decision-time line, because CLV that comes from momentum is reversed by outcomes.",
+    "Rec 1: if old seasons are trained on an opener or close offset while live bets use snapshot L_d, the training and serving targets differ. Keep a regime indicator or restrict the betting head to seasons that have real decision-time snapshots. Never use L_close as the offset for any output that drives a bet.",
+    "Rec 3 (feed the ~20 existing formula components into ridge): each component's own parameters (Elo K, half-lives, Massey settings) must be re-fit only on data before each walk-forward fold. If they were tuned on the full history, adding them leaks. With about 270 games per season, 20+ collinear inputs plus market terms still need strong penalization and grouped or pre-averaged components.",
+    "Rec 2: pick \u03bb and the recency half-life with nested walk-forward (choose on earlier seasons, score on the next). Count every \u03bb, half-life and feature-set combination in the F06 trial registry. Choosing them on the same walk-forward used for reporting inflates the out-of-sample gain.",
+    "Rec 2 (shallow boosting fallback): no boosting library is installed and the sample is small. Drop it unless ridge first shows a stable, nested out-of-sample gain across several seasons.",
+    "Rec 5 (Kelly sizing): a trailing paired-MSE gain has an SE of about 0.18 RMSE per season, and MSE gain does not map directly to cover probability. Size on a calibrated cover probability against the 52.38% breakeven, with heavy shrinkage and a hard stake cap. Set stake to zero until several seasons of nested out-of-sample evidence exist.",
+    "Rec 6 (leak alarm at >55% ATS or >0.15 RMSE better than close): a fixed 0.15 RMSE is below one season's SE (about 0.18). Scale the thresholds with n, e.g. flag when the gain exceeds about 3 SE or ATS exceeds about 56% over at least 500 bets.",
+    "Fix the 625-bet figure to use the 52.38% vig breakeven (roughly 3,800 bets to show 54% at 2\u03c3).",
+    "Recast Gray & Gray (1997) as mixed out-of-sample results, not a failed finding."
+  ],
+  "corrected_summary": "What survives verification:\n\n1. **The close is the benchmark to beat.**\n   - Classic NFL team-strength and statistical systems lose to the betting line on winners. Market vs model: Harville 72% vs 70% (1971-77); Boulier & Stekler 66% vs 61%; Song et al. 2007 66% vs about 62% for both systems and experts.\n   - Against the spread, most systems do no better than a coin flip (Stekler 2007 review).\n   - Margin minus spread is roughly normal with SD about 14, and efficiency tests usually fail to reject a=0, b=1.\n   - Glickman & Stern (1998) is the only nominal classic win (MSE 165.0 vs 170.5 on 110 games), and the authors say it does not generalize.\n   - Modern practitioner checks agree. trevorData 538 Elo 2018: RMSE 13.57 vs 13.10, about 48% ATS. kshreyan/nfl-predict: MAE 10.33 vs 10.08 over 4,069 games; unlicensed, one day old, not independently reproduced.\n\n2. **Reported edges often decay or fail.**\n   - Zuber/Sauer-style fundamentals models went 59% in 1983 and 39% in 1984 despite 73-81% in-sample R\u00b2.\n   - Sauer (1998) observes, per secondary sources, that profitable rules often disappear on later investigation.\n   - Clegg & Cartlidge (2023): a published tennis edge came mostly from one bad-odds bet and made nothing later.\n   - Gray & Gray (1997) is mixed out of sample, not a clean failure.\n   - Leakage is widespread in ML papers (Kapoor & Narayanan: at least 294 papers), so implausible NFL accuracy claims should be treated as leakage suspects.\n\n3. **Combination with the market is where documented gains come from.**\n   - Benter (1994), horse racing: pseudo-R\u00b2 0.1218 public, 0.1245 model, 0.1396 combined, with out-of-sample model probabilities.\n   - Hub\u00e1\u010dek et al. (2019), NBA moneyline: profitable only when a loss penalty pushed predictions away from the odds (0.4 \u2264 C \u2264 0.8), +1.63 over 2007-14. Settings came from a grid, and Pinnacle odds were used only for 2010-14.\n   - These are small gains with selection risk.\n   - The nfelo market-regression claim has no published sample or protocol.\n\n4. **Moskowitz (2021): open-to-close moves are overreaction reversed by outcomes, and too small to beat costs.** This makes CLV an imperfect sole grade.\n\n5. **Design implications for a ~270-games-per-season, Node-only app.**\n   - Model the residual against the decision-time line, margin \u2212 L_d. That is equivalent to a market offset, and ridge shrinkage toward zero encodes 'the market is right'. It is not 'decorrelated'; it defaults to the market.\n   - Add market terms (L_d, |L_d|, favorite) so b\u22601 can be learned.\n   - Closed-form ridge in plain JS is feasible with no dependencies.\n   - Every tuned choice must be nested inside the walk-forward: \u03bb, half-life, and the existing components' internal parameters.\n   - Evaluate with paired squared-error differences against L_d and L_close, with clustered SEs, and log every trial.\n   - Detection is slow. A real 1.6-point signal shows up as about 0.1 RMSE against an SE of about 0.18 per season. Showing 54% ATS against the 52.38% breakeven needs roughly 3,800 bets.\n   - So bet stakes should stay at or near zero, set by a shrunk, calibrated cover-probability edge. Grade on both CLV and realized outcomes.\n   - Old seasons without snapshots must not silently use the close as the offset for anything that drives a bet.\n\n6. **Adoptable code.**\n   - fivethirtyeight/nfl-elo-game (MIT, unmaintained since 2023): historical benchmark only.\n   - conorwalsh99/ml-for-sports-betting (MIT): calibration-selection logic.\n   - BeatTheBookie (GPL-3.0): ideas only.\n   - nfelo and 538NFL (no license): ideas only.\n   - kshreyan (no license): leakage-test ideas only.",
+  "reliability": "medium"
+}

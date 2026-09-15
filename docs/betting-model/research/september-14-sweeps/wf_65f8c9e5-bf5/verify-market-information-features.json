@@ -1,0 +1,66 @@
+{
+  "verified_claims": [
+    "Moskowitz (2021, J. Finance) Table II: NFL point-spread beta1 = -0.47 (t = -8.66), totals -0.50 (t = -9.08), all sports -0.51 (t = -29.32). The data are NFL 1985-2013, 7,035 games, from Covers.com and SportsInsights.com. The paper says momentum profits are 'easily wiped out by transactions costs'. Checked against the PDF text.",
+    "Under a simple signal-plus-noise model, beta = -0.5 means the open and close had equal squared error. This is the report's own inference, not the paper's, and the algebra holds: (result - open) = 0.5*move + e and (result - close) = -0.5*move + e have the same variance.",
+    "Kaunitz, Zhong & Kreiner (2017, arXiv:1710.02824), checked against the PDF text. 32 bookmakers and 479,440 games. Consensus calibration R^2 = 0.999 home, 0.995 draw, 0.998 away. Closing-odds backtest +3.5% on 56,435 bets. Time-series paper trading +9.9% on 6,994 bets placed 1-5 hours before kickoff. Real money +6.2% on 672 bets, p = 0.089. About 30% of displayed odds had already changed. Accounts were limited. The betting rule is max odds > 1/(p_cons - 0.05). (WebFetch's own summary of this PDF gave invented numbers such as 4,248 games; the raw PDF text was used instead.)",
+    "Data Golf 'How sharp are bookmakers': golf, 106,204 matchups/3-balls, 11 books. Pinnacle shows a roughly 1:1 expected-vs-realized ROI; DraftKings only slightly positive. On 1,401 gaps of 5% or more, Pinnacle moved 54.7% of the way toward Betcris's opener and Betcris moved 15.6% toward Pinnacle's.",
+    "Buchdahl football-data blog: 87,960 Pinnacle odds pairs; expected vs observed yield slope almost exactly 1.00 (soccer).",
+    "Hubacek & Sir (2020, arXiv:2010.12508), 'Beating the market with a bad predictive model', exists and proposes decorrelating the model's estimation error from the market.",
+    "Goto, Takeishi & Yairi (arXiv:2604.17194, April 2026) exists: 90,014 football (soccer) matches and a favourite-longshot GLM (FL-GLM) that beats existing multinomial/logistic GLMs.",
+    "Francisco & Moore (2019, J. Econ. & Finance 43(4):813-827): following reverse line movement was not profitable in college football totals, 2005-2016.",
+    "Krieger & Davis (2024, J. Econ. & Finance): NFL 2007-2021, 3,756 games; less-visible games had more frequent and larger line moves.",
+    "Simon (2024, Management Science): MLB, 3,681 games, 4 books. Line changes were negatively autocorrelated (overreaction), and forecasts did not improve monotonically toward the start.",
+    "Levitt (2004): 285 contest entrants, $250 entry fee, 19,770 bets on 242 games; in the median game almost two-thirds of bets fell on one side.",
+    "Avery & Chevalier (1999): spreads move predictably from variables known before the open; betting against the predicted move was 'borderline profitable'.",
+    "Shank (2022, JBEF 36): no evidence sportsbooks hold more information than bettors. Fodor, Patterson & Shank (2025, Econ. Letters 250): preseason Super Bowl odds relate to profitability in weeks 2-8.",
+    "BeatTheBookie repo exists and is GPL-3.0, MATLAB/Octave with PHP/SQL. It is an old research repo, but the report borrows only the idea, which is appropriate.",
+    "nflverse DATASETS.md does not say whether spread_line is an opening or closing line.",
+    "In-DB measurements reproduced by re-running the report's read-only q4.mjs. n = 1,122. Pinnacle open RMSE 12.735 vs close 12.436. Season values 11.54/11.54, 13.42/13.19, 12.77/12.71, 13.07/12.19. 904 lines moved; mean |move| 1.35; SD of move 2.07; SD of (result - close) 12.42; 12.7% of moves were 3+ points. Opener lead p10/p50/p90 = 5.2/6.7/8.0 days. nflverse spread equals the Pinnacle close in 649 games (mean gap 0.26, versus 1.35 from the opener). Pooled beta +0.347 (SE 0.179); per-season -0.52/+0.69/-0.27/+0.77. closing_spread is filled only for 2026.",
+    "Additional check: a paired test of squared error (open minus close) gives mean 7.55, SE 1.81, t = 4.17. The close is significantly more accurate than the Pinnacle opener in 2022-25."
+  ],
+  "refuted_or_unverifiable": [
+    {
+      "claim": "Following Hubacek & Sir, feed the opener as an offset, not as a regressor that swamps the other features.",
+      "problem": "Misattributed, and arguably the opposite of the paper. Hubacek & Sir 2020 decorrelate the model's residual error from the market through the training objective. An offset model predicts market + delta, so its errors are almost perfectly correlated with the market's errors. The empirical finding that odds as inputs raise market correlation and cut profit comes from Hubacek, Sourek & Zelezny (2019, IJF), which was not cited or verified here. Offsetting may still be reasonable, but it is not what this paper supports."
+    },
+    {
+      "claim": "Close is sharper and moves look informative / no stable reversal at Pinnacle recently (beta = +0.35).",
+      "problem": "Overstated. beta = +0.35 with SE 0.18 (t of about 1.9) is not significant, and the per-season sign flips four times. The defensible claims are: no evidence of the Moskowitz-style reversal in 2022-25, and the close is significantly more accurate (paired t = 4.17, my check). Moskowitz's beta is in return units, so comparing it to a points beta is only approximate."
+    },
+    {
+      "claim": "Buchdahl: Pinnacle fits about 10-20% anchoring of the close to the open.",
+      "problem": "The article tested 10-90% and names about 20% anchoring with sigma = 0.06 as the realistic fit. Minor imprecision."
+    },
+    {
+      "claim": "Goto et al. 2026: a GLM with one favourite-longshot adjustment on top of the odds beat feature-rich GLMs.",
+      "problem": "The abstract says FL-GLM beats 'existing multinomial and logistic GLMs'. It does not say the competitors were feature-rich. The 'odds + one parameter beats features' framing is unverified."
+    },
+    {
+      "claim": "Kaunitz: the average de-vigged price across books was very well calibrated (R^2 = 0.999).",
+      "problem": "0.999 is the home outcome only (draw 0.995, away 0.998). The paper used the plain average of implied probabilities with an alpha offset, not an explicit de-vig. Minor."
+    },
+    {
+      "claim": "The de-vigged Pinnacle opener is a legitimate input.",
+      "problem": "In nfl_odds_archive, 1,281 of about 2,244 Pinnacle opener spread sides carry exactly -110. That suggests the scraped oddstrader prices are coarse or normalized, so de-vigging the opener adds little. Real Pinnacle opener juice is unverified."
+    },
+    {
+      "claim": "Buchdahl 20,000-bet record: 3.4% realized vs 4.0% CLV-implied; Paul & Weinbach 2007; Shank 2018 home-underdog numbers; Pinnacle opening limits about 25% of maximum.",
+      "problem": "Not verified in this check (second-hand via F04 or search summaries, or practitioner claims). The report already flags most of them. None may drive design."
+    },
+    {
+      "claim": "Opener-time CLV skill test with features rebuilt as of the opener timestamp.",
+      "problem": "Right idea, but the report understates the leak risk. The median opener is about 6.7 days before kickoff, around Sunday ~8pm ET of the prior week. That is before that week's SNF and MNF games finish, and before Wednesday injury reports. Gridiron's week-granular feature tables would leak those results into an opener-time decision unless every feature is rebuilt with a strict timestamp cutoff. 36 Pinnacle openers are also stamped less than 4 days before kickoff, after a Tuesday decision."
+    }
+  ],
+  "recommendations_to_drop_or_change": [
+    "Rec 3 contradicts Section 3. If the primary P&L protocol assumes every bet goes in at the close, historical CLV is zero by construction. A CLV-based bet gate can then only use the opener-time protocol (with strict opener-time features) or forward 2026+ tape. State which one feeds the gate, and do not mix a close-priced P&L with opener-priced CLV.",
+    "Rec 2(b), the move model (close minus opener) from opener-time features: drop or defer it. It has about 1,122 games, a move SD of about 2 points, and a beta that flips sign every season. It will overfit, and it needs a feature rebuild as of Sunday night that excludes SNF/MNF and midweek injuries. If kept at all, use heavy ridge with a handful of pre-registered features, log it in the F06 trial registry, and never promote it without forward tape.",
+    "Rec 2(a): remove the Hubacek & Sir attribution for the offset. If market-offset is used, expect the shrunken residual to be near zero, consistent with the old 0/848 residual gate, and treat that as the honest prior. Evaluating a decorrelation penalty is the actual Hubacek & Sir idea.",
+    "Rec 3 gate arithmetic: SD of about 2 points per bet times 100 bets gives SE of about 0.2 points. But points-CLV should be converted to probability or cover-probability using key-number-aware margin distributions (3 and 7), and selected bets may have a larger move SD than the all-game 2.07. Recompute the SE from the actual selected bets.",
+    "'Score by log-loss/RMSE against the close': clarify that the model is trained on and scored against actual margin, with the close as the benchmark to beat. Tuning toward the close as a target makes the model more correlated with the market.",
+    "Rec 5, opener disagreement features: keep, but only with an explicit per-book `book_updated_at` < decision-time filter. Oddstrader opener prices look coarse (mostly -110), so sharp-vs-rec price gaps in probability space may be mostly noise; point-line disagreement is the more trustworthy signal.",
+    "Tuesday lambda interpolation: keep it strictly as a reported sensitivity band, as the report says. Never use it for selection or promotion, since it is built from the close."
+  ],
+  "corrected_summary": "What survives verification.\n\n1. Closing lines are at least as accurate as openers.\n   - NFL 1985-2013 (Moskowitz 2021, J. Finance, Table II): regressing close-to-result on open-to-close gives beta -0.47 (t = -8.66) for spreads and -0.50 for totals. About half of each move was reversed, and momentum profits die to the vig.\n   - Gridiron's own 2022-25 data: Pinnacle close RMSE 12.44 vs opener 12.74 on 1,122 games, paired t of about 4.2.\n   - There is no evidence of Moskowitz-style reversal at Pinnacle in 2022-25 (beta +0.35, SE 0.18, sign unstable by season). Recent moves are not demonstrably overreaction, but their informativeness is not established either.\n\n2. Line moves are partly predictable from pre-open sentiment and visibility (Avery & Chevalier 1999; Krieger & Davis 2024; Simon 2024 finds MLB overreaction). Profits after vig were borderline or absent. There is no peer-reviewed evidence that RLM or steam is profitable (Francisco & Moore 2019 is negative for college totals).\n\n3. At a sharp book, beating the close tracks realized return about 1:1.\n   - Buchdahl: 87,960 Pinnacle soccer odds pairs, slope of about 1.00.\n   - Data Golf: golf, 106,204 bets. Pinnacle shows about 1:1; DraftKings shows little.\n   - NFL-specific validation of CLV is untested.\n\n4. Multi-book consensus is well calibrated. Outlier prices versus consensus are the one documented price edge (Kaunitz et al. 2017: +3.5% on 56,435 closing-odds bets, +6.2% real money on 672 bets with p = 0.089, about 30% stale prices, accounts limited). It is execution-limited.\n\n5. Gridiron data facts (reproduced):\n   - game_lines.spread before 2026 is effectively the closing line (equals the Pinnacle close in 649 of 1,122 games, mean gap 0.26), so it is lookahead as a feature.\n   - nfl_odds_archive (oddstrader, 2022-25, 10-11 books) has only open and close per book. The median opener is 6.7 days before kickoff.\n   - Pinnacle opener prices are mostly a flat -110, so de-vig adds little.\n   - There is no historical midweek tape; dense snapshots start 2026-09-02.\n\nDesign implications that survive:\n- (a) Timestamp-gate every market field. Allow only fields with `book_updated_at` before decision time; the current game's close is a label or benchmark only.\n- (b) Primary historical P&L assumes bets at the close. Honest opener CLV requires a separate opener-time protocol in which ALL features are rebuilt as of the opener. That excludes same-week SNF/MNF results and midweek injuries, which week-granular feature tables would leak.\n- (c) A CLV gate cannot use the close-priced backtest, where CLV is 0 by construction. It must come from the opener-time protocol or forward tape, using shrunken CLV with a lower confidence bound computed on the actual selected bets, in probability units.\n- (d) Using the opener as an offset is a reasonable prior, but it is not Hubacek & Sir's method (they decorrelate model error from the market). Expect near-zero learned residuals.\n- (e) Opener disagreement across books and preseason futures (Fodor, Patterson & Shank 2025) are candidate features, only under the trial registry.\n- (f) Do not build a move-prediction model on about 1,122 games with unstable beta; defer it until forward tape exists.\n- (g) Capture every book's opener from 2026 on and add a Sunday-night decision pass.\n- (h) The Tuesday lambda-interpolated price is a sensitivity band only.\n\nBeatTheBookie is GPL-3.0: borrow the idea only.",
+  "reliability": "medium"
+}

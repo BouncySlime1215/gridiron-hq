@@ -1,0 +1,3693 @@
+{
+  "schema": "stage3-team-strength-v1",
+  "run_id": "20260915T095035Z-91d83232",
+  "created_at": "2026-09-15T09:50:39.560988+00:00",
+  "authority": "research_only",
+  "production_changed": false,
+  "db_path": "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite",
+  "dataset_version": "nfl-shared-dataset-v1-football",
+  "min_season": 1999,
+  "through_season": 2025,
+  "rows_total_in_dataset": 7276,
+  "quarantine_counts": {
+    "games_excluded_count": 0,
+    "team_week_features_excluded_count": 0
+  },
+  "target": "actual_margin (home score - away score); totals are out of scope for this experiment",
+  "feature_list": [
+    "home_rest",
+    "away_rest",
+    "rest_diff",
+    "div_game",
+    "home_form_margin",
+    "away_form_margin",
+    "home_form_count",
+    "away_form_count",
+    "home_form_total",
+    "away_form_total",
+    "pbp_available",
+    "pbp_diff_off_epa_per_play",
+    "pbp_diff_def_epa_per_play",
+    "pbp_diff_off_success_rate"
+  ],
+  "pbp_fields_used": [
+    "off_epa_per_play",
+    "def_epa_per_play",
+    "off_success_rate"
+  ],
+  "seed": 30717,
+  "fold_scheme": {
+    "kind": "expanding whole-season outer folds; chronological 80/20 inner week split for hyperparameter selection",
+    "min_train_seasons": 3,
+    "first_test_season": 2002,
+    "test_seasons": [
+      2002,
+      2003,
+      2004,
+      2005,
+      2006,
+      2007,
+      2008,
+      2009,
+      2010,
+      2011,
+      2012,
+      2013,
+      2014,
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024,
+      2025
+    ],
+    "inner_validation_fraction": 0.2,
+    "pbp_era_split_season": 2016
+  },
+  "hyperparameter_grids": {
+    "ridge_alpha": [
+      1.0,
+      10.0,
+      100.0
+    ],
+    "lightgbm_configs": [
+      {
+        "name": "few_shallow",
+        "params": {
+          "n_estimators": 40,
+          "max_depth": 2,
+          "num_leaves": 4,
+          "min_child_samples": 40,
+          "learning_rate": 0.08
+        }
+      },
+      {
+        "name": "mid_shallow",
+        "params": {
+          "n_estimators": 80,
+          "max_depth": 3,
+          "num_leaves": 7,
+          "min_child_samples": 25,
+          "learning_rate": 0.05
+        }
+      },
+      {
+        "name": "many_shallow_slow",
+        "params": {
+          "n_estimators": 150,
+          "max_depth": 3,
+          "num_leaves": 8,
+          "min_child_samples": 15,
+          "learning_rate": 0.03
+        }
+      }
+    ]
+  },
+  "folds": [
+    {
+      "season": 2002,
+      "n_train_games": 777,
+      "n_test_games": 267,
+      "inner_train_weeks": 50,
+      "inner_val_weeks": 13,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.365265243355498
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.3717982352617
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.438390370488502
+        }
+      ],
+      "ridge_selected_alpha": 1.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.45649391360957
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.583261412946683
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.521968942913562
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.8146718146718146,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.967275461657485,
+            "rmse": 14.306392721538616,
+            "bias": 0.23414747010252593
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.967275461657485,
+            "rmse": 14.306392721538616,
+            "bias": 0.23414747010252593
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.363295880149813,
+            "rmse": 13.509394705846448,
+            "bias": -0.26591760299625467
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.363295880149813,
+            "rmse": 13.509394705846448,
+            "bias": -0.26591760299625467
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.733176040795394,
+            "rmse": 13.940050333677538,
+            "bias": 0.7725922555433075
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.733176040795394,
+            "rmse": 13.940050333677538,
+            "bias": 0.7725922555433075
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.830739835940069,
+            "rmse": 13.946108106765163,
+            "bias": 0.38747777854025645
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.830739835940069,
+            "rmse": 13.946108106765163,
+            "bias": 0.38747777854025645
+          }
+        }
+      }
+    },
+    {
+      "season": 2003,
+      "n_train_games": 1044,
+      "n_test_games": 267,
+      "inner_train_weeks": 67,
+      "inner_val_weeks": 17,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.227076518143777
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.233830625707085
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.256168952451501
+        }
+      ],
+      "ridge_selected_alpha": 1.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.362920070135017
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.386641798349217
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.453625064007852
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.7547892720306515,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.273680887396502,
+            "rmse": 14.715027151303257,
+            "bias": -0.8332257092427572
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.273680887396502,
+            "rmse": 14.715027151303257,
+            "bias": -0.8332257092427572
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.543071161048688,
+            "rmse": 13.501837855201964,
+            "bias": -1.0599250936329587
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.543071161048688,
+            "rmse": 13.501837855201964,
+            "bias": -1.0599250936329587
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.100870701262636,
+            "rmse": 14.144384204589542,
+            "bias": -0.3920698439254534
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.100870701262636,
+            "rmse": 14.144384204589542,
+            "bias": -0.3920698439254534
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.101988644347257,
+            "rmse": 14.132173441498042,
+            "bias": -0.5519744491506842
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.101988644347257,
+            "rmse": 14.132173441498042,
+            "bias": -0.5519744491506842
+          }
+        }
+      }
+    },
+    {
+      "season": 2004,
+      "n_train_games": 1311,
+      "n_test_games": 267,
+      "inner_train_weeks": 84,
+      "inner_val_weeks": 21,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 11.100870701262636
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 11.096207407366878
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 11.059530224973255
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 11.101988644347257
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 11.08617721544019
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 11.03479021536038
+        }
+      ],
+      "lgb_selected_config": "many_shallow_slow",
+      "baseline_a_constant": 2.9244851258581237,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.148261469501797,
+            "rmse": 14.055557864876612,
+            "bias": 0.28029036930381646
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.148261469501797,
+            "rmse": 14.055557864876612,
+            "bias": 0.28029036930381646
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.389513108614231,
+            "rmse": 12.88874897681175,
+            "bias": -0.04868913857677903
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.389513108614231,
+            "rmse": 12.88874897681175,
+            "bias": -0.04868913857677903
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.686177224627205,
+            "rmse": 13.380778251987342,
+            "bias": 0.6257796858916914
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.686177224627205,
+            "rmse": 13.380778251987342,
+            "bias": 0.6257796858916914
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.847441431088763,
+            "rmse": 13.569189986466656,
+            "bias": 0.3044621953095279
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.847441431088763,
+            "rmse": 13.569189986466656,
+            "bias": 0.3044621953095279
+          }
+        }
+      }
+    },
+    {
+      "season": 2005,
+      "n_train_games": 1578,
+      "n_test_games": 267,
+      "inner_train_weeks": 101,
+      "inner_val_weeks": 25,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.654187293864407
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.65274687524502
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.64330125978878
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.73434426275261
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.716339310136803
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.745733753004673
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.877059569074778,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.401024384918092,
+            "rmse": 14.725414949718553,
+            "bias": -0.6510303185656718
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.401024384918092,
+            "rmse": 14.725414949718553,
+            "bias": -0.6510303185656718
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 9.99063670411985,
+            "rmse": 13.036357973509439,
+            "bias": -0.9531835205992509
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 9.99063670411985,
+            "rmse": 13.036357973509439,
+            "bias": -0.9531835205992509
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.70674257993677,
+            "rmse": 13.726601959870871,
+            "bias": -0.5399769533507408
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.70674257993677,
+            "rmse": 13.726601959870871,
+            "bias": -0.5399769533507408
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.6283884323558,
+            "rmse": 13.710661041153559,
+            "bias": -0.5952843591885151
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.6283884323558,
+            "rmse": 13.710661041153559,
+            "bias": -0.5952843591885151
+          }
+        }
+      }
+    },
+    {
+      "season": 2006,
+      "n_train_games": 1845,
+      "n_test_games": 267,
+      "inner_train_weeks": 118,
+      "inner_val_weeks": 29,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.606072242941986
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.605875000814931
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.60713504198026
+        }
+      ],
+      "ridge_selected_alpha": 10.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.614153123330224
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.584406836653077
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.586572149576453
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.9712737127371276,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.202354780102107,
+            "rmse": 14.424100476444028,
+            "bias": 1.967528394385068
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.202354780102107,
+            "rmse": 14.424100476444028,
+            "bias": 1.967528394385068
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.750936329588015,
+            "rmse": 13.462633819698725,
+            "bias": 1.908239700374532
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.750936329588015,
+            "rmse": 13.462633819698725,
+            "bias": 1.908239700374532
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.993138765735955,
+            "rmse": 14.002115363006704,
+            "bias": 2.392942754164174
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.993138765735955,
+            "rmse": 14.002115363006704,
+            "bias": 2.392942754164174
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.156708488941353,
+            "rmse": 14.056685355807383,
+            "bias": 2.2957771721451032
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.156708488941353,
+            "rmse": 14.056685355807383,
+            "bias": 2.2957771721451032
+          }
+        }
+      }
+    },
+    {
+      "season": 2007,
+      "n_train_games": 2112,
+      "n_test_games": 267,
+      "inner_train_weeks": 134,
+      "inner_val_weeks": 34,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.865329158867846
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.864936565436004
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.862523092646208
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.908428356815195
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.94382755143964
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.929586661152555
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.722537878787879,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.973956559981843,
+            "rmse": 15.231178782323344,
+            "bias": -0.20630107252298363
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.973956559981843,
+            "rmse": 15.231178782323344,
+            "bias": -0.20630107252298363
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.749063670411985,
+            "rmse": 13.359127671177916,
+            "bias": -0.26591760299625467
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.749063670411985,
+            "rmse": 13.359127671177916,
+            "bias": -0.26591760299625467
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.102708918180797,
+            "rmse": 13.969931684009367,
+            "bias": -0.2186214978647001
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.102708918180797,
+            "rmse": 13.969931684009367,
+            "bias": -0.2186214978647001
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.229389052261705,
+            "rmse": 14.331778699178692,
+            "bias": -0.34692287176494613
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.229389052261705,
+            "rmse": 14.331778699178692,
+            "bias": -0.34692287176494613
+          }
+        }
+      }
+    },
+    {
+      "season": 2008,
+      "n_train_games": 2379,
+      "n_test_games": 267,
+      "inner_train_weeks": 151,
+      "inner_val_weeks": 38,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 11.044226583919416
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 11.043368245619938
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 11.038620413504088
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 11.160034792900223
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 11.18713454079246
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 11.208365632059078
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.7456914670029424,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.901798351052356,
+            "rmse": 15.161768280306369,
+            "bias": 0.40486749696548885
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.901798351052356,
+            "rmse": 15.161768280306369,
+            "bias": 0.40486749696548885
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.114232209737828,
+            "rmse": 13.865762268836148,
+            "bias": 0.27902621722846443
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.114232209737828,
+            "rmse": 13.865762268836148,
+            "bias": 0.27902621722846443
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.308487397651579,
+            "rmse": 14.220639343916826,
+            "bias": 0.48505592221491073
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.308487397651579,
+            "rmse": 14.220639343916826,
+            "bias": 0.48505592221491073
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.441469324016897,
+            "rmse": 14.36678637319952,
+            "bias": 0.5902594170743163
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.441469324016897,
+            "rmse": 14.36678637319952,
+            "bias": 0.5902594170743163
+          }
+        }
+      }
+    },
+    {
+      "season": 2009,
+      "n_train_games": 2646,
+      "n_test_games": 267,
+      "inner_train_weeks": 168,
+      "inner_val_weeks": 42,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 11.192620360282472
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 11.193130422182362
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 11.199094741593441
+        }
+      ],
+      "ridge_selected_alpha": 1.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 11.325820813530646
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 11.404674577654761
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 11.41854487936558
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.7048374905517765,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 12.76632242576598,
+            "rmse": 16.477566062643255,
+            "bias": 0.30783374523342366
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 12.76632242576598,
+            "rmse": 16.477566062643255,
+            "bias": 0.30783374523342366
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.279026217228465,
+            "rmse": 14.322692243730375,
+            "bias": 0.24906367041198502
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.279026217228465,
+            "rmse": 14.322692243730375,
+            "bias": 0.24906367041198502
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.630309349085138,
+            "rmse": 14.867805242728165,
+            "bias": 0.577890406072702
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.630309349085138,
+            "rmse": 14.867805242728165,
+            "bias": 0.577890406072702
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.865653361543185,
+            "rmse": 15.166579745800863,
+            "bias": 0.4300834600731337
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.865653361543185,
+            "rmse": 15.166579745800863,
+            "bias": 0.4300834600731337
+          }
+        }
+      }
+    },
+    {
+      "season": 2010,
+      "n_train_games": 2913,
+      "n_test_games": 267,
+      "inner_train_weeks": 185,
+      "inner_val_weeks": 46,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 11.414048237428856
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 11.41442205068275
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 11.419217451728697
+        }
+      ],
+      "ridge_selected_alpha": 1.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 11.613801524826203
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 11.703325689488498
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 11.703754720613068
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.6766220391349123,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.466729924360768,
+            "rmse": 14.933342904140908,
+            "bias": 0.9949740990600058
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.466729924360768,
+            "rmse": 14.933342904140908,
+            "bias": 0.9949740990600058
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.754681647940075,
+            "rmse": 13.906556802364065,
+            "bias": 0.6722846441947565
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.754681647940075,
+            "rmse": 13.906556802364065,
+            "bias": 0.6722846441947565
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.350274273692543,
+            "rmse": 14.471407775083,
+            "bias": 1.1721254592893202
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.350274273692543,
+            "rmse": 14.471407775083,
+            "bias": 1.1721254592893202
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.374585210544357,
+            "rmse": 14.54558826140944,
+            "bias": 0.962359235984534
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.374585210544357,
+            "rmse": 14.54558826140944,
+            "bias": 0.962359235984534
+          }
+        }
+      }
+    },
+    {
+      "season": 2011,
+      "n_train_games": 3180,
+      "n_test_games": 267,
+      "inner_train_weeks": 202,
+      "inner_val_weeks": 50,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 11.34270860101101
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 11.342436977511436
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 11.340372198617365
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 11.498126227864907
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 11.535165261805565
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 11.549670901924546
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.5930817610062893,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.75789932395826,
+            "rmse": 15.179667298495874,
+            "bias": -0.8788283513532618
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.75789932395826,
+            "rmse": 15.179667298495874,
+            "bias": -0.8788283513532618
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.50936329588015,
+            "rmse": 13.678422823422647,
+            "bias": -0.9588014981273408
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.50936329588015,
+            "rmse": 13.678422823422647,
+            "bias": -0.9588014981273408
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.700127136963282,
+            "rmse": 14.141155803240988,
+            "bias": -0.7151348346727843
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.700127136963282,
+            "rmse": 14.141155803240988,
+            "bias": -0.7151348346727843
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.67024592083885,
+            "rmse": 14.16953549081214,
+            "bias": -0.7860870053331906
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.67024592083885,
+            "rmse": 14.16953549081214,
+            "bias": -0.7860870053331906
+          }
+        }
+      }
+    },
+    {
+      "season": 2012,
+      "n_train_games": 3447,
+      "n_test_games": 267,
+      "inner_train_weeks": 218,
+      "inner_val_weeks": 55,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 11.072132471801734
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 11.070715478852453
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 11.058936856828637
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 11.120939312239909
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 11.145889007840847
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 11.198400633684209
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.6611546272120683,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.782957334663264,
+            "rmse": 15.454255319925183,
+            "bias": 0.21920706166899762
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.782957334663264,
+            "rmse": 15.454255319925183,
+            "bias": 0.21920706166899762
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.715355805243446,
+            "rmse": 13.864310337106405,
+            "bias": 0.0
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.715355805243446,
+            "rmse": 13.864310337106405,
+            "bias": 0.0
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.216013939550159,
+            "rmse": 14.587243843664222,
+            "bias": 0.4157093857255173
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.216013939550159,
+            "rmse": 14.587243843664222,
+            "bias": 0.4157093857255173
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.18833377952427,
+            "rmse": 14.522332560052513,
+            "bias": 0.3462759951201525
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.18833377952427,
+            "rmse": 14.522332560052513,
+            "bias": 0.3462759951201525
+          }
+        }
+      }
+    },
+    {
+      "season": 2013,
+      "n_train_games": 3714,
+      "n_test_games": 267,
+      "inner_train_weeks": 235,
+      "inner_val_weeks": 59,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 11.093456460666877
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 11.092470411006946
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 11.084232742268803
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 11.050708887810599
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 11.077245590185992
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 11.117140938522319
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.645395799676898,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.933168152087758,
+            "rmse": 14.193982727283652,
+            "bias": -0.26846187822572404
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.933168152087758,
+            "rmse": 14.193982727283652,
+            "bias": -0.26846187822572404
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 9.808988764044944,
+            "rmse": 12.758781950246371,
+            "bias": -0.3895131086142322
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 9.808988764044944,
+            "rmse": 12.758781950246371,
+            "bias": -0.3895131086142322
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.177280472643183,
+            "rmse": 13.14675745307115,
+            "bias": -0.303215930047223
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.177280472643183,
+            "rmse": 13.14675745307115,
+            "bias": -0.303215930047223
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.311246024466506,
+            "rmse": 13.401893476543245,
+            "bias": -0.43310966904485004
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.311246024466506,
+            "rmse": 13.401893476543245,
+            "bias": -0.43310966904485004
+          }
+        }
+      }
+    },
+    {
+      "season": 2014,
+      "n_train_games": 3981,
+      "n_test_games": 267,
+      "inner_train_weeks": 252,
+      "inner_val_weeks": 63,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.711065704196916
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.710211932633278
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.703987881150322
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.694528076932926
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.699457891693092
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.740611170695383
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.663401155488571,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 12.323504812654114,
+            "rmse": 15.558391908284058,
+            "bias": 0.015461080582204662
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 12.323504812654114,
+            "rmse": 15.558391908284058,
+            "bias": 0.015461080582204662
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.284644194756554,
+            "rmse": 14.422205101855956,
+            "bias": -0.1647940074906367
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.284644194756554,
+            "rmse": 14.422205101855956,
+            "bias": -0.1647940074906367
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.565394765791531,
+            "rmse": 14.845972243708848,
+            "bias": 0.2962420631785137
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.565394765791531,
+            "rmse": 14.845972243708848,
+            "bias": 0.2962420631785137
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.496728971043387,
+            "rmse": 14.803574184414225,
+            "bias": 0.3697449515558226
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.496728971043387,
+            "rmse": 14.803574184414225,
+            "bias": 0.3697449515558226
+          }
+        }
+      }
+    },
+    {
+      "season": 2015,
+      "n_train_games": 4248,
+      "n_test_games": 267,
+      "inner_train_weeks": 269,
+      "inner_val_weeks": 67,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 11.004603838232667
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 11.003911952557932
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.998028427220117
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.999555015549497
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 11.030452697121447
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 11.057491035492804
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.6624293785310735,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.910255189487717,
+            "rmse": 14.215031722267904,
+            "bias": 1.0631784422014847
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.910255189487717,
+            "rmse": 14.215031722267904,
+            "bias": 1.0631784422014847
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.117977528089888,
+            "rmse": 12.96122855646346,
+            "bias": 0.5374531835205992
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.117977528089888,
+            "rmse": 12.96122855646346,
+            "bias": 0.5374531835205992
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.346523650004256,
+            "rmse": 13.35351081043697,
+            "bias": 0.8844998712446869
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.346523650004256,
+            "rmse": 13.35351081043697,
+            "bias": 0.8844998712446869
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.453821663709679,
+            "rmse": 13.477656056812085,
+            "bias": 0.8527772988625552
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.453821663709679,
+            "rmse": 13.477656056812085,
+            "bias": 0.8527772988625552
+          }
+        }
+      }
+    },
+    {
+      "season": 2016,
+      "n_train_games": 4515,
+      "n_test_games": 267,
+      "inner_train_weeks": 286,
+      "inner_val_weeks": 71,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.882522939912795
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.882190889502782
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.880069644729407
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.924192089636858
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.92495891439903
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.970274275536978
+        }
+      ],
+      "lgb_selected_config": "few_shallow",
+      "baseline_a_constant": 2.5995570321151718,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.10265656301716,
+            "rmse": 12.92319750505929,
+            "bias": -0.38920701282864845
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.10265656301716,
+            "rmse": 12.92319750505929,
+            "bias": -0.38920701282864845
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 9.043071161048688,
+            "rmse": 11.754949551202287,
+            "bias": -0.6797752808988764
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 9.043071161048688,
+            "rmse": 11.754949551202287,
+            "bias": -0.6797752808988764
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 9.463439887028036,
+            "rmse": 12.093316969005407,
+            "bias": -0.345546640983262
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 9.463439887028036,
+            "rmse": 12.093316969005407,
+            "bias": -0.345546640983262
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 9.585574189368561,
+            "rmse": 12.24263317153243,
+            "bias": -0.44981609286710017
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 9.585574189368561,
+            "rmse": 12.24263317153243,
+            "bias": -0.44981609286710017
+          }
+        }
+      }
+    },
+    {
+      "season": 2017,
+      "n_train_games": 4782,
+      "n_test_games": 267,
+      "inner_train_weeks": 302,
+      "inner_val_weeks": 76,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.448293762079103
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.447989563611207
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.445986759593255
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.481862651332252
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.455847228121295
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.48970316482632
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.621288163948139,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.398755789892496,
+            "rmse": 14.491048818873047,
+            "bias": 0.04076381937885
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.398755789892496,
+            "rmse": 14.491048818873047,
+            "bias": 0.04076381937885
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.08052434456929,
+            "rmse": 13.141230823843825,
+            "bias": -0.46629213483146065
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.08052434456929,
+            "rmse": 13.141230823843825,
+            "bias": -0.46629213483146065
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.697934571567444,
+            "rmse": 13.69359573419877,
+            "bias": 0.6098058493451552
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.697934571567444,
+            "rmse": 13.69359573419877,
+            "bias": 0.6098058493451552
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.707610258732982,
+            "rmse": 13.753182337085983,
+            "bias": 0.30742796412712736
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.707610258732982,
+            "rmse": 13.753182337085983,
+            "bias": 0.30742796412712736
+          }
+        }
+      }
+    },
+    {
+      "season": 2018,
+      "n_train_games": 5049,
+      "n_test_games": 267,
+      "inner_train_weeks": 319,
+      "inner_val_weeks": 80,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.398639025626949
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.398462387281612
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.397185191287656
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.385983740698936
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.373631992454454
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.388512568929526
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.6191325014854425,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.611372593527253,
+            "rmse": 14.178045483224968,
+            "bias": 0.480555722459225
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.611372593527253,
+            "rmse": 14.178045483224968,
+            "bias": 0.480555722459225
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 9.874531835205993,
+            "rmse": 12.994488892335616,
+            "bias": 0.2640449438202247
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 9.874531835205993,
+            "rmse": 12.994488892335616,
+            "bias": 0.2640449438202247
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.115580061714931,
+            "rmse": 13.277908558984336,
+            "bias": 0.6494599116270592
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.115580061714931,
+            "rmse": 13.277908558984336,
+            "bias": 0.6494599116270592
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.123731132848066,
+            "rmse": 13.38046127395932,
+            "bias": 0.5188192251266648
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.123731132848066,
+            "rmse": 13.38046127395932,
+            "bias": 0.5188192251266648
+          }
+        }
+      }
+    },
+    {
+      "season": 2019,
+      "n_train_games": 5316,
+      "n_test_games": 267,
+      "inner_train_weeks": 336,
+      "inner_val_weeks": 84,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.167293058455298
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.167043513159342
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.164975400038589
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.206292444059958
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.185703040507212
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.204022736398384
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.5949962377727616,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 11.617696417852402,
+            "rmse": 14.935553131942745,
+            "bias": 2.5537977359001025
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 11.617696417852402,
+            "rmse": 14.935553131942745,
+            "bias": 2.5537977359001025
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.176029962546817,
+            "rmse": 13.064518664691589,
+            "bias": 1.8689138576779025
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.176029962546817,
+            "rmse": 13.064518664691589,
+            "bias": 1.8689138576779025
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.807602668599616,
+            "rmse": 13.71847709617803,
+            "bias": 2.5308547004225663
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.807602668599616,
+            "rmse": 13.71847709617803,
+            "bias": 2.5308547004225663
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 267,
+            "mae": 10.958623328376895,
+            "rmse": 13.868805702337982,
+            "bias": 2.602158304747803
+          },
+          "common_support_with_market": {
+            "n": 267,
+            "mae": 10.958623328376895,
+            "rmse": 13.868805702337982,
+            "bias": 2.602158304747803
+          }
+        }
+      }
+    },
+    {
+      "season": 2020,
+      "n_train_games": 5583,
+      "n_test_games": 269,
+      "inner_train_weeks": 353,
+      "inner_val_weeks": 88,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.263438270803665
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.26329075570612
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.262127456507708
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.325647797891305
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.301568391020202
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.30540272741073
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.4728640515851694,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 269,
+            "mae": 11.13356931257728,
+            "rmse": 14.272377070636702,
+            "bias": 2.298142861994091
+          },
+          "common_support_with_market": {
+            "n": 269,
+            "mae": 11.13356931257728,
+            "rmse": 14.272377070636702,
+            "bias": 2.298142861994091
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 269,
+            "mae": 9.78996282527881,
+            "rmse": 12.696595275841197,
+            "bias": 0.9572490706319703
+          },
+          "common_support_with_market": {
+            "n": 269,
+            "mae": 9.78996282527881,
+            "rmse": 12.696595275841197,
+            "bias": 0.9572490706319703
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 269,
+            "mae": 10.408090829026495,
+            "rmse": 13.330364890803777,
+            "bias": 1.8612832843517912
+          },
+          "common_support_with_market": {
+            "n": 269,
+            "mae": 10.408090829026495,
+            "rmse": 13.330364890803777,
+            "bias": 1.8612832843517912
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 269,
+            "mae": 10.43977951741842,
+            "rmse": 13.292187992543214,
+            "bias": 1.8562204944113996
+          },
+          "common_support_with_market": {
+            "n": 269,
+            "mae": 10.43977951741842,
+            "rmse": 13.292187992543214,
+            "bias": 1.8562204944113996
+          }
+        }
+      }
+    },
+    {
+      "season": 2021,
+      "n_train_games": 5852,
+      "n_test_games": 285,
+      "inner_train_weeks": 370,
+      "inner_val_weeks": 92,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.562277234165116
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.56196233883083
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.559206331884559
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.583086003089262
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.55836761749752
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.601608857177911
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.367224880382775,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 12.050906572651725,
+            "rmse": 15.290105500031265,
+            "bias": 0.4338915470494419
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 12.050906572651725,
+            "rmse": 15.290105500031265,
+            "bias": 0.4338915470494419
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 10.666666666666666,
+            "rmse": 13.548871902286235,
+            "bias": -0.11578947368421053
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 10.666666666666666,
+            "rmse": 13.548871902286235,
+            "bias": -0.11578947368421053
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 11.053034450776964,
+            "rmse": 14.103839246607826,
+            "bias": -0.4108125584899909
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 11.053034450776964,
+            "rmse": 14.103839246607826,
+            "bias": -0.4108125584899909
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 11.241777891134674,
+            "rmse": 14.224578344564355,
+            "bias": -0.21325264441971767
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 11.241777891134674,
+            "rmse": 14.224578344564355,
+            "bias": -0.21325264441971767
+          }
+        }
+      }
+    },
+    {
+      "season": 2022,
+      "n_train_games": 6137,
+      "n_test_games": 284,
+      "inner_train_weeks": 387,
+      "inner_val_weeks": 97,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.588238592957177
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.588121877497386
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.587450997567105
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.651986669871931
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.646885022766174
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.688865320978833
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.347075118135897,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 284,
+            "mae": 9.573653342574593,
+            "rmse": 12.400286401619223,
+            "bias": 0.25904694912181303
+          },
+          "common_support_with_market": {
+            "n": 284,
+            "mae": 9.573653342574593,
+            "rmse": 12.400286401619223,
+            "bias": 0.25904694912181303
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 284,
+            "mae": 8.783450704225352,
+            "rmse": 11.487247981878998,
+            "bias": -0.2869718309859155
+          },
+          "common_support_with_market": {
+            "n": 284,
+            "mae": 8.783450704225352,
+            "rmse": 11.487247981878998,
+            "bias": -0.2869718309859155
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 284,
+            "mae": 9.090360396976227,
+            "rmse": 11.865186294040763,
+            "bias": -0.3324362126024532
+          },
+          "common_support_with_market": {
+            "n": 284,
+            "mae": 9.090360396976227,
+            "rmse": 11.865186294040763,
+            "bias": -0.3324362126024532
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 284,
+            "mae": 9.05344271450146,
+            "rmse": 11.810399302877556,
+            "bias": 0.08738716739914743
+          },
+          "common_support_with_market": {
+            "n": 284,
+            "mae": 9.05344271450146,
+            "rmse": 11.810399302877556,
+            "bias": 0.08738716739914743
+          }
+        }
+      }
+    },
+    {
+      "season": 2023,
+      "n_train_games": 6421,
+      "n_test_games": 285,
+      "inner_train_weeks": 405,
+      "inner_val_weeks": 101,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.423141904111223
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.42228582164453
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.414480661704694
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.436334679660291
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.432983222176931
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.428973895080993
+        }
+      ],
+      "lgb_selected_config": "many_shallow_slow",
+      "baseline_a_constant": 2.335617505061517,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 11.080677710473037,
+            "rmse": 14.39085569046785,
+            "bias": -0.5871895124823419
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 11.080677710473037,
+            "rmse": 14.39085569046785,
+            "bias": -0.5871895124823419
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 9.98421052631579,
+            "rmse": 13.173970880942838,
+            "bias": -1.131578947368421
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 9.98421052631579,
+            "rmse": 13.173970880942838,
+            "bias": -1.131578947368421
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 10.525110755243993,
+            "rmse": 13.619619169725306,
+            "bias": -1.0037116806273163
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 10.525110755243993,
+            "rmse": 13.619619169725306,
+            "bias": -1.0037116806273163
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 10.59173148603413,
+            "rmse": 13.61599807420555,
+            "bias": -0.7244255603395754
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 10.59173148603413,
+            "rmse": 13.61599807420555,
+            "bias": -0.7244255603395754
+          }
+        }
+      }
+    },
+    {
+      "season": 2024,
+      "n_train_games": 6706,
+      "n_test_games": 285,
+      "inner_train_weeks": 422,
+      "inner_val_weeks": 106,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.400630779885468
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.399898590915658
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.393846437162063
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.45700885624144
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.43357664803606
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.477260067876305
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.3605726215329557,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 11.144146378472277,
+            "rmse": 14.442272640471346,
+            "bias": 0.08337963907681539
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 11.144146378472277,
+            "rmse": 14.442272640471346,
+            "bias": 0.08337963907681539
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 9.703508771929824,
+            "rmse": 12.72051113394316,
+            "bias": -0.6789473684210526
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 9.703508771929824,
+            "rmse": 12.72051113394316,
+            "bias": -0.6789473684210526
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 10.354351602182875,
+            "rmse": 13.488844590160516,
+            "bias": -0.33003375422916154
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 10.354351602182875,
+            "rmse": 13.488844590160516,
+            "bias": -0.33003375422916154
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 10.322162544313736,
+            "rmse": 13.469141012069803,
+            "bias": -0.2175796916033496
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 10.322162544313736,
+            "rmse": 13.469141012069803,
+            "bias": -0.2175796916033496
+          }
+        }
+      }
+    },
+    {
+      "season": 2025,
+      "n_train_games": 6991,
+      "n_test_games": 285,
+      "inner_train_weeks": 440,
+      "inner_val_weeks": 110,
+      "ridge_trials": [
+        {
+          "alpha": 1.0,
+          "inner_mae": 10.29396248356707
+        },
+        {
+          "alpha": 10.0,
+          "inner_mae": 10.293610181504867
+        },
+        {
+          "alpha": 100.0,
+          "inner_mae": 10.290361622982598
+        }
+      ],
+      "ridge_selected_alpha": 100.0,
+      "lgb_trials": [
+        {
+          "name": "few_shallow",
+          "params": {
+            "n_estimators": 40,
+            "max_depth": 2,
+            "num_leaves": 4,
+            "min_child_samples": 40,
+            "learning_rate": 0.08
+          },
+          "inner_mae": 10.341224331008823
+        },
+        {
+          "name": "mid_shallow",
+          "params": {
+            "n_estimators": 80,
+            "max_depth": 3,
+            "num_leaves": 7,
+            "min_child_samples": 25,
+            "learning_rate": 0.05
+          },
+          "inner_mae": 10.327502540759257
+        },
+        {
+          "name": "many_shallow_slow",
+          "params": {
+            "n_estimators": 150,
+            "max_depth": 3,
+            "num_leaves": 8,
+            "min_child_samples": 15,
+            "learning_rate": 0.03
+          },
+          "inner_mae": 10.349883643341313
+        }
+      ],
+      "lgb_selected_config": "mid_shallow",
+      "baseline_a_constant": 2.357173508797025,
+      "metrics": {
+        "baseline_zero_info": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 11.01027687226936,
+            "rmse": 14.136756061645524,
+            "bias": 0.3291033333584287
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 11.01027687226936,
+            "rmse": 14.136756061645524,
+            "bias": 0.3291033333584287
+          }
+        },
+        "baseline_market": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 9.670175438596491,
+            "rmse": 12.24479839439173,
+            "bias": -0.6070175438596491
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 9.670175438596491,
+            "rmse": 12.24479839439173,
+            "bias": -0.6070175438596491
+          }
+        },
+        "ridge": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 10.211939469142001,
+            "rmse": 13.122355878559723,
+            "bias": -0.21650129421075276
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 10.211939469142001,
+            "rmse": 13.122355878559723,
+            "bias": -0.21650129421075276
+          }
+        },
+        "lightgbm": {
+          "full_coverage": {
+            "n": 285,
+            "mae": 10.24538030196037,
+            "rmse": 13.189577547306227,
+            "bias": -0.21977765938617358
+          },
+          "common_support_with_market": {
+            "n": 285,
+            "mae": 10.24538030196037,
+            "rmse": 13.189577547306227,
+            "bias": -0.21977765938617358
+          }
+        }
+      }
+    }
+  ],
+  "overall": {
+    "n_games": 6499,
+    "n_folds": 24,
+    "baseline_zero_info": {
+      "n": 6499,
+      "mae": 11.309347875698979,
+      "rmse": 14.604001724071006,
+      "bias": 0.3370102527550002
+    },
+    "baseline_market": {
+      "n": 6499,
+      "mae": 10.249192183412832,
+      "rmse": 13.192942773952097,
+      "bias": -0.06239421449453762
+    },
+    "ridge": {
+      "n": 6499,
+      "mae": 10.675177569915784,
+      "rmse": 13.725383401699082,
+      "bias": 0.34208989640136483
+    },
+    "lightgbm": {
+      "n": 6499,
+      "mae": 10.738325405619554,
+      "rmse": 13.805836928290947,
+      "bias": 0.299898224088543
+    }
+  },
+  "per_era": {
+    "pre_2016_no_pbp": {
+      "n_games": 3738,
+      "n_seasons": 14,
+      "baseline_zero_info": {
+        "n": 3738,
+        "mae": 11.557799218399147,
+        "rmse": 14.916182966035068,
+        "bias": 0.18926005925661554
+      },
+      "baseline_market": {
+        "n": 3738,
+        "mae": 10.597913322632424,
+        "rmse": 13.54745143347741,
+        "bias": -0.03290529695024077
+      },
+      "ridge": {
+        "n": 3738,
+        "mae": 10.972658943994315,
+        "rmse": 14.066393246621745,
+        "bias": 0.3895584816759944
+      },
+      "lightgbm": {
+        "n": 3738,
+        "mae": 11.042624295758719,
+        "rmse": 14.165826997668105,
+        "bias": 0.2732742250130869
+      }
+    },
+    "2016_plus_pbp_available": {
+      "n_games": 2761,
+      "n_seasons": 10,
+      "baseline_zero_info": {
+        "n": 2761,
+        "mae": 10.972980212166476,
+        "rmse": 14.170398518186609,
+        "bias": 0.5370429305155804
+      },
+      "baseline_market": {
+        "n": 2761,
+        "mae": 9.777073524085477,
+        "rmse": 12.697227108329306,
+        "bias": -0.10231800072437523
+      },
+      "ridge": {
+        "n": 2761,
+        "mae": 10.272430240576572,
+        "rmse": 13.2497275111487,
+        "bias": 0.2778242057977554
+      },
+      "lightgbm": {
+        "n": 2761,
+        "mae": 10.326348132406872,
+        "rmse": 13.302948488033282,
+        "bias": 0.33594331954093526
+      }
+    }
+  },
+  "per_season": [
+    {
+      "season": 2002,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 10.967275461657485,
+        "rmse": 14.306392721538616,
+        "bias": 0.23414747010252593
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.363295880149813,
+        "rmse": 13.509394705846448,
+        "bias": -0.26591760299625467
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.733176040795394,
+        "rmse": 13.940050333677538,
+        "bias": 0.7725922555433075
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.830739835940069,
+        "rmse": 13.946108106765163,
+        "bias": 0.38747777854025645
+      }
+    },
+    {
+      "season": 2003,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.273680887396502,
+        "rmse": 14.715027151303257,
+        "bias": -0.8332257092427572
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.543071161048688,
+        "rmse": 13.501837855201964,
+        "bias": -1.0599250936329587
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 11.100870701262636,
+        "rmse": 14.144384204589542,
+        "bias": -0.3920698439254534
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 11.101988644347257,
+        "rmse": 14.132173441498042,
+        "bias": -0.5519744491506842
+      }
+    },
+    {
+      "season": 2004,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.148261469501797,
+        "rmse": 14.055557864876612,
+        "bias": 0.28029036930381646
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.389513108614231,
+        "rmse": 12.88874897681175,
+        "bias": -0.04868913857677903
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.686177224627205,
+        "rmse": 13.380778251987342,
+        "bias": 0.6257796858916914
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.847441431088763,
+        "rmse": 13.569189986466656,
+        "bias": 0.3044621953095279
+      }
+    },
+    {
+      "season": 2005,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.401024384918092,
+        "rmse": 14.725414949718553,
+        "bias": -0.6510303185656718
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 9.99063670411985,
+        "rmse": 13.036357973509439,
+        "bias": -0.9531835205992509
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.70674257993677,
+        "rmse": 13.726601959870871,
+        "bias": -0.5399769533507408
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.6283884323558,
+        "rmse": 13.710661041153559,
+        "bias": -0.5952843591885151
+      }
+    },
+    {
+      "season": 2006,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.202354780102107,
+        "rmse": 14.424100476444028,
+        "bias": 1.967528394385068
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.750936329588015,
+        "rmse": 13.462633819698725,
+        "bias": 1.908239700374532
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.993138765735955,
+        "rmse": 14.002115363006704,
+        "bias": 2.392942754164174
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 11.156708488941353,
+        "rmse": 14.056685355807383,
+        "bias": 2.2957771721451032
+      }
+    },
+    {
+      "season": 2007,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.973956559981843,
+        "rmse": 15.231178782323344,
+        "bias": -0.20630107252298363
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.749063670411985,
+        "rmse": 13.359127671177916,
+        "bias": -0.26591760299625467
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 11.102708918180797,
+        "rmse": 13.969931684009367,
+        "bias": -0.2186214978647001
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 11.229389052261705,
+        "rmse": 14.331778699178692,
+        "bias": -0.34692287176494613
+      }
+    },
+    {
+      "season": 2008,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.901798351052356,
+        "rmse": 15.161768280306369,
+        "bias": 0.40486749696548885
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 11.114232209737828,
+        "rmse": 13.865762268836148,
+        "bias": 0.27902621722846443
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 11.308487397651579,
+        "rmse": 14.220639343916826,
+        "bias": 0.48505592221491073
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 11.441469324016897,
+        "rmse": 14.36678637319952,
+        "bias": 0.5902594170743163
+      }
+    },
+    {
+      "season": 2009,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 12.76632242576598,
+        "rmse": 16.477566062643255,
+        "bias": 0.30783374523342366
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 11.279026217228465,
+        "rmse": 14.322692243730375,
+        "bias": 0.24906367041198502
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 11.630309349085138,
+        "rmse": 14.867805242728165,
+        "bias": 0.577890406072702
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 11.865653361543185,
+        "rmse": 15.166579745800863,
+        "bias": 0.4300834600731337
+      }
+    },
+    {
+      "season": 2010,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.466729924360768,
+        "rmse": 14.933342904140908,
+        "bias": 0.9949740990600058
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.754681647940075,
+        "rmse": 13.906556802364065,
+        "bias": 0.6722846441947565
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 11.350274273692543,
+        "rmse": 14.471407775083,
+        "bias": 1.1721254592893202
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 11.374585210544357,
+        "rmse": 14.54558826140944,
+        "bias": 0.962359235984534
+      }
+    },
+    {
+      "season": 2011,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.75789932395826,
+        "rmse": 15.179667298495874,
+        "bias": -0.8788283513532618
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.50936329588015,
+        "rmse": 13.678422823422647,
+        "bias": -0.9588014981273408
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.700127136963282,
+        "rmse": 14.141155803240988,
+        "bias": -0.7151348346727843
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.67024592083885,
+        "rmse": 14.16953549081214,
+        "bias": -0.7860870053331906
+      }
+    },
+    {
+      "season": 2012,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.782957334663264,
+        "rmse": 15.454255319925183,
+        "bias": 0.21920706166899762
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.715355805243446,
+        "rmse": 13.864310337106405,
+        "bias": 0.0
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 11.216013939550159,
+        "rmse": 14.587243843664222,
+        "bias": 0.4157093857255173
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 11.18833377952427,
+        "rmse": 14.522332560052513,
+        "bias": 0.3462759951201525
+      }
+    },
+    {
+      "season": 2013,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 10.933168152087758,
+        "rmse": 14.193982727283652,
+        "bias": -0.26846187822572404
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 9.808988764044944,
+        "rmse": 12.758781950246371,
+        "bias": -0.3895131086142322
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.177280472643183,
+        "rmse": 13.14675745307115,
+        "bias": -0.303215930047223
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.311246024466506,
+        "rmse": 13.401893476543245,
+        "bias": -0.43310966904485004
+      }
+    },
+    {
+      "season": 2014,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 12.323504812654114,
+        "rmse": 15.558391908284058,
+        "bias": 0.015461080582204662
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 11.284644194756554,
+        "rmse": 14.422205101855956,
+        "bias": -0.1647940074906367
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 11.565394765791531,
+        "rmse": 14.845972243708848,
+        "bias": 0.2962420631785137
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 11.496728971043387,
+        "rmse": 14.803574184414225,
+        "bias": 0.3697449515558226
+      }
+    },
+    {
+      "season": 2015,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 10.910255189487717,
+        "rmse": 14.215031722267904,
+        "bias": 1.0631784422014847
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.117977528089888,
+        "rmse": 12.96122855646346,
+        "bias": 0.5374531835205992
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.346523650004256,
+        "rmse": 13.35351081043697,
+        "bias": 0.8844998712446869
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.453821663709679,
+        "rmse": 13.477656056812085,
+        "bias": 0.8527772988625552
+      }
+    },
+    {
+      "season": 2016,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 10.10265656301716,
+        "rmse": 12.92319750505929,
+        "bias": -0.38920701282864845
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 9.043071161048688,
+        "rmse": 11.754949551202287,
+        "bias": -0.6797752808988764
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 9.463439887028036,
+        "rmse": 12.093316969005407,
+        "bias": -0.345546640983262
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 9.585574189368561,
+        "rmse": 12.24263317153243,
+        "bias": -0.44981609286710017
+      }
+    },
+    {
+      "season": 2017,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.398755789892496,
+        "rmse": 14.491048818873047,
+        "bias": 0.04076381937885
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.08052434456929,
+        "rmse": 13.141230823843825,
+        "bias": -0.46629213483146065
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.697934571567444,
+        "rmse": 13.69359573419877,
+        "bias": 0.6098058493451552
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.707610258732982,
+        "rmse": 13.753182337085983,
+        "bias": 0.30742796412712736
+      }
+    },
+    {
+      "season": 2018,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 10.611372593527253,
+        "rmse": 14.178045483224968,
+        "bias": 0.480555722459225
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 9.874531835205993,
+        "rmse": 12.994488892335616,
+        "bias": 0.2640449438202247
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.115580061714931,
+        "rmse": 13.277908558984336,
+        "bias": 0.6494599116270592
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.123731132848066,
+        "rmse": 13.38046127395932,
+        "bias": 0.5188192251266648
+      }
+    },
+    {
+      "season": 2019,
+      "n_games": 267,
+      "baseline_zero_info": {
+        "n": 267,
+        "mae": 11.617696417852402,
+        "rmse": 14.935553131942745,
+        "bias": 2.5537977359001025
+      },
+      "baseline_market": {
+        "n": 267,
+        "mae": 10.176029962546817,
+        "rmse": 13.064518664691589,
+        "bias": 1.8689138576779025
+      },
+      "ridge": {
+        "n": 267,
+        "mae": 10.807602668599616,
+        "rmse": 13.71847709617803,
+        "bias": 2.5308547004225663
+      },
+      "lightgbm": {
+        "n": 267,
+        "mae": 10.958623328376895,
+        "rmse": 13.868805702337982,
+        "bias": 2.602158304747803
+      }
+    },
+    {
+      "season": 2020,
+      "n_games": 269,
+      "baseline_zero_info": {
+        "n": 269,
+        "mae": 11.13356931257728,
+        "rmse": 14.272377070636702,
+        "bias": 2.298142861994091
+      },
+      "baseline_market": {
+        "n": 269,
+        "mae": 9.78996282527881,
+        "rmse": 12.696595275841197,
+        "bias": 0.9572490706319703
+      },
+      "ridge": {
+        "n": 269,
+        "mae": 10.408090829026495,
+        "rmse": 13.330364890803777,
+        "bias": 1.8612832843517912
+      },
+      "lightgbm": {
+        "n": 269,
+        "mae": 10.43977951741842,
+        "rmse": 13.292187992543214,
+        "bias": 1.8562204944113996
+      }
+    },
+    {
+      "season": 2021,
+      "n_games": 285,
+      "baseline_zero_info": {
+        "n": 285,
+        "mae": 12.050906572651725,
+        "rmse": 15.290105500031265,
+        "bias": 0.4338915470494419
+      },
+      "baseline_market": {
+        "n": 285,
+        "mae": 10.666666666666666,
+        "rmse": 13.548871902286235,
+        "bias": -0.11578947368421053
+      },
+      "ridge": {
+        "n": 285,
+        "mae": 11.053034450776964,
+        "rmse": 14.103839246607826,
+        "bias": -0.4108125584899909
+      },
+      "lightgbm": {
+        "n": 285,
+        "mae": 11.241777891134674,
+        "rmse": 14.224578344564355,
+        "bias": -0.21325264441971767
+      }
+    },
+    {
+      "season": 2022,
+      "n_games": 284,
+      "baseline_zero_info": {
+        "n": 284,
+        "mae": 9.573653342574593,
+        "rmse": 12.400286401619223,
+        "bias": 0.25904694912181303
+      },
+      "baseline_market": {
+        "n": 284,
+        "mae": 8.783450704225352,
+        "rmse": 11.487247981878998,
+        "bias": -0.2869718309859155
+      },
+      "ridge": {
+        "n": 284,
+        "mae": 9.090360396976227,
+        "rmse": 11.865186294040763,
+        "bias": -0.3324362126024532
+      },
+      "lightgbm": {
+        "n": 284,
+        "mae": 9.05344271450146,
+        "rmse": 11.810399302877556,
+        "bias": 0.08738716739914743
+      }
+    },
+    {
+      "season": 2023,
+      "n_games": 285,
+      "baseline_zero_info": {
+        "n": 285,
+        "mae": 11.080677710473037,
+        "rmse": 14.39085569046785,
+        "bias": -0.5871895124823419
+      },
+      "baseline_market": {
+        "n": 285,
+        "mae": 9.98421052631579,
+        "rmse": 13.173970880942838,
+        "bias": -1.131578947368421
+      },
+      "ridge": {
+        "n": 285,
+        "mae": 10.525110755243993,
+        "rmse": 13.619619169725306,
+        "bias": -1.0037116806273163
+      },
+      "lightgbm": {
+        "n": 285,
+        "mae": 10.59173148603413,
+        "rmse": 13.61599807420555,
+        "bias": -0.7244255603395754
+      }
+    },
+    {
+      "season": 2024,
+      "n_games": 285,
+      "baseline_zero_info": {
+        "n": 285,
+        "mae": 11.144146378472277,
+        "rmse": 14.442272640471346,
+        "bias": 0.08337963907681539
+      },
+      "baseline_market": {
+        "n": 285,
+        "mae": 9.703508771929824,
+        "rmse": 12.72051113394316,
+        "bias": -0.6789473684210526
+      },
+      "ridge": {
+        "n": 285,
+        "mae": 10.354351602182875,
+        "rmse": 13.488844590160516,
+        "bias": -0.33003375422916154
+      },
+      "lightgbm": {
+        "n": 285,
+        "mae": 10.322162544313736,
+        "rmse": 13.469141012069803,
+        "bias": -0.2175796916033496
+      }
+    },
+    {
+      "season": 2025,
+      "n_games": 285,
+      "baseline_zero_info": {
+        "n": 285,
+        "mae": 11.01027687226936,
+        "rmse": 14.136756061645524,
+        "bias": 0.3291033333584287
+      },
+      "baseline_market": {
+        "n": 285,
+        "mae": 9.670175438596491,
+        "rmse": 12.24479839439173,
+        "bias": -0.6070175438596491
+      },
+      "ridge": {
+        "n": 285,
+        "mae": 10.211939469142001,
+        "rmse": 13.122355878559723,
+        "bias": -0.21650129421075276
+      },
+      "lightgbm": {
+        "n": 285,
+        "mae": 10.24538030196037,
+        "rmse": 13.189577547306227,
+        "bias": -0.21977765938617358
+      }
+    }
+  ],
+  "packages": {
+    "scikit-learn": "1.7.2",
+    "numpy": "2.5.3",
+    "lightgbm": "4.7.0"
+  },
+  "limitations": [
+    "This is development data: the 1999-2025 outcomes evaluated here have been repeatedly inspected across this project's prior audits. Rearranging them into chronological folds tests algorithmic chronology; it does not make them an untouched holdout. A positive result here is exploratory, not confirmed, until scored again on genuinely new, previously-unseen games.",
+    "The market baseline (-market_spread) has essentially complete coverage in this database for every season 1999-2025 (confirmed: 0 null spreads among home rows), so the \"common support with market\" and \"full coverage\" metrics reported here are expected to coincide almost exactly; both are still reported per the predeclared spec rather than assumed equal.",
+    "Totals (actual_total) were explicitly out of scope for this experiment and were not modeled.",
+    "No price/odds-qualified paper betting return is computed here -- this experiment scores prediction error against the actual margin and the market's implied margin, not staked profit; that is a separate, later question per the master plan's stage sequencing."
+  ],
+  "verdict": "Zero-information baseline (train-fold mean home margin): MAE 11.309 / RMSE 14.604 / bias +0.337 (n=6499). Market baseline (-market_spread): MAE 10.249 / RMSE 13.193 / bias -0.062 (n=6499). Ridge (alpha selected per fold via inner chronological validation): MAE 10.675 / RMSE 13.725 / bias +0.342 (n=6499). LightGBM (config selected per fold via inner chronological validation): MAE 10.738 / RMSE 13.806 / bias +0.300 (n=6499). Neither candidate beat the market baseline on pooled MAE across all outer folds. Per the predeclared decision rule, this is reported as the finding: the market baseline wins, and no further feature or model search was performed to try to change that. Era split: pre-2016 (no pbp features, n=3738 games) ridge MAE 10.973 vs 2016+ (pbp available, n=2761 games) ridge MAE 10.272; the same comparison for LightGBM is 11.043 vs 10.326."
+}

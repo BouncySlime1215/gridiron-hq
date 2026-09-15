@@ -1,0 +1,44 @@
+{
+  "reference_inspection_head": "21789a9",
+  "executed_at": "2026-09-15T01:47:27.999Z",
+  "mode": "isolated_synthetic_probes_no_database",
+  "source_hashes": {
+    "server/betting/nfl/contracts/forecast-packet.js": "22ce304a740dfd7a212afff11a67a80126c78a329d80e9f6f76926533ab85088",
+    "server/services/nfl-t60-packet.js": "c7b827730e58a2fd69c7e3e0198e7332e13dda7f186bc8d988f2bd82c3f2385d"
+  },
+  "results": {
+    "baseline_valid": true,
+    "malformed_cases": {
+      "invalid_receipt": true,
+      "empty_features": true,
+      "null_features": true,
+      "nonfinite_feature": true,
+      "invalid_odds": true,
+      "wrong_market": true,
+      "cutoff_after_kickoff": true
+    },
+    "nonfinite_null_hash_collision": true,
+    "mismatched_handicaps": {
+      "status": "available",
+      "book": "pinnacle",
+      "book_selection_rule": "sharp_books_first_then_alphabetical",
+      "home_spread": -3,
+      "home_price": -110,
+      "away_spread": 2.5,
+      "away_price": -110,
+      "quote_at": "2026-09-20T15:59:00Z",
+      "snapshot_at": "2026-09-20T15:59:00Z"
+    },
+    "no_fallback_to_complete_book": {
+      "status": "unavailable",
+      "reason": "chosen book 'pinnacle' has no home-side quote in this packet"
+    }
+  },
+  "existing_test_suite": {
+    "command": "node --test test/forecast-packet-contract.test.js",
+    "passed": 14,
+    "failed": 0,
+    "scope": "pure packet contract only; not application integration"
+  },
+  "reproduction_script": "code-checks/probe-plan-gaps.mjs"
+}

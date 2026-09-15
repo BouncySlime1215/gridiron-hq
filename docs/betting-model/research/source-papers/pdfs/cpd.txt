@@ -1,0 +1,1910 @@
+Nonparametric predictive distributions
+   based on conformal prediction
+
+ Vladimir Vovk, Jieli Shen, Valery Manokhin, and Min-ge Xie
+
+
+
+
+                    ïðàêòè÷åñêèå âûâîäû
+                       òåîðèè âåðîÿòíîñòåé
+                         ìîãóò áûòü îáîñíîâàíû
+                           â êà÷åñòâå ñëåäñòâèé
+                             ãèïîòåç î ïðåäåëüíîé
+                             ïðè äàííûõ îãðàíè÷åíèÿõ
+                           ñëîæíîñòè èçó÷àåìûõ ÿâëåíèé
+
+
+
+
+On-line Compression Modelling Project (New Series)
+                    Working Paper #17
+  First posted April 5, 2017. Last revised January 18, 2022.
+                       Project web site:
+                       http://alrw.net
+                                 Abstract
+This paper applies conformal prediction to derive predictive distributions that
+are valid under a nonparametric assumption. Namely, we introduce and explore
+predictive distribution functions that always satisfy a natural property of valid-
+ity in terms of guaranteed coverage for IID observations. The focus is on a pre-
+diction algorithm that we call the Least Squares Prediction Machine (LSPM).
+The LSPM generalizes the classical Dempster–Hill predictive distributions to
+nonparametric regression problems. If the standard parametric assumptions for
+Least Squares linear regression hold, the LSPM is as efficient as the Dempster–
+Hill procedure, in a natural sense. And if those parametric assumptions fail,
+the LSPM is still valid, provided the observations are IID.
+
+
+
+
+Contents
+1 Introduction                                                                  1
+
+2 Randomized and conformal predictive distributions                             2
+
+3 Least Squares Prediction Machine                                              7
+
+4 A property of validity of the LSPM in the online mode                        12
+
+5 Asymptotic efficiency                                                        12
+
+6 Proofs, calculations, and additional observations                            17
+
+7 Experimental results                                                         28
+
+8 Conclusion                                                                   30
+
+References                                                                     32
+                            Let me conclude by observing that A(n) is supported
+                            by all of the serious approaches to statistical inference.
+                            It is Bayesian, fiducial, and even a confidence/tolerance
+                            procedure. It is simple, coherent, and plausible. It can
+                            even be argued, I believe, that A(n) , along with H(n) ,
+                            constitutes the fundamental solution to the problem of
+                            induction.
+
+                                                                 Bruce M. Hill, 1988
+
+
+
+                            To be truly useful, however, the methods need
+                            extension to regression models with unknown
+                            regression parameters.
+
+                                       Christian Genest and Jack Kalbfleisch, 1988
+
+
+
+1    Introduction
+This paper applies conformal prediction to derive predictive distribution func-
+tions that are valid under a nonparametric assumption. In our definition of
+predictive distribution functions and their property of validity we follow Shen
+et al. (2018, Section 1), whose terminology we adopt, and Schweder and Hjort
+(2016, Chapter 12), who use the term “prediction confidence distributions”. The
+theory of predictive distributions as developed by Schweder and Hjort (2016)
+and Shen et al. (2018) assumes that the observations are generated from a para-
+metric statistical model. We extend the theory to the case of regression under
+the general IID model (the observations are generated independently from the
+same distribution), where the distribution form does not need to be specified;
+however, our exposition is self-contained. Our predictive distributions general-
+ize the classical Dempster–Hill procedure (to be formally defined in Section 5),
+which these authors referred to as direct probabilities (Dempster) and A(n) /H(n)
+(Hill). For a well-known review of predictive distributions, see Lawless and Fre-
+dette (2005). The more recent review by Gneiting and Katzfuss (2014) refers
+to the notion of validity used in this paper as probabilistic calibration and de-
+scribes it as critical in forecasting; Gneiting and Katzfuss (2014, Section 2.2.3)
+also give further references.
+    We start our formal exposition by defining conformal predictive distributions
+(CPDs), nonparametric predictive distributions based on conformal prediction,
+and algorithms producing CPDs (conformal predictive systems, CPSs) in Sec-
+tion 2; we are only interested in (nonparametric) regression problems in this
+paper. An unusual feature of CPDs is that they are randomized, although they
+are typically affected by randomness very little. The starting point for conformal
+prediction is the choice of a conformity measure; not all conformity measures
+produce CPDs, but we give simple sufficient conditions. In Section 3 we apply
+
+
+                                        1
+the method to the classical Least Squares procedure obtaining what we call the
+Least Squares Prediction Machine (LSPM). The LSPM is defined in terms of re-
+gression residuals; accordingly, it has three main versions: ordinary, deleted, and
+studentized. The most useful version appears to be studentized, which does not
+require any assumptions on how influential any of the individual observations is.
+We state the studentized version (and, more briefly, the ordinary version) as an
+explicit algorithm. The next two sections, 4 and 5, are devoted to the validity
+and efficiency of the LSPM. Whereas the LSPM, as any CPS, is valid under
+the general IID model, for investigating its efficiency we assume a parametric
+model, namely the standard Gaussian linear model. The question that we try
+to answer in Section 5 is how much we should pay (in terms of efficiency) for the
+validity under the general IID model enjoyed by the LSPM. We compare the
+LSPM with three kinds of oracles under the parametric model; the oracles are
+adapted to the parametric model and are only required to be valid under it. The
+weakest oracle (Oracle I) only knows the parametric model, and the strongest
+one (Oracle III) also knows the parameters of the model. In important cases the
+LSPM turns out to be as efficient as the Dempster–Hill procedure. All proofs
+are postponed to Section 6, which also contains further discussions. Section 7 is
+devoted to experimental results demonstrating the validity and, to some degree,
+efficiency of our methods. Finally, Section 8 concludes and lists three directions
+of further research, started in Vovk et al. (November 2019 (first posted March
+2018).
+     Another method of generating predictive distributions that are valid under
+the IID model is Venn prediction (Vovk et al., 2005, Chapter 6). An advantage
+of the method proposed in this paper is that it works in the case of regression,
+whereas Venn prediction, at the time of writing of this paper, was only known to
+work in the case of classification (see, however, the recent paper by Nouretdinov
+et al. 2018, discussed in Section 8).
+     The conference version of this paper (Vovk et al., 2017), announcing the
+main results, was published in the Proceedings of COPA 2017. This expanded
+version includes proofs and further discussions.
+     A significant advantage of conformal predictive distributions over traditional
+conformal prediction is that the former can be combined with a utility function
+to arrive at optimal decisions. A first step in this direction has been made in
+Vovk and Bendtsen (December 2018 (first posted July 2017) (developing ideas
+of the conference version of this paper).
+
+
+2    Randomized and conformal predictive distri-
+     butions
+We consider the regression problem with p attributes. Correspondingly, the
+observation space is defined to be Rp+1 = Rp × R; its element z = (x, y),
+where x ∈ Rp and y ∈ R, is interpreted as an observation consisting of an
+object x ∈ Rp and its label y ∈ R. Our task is, given a training sequence of
+
+
+
+                                        2
+observations zi = (zi , yi ), i = 1, . . . , n, and a new test object xn+1 ∈ Rp , to
+predict the label yn+1 of the (n + 1)st observation. Our statistical model is the
+general IID model: the observations z1 , z2 , . . ., where zi = (xi , yi ), are generated
+independently from the same unknown probability measure P on Rp+1 .
+    We start from defining predictive distribution functions following Shen et al.
+(2018, Definition 1), except that we relax the definition of a distribution function
+and allow randomization. Let U be the uniform probability measure on the
+interval [0, 1].
+Definition 1. A function Q : (Rp+1 )n+1 × [0, 1] → [0, 1] is called a randomized
+predictive system (RPS) if it satisfies the following three requirements:
+R1a For each training sequence (z1 , . . . , zn ) ∈ (Rp+1 )n and each test object
+    xn+1 ∈ Rp , the function Q(z1 , . . . , zn , (xn+1 , y), τ ) is monotonically in-
+    creasing both in y ∈ R and in τ ∈ [0, 1] (where “monotonically increasing”
+    is understood in the wide sense allowing intervals of constancy). In other
+    words, for each τ ∈ [0, 1], the function
+
+                             y ∈ R 7→ Q(z1 , . . . , zn , (xn+1 , y), τ )
+
+      is monotonically increasing, and for each y ∈ R, the function
+
+                           τ ∈ [0, 1] 7→ Q(z1 , . . . , zn , (xn+1 , y), τ )
+
+      is monotonically increasing.
+R1b For each training sequence (z1 , . . . , zn ) ∈ (Rp+1 )n and each test object
+    xn+1 ∈ Rp ,
+                        lim Q(z1 , . . . , zn , (xn+1 , y), 0) = 0            (1)
+                            y→−∞
+
+      and
+                             lim Q(z1 , . . . , zn , (xn+1 , y), 1) = 1.
+                             y→∞
+
+R2 As function of random training observations z1 ∼ P ,. . . , zn ∼ P , a random
+    test observation zn+1 ∼ P , and a random number τ ∼ U , all assumed
+    independent, the distribution of Q is uniform:
+
+                     ∀α ∈ [0, 1] : P {Q(z1 , . . . , zn , zn+1 , τ ) ≤ α} = α.
+
+      The output of the randomized predictive system Q on a training sequence
+z1 , . . . , zn and a test object xn+1 is the function
+
+               Qn : (y, τ ) ∈ R × [0, 1] 7→ Q(z1 , . . . , zn , (xn+1 , y), τ ),     (2)
+
+which will be called the randomized predictive distribution (function) (RPD)
+output by Q. The thickness of an RPD Qn is the infimum of the numbers ϵ ≥ 0
+such that the diameter
+                             Qn (y, 1) − Qn (y, 0)                        (3)
+
+
+                                               3
+of the set
+                                      {Qn (y, τ ) | τ ∈ [0, 1]}                                      (4)
+is at most ϵ for all y ∈ R except for finitely many values. The exception size
+of Qn is the cardinality of the set of y for which the diameter (3) exceeds the
+thickness of Qn . Notice that a priori the exception size can be infinite.
+                                                                            1
+    In this paper we will be interested in RPDs of thickness n+1               with exception
+size at most n, for typical training sequences of length n (cf. (17) below). In all
+our examples, Q(z1 , . . . , zn , zn+1 , τ ) will be a continuous function of τ . There-
+fore, the set (4) will be a closed interval in [0, 1]. However, we do not include
+these requirements in our official definition.
+    Four examples of predictive distributions are shown in Figure 5 below as
+shaded areas; let us concentrate, for concreteness, on the top left one. The
+length of the training sequence for that plot (and the other three plots) is
+n = 10; see Section 7 for details. Therefore, we are discussing an instance of
+Q10 , of width 1/11 with exception size 10. The shaded area is {(y, Q10 (y, τ )) |
+y ∈ R, τ ∈ [0, 1]}. We can regard (y, τ ) as a coordinate system for the shaded
+area. The cut of the shaded area by the vertical line passing through a point y
+of the horizontal axis is the closed interval [Q(y, 0), Q(y, 1)], where Q := Q10 .
+The notation Q(y) for the vertical axis is slightly informal.
+    Next we give basic definitions of conformal prediction adapted to producing
+predictive distributions (there are several equivalent definitions; the one we
+give here is closer to Vovk et al. 2005, Section 2.2, than to Balasubramanian
+et al. 2014, Section 1.3). A conformity measure is a measurable function A :
+(Rp+1 )n+1 → R that is invariant with respect to permutations of the first n
+observations: for any sequence (z1 , . . . , zn ) ∈ (Rp+1 )n , any zn+1 ∈ Rp+1 , and
+any permutation π of {1, . . . , n},
+                                                                            
+                 A(z1 , . . . , zn , zn+1 ) = A zπ(1) , . . . , zπ(n) , zn+1 .            (5)
+Intuitively, A measures how large the label yn+1 in zn+1 is, based on seeing the
+observations z1 , . . . , zn and the object xn+1 of zn+1 . A simple example is
+                              A(z1 , . . . , zn+1 ) := yn+1 − ŷn+1 ,                                (6)
+ŷn+1 being the prediction for yn+1 computed from xn+1 and z1 , . . . , zn as train-
+ing sequence (more generally, we could use the whole of z1 , . . . , zn+1 as the
+training sequence).
+    The conformal transducer determined by a conformity measure A is defined
+as
+                                            1
+                                                  i = 1, . . . , n + 1 | αiy < αn+1
+                                                                                y
+                                                
+  Q(z1 , . . . , zn , (xn+1 , y), τ ) :=
+                                           n+1
+                                              τ
+                                                     i = 1, . . . , n + 1 | αiy = αn+1
+                                                                                   y
+                                                    
+                                           +                                                       , (7)
+                                             n+1
+where (z1 , . . . , zn ) ∈ (Rp+1 )n is a training sequence, xn+1 ∈ Rp is a test object,
+and for each y ∈ R the corresponding conformity score αiy is defined by
+          αiy := A(z1 , . . . , zi−1 , zi+1 , . . . , zn , (xn+1 , y), zi ),   i = 1, . . . , n,
+
+
+                                                    4
+        y
+       αn+1 := A(z1 , . . . , zn , (xn+1 , y)).                                                 (8)
+
+A function is a conformal transducer if it is the conformal transducer determined
+by some conformity measure. A conformal predictive system (CPS) is a function
+which is both a conformal transducer and a randomized predictive system. A
+conformal predictive distribution (CPD) is a function Qn defined by (2) for a
+conformal predictive system Q.
+   Any conformal transducer Q and Borel set A ⊆ [0, 1] define the conformal
+predictor
+
+      ΓA (z1 , . . . , zn , xn+1 , τ ) := {y ∈ R | Q(z1 , . . . , zn , (xn+1 , y), τ ) ∈ A} .   (9)
+
+The standard property of validity for conformal transducers is that the val-
+ues (also called p-values) Q(z1 , . . . , zn+1 , τ ) are distributed uniformly on [0, 1]
+when z1 , . . . , zn+1 are IID and τ is generated independently of z1 , . . . , zn+1 from
+the uniform probability distribution U on [0, 1] (see, e.g., Vovk et al. 2005,
+Proposition 2.8). This property coincides with requirement R2 in the definition
+of an RPS and implies that the coverage probability, i.e., the probability of
+yn+1 ∈ ΓA (z1 , . . . , zn , xn+1 ), for the conformal predictor (9) is U (A).
+Remark 1. The usual interpretation of (7) is that it is a randomized p-value for
+testing the null hypothesis of the observations being IID. In the case of CPDs,
+the informal alternative hypothesis is that yn+1 = y is smaller than expected
+under the IID model. Then (6) can be interpreted as a degree of conformity
+of the observation (xn+1 , yn+1 ) to the remaining observations. Notice the one-
+sided nature of this notion of conformity: a label can only be strange (non-
+conforming) if it is too small; large is never strange. This notion of conformity
+is somewhat counterintuitive, and we use it only as a technical tool.
+
+Defining properties of distribution functions
+Next we discuss why Definition 1 (essentially taken from Shen et al. 2018) is
+natural. The key elements of this definition are that (1) the distribution function
+Q is monotonically increasing, and (2) its value is uniformly distributed. The
+following two lemmas show that these are defining properties of distribution
+functions of probability measures on the real line. All proofs are postponed to
+Section 6.
+    First we consider the case of a continuous distribution function; the justifi-
+cation for this case, given in the next lemma, is simpler.
+Lemma 1. Suppose F is a continuous distribution function on R and Y is a
+random variable distributed as F . If Q : R → R is a monotonically increasing
+function such that the distribution of Q(Y ) is uniform on [0, 1], then Q = F .
+
+    In the general case we need randomization. Remember the definition of the
+lexicographic order on R × [0, 1]: (y, τ ) ≤ (y ′ , τ ′ ) is defined to mean that y < y ′
+or both y = y ′ and τ ≤ τ ′ .
+
+
+                                                  5
+Lemma 2. Let P be a probability measure on R, F be its distribution function,
+and Y be a random variable distributed as P . If Q : R × [0, 1] → R is a function
+that is monotonically increasing (in the lexicographic order on its domain) and
+such that the image (P × U )Q−1 of the product P × U , where U is the uniform
+distribution on [0, 1], under the mapping Q is uniform on [0, 1], then, for all y
+and τ ,
+                         Q(y, τ ) = (1 − τ )F (y−) + τ F (y).                (10)
+    Equality (10) says that Q is essentially F ; in particular, Q(y, τ ) = F (y) at
+each point y of F ’s continuity. It is a known fact that if we define Q by (10)
+for the distribution function F of a probability measure P , the distribution of
+Q will be uniform when its domain R × [0, 1] is equipped with the probability
+measure P × U : see the literature on randomized p-values, such as the review
+Gurevich and Vovk (2017).
+    The previous two lemmas suggest that properties R1a and R2 in the def-
+inition of RPSs are the important ones. However, property R1b is formally
+independent of R1a and R2 in our case of the general IID model (rather than a
+single probability measure on R): consider, e.g., a conformity measure A that
+depends only on the objects xi but does not depend on their labels yi ; e.g., the
+left-hand side of (1) will be close to 1 for large n and highly conforming xn+1 .
+
+Simplest example: monotonic conformity measures
+We start from a simple but very restrictive condition on a conformity mea-
+sure making the corresponding conformal transducer satisfy R1a. A conformity
+measure A is monotonic if A(z1 , . . . , zn+1 ) is:
+    monotonically increasing in yn+1 ,
+              ′                                                                         ′
+      yn+1 ≤ yn+1 =⇒ A(z1 , . . . , zn , (xn+1 , yn+1 )) ≤ A(z1 , . . . , zn , (xn+1 , yn+1 ));
+
+    monotonically decreasing in y1 ,
+
+        y1 ≤ y1′ =⇒ A((x1 , y1 ), z2 , . . . , zn , zn+1 ) ≥ A((x1 , y1′ ), z2 , . . . , zn , zn+1 ).
+
+      (Because of the requirement of invariance (5), being decreasing in y1 is
+      equivalent to being decreasing in yi for any i = 2, . . . , n.)
+This condition implies that the corresponding conformal transducer (7) satisfies
+R1a by Lemma 3 below.
+   An example of a monotonic conformity measure is (6), where ŷn+1 is pro-
+duced by the K-nearest neighbours regression algorithm:
+                                                      K
+                                                 1 X
+                                      ŷn+1 :=       y(k)
+                                                 K
+                                                     k=1
+
+is the average label of the K nearest neighbours of xn+1 , where y(1) , . . . , y(n) is
+the sequence y1 , . . . , yn sorted in the order of increasing distances between xi
+
+
+                                                 6
+and xn+1 (we assume n ≥ K and in the case of ties replace each y(i) by the
+average of yj over all j such that the distance between xj and xn+1 is equal to the
+distance between xi and xn+1 ). This conformity measure satisfies, additionally,
+
+                        lim A(z1 , . . . , zn , (xn+1 , y)) = ±∞
+                       y→±∞
+
+and, therefore, the corresponding conformal transducer also satisfies R1b and
+so is an RPS and a CPS.
+
+Criterion of being a CPS
+Unfortunately, many important conformity measures are not monotonic, and the
+next lemma introduces a weaker sufficient condition for a conformal transducer
+to be an RPS.
+
+Lemma 3. The conformal transducer determined by a conformity measure
+A satisfies condition R1a if, for each i ∈ {1, . . . , n}, each training sequence
+                                                                  y
+(z1 , . . . , zn ) ∈ (Rp+1 )n , and each test object xn+1 ∈ Rp , αn+1 − αiy is a mono-
+tonically increasing function of y ∈ R (in the notation of (8)).
+   Of course, we can fix i to, say, i := 1 in Lemma 3. We can strengthen the
+conclusion of the lemma to the conformal transducer determined by A being an
+RPS (and, therefore, a CPS) if, e.g.,
+                                    y
+                                        − αiy = ±∞.
+                                             
+                           lim αn+1
+                            y→±∞
+
+
+
+3     Least Squares Prediction Machine
+In this section we will introduce three versions of what we call the Least Squares
+Prediction Machine (LSPM). They are analogous to the Ridge Regression Con-
+fidence Machine (RRCM), as described in Vovk et al. (2005, Section 2.3) (and
+called the IID predictor in Vovk et al. 2011), but produce (at least usually)
+distribution functions rather than prediction intervals.
+    The ordinary LSPM is defined to be the conformal transducer determined
+by the conformity measure
+
+                          A(z1 , . . . , zn+1 ) := yn+1 − yÊn+1                  (11)
+
+(cf. (6)), where yn+1 is the label in zn+1 and yÊn+1 is the prediction for yn+1
+computed using Least Squares from xn+1 (the object in zn+1 ) and z1 , . . . , zn+1
+(including zn+1 ) as training sequence. The right-hand side of (11) is the ordinary
+residual. However, two more kinds of residuals are common in statistics, and so
+overall we will discuss three kinds of LSPM. The deleted LSPM is determined
+by the conformity measure
+
+                         A(z1 , . . . , zn+1 ) := yn+1 − ŷn+1 ,                 (12)
+
+
+                                           7
+whose difference from (11) is that yÊn+1 is replaced by the prediction ŷn+1 for
+yn+1 computed using Least Squares from xn+1 and z1 , . . . , zn as training se-
+quence (so that the training sequence does not include zn+1 ). The version that
+will be most useful in this paper will be the “studentized LSPM”, which is
+midway between ordinary and deleted LSPM; we will define it formally later.
+    Unfortunately, the ordinary and deleted LSPM are not RPS, because their
+output Qn (see (2)) is not necessarily monotonically increasing in y (remember
+that, for conformal transducers, Qn (y, τ ) is monotonically increasing in τ auto-
+matically). However, we will see that this can happen only in the presence of
+high-leverage points.
+    Let X̄ stand for the (n+1)×p data matrix, whose ith row is the transpose x′i
+to the ith object (training object for i = 1, . . . , n and test object for i = n + 1).
+The hat matrix for the n + 1 observations z1 , . . . , zn+1 is
+
+                                H̄ = X̄(X̄ ′ X̄)−1 X̄ ′ .                         (13)
+
+Our notation for the elements of this matrix will be h̄i,j , i standing for the row
+and j for the column. For the diagonal elements h̄i,i we will use the shorthand h̄i .
+   The following proposition can be deduced from Lemma 3 and the explicit
+form (analogous to Algorithm 1 below but using (22)) of the ordinary LSPM.
+The details of the proofs for all results of this section will be spelled out in
+Section 6.
+
+Proposition 1. The function Qn output by the ordinary LSPM (see (2)) is
+monotonically increasing in y provided h̄n+1 < 0.5.
+    The condition needed for Qn to be monotonically increasing, h̄n+1 < 0.5,
+means that the test object xn+1 is not a very influential point. An overview
+of high-leverage points is given by Chatterjee and Hadi (1988, Section 4.2.3.1),
+where they start from Huber’s 1981 proposal to regard points xi with h̄i > 0.2
+as influential.
+    The assumption h̄n+1 < 0.5 in Proposition 1 is essential:
+Proposition 2. Proposition 1 ceases to be true if the constant 0.5 in it is
+replaced by a larger constant.
+
+    The next two propositions show that for the deleted LSPM, determined by
+(12), the situation is even worse than for the ordinary LSPM: we have to require
+h̄i < 0.5 for all i = 1, . . . , n.
+Proposition 3. The function Qn output by the deleted LSPM according to (2)
+is monotonically increasing in y provided maxi=1,...,n h̄i < 0.5.
+
+   We have the following analogue of Proposition 2 for the deleted LSPM.
+Proposition 4. Proposition 3 ceases to be true if the constant 0.5 in it is
+replaced by a larger constant.
+
+
+
+                                           8
+   The best choice, from the point of view of predictive distributions, seems to
+be the studentized LSPM determined by the conformity measure
+
+                                                     yn+1 − yÊn+1
+                            A(z1 , . . . , zn+1 ) := p                                    (14)
+                                                       1 − h̄n+1
+
+(intermediate between those for the ordinary and deleted LSPM: a standard
+representation for the deleted residuals yi − ŷi , where ŷi is the prediction for yi
+computed using z1 , . . . , zi−1 , zi+1 , . . . , zn+1 as training sequence, is (yi − yÊi )/(1−
+h̄i ), i = 1, . . . , n + 1; we ignore a factor independent of i in the definition of
+internally studentized residuals in, e.g., Seber and Lee 2003, Section 10.2).
+      An important advantage of studentized LSPM is that to get predictive dis-
+tributions we do not need any assumptions of low leverage.
+Proposition 5. The studentized LSPM is an RPS and, therefore, a CPS.
+
+The studentized LSPM in an explicit form
+We will give two explicit forms for the studentized LSPM (Algorithms 1 and 2);
+the versions for the ordinary and deleted LSPM are similar (we will give an
+explicit form only for the former, which is particularly intuitive). Predictive
+distributions (2) will be represented in the form
+
+                               Qn (y) := [Qn (y, 0), Qn (y, 1)]
+
+(in the spirit of abstract randomized p-values of Geyer and Meeden 2005); the
+function Qn maps each potential label y ∈ R to a closed interval of R. It
+is clear that in the case of conformal transducers this interval-valued version
+of Qn carries the same information as the original one: each original value
+Qn (y, τ ) can be restored as a convex mixture of the end-points of Qn (y); namely,
+Qn (y, τ ) = (1 − τ )a + τ b if Qn (y) = [a, b].
+    Remember that the vector (Ê     y1 , . . . , yÊn+1 )′ of ordinary Least Squares predic-
+tions is the product of the hat matrix H̄ and the vector (y1 , . . . , yn+1 )′ of labels.
+For the studentized residuals (14), we can easily obtain
+                         y
+                        αn+1 − αiy = Bi y − Ai ,       i = 1, . . . , n,
+
+in the notation of (8), where y is the label of the (n + 1)st object xn+1 and
+                               »           h̄i,n+1
+                       Bi :=1 − h̄n+1 + p            ,                                    (15)
+                                             1 − h̄i
+                           Pn                      Pn
+                            j=1 h̄j,n+1 yj    yi − j=1 h̄i,j yj
+                       Ai = p              +       p                                      (16)
+                              1 − h̄n+1                1 − h̄i
+
+(see also (40) below). We will assume that all Bi are defined and positive; this
+assumption will be discussed further at the end of this subsection.
+
+
+
+                                              9
+Algorithm 1 Least Squares Prediction Machine
+Require: A training sequence (xi , yi ) ∈ Rp × R, i = 1, . . . , n.
+Require: A test object xn+1 ∈ Rp .
+ 1: Set X̄ to the data matrix for the given n + 1 objects.
+ 2: Define the hat matrix H̄ by (13).
+ 3: for i ∈ {1, 2, . . . , n} do
+ 4:    Define Ai and Bi by (16) and (15), respectively.
+ 5:    Set Ci := Ai /Bi .
+ 6: end for
+ 7: Sort C1 , . . . , Cn in the increasing order obtaining C(1) ≤ · · · ≤ C(n) .
+ 8: Return the predictive distribution (17) for yn+1 .
+
+
+
+   Set Ci := Ai /Bi for all i = 1, . . . , n. Sort all Ci in the increasing order
+and let the resulting sequence be C(1) ≤ · · · ≤ C(n) . Set C(0) := −∞ and
+C(n+1) := ∞. The predictive distribution is:
+                  ®        i   i+1
+                      [ n+1  , n+1 ]   if y ∈ (C(i) , C(i+1) ) for i ∈ {0, 1, . . . , n}
+      Qn (y) :=         i′ −1 i′′ +1
+                                                                                           (17)
+                      [ n+1 , n+1 ]    if y = C(i) for i ∈ {1, . . . , n},
+
+where i′ := min{j | C(j) = C(i) } and i′′ := max{j | C(j) = C(i) }. We can
+                                               1
+see that the thickness of this CPD is n+1         with the exception size equal to the
+number of distinct Ci , at most n.
+     The overall algorithm is summarized as Algorithm 1. Remember that the
+data matrix X̄ has x′i , i = 1, . . . , n + 1, as its ith row; its size is (n + 1) × p.
+     Finally, let us discuss the condition that all Bi are defined and positive,
+i = 1, . . . , n. By Chatterjee and Hadi (1988, Property 2.6(b)), h̄n+1 = 1 implies
+h̄i,n+1 = 0 for i = 1, . . . , n; therefore, the condition is equivalent to h̄i < 1 for
+all i = 1, . . . , n + 1. By Mohammadi (2016, Lemma 2.1(iii)), this means that the
+rank of the extended data matrix X̄ is p and it remains p after removal of any
+one of its n + 1 rows. If this condition is not satisfied, we define Qn (y) := [0, 1]
+for all y. This ensures that the studentized LSPM is a CPS.
+
+The batch version of the studentized LSPM
+There is a much more efficient implementation of the LSPM in situations where
+we have a large test sequence of objects xn+1 , . . . , xn+m instead of just one test
+object xn+1 . In this case we can precompute the hat matrix for the training
+objects x1 , . . . , xn , and then, when processing each test object xn+j , use the
+standard updating formulas based on the Sherman–Morrison–Woodbury the-
+orem: see, e.g., Chatterjee and Hadi (1988, p. 23, (2.18)–(2.18c)). For the
+reader’s convenience we will spell out the formulas. Let X be the n × p data
+matrix for the first n observations: its ith row is x′i , i = 1, . . . , n. Set
+
+                        gi := x′i (X ′ X)−1 xn+1 ,      i = 1, . . . , n + 1.              (18)
+
+
+
+                                                 10
+Algorithm 2 Least Squares Prediction Machine (batch version)
+Require: A training sequence (xi , yi ) ∈ Rp × R, i = 1, . . . , n.
+Require: A test sequence xn+j ∈ Rp , j = 1, . . . , m.
+ 1: Set X to the data matrix for the n training objects.
+ 2: Set H = (hi,j ) to the hat matrix (19).
+ 3: for j ∈ {1, 2, . . . , m} do
+ 4:    Set xn+1 := xn+j .
+ 5:    Define an (n + 1) × (n + 1) matrix H̄ = (h̄i,j ) by (20) and (21).
+ 6:    for i ∈ {1, 2, . . . , n} do
+ 7:        Define Ai and Bi by (16) and (15), respectively.
+ 8:        Set Ci := Ai /Bi .
+ 9:    end for
+10:    Sort C1 , . . . , Cn in the increasing order obtaining C(1) ≤ · · · ≤ C(n) .
+11:    Return the predictive distribution (17) for the label of xn+j .
+12: end for
+
+
+Finally, let H be the n × n hat matrix
+                                 H := X(X ′ X)−1 X ′                              (19)
+for the first n objects; its entries will be denoted hi,j , with hi,i sometimes
+abbreviated to hi . The full hat matrix H̄ is larger than H, with the extra
+entries
+                                          gi
+                h̄i,n+1 = h̄n+1,i =            , i = 1, . . . , n + 1.      (20)
+                                      1 + gn+1
+The other entries of H̄ are
+                                      gi gj
+                     h̄i,j = hi,j −          , i, j = 1, . . . , n.         (21)
+                                    1 + gn+1
+   The overall algorithm is summarized as Algorithm 2. The two steps before
+the outer for loop are preprocessing; they do not depend on the test sequence.
+
+The ordinary LSPM
+A straightforward calculation shows that the ordinary LSPM has a particularly
+efficient and intuitive representation (Burnaev and Vovk, 2014, Appendix A):
+                              Ai                       1 + gn+1
+                       Ci =      = ŷn+1 + (yi − ŷi )          ,                 (22)
+                              Bi                         1 + gi
+where ŷn+1 and ŷi are the Least Squares predictions for yn+1 and yi , respec-
+tively, computed from the test objects xn+1 and xi , respectively, and the ob-
+servations z1 , . . . , zn as the training sequence. The representation (22) is stated
+and proved in Section 6 as Lemma 4. The predictive distribution is defined by
+(17). The fraction 1+g      n+1
+                          1+gi in (22) is typically and asymptotically (at least under
+the assumptions A1–A4 stated in the next section) close to 1, and can usually
+be ignored. The two other versions of the LSPM also typically have
+                                Ci ≈ ŷn+1 + (yi − ŷi ).                         (23)
+
+
+                                           11
+4     A property of validity of the LSPM in the
+      online mode
+In the previous section (cf. Algorithm 1) we defined a procedure producing a
+“fuzzy” distribution function Qn given a training sequence zi = (xi , yi ), i =
+1, . . . , n, and a test object xn+1 . In this and following sections we will use both
+notation Qn (y) (for an interval) and Qn (y, τ ) (for a point inside that interval,
+as above). Remember that U is the uniform distribution on [0, 1].
+     Prediction in the online mode proceeds as follows:
+Protocol 1. Online mode of prediction
+   Nature generates an observation z1 = (x1 , y1 )
+           from a probability distribution P ;
+   for n = 1, 2, . . . do
+       Nature independently generates a new observation
+           zn+1 = (xn+1 , yn+1 ) from P ;
+       Forecaster announces Qn , a predictive distribution
+           based on (z1 , . . . , zn ) and xn+1 ;
+       set pn := Qn (yn+1 , τn ), where τn ∼ U independently
+   end for
+Of course, Forecaster does not know P and yn+1 when computing Qn .
+   In the online mode we can strengthen condition R2 as follows:
+Theorem 1 (Vovk et al. 2005, Theorem 8.1). In the online mode of predic-
+tion (in which (zi , τi ) ∼ P × U are IID), the sequence (p1 , p2 , . . .) is IID and
+(p1 , p2 , . . .) ∼ U ∞ , provided that Forecaster uses the studentized LSPM (or any
+other conformal transducer).
+
+    The property of validity asserted in Theorem 1 is marginal, in that we do not
+assert that the distribution of pn is uniform conditionally on xn+1 . Conditional
+validity is attained by the LSPM only asymptotically and under additional
+assumptions, as we will see in the next section.
+
+
+5     Asymptotic efficiency
+In this section we obtain some basic results about the LSPM’s efficiency. The
+LSPM has a property of validity under the general IID model, but a natural
+question is how much we should pay for it in terms of efficiency in situations
+where narrow parametric or even Bayesian assumptions are also satisfied. This
+question was asked independently by Evgeny Burnaev (in September 2013) and
+Larry Wasserman. It has an analogue in nonparametric hypothesis testing:
+e.g., a major impetus for the widespread use of the Wilcoxon rank-sum test
+was Pitman’s discovery in 1949 that even in the situation where the Gaussian
+assumptions of Student’s t-test are satisfied the efficiency (“Pitman’s efficiency”)
+of the Wilcoxon test is still 0.95.
+
+
+                                         12
+    In fact the assumptions that we use in our theoretical study of efficiency
+are not comparable with the general IID model used so far: we will add strong
+parametric assumptions on the way labels yi are generated given the correspond-
+ing objects xi but will remove the assumption that the objects are generated
+randomly in the IID fashion; in this section x1 , x2 , . . . are fixed vectors. (The
+reason being that the two main results of this section, Theorems 2 and 3, do
+not require the assumption that the objects are random and IID.) Suppose that,
+given the objects x1 , x2 , . . ., the labels y1 , y2 , . . . are generated by the rule
+                                     yi = w′ xi + ξi ,                             (24)
+where w is a vector in Rp and ξi are independent random variables distributed
+as N (0, σ 2 ) (the Gaussian distribution being parameterized by its mean and
+variance). There are two parameters: vector w and positive number σ. We
+assume an infinite sequence of observations (x1 , y1 ), (x2 , y2 ), . . . but take only
+the first n of them as our training sequence and let n → ∞. These are all the
+assumptions used in our efficiency results:
+A1 The sequence x1 , x2 , . . . is bounded: supi ∥xi ∥ < ∞.
+A2 The first component of each vector xi is 1.
+A3 The empirical second-moment matrix has its smallest eigenvalue eventually
+    bounded away from 0:
+                                         n
+                                                  !
+                                      1X        ′
+                         lim inf λmin       xi xi > 0,
+                          n→∞         n i=1
+
+      where λmin stands for the smallest eigenvalue.
+A4 The labels y1 , y2 , . . . are generated according to (24): yi = w′ xi +ξi , where ξi
+    are independent Gaussian noise random variables distributed as N (0, σ 2 ).
+    Alongside the three versions of the LSPM, we will consider three “oracles”
+(at first concentrating on the first two). Intuitively, all three oracles know that
+the data is generated from the model (24). Oracle I knows neither w nor σ (and
+has to estimate them from the data or somehow manage without them). Oracle
+II does not know w but knows σ. Finally, Oracle III knows both w and σ.
+    Formally, proper Oracle I outputs the standard predictive distribution for
+the label yn+1 of the test object xn+1 given the training sequence of the first n
+observations and xn+1 , namely it predicts with
+                                    p
+                            ŷn+1 + 1 + gn+1 σ̂n tn−p ,                        (25)
+where gn+1 is defined in (18),
+             ŷn+1 := x′n+1 (X ′ X)−1 X ′ Y,
+                       Ã
+                                  n
+                           1 X
+                σ̂n :=              (yi − ŷi )2 ,   ŷi := x′i (X ′ X)−1 X ′ Y,
+                         n − p i=1
+
+
+                                            13
+X is the data matrix for the training sequence (the n × p matrix whose ith row
+is x′i , i = 1, . . . , n), Y is the vector (y1 , . . . , yn )′ of the training labels, and tn−p
+is Student’s t-distribution with n − p degrees of freedom; see, e.g., Seber and
+Lee (2003, Section 5.3.1) or Wang et al. (2012, Example 3.3). (By condition
+A3, (X ′ X)−1 exists from some n on.) The version that is more popular in the
+literature on empirical processes for residuals is simplified Oracle I outputting
+                                         N ŷn+1 , σ̂n2 .
+                                                           
+                                                                                            (26)
+The difference between the two versions, however, is asymptotically negligible
+(Pinelis, 2015), and the results stated below will be applicable to both versions.
+   Proper Oracle II outputs the predictive distribution
+                             N ŷn+1 , (1 + gn+1 )σ 2 .
+                                                     
+                                                                              (27)
+Correspondingly, simplified Oracle II outputs the predictive distribution
+                                N ŷn+1 , σ 2 ;
+                                             
+                                                                          (28)
+the difference between the two versions of Oracle II is again asymptotically
+negligible under our assumptions. For future reference, Oracle III outputs the
+predictive distribution
+                              N w′ xn+1 , σ 2 .
+                                             
+
+    Our notation is Qn for the conformal predictive distribution (2), as before,
+QIn for simplified or proper Oracle I’s predictive distribution, (26) or (25) (The-
+orem 2 will hold for both), and QII
+                                  n for simplified or proper Oracle II’s predictive
+distribution, (28) or (27) (Theorem 3 will hold for both). Theorems 2 and 3 are
+applicable to all three versions of the LSPM.
+Theorem 2. The random functions Gn : R → R defined by
+                   √
+          Gn (t) := n Qn (ŷn+1 + σ̂n t, τ ) − QIn (ŷn+1 + σ̂n t)
+                                                                   
+
+weakly converge to a Gaussian process Z with mean zero and covariance function
+                                                     1
+    cov(Z(s), Z(t)) = Φ(s) (1 − Φ(t)) − ϕ(s)ϕ(t) − stϕ(s)ϕ(t),                    s ≤ t.
+                                                     2
+Theorem 3. The random functions Gn : R → R defined by
+                      √
+            Gn (t) := n Qn (ŷn+1 + σt, τ ) − QII
+                                                               
+                                                 n (ŷn+1 + σt)
+
+weakly converge to a Gaussian process Z with mean zero and covariance function
+                cov(Z(s), Z(t)) = Φ(s) (1 − Φ(t)) − ϕ(s)ϕ(t),            s ≤ t.            (29)
+    In Theorems 2 and 3, we have τ ∼ U ; alternatively, they will remain true if we
+fix τ to any value in [0, 1]. For simplified oracles, we have QIn (ŷn+1 + σ̂n t) = Φ(t)
+in Theorem 2 and QII   n (ŷn+1 + σt) = Φ(t) in Theorem 3. Our proofs of these
+theorems (given in Section 6) are based on the representation (22) and the
+results of Mugantseva (1977) (see also Chen 1991, Chapter 2).
+    Applying Theorems 2 and 3 to a fixed argument t, we obtain (dropping τ
+altogether):
+
+
+                                              14
+                                                                              DH vs Oracle III
+                      0.25                                                    LSPM/DH vs Oracle II (known σ)
+                                                                              LSPM/DH vs Oracle I (unknown σ)
+                      0.20
+
+
+
+
+asymptotic variance
+                      0.15
+
+
+                      0.10
+
+
+                      0.05
+
+
+                      0.00
+
+                               −3         −2        −1            0       1                2                3
+
+                                                                  t
+
+
+
+
+Figure 1: The asymptotic variances for the Dempster–Hill (DH) procedure as
+compared with the truth (Oracle III, red) and for the LSPM and DH proce-
+dure as compared with the oracular procedures for known σ (Oracle II, blue)
+and unknown σ (Oracle I, black); in black and white, red is highest, blue is
+intermediate, and black is lowest
+
+
+Corollary 1. For a fixed t ∈ R,
+                      √
+                          n Qn (ŷn+1 + σ̂n t) − QIn (ŷn+1 + σ̂n t)
+                                                                    
+                                                                Å                                  ã
+                                                                                         1
+                                                          ⇒ N 0, Φ(t)(1 − Φ(t)) − ϕ(t)2 − t2 ϕ(t)2
+                                                                                         2
+
+and
+                      √
+                             n Qn (ŷn+1 + σt) − QII                                         2
+                                                                                              
+                                                  n (ŷn+1 + σt) ⇒ N 0, Φ(t)(1 − Φ(t)) − ϕ(t)    .
+
+    Figure 1 presents plots for the asymptotic variances, given in Corollary 1,
+for the two oracular predictive distributions: black for Oracle I (Φ(t)(1−Φ(t))−
+ϕ(t)2 − 21 t2 ϕ(t)2 vs t) and blue for Oracle II (Φ(t)(1 − Φ(t)) − ϕ(t)2 vs t); the
+red plot will be discussed later in this section. The two asymptotic variances
+coincide at t = 0, where they attain their maximum of between 0.0908 and
+0.0909.
+    We can see that under the Gaussian model (24) complemented by other
+natural assumptions, the LSPM is asymptotically close to the oracular predictive
+distributions for Oracles I and II, and therefore is approximately conditionally
+valid and efficient (i.e., valid and efficient given x1 , x2 , . . .). On the other hand,
+Theorem 1 guarantees the marginal validity of the LSPM under the general IID
+model, regardless of whether (24) holds.
+
+
+
+                                                             15
+Comparison with the Dempster–Hill procedure
+In this subsection we discuss a classical procedure that was most clearly articu-
+lated by Dempster (1963, p. 110) and Hill (1968, 1988); therefore, in this paper
+we refer to it as the Dempster–Hill procedure. Both Dempster and Hill trace
+their ideas to Fisher’s (1939, 1948) nonparametric version of his fiducial method,
+but Fisher was interested in confidence distributions for quantiles rather than
+predictive distributions. Hill (1988) also referred to his procedure as Bayesian
+nonparametric predictive inference, which was abbreviated to nonparametric
+predictive inference (NPI) by Frank Coolen (Augustin and Coolen, 2004). We
+are not using the last term since it seems that all of this paper (and the whole
+area of conformal prediction) falls under the rubric of “nonparametric predictive
+inference”. An important predecessor of Dempster and Hill was Jeffreys (1932),
+who postulated what Hill later denoted as A(2) (see Lane 1980 and Seidenfeld
+1995 for discussions of Jeffreys’s paper and Fisher’s reaction).
+    The Dempster–Hill procedure is the conformal predictive system determined
+by the conformity measure
+
+                    A(z1 , . . . , zn+1 ) = A(y1 , . . . , yn+1 ) = yn+1 ;          (30)
+
+it is used when the objects xi are absent. (Both Dempster and Hill consider
+this case.) It can be regarded as the special case of the LSPM for the number
+of attributes p = 0; alternatively, we can take p = 1 but assume that all objects
+are xi = 0. The predictions ŷ are always 0 and the hat matrices are H̄ = 0 and
+H = 0 (although the expressions (13) and (19) are not formally applicable),
+which means that (11), (12), and (14) all reduce to (30). It is easy to see that
+the predictive distribution becomes, in the absence of ties (Dempster’s and Hill’s
+usual assumption),
+                   ® i i+1
+                     [     , n+1 ] if y ∈ (y(i) , y(i+1) ) for i ∈ {0, 1, . . . , n}
+         Qn (y) := n+1 i−1 i+1
+                                                                                     (31)
+                     [ n+1 , n+1 ] if y = y(i) for i ∈ {1, . . . , n}
+
+(cf. (17)), where y(1) ≤ · · · ≤ y(n) are the yi sorted in the increasing order, y(0) :=
+−∞, and y(n+1) := ∞. This is essentially Hill’s assumption A(n) (which he also
+denoted An ); in his words: “An asserts that conditional upon the observations
+X1 , . . . , Xn , the next observation Xn+1 is equally likely to fall in any of the
+open intervals between successive order statistics of the given sample” (Hill,
+1968, Section 1). The set of all continuous distribution functions F compatible
+with Hill’s A(n) coincides with the set of all continuous distribution functions
+F satisfying F (y) ∈ Qn (y) for all y ∈ R, where Qn is defined by (31).
+    Notice that the LSPM, as presented in (23), is a very natural adaptation of
+A(n) to the Least Squares regression.
+    Since (31) is a conformal transducer (provided a point from an interval in
+(31) is chosen randomly from the uniform distribution on that interval), we have
+the same guarantees of validity as those given above: the distribution of (31) is
+uniform over the interval [0, 1].
+
+
+                                             16
+    As for efficiency, it is interesting that, in the most standard case of IID
+Gaussian observations, our predictive distributions for linear regression are as
+precise as the Dempster–Hill ones asymptotically when compared with Oracles I
+and II. Let us apply the Dempster–Hill procedure to the location/scale model
+yi = w + ξi , i = 1, 2, . . ., where ξi ∼ N (0, σ 2 ) are independent. As in the case
+of the LSPM, we can compare the Dempster–Hill procedure with three oracles
+(we consider only simplified versions): Oracle I knows neither w nor σ, Oracle
+II knows σ, and Oracle III knows both w and σ.
+    It is interesting that Theorems 2 and 3 (and therefore the blue and black
+plots in Figure 1) are applicable to both the LSPM and Dempster–Hill predictive
+distributions. (The fact that the analogous asymptotic variances for standard
+linear regression are as good as those for the location/scale model was empha-
+sized in the pioneering paper by Pierce and Kopecky 1979.) The situation with
+Oracle III is different. Donsker’s (1952) classical result implies the following
+simplification of Theorems 2 and 3, where QIII stands for Oracle III’s predictive
+distribution (independent of n).
+Theorem 4. In the case of the Dempster–Hill procedure, the random function
+Gn : R → R defined by
+            √                                  √
+   Gn (t) := n Qn (w + σt, τ ) − QIII (w + σt) = n (Qn (w + σt, τ ) − Φ(t))
+                                                                         (32)
+weakly converges to a Brownian bridge, i.e., a Gaussian process Z with mean
+zero and covariance function
+                   cov(Z(s), Z(t)) = Φ(s) (1 − Φ(t)) ,     s ≤ t.
+   The variance Φ(t)(1 − Φ(t)) of the Brownian bridge is shown as the red line
+in Figure 1. However, the analogue of the process (32) does not converge in
+general for the LSPM (under this section’s assumption of fixed objects).
+
+
+6    Proofs, calculations, and additional observa-
+     tions
+In this section we give all proofs and calculations for the results of the previous
+sections and provide some additional comments.
+
+Proofs for Section 2
+Here we prove Lemmas 1–3.
+
+Proof of Lemma 1
+Suppose there is y ∈ R such that Q(y) ̸= F (y). Fix such a y. The probability
+that Q(Y ) ≤ Q(y) is, on the one hand, Q(y) and, on the other hand, F (y ′ ),
+where
+                        y ′ := sup{y ′′ | Q(y ′′ ) = Q(y)}.
+
+
+                                         17
+(The first statement follows from the distribution of Y being uniform and the
+second from the definition of F in conjunction with its continuity.) Since Q(y) ̸=
+F (y), we have y ′ > y, and we know that Q(y) = Q(y ′ −) = F (y ′ ) > F (y). We
+can see that Q maps the whole interval [y, y ′ ) of positive probability F (y ′ )−F (y)
+to one point, which contradicts its distribution being uniform.
+
+Proof of Lemma 2
+First we prove that Q(y, 1) = F (y) for all y ∈ R. Fix a y ∈ R such that
+Q(y, 1) ̸= F (y), assuming it exists. Set
+                         y ′ := sup{y ′′ | Q(y ′′ , 1) = Q(y, 1)}.                    (33)
+   Since Q(y, 1) ̸= F (y) and, for (Y, τ ) ∼ P × U ,
+              Q(y, 1) = P(Q(Y, τ ) ≤ Q(y, 1)) ≥ P(Q(Y, 1) ≤ Q(y, 1))
+                      ≥ P((Y, 1) ≤ (y, 1)) = P(Y ≤ y) = F (y),
+we have Q(y, 1) > F (y). Next we consider two cases:
+    if the supremum in (33) is attained,
+         F (y) < Q(y, 1) = P(Q(Y, 1) ≤ Q(y, 1)) = P((Y, 1) ≤ (y ′ , 1)) = F (y ′ ),
+      and so Q maps the lexicographic interval ((y, 1), (y ′ , 1)] of positive proba-
+      bility F (y ′ ) − F (y) into one point;
+    if the supremum in (33) is not attained,
+        F (y) < Q(y, 1) = P(Q(Y, 1) ≤ Q(y, 1)) = P((Y, 1) < (y ′ , 1)) = F (y ′ −),
+      and so Q maps the lexicographic interval ((y, 1), (y ′ , 0)) of positive prob-
+      ability F (y ′ −) − F (y) into one point.
+In both cases we get a contradiction with the distribution of Q being uniform,
+which completes the proof that Q(y, 1) = F (y) for all y ∈ R.
+   In the same way we prove that Q(y, 0) = F (y−) for all y ∈ R.
+   Now (10) holds trivially when F is continuous at y. If it is not,
+Q−1 ((F (y−), F (y)) will only contain points (y, τ ) for various τ , and so (10) is
+the only way to ensure that the distribution of Q is uniform.
+
+Proof of Lemma 3
+Let us split all numbers i ∈ {1, . . . , n + 1} into three classes: i of class I are
+those satisfying αiy > αn+1y
+                               , i of class II are those satisfying αiy = αn+1 y
+                                                                                   , and i
+                                     y      y
+of class III are those satisfying αi < αn+1 . Each of those numbers is assigned a
+weight: 0 for i of class I, τ /(n + 1) for i of class II, and 1/(n + 1) for i of class III;
+notice that the weights are larger for higher-numbered classes. According to (7),
+Qn (y, τ ) is the sum of the weights of all i ∈ {1, . . . , n + 1}. As y increases, each
+individual weight can only increase (as i can move only to a higher-numbered
+class), and so the total weight Qn (y, τ ) can also only increase.
+
+
+                                            18
+Comments and proofs for Section 3
+After a brief discussion of Ridge Regression Prediction Machines (analogous
+to Ridge Regression Confidence Machines, mentioned at the beginning of Sec-
+tion 3), we prove Propositions 1–5 and find the explicit forms for the studentized,
+ordinary, and deleted LSPM.
+
+Ridge Regression Prediction Machines
+We can generalize LSPM to the Ridge Regression Prediction Machine (RRPM)
+by replacing the Least Squares predictions in (11), (12), and (14) by Ridge
+Regression predictions (see Vovk et al. January 2019 (first posted October 2017
+for details). In this paper we are interested in the case p ≪ n, and so Least
+Squares often provide a reasonable result as compared with Ridge Regression.
+When we move on to the kernel case (and Kernel Ridge Regression), the Least
+Squares method ceases to be competitive. Vovk et al. (January 2019 (first posted
+October 2017) extend some results of this paper to the kernel case replacing the
+LSPM by the RRPM.
+Remark 2. The early versions of the Ridge Regression Confidence Machines
+used |yn+1 − yÊn+1 | in place of the right-hand side of (11) (see, e.g., Vovk et al.
+2005, Section 2.3). For the first time the operation |· · · | of taking the absolute
+value was dropped in Burnaev and Vovk (2014) to facilitate theoretical analysis.
+
+Proof of Proposition 1
+                                                                                  y
+According to Lemma 3, Qn (y, τ ) will be monotonically increasing in y if αn+1       −
+  y
+αi is a monotonically increasing function of y. We will use the notation ei :=
+yi − ŷi (suppressing the dependence on y) for the ith residual, i = 1, . . . , n+1, in
+the data sequence z1 , . . . , zn , (xn+1 , y); yn+1 is understood to be y. In terms of
+the hat matrix H̄ (which does not depend on the labels), the difference en+1 −ei
+can be written as
+              y
+             αn+1 − αiy = en+1 − ei
+                          = (yn+1 − ŷn+1 ) − (yi − ŷi )
+                          = y − ŷn+1 + ŷi + c
+                          = y − (h̄n+1,1 y1 + · · · + h̄n+1,n yn + h̄n+1 y)
+                            + (h̄i,1 y1 + · · · + h̄i,n yn + h̄i,n+1 y) + c
+                          = (1 − h̄n+1 + h̄i,n+1 )y + c,                          (34)
+
+where c stands for a constant (in the sense of not depending on y), and different
+entries of c may stand for different constants. We can see that Qn will be a
+nontrivial monotonically increasing function of y whenever
+
+                               1 − h̄n+1 + h̄i,n+1 > 0                            (35)
+
+
+
+                                           19
+for all i = 1, . . . , n. Since h̄i,n+1 ∈ [−0.5, 0.5] (see Chatterjee and Hadi 1988,
+Property 2.5(b) on p. 17), we can see that it indeed suffices to assume h̄n+1 <
+0.5.
+
+Proof of Proposition 2
+We are required to show that our c = 0.5 is the largest c for which the assumption
+h̄n+1 < c is still sufficient for Qn (y, τ ) to be a monotonically increasing function
+of y. For ϵ ∈ (0, 1), consider the data set
+                                            Å        ã
+                                              −1 + ϵ
+                                     X̄ =                                         (36)
+                                                 1
+
+(so that n = 1; we have two observations: one training observation and one test
+observation). The hat matrix is
+
+                                       (1 − ϵ)2 −1 + ϵ
+                                     Å                  ã
+                               1
+                     H̄ =                                 .
+                          2 − 2ϵ + ϵ2 −1 + ϵ        1
+
+The coefficient in front of y in the last line of (34) (i.e., the left-hand side of
+(35)) now becomes
+
+                            1           −1 + ϵ          ϵ2 − ϵ
+                  1−              2
+                                    +            2
+                                                   =             < 0.
+                       2 − 2ϵ + ϵ     2 − 2ϵ + ϵ     2 − 2ϵ + ϵ2
+Therefore, Qn (·, τ ) is monotonically decreasing and not monotonically increas-
+ing. On the other hand,
+                                                       1
+                                h̄n+1 = h̄2 =
+                                                  2 − 2ϵ + ϵ2
+can be made as close to 0.5 as we wish by making ϵ sufficiently small.
+
+Proof of Proposition 3
+Let e(i) be the deleted residual : e(i) := yi − ŷ(i) , where ŷ(i) is computed using
+Least Squares from the data set z1 , . . . , zi−1 , zi+1 , . . . , zn+1 (so that zi is deleted
+from z1 , . . . , zn+1 , where we set temporarily zn+1 := (xn , y)). It is well known
+that
+                                               ei
+                                      e(i) =         ,
+                                             1 − h̄i
+where ei is the ordinary residual, as used in the proof of Proposition 1 (for a
+proof, see, e.g., Montgomery et al. 2012, Appendix C.7). Let us check when
+the difference e(n+1) − e(i) is a monotonically increasing function of y = yn+1 .
+Analogously to (34), we have, for any i = 1, . . . , n:
+                                       en+1         ei
+                    e(n+1) − e(i) =            −
+                                     1 − h̄n+1    1 − h̄i
+                                     yn+1 − ŷn+1    yi − ŷi
+                                   =               −
+                                       1 − h̄n+1      1 − h̄i
+
+                                             20
+                                y − h̄n+1 y yi − h̄i,n+1 y
+                               =             −              +c
+                                 1 − h̄n+1          1 − h̄i
+                                     yi − h̄i,n+1 y
+                               =y−                  +c
+                                         1 − h̄i
+                                  1 − h̄i + h̄i,n+1
+                               =y                   + c.                 (37)
+                                       1 − h̄i
+Therefore, it suffices to require
+                               1 − h̄i + h̄i,n+1 > 0,                    (38)
+which is the same condition as for the ordinary LSPM (see (35)) but with i and
+n + 1 swapped. Therefore, it suffices to assume h̄i < 0.5.
+
+Proof of Proposition 4
+The statement of the proposition is obvious from the proofs of Propositions 2
+and 3: motivated by the conditions (35) and (38) being obtainable from each
+other by swapping i and n + 1, we can apply the argument in the proof of
+Proposition 2 to the data set
+                                    Å        ã
+                                        1
+                               X̄ =
+                                      −1 + ϵ
+(which is (36) with its rows swapped).
+
+Proof of Proposition 5
+Similarly to (34) and (37), we obtain:
+                   y                en+1          ei
+                  αn+1 − αiy = p            −p
+                                  1 − h̄n+1      1 − h̄i
+                                yn+1 − ŷn+1    yi − ŷi
+                              = p            −p
+                                  1 − h̄n+1       1 − h̄i
+                                y − h̄n+1 y   yi − h̄i,n+1 y
+                              =p            − p              +c
+                                  1 − h̄n+1         1 − h̄i
+                               »                h̄i,n+1
+                              = 1 − h̄n+1 y + p           y + c.         (39)
+                                                  1 − h̄i
+Therefore, we need to check the inequality
+                         »               h̄i,n+1
+                           1 − h̄n+1 + p           ≥ 0.
+                                           1 − h̄i
+This inequality can be rewritten as
+                                   »
+                        h̄i,n+1 ≥ − (1 − h̄n+1 )(1 − h̄i )
+and follows from Chatterjee and Hadi (1988), Property 2.6(b) on p. 19.
+
+
+                                         21
+Computations for the studentized LSPM
+Now we need the chain (39) with a more careful treatment of the unspecified
+constants c:
+                     en+1             ei
+    αn+1 − αi = p               −p
+                    1 − h̄n+1        1 − h̄i
+                yn+1 − ŷn+1         yi − ŷi
+              = p                −p
+                     1 − h̄n+1        1 − h̄i
+                      Pn                                   Pn
+                y − j=1 h̄j,n+1 yj − h̄n+1 y yi − j=1 h̄i,j yj − h̄i,n+1 y
+              =            p                       −          p
+                              1 − h̄n+1                        1 − h̄i
+                Ç»                             å
+                                     h̄i,n+1
+              =       1 − h̄n+1 + p              y
+                                       1 − h̄i
+                  Ç Pn                           Pn          å
+                        j=1 h̄j,n+1 yj     yi − j=1 h̄i,j yj
+                −       p               +       p
+                           1 − h̄n+1               1 − h̄i
+              = B i y − Ai ,                                               (40)
+where the last equality is just the definition of Bi and Ai , also given by (15)
+and (16) above.
+
+The ordinary and deleted LSPM
+Here we will do the analogues of the calculation (40) for the ordinary and deleted
+LSPM. For the ordinary LSPM we obtain
+  αn+1 − αi = en+1 − ei
+             = (yn+1 − ŷn+1 ) − (yi − ŷi )
+               Ñ                             é Ñ                            é
+                     Xn                              n
+                                                     X
+             = y−        h̄j,n+1 yj − h̄n+1 y − yi −   h̄i,j yj − h̄i,n+1 y
+                       j=1                                  j=1
+                                     
+             = 1 − h̄n+1 + h̄i,n+1 y
+                Ñ                                  é
+                  X n                   n
+                                        X
+              −       h̄j,n+1 yj + yi −   h̄i,j yj
+                    j=1                   j=1
+
+             = B i y − Ai ,
+with the notation
+                       Bi := 1 − h̄n+1 + h̄i,n+1 ,                           (41)
+                            Xn                     n
+                                                   X
+                       Ai =     h̄j,n+1 yj + yi −    h̄i,j yj .              (42)
+                              j=1                  j=1
+
+For the deleted LSPM the calculation (40) becomes:
+                   en+1        ei
+    αn+1 − αi =            −
+                 1 − h̄n+1   1 − h̄i
+
+                                         22
+                   yn+1 − ŷn+1   yi − ŷi
+               =                −
+                     1 − h̄n+1    1 − h̄i
+                       Pn                                 Pn
+                   y − j=1 h̄j,n+1 yj − h̄n+1 y    yi − j=1 h̄i,j yj − h̄i,n+1 y
+               =                            −
+                          1 − h̄n+1                        1 − h̄i
+                Å            ã
+                     h̄i,n+1
+               = 1+            y
+                     1 − h̄i
+                  Ç Pn                     Pn            å
+                      j=1 h̄j,n+1 yj   yi − j=1 h̄i,j yj
+                −                    +
+                       1 − h̄n+1           1 − h̄i
+               = B i y − Ai ,
+
+with the notation
+                              h̄i,n+1
+                    Bi := 1 +         ,
+                              1 − h̄i
+                         Pn                      Pn
+                            j=1 h̄j,n+1 yj   yi − j=1 h̄i,j yj
+                    Ai =                   +                   .
+                            1 − h̄n+1            1 − h̄i
+
+Comments and proofs for Section 5
+There are different notions of weak convergence of empirical processes used in
+literature, but in this paper (in particular, Theorems 2 and 3) we use the
+old-fashioned one due to Skorokhod: see, e.g., Billingsley (1999, except for
+Section 15). We will regard empirical distribution functions and empirical pro-
+cesses to be elements of a function space which we will denote D: its elements
+are càdlàg (i.e., right-continuous with left limits) functions f : R → R, and the
+distance between f, g ∈ D will be defined to be the Skorokhod distance (either d
+or d◦ in the notation of Billingsley 1999, Theorem 12.1) between the functions
+t ∈ [0, 1] 7→ f (Φ−1 (t)) and t ∈ [0, 1] 7→ g(Φ−1 (t)) in D[0, 1]. (Here Φ is the
+standard Gaussian distribution function; we could have used any other function
+on the real line that is strictly monotonically increasing from 0 to 1.)
+
+Proofs of Theorems 2 and 3 for the ordinary LSPM
+We will start our proof from the ordinary LSPM, in which case the predictive
+distribution is particularly simple.
+Lemma 4 (Burnaev and Vovk 2014). In the case of the ordinary LSPM, we
+have (22).
+Proof. Remember that, in our notation, X is the data matrix based on the first
+n observations, X̄ is the data matrix based on the first n + 1 observations, H
+is the hat matrix X(X ′ X)−1 X ′ based on the first n observations, and H̄ is the
+hat matrix X̄(X̄ ′ X̄)−1 X ′ based on the first n + 1 observations; the elements
+of H are denoted as hi,j and the elements of H̄ as h̄i,j , except that for the
+diagonal elements we do not repeat the index. Besides, we let Y ∈ Rn stand for
+
+
+                                        23
+the vector of the training labels (y1 , . . . , yn )′ . To compute Ci we will use the
+formulas (41)–(42) and (20)–(21):
+              Bi = 1 − h̄n+1 + h̄i,n+1
+                                x′n+1 (X ′ X)−1 xn+1       x′i (X ′ X)−1 xn+1
+                   =1−              ′                 +
+                              1 + xn+1 (X ′ X)−1 xn+1   1 + x′n+1 (X ′ X)−1 xn+1
+                          1 + x′i (X ′ X)−1 xn+1
+                   =                             .
+                        1 + x′n+1 (X ′ X)−1 xn+1
+and, letting ŷ stand for the predictions computed from the first n observations,
+                  n
+                  X                  n
+                                     X
+ Ai = yi −              h̄i,j yj +         h̄j,n+1 yj
+                  j=1                j=1
+                   n                  n
+                  X                  X   x′i (X ′ X)−1 xn+1 x′n+1 (X ′ X)−1 xj
+     = yi −             hi,j yj +                                              yj
+                  j=1                j=1
+                                               1 + x′n+1 (X ′ X)−1 xn+1
+                   n
+                  X      x′j (X ′ X)−1 xn+1
+              +                                yj
+                  j=1
+                      1 + x′n+1 (X ′ X)−1 xn+1
+                         x′i (X ′ X)−1 xn+1 x′n+1 (X ′ X)−1 X ′ Y     Y ′ X(X ′ X)−1 xn+1
+     = yi − ŷi +                      ′                          +
+                                              ′   −1
+                                  1 + xn+1 (X X) xn+1               1 + x′n+1 (X ′ X)−1 xn+1
+                          x′i (X ′ X)−1 xn+1 ŷn+1             ŷn+1
+     = yi − ŷi +                                  +
+                         1 + x′n+1 (X ′ X)−1 xn+1    1 + x′n+1 (X ′ X)−1 xn+1
+                           1 + x′i (X ′ X)−1 xn+1
+     = yi − ŷi +                                 ŷn+1 .
+                         1 + x′n+1 (X ′ X)−1 xn+1
+This gives
+                                                        1 + x′n+1 (X ′ X)−1 xn+1
+                  Ci = Ai /Bi = (yi − ŷi )                                      + ŷn+1 ,
+                                                          1 + x′i (X ′ X)−1 xn+1
+i.e., (22).
+    Now Theorems 2 and 3 will follow from Mugantseva (1977) and Chen (1991).
+Mugantseva only treats simple linear regression, and in general we deduce The-
+orem 2 from Chen (1991, Theorem 2.4.3) and deduce Theorem 3 from Chen’s
+Theorems 2.4.3 and 2.3.2. However, to make those results applicable we need
+to show that the fraction 1+g n+1
+                           1+gi   in (22) can be ignored; the following lemma
+shows that both gn+1 and gi are sufficiently close to 1.
+Lemma 5. Under our conditions A1–A4,
+                                     max       |gi | = O(n−1 ) = o(n−1/2 ).
+                                i=1,...,n+1
+
+Proof. We have, for all allowed sequences x1 , x2 , . . .,
+                                            ∥xn+1 ∥ maxi=1,...,n+1 ∥xi ∥
+                        max      |gi | ≤
+                   i=1,...,n+1                      λmin (X ′ X)
+
+                                                           24
+                                 ∥xn+1 ∥ maxi=1,...,n+1 ∥xi ∥
+                             <                                = O(n−1 ),
+                                            nϵ
+with the inequality holding for some ϵ > 0 from some n on.
+   We will spell out the details of the proof only for Theorem 3. Since Qn is
+concentrated at the points C1 , . . . , Cn , its transformation t 7→ Qn (ŷn+1 + σt) is
+concentrated at
+                           Ci − ŷn+1          yi − ŷi 1 + gn+1
+                      ti =                 =                                      (43)
+                                 σ                σ       1 + gi
+(by (22)). If we replace (43) by
+                                              yi − ŷi
+                                      t̄i =
+                                                 σ
+the desired result reduces to Mugantseva’s (as presented by Chen 1991), so we
+need to check that this replacement is valid. We will use the fact that, by
+Lemma 5,
+                            1 + gn+1
+                                     = 1 + o(n−1/2 )
+                              1 + gi
+as n → ∞ uniformly in i = 1, . . . , n. Let Fn be the empirical distribution
+function determined by the random points t1 , . . . , tn and F̄n be the empirical
+distribution function determined by the random points t̄1 , . . . , t̄n . Let
+
+                            Gn (t) := n1/2 (Fn (t) − Φ(t))
+                            Ḡn (t) := n1/2 (F̄n (t) − Φ(t))
+
+be the corresponding empirical processes. We know that Ḡn weakly converge to
+the zero-mean Gaussian process Z with the covariance function (29). Our goal
+is to prove that the same is true about Gn .
+      The idea is to use Prokhorov’s theorem, in the form of Theorem 13.1 in
+Billingsley (1999), first proving that the finite-dimensional distributions of Gn
+converge to those of Z and then that the sequence Gn is tight. The functional
+space D(−∞, ∞) is defined and studied in Billingsley (1999, p. 191); we can
+use it in place of D if we consider, without loss of generality, the domains of Gn
+and Ḡn to be bounded. Let πt∗1 ,...,t∗k be the projection of D(−∞, ∞) onto Rk :
+πt∗1 ,...,t∗k (x) := (x(t∗1 ), . . . , x(t∗k )).
+Lemma 6. The finite-dimensional distributions of Gn weakly converge to Z:
+πt∗1 ,...,t∗k (Gn ) ⇒ πt∗1 ,...,t∗k (Z).
+Proof. For simplicity, we will only consider two-dimensional distributions. To
+see that πt∗1 ,t∗2 (Gn ) ⇒ πt∗1 ,t∗2 (Z), notice that, for some ϵn → 0,
+
+        P (Gn (t∗1 ) ≤ a1 , Gn (t∗2 ) ≤ a2 )
+            Ä                                                                 ä
+        = P n1/2 (Fn (t∗1 ) − Φ(t∗1 )) ≤ a1 , n1/2 (Fn (t∗2 ) − Φ(t∗2 )) ≤ a2
+            
+        ≤ P n1/2 (F̄n (t∗1 − ϵn n−1/2 ) − Φ(t∗1 )) ≤ a1 ,
+
+
+                                              25
+                                                        
+            n1/2 (F̄n (t∗2 − ϵn n−1/2 ) − Φ(t∗2 )) ≤ a2
+            
+         ≤ P n1/2 (F̄n (t∗1 − ϵn n−1/2 ) − Φ(t∗1 − ϵn n−1/2 )) ≤ a1 + ϵn ,
+                                                                        
+            n1/2 (F̄n (t∗2 − ϵn n−1/2 ) − Φ(t∗2 − ϵn n−1/2 )) ≤ a2 + ϵn              (44)
+            Ä                                                                  ä
+         = P Ḡn (t∗1 − ϵn n−1/2 ) ≤ a1 + ϵn , Ḡn (t∗2 − ϵn n−1/2 ) ≤ a2 + ϵn
+            Ä                                                               ä
+         ≤ P Ḡn (t∗1 − ϵn n−1/2 ) ≤ a1 + ϵ, Ḡn (t∗2 − ϵn n−1/2 ) ≤ a2 + ϵ          (45)
+         → P (Z(t∗1 ) ≤ a1 + ϵ, Z(t∗2 ) ≤ a2 + ϵ)                                    (46)
+         ≤ P (Z(t∗1 ) ≤ a1 , Z(t∗2 ) ≤ a2 ) + δ.                                     (47)
+
+The inequality (44) follows from |Φ′ | ≤ 1. The inequality (45) holds from some
+n on for any ϵ > 0. By making ϵ sufficiently small we can make the δ in (47)
+arbitrarily small. The convergence (46) follows from Lemma 8 below. In the
+same way we can prove the opposite inequality
+
+        P (Gn (t∗1 ) ≤ a1 , Gn (t∗2 ) ≤ a2 )
+            Ä                                                                 ä
+        = P n1/2 (Fn (t∗1 ) − Φ(t∗1 )) ≤ a1 , n1/2 (Fn (t∗2 ) − Φ(t∗2 )) ≤ a2
+            
+        ≥ P n1/2 (F̄n (t∗1 + ϵn n−1/2 ) − Φ(t∗1 )) ≤ a1 ,
+                                                        
+            n1/2 (F̄n (t∗2 + ϵn n−1/2 ) − Φ(t∗2 )) ≤ a2
+            
+        ≥ P n1/2 (F̄n (t∗1 + ϵn n−1/2 ) − Φ(t∗1 + ϵn n−1/2 )) ≤ a1 − ϵn ,
+                                                                           
+            n1/2 (F̄n (t∗2 + ϵn n−1/2 ) − Φ(t∗2 + ϵn n−1/2 )) ≤ a2 − ϵn
+            Ä                                                                    ä
+        = P Ḡn (t∗1 + ϵn n−1/2 ) ≤ a1 − ϵn , Ḡn (t∗2 + ϵn n−1/2 ) ≤ a2 − ϵn
+            Ä                                                                  ä
+        ≥ P Ḡn (t∗1 + ϵn n−1/2 ) ≤ a1 − ϵ, Ḡn (t∗2 + ϵn n−1/2 ) ≤ a2 − ϵ
+         → P (Z(t∗1 ) ≤ a1 − ϵ, Z(t∗2 ) ≤ a2 − ϵ)
+         ≥ P (Z(t∗1 ) ≤ a1 , Z(t∗2 ) ≤ a2 ) − δ.
+
+   The second step in the proof of Theorem 3 is to prove the tightness of the
+perturbed empirical distribution functions for the residuals.
+Lemma 7. The sequence Gn , n = 1, 2, . . ., is tight.
+Proof. We will use the standard notation for càdlàg functions x on a closed
+interval of the real line (Billingsley, 1999, Section 12): j(x) stands for the
+size of the largest jump of x, wx (T ) := sups,t∈T |x(s) − x(t)| for any sub-
+set T of the domain of x, wx (δ) := supt wx [t, t + δ] for any δ > 0, and
+wx′ (δ) := inf {ti } maxi∈{1,...,v} wx [ti−1 , ti ), where t0 < t1 < · · · < tv range
+over the partitions of the domain [t0 , tv ] of x that are δ-sparse in the sense
+of mini∈{1,...,v} (ti − ti−1 ) > δ.
+     We know that Ḡn ⇒ Z and, therefore, Ḡn is tight. By Billingsley (1999,
+Theorem 13.4), the continuity of Z implies that j(Ḡn ) ⇒ 0. This can be written
+
+
+                                            26
+as
+                                   ∀ϵ > 0 : lim P(j(Ḡn ) ≥ ϵ) = 0
+                                              n
+and in combination with
+                                                    ′
+                            ∀ϵ > 0 : lim lim sup P(wḠ n
+                                                         (δ) ≥ ϵ) = 0
+                                        δ↓0   n→∞
+
+(this is Billingsley 1999, Theorem 13.2(ii)) and
+                                       wx (δ) ≤ 2wx′ (δ) + j(x)
+(this is Billingsley 1999, (12.9)) implies
+                            ∀ϵ > 0 : lim lim sup P(wḠn (δ) ≥ ϵ) = 0.                      (48)
+                                       δ↓0    n→∞
+
+The statement of the lemma will follow from Billingsley (1999, Theorem 13.2,
+Corollary). We will only check condition (ii) (i.e., (7.7) in Billingsley 1999) for
+Gn ; in other words, we will check (48) with Gn in place of Ḡn . It suffices to
+notice that
+wGn (δ) =       sup        |Gn (t2 ) − Gn (t1 )| =       sup       (Gn (t2 ) − Gn (t1 ))
+             |t2 −t1 |≤δ                             |t2 −t1 |≤δ
+                           √
+         =      sup            n (Fn (t2 ) − Φ(t2 ) − Fn (t1 ) + Φ(t1 ))
+             |t2 −t1 |≤δ
+                           √ Ä                                                             ä
+         ≤      sup         n F̄n (t2 + ϵn n−1/2 ) − Φ(t2 ) − F̄n (t1 − ϵn n−1/2 ) + Φ(t1 )
+             |t2 −t1 |≤δ
+                           √ 
+         ≤      sup         n F̄n (t2 + ϵn n−1/2 ) − Φ(t2 + ϵn n−1/2 )
+             |t2 −t1 |≤δ
+                                                           
+               − F̄n (t1 − ϵn n−1/2 ) + Φ(t1 − ϵn n−1/2 ) + ϵn n−1/2
+                       Ä                                           ä
+         =     sup      Ḡn (t2 + ϵn n−1/2 ) − Ḡn (t1 − ϵn n−1/2 ) + ϵn n−1/2
+             |t2 −t1 |≤δ
+
+                            Ḡn (t′2 ) − Ḡn (t′1 ) + ϵn n−1/2
+                                                   
+         ≤        sup                                                                      (49)
+             |t′2 −t′1 |≤2δ
+         = wḠn (2δ) + ϵn n−1/2 ,
+where the inequality (49) holds from some n on.
+   Now Theorem 3 follows from Lemmas 6 and 7 by Billingsley (1999, Theo-
+rem 13.1).
+   The following lemma was used in the proof of Lemma 6.
+Lemma 8. Suppose a sequence Ḡn of random functions in D(−∞, ∞) weakly
+converges to a random function Z in C(−∞, ∞) and suppose tn → t are real
+numbers (or, more generally, tn are random variables converging to t in proba-
+bility). Then Ḡn (tn ) weakly converges to Z(t).
+Proof. By Billingsley (1999, Theorem 3.9), (Ḡn , tn ) ⇒ (Z, t). By the mapping
+theorem (Billingsley, 1999, Theorem 2.7), Ḡn (tn ) ⇒ Z(t).
+
+
+                                                    27
+Proofs for the studentized LSPM
+Let us see that Theorems 2 and 3 still hold for the deleted and studentized
+LSPM. For concreteness, we will only consider the studentized LSPM. We have
+the following stronger form of Lemma 5.
+
+Lemma 9. Under conditions A1–A4, maxi,j=1,...,n+1 h̄i,j = O(n−1 ).
+Proof. As in the proof of Lemma 5, we have, for all permitted sequences
+x1 , x2 , . . .,
+                                  maxi,j=1,...,n ∥xi ∥ ∥xj ∥
+                    max |hi,j | ≤                            = O(1).
+                 i,j=1,...,n           λmin (X ′ X)
+It remains to combine this with (20), (21), and the statement of Lemma 5.
+    We will use the old notation B and A for the ordinary LSPM, (41)–(42), but
+will supply B and A with primes, writing B ′ and A′ , for the studentized LSPM,
+(15)–(16). Since B and B ′ are very close to 1,
+                          »             h̄i,n+1
+                  Bi′ =  1 − h̄n+1 + p            = 1 + O(n−1 ),
+                                          1 − h̄i
+                  Bi = 1 − h̄n+1 + h̄i,n+1 = 1 + O(n−1 ),
+
+we only need to check that A and A′ are very close between themselves. The
+difference between them,
+                        Ç Pn                       Pn            å
+               ′            j=1 h̄j,n+1 yj    yi − j=1 h̄i,j yj
+              Ai − Ai =    p                +      p
+                             1 − h̄n+1               1 − h̄i
+                            Ñ                                    é
+                              Xn                     Xn
+                          −        h̄j,n+1 yj + yi −    h̄i,j yj
+                                  j=1                           j=1
+                          n
+                          X                                         n
+                                                                    X
+                      =         O(n   −2
+                                           )yj + O(n   −1
+                                                            )yi +         O(n−2 )yj ,
+                          j=1                                       j=1
+
+has a Gaussian distribution conditionally on x1 , x2 , . . ., and its variance is
+O(n−2 ). Now it suffices to apply the method of the previous subsection to
+
+                                           A′i /Bi′ − ŷn+1
+                                 t′i :=                     ,
+                                                   σ
+which can also be regarded as perturbed t̄i .
+
+
+7    Experimental results
+In this section we explore experimentally the validity and efficiency of the stu-
+dentized LSPM.
+
+
+                                               28
+                              500
+
+
+                              400
+
+
+
+
+             cumulative sum
+                              300
+
+
+                              200
+
+
+                              100
+
+
+                              0
+
+                                    0   200   400            600   800   1000
+
+                                                         n
+
+
+
+
+     Figure 2: The cumulative sums Sn of the p-values vs n = 1, . . . , 1000
+
+
+Online validity
+First we check experimentally the validity of our methods in the online mode of
+prediction. It is guaranteed by our theoretical results but provides an opportu-
+nity to test the correctness of our implementation.
+    We generate IID observations zn = (xn , yn ), n = 1, . . . , 1001, and the corre-
+sponding p-values pn := Qn (yn+1 , τn ), n = 1, . . . , N , N := 1000, in the online
+mode. In our experiments, xn ∼ N (0, 1), yn ∼ 2x          Pnn + N (0, 1), and, as usual,
+τn ∼ U , all independent. Figure 2 plots Sn := i=1 pi vs n = 1, . . . , N ; as
+expected, it is an approximately straightPline with slope 0.5. Figure 3 presents
+                                                  n
+three plots: the cumulative sums Snα := i=1 1{pi ≤α} , where 1 is the indicator
+function, vs n = 1, . . . , N , for three values of α, α ∈ {0.25, 0.5, 0.75}. For each
+of the three αs the result is an approximately straight P    line with slope α. Finally,
+                                                           1    N
+Figure 4 plots Aα N against     α ∈  [0, 1], where  A α
+                                                      N := N    i=1 1{pi ≤α} . The result
+                                                                2
+is, approximately, the main diagonal of the square [0, 1] , as it should be.
+
+Efficiency
+Next we explore empirically the efficiency of the studentized LSPM. Figure 5
+compares the conformal predictive distribution with the true (Oracle III’s) dis-
+tribution for four randomly generated test objects and a randomly generated
+training sequence of length 10 with 2 attributes. The first attribute is a dummy
+all-1 attribute; remember that Theorems 2 and 3 depend on the assumption
+that one of the attributes is an identical 1 (without it, the plots become qual-
+itatively different: cf. Chen 1991, Corollary 2.4.1). The second attribute is
+generated from the standard Gaussian distribution, and the labels are gener-
+ated as yn ∼ 2xn,2 + N (0, 1), xn,2 being the second attribute. We also show
+(with thinner lines) the output of Oracle I and Oracle II, but only for the sim-
+
+
+                                                    29
+                              800
+                                        0.75
+                                        0.5
+                                        0.25
+
+                              600
+
+
+
+
+            cumulative sums
+                              400
+
+
+
+
+                              200
+
+
+
+
+                              0
+
+                                    0          200   400            600   800   1000
+
+                                                                n
+
+
+
+
+Figure 3: The cumulative sums Snα vs n = 1, . . . , 1000 for α ∈ {0.25, 0.5.0.75}
+
+
+plified versions, in order not to clutter the plots. Instead, in the left-hand plot
+of Figure 6 we show the first plot of Figure 5 that is normalized by subtracting
+the true distribution function; this time, we show the output of both simplified
+and proper Oracles I and II; the difference is not large but noticeable. The
+right-hand plot of Figure 6 is similar except that the training sequence is of
+length 100 and there are 20 attributes generated independently from the stan-
+dard Gaussian distribution except for the first one, which is the dummy all-1
+attribute; the labels are generated as before, yn ∼ 2xn,2 + N (0, 1).
+    Since Oracle III is more powerful than Oracles I and II (it knows the true
+data-generating distribution), it is more difficult to compete with; therefore,
+the black line is farther from the shaded area than the blue and red lines for all
+four plots in Figure 5. The estimated distribution functions being to the left
+of the true distribution functions is a coincidence: the four plots correspond to
+the values 0–3 of the seed for the R pseudorandom number generator, and for
+other seeds the estimated distribution functions are sometimes to the right and
+sometimes to the left.
+
+
+8    Conclusion
+This paper introduces conformal predictive distributions in regression prob-
+lems. Their advantage over the usual conformal prediction intervals is that
+a conformal predictive distribution Qn contains more information; in partic-
+ular, it can produce a plethora of prediction intervals: e.g., for each ϵ > 0,
+{y ∈ R | ϵ/2 ≤ Qn (y, τ ) ≤ 1 − ϵ/2} is a conformal prediction interval at confi-
+
+
+                                                           30
+                                          1.0
+
+
+                                          0.8
+
+
+
+
+                    empirical frequency
+                                          0.6
+
+
+                                          0.4
+
+
+                                          0.2
+
+
+                                          0.0
+
+                                                0.0   0.2   0.4       0.6   0.8   1.0
+
+                                                                  α
+
+
+
+
+        Figure 4: The calibration curve: Aα
+                                          N vs α ∈ [0, 1] for N = 1000
+
+
+
+dence level 1 − ϵ.
+   These are natural possible topics for further research:
+    This paper is based on the most traditional approach to weak conver-
+     gence of empirical processes, originated by Skorokhod and described in
+     detail by Billingsley (1999). This approach encounters severe difficulties
+     in more general situations (such as multi-dimensional labels). Alternative
+     approaches have been proposed by numerous authors, including Dudley
+     (using the uniform topology and ball σ-algebra, Dudley 1966, 1967) and
+     Hoffmann-Jørgensen (dropping measurability and working with outer in-
+     tegrals; see, e.g., van der Vaart and Wellner 1996, Section 1.3 and the
+     references in the historical section). Translating our results into those
+     alternative languages might facilitate various generalizations.
+    Another generalization of the traditional notion of weak convergence is
+     Belyaev’s notion of weakly approaching sequences of random distributions
+     (Belyaev and Sjöstedt–de Luna, 2000). When comparing the LSPM with
+     Oracle III, we limited ourselves to stating the absence of weak convergence
+     and calculating the asymptotics of 1-dimensional distributions; Belyaev’s
+     definition is likely to lead to more precise results.
+    The recent paper by Nouretdinov et al. (2018) uses inductive Venn–Abers
+     predictors to produce predictive distributions, with very different guar-
+     antees of validity. Establishing connections between the approach of this
+     paper and that of Nouretdinov et al. (2018) is an interesting direction of
+     further research.
+
+
+
+
+                                                             31
+         1.0                                      1.0
+
+
+         0.8                                      0.8
+
+
+         0.6                                      0.6
+
+Q (y )                                   Q (y )
+         0.4                                      0.4
+
+
+         0.2                                      0.2
+
+
+         0.0                                      0.0
+
+               −4   −2   0   2      4                   −4   −2   0   2      4
+
+                         y                                        y
+
+
+         1.0                                      1.0
+
+
+         0.8                                      0.8
+
+
+         0.6                                      0.6
+
+Q (y )                                   Q (y )
+         0.4                                      0.4
+
+
+         0.2                                      0.2
+
+
+         0.0                                      0.0
+
+               −4   −2   0   2      4                   −4   −2   0   2      4
+
+                         y                                        y
+
+
+
+
+Figure 5: Examples of true predictive distribution functions (black), their con-
+formal estimates (represented by the shaded areas), and the distribution func-
+tions output by simplified Oracle I (red) and Oracle II (blue) for a tiny training
+sequence (of length 10 with two attributes, the first one being the dummy all-1
+attribute); in black and white, the true predictive distribution functions are the
+thick lines, and Oracle I is always farther from them in the uniform metric than
+Oracle II is
+
+Acknowledgments
+We are grateful to Teddy Seidenfeld for useful historical information. We also
+thank the anonymous referees of the conference and journal versions of this
+paper for helpful comments. This work has been supported by the EPSRC
+(grant EP/K033344/1), EU Horizon 2020 Research and Innovation programme
+(grant 671555), US NSF (grant DMS1513483), and Leverhulme Magna Carta
+Doctoral Centre.
+
+
+References
+ Thomas Augustin and Frank P. A. Coolen. Nonparametric predictive inference
+ and interval probability. Journal of Statistical Planning and Inference, 124:
+ 251–272, 2004.
+
+
+                                        32
+                      0.3                                                                  0.3
+                                           oracle I (simplified)                                                oracle I (simplified)
+                                           oracle I (proper)                                                    oracle I (proper)
+                                           oracle II (simplified)                                               oracle II (simplified)
+                                           oracle II (proper)                                                   oracle II (proper)
+                      0.2
+                                                                                           0.2
+
+
+
+                      0.1
+
+
+
+Q (y ) − Oracle III                                                  Q (y ) − Oracle III
+                                                                                           0.1
+
+
+                      0.0
+
+
+
+                                                                                           0.0
+                      −0.1
+
+
+
+
+                      −0.2                                                                 −0.1
+
+                             −4   −2   0   2                    4                                 −4   −2   0   2                    4
+
+                                       y                                                                    y
+
+
+
+
+Figure 6: The left-hand plot is the first (upper left) plot of Figure 5 normalized
+by subtracting the true distribution function (the thick black line in Figure 5,
+which now coincides with the x-axis) and with the outputs of the proper oracles
+added; the right-hand plot is an analogous plot for a larger training sequence
+(of length 100 with 20 attributes, the first one being the dummy attribute)
+
+
+         Vineeth N. Balasubramanian, Shen-Shyang Ho, and Vladimir Vovk, editors.
+         Conformal Prediction for Reliable Machine Learning: Theory, Adaptations,
+         and Applications. Elsevier, Amsterdam, 2014.
+         Yuri Belyaev and Sara Sjöstedt–de Luna. Weakly approaching sequences of
+         random distributions. Journal of Applied Probability, 37:807–822, 2000.
+         L. Mark Berliner and Bruce M. Hill. Bayesian nonparametric survival analysis.
+         Journal of the American Statistical Association, 83:772–779, 1988.
+         Patrick Billingsley. Convergence of Probability Measures. Wiley, New York,
+         second edition, 1999.
+         Evgeny Burnaev and Vladimir Vovk. Efficiency of conformalized ridge regres-
+         sion, On-line Compression Modelling project (New Series), http://alrw.net,
+         Working Paper 10, February 2014.
+         Samprit Chatterjee and Ali S. Hadi. Sensitivity Analysis in Linear Regression.
+         Wiley, New York, 1988.
+         Gemai Chen. Empirical Processes Based on Regression Residuals: Theory and
+         Applications. PhD thesis, Department of Mathematics and Statistics, Simon
+         Fraser University, August 1991.
+         Arthur P. Dempster. On direct probabilities. Journal of the Royal Statistical
+         Society B, 25:100–110, 1963.
+
+
+                                                                    33
+Monroe D. Donsker. Justification and extension of Doob’s heuristic approach
+to the Kolmogorov–Smirnov theorems. Annals of Mathematical Statistics, 23:
+277–281, 1952.
+Richard M. Dudley. Weak convergence of probabilities on nonseparable met-
+ric spaces and empirical measures on Euclidean spaces. Illinois Journal of
+Mathematics, 10:109–126, 1966.
+Richard M. Dudley. Measures on non-separable metric spaces. Illinois Journal
+of Mathematics, 11:449–453, 1967.
+Ronald A. Fisher. “Student”. Annals of Eugenics, 9:1–9, 1939.
+Ronald A. Fisher. Conclusions fiduciaires.        Annales de l’Institut Henry
+Poincaré, 10:191–213, 1948.
+Christian Genest and Jack Kalbfleisch. Bayesian nonparametric survival anal-
+ysis: comment. Journal of the American Statistical Association, 83:780–781,
+1988. Comment on Berliner and Hill (1988).
+Charles J. Geyer and Glen D. Meeden. Fuzzy and randomized confidence
+intervals and p-values (with discussion). Statistical Science, 20:358–387, 2005.
+Tilmann Gneiting and Matthias Katzfuss. Probabilistic forecasting. Annual
+Review of Statistics and Its Application, 1:125–151, 2014.
+Yuri Gurevich and Vladimir Vovk. p-values, On-line Compression Modelling
+project (New Series), http://alrw.net, Working Paper 16, February 2017.
+Bruce M. Hill. Posterior distribution of percentiles: Bayes’ theorem for sam-
+pling from a population. Journal of the American Statistical Association, 63:
+677–691, 1968.
+Bruce M. Hill. De Finetti’s theorem, induction, and A(n) or Bayesian nonpara-
+metric predictive inference (with discussion). In Dennis V. Lindley, José M.
+Bernardo, Morris H. DeGroot, and Adrian F. M. Smith, editors, Bayesian
+Statistics 3, pages 211–241. Oxford University Press, Oxford, 1988.
+Harold Jeffreys. On the theory of errors and least squares. Proceedings of the
+Royal Society of London A, 138:48–55, 1932.
+David A. Lane. Fisher, Jeffreys, and the nature of probability. In Stephen E.
+Fienberg and David V. Hinkley, editors, R. A. Fisher: An Appreciation, vol-
+ume 1 of Lecture Notes in Statistics, pages 148–160. Springer, Berlin, 1980.
+Jerald F. Lawless and Marc Fredette. Frequentist prediction intervals and
+predictive distributions. Biometrika, 92:529–542, 2005.
+Mohammad Mohammadi. On the bounds for diagonal and off-diagonal ele-
+ments of the hat matrix in the linear regression model. REVSTAT – Statistical
+Journal, 14:75–87, 2016.
+
+
+                                      34
+Douglas C. Montgomery, Elizabeth A. Peck, and G. Geoffrey Vining. Introduc-
+tion to Linear Regression Analysis. Wiley, Hoboken, NJ, fifth edition, 2012.
+Lyudmila A. Mugantseva. Testing normality in one-dimensional and multi-
+dimensional linear regression. Theory of Probability and its Applications, 22:
+591–602, 1977.
+
+Ilia Nouretdinov, Denis Volkhonskiy, Pitt Lim, Paolo Toccaceli, and Alexander
+Gammerman. Inductive Venn–Abers predictive distribution. Proceedings of
+Machine Learning Research, 91:15–36, 2018. COPA 2018.
+Donald A. Pierce and Kenneth J. Kopecky. Testing goodness of fit for the
+distribution of errors in regression models. Biometrika, 66:1–5, 1979.
+Iosif Pinelis. Exact bounds on the closeness between the Student and standard
+normal distributions. ESAIM: Probability and Statistics, 19:24–27, 2015.
+Tore Schweder and Nils L. Hjort. Confidence, Likelihood, Probability: Sta-
+tistical Inference with Confidence Distributions. Cambridge University Press,
+Cambridge, 2016.
+George A. F. Seber and Alan J. Lee. Linear Regression Analysis. Wiley,
+Hoboken, NJ, second edition, 2003.
+Teddy Seidenfeld. Jeffreys, Fisher, and Keynes: predicting the third observa-
+tion, given the first two. In Allin F. Cottrell and Michael S. Lawlor, editors,
+New Perspectives on Keynes, pages 39–52. Duke University Press, Durham,
+NC, 1995.
+Jieli Shen, Regina Liu, and Minge Xie. Prediction with confidence—a gen-
+eral framework for predictive inference. Journal of Statistical Planning and
+Inference, 195:126–140, 2018.
+Aad W. van der Vaart and Jon A. Wellner. Weak Convergence and Empirical
+Processes: With Applications to Statistics. Springer, New York, 1996.
+Vladimir Vovk and Claus Bendtsen. Conformal predictive decision making, On-
+line Compression Modelling project (New Series), http://alrw.net, Working
+Paper 19, December 2018 (first posted July 2017).
+Vladimir Vovk, Alex Gammerman, and Glenn Shafer. Algorithmic Learning
+in a Random World. Springer, New York, 2005.
+Vladimir Vovk, Ilia Nouretdinov, and Alex Gammerman. On-line predictive
+linear regression, On-line Compression Modelling project (New Series), http:
+//alrw.net, Working Paper 1, November 2011.
+Vladimir Vovk, Jieli Shen, Valery Manokhin, and Minge Xie. Nonparametric
+predictive distributions based on conformal prediction. Proceedings of Machine
+Learning Research, 60:82–102, 2017. COPA 2017.
+
+
+                                     35
+Vladimir Vovk, Ilia Nouretdinov, Valery Manokhin, and Alex Gammerman.
+Conformal predictive distributions with kernels, On-line Compression Mod-
+elling project (New Series), http://alrw.net, Working Paper 20, January
+2019 (first posted October 2017).
+Vladimir Vovk, Ivan Petej, Ilia Nouretdinov, Valery Manokhin, and Alex Gam-
+merman. Computationally efficient versions of conformal predictive distribu-
+tions, On-line Compression Modelling project (New Series), http://alrw.net,
+Working Paper 22, November 2019 (first posted March 2018).
+C. M. Wang, Jan Hannig, and Hari K. Iyer. Fiducial prediction intervals.
+Journal of Statistical Planning and Inference, 142:1980–1990, 2012.
+
+
+
+
+                                    36
+

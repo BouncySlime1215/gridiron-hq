@@ -1,0 +1,65 @@
+{
+  "verified_claims": [
+    "Cawley & Talbot (2010), JMLR 11:2079-2107: the abstract says overfitting in model selection is 'often of comparable magnitude to differences in performance between learning algorithms' and that low variance matters at least as much as unbiasedness. Checked at jmlr.org/papers/v11/cawley10a.html. The abstract does not spell out nested CV as the fix; that part is the report's reading, though it is standard.",
+    "Cerqueira, Torgo & Mozetic (2020), Machine Learning 109:1997-2028 (arXiv 1905.11744): CV can be applied to stationary series, and for real-world non-stationary series, methods that keep time order give the most accurate estimates. Verified. The series count is wrong; see refuted.",
+    "Arian, Norouzi & Seco (2024), Knowledge-Based Systems 305, doi 10.1016/j.knosys.2024.112477: synthetic controlled setting; CPCV had lower PBO and better DSR; the quoted phrase 'notable shortcomings in false discovery prevention' about Walk-Forward is real (confirmed through search snippets). The full text was not readable (403).",
+    "Choe & Ramdas, 'Comparing Sequential Forecasters', Operations Research 72(4):1368-1387, doi 10.1287/opre.2021.0792 (arXiv 2110.00115): anytime-valid confidence sequences and e-processes for mean score differences; main theorems assume bounded scores, with alternatives for unbounded ones; baseball and weather examples. Verified.",
+    "yjchoe/ComparingForecasters exists and is MIT. It needs pandas, seaborn, tqdm and confseq, not just pandas.",
+    "Henzi & Ziegel (2022), Biometrika 109:647-663: e-values for probability forecasts of binary events, valid in finite samples and under optional stopping. The correction exists (doi 10.1093/biomet/asac043). AlexanderHenzi/eprob is MIT and written in R. Verified.",
+    "Clark & West (2007), J. Econometrics 138(1):291-311: the larger nested model adds noise by estimating parameters whose population values are zero, so an MSPE adjustment is needed. Verified on RePEc.",
+    "Hansen (2005), JBES 23:365-380; White (2000), Econometrica 68(5):1097-1126; Romano & Wolf (2005), Econometrica 73(4):1237-1282; Hansen, Lunde & Nason (2011), Econometrica 79(2):453-497. All citations exist with the stated volumes and pages. The MCS 'uninformative data give a large set' characterization is verified.",
+    "Harvey, Leybourne & Newbold (1997), IJF 13(2):281-291 exists. johntwk/Diebold-Mariano-Test is MIT, implements the HLN modification, and has 7 commits (legacy, unmaintained but small).",
+    "Politis & Romano (1994), JASA 89:1303-1313 (stationary bootstrap) and the Patton, Politis & White (2009) correction (Econometric Reviews 28(4):372-375) both exist.",
+    "Dwork et al. (2015), Science 349(6248):636-638 (reusable holdout) exists. Blum & Hardt's Ladder (arXiv 1502.04585, ICML 2015 / PMLR v37) claims guarantees in a fully adaptive model.",
+    "L\u00f3pez de Prado & Lewis (2019), Quantitative Finance 19(9):1555-1565: unsupervised clustering estimates the number of effectively uncorrelated trials. Verified.",
+    "bashtage/arch has SPA, StepM and MCS classes. It requires numpy, scipy, pandas and statsmodels. Its LICENSE is BSD-3-style text (an MIT-like grant plus BSD clauses), so 'BSD-style' is fair.",
+    "eslazarev/purged-cross-validation exists and is MIT (checked locally and on GitHub: 33 stars, 120 commits, active). WalkForwardSplit takes prediction_times, evaluation_times and purge_horizon, and its docstring says embargo parameters are accepted but have no effect. effective_n_trials exists in _metrics.py. The package imports pandas and scipy and also depends on scikit-learn.",
+    "Power simulation: I re-ran scratchpad/wf_power.py and reproduced the table exactly (gain 0.081: 0.27/0.76/0.96; gain 0.137: 0.42/0.94/1.00; gain 0.025: 0.07/0.10/0.14). With sd_eps 13.3 and sd_a 2.5, market RMSE is about 13.53, which matches the brief's roughly 13.55 close RMSE."
+  ],
+  "refuted_or_unverifiable": [
+    {
+      "claim": "Cerqueira et al. (2020) studied '174 real series'.",
+      "problem": "Misquoted. The published abstract says 62 real-world time series plus 3 synthetic series."
+    },
+    {
+      "claim": "Bergmeir, Hyndman & Koo (2018): 'K-fold CV is valid only for purely autoregressive models with uncorrelated errors', cited as evidence that 'ordinary CV isn't valid here'.",
+      "problem": "This reverses the paper's direction. The paper shows K-fold CV IS valid for autoregressive models with uncorrelated errors (e.g., when models nest a more appropriate model), and that it performs favourably compared with OOS evaluation. It proves sufficiency, not that CV is invalid elsewhere. It can't be cited as evidence against CV for this model. The case for walk-forward here rests on non-stationarity and deployment realism (Cerqueira et al.), not on Bergmeir."
+    },
+    {
+      "claim": "Arian et al. (2024) shows CPCV prevents false discoveries better than walk-forward.",
+      "problem": "Real, but only in a synthetic finance setting and checked only through the abstract. It shouldn't drive NFL design."
+    },
+    {
+      "claim": "Ladder and Thresholdout make the 2021-2025 window safely reusable.",
+      "problem": "The guarantees assume i.i.d. holdout samples and a holdout that analysts have not seen directly. 2021-2025 was already examined directly in two 70-week audits, and weekly NFL losses are cross-sectionally correlated. The mechanisms can't restore validity to a burned window; at best they slow further damage. The report half-admits this."
+    },
+    {
+      "claim": "Purgedcv 'imports scipy and pandas'.",
+      "problem": "Incomplete. It is also built on scikit-learn, so a port must replicate the splitter API without sklearn."
+    },
+    {
+      "claim": "Port HLN-DM, Clark-West, stationary bootstrap, SPA, MCS and the e-process in about 300 lines, no installs.",
+      "problem": "Unverified and likely optimistic. SPA with studentization and a bootstrap, MCS elimination rules, Politis-White block-length selection and the Choe-Ramdas empirical-Bernstein/betting confidence sequences each carry nontrivial detail. This is opinion, not evidence."
+    },
+    {
+      "claim": "CPCV embargo 'until prior weight falls below about 10%'.",
+      "problem": "The threshold is unsourced and ad hoc."
+    },
+    {
+      "claim": "Hansen SPA is 'more powerful and less sensitive to poor and irrelevant alternatives'.",
+      "problem": "Consistent with the paper's well-known abstract, but RePEc showed no abstract and the full text wasn't read, so it is only partially verified."
+    }
+  ],
+  "recommendations_to_drop_or_change": [
+    "DROP Tier 3 ('sealed backward holdout 2009-2011'). It sits inside Tier 0 (1999/2006-2014), whose labels are used to fit every Tier-1 development model, so it is not sealed. Hyperparameters and architecture are also chosen on later data. Many inputs don't exist for 2009-2011 (NGS 2016+, PFR advanced about 2018+, opening lines about 2018+), so a model 'trained only on seasons before 2009' is a different model. The only honest confirmatory data is 2026+ live, frozen and preregistered.",
+    "CHANGE the development tiers to account for feature availability by season. If NGS, PFR-advanced or opener features appear only from 2016-2018, folds from 2015-2017 evaluate a model with structurally missing inputs. Either restrict the feature set used in development to features available across all development seasons, or use explicit availability indicators and report metrics by feature-era.",
+    "CHANGE the Tier-2 Ladder rule. Keep logging every Tier-2 access as a trial, but don't present Ladder or Thresholdout as a validity guarantee. Their i.i.d./unseen-holdout assumptions are violated, so treat the window as exploratory only.",
+    "CHANGE the claim that ordinary CV is invalid (the Bergmeir citation). Justify walk-forward by non-stationarity and deployment realism, not by Bergmeir et al.",
+    "CHANGE the bet gate so its consequences are stated. Given the reproduced power table (power 0.07-0.42 at 270 games for a plausible 0.025-0.14 RMSE gain, with a fixed-n test), an anytime-valid e-value of 20 or more will very likely not be reached within 1-2 seasons. The gate will effectively stay at paper-trade, and the owner should approve that explicitly. Also, CLV and margin squared error are unbounded; bound them explicitly (clipping or a pre-registered cap) before using the Choe-Ramdas bounded-score theorems. Brier is already bounded; only log score needs probability clipping.",
+    "CHANGE how the power claim is reported: the simulation assumes i.i.d. games and independent model noise. If loss differentials are collapsed to weekly means (about 18 per season) with within-week correlation, effective n and power fall further. State the simulation as an optimistic upper bound.",
+    "CHANGE the effort estimate: drop the '~300 lines' figure and scope the ports separately (HLN-DM and Clark-West are small; SPA, MCS, the stationary bootstrap with block-length selection, and the confidence sequences are each substantial, and each needs tests against published reference outputs).",
+    "CHANGE the CPCV embargo: replace the ad hoc 10% prior-weight embargo with a pre-registered rule, or embargo one full season after each test season. CPCV stays diagnostic only (PBO), never used for selection."
+  ],
+  "corrected_summary": "What survives verification:\n(1) Estimate performance with strict, point-in-time walk-forward. A training row is admitted for test game g only if its evaluation_time is before g's prediction cutoff T, and every feature has knowledge_time at or before T. In walk-forward, embargo is a no-op; purging of labels that take time to resolve (CLV, season-to-date targets) is what matters. The purgedcv WalkForwardSplit interface (MIT, active; depends on pandas, scipy and sklearn, so port the logic) is a good template. Justification: Cerqueira, Torgo & Mozetic 2020 (62 real series plus 3 synthetic) found that time-ordered out-of-sample methods estimate best under non-stationarity. Bergmeir et al. 2018 actually supports K-fold CV for AR models with uncorrelated errors, so don't cite it against CV.\n(2) Selection overfitting is often as large as real model differences (Cawley & Talbot 2010). Use a tiny, pre-declared hyperparameter grid, a low-variance criterion (log score or CRPS over many weeks, never ROI), nested per-season selection with an inner walk-forward, and a one-SE or averaging rule. Log every trial.\n(3) For many models against the close: White RC, Hansen SPA and Romano-Wolf StepM with a stationary bootstrap resampling whole weeks, plus the MCS as the honest 'indistinguishable' answer (all citations verified). bashtage/arch (BSD-3-style; needs scipy, pandas, statsmodels) is a reference to transliterate.\n(4) Pairwise: HLN-corrected DM (johntwk script, MIT); Clark-West when the challenger nests the market (verified); Giacomini-White with a rolling window.\n(5) Live monitoring: Choe & Ramdas 2024 (OR 72(4):1368-1387; bounded scores; code MIT, needs pandas and confseq) and Henzi & Ziegel 2022 (binary forecasts; R code MIT) give anytime-valid confidence sequences and e-values. Bound or clip scores first.\n(6) 2021-2025 is burned by prior audits. Treat it as exploratory only and count accesses as trials (L\u00f3pez de Prado & Lewis 2019 effective-N; purgedcv effective_n_trials). Ladder and Thresholdout don't restore validity, because their i.i.d./unseen assumptions are violated.\n(7) There is no sealed historical holdout. Drop the proposed 2009-2011 'Tier 3': it overlaps training data, precedes key feature eras, and is contaminated by selection. The only confirmatory evidence is 2026+ live data with a frozen code hash, preregistered metrics and \u03b1, and a log of every attempted bet.\n(8) The reproduced power simulation (optimistic: i.i.d. games, market error SD 2.5 assumed, not measured) gives one-season power of only 0.07-0.42 for RMSE gains of 0.025-0.14 over the close. Expect 'inconclusive' for multiple seasons. A continuous stake multiplier tied to the confidence-sequence lower bound, with an e-value threshold of 20 for real stakes, will almost surely keep the model at paper-trade for 1-2+ seasons, and the owner should accept that explicitly.\n(9) Season-block CPCV only for PBO diagnostics, with a pre-registered embargo; never for selection (Arian et al. 2024's CPCV advantage is synthetic-finance evidence only).\n(10) Development folds must handle feature-era availability (NGS, PFR-advanced and openers only in recent seasons).",
+  "reliability": "medium"
+}

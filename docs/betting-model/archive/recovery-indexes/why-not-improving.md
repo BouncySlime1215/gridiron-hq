@@ -1,0 +1,14 @@
+Yes — three more real, distinct issues, plus two smaller ones worth flagging. None of these are the promotion gate or the RMSE-weighting bug; they're separate holes.
+
+**1. The path actually generating your live picks (raw mode) has no quality gate at all.**
+Since residual has never promoted, every real pick runs through `raw` mode — and `NFL_HISTORICAL_REPLAY_POLICY` sets `requireCalibratedAdvantage:false` and `minExpectedReturn:null` (nfl-policy.js:91,98), which switches off the only two checks that could catch "this edge isn't real." What's left — `minEdge:3` and `maxDisagreement:4.5` — are fixed numbers never validated against outcomes (the one diagnostic that checks this, in nfl-candidate-analysis.js, is explicitly labeled "not promotion rules" and shows the weak-edge bucket can be net-negative). **Class: can't detect its own bad picks.** This is probably the biggest one — it's the mode that's actually live.
+
+**2. The one mechanism built to auto-shrink a harmful component has never fired, and structurally can't yet.**
+`nfl-signal-reliability.js` is designed to downweight a component once it shows real, settled harm — but production hardcodes it off for real picks (nfl-ensemble.js:1729-1730), and even in shadow evaluation it has zero artifacts: the growth pipeline that would build them is stuck at `finalized_week=0`, and the underlying data has only 8 settled rows across 2 weeks against a required 32 examples / 4 weeks. **Class: can't detect its own bad picks.** A second safety net, separately dead from the promotion gate.
+
+**3. No component ever gets pruned — only down-weighted.**
+`fitEnsemble` scores the full static 22-component list every run (nfl-ensemble.js:1527) with no retirement path. Several clusters are near-duplicates of each other (massey/point_diff/melo; epa_net/epa_neutral/opp_adjusted; the two explosiveness rate signals), and a permanently bad or redundant one can only be shrunk via the RMSE formula — never excluded. **Class: diluted signal.** Even after the joint-regression fix lands, correlated noise stays in the blend indefinitely.
+
+Worth a shorter mention, lower priority: a cross-game injury-data leak was reintroduced and patched with zero test coverage on that exact path (flagged as the highest-risk line in the recent merge), and a `resolveQuoteBasis` date-boundary bug has gone unfixed across six branches. Both are real, both are "corrupted/stale input" problems rather than modeling ones. I'm discounting the order-book-data-loss and this-week's-calibration-gate items — real, but about execution backtesting and a transient state, not why picks aren't improving.
+
+**Bottom line:** the raw-weighting fix is necessary but not sufficient — it doesn't touch #1 or #2, so even a correctly-weighted blend is still running with no live quality gate and no working harm-detection, which will keep capping how good production picks can actually get.

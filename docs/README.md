@@ -5,14 +5,11 @@ documentation index may link to this plan, evidence, generated status, and
 references; it must not become a second plan." Nothing here sets priorities,
 authorizes spending, or promotes a model.
 
-## The one active work-order plan
+## Current betting-model plan and organized library
 
-- **[CLAUDE-NEXT-STEPS.md](CLAUDE-NEXT-STEPS.md)** — the only maintained work
-  queue. Everything else on this page is evidence or reference.
-  - [Audit evidence](evidence/2026-09-09/AUDIT-EVIDENCE.md) — the findings and
-    numbers behind it
-  - [Folder and document disposition](reference/architecture/FOLDER-REORGANIZATION.md)
-  - [File migration inventory](reference/architecture/folder-map.csv)
+- **[Latest consolidated betting-model plan](betting-model/plans/LATEST-PLAN.md)** — full specification and September 15 review-driven priorities.
+- [All research, plans, audits and prompts](betting-model/README.md).
+- [Claude implementation ledger](CLAUDE-NEXT-STEPS.md) — implementation history and working notes; reconcile its dated queue with the latest plan on this branch.
 
 ## Evidence (measured results — never instructions)
 

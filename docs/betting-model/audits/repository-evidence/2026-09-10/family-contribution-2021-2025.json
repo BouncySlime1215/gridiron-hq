@@ -1,0 +1,419 @@
+{
+  "version": "nfl-family-contribution-v1",
+  "seasons": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "markets": [
+    "spread"
+  ],
+  "scope": "ordinary NFL full-game pregame point spreads only",
+  "universe": {
+    "common_games": 1424,
+    "per_configuration_games": {
+      "all": 1424,
+      "without:Context": 1424,
+      "without:Efficiency": 1424,
+      "without:Market": 1424,
+      "without:Rating systems": 1424,
+      "without:Roster availability": 1424
+    },
+    "dropped_from_universe": {
+      "all": 0,
+      "without:Context": 0,
+      "without:Efficiency": 0,
+      "without:Market": 0,
+      "without:Rating systems": 0,
+      "without:Roster availability": 0
+    },
+    "note": "Every configuration is scored on exactly these games. A variant that forecasts more or fewer games than the full ensemble has the difference EXCLUDED from all three answers, so no comparison is between different cohorts."
+  },
+  "baseline": {
+    "id": "all",
+    "games": 1424,
+    "margin_mae": 10.095,
+    "market_margin_mae": 9.762,
+    "margin_beats_market": false,
+    "cover_brier": 0.258,
+    "cover_scored": 1391,
+    "cover_beats_coin_flip": false,
+    "predicted_pushes": 20.094,
+    "actual_pushes": 33,
+    "bets": 204,
+    "units": -10.304,
+    "roi": -0.051
+  },
+  "families": [
+    {
+      "family": "Context",
+      "numerical_consumer": "production_ensemble",
+      "model_count": 4,
+      "margin": {
+        "variant_mae": 10.095,
+        "baseline_mae": 10.095,
+        "delta": 0,
+        "market_mae": 9.762
+      },
+      "cover": {
+        "variant_brier": 0.259,
+        "baseline_brier": 0.258,
+        "delta": 0.001,
+        "predicted_pushes": 20.462,
+        "actual_pushes": 33
+      },
+      "economic": {
+        "variant_roi": -0.044,
+        "baseline_roi": -0.051,
+        "delta": 0.007,
+        "variant_bets": 263,
+        "baseline_bets": 204
+      },
+      "uncertainty": {
+        "method": "paired deterministic weekly-cluster bootstrap of (variant - full ensemble) on the common universe",
+        "trials": 4000,
+        "margin_mae": {
+          "delta_95": [
+            -0.008,
+            0.008
+          ],
+          "probability_variant_better": 0.514
+        },
+        "cover_brier": {
+          "delta_95": [
+            0,
+            0.001
+          ],
+          "probability_variant_better": 0
+        },
+        "roi": {
+          "delta_95": [
+            -0.07,
+            0.083
+          ],
+          "probability_variant_better": 0.561
+        }
+      },
+      "cost": {
+        "models_removed": 4,
+        "share_of_ensemble": 0.129
+      },
+      "decision": {
+        "verdict": "keep",
+        "because": "removing Context moved no answer by a margin the paired interval can distinguish from zero. Inconclusive is not evidence of no contribution, and it is not grounds for removal either."
+      }
+    },
+    {
+      "family": "Efficiency",
+      "numerical_consumer": "production_ensemble",
+      "model_count": 17,
+      "margin": {
+        "variant_mae": 10.016,
+        "baseline_mae": 10.095,
+        "delta": -0.079,
+        "market_mae": 9.762
+      },
+      "cover": {
+        "variant_brier": 0.257,
+        "baseline_brier": 0.258,
+        "delta": -0.001,
+        "predicted_pushes": 20.486,
+        "actual_pushes": 33
+      },
+      "economic": {
+        "variant_roi": 0.072,
+        "baseline_roi": -0.051,
+        "delta": 0.123,
+        "variant_bets": 112,
+        "baseline_bets": 204
+      },
+      "uncertainty": {
+        "method": "paired deterministic weekly-cluster bootstrap of (variant - full ensemble) on the common universe",
+        "trials": 4000,
+        "margin_mae": {
+          "delta_95": [
+            -0.132,
+            -0.027
+          ],
+          "probability_variant_better": 0.999
+        },
+        "cover_brier": {
+          "delta_95": [
+            -0.003,
+            0
+          ],
+          "probability_variant_better": 0.916
+        },
+        "roi": {
+          "delta_95": [
+            -0.024,
+            0.272
+          ],
+          "probability_variant_better": 0.949
+        }
+      },
+      "cost": {
+        "models_removed": 17,
+        "share_of_ensemble": 0.548
+      },
+      "decision": {
+        "verdict": "simplify",
+        "because": "the ensemble forecasts the same games better WITHOUT Efficiency, and the paired interval on margin error excludes zero. Removing it is a real candidate, to be confirmed on later observations before anything changes."
+      }
+    },
+    {
+      "family": "Market",
+      "numerical_consumer": "production_ensemble",
+      "model_count": 2,
+      "margin": {
+        "variant_mae": 10.248,
+        "baseline_mae": 10.095,
+        "delta": 0.153,
+        "market_mae": 9.762
+      },
+      "cover": {
+        "variant_brier": 0.261,
+        "baseline_brier": 0.258,
+        "delta": 0.003,
+        "predicted_pushes": 19.61,
+        "actual_pushes": 33
+      },
+      "economic": {
+        "variant_roi": -0.024,
+        "baseline_roi": -0.051,
+        "delta": 0.027,
+        "variant_bets": 292,
+        "baseline_bets": 204
+      },
+      "uncertainty": {
+        "method": "paired deterministic weekly-cluster bootstrap of (variant - full ensemble) on the common universe",
+        "trials": 4000,
+        "margin_mae": {
+          "delta_95": [
+            0.12,
+            0.187
+          ],
+          "probability_variant_better": 0
+        },
+        "cover_brier": {
+          "delta_95": [
+            0.002,
+            0.004
+          ],
+          "probability_variant_better": 0
+        },
+        "roi": {
+          "delta_95": [
+            -0.05,
+            0.103
+          ],
+          "probability_variant_better": 0.75
+        }
+      },
+      "cost": {
+        "models_removed": 2,
+        "share_of_ensemble": 0.065
+      },
+      "decision": {
+        "verdict": "keep",
+        "because": "margin error and cover Brier moved conclusively, but not in a direction that argues the forecast improves without Market."
+      }
+    },
+    {
+      "family": "Rating systems",
+      "numerical_consumer": "production_ensemble",
+      "model_count": 6,
+      "margin": {
+        "variant_mae": 10.041,
+        "baseline_mae": 10.095,
+        "delta": -0.054,
+        "market_mae": 9.762
+      },
+      "cover": {
+        "variant_brier": 0.256,
+        "baseline_brier": 0.258,
+        "delta": -0.002,
+        "predicted_pushes": 20.29,
+        "actual_pushes": 33
+      },
+      "economic": {
+        "variant_roi": -0.038,
+        "baseline_roi": -0.051,
+        "delta": 0.013,
+        "variant_bets": 169,
+        "baseline_bets": 204
+      },
+      "uncertainty": {
+        "method": "paired deterministic weekly-cluster bootstrap of (variant - full ensemble) on the common universe",
+        "trials": 4000,
+        "margin_mae": {
+          "delta_95": [
+            -0.094,
+            -0.014
+          ],
+          "probability_variant_better": 0.997
+        },
+        "cover_brier": {
+          "delta_95": [
+            -0.003,
+            0
+          ],
+          "probability_variant_better": 0.989
+        },
+        "roi": {
+          "delta_95": [
+            -0.09,
+            0.119
+          ],
+          "probability_variant_better": 0.585
+        }
+      },
+      "cost": {
+        "models_removed": 6,
+        "share_of_ensemble": 0.194
+      },
+      "decision": {
+        "verdict": "simplify",
+        "because": "the ensemble forecasts the same games better WITHOUT Rating systems, and the paired interval on margin error excludes zero. Removing it is a real candidate, to be confirmed on later observations before anything changes."
+      }
+    },
+    {
+      "family": "Roster availability",
+      "numerical_consumer": "production_ensemble",
+      "model_count": 2,
+      "margin": {
+        "variant_mae": 10.098,
+        "baseline_mae": 10.095,
+        "delta": 0.003,
+        "market_mae": 9.762
+      },
+      "cover": {
+        "variant_brier": 0.258,
+        "baseline_brier": 0.258,
+        "delta": 0,
+        "predicted_pushes": 20.077,
+        "actual_pushes": 33
+      },
+      "economic": {
+        "variant_roi": -0.061,
+        "baseline_roi": -0.051,
+        "delta": -0.01,
+        "variant_bets": 202,
+        "baseline_bets": 204
+      },
+      "uncertainty": {
+        "method": "paired deterministic weekly-cluster bootstrap of (variant - full ensemble) on the common universe",
+        "trials": 4000,
+        "margin_mae": {
+          "delta_95": [
+            -0.007,
+            0.011
+          ],
+          "probability_variant_better": 0.313
+        },
+        "cover_brier": {
+          "delta_95": [
+            0,
+            0.001
+          ],
+          "probability_variant_better": 0.248
+        },
+        "roi": {
+          "delta_95": [
+            -0.046,
+            0.027
+          ],
+          "probability_variant_better": 0.3
+        }
+      },
+      "cost": {
+        "models_removed": 2,
+        "share_of_ensemble": 0.065
+      },
+      "decision": {
+        "verdict": "keep",
+        "because": "removing Roster availability moved no answer by a margin the paired interval can distinguish from zero. Inconclusive is not evidence of no contribution, and it is not grounds for removal either."
+      }
+    }
+  ],
+  "consumers": [
+    {
+      "family": "Context",
+      "models": [
+        "recent_form",
+        "rest_travel",
+        "pace_total",
+        "weather_total"
+      ],
+      "challenger_only": 0,
+      "model_count": 4,
+      "numerical_consumer": "production_ensemble"
+    },
+    {
+      "family": "Efficiency",
+      "models": [
+        "epa_net",
+        "epa_neutral",
+        "early_down_eff",
+        "pass_eff_matchup",
+        "rush_eff_matchup",
+        "explosive_pass",
+        "pressure_response",
+        "series_sustain",
+        "field_position",
+        "second_half_eff",
+        "success_rate",
+        "explosive",
+        "drive_eff",
+        "situational",
+        "trenches",
+        "turnover_regressed",
+        "opp_adjusted"
+      ],
+      "challenger_only": 0,
+      "model_count": 17,
+      "numerical_consumer": "production_ensemble"
+    },
+    {
+      "family": "Market",
+      "models": [
+        "market_anchor",
+        "market_regression"
+      ],
+      "challenger_only": 0,
+      "model_count": 2,
+      "numerical_consumer": "production_ensemble"
+    },
+    {
+      "family": "Rating systems",
+      "models": [
+        "massey",
+        "colley",
+        "pythagorean",
+        "point_diff",
+        "melo",
+        "dynamic_state"
+      ],
+      "challenger_only": 0,
+      "model_count": 6,
+      "numerical_consumer": "production_ensemble"
+    },
+    {
+      "family": "Roster availability",
+      "models": [
+        "availability",
+        "roster_strength"
+      ],
+      "challenger_only": 0,
+      "model_count": 2,
+      "numerical_consumer": "production_ensemble"
+    }
+  ],
+  "policy": {
+    "kind": "diagnostic_only",
+    "ablation_kind": "refit_leave_one_family_out",
+    "note": "Section 8.6: this opened development period explains contribution. It cannot promote a tuned family set, and nothing in this module changes any live configuration."
+  }
+}

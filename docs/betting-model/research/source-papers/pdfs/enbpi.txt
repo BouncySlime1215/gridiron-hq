@@ -1,0 +1,2501 @@
+                                                                  Conformal prediction for time series
+                                                                                 Chen Xu∗1 and Yao Xie†1
+
+
+
+
+arXiv:2010.09107v15 [stat.ME] 16 Feb 2023
+                                            1
+                                                H. Milton Stewart School of Industrial and Systems Engineering, Georgia Institute of Technology.
+
+
+
+                                                                                             Abstract
+                                                            We develop a general framework for constructing distribution-free prediction
+                                                       intervals for time series. Theoretically, we establish explicit bounds on conditional
+                                                       and marginal coverage gaps of estimated prediction intervals, which asymptotically
+                                                       converge to zero under additional assumptions. We obtain similar bounds on the size
+                                                       of set differences between oracle and estimated prediction intervals. Methodologically,
+                                                       we introduce a computationally efficient algorithm called EnbPI that wraps around
+                                                       ensemble predictors, which is closely related to conformal prediction (CP) but does
+                                                       not require data exchangeability. EnbPI avoids data-splitting and is computationally
+                                                       efficient by avoiding retraining and thus scalable to sequentially producing prediction
+                                                       intervals. We perform extensive simulation and real-data analyses to demonstrate
+                                                       its effectiveness compared with existing methods. We also discuss the extension of
+                                                       EnbPI on various other applications.
+
+
+                                            1          Introduction
+                                            Modern applications, including energy and supply chains [Dı́az-González et al., 2012,
+                                            Cochran et al., 2015], require sequential prediction with uncertainty quantification for
+                                            time-series observations with highly complex dependency. In addition to point prediction,
+                                            it is typical to construct prediction intervals for uncertainty quantification, a fundamental
+                                            task in statistics and machine learning.
+                                                 Constructing accurate prediction intervals for time series is highly challenging yet
+                                            crucial in many high-stakes applications. In power systems, as outlined in the National
+                                            Renewable Energy Lab report [Cochran et al., 2015], solar and wind power generation
+                                            data are non-stationary, exhibit significant stochastic variations, and have spatial-temporal
+                                            correlations among regions. The inherent randomness of renewable energy sources presents
+                                            significant challenges for prediction and inference. To overcome these challenges, it is
+                                            essential to use historical data to accurately predict energy levels from wind farms and solar
+                                                 ∗
+                                                     cxu310@gatech.edu
+                                                 †
+                                                     yao.xie@isye.gatech.edu
+
+
+                                                                                                                                                 1
+roof panels and establish prediction intervals. These prediction intervals provide critical
+information for power network operators, enabling them to understand the uncertainty of
+the power generation and make necessary arrangements. Incorporating renewable energy
+into existing power systems requires the prediction of power generation with uncertainty
+quantification [Gangammanavar et al., 2016, Gu and Xie, 2017]. Although there are various
+neural-network based quantile prediction models [Salinas et al., 2020, Wen et al., 2017], the
+resulting prediction intervals frequently lack theoretical guarantees, causing concern about
+their reliability in high-stakes situations. Currently, there is a need for a distribution-free
+framework that produces prediction intervals for time-series data, along with provable
+guarantees for interval coverage, which remains an open question in the field.
+    In addition to the difficulties posed by the inherent stochasticity of time-series, construct-
+ing prediction intervals for user-specified predictive models also presents further challenges.
+For example, complex prediction models such as random forest [Breiman, 2001] and deep
+neural networks [Lathuilière et al., 2019] are often employed for accurate predictions. Unlike
+classical linear regression models, these prediction algorithms do not have straightforward
+methods for calculating prediction intervals. To construct prediction intervals for such
+models, practitioners often resort to heuristics like bootstrapping, which lack guarantees. In
+practice, ensemble methods [Breiman, 1996] are also frequently used to enhance prediction
+performance by combining multiple prediction algorithms, further complicating the model.
+Despite this, constructing efficient prediction intervals for time-series data using general
+prediction methods, which can be arbitrarily complex, remains an under-explored area.
+
+1.1    Contributions
+In this paper, we develop distribution-free prediction intervals for time series data with a
+coverage guarantee, inspired by recent works on conformal prediction. Our proposed method,
+EnbPI, can provide prediction intervals for ensemble algorithms. The main contributions of
+this paper are summarized as follows.
+
+   • We present a general framework for constructing prediction intervals for time series,
+     which can be asymmetrical. We theoretically upper-bound the conditional and
+     marginal coverage gaps, which converge to zero under mild assumptions on the
+     dependency of stochastic errors and the quality of estimation. We also obtain similar
+     bounds on the size of the set difference between the oracle and estimated prediction
+     intervals.
+   • We develop EnbPI, a robust and computationally efficient algorithm for constructing
+     prediction intervals around ensemble estimators. The algorithm is designed to avoid
+     expensive model retraining during prediction and requires no data splitting, thanks
+     to a carefully constructed bootstrap procedure. EnbPI is particularly suitable for
+     small-sample problems, and its versatility makes it applicable in various practical
+     settings, such as network prediction and anomaly detection.
+
+
+                                                                                                2
+   • We present extensive numerical experiments to study the performance of EnbPI on
+     simulated and real-time series data. The results show that EnbPI can maintain a
+     target coverage when other competing methods fail to do so, and it can yield shorter
+     intervals. Additionally, the experiments demonstrate that EnbPI is robust to missing
+     data.
+    The rest of this paper is organized as follows. Section 2 describes the problem setup and
+introduces the oracle prediction interval, which motivates our proposed method. Section
+3 presents asymptotic guarantees for the interval coverage and width and highlights the
+generality of such guarantees. Section 4 presents EnbPI. Section 5 contains numerical
+examples with simulated and real data that compare EnbPI with competing methods to
+demonstrate its good performance in various scenarios. Section 6 extends the use of EnbPI
+when a change point exist. Section 7 concludes the paper with discussions. Appendix
+A contains proofs and B contains experiments. Code for this paper can be found at
+https://github.com/hamrel-cxu/EnbPI.
+
+1.2    Literature review
+Conformal Prediction (CP) is a popular method for constructing distribution-free prediction
+intervals. It was formally introduced in [Shafer and Vovk, 2008], and it assigns ”conformity
+scores” to both training and test data. By inverting hypothesis tests using these scores,
+prediction intervals can be obtained for the test data. It has been shown that under the
+assumption of exchangeability in data, this procedure generates valid marginal coverage
+for the test point. Many CP methods have been developed to quantify uncertainty in
+predictive models. To efficiently compute the conformity scores, a data-splitting method
+is developed in [Papadopoulos et al., 2007], which computes the scores on a hold-out set
+of the training data. [Romano et al., 2019] builds on this data-splitting idea for quantile
+regression models. To avoid data splitting which affects the accuracy of trained predictive
+model, “leave-one-out“ (LOO) CP methods are developed to use the entire training samples
+for computing prediction residuals, a particular choice of conformity scores [Barber et al.,
+2019b]. Subsequent works develop more computationally efficient way of training LOO
+models [Kim et al., 2020] and generalize the approach to other conformity scores[Gupta
+et al., 2021]. Comprehensive surveys and tutorials can be found in [Shafer and Vovk, 2008,
+Zeni et al., 2020]. Although no assumption other than data exchangeability is required for
+marginally exact coverage, the exchangeability assumption is hardly reasonable for time
+series, making works above not directly applicable to our setting.
+    Adapting CP methods beyond exchangeable data has also been gaining significant
+interest. A widely popular type of approach assumes unknown distribution shifts in the test
+data and weighs the past conformity scores to restore valid coverage. For instance, the work
+by [Tibshirani et al., 2019] uses weighted conformal prediction intervals when the test data
+distribution is proportional to the training distribution. The work by [Cauchois et al., 2020]
+builds on this idea when the shifted test distribution lies in an f -divergence ball around
+
+                                                                                            3
+the training distribution. However, both works still assume i.i.d. or exchangeable training
+data, making them not directly applicable for time series. A concurrent work [Barber et al.,
+2022] considers a general set-up for bounding coverage gap using total variation distances.
+It then proposes to use fixed weights to correct for the coverage gap. In retrospect, we
+consider a more specific setting involving time series, and the upper bounds are captured
+differently and explicitly using the quality of the estimator and the noise characteristics.
+Meanwhile, a recent work for non-exchangeable data sequentially adjusts the significance
+level α during prediction. For instance, [Gibbs and Candès, 2021] provides approximately
+valid coverage on sequential data by re-weighting the value α based on online coverage
+values on test data. The subsequent work [Zaffran et al., 2022] proposes more sophisticated
+re-weighting techniques of α. However, whether such adjustments are applicable to data
+with general dependency remain unclear, and we compare with [Gibbs and Candès, 2021]
+in experiments to show the improved performance of EnbPI.
+    Meanwhile, there are many non-CP prediction interval methods. In the traditional time
+series literature [Brockwell et al., 1991], there have been abundant work for prediction
+interval construction, such as ARIMA(p, d, q) [Durbin and Koopman, 2012], exponential
+smoothing [Hyndman et al., 2008], dynamic factor models [Bańbura and Modugno, 2014]
+and so on. However, they rely on strong parametric distributional assumptions that limit
+their applicability. On the other hand, recent works have notably leveraged the predictive
+power of deep neural networks for neural quantile regression. Two of the most popular
+approaches are MQ-CNN [Wen et al., 2017] and DeepAR [Salinas et al., 2020]; additional
+approaches can be found in [Makridakis et al., 2022]. More precisely, MQ-CNN [Wen
+et al., 2017] leverages the power of sequence-to-sequence neural networks to predict the
+multi-horizon quantile value of future response variables directly. The framework can
+also incorporate various temporal and static features and remains scalable to large-scale
+forecasting. Meanwhile, DeepAR [Salinas et al., 2020] models the conditional distribution
+of future response using an autoregressive recurrent network. The network is trained by
+maximizing the log-likelihood of data, assuming Gaussian likelihood for real-valued data
+and negative-binomial for positive count data. Extensive experiments show its improvement
+over state-of-the-art methods. Although both MQ-CNN and DeepAR have promising
+performances for a variety of time-series data, they have limitations in requiring special
+network architecture (not model-free) and providing no theoretical guarantees on coverage.
+In addition, [Salinas et al., 2020] imposes distributional assumptions on data through
+the parametric likelihood models (not distribution-free). In contrast, EnbPI leverages
+the benefits of conformal prediction to present a general framework for an arbitrary
+point-prediction model (model-free), with provable guarantees on coverage and without
+distributional assumption on data (distribution-free).
+    Finally, we remark that our assumptions and proof techniques avoid data exchangeability
+and differ significantly from existing CP works. Most CP methods ensure the finite-sample
+marginal coverage and distribution-free conditional coverage is impossible at a finite sample
+size [Barber et al., 2019a]. In contrast, we achieve an asymptotic conditional coverage
+
+
+                                                                                           4
+guarantee. Such theoretical analyses are inspired by [Chernozhukov et al., 2018, 2020],
+yet we refine the proof techniques to improve the convergence rates and extend results
+under different assumptions. We further analyze the convergence of prediction interval
+widths. We would also like to remark that our work is titled “conformal prediction” because
+EnbPI builds on the conformal prediction framework in this more general context—in
+terms of construction, EnbPI intervals closely resemble intervals by existing CP methods
+(especially J+aB [Kim et al., 2020]). Meanwhile, the theoretical results in this work can
+hold for prediction intervals produced by other conformal prediction methods, such as split
+conformal [Papadopoulos et al., 2007], J+aB [Kim et al., 2020], and so on (see Remark 1).
+Thus, the theoretical tools presented in this work are general for analyzing CP methods for
+time series.
+
+
+2     Problem setup
+Given an unknown model f : Rd → R, where d is the dimension of the feature vector, we
+observe data (xt , yt ) generated according to the following model
+
+                                 Yt = f (Xt ) + t ,   t = 1, 2, . . .                          (1)
+
+where t is distributed following a continuous cumulative distribution function (CDF) Ft .
+Note that we do not need t to be independent and Ft needs not be the same across all t.
+Features Xt can contain exogenous time series sequences that predict Yt and/or the history
+of Yt . We assume that the first T samples {(xt , yt )}Tt=1 are training data or initial state of
+the random process that are observable. Above, upper case Xt , Yt denote random variables
+and lower case xt , yt denote data.
+     Our goal is to construct a sequence of prediction intervals as narrow as possible with a
+certain coverage guarantee. Given a user-specified prediction algorithm, using T training
+samples, we obtain a trained model represented by fˆ. Then we construct s ≥ 1 prediction
+intervals {C  bα }si=1 for {YT +i }si=1 , where α is the significance level, and the batch size s is
+                T +i
+a pre-specified parameter for how many steps we want to look ahead. Once new samples
+{(xT +i , yT +i )}si=1 become available, we deploy the pre-trained fˆ on new samples and use
+the most recent T samples to produce prediction intervals for Yj , j = T + s + 1 onward
+without re-training the model on new data.
+     The meaning of significance level α is as follows. We consider two types of coverage
+guarantees. The conditional coverage guarantee ensures that each prediction interval
+Cbα , t > T satisfies:
+  t
+                                    P (Yt ∈ Cbα |Xt = xt ) ≥ 1 − α.                             (2)
+                                              t
+
+The second type is the marginal coverage guarantee:
+                                              btα ) ≥ 1 − α.
+                                      P (Yt ∈ C                                                 (3)
+
+
+                                                                                                  5
+Note that (2) is much stronger than (3), which is satisfied whenever data are exchangeable
+using split conformal prediction [Papadopoulos et al., 2007]. For instance, suppose a doctor
+reports a prediction interval for one patient’s blood pressure. An interval satisfying (3)
+averages over all patients in different age groups, but may not satisfy (2) for the current
+patient precisely. In fact, satisfying (2), even for exchangeable data, is impossible without
+further assumptions [Barber et al., 2019a]. In general, it is challenging to ensure either (2)
+or (3) under complex data dependency without distributional assumptions. Despite such
+difficulty, our theory provides a way to bound the worst-case gap in conditional coverage
+(2) and marginal coverage (3), under certain assumptions on the error process {t }t≥1 and
+fˆ. From now on, we call a prediction interval conditionally or marginally valid if it achieves
+(2) or (3), respectively.
+
+2.1    Oracle prediction interval
+To motivate the construction of C   bα , we first consider the oracle prediction interval C α ,
+                                     t                                                     t
+which contains Yt with an exact conditional coverage at 1 − α and is the shortest among
+all possible conditionally valid prediction intervals. The oracle prediction assumes perfect
+knowledge of f and Ft in (1). Denote Ft,Y as the CDF of Yt conditioning on Xt = xt , then
+we have
+
+                        Ft,Y (y) =P(Yt ≤ y|Xt = xt )
+                                 =P(t ≤ y − f (xt )) = Ft (y − f (xt )).
+
+For any β ∈ [0, α], we also know that
+                              −1        −1
+                    P(Yt ∈ [Ft,Y (β), Ft,Y (1 − α + β)]|Xt = xt ) = 1 − α,
+         −1                                          −1
+where Ft,Y  (β) := inf{y : Ft,Y (y) ≥ β}. Assume Ft,Y   (α) is attained for each α ∈ [0, 1], and
+           −1
+let yβ = Ft,Y (β). Clearly,
+                                     yβ = f (xt ) + Ft−1 (β),
+which allows us to find Ctα – the oracle prediction interval with the narrowest width:
+
+                     Ctα = [f (xt ) + Ft−1 (β ∗ ), f (xt ) + Ft−1 (1 − α + β ∗ )],          (4)
+                     β ∗ := arg min Ft−1 (1 − α + β) − Ft−1 (β) .
+                                                                       
+                             β∈[0,α]
+
+
+A similar oracle construction to (4) appeared in [Sesia and Romano, 2021]. Thus, if we
+can approximate unknown f (xt ), Ft−1 (x), x ∈ [0, 1], and β ∗ reasonably well, the prediction
+          btα should be close to the oracle Ctα .
+intervals C
+
+
+
+
+                                                                                              6
+2.2    Proposed prediction interval
+We now construct C  bα based on ideas above. Recall that the first T data {(xt , yt )}T are
+                     t                                                                t=1
+observable. Denote fˆ−i as the i-th “leave-one-out” (LOO) estimator of f , which is not
+trained on the i-th datum (xi , yi ) and may include the remaining T − 1 points. Then,
+
+                    btα := [fˆ−t (xt ) + β̂ quantile of {ˆi }t−T ,
+                    C                                                                    (5)
+                                                              i=t−1
+                             ˆ
+                            f−t (xt ) + (1 − α + β̂) quantile of {ˆi }t−T
+                                                                       i=t−1 ],
+
+
+where the LOO prediction residual ˆi and the corresponding β̂ are defined as
+
+                     ˆi :=yi − fˆ−i (xi )
+                     β̂ :=arg min ((1 − α + β) quantile of {ˆi }t−T
+                                                                 i=t−1 −
+                            β∈[0,α]
+                                               t−T
+                           β quantile of {ˆi }i=t−1 ).
+
+Thus, the interval centers at the point prediction fˆ−t (xt ) and the width is the difference
+between the (1 − α + β̂) and β̂ quantiles over the past T residuals.
+    Note that we have to split the training data into two parts: one part is used to estimate
+f , and the second part is used to obtain prediction residuals for the prediction interval.
+There is a trade-off. On the one hand, we desire the estimator fˆ to be trained on as
+much data as possible. On the other hand, the quantile of prediction residuals should well
+approximate the tails of Ft−1 . These two objectives contradict each other. If we train fˆ
+on all training data, then we overfit; if we train on a subset of training data and obtain
+prediction residuals on the rest [Papadopoulos et al., 2007], the approximation fˆ to f is
+poorer. The LOO estimator is known to achieve a good trade-off in this regard. When
+obtaining the i-th residual, the i-th LOO estimator trains on all except the i-th training
+datum so that the LOO estimator is not overfitted on that datum. Then repeating over
+T training data yields T LOO estimators with good predictive power and T residuals to
+calibrate the prediction intervals well. The LOO idea is related to the Jackknife+ procedure
+[Barber et al., 2019b], but it is known to be costly due to the retraining of the model.
+To address this issue, we will develop a computationally efficient method called EnbPI in
+Section 4, which constructs the LOO estimators as ensemble estimators of pre-trained
+models.
+
+
+3     Theoretical analysis
+We first present theoretical results for bounding the worst-case coverage gap in conditional
+and marginal coverage. We then establish similar bounds on the difference between
+estimated and oracle intervals. The results are general for methods beyond EnbPI (for
+example, the split conformal method [Papadopoulos et al., 2007]). Without loss of generality
+
+                                                                                           7
+and for notation simplicity, we only show guarantees when t = T +1, i.e., the one-step-ahead
+prediction. We will explain how guarantees naturally extend to all prediction intervals from
+t = T + 2 onward in Remark 1. In particular, our proof removes the assumptions on data
+exchangeability by replacing them with general and verifiable assumptions on the error
+process and estimation quality. All proofs can be found in Appendix A.
+
+3.1     Coverage guarantees
+Following notations in Section 2.1, we first define the empirical p-value at T + 1:
+                                                T
+                                            1X
+                                  p̂T +1 :=       1{ˆi ≤ ˆT +1 }.
+                                            T i=1
+
+As a result, we see the following equivalence between events:
+
+                                   bTα+1 XT +1 = xT +1
+                           YT +1 ∈ C
+
+                      ⇐⇒ ˆT +1 ∈ [β̂ quantile of {ˆi }Ti=1 ,
+
+                           (1 − α + β̂) quantile of {ˆi }Ti=1 ] XT +1 = xT +1
+
+                      ⇐⇒ β̂ ≤ p̂T +1 ≤ 1 − α + β̂,
+where A|B means that the event A conditions on event B. Therefore, our method covers YT +1
+given XT +1 = xT +1 with probability 1−α, hence, being conditionally valid if the distribution
+of p̂T +1 is uniform. More precisely, we aim to ensure that |P(β ≤ p̂T +1 ≤ 1−α+β)−(1−α)|
+is small for any β ∈ [0, α].
+     Due to the fact that FT +1 (T +1 ) ∼ Unif[0, 1] [Casella and Berger, 1990], P(β ≤
+FT +1 (T +1 ) ≤ 1 − α + β) = 1 − α. Define
+                                                    T
+                                                1X
+                                  F̂T +1 (x) :=       1{ˆi ≤ x},
+                                                T i=1
+
+whereby we have p̂T +1 = F̂T +1 (ˆT +1 ). As a consequence:
+                              |P(β ≤ p̂T +1 ≤ 1 − α + β) − (1 − α)|
+                            = |P(β ≤ F̂T +1 (ˆT +1 ) ≤ 1 − α + β)−
+                              P(β ≤ FT +1 (T +1 ) ≤ 1 − α + β)|.
+Thus, intuitively, we can bound gap in conditional coverage using the worst-case difference
+between F̂T +1 (ˆT +1 ) and FT +1 (T +1 ). Notice the following coupling between ˆT +1 and T +1
+under model (1) when XT +1 = xT +1 :
+                          ˆT +1 = T +1 + (f (xT +1 ) − fˆ−(T +1) (xT +1 )).                  (6)
+
+                                                                                                 8
+Therefore, the pointwise function estimation error f (xT +1 ) − fˆ−(T +1) (xT +1 ) should be small
+for ˆT +1 to be a good estimate for T +1 . We will impose this condition when analyzing
+difference in interval width.
+      For the analyses, we now introduce another empirical CDF using unknown “true” errors
+i , i ≥ 1, denoted as F̃T +1 :
+                                                  T
+                                               1X
+                                 F̃T +1 (x) :=       1{i ≤ x}.
+                                               T i=1
+Note that F̂T +1 (ˆT +1 ) is close in distribution to F̃T +1 (T +1 ) under the same pointwise
+estimation assumption of f by fˆ, due to (6). Meanwhile, the convergence of F̃T +1 (x) to
+FT +1 (x) is well-studied in the literature, which addresses the rate of convergence of an
+empirical distribution to the actual CDF [Dvoretzky et al., 1956, Hesse, 1990, Rio, 2017].
+     Building on notations and ideas above, we now state the precise assumptions with
+discussions and present the following results: we first bound the worst deviation between
+F̃T +1 (x) and FT +1 (x) in Lemma 1. We then bound that between F̂T +1 (x) and F̃T +1 (x)
+in Lemma 2. These lemmas are essential to proving our main theoretical results in
+Theorem 1, which has several useful corollaries under slightly modified assumptions on
+error dependencies.
+Assumption 1 (Errors are short-term i.i.d.). Assume {t }Tt=1+1
+                                                                are independent and identi-
+cally distributed (i.i.d.) according to a common CDF FT +1 , which is Lipschitz continuous
+with constant LT +1 > 0.
+Lemma 1. Under Assumption     p 1, for any training size T , there is an event AT which occurs
+with probability at least 1 − log(16T )/T , such that conditioning on AT ,
+                                                        p
+                          sup |F̃T +1 (x) − FT +1 (x)| ≤ log(16T )/T .
+                           x
+
+Discussion on Assumption 1. We call it the short-term i.i.d. assumption, since it only
+requires the past T + 1 errors to be independent. It is a reasonably mild assumption on the
+original process {(Xt , Yt )}t≥1 , because the process can exhibit arbitrary dependence and be
+highly non-stationary but still have i.i.d. errors. Later on we can relax this assumption
+for more general cases, for instance, when errors follow linear processes (see Corollary 1)
+or are strongly mixing (see Corollary 2). We can empirically examine whether or not the
+assumptions on residuals hold by using the LOO residuals as surrogates. The procedure is
+similar to examining the autocorrelation function after fitting a time series model.
+Assumption 2 (Estimation quality). There exists a real sequence {δT }T ≥1 such that
+                                   T
+                               1X ˆ
+                                     (f−t (xt ) − f (xt ))2 ≤ δT2 and
+                               T t=1
+                               |fˆ−(T +1) (xT +1 ) − f (xT +1 )| ≤ δT .
+
+
+
+                                                                                                9
+Lemma 2. Under Assumptions 1 and 2, we have
+
+                          sup |F̂T +1 (x) − F̃T +1 (x)|
+                            x
+                                       2/3
+                        ≤(LT +1 + 1)δT + 2 sup |F̃T +1 (x) − FT +1 (x)|.
+                                                 x
+
+Discussion on Assumption 2. There are two situations affecting asymptotic guarantees: δT
+never decays as T grows or converges to zero as T → ∞. The first     PT situation    can happen
+                                        ˆ                                   ˆ
+due to data overfitting, which leads to f−t (xt ) ≈ yt and therefore, t=1 (f−t (xt ) − f (xt ))2 ≈
+PT 2           PT 2
+   t=1 t . If  t=1 t ∈ Ω(T ), the same order holds for the sequence {δT }T ≥1 , so that the
+worst-case coverage gap always exists (see Theorem 1). On the other hand, there are
+examples in the second situation where {δT }T ≥1 converges to zero. Note that assumptions
+for estimating unknown f are necessary due to the well-known No Free Lunch Theorem
+[Wolpert and Macready, 1997]. The decay rate of δT is explicit for two classes of f and the
+following A:
+
+      (Example 1) If f is sufficiently smooth, δT = oP (T −1/4 ) for general neural networks
+      sieve estimators [Chen and White, 1999, see Corollary 3.2].
+
+      (Example 2) If f is a sparse high-dimensional linear model, δT = oP (T −1/2 ) for the
+      Lasso estimator and Dantzig selector. [Bickel et al., 2009, see Equation 7.7].
+
+In general, one needs to analyze the convergence rate of estimators fˆ to the unknown true f .
+This task is different from analyzing the Mean Squared Error (MSE) of ensemble estimators
+[Breiman, 1996] and likely requires case-by-case analyses, which we leave for future work.
+    Our main theoretical result is the following Theorem 1, which establishes the asymptotic
+conditional coverage as a consequence of Lemmas 1 and 2.
+
+Theorem 1 (Conditional coverage gap; errors are short-term i.i.d.). Under Assumption 1
+and 2, for any training size T , α ∈ (0, 1), and β ∈ [0, α], we have:
+
+                                     bα |XT +1 = xT +1 ) − (1 − α)|
+                          |P(YT +1 ∈ C T +1
+                                                          2/3
+                            p
+                         ≤12 log(16T )/T + 4(LT +1 + 1)(δT + δT ).                            (7)
+
+Furthermore, if {δT }T ≥1 converges to zero, the upper bound in (7) converges to 0 when
+T → ∞, and thus the conditional coverage is asymptotically valid.
+
+p We briefly comment on the proof techniques and the role of Assumption 1. The term
+  log(16T )/T on the right-hand side directly relates to how quickly the empirical CDF F̃T +1
+converges to the actual CDF FT +1 . In general, we find sequences {sT }T ≥1 and {g(sT )}T ≥1 ,
+both of which converge to zero, such that
+
+                          P(sup |F̃T +1 (x) − FT +1 (x)| > sT ) ≤ g(sT ).
+                                x
+
+
+                                                                                               10
+The optimal rate of decay reduces to finding sT such that sT = g(sT ). Then, the event
+AT is chosen to happen with probability at least 1 − sT , where conditioning on this
+event,
+p       supx |F̃T +1 (x) − FT +1 (x)| ≤ sT . As a result, there are decay rates different from
+  log(16T )/T under more relaxed assumptions on {t }Tt=1     +1
+                                                                 . We summarize two possible
+results in Corollaries 1 and 2; certain technical assumptions, precise statements, and
+definitions are presented in the appendix.
+Corollary 1 (Conditional coverage P  gap; errors follow linear processes). Under Assumption
+2, suppose that {t }t=1 satisfy t = ∞
+                     T +1
+                                       j=1 δj zt−j , with regularity conditions on δj and zt−j .
+There exists a constant K so that for any training size T , α ∈ (0, 1), and β ∈ [0, α], we
+have:
+                                     bTα+1 |XT +1 = xT +1 ) − (1 − α)|
+                          |P(YT +1 ∈ C
+                                     √                      2/3
+                         ≤12K log T / T + 4(LT +1 + 1)(δT + δT ).                           (8)
+
+  To introduce the last corollary, we first define the strong mixing coefficient between two
+σ−fields A and B, which measures the dependence between them:
+
+                α(A, B) = 2 sup{|P(A ∩ B) − P(A)P(B)| : (A, B) ∈ A × B}.
+
+This definition is equivalent to that in [Rosenblatt, 1956] up to a multiplicative factor of 2.
+For the sequence {t }t≥1 , let Ak := σ(t : t ≤ k) and Bc := σ(t : t ≥ l). The coefficients
+{αn }n≥1 are defined as
+
+                     α0 = 1/2 and αn = sup α(Ak , Bk+n ) for any n > 0.
+                                          k∈N
+
+The sequence is said to be strongly mixing if lim αn = 0.
+                                                n→∞
+
+Corollary 2 (Conditional coverage gap; errors are strongly mixing). Under Assumption 2,
+             T +1
+suppose {P
+          t }t=1 are stationary and strongly mixing, where mixing coefficients are summable
+with 0 < k≥0 αk < M . For any training size T , α ∈ (0, 1), and β ∈ [0, α], we have:
+
+                                bα |XT +1 = xT +1 ) − (1 − α)|
+                     |P(YT +1 ∈ C T +1
+                                                                  2/3
+                   ≤12(M/2)1/3 (log T )2/3 /T 1/3 + 4(LT +1 + 1)(δT + δT ).                 (9)
+
+    Lastly, the following asymptotic marginal validity guarantee holds as a consequence of
+earlier results by the tower law property (proof omitted):
+Theorem 2 (Marginal coverage gap). Under Assumption 1 and 2, for any training size T ,
+α ∈ (0, 1), and β ∈ [0, α], we have:
+                                    bα ) − (1 − α)|
+                         |P(YT +1 ∈ C T +1
+                                                        2/3
+                           p
+                        ≤12 log(16T )/T + 4(LT +1 + 1)(δT + δT ).                          (10)
+
+                                                                                             11
+                                                                  √       2/3
+Moreover, the right-hand side decay rate in (10) is O(log T / T + δT ) if {t } follow a
+                                                              2/3
+linear process as in Corollary 1, and O((log T )2/3 /T 1/3 + δT ) if {t } are strongly mixing
+with summable mixing coefficients as in Corollary 2.
+
+    We make two final comments for the above theorems and corollaries. Firstly, to
+build prediction intervals that have at least 1 − α coverage, one needs to incorporate the
+upper bounds on the right-hand side of (7)—(10) into the prediction interval construction.
+However, we will not do so in EnbPI (our proposed algorithm), which p  is a general wrapper
+                                                                                         2/3
+that can be applied to most regression models A. Secondly, The rate O( log(16T )/T +δT )
+is a worst-case analysis for both marginal and conditional coverage; empirical results show
+that even at a small training data size T , EnbPI can achieve both marginal and conditional
+validity.
+
+3.2    Width guarantees
+Our next goal is to bound the gap between the estimated prediction interval C      bα and
+                                                                                    T +1
+the oracle CTα+1 in (4). Define set difference ∆ : N → R such that ∆(T ) = C   bα 4C α ,
+                                                                                 T +1    T +1
+where for any two subsets A, B ⊂ R under the Lebesgue measure µ, A4B := µ({x ∈
+R : x ∈ A, x ∈/ B}) + µ({x ∈ R : x ∈ B, x ∈  / A}). Theorem 3 below bounds ∆(T ) under
+Assumptions 1, 2, and other regularity conditions; the bound is similar to that in Theorem
+1.
+
+Theorem 3 (Width gap bound; errors are i.i.d.). Under Assumption 1 and 2, further       assume
+FT−1
+                                                                                  p
+   +1 is Lipschitz continuous with constant K T +1 . With probability at least 1−  log(16T )/T ,
+
+                         ∆(T ) ≤δT + αKT0 +1 /m + 2(KT +1 + MT +1 )·
+                                 p                                    
+                                                                2/3
+                                  3 log(16T )/T + (LT +1 + 1)(δT + δT ) ,
+
+where m is the number of grids for line-search of β̂ based on the past T LOO residuals,
+KT0 +1 := max ˆj+1 − ˆj using sorted LOO residuals indexed from the smallest to the
+          j=1,...,T −1
+                                                                              0
+largest, and MT +1 is a constant that depends only on LT +1 , KT +1 , and KT +1 .
+
+    When {t }Tt=1 are not i.i.d., results similar to Corollaries 1 and 2 can
+                                                                            p be established
+for Theorem 3 using similar
+                      √        proof  techniques. More  precisely, the rate  log(16T )/T will
+be replaced by log T / T when errors follow linear processes, and by (log T )2/3 /T 1/3 when
+errors are strongly mixing with summable mixing coefficients.
+
+Remark 1 (Theorem applicability and caveats). All theoretical results hold for t > T + 1,
+as long as Assumptions 1 and 2 hold at indices t − T, . . . , t. The same proof techniques
+apply. Meanwhile, as long as the same assumptions hold, all previous results apply to other
+conformal prediction methods, such as split conformal [Papadopoulos et al., 2007]. However,
+
+                                                                                             12
+unlike our EnbPI that requires no data-splitting, split conformal and its variants require
+data splitting by treating a subset of training data as the “calibration data.” As a result,
+the value T on the right-hand side of Theorem 1 and all subsequent corollaries become the
+size of the calibration data, not that of the full training data. This is because prediction
+residuals ˆ are only computed on calibration data, whose empirical distribution is used to
+approximate that of the true distribution of errors . In such cases, the worst-case coverage
+gap becomes larger.
+
+
+4     EnbPI Algorithm
+We now present a general conformal prediction algorithm for time series in Algorithm 1,
+which is named EnbPI. On a high-level, EnbPI has a training phase and the prediction phase.
+In the training phase, EnbPI first fits a fixed number of bootstrap estimators from subsets
+of the training data. Then, it aggregates predictions from these bootstrap estimators on the
+training data in an efficient leave-one-out (LOO) fashion, resulting in both LOO predictors
+and LOO residuals for prediction. In the prediction phase, EnbPI aggregates predictions
+from LOO predictors on each test datum to compute the center of the prediction interval.
+Then, it builds the prediction interval using the past LOO residuals, where the interval
+width is also optimized through a simple one-dimensional line search. Lastly, residuals
+are slid forward as soon as actual response variables in test data are observed to ensure
+adaptiveness in the prediction intervals.
+    In the algorithm description, fˆb is the b-th bootstrap estimator, the superscript φ
+denotes variables with dependence on the aggregation function φ. The block bootstrap with
+T non-overlapping blocks is used in line 2, which is a popular method for bootstrapping
+dependent data [Kreiss and Paparoditis, 2011]. The basic idea is to split the T training
+samples into l (non-)overlapping blocks, each with a size bT /lc. Then, sample from l blocks
+randomly with replacement.
+    We comment on the choice of hyperparameters as follows. (1) In general, A can be a
+family of (parametric and non-parametric) prediction algorithms. (2) Different choices of
+aggregation functions φ bring different benefits, such as reducing the MSE under mean,
+avoiding sensitivity to outliers under median, or achieving both under trimmed mean.
+(3) As the number of pre-trained bootstrap models B increases, interval widths may be
+narrower. Empirically, we find that choosing B between 20 and 50 is sufficient, especially for
+computationally intensive methods such as neural networks. (4) Larger s requires prediction
+further in the future without feedback; however, as s increases, the prediction becomes
+harder, which is reflected in that intervals become wider and the coverage deteriorates; how
+large s can be is determined by the dynamics of the data.
+
+
+
+
+                                                                                           13
+Algorithm 1 Ensemble batch prediction intervals (EnbPI)
+Require: Training data {(xi , yi )}Ti=1 , prediction algorithm A, significance level α, ag-
+    gregation function φ, number of bootstrap models B, batch size s, and test data
+    {(xt , yt )}Tt=T
+                   +T1
+                     +1 ; yt is revealed as feedback only after prediction at t is done.
+Ensure: Ensemble prediction intervals {Ctφ,α (xt )}Tt=T    +T1
+                                                             +1
+ 1: for b = 1, . . . , B do
+ 2:   Sample with replacement an index set Sb = (i1 , . . . , iT ) from indices (1, . . . , T ).
+ 3:   Compute fˆb = A((xi , yi ), i ∈ Sb ).
+ 4: end for
+ 5: Initialize   b = {} as an ordered set.
+ 6: for i = 1, . . . , T do
+ 7:   fˆ−i
+        φ
+           (xi ) = φ(fˆb (xi ), i ∈ / Sb )
+ 8:
+                       φ
+      Compute ˆi = yi − f−i       ˆφ
+                                      (xi )
+                     φ
+ 9:   b=
+           b ∪ {ˆi }
+10: end for
+11: for t = T + 1, . . . , T + T1 do
+12:   fˆ−t
+        φ
+           (xt ) = φ(fˆ−i φ
+                            (xt ), i = 1, . . . , T )
+13:   Compute β̂ as
+                      arg minβ∈[0,α] (1 − α + β) quantile of 
+                                                             b − β quantile of 
+                                                                               b)
+        φ,α
+14:   wt,lower = β̂ quantile of   b
+        φ,α
+15:   wt,upper = (1 − α + β̂) quantile of       b.
+16:                             ˆ
+      Return Ct (xt ) = [f−t (xt ) + wt,lower , fˆ−t
+                 φ,α             φ           φ,α    φ          φ,α
+                                                      (xt ) + wt,upper ]
+17:   if t − T ≡ 0 mod s then
+18:      for j = t − s, . . . , t − 1 do
+19:         Compute ˆφj = yj − fˆ−j  φ
+                                        (xt )
+                        φ          φ
+20:               − {ˆ1 }) ∪ {ˆj } and reset index of 
+            b = (b
+                                                           b.
+21:      end for
+22:   end if
+23: end for
+
+
+4.1     Properties of EnbPI
+Computational efficiency. Note that in EnbPI, the prediction models in the ensemble are
+pre-trained once and stored; when deploying EnbPI for prediction, residuals are computed
+from T pre-trained models on the fly, and the interval is constructed based on quantile
+values of T residuals. Thus, the main computation of EnbPI for obtaining the prediction
+interval is tolerable in calling the prediction algorithm A B times. In comparison, the
+Jackknife+ approach [Barber et al., 2019b] requires requires B times training of A on
+
+
+                                                                                             14
+each leave-i-out sample {(xj , yj )}Tj=1,j6=i . This requires BT training of A, which can be
+computationally intensive for complex prediction algorithms such as deep neural networks.
+No overfitting or data splitting. Traditional CP methods such as split conformal [Pa-
+padopoulos et al., 2007] use data-splitting to avoid overfitting. In contrast, inspired by the
+J+aB procedure in [Kim et al., 2020], EnbPI trains LOO ensemble models on full data and
+avoids overfitting through thoughtful aggregations in lines 6-10. In particular, to construct
+the i-th LOO ensemble predictor, EnbPI aggregates all B bootstrap models that are not
+trained on the training datum (xi , yi ). Thus, the actual number of aggregated models is a
+Binomial random variable with parameters B and (1 − 1/T )T ; the Chernoff bound ensures
+that each ensemble predictor aggregates a balanced number of pre-trained models.
+Leverage new data without model retraining. EnbPI constructs sequential prediction intervals
+without retraining A. Instead, it leverages feedback by updating past residuals through a
+sliding window of size T , which adapts the interval widths to data and can better adapt to
+data non-stationarity. In practice, we acknowledge the benefits of retraining, especially in
+reducing the widths of the prediction intervals. However, retraining can be costly for certain
+models, and one should consider the trade-off between interval widths and computation
+involved in retraining.
+
+4.2    EnbPI on challenging tasks
+We comment that EnbPI is flexible and can handle various challenging tasks. In appendix
+B.4, we also discuss how EnbPI can construct prediction intervals for outputs from each
+node of a network.
+Handle missing data. We suggest a heuristic approach to handle missing data by EnbPI,
+which is verified in Section 5.3. When training and/or test data have missing entries, we
+can properly increase the size of bootstrap samples being drawn from the rest available
+training data— this is appropriate since a common data model f is assumed. On test data,
+when EnbPI encounters a missing index t0 , we impute the feature xt0 if it is missing to
+compute fˆt (xt0 ), the interval center, and use the most recent T residuals to compute the
+interval width. The sliding window would skip over the residual φt0 when yt0 is unobserved.
+Section 5.3 considers the solar dataset with missing data.
+Unsupervised anomaly detection. Suppose there is an anomalous point yt∗ at time t∗ , due
+to either a change in model f at t∗ or an unusually large stochastic error t∗ . As a result,
+yt∗ tends to lie far outside the interval (equivalently, φt∗ is well below or above the β̂ or
+(1 − α + β̂) quantile of past T residuals) and thus can be detected using the prediction
+interval. An example applying EnbPI to detect anomalous traffic flows appears in Section
+5.4.
+
+
+
+
+                                                                                           15
+5     Experimental results
+The experiments are organized as follows. In Section 5.1, we provide extensive simulations
+to examine the coverage and width of EnbPI intervals. In Section 5.2, we show that EnbPI
+attains valid marginal coverage on real data, whereas competing methods may fail. In
+Section 5.3, we present real-data experiments to examine the conditional coverage of EnbPI
+against other methods when missing data are present. In Section 5.4, we present an example
+for anomaly detection in traffic flow using EnbPI. In Appendix B.4 and B.5, we present
+more time-series data examples to demonstrate that EnbPI has valid coverage and shorter
+intervals than the competing methods.
+
+5.1     Simulation results
+We first conduct three simulated examples based on the assumption Yt = f (Xt ) + t to
+examine the performance of EnbPI. We then consider a more complex example based on a
+noisy helix trajectory.
+Three simulated examples. We construct these examples with increasing levels of model
+sophistication in the design of f (Xt ) and under more complex error dependency in t . The
+detailed data-generating procedures and additional details are described in Appendix B.1.
+The results shown in Figure 5 of Appendix B.1 indicate the satisfactory performance of
+EnbPI to maintain valid coverage. The interval widths also converge to the oracle width as
+the training sample size grows, validating Theorem 3.
+Simulation with a noisy helix trajectory. Consider Yt given by a nonlinear mapping
+of components of a helix in three-dimensional space contaminated by noise: Xt =
+[r cos(θt ), r sin(θt ), Hθt ], f (Xt ) = r cos(θt ) · (|r sin(θt )|)1/2 · (Hθt + ε)−1/2 , ε = 10−3 , and
+t = ρt−1 + et where ρ = 0.6 and et are i.i.d. normal random variables with zero mean
+and unit variance. The color map of the helix is proportional to Yt . We fix H = 3, r = 10
+and generate 1000 samples parametrized by θt , which are uniformly spaced between 0 and
+8π. The first 500 data points are used for training EnbPI with random forest regression
+(RF) and the rest 500 are used for testing. The RF setup is described in Appendix B.2.
+In Figure 1, we see that in the test phase intervals by EnbPI tightly cover the unknown
+response Yt . Moreover, the blue and orange curves corresponding to Ŷt and Yt are very
+close, which indicates that LOO ensemble predictors approximate the unknown model f
+very well.
+
+5.2     Real-data: Marginal validity and the interval width
+In this section, we consider predictions for renewable energy generation. In this setting,
+the prediction and uncertainty quantification is critical due to their high stochasticity and
+non-stationarity.
+
+
+                                                                                                     16
+20
+10
+ 0
+
+          0                           200             400          T = 500       600                   800                            1000
+                                                                  Time Index t
+         Colored by interval upper end      Colored by Yt                        Colored by Yt           Colored by interval lower end
+                                 75                          75                                   75                             75
+                                 50                          50                                   50                             50
+                                10                          10                                   10                             10
+                10 0        0               10 0        0                        10 0        0                  10 0        0
+                       10 10                       10 10                                10 10                          10 10
+
+Figure 1: Helix colored by Yt . We observe that the predicted colors closely match the actual
+color on the bottom row because values of Yt colored in orange are contained in prediction
+intervals colored in shaded blue with high probability, and intervals are very narrow, as
+shown on the top row.
+
+
+Data description. The renewable energy data are from the National Solar Radiation
+Database and the Hackberry wind farm in Austin1 . We use 2018 hourly solar radiation data
+from Atlanta and nine cities in California and 2019 hourly wind energy data. We remove
+recordings before 6 a.m. and after 8 p.m. for the solar radiation data due to zero radiation
+levels during the period. In total, there are 11 time series from 11 sensors (one from each
+sensor), and each time series contain other features such as temperature, humidity, wind
+speed, etc. In particular, California solar data constitute a network, where each node is a
+sensor. From now on, we call Xt univariate if it is the history of Yt and multivariate if it
+contains other features that predict Yt .
+Comparison methods. We compare EnbPI with traditional time series and other conformal
+prediction methods. The time series methods are ARIMA(10,1,10), Exponential Smoothing
+(ExpSmoothing), and Dynamic Factor model (DynamicFactor). The CP methods are
+split/inductive conformal predictor (ICP) [Papadopoulos et al., 2007] and, weighted ICP
+(WeightedICP) [Tibshirani et al., 2019], quantile out-of-bag method (QOOB) [Gupta et al.,
+2021], adaptive conformal inference (AdaptCI) [Gibbs and Candès, 2021], and jackknife+-
+after-bootstrap (J+aB) [Kim et al., 2020]. For the former two CP methods (resp. AdaptCI),
+we split the training data into 50% (resp. 75%) proper training set for training a predictor
+and 50% (resp. 25%) calibration set for computing non-conformity scores. Appendix B.2
+describes more detailed setup.
+Prediction algorithm A. We choose four prediction algorithms: ridge regression, random
+forest (RF), neural networks (NN), and recurrent neural networks (RNN) with LSTM
+layers. The first two are implemented in the Python sklearn library, and the last two are
+built using the keras library. See Appendix B.2 for their specifications.
+     1
+    NSRDB: https://nsrdb.nrel.gov/. Wind farm: https://github.com/Duvey314/austin-green-energy-
+predictor
+
+
+
+                                                                                                                                             17
+Other hyperparameters. Since the three CP methods are trained on random subsets of
+training data, we repeat all experiments below for ten trials with an independent random
+split in each trial. The time series methods are only applied once on training data because
+they do not use random subsets. Throughout this subsection, we fix s = 1. Let α = 0.1
+and use the first 20% of the total hourly data for training unless otherwise specified. This
+creates small training samples for a challenging long-term predictive inference task. We use
+EnbPI under B = 25 and φ as taking the sample mean.
+Results. All results in Section 5.2 and 5.3 come from using the Atlanta solar data. Similar
+results using California solar data and Hackberry wind data are in Appendix B.4. We first
+compare EnbPI with the conformal prediction methods at a fixed α = 0.1. EnbPI results
+are based on one of the four prediction algorithms that yield the narrowest interval when
+reaching valid 1 − α coverage. Table 1 shows that out of all the CP methods, EnbPI is
+the only choice that consistently yields valid coverage at 0.9 regardless of the amount of
+training data. In contrast, the baseline CP methods may yield narrower intervals than
+EnbPI, yet their intervals often have a high coverage gap with respect to the 0.9 target level.
+Hence, this indicates that EnbPI is the most suitable method for this dataset. To better
+compare EnbPI with the baselines, we adjust the α parameter for each baseline method so
+that they yield approximately the same interval widths as EnbPI. Table 2 compares the
+performance of all methods under adjusted α, where we see that baseline methods often
+fail to reach valid 1 − α coverage as EnbPI. In addition, we often need to use extremely
+conservative values of α to reach the same interval widths as EnbPI (e.g., reduce to 0.03
+for QOOB under 0.28 train ratio). Furthermore, EnbPI intervals also have the smallest
+standard deviation in width, indicating more stable interval construction by our proposed
+method.
+    In addition, Table 3 compares EnbPI with commonly used time-series methods, where
+we also include AdaptCI as the best-performing CP baseline method. Compared to EnbPI,
+the time-series baseline methods either yield conservative intervals under valid coverage or
+narrower intervals which nevertheless fail to cover at target 1 − α levels.
+
+Remark 2 (Computational challenges of quantile-based conformal inference methods).
+Quantile regression models aim to predict quantiles of the response distribution accurately
+
+Table 1: Solar power prediction in Atlanta, comparison of EnbPI with AdaptCI, J+aB,
+QOOB, ICP, and Weighted ICP. We vary the percentage of total data as training data at
+α = 0.1. Cells in brackets for CP methods indicate standard deviation over ten trials.
+Train ra-                                 0.10                                                                    0.19                                                                    0.28
+tio
+CP          EnbPI     AdaptCI     J+aB        QOOB        ICP         Weighted EnbPI          AdaptCI     J+aB        QOOB        ICP         Weighted EnbPI          AdaptCI     J+aB        QOOB        ICP         Weighted
+method                                                                ICP                                                                     ICP                                                                     ICP
+
+Coverage 0.893        0.828       0.747       0.684       0.646       0.608       0.897       0.891       0.777       0.783       0.703       0.698       0.905       0.909       0.819       0.850       0.760       0.746
+         (1.8e-03)    (2.4e-02)   (2.7e-03)   (1.1e-02)   (1.2e-01)   (1.4e-01)   (5.9e-04)   (6.1e-03)   (3.0e-03)   (2.8e-03)   (1.2e-01)   (1.2e-01)   (7.0e-04)   (1.5e-03)   (1.9e-03)   (3.5e-03)   (1.1e-01)   (1.3e-01)
+Width       204.597   178.870   116.129   106.199   104.745   96.728    215.442               222.328   148.174   140.723   132.888   131.247   227.286               211.686   180.081       160.231   165.545   163.855
+            (1.8e+00) (1.7e+01) (1.3e+00) (2.1e+00) (4.0e+01) (4.2e+01) (4.4e-01)             (2.2e+00) (1.6e+00) (1.9e+00) (4.8e+01) (4.9e+01) (6.8e-01)             (2.6e+00) (7.0e-01)     (1.4e+00) (6.5e+01) (6.8e+01)
+
+
+
+
+                                                                                                                                                                                                                           18
+Table 2: Solar power prediction in Atlanta. We adjust the hyper-parameter α for baseline
+methods to ensure they yield intervals with nearly the same width as EnbPI, under identical
+setup to Table 1.
+Train ra-                                        0.10                                                                         0.19                                                                          0.28
+tio
+CP          EnbPI      AdaptCI        J+aB          QOOB        ICP           Weighted EnbPI            AdaptCI    J+aB          QOOB       ICP            Weighted EnbPI           AdaptCI      J+aB          QOOB           ICP        Weighted
+method                                                                        ICP                                                                          ICP                                                                           ICP
+
+α value     0.1        0.05           0.0115        0.0075      0.018         0.0125     0.1            0.13       0.04          0.025      0.04           0.04       0.1           0.125        0.055         0.03           0.07       0.06
+Coverage 0.893         0.855          0.844        0.840        0.848         0.828      0.897          0.869      0.850        0.876       0.843          0.844      0.905         0.883        0.879        0.931           0.859      0.869
+         (1.8e-3)      (4.5e-3)       (2.5e-3)     (9.8e-3)     (1.4e-2)      (3.4e-2)   (5.9e-4)       (1.0e-3)   (2.4e-3)     (2.4e-3)    (1.8e-2)       (1.2e-2)   (7.0e-4)      (6.1e-4)     (2.3e-3)     (1.7e-3)        (7.4e-3)   (7.1e-3)
+Width       204.597    210.124        210.747      203.400      214.308       203.511    215.442        215.896    214.418      212.158     218.597        217.359    227.286       224.981      224.418      223.890         220.091    225.935
+            (1.8e+0)   (4.7e+0)       (2.7e+0)     (1.0e+1)     (1.3e+1)      (3.2e+1)   (4.4e-1)       (1.1e+0)   (1.9e+0)     (2.0e+0)    (1.2e+1)       (8.7e+0)   (6.8e-1)      (9.7e-1)     (1.7e+0)     (1.6e+0)        (6.1e+0)   (5.2e+0)
+
+
+
+
+and capture the unknown distribution during inference. Such benefit can be reflected in the
+narrow prediction intervals by quantile-based conformal inference methods [Romano et al.,
+2019, Gupta et al., 2021, Gibbs and Candès, 2021]. However, one should be cautious with
+the following subtle computational concern.
+    To fit a quantile regression model, one uses the empirical risk minimization under the
+following loss, which depends on the quantile α and the sign of the residual ˆi := yi − fˆ(xi ):
+                                            (
+                                             αˆi       if ˆi ≥ 0,
+                               L(ˆi , α) =                                                (11)
+                                             (α − 1)ˆi if ˆi < 0.
+Therefore, producing intervals at different desired 1 − α coverage levels requires fitting the
+baseline algorithm A inside a quantile-based conformal method multiple times.
+     In comparison, EnbPI trains the LOO estimators only once to compute all LOO residuals,
+during which one needs not to specify the desired α value (see Algorithm 1, line 1-10). Then,
+constructing intervals at a particular 1 − α only requires making a point prediction using
+fitted LOO estimators and evaluating the empirical quantiles of LOO residuals. The whole
+procedure is computationally efficient when different target coverage levels are specified.
+
+
+5.3               Real-data: Missing data, conditional coverage
+In this section, we move beyond marginal coverage with two particular goals. Firstly, we
+aim to show conditional validity of EnbPI as it looks ahead beyond one step to construct
+
+Table 3: Solar power prediction in Atlanta, comparison of EnbPI with AdaptCI, ARIMA,
+Exponential Smoothing, and Dynamic Factor Models. We vary α ∈ [0.05, 0.10, 0.15, 0.20]
+and use the first 20% data as training data.
+α                                 0.05                                                         0.10                                                    0.15                                                           0.20
+Method EnbPI AdaptCI ARIMA Exp                          Dynamic EnbPI AdaptCI ARIMA Exp                            Dynamic EnbPI AdaptCI ARIMA Exp                          Dynamic EnbPI AdaptCI ARIMA Exp                              Dynamic
+                           Smoothing                    Factor                      Smoothing                      Factor                      Smoothing                    Factor                      Smoothing                        Factor
+
+Coverage0.950     0.863       0.839      0.900          0.917         0.896    0.831     0.784        0.868        0.887        0.846    0.806     0.743      0.852         0.855        0.798     0.776       0.711         0.840       0.832
+Width     288.581 215.258 158.581 351.181               262.006       216.989 187.504 135.404 313.185              229.151      178.140 173.079 119.870 288.428             206.448      147.297 154.322 107.652 269.379                 187.840
+
+
+
+
+                                                                                                                                                                                                                                                19
+multiple prediction intervals before receiving feedback (that is, s > 1). Secondly, we show
+that EnbPI can handle time series with missing data, which commonly exist in reality. We
+compare EnbPI against QOOB and AdaptCI in this setting.
+Setup. The same setup applies to all three conformal inference methods, so we only describe
+the general setup. All hyperparameters except choices of s are kept the same unless
+otherwise specified. We fit each CP method separately on subsets of hourly data, given
+that radiation data exhibit significant periodic variations (for example, recordings near
+noon have much larger magnitudes than the rest). More precisely, we fit each CP method
+once on data between 10 AM —2 PM and once on data from the rest 5 hours. Then, we let
+s = 5 hours, so EnbPI constructs five-hour ahead prediction intervals every day, after which
+the conditional coverage is computed separately at each hour. To create a more challenging
+missing data situation, we randomly drop 25% of both training and test data. As Xt may
+contain the history of Yt for prediction, we impute missing entries as independent random
+samples from a normal distribution, whose mean and variance parameters are empirical
+mean and standard error of the most recent s observations. We assume exogenous features
+(temperature, humidity, wind speed, etc.) are readily available and perform no imputation
+on them. The training data come from the first 92 days of observation (January-March),
+and intervals always lie within [0, ∞), as solar radiation value cannot be negative. For
+clarity, we only show results under one typical trial.
+Results. Figure 2 shows conditional coverage of EnbPI under RF. We title each subfigure by
+the hour, in which the bottom row visualizes the coverage over a sliding window to illustrate
+how EnbPI performance evolves. Several things are noticeable. Firstly, despite not being
+shown, empirical distributions of LOO residuals in the rightmost figures are asymmetric
+around 0, justifying the need to build asymmetric intervals in EnbPI. Secondly, EnbPI can
+nearly obtain conditional coverage at all these hours (see the first row of Table 5) even with
+missing data. We note that the sliding coverage can be much poorer near the summer (for
+example, in August), likely because radiation data near the summer experience unknown
+shifts in the model f and violate our assumption for the data-generating process. Lastly,
+applying EnbPI separately onto group training data that are more “similar” (for example,
+by morning and afternoon) can be essential, especially when the data-generating processes
+are heterogeneous over subgroups. In general, we believe EnbPI can obtain conditionally
+valid coverage on real data even in missing data. In Appendix B.3, we show more results
+when no feedback is available to EnbPI (that is, s = ∞), illustrating the necessity to slide
+past residuals for a dynamic interval calibration. Table 5 in Appendix B.3 reports the
+conditional coverage and width for EnbPI, QOOB, and AdaptCI. We see that QOOB can
+lose coverage at all hours, but AdaptCI can maintain conditional validity. In particular,
+AdaptCI prediction intervals for radiation levels in the morning are almost identical in
+width to those by EnbPI. However, those for radiation levels in the afternoon are wider
+than those by EnbPI. In Appendix B.3, we also visualize the sliding coverage and prediction
+intervals by QOOB and AdaptCI as in Figure 2 for EnbPI.
+
+
+                                                                                           20
+                At 9:00                    At 10:00                    At 16:00                    At 17:00
+250
+   0
+    April     May       June      April   May       June      April   May       June      April   May       June
+ 1.0
+ 0.8
+       May     August December May         August December May         August December May         August December
+                At 11:00                    At 12:00                    At 13:00                    At 14:00
+500
+
+   0
+    April     May       June      April   May       June      April   May       June      April   May       June
+1.00
+0.75
+       May     August     Decem
+                               ber May     August     Decem
+                                                           ber May     August     Decem
+                                                                                       ber May     August     Decem
+                                                                                                                      ber
+
+Figure 2: Solar power prediction in Atlanta, when EnbPI looks ahead beyond one step.
+At each hour (i.e., a two-row subfigure), the top figure visualizes observations in black,
+estimates in red, and prediction intervals in blue for three months (April-June). The bottom
+subfigures compute coverage using a sliding window of 30 days. The sliding coverage is
+much poorer near summertime (for example, August), when the data distribution may
+differ. Conditional coverage at each hour is always near 0.9 (cf. Table 5).
+
+
+5.4          Real data: Unsupervised anomaly detection
+In this section, we use EnbPI to detect anomalies in traffic flow observations with missing
+data. In this setting, it is important to dynamically update decision thresholds (for example,
+upper and lower ends of prediction intervals) based on spatial and temporal information
+in the traffic sensor network because traffic data are highly correlated and non-stationary.
+Data description, setup, and comparison methods are described in Appendix B.6
+Results. Figure 3 compares all methods on a particular traffic sensor as we vary the size
+of training data. It is clear that EnbPI consistently obtains the highest F1 scores when
+RNN is used as the prediction model; F1 scores by EnbPI also are consistent across over
+training sample sizes. In addition, Table 4 shows the results with more sensors, from which
+EnbPI under NN or RNN still outperforms the other competitors by a large margin. In
+the future, we will consider multiple testing corrections to improve the performance [Bates
+et al., 2021, Chen and Kasiviswanathan, 2020, Ramdas et al., 2017], where the critical step
+is to examine the dependency of p-value as a correction step.
+
+
+
+
+                                                                                                                   21
+   Table 4: Traffic flow anomaly detection. F1 scores, Precision, and Recall by 12 methods on
+   selected sensors. Bold cells indicate the highest scores. EnbPI RNN or NN are better on
+   this task in terms of F1 scores.
+                                                                         F1 score
+               Sensor ID   EnbPI Ridge   EnbPI RF EnbPI NN EnbPI RNN    HBOS IForest     OCSVM    PCA    SVC    GBoosting   KNN    MLPClassifier
+                  282         0.13         0.14     0.88      0.88       0.16     0.02    0.51    0.09    0.0     0.04      0.07      0.51
+                  248         0.02         0.17     0.87      0.87       0.20     0.03    0.54    0.09    0.0     0.12      0.13      0.54
+                  151         0.02         0.14     0.81      0.80       0.11     0.04    0.39    0.08    0.0     0.08      0.12      0.39
+                  235         0.57         0.59     0.77      0.77       0.01     0.00    0.45    0.00    0.0     0.23      0.24      0.45
+
+                                                                        Precision
+               Sensor ID   EnbPI Ridge   EnbPI RF EnbPI NN EnbPI RNN    HBOS IForest     OCSVM    PCA    SVC    GBoosting   KNN    MLPClassifier
+                  282         0.46         0.59     0.96      0.96       0.58     0.71    0.34    0.75    0.0     0.04      0.07      0.34
+                  248         0.37         0.66     0.99      0.99       0.77     0.85    0.37    0.84    0.0     0.11      0.13      0.37
+                  151         0.24         0.61     0.96      0.96       0.30     0.47    0.24    0.46    0.0     0.08      0.11      0.24
+                  235         0.60         0.60     0.70      0.70       0.04     0.03    0.29    0.00    0.0     0.23      0.24      0.29
+
+                                                                          Recall
+               Sensor ID   EnbPI Ridge   EnbPI RF EnbPI NN EnbPI RNN    HBOS IForest     OCSVM    PCA    SVC    GBoosting   KNN    MLPClassifier
+                  282         0.07         0.08     0.81      0.81       0.10    0.01     1.0     0.05    0.0     0.04      0.07      1.0
+                  248         0.01         0.09     0.77      0.77       0.12    0.01     1.0     0.05    0.0     0.12      0.13      1.0
+                  151         0.01         0.08     0.69      0.68       0.07    0.02     1.0     0.04    0.0     0.09      0.12      1.0
+                  235         0.55         0.59     0.87      0.87       0.01    0.00     1.0     0.00    0.0     0.24      0.24      1.0
+
+
+
+   6               EnbPI under change points
+   In real applications, there can exist abrupt changes in the underlying data distribution,
+   which are called change points [Xie et al., 2021, Aminikhanghahi and Cook, 2017]. In this
+   section, we present numerical experiments to demonstrate the performance of EnbPI in
+   the presence of change points. We also discuss the potential adaption of EnbPI for change
+   point detection.
+       We conider a change point happening during the testing phase and follow the setup in
+   Section 5.1. Assume a change point at T ∗ = 0.6(T + T1 ), which alters the underlying model
+   f for the last 40% test data. As a result, the post-change responses Yt are very different
+   from the pre-change ones. We call the post-change model f1 . For the linear model, let
+   f1 (Xt ) = β1 Xt and β1 be entry-wise i.i.d. U [0, 5]. Recall the pre-change β is entry-wise
+
+                           EnbPI NN               EnbPI RNN            GBoosting                 IForest              MLPClassifier                PCA
+                           EnbPI RF               EnbPI Ridge          HBOS                      KNN                  OCSVM                        SVC
+            1.00
+            0.75
+
+Precision                                                  Recall
+            0.50                                                                                         F1
+            0.25
+            0.00
+                   0.3     0.4     0.5      0.6      0.7        0.3    0.4     0.5       0.6      0.7           0.3     0.4        0.5     0.6      0.7
+                            Train Fraction                              Train Fraction                                      Train Fraction
+   Figure 3: Traffic flow anomaly detection. Precision, Recall, and F1 scores versus different
+   amounts of training data (as percentages of total data) for different detectors. EnbPI under
+   RNN and NN outperforms the other methods.
+
+                                                                                                                                                    22
+                                           175
+ 200                                       150                                         100
+                                           125
+ 100                                       100                                         50
+                                            75
+       0     25     50    75 100 125 150         0     25     50    75   100 125 150         0     25     50    75 100 125 150
+                  Prediction Time Index                     Prediction Time Index                       Prediction Time Index
+            (a) Case 1, EnbPI                        (b) Case 2, EnbPI                            (c) Case 3, EnbPI
+                                           175
+ 200                                       150                                         100
+                                           125
+ 100                                       100                                         50
+                                            75
+       0     25     50    75 100 125 150         0     25     50    75   100 125 150         0     25     50    75 100 125 150
+                  Prediction Time Index                     Prediction Time Index                       Prediction Time Index
+           (d) Case 1, AdaptCI                       (e) Case 2, AdaptCI                         (f) Case 3, AdaptCI
+
+Figure 4: Simulation with a change point at index 50. We overlay prediction intervals in
+shaded blue on top of the actual data. In particular, we collect 60 post-change data points
+to refit A at index 110. We expect that collecting more post-change data to fit EnbPI will
+yet better estimation with tighter prediction intervals.
+
+i.i.d. U [0, 1]. For the high-dimensional sparse linear model, β1 has twice many non-zero
+components as that of β and the components are drawn from U [0, 1] independently. For
+the nonlinear model, we keep the same β but square the value f (Xt ). Choices of Xt and t
+remain the same in each case.
+     Recall T is the length of the pre-change training data; let T = 0.3(T + T1 ) = 600. To
+adapt to post-change dynamics as quickly as possible, we retrain the prediction algorithm
+on 0.1T data after the change point T ∗ . We assume the T ∗ is known to us (for instance, we
+can be detected and estimated using a change point detection algorithm [Xie et al., 2021]).
+To quickly detect change points that highly correlate with differences in interval widths, we
+only take the empirical quantile of the most recent T 0 , T 0 < T residuals and fix T 0 = 100.
+     Figure 4 plots prediction intervals on top of actual data for three cases. Firstly, except
+for data indexed between T ∗ and T ∗ + 0.1T (that is, between index 50 and 110 in the
+figure), most prediction data from both pre-change and post-change models are covered by
+EnbPI intervals. Secondly, prediction intervals built with pre-change models on post-change
+data tend to have much wider widths than others, reflecting a poor estimation of fˆ by the
+pre-change models. Nevertheless, such a dramatic increase in width can enable change
+point detection, as we elaborate on below. Thirdly, we observe that AdaptCI intervals are
+non-adaptive in this setting, as they fail to contain the true observations before retraining
+the predictive model. In Figure 6, we further compare EnbPI with the ETS model [Hyndman
+and Athanasopoulos, 2013], which shows similar performance as AdaptCI.
+     One can potentially adapt EnbPI to detect change points as follows. From Figure 4, we
+observe that the change point leads to unusually wide post-change prediction intervals. As a
+
+                                                                                                                                 23
+result, one should monitor both the evolution of interval widths and coverage performances.
+On the one hand, when only f changes but the distribution of errors remains the same, the
+interval tends to be wider, but the coverage is worse. On the other hand, if f remains the
+same but the distribution changes, intervals may also become wider. However, coverage
+may not be as greatly affected because estimators by EnbPI can approximate f well. Due
+to a sliding window over residuals, one can adapt to the post-change distribution. These
+ideas resonate with several other works: [Gibbs and Candès, 2021] construct prediction sets
+under distribution shifts sequentially and prove that when shifts are small, the marginal
+coverage is approximately maintained. As a result, when coverage is significantly less than
+1 − α, it can indicate an abrupt shift in distribution. Such ideas may also be used to test
+whether the test distribution lies in an f -divergence ball of the training distribution, given
+i.i.d. training and test data from the corresponding distribution [Cauchois et al., 2020];
+extensions to time series remain unexplored. On the other hand, a line of works [Vovk,
+2020, 2021, Vovk et al., 2021] builds martingales to detect change points which however,
+violates data exchangeability. The lower bound for the average-run-length is established for
+the Shiryaev–Roberts procedure using such martingale [Vovk, 2020, Proposition 4.1]. How
+to extend the ideas beyond testing exchangeable data remains an open question.
+
+
+7     Conclusions and Discussions
+In this paper, we present a predictive inference method for time series. Theoretically, we
+can show that the constructed intervals are asymptotically valid without assuming data
+exchangeability: relaxing this requirement is crucial for time series data, and the interval
+width converges to the oracle one. We also present a simple, computationally friendly,
+and interpretable algorithm called EnbPI, which is an efficient ensemble-based wrapper for
+many prediction algorithms, including deep neural networks. Empirically, it works well on
+time series from various applications, including network data and data with missing entries,
+and maintains validity when other predictive inference methods fail. Furthermore, one can
+use EnbPI for unsupervised sequential anomaly detection. While the theoretical guarantee
+of EnbPI requires consistent estimation of the true model, empirical results are valid even
+under potentially misspecified models, and coverage is almost always valid.
+    Future work includes several possible directions. We may adapt EnbPI for classification
+problems [Angelopoulos et al., 2020, Romano et al., 2020, Xu and Xie, 2022] by defining
+conformity scores other than residuals. It can also be interesting to further develop EnbPI for
+online change point detection and adaptation for time series, extending the idea of sequential
+testing of data exchangeability [Volkhonskiy et al., 2017] based on the Shiryaev-Roberts
+procedure.
+
+
+
+
+                                                                                            24
+Acknowledgments
+The work is partially supported by NSF CAREER CCF-1650913, CMMI-2015787, DMS-
+2134037, DMS-1938106, and DMS-1830210. The method presented in this paper has been
+implemented in open-source packages MAPIE [Taquet et al., 2022] and Fortuna [Detommaso
+et al., 2022].
+
+
+References
+Charu C Aggarwal. Outlier analysis. In Data mining, pages 237–263. Springer, 2015.
+Samaneh Aminikhanghahi and Diane J Cook. A survey of methods for time series change
+  point detection. Knowledge and information systems, 51(2):339–367, 2017.
+A. Angelopoulos, Stephen Bates, J. Malik, and Michael I. Jordan. Uncertainty sets for
+  image classifiers using conformal prediction. ArXiv, abs/2009.14193, 2020.
+Krishna B. Athreya and Sastry G. Pantula. A note on strong mixing of arma processes.
+ Statistics and Probability Letters, 4(4):187–190, 1986. ISSN 0167-7152. doi: https://doi.
+  org/10.1016/0167-7152(86)90064-7. URL https://www.sciencedirect.com/science/
+  article/pii/0167715286900647.
+Marta Bańbura and Michele Modugno. Maximum likelihood estimation of factor models
+ on datasets with arbitrary pattern of missing data. Journal of Applied Econometrics, 29
+ (1):133–160, 2014.
+Rina Foygel Barber, Emmanuel J Candes, Aaditya Ramdas, and Ryan J Tibshirani. The lim-
+  its of distribution-free conditional predictive inference. arXiv preprint arXiv:1903.04684,
+  2019a.
+Rina Foygel Barber, Emmanuel J. Candes, Aaditya Ramdas, and Ryan J. Tibshirani.
+  Predictive inference with the jackknife+, 2019b.
+Rina Foygel Barber, Emmanuel J Candes, Aaditya Ramdas, and Ryan J Tibshirani.
+  Conformal prediction beyond exchangeability. arXiv preprint arXiv:2202.13415, 2022.
+Stephen Bates, Emmanuel Candès, Lihua Lei, Yaniv Romano, and Matteo Sesia. Testing
+  for outliers with conformal p-values, 2021.
+Peter J Bickel, Ya’acov Ritov, Alexandre B Tsybakov, et al. Simultaneous analysis of lasso
+  and dantzig selector. The Annals of statistics, 37(4):1705–1732, 2009.
+Leo Breiman. Bagging predictors. Machine learning, 24(2):123–140, 1996.
+Leo Breiman. Random forests. Machine learning, 45(1):5–32, 2001.
+
+                                                                                          25
+Peter J Brockwell, Richard A Davis, and Stephen E Fienberg. Time series: theory and
+  methods: theory and methods. Springer Science & Business Media, 1991.
+
+Luis M Candanedo, Véronique Feldheim, and Dominique Deramaix. Data driven prediction
+  models of energy use of appliances in a low-energy house. Energy and buildings, 140:
+  81–97, 2017.
+
+George Casella and Roger L. Berger. Statistical inference. 1990.
+
+Maxime Cauchois, Suyash Gupta, Alnur Ali, and John C. Duchi. Robust validation:
+ Confident predictions even when distributions shift, 2020.
+
+Shiyun Chen and Shiva Kasiviswanathan. Contextual online false discovery rate control. In
+  Proceedings of the Twenty Third International Conference on Artificial Intelligence and
+  Statistics, volume 108 of Proceedings of Machine Learning Research, pages 952–961, Online,
+  26–28 Aug 2020. PMLR. URL http://proceedings.mlr.press/v108/chen20b.html.
+
+Xiaohong Chen and Halbert White. Improved rates and asymptotic normality for non-
+  parametric neural network estimators. IEEE Transactions on Information Theory, 45(2):
+  682–691, 1999.
+
+Victor Chernozhukov, Kaspar Wüthrich, and Zhu Yinchu. Exact and robust conformal
+  inference methods for predictive machine learning with dependent data. volume 75 of
+  Proceedings of Machine Learning Research, pages 732–749. PMLR, 06–09 Jul 2018. URL
+  http://proceedings.mlr.press/v75/chernozhukov18a.html.
+
+Victor Chernozhukov, Kaspar Wuthrich, and Yinchu Zhu. An exact and robust conformal in-
+  ference method for counterfactual and synthetic controls. arXiv preprint arXiv:1712.09089,
+  2020.
+
+Jaquelin Cochran, Paul Denholm, Bethany Speer, and Mackay Miller. Grid integration and
+  the carrying capacity of the us grid to incorporate variable renewable energy. Technical
+  report, National Renewable Energy Lab.(NREL), Golden, CO (United States), 2015.
+
+Gianluca Detommaso, Alberto Gasparin, Cedric Archambeau, Michele Donini, Matthias
+  Seeger, and Andrew Gordon Wilson. Awslabs/fortuna: A library for uncertainty quan-
+  tification., Dec 2022. URL https://github.com/awslabs/Fortuna.
+
+Francisco Dı́az-González, Andreas Sumper, Oriol Gomis-Bellmunt, and Roberto Villafáfila-
+  Robles. A review of energy storage technologies for wind power applications. Renewable
+  and sustainable energy reviews, 16(4):2154–2171, 2012.
+
+James Durbin and Siem Jan Koopman. Time series analysis by state space methods. Oxford
+  university press, 2012.
+
+
+                                                                                         26
+Aryeh Dvoretzky, J. Kiefer, and Jacob Wolfowitz. Asymptotic minimax character of the
+  sample distribution function and of the classical multinomial estimator. Annals of
+ Mathematical Statistics, 27:642–669, 1956.
+
+Harsha Gangammanavar, Suvrajeet Sen, and Victor M. Zavala. Stochastic optimization of
+  sub-hourly economic dispatch with wind energy. IEEE Transactions on Power Systems,
+ 31:949–959, 2016.
+
+Isaac Gibbs and Emmanuel J. Candès. Adaptive conformal inference under distribution
+  shift. 2021.
+
+Markus Goldstein and Andreas Dengel. Histogram-based outlier score (hbos): A fast
+ unsupervised anomaly detection algorithm. KI-2012: Poster and Demo Track, pages
+ 59–63, 2012.
+
+Yingzhong Gu and Le Xie. Stochastic look-ahead economic dispatch with variable generation
+  resources. IEEE Transactions on Power Systems, 32(1):17–29, 2017. doi: 10.1109/
+  TPWRS.2016.2520498.
+
+Chirag Gupta, Arun K Kuchibhotla, and Aaditya Ramdas. Nested conformal prediction
+ and quantile out-of-bag ensemble methods. Pattern Recognition, page 108496, 2021.
+
+C.H. Hesse. Rates of convergence for the empirical distribution function and the
+  empirical characteristic function of a broad class of linear processes. Journal of
+  Multivariate Analysis, 35(2):186 – 202, 1990. ISSN 0047-259X. doi: https://doi.
+  org/10.1016/0047-259X(90)90024-C. URL http://www.sciencedirect.com/science/
+  article/pii/0047259X9090024C.
+
+Rob Hyndman, Anne B Koehler, J Keith Ord, and Ralph D Snyder. Forecasting with
+ exponential smoothing: the state space approach. Springer Science & Business Media,
+ 2008.
+
+Rob J Hyndman and George Athanasopoulos. Forecasting: principles and practice. 2013.
+
+Christopher Kath and Florian Ziel. Conformal prediction interval estimation and applica-
+  tions to day-ahead and intraday power markets. International Journal of Forecasting,
+ 37(2):777–799, Apr 2021. ISSN 0169-2070. doi: 10.1016/j.ijforecast.2020.09.006. URL
+  http://dx.doi.org/10.1016/j.ijforecast.2020.09.006.
+
+Byol Kim, Chen Xu, and Rina Foygel Barber. Predictive inference is free with the
+  jackknife+-after-bootstrap, 2020.
+
+Michael R Kosorok. Introduction to empirical processes and semiparametric inference.
+ Springer Science & Business Media, 2007.
+
+
+                                                                                      27
+Jens-Peter Kreiss and E. Paparoditis. Bootstrap methods for dependent data: A review.
+  Journal of The Korean Statistical Society, 40:357–378, 2011.
+
+Stéphane Lathuilière, Pablo Mesejo, Xavier Alameda-Pineda, and Radu Horaud. A compre-
+  hensive analysis of deep regression. IEEE transactions on pattern analysis and machine
+  intelligence, 2019.
+
+Fei Tony Liu, Kai Ming Ting, and Zhi-Hua Zhou. Isolation-based anomaly detection. ACM
+  Transactions on Knowledge Discovery from Data (TKDD), 6(1):1–39, 2012.
+
+DD Lucas, C Yver Kwok, P Cameron-Smith, H Graven, D Bergmann, TP Guilderson,
+ R Weiss, and R Keeling. Designing optimal greenhouse gas observing networks that
+ consider performance and cost. Geoscientific Instrumentation, Methods and Data Systems,
+ 4(1):121, 2015.
+
+Spyros Makridakis, Evangelos Spiliotis, and Vassilios Assimakopoulos. M5 accuracy compe-
+  tition: Results, findings, and conclusions. International Journal of Forecasting, 38(4):
+  1346–1364, 2022.
+
+H. Papadopoulos, V. Vovk, and A. Gammerman. Conformal prediction with neural networks.
+  In 19th IEEE International Conference on Tools with Artificial Intelligence(ICTAI 2007),
+  volume 2, pages 388–395, 2007.
+
+Aaditya Ramdas, Fanny Yang, Martin J Wainwright, and Michael I Jordan. On-
+ line control of the false discovery rate with decaying memory. In Advances in
+ Neural Information Processing Systems, volume 30, pages 5650–5659. Curran As-
+ sociates, Inc., 2017. URL https://proceedings.neurips.cc/paper/2017/file/
+ 7f018eb7b301a66658931cb8a93fd6e8-Paper.pdf.
+
+Emmanuel Rio. Asymptotic theory of weakly dependent random processes, volume 80.
+ Springer, 2017.
+
+Yaniv Romano, Evan Patterson, and Emmanuel Candes. Conformalized quantile regression.
+  In Advances in Neural Information Processing Systems, pages 3543–3553, 2019.
+
+Yaniv Romano, M. Sesia, and E. Candès. Classification with valid and adaptive coverage.
+  arXiv: Methodology, 2020.
+
+Murray Rosenblatt. A central limit theorem and a strong mixing condition. Proceedings of
+ the National Academy of Sciences of the United States of America, 42 1:43–7, 1956.
+
+David Salinas, Valentin Flunkert, Jan Gasthaus, and Tim Januschowski. Deepar: Prob-
+ abilistic forecasting with autoregressive recurrent networks. International Journal of
+ Forecasting, 36(3):1181–1191, 2020.
+
+
+                                                                                       28
+Matteo Sesia and Yaniv Romano. Conformal histogram regression, 2021.
+
+Glenn Shafer and Vladimir Vovk. A tutorial on conformal prediction. Journal of Machine
+  Learning Research, 9(Mar):371–421, 2008.
+
+Vianney Taquet, Vincent Blot, Thomas Morzadec, Louis Lacombe, and Nicolas Brunel.
+  Mapie: an open-source library for distribution-free uncertainty quantification. arXiv
+  preprint arXiv:2207.12274, 2022.
+
+Ryan J Tibshirani, Rina Foygel Barber, Emmanuel Candes, and Aaditya Ramdas. Conformal
+  prediction under covariate shift. In Advances in Neural Information Processing Systems,
+  pages 2530–2540, 2019.
+
+Denis Volkhonskiy, Evgeny Burnaev, Ilia Nouretdinov, Alexander Gammerman, and
+ Vladimir Vovk. Inductive conformal martingales for change-point detection. In Conformal
+ and Probabilistic Prediction and Applications, pages 132–153. PMLR, 2017.
+
+Vladimir Vovk. Testing randomness online. Statistical Science, October 2020. ISSN
+  0883-4237. To appear.
+
+Vladimir Vovk. Conformal testing in a binary model situation, 2021.
+
+Vladimir Vovk, Ivan Petej, Ilia Nouretdinov, Ernst Ahlberg, Lars Carlsson, and Alex
+  Gammerman. Retrain or not retrain: Conformal test martingales for change-point
+  detection, 2021.
+
+Ruofeng Wen, Kari Torkkola, Balakrishnan Narayanaswamy, and Dhruv Madeka. A
+ multi-horizon quantile recurrent forecaster. arXiv preprint arXiv:1711.11053, 2017.
+
+David H Wolpert and William G Macready. No free lunch theorems for optimization. IEEE
+ transactions on evolutionary computation, 1(1):67–82, 1997.
+
+Liyan Xie, Shaofeng Zou, Yao Xie, and Venugopal V Veeravalli. Sequential (quickest)
+  change detection: Classical results and new directions. IEEE Journal on Selected Areas
+  in Information Theory, 2(2):494–514, 2021.
+
+Chen Xu and Yao Xie. Conformal anomaly detection on spatio-temporal observations with
+  missing data, 2021.
+
+Chen Xu and Yao Xie. Conformal prediction set for time-series, 2022. URL https:
+ //arxiv.org/abs/2206.07851.
+
+Margaux Zaffran, Aymeric Dieuleveut, Olivier F’eron, Yannig Goude, and Julie Josse.
+ Adaptive conformal predictions for time series. In ICML, 2022.
+
+
+
+                                                                                      29
+Gianluca Zeni, Matteo Fontana, and Simone Vantini. Conformal prediction: a unified
+  review of theory and new challenges. arXiv preprint arXiv:2005.07972, 2020.
+
+Shuyi Zhang, Bin Guo, Anlan Dong, Jing He, Ziping Xu, and Song Xi Chen. Cautionary tales
+  on air-quality improvement in beijing. Proceedings of the Royal Society A: Mathematical,
+  Physical and Engineering Sciences, 473(2205):20170457, 2017.
+
+
+
+A      Proofs
+For notation simplicity, we remove subscripts T + 1 for F̂ , F̃ , and F .
+Proof of Lemma 1. When the error process is i.i.d., the famous Dvoretzky–Kiefer–Wolfowitz
+inequality [Kosorok, 2007, p.210] implies that
+                                                                           2
+                                 P(sup |F̃ (x) − F (x)| > sT ) ≤ 2e−2T sT .
+                                    x
+            √
+                W (16T )
+Pick sT =        √
+                2 T p
+                         , where W (T ) is the Lambert W function that satisfies W (T )eW (T ) = T .
+p see that sT ≤ log(16T )/T . Thus, define the event AT on which supx |F̃ (x) − F (x)| ≤
+We
+ log(16T )/T , whereby we have
+                                                         p
+                           sup |F̃ (x) − F (x)| AT ≤       log(16T )/T
+                             x
+                                                             p
+                                               P (AT ) > 1 − log(16T )/T
+
+
+                                                                               PT
+Proof of Lemma 2. Note that Assumption 2 is equivalent to requiring                  i − i )2 ≤ δT2 .
+                                                                                i=1 (ˆ
+                                          2/3
+Thus, let S := {i ∈ [T ] : |ˆi − i | ≥ δT }. It follows that
+                                                T
+                                                X
+                                         4/3
+                                     |S|δT ≤      (ˆi − i )2 ≤ T δT2 ,
+                                                i=1
+                                                                                    2/3
+where the second inequality follows by Assumption 2. As a result, |S| ≤ T δT              and we see
+
+
+
+
+                                                                                                   30
+that for any x ∈ R,
+                                                 1X
+                        |F̂ (x) − F̃ (x)| ≤          |1{ˆi ≤ x} − 1{i ≤ x}|
+                                                 T i
+                    (i) 1              X
+                    ≤ (|S| +                 |1{ˆi ≤ x} − 1{i ≤ x}|)
+                     T
+                                        ∈S
+                                       i/
+                   (ii) 1              X                   2/3
+                    ≤       (|S| +           1{|i − x| ≤ δT })
+                        T
+                             ∈S
+                            i/
+                      2/3                  2/3
+                    ≤δT + P(|T +1 − x| ≤ δT )+
+                                 1X               2/3                    2/3
+                        sup |       1{|i − x| ≤ δT } − P(|T +1 − x| ≤ δT )|
+                            x    T
+                                       ∈S
+                                      i/
+                   (iii) 2/3            2/3            2/3              2/3
+                    = δT + [F (x + δT ) − F (x − δT )] + sup |[F̃ (x + δT )
+                                                              x
+                                   2/3             2/3           2/3
+                        − F̃ (x − δT )] − [F (x + δT ) − F (x − δT )]|
+                                    2/3
+                     ≤(LT +1 + 1)δT + 2 sup |F̃ (x) − F (x)|.                               (12)
+                                            x
+
+     We remark that (i) follows as we analyze i ∈ S and i ∈    / S separately, (ii) follows since
+|1{a ≤ x} − 1{b ≤ x}| ≤ 1{|b − x| ≤ |a − b|} for any constant a, b and univariate x and
+               2/3
+                       / S, and (iii) follows since we assume {t }Tt=1 have the common CDF F .
+|ˆi − i | ≤ δT for i ∈
+
+
+Proof of Theorem 1. Recall the following definitions:
+   • p̂T +1 := T1 i 1{ˆi ≤ ˆT +1 }, which is the empirical p-value defined using residuals.
+                 P
+
+   • F̃ (x) := T1 Ti=1 1{i ≤ x} as the empirical CDF of F . Equivalently define F̂ (x) using
+                 P
+      prediction residuals ˆi .
+As a consequence, for any β ∈ [0, α], the following are equivalent:
+
+                                             bα |XT +1 = xT +1 ) − (1 − α)|
+                                  |P(YT +1 ∈ C T +1
+                                (i)
+                                =|P(β ≤ p̂T +1 ≤ 1 − α + β) − (1 − α)|
+                                =|P(β ≤ F̂ (ˆT +1 ) ≤ 1 − α + β)−
+                                 P(β ≤ F (T +1 ) ≤ 1 − α + β)|,                            (13)
+
+where (i) follows by the equivalence we pointed out at the beginning of Section 3.1.
+
+
+
+
+                                                                                              31
+   We can rewrite the right hand side of (13) as follows:
+
+                     |P(β ≤ F̂ (ˆT +1 ) ≤ 1 − α + β)−
+                     P(β ≤ F (T +1 ) ≤ 1 − α + β)|
+                  ≤E|1{β ≤ F̂ (ˆT +1 ) ≤ 1 − α + β}−
+                   1{β ≤ F (T +1 ) ≤ 1 − α + β}|
+                  (i)
+                  ≤E(|1{β ≤ F̂ (ˆT +1 )} − 1{β ≤ F (T +1 )}|+
+                     |1{F̂ (ˆT +1 ) ≤ 1 − α + β} − 1{F (T +1 ) ≤ 1 − α + β}|)
+                  (ii)
+                  ≤ P(|F (T +1 ) − β| ≤ |F̂ (ˆT +1 ) − F (T +1 )|)+
+                     P(|F (T +1 ) − (1 − α + β)| ≤ |F̂ (ˆT +1 ) − F (T +1 )|),
+
+where inequality (i) follows since for any constants a, b and univariates x, y, |1{a ≤ x ≤
+b} − 1{a ≤ y ≤ b}| ≤ |1{a ≤ x} − 1{a ≤ y}| + |1{x ≤ b} − 1{y ≤ b}|. Moreover, inequality
+(ii) follows since |1{a ≤ x} − 1{b ≤ x}| ≤ 1{|b − x| ≤ |a − b|} for any constant a, b and
+univariate x and E[1{A}] = P(A).
+     Recall in Lemma 1, we defined AT as the event on which
+                                                          p
+                           sup |F̃ (x) − F (x)| AT ≤       log(16T )/T ,
+                             x
+                     p
+where P(AT ) > 1 − log(16T )/T . Let AC
+                                      T denote the complement of the event AT . For
+any γ ∈ [0, 1], we have that
+
+                     P(|F (T +1 ) − γ| ≤ |F̂ (ˆT +1 ) − F (T +1 )|)
+                  ≤P(|F (T +1 ) − γ| ≤ |F̂ (ˆT +1 ) − F (T +1 )| ∩ AT ) + P(AC
+                                                                                T)
+
+                  ≤P(|F (T +1 ) − γ| ≤ |F̂ (ˆT +1 ) − F (T +1 )| AT ) + P(AC
+                                                                              T)
+
+                  ≤P(|F (T +1 ) − γ| ≤ |F̂ (ˆT +1 ) − F (ˆT +1 )|+
+                                                     p
+                   |F (ˆT +1 ) − F (T +1 )| AT ) + log(16T )/T .
+
+
+
+
+                                                                                       32
+To bound the conditional probability above, we note that conditioning on the event AT ,
+
+                           |F̂ (ˆT +1 ) − F (ˆT +1 )| + |F (ˆT +1 ) − F (T +1 )| AT
+
+                     ≤ sup |F̂ (x) − F (x)| AT + LT +1 |ˆT +1 − T +1 |
+                             x
+
+                     ≤ sup |F̂ (x) − F̃ (x)| AT + sup |F̃ (x) − F (x)| AT +
+                             x                              x
+
+                       LT +1 |ˆT +1 − T +1 |
+                     (i)
+                                          2/3
+                     ≤(LT +1 + 1)δT + 3 sup |F̃ (x) − F (x)| AT + LT +1 δT
+                                         x
+                                                     2/3
+                       p
+                     ≤3 log(16T )/T + (LT +1 + 1)(δT + δT ),
+
+
+where (i) holds by Lemma 2 and Assumption 2.
+   Therefore, because F (T +1 ) ∼ Unif[0, 1], we have
+
+                                  P(|F (T +1 ) − γ| ≤ |F̂ (ˆT +1 ) − F (ˆT +1 )|+
+
+                                  |F (ˆT +1 ) − F (T +1 )| AT )
+                                                                  2/3
+                                   p
+                                 ≤6 log(16T )/T + 2(LT +1 + 1)(δT + δT ).
+
+As a result, by letting γ = β and 1 − α + β, we have
+                                        bα |XT +1 = xT +1 ) − (1 − α)|
+                             |P(YT +1 ∈ C T +1
+                                                             2/3
+                               p
+                            ≤12 log(16T )/T + 4(LT +1 + 1)(δT + δT ),
+
+which is the desired result.
+   Based on the proof of Theorem 1, note that if for certain sequences {sT }T ≥1 and a
+function g such that sT = g(sT ), we have the condition
+
+                                   P(sup |F̃ (x) − F (x)| > sT ) ≤ g(sT ),
+                                      x
+
+then the following bound always hold under Assumption 2:
+
+                                   |P(β ≤ p̂T +1 ≤ 1 − α + β) − (1 − α)|
+                                                             2/3
+                                 ≤12sT + 4(LT +1 + 1)(δT + δT ).
+
+As a result, proofs of Collaries to Theorem 1 reduce to finding sT .
+
+                                                                                          33
+Assumption 3 (Errors follow Linear Processes). Assume {t }Tt=1     +1
+                                                                       satisfy t = ∞
+                                                                                   P
+                                                                                    j=1 δj zt−j
+for each i, under which zi−j are i.i.d. with finite P
+                                                    first absolute moment and δj are bounded
+in absolute value by some function g such that ∞       i=1 ig(i) converges. Moreover, assume
+{t }Tt=1
+       +1
+          are distributed according to the common CDF F , which is Lipschitz continuous
+with constant LT +1 > 0.
+
+Proof of Corollary√1. Following these assumptions, [Hesse, 1990] proves that supx |F̃ (x) −
+F (x)| = O(log T / T ) [Hesse, √ 1990, see Theorem 3]. This guarantee yields the desired
+result by letting sT ∈ O(log T / T ).
+                                         √
+Proof of Corollary 2. Define vT (x) := T (F̃ (x) − F (x)). Then, Proposition 7.1 in [Rio,
+2017] shows that
+                                                  T
+                                     2
+                                                 X            log T 2
+                       E(sup |vT (x)| ) ≤ (1 + 4     αk )(3 +         ),
+                          x
+                                                 k=0
+                                                              2 log 2
+
+wherePαk is the k th mixing coefficient. Since we assumed that the coefficients are summable
+with k≥0 αk < M (for example, αk = O(n−s ), s > 1), Markov Inequality shows that
+
+                                                                 E(supx |vT (x)|2 /T )
+                    P(sup |F̃ (x) − F (x)| ≥ sT ) ≤
+                        z                                                s2T
+                                                                 1 + 4M        log T 2
+                                                               ≤      2
+                                                                         (3 +          ).
+                                                                   T sT       2 log 2
+
+Thus, we let
+                                                                1/3                         1/3
+                                                                               M (log T )2
+                                                                          
+                                1 + 4M      log T 2
+                   sT :=               (3 +         )                  ≈
+                                   T        2 log 2                                2T
+and see that
+                                                                                   1/3 !
+                                                                     M (log T )2
+                                                                 
+                            P sup |F̃ (x) − F (x)| ≤
+                                  x                                      2T
+                                                    1/3
+                                      M (log T )2
+                                 
+                       ≥1 −                                .
+                                          2T
+
+  Hence, the event AT is chosen so that conditioning on AT , supx |F̃ (x) − F (x)| ≤
+(M/2)1/3 (log T )2/3 /T 1/3 .
+Proof of Theorem 3. The proof has two parts. Firstly, we explicitly define the inverse
+empirical CDF F̂ −1 so that it is Lipschitz continuous with an explicit data-driven Lipschitz
+continuity constant. Secondly, we break ∆(T ) into a sum of multiple terms and bound each
+term.
+
+
+
+                                                                                                    34
+(1) Define F̂ −1 . Recall that
+                                            T
+                                    1X
+                          F̂ (x) :=       1{ˆi ≤ x}, x ∈ R
+                                    T i=1
+                          F̂ −1 (α) := α quantile of {ˆi }Ti=1 , α ∈ [0, 1]
+
+which are the empirical CDF based on LOO residuals and the inverse empirical CDF.
+Without loss of generality, assume the residuals are sorted so that if i < j, ˆi ≤ ˆj . Consider
+the discrete version F̂d−1 :
+                                                             X
+                F̂d−1 (α) := min{i∗ ∈ {1, . . . , T } : T −1   1{ˆi∗ ≥ ˆi } ≥ α}.
+                                                                   i
+
+
+Then, we define F̂ −1 as follows:
+
+                   F̂ −1 (α) := F̂d−1 (α− ) + (F̂d−1 (α+ ) − F̂d−1 (α− ))(α − α− ),          (14)
+
+where α− := max{1/T, α − α mod T −1 }, α+ := α− + T −1 . Intuitively, α− (resp. α+ ) is the
+largest (resp. smallest) integer multiple of T −1 that is smaller (resp. larger) than α. In this
+way, we interpolate F̂ −1 (α) so that it is continuous between each increment of size T −1 .
+    In addition, define KT0 +1 := max ˆj+1 − ˆj , which is the largest difference between
+                                      j=1,...,T −1
+two consecutive LOO residuals. Based on the definition in (14), it is easy to see that for
+any α1 , α2 ∈ [0, 1],
+                       |F̂ −1 (α1 ) − F̂ −1 (α2 )| ≤ KT0 +1 |α1 − α2 |.              (15)
+
+
+(2) Bound ∆(T ). Call β̂line the estimator of β̂ after line-search with m grids. By the form
+of CTα+1 and C
+             bα , we have
+               T +1
+
+
+                     ∆(T ) ≤|f (XT +1 ) − fˆ−(T +1) (XT +1 )|+
+                                                             (i)
+                                   z                      }|                    {
+                                 2(|F̂ −1 (1 − α + β̂line ) − F̂ −1 (1 − α + β̂)| +
+                                                     (ii)
+                                 z                }|              {
+                                    −1               −1
+                                 |F̂ (1 − α + β̂) − F (1 − α + β̂)| +
+                                                     (iii)
+                                 z               }|              {
+                                   −1               −1         ∗
+                                 |F (1 − α + β̂) − F (1 − α + β )|),
+
+where (i) can be bounded under accurate binning with the Lipschitz continuity condition
+on the inverse empirical CDF F̂ −1 , (ii) is a consequence of Theorem 1, and (iii) applies the
+bound of (ii) twice.
+
+                                                                                               35
+    Proof of (i). Partition [0, α] into m + 1 equally spaced values 0, α/m, 2α/m, . . . , α. It is
+clear that the estimator β̂line upon we iterating through these m + 1 values satisfies
+                                           |β̂line − β̂| ≤ α/2m.
+Therefore, the Lipschitz continuity of F̂ −1 as in (15) guarantees that
+                    |F̂ −1 (1 − α + β̂line ) − F̂ −1 (1 − α + β̂)| ≤ αKT0 +1 /2m.
+
+   Proof of (ii). We provide the rate of convergence of sup |F −1 (α) − F̂ −1 (α)| to zero.
+                                                                        α∈[0,1]
+                                  −1
+For any y ∈ [0, 1], let x := F̂        (y). We now have
+                        |F −1 (y) − F̂ −1 (y)| = |F −1 (F̂ (x)) − x|
+                                                 = |F −1 (F̂ (x)) − F −1 (F (x))|
+                                                 (a)
+                                                  ≤ KT +1 |F̂ (x) − F (x)|
+                                                 ≤ KT +1 sup |F̂ (x0 ) − F (x0 )|,
+                                                           x0 ∈R
+
+where (a) holds by the Lipschitz continuity
+                                     p          assumption of F −1 . Now, Theorem 1 implies
+that with probability at least 1 − log(16T )/T ,
+                                                                 2/3
+                                              p
+                  sup |F̂ (x0 ) − F (x0 )| ≤ 3 log(16T )/T + C(δT + δT ),
+                    x0 ∈R
+
+whereby we thus have
+                               sup |F −1 (α) − F̂ −1 (α)|
+                              α∈[0,1]
+                                                       2/3
+                                     p
+                            ≤KT +1 (3 log(16T )/T + C(δT + δT )).
+
+    Proof of (iii). Intuitively, we know that β̂ converges to β ∗ , as a consequence of F̂ −1
+converging to F −1 . We can indeed bound β̂ − β ∗ by upper and lower bounding |β̂ − β ∗ | as
+follows:
+                            β̂ − β ∗ ≤ |β̂ − β ∗ |
+                                       = F̂ −1 (F̂ (|β̂ − β ∗ |)) − F̂ −1 (F̂ (0))
+                                            0
+                                       ≤ KT +1 (F̂ (|β̂ − β ∗ |) − F̂ (0)).
+
+The last inequality follows from Eq. (15). The quantity (F̂ (|β̂ − β ∗ |) − F̂ (0)) is non-negative
+since F̂ is non-decreasing. Similarly,
+                               F (β̂ − β ∗ ) − F (0) ≤ LT +1 (β̂ − β ∗ )
+                                                         ≤ LT +1 |β̂ − β ∗ |,
+
+                                                                                                36
+which
+   p is also non-negative by the property of CDF. As a result, with probability at least
+1 − log(16T )/T ,
+
+                                       0
+                 |β̂ − β ∗ | ≤|1/KT +1 − LT +1 |−1 ·
+                                                                                   
+                                             ∗               ∗
+                                 |F̂ (|β̂ − β |) − F (|β̂ − β |)| + |F̂ (0) − F (0)|
+                                                            0
+                           ≤ 2 sup|F̂ (x) − F (x)|/|1/KT +1 − LT +1 |
+                                   x∈R
+                                       0
+                           ≤|1/KT +1 − LT +1 |−1 ·
+                              p                          
+                                                   2/3
+                              6 log(16T )/T + 2C(δT + δT ) .
+
+Thus, by Lipschitz continuity of F −1 ,
+                          |F −1 (1 − α + β̂) − F −1 (1 − α + β ∗ )|
+                                   0
+                        ≤|1/KT +1 − LT +1 |−1 ·
+                                                                  
+                                                           2/3
+                                  p
+                            6KT +1 log(16T )/T + 2CKT +1 (δT + δT ) .
+
+    Putting (i), (ii), and (iii) together, we have
+                         ∆(T ) ≤δT + αKT0 +1 /m + 2(KT +1 + MT +1 )·
+                                 p                            
+                                                       2/3
+                                  3 log(16T )/T + C(δT + δT ) ,
+                               0
+where MT +1 := 2KT +1 /|1/KT +1 − LT +1 |.
+
+
+B      More experiments
+We provide a quick overview of how this section is organized: In Appendix B.1, we present
+detailed setup and additional results for simulated examples. In Appendix B.2, we describe
+the renewable energy time series, the competing methods to EnbPI, and the regression
+models A. In Appendix B.3, we show additional results on the Atlanta solar radiation data
+as mentioned in the main text. In Appendix B.4, we test EnbPI on the network California
+solar data and Austin wind data, similar to those on Atlanta solar data from the main text.
+We first show the interval validity of EnbPI and then apply EnbPI on the more challenging
+multi-step ahead inference task when missing data are present. In Appendix B.5, we apply
+EnbPI on other datasets, such as greenhouse gas emission data, air pollution data, and
+appliances energy data. We observe that EnbPI rarely loses marginal validity and can
+produce shorter intervals than competing methods. We do not study multi-step ahead
+inference on these datasets as we primarily aim to demonstrate the applicability of EnbPI.
+In Appendix B.6, we describe details of performing unsupervised anomaly detection using
+EnbPI.
+
+                                                                                        37
+                                     1.00                                     1.00                                    1.00                                          1.05
+3.25                                                                                                                         3.0
+                                     0.95 10.0                                0.95 3.0                                0.95                                          1.00
+3.00
+                                     0.90 7.5                                 0.90 2.5                                0.90 2.5                                      0.95
+2.75
+2.50                                 0.85 5.0                                 0.85 2.0                                0.85 2.0                                      0.90
+2.25                                       2.5                                      1.5                                     1.5
+       0.2       0.4       0.6    0.8 0.80     0.2        0.4       0.6    0.8 0.80     0.2       0.4       0.6    0.8 0.80     0.2        0.4        0.6        0.8 0.85
+                % of Total Data                          % of Total Data                         % of Total Data                          % of Total Data
+              (a) Case 1                               (b) Case 2                                (c) Case 3                              (d) Case 3
+                                                                                                                             4
+ 55                                                                                   4
+                                              5                                                                              3
+ 50                                                                                   2
+                                              0                                                                              2
+
+ 45                                                                                                                          1
+                                              5                                       0
+         0               50           100         0               50           100        0              50          100           0     25      50         75    100
+             Prediction Time Index                    Prediction Time Index                   Prediction Time Index                    Prediction Time Index
+                (e) Case 1                              (f) Case 2                               (g) Case 3                             (h) Case 3
+
+Figure 5: Simulation results at 95% target coverage. The first three columns show marginal
+results and the last column shows conditional results for case 3 on the first test point (that
+is, t = T + 1), by repeatedly sampling the error T +1 ). Meanwhile, the first row shows
+coverage in red and width in blue over different training sample sizes. The red (resp. blue)
+dashed-dotted line indicates the target coverage (resp. oracle interval width). The second
+row overlays prediction intervals in shaded blue on top of actual response in orange and
+point estimates in blue.
+
+
+B.1             Simulated examples
+Setup. We examine the performance of EnbPI on different simulated experiments. In
+particular, for the model Yt = f (Xt ) + t in (1), we consider three cases with increasing
+levels of model sophistication. We simulate 2000 data and use the first 1000 points to
+train the LOO ensemble predictors and the remaining 1000 points for testing (that is,
+T = T1 = 1000):
+ (1) Let f (Xt ) = β T Xt be a linear model, where the entries of β and Xt are i.i.d. uniform
+     distributed U [0, 1]; error t are i.i.d. following the skewed normal distribution with
+     mean µ, variance σ 2 , and skewness parameter a; here let a = 4, µ = 0, σ 2 = 0.1.
+ (2) Let f (Xt ) = β T Xt , where 80% of β entries are zeros and observed entries are sampled
+     i.i.d. from U [0, 1]. We choose d = 1.6T so f is a high-dimensional sparse linear
+     model; this model choice is inspired by Example 3.1 when discussing Assumption
+     2. Meanwhile, let Xt = Yt−w be the past w observations, so Yt−w = [Yt−1 , . . . , Yt−w ];
+     here w = 100 and we standardize Xt to have unit `2 norm. The errors are drawn
+     from the same skewed normal distribution as above in (1).
+ (3) Let f (Xt ) = (|β T Xt | + (β T Xt )2 + |β T Xt |3 )1/4 , where β vector is generated the same
+     as (2). Meanwhile, let Xt = Yt−w and sample the errors t from an AR(1) process, so
+
+
+                                                                                                                                                                     38
+                                           175
+ 200                                       150                                        100
+                                           125
+ 100                                       100                                        50
+                                            75
+       0     25     50    75 100 125 150         0    25     50    75   100 125 150         0   25     50    75 100 125 150
+                  Prediction Time Index                    Prediction Time Index                     Prediction Time Index
+            (a) Case 1, EnbPI                        (b) Case 2, EnbPI                          (c) Case 3, EnbPI
+ 250                                       175
+ 200                                       150                                        100
+ 150                                       125
+ 100                                       100                                        50
+  50                                        75
+       0     25     50    75 100 125 150         0    25     50    75   100 125 150         0   25     50    75 100 125 150
+                  Prediction Time Index                    Prediction Time Index                     Prediction Time Index
+             (d) Case 1, ETS                          (e) Case 2, ETS                           (f) Case 3, ETS
+
+Figure 6: Simulation with changepoints between EnbPI and ETS model. Same setup as
+Figure 4.
+
+           that t = ρt−1 + et and et are i.i.d. normal random variables with zero mean and unit
+           variance with ρ = 0.6. It is known that the AR(1) process is strongly mixing, as long
+           as et are i.i.d. with a nontrivial absolutely continuous component and E[(log |et |)+ ] is
+           finite [Athreya and Pantula, 1986].
+Hyperparameters to EnbPI are as follows: α = 0.05, the aggregation φ takes the mean of
+the ensemble predictors, B = 50, s = 1. Thus, we build intervals aiming to cover 95% of
+test observations using 50 bagging estimators and slide the prediction interval every time
+we make a prediction. We consider prediction algorithms A as linear regression without
+intercept from sklearn, lasso with α = 2 from sklearn, and a neural network, respectively.
+The neural network is described in Appendix B.2. When doing the experiments, we did
+not optimize the performance of different prediction algorithms to demonstrate that EnbPI
+works well even under default settings.
+Results. Figure 5 examines the marginal and conditional validity, as well as the interval
+width. The marginal coverage is obtained by averaging over T1 test data and the conditional
+coverage is obtained by averaging over K randomly sampled errors {T +1,i }K      i=1 by fixing
+f (xT +1 ). Here K = 100. In terms of marginal coverage, despite slight under/over-coverage,
+we see in the first three columns that the marginal coverage in red is almost always valid at
+1 − α regardless of the sample size T , indicating EnbPI is suitable for small-sample problems.
+Meanwhile, interval width converges to the oracle width as the training sample size grows,
+validating Theorem 3. In addition, we see that prediction intervals follow data dynamics
+and cover the unknown Yt with high probability. In terms of conditional coverage, the last
+column illustrates that EnbPI always attains the conditional validity regardless of sample
+sizes.
+
+                                                                                                                              39
+B.2     Setup detail for real-data experiments
+A. Competing methods to EnbPI. Recall we compete EnbPI against ARIMA(10,1,10), Ex-
+ponential Smoothing, Dynamic Factor model, split conformal predictor, weighted split con-
+formal predictor, quantile out-of-bag method, adaptive conformal inference, and jackknife+-
+after-bootstrap:
+
+   • The first three time series methods are implemented in Python’s statsmodel package.
+     The ARIMA model is used under default setting and the other two other methods
+     include damped trend components and seasonal cycles of 24, because most data are
+     updated hourly with daily periodicity.
+   • The WeightedICP [Tibshirani et al., 2019] is proven to work when the test distribution
+     shifts in proportion to the training distribution; it generalizes to more complex settings
+     than ICP. We use logistic regression to estimate the weights for WeightedICP.
+   • The QOOB [Gupta et al., 2021] utilizes a very similar leave-one-out ensemble learning
+     idea, where the main difference lies in computing bootstrap estimators as quantile
+     estimators and consequently adopting a quantile-based non-conformity score. The
+     authors empirically demonstrate that QOOB can yield shorter intervals than other
+     methods. As suggested by the authors, we build quantile random forests as bootstrap
+     estimators, with identical hyper-parameters as (non-quantile) RFs used by EnbPI.
+   • The AdaptCI [Gibbs and Candès, 2021] adaptively updates the significant level α
+     during inference, by examining whether each prediction interval covers the actual
+     response values. It builds on top of conformal quantile regression [Romano et al.,
+     2019] whereby the intervals are often empirically shorter and maintain validity on
+     non-exchangeable observations. We use either the quantile linear model or the quantile
+     RF as the predictor and update the significance level according to the simple online
+     update (ibid., Eq (2)).
+
+B. Regression models A. Below are the parameter specifications for the four baseline models
+A, unless otherwise specified:
+
+   • For ridge, the penalty parameter α is chosen with generalized cross-validation over
+     ten uniformly spaced grid points between 0.0001 to 10 (the package default α is 1).
+     Higher α means more robust regularization.
+   • For RF, we build ten trees under the mean-squared-error (MSE) criterion. We only
+     allow each tree to split features rather than samples so that combining RFs trained
+     on subsets of the training data is reasonable for EnbPI.
+   • For NN, we add three hidden layers, each having 100 hidden nodes, and apply 20%
+     dropout after the second hidden layer to avoid overfitting. We use the Relu activation
+     between hidden layers. The optimizer is Adam with a fixed learning rate of 5 × 10−4
+     under the MSE loss. Batch size equals 10% of training data, and maximum epoch
+
+                                                                                            40
+           equals 250. We also use early stopping if there is no improvement in training error
+           after ten epochs.
+    • For RNN, we add two hidden LSTM layers, followed by a dense output layer. Each
+      LSTM layer has 100 hidden neurons, so the output from the first hidden layer is
+      fed into the second hidden layer. We use the Tanh activation function for these two
+      hidden layers and the Relu activation function for the dense layer. The optimizer is
+      Adam with a fixed learning rate of 5 × 10−4 under the MSE loss. Batch size equals
+      10% of training data, and maximum epoch equals 10. We use early stopping if there
+      is no improvement in training error after ten epochs.
+
+B.3          Additional results on solar—Atlanta
+The solar dataset is available at https://nsrdb.nrel.gov/. The 9 cities we chose are
+Fremont, Milpitas, Mountain View, North San Jose, Palo Alto, Redwood City, San Mateo,
+Santa Clara, Sunnyvale. The wind dataset is publically available at https://github.com/
+Duvey314/austin-green-energy-predictor.
+A. Multi-step ahead inference when s = ∞. We train on the same set of data as in Figure 2.
+Since change points are present in the data (that is, data near summer have very different
+radiation levels from the training data), we expect EnbPI to perform less well if not slide.
+Indeed, Figure 7 shows poor conditional coverage, even if we train on the same set of data
+and further assume no missing data exist.
+B. Conditional coverage of QOOB and Adaptive-CI. Figure 8 shows the detailed hourly
+conditional coverage by QOOB and AdaptCI, where a summary was presented in Table 5.
+
+
+B.4          Results on solar—California and wind—Austin
+Network prediction. Note that the whole California data constitute a network. We can use
+EnbPI in this network prediction setting as follows. Consider a network with K nodes, so
+
+Table 5: Conditional coverage (abbreviated as Cov.) and width by EnbPI, QOOB, and
+Adaptive-CI, where the setup is identical to Figure 2. Comparing to EnbPI, these methods
+produce prediction intervals that either fail to maintain coverage validity or remain slightly
+wider. Figure 8 shows detailed results for QOOB and AdaptCI as those in Figure 2 for
+EnbPI.
+
+ At Hour            9:00           10:00           16:00           17:00           11:00           12:00           13:00           14:00
+ Result     Cov.       Width    Cov.   Width    Cov.   Width    Cov.   Width    Cov.   Width    Cov.   Width    Cov.   Width    Cov.   Width
+ EnbPI       0.87      254.08   0.87   253.47   0.90   253.82   0.89   253.92   0.87   388.29   0.88   387.55   0.89   387.98   0.85   387.75
+ QOOB        0.78      184.85   0.79   183.86   0.82   183.44   0.75   184.20   0.74   325.14   0.75   324.82   0.73   324.41   0.74   325.57
+AdaptCI      0.88      250.00   0.89   252.11   0.92   250.27   0.88   250.16   0.92   410.49   0.92   407.69   0.88   407.51   0.90   409.91
+
+
+
+
+                                                                                                                                           41
+                    At 10:00                    At 11:00                    At 12:00                    At 13:00                    At 14:00
+                 Coverage is 0.87            Coverage is 0.71            Coverage is 0.67            Coverage is 0.79            Coverage is 0.96
+        250
+        0
+         April     May    June       April     May    June       April     May    June       April     May    June       April     May    June
+  Covered
+Uncovered
+         April      August December April       August December April       August December April       August December April       August December
+
+
+Figure 7: Solar power prediction in Atlanta when no feedback is available. The top figure at
+each hour visualizes observations in black, estimates in red, and prediction intervals in blue
+for three months (April-June). The bottom figure at each hour plots whether the prediction
+interval correctly covers the response during test (April—December). We observe clear
+decrease in conditional coverage even if no missing data is present and the same prediction
+models are used. This situation illustrates the necessity to updated past residuals based on
+new feedback.
+
+
+that the observations at node k ∈ [K] are given by {(ytk , xkt )}t≥1 . To incorporate network
+temporal information, we define a new feature x̃kt at node k and time t as a collection of
+features from neighbors of k at time t and earlier. By adopting this setup, we can perform
+nodal prediction (from history and neighboring information) by applying our conformal
+prediction scheme; theoretical guarantees equally hold at each node as long as we use EnbPI
+for each node.
+    In general, EnbPI on California solar data and on Austin wind data generates results
+very similar to those on Atlanta solar data. Therefore, we do not provide separate analyses
+of individual figures but highlight the overall pattern and differences in each part below.
+A. Marginal validity and the interval width
+On California solar network data. In general, results on different Californian cities look
+very similar to each other so that we only provide plots on the Palo Alto solar data.
+   We summarize the performance of traditional time series methods and CP methods on
+time series from all Californian cities. Details are in Table 6 for the ridge regression. We
+only show results for ridge because results under different A for CP methods are similar.
+We can see from the table that EnbPI performs similarly as the time series methods. On
+the other hand, the Winkler score2 by EnbPI using ridge regression can sometimes be the
+    2
+    Let the upper and lower end of the prediction interval at time t under level α be Lt (α), Ut (α), so
+width is Wt (α) = Ut (α) − Lt (α). Then, Winkler score (WS) is:
+                                   
+                                   Wt (α),
+                                                              if Lt (α) ≤ yt ≤ Ut (α)
+                         (W S)t = Wt (α) + 2 · Lt (α)−y
+                                                      α
+                                                           t
+                                                             , if yt < Lt (α)
+                                                 yt −Ut (α)
+                                     Wt (α) + 2 ·            , if yt > Ut (α)
+                                   
+                                                      α
+
+It was used in [Kath and Ziel, 2021] as a quantitative measure of both coverage and width.
+
+
+                                                                                                                                                    42
+               At 9:00                          At 10:00                        At 16:00                       At 17:00
+250
+  0
+   April     May         June         April   May       June          April   May       June          April   May       June
+ 0.8
+ 0.6
+       May    August December May              August December May             August December May             August December
+               At 11:00                         At 12:00                        At 13:00                        At 14:00
+500
+
+  0
+   April     May         June         April   May       June          April   May       June          April   May       June
+0.75
+0.50
+       May    August       Decem
+                                   ber May     August      Decem
+                                                                   ber May     August      Decem
+                                                                                                   ber May     August     Decem
+                                                                                                                                  ber
+
+                         (a) QOOB: Prediction intervals and sliding coverage by hour
+               At 9:00                  At 10:00                 At 16:00                                      At 17:00
+250
+  0
+   April     May       June           April   May       June          April   May       June          April   May       June
+1.0
+0.8
+      May     August    Decem
+                              ber May          August    Decem
+                                                               ber May         August    Decem
+                                                                                               ber May         August    Decem
+                                                                                                                               ber
+500            At 11:00                         At 12:00                        At 13:00                        At 14:00
+
+
+  0
+   April     May       June           April   May       June          April   May       June          April   May       June
+1.0
+0.8
+      May     August       Decem
+                                ber May        August      Decem
+                                                                ber May        August      Decem
+                                                                                                ber May        August     Decem
+                                                                                                                                  ber
+
+                       (b) AdaptCI: Prediction intervals and sliding coverage by hour
+
+Figure 8: Solar power prediction in Atlanta, when QOOB or AdaptCI looks ahead beyond
+one step. A summary of results was presented in Table 5. Figures on the top of each four
+rows visualize observations in black, estimates in red, and prediction intervals in blue for
+three months (April-June). Average coverage and width values are described in the caption.
+Figures on the bottom of each four rows visualize coverage under a sliding window of 30
+days.
+
+
+
+
+                                                                                                                               43
+smallest so that it reaches a better balance between validity and efficiency. Meanwhile, ICP
+and WeightedICP can greatly lose coverage especially with multivariate Xt so that they
+should not be used for dynamic time series data.
+   On the other hand, because EnbPI performs very similarly on the wind data, we will
+only apply it on the more challenging multi-step ahead inference with missing data.
+B. Missing data, conditional coverage
+On California solar network data: Figure 9(a) shows conditional coverage of EnbPI under
+RF at hours near noon, with the presence of missing data. The results look very similar to
+earlier ones, where conditional coverage by EnbPI is still validly attained.
+On wind power data: Figure 9(b) shows conditional coverage of multi-step ahead inference
+of EnbPI under RF with missing data. No feature is available so we can only use past
+history of the wind power as response (that is, Xt is the history of Yt ). Note, one difference
+from applying EnbPI on earlier solar energy results is that we do not choose s = 5, but
+only train EnbPI on the whole 24 hourly data (for example, s = 24). We do so because
+this wind data do not exhibit clear differences at different hours of the day. Results show
+that EnbPI can reach valid conditional coverage at these hours, even under the presence of
+missing data.
+
+B.5     Results on datasets in other domains
+Data Description. We describe the additional three datasets being used, which are green-
+house gas emission data, air pollution data, and appliances energy data. The first dataset
+contains Greenhouse Gas observation (Greenhouse) [Lucas et al., 2015] from 5.10 till 7.31,
+2010, with four samples every day and 6 hours apart between data points. The goal is
+to find the optimal weights for the 15 observation series to match the synthetic control
+series. The second dataset contains appliances energy usage (Appliances) [Candanedo et al.,
+2017]. Consecutive data points are 10 minutes apart for about 4.5 months. We can use
+27 different humidity and temperature indicators to predict the appliances’ energy use in
+Wh. The third dataset on Beijing air quality (Beijing air) [Zhang et al., 2017] contains air
+pollutants data from 12 nationally-controlled air-quality monitoring sites. The data is from
+3.1, 2013 to 2.28, 2017. The goal is to predict PM2.5 air pollutant levels using 10 different
+air pollutants and meteorological variables. We use the data from the Tiantan district.
+Results. We first show additional average coverage and width versus 1 − α line plots. Then,
+we present grouped boxplots using both multivariate and univariate Xt . We do not examine
+conditional coverage on these dataset as we primarily aim to demonstrate the applicability
+of EnbPI.
+(1) Observations from the other coverage/width versus 1 − α plots
+
+   • Figure 10 (a) (Greenhouse): Except the Dynamic Factor model, all methods tend to
+     lose coverage; however, EnbPI under RNN tends to reach better coverage than other
+
+                                                                                            44
+Table 6: Results on all 9 cities in California. Smaller Winkler scores indicate a better
+balance between coverage and width. Bold cells indicate the smallest Winkler score
+                                     Multivariate Xt                   Univariate Xt
+   Location    Method         Cov.    Width        Winkler    Coverage Width        Winkler
+                                                   Score                            Score
+                EnbPI         0.93    259.31       2.56e+06   0.95     135.64       1.43e+06
+                ICP           0.67    142.40       6.76e+06   0.91     100.35       1.69e+06
+                WeightedICP 0.69      150.68       5.21e+06   0.89     103.41       1.80e+06
+   Fremont
+                ARIMA         0.93    106.76       1.61e+06   0.93     107.32       1.61e+06
+                ExpSmoothing 0.93     128.55       1.62e+06   0.94     124.93       1.60e+06
+                DynamicFactor 0.94    148.87       1.73e+06   0.94     149.25       1.73e+06
+                EnbPI         0.93    257.14       2.53e+06   0.95     128.25       1.41e+06
+                ICP           0.66    142.32       7.16e+06   0.91     100.49       1.63e+06
+                WeightedICP 0.65      143.64       6.66e+06   0.91     101.13       1.69e+06
+   Milpitas
+                ARIMA         0.92    99.71        1.70e+06   0.92     99.88        1.67e+06
+                ExpSmoothing 0.94     126.03       1.62e+06   0.95     122.90       1.59e+06
+                DynamicFactor 0.94    140.25       1.74e+06   0.94     140.51       1.74e+06
+                EnbPI         0.93    261.92       2.57e+06   0.95     126.76       1.41e+06
+                ICP           0.64    140.73       7.41e+06   0.90     98.68        1.65e+06
+                WeightedICP 0.66      154.15       6.23e+06   0.91     105.05       1.66e+06
+   Mountain View
+                ARIMA         0.92    93.55        1.50e+06   0.92     94.76        1.48e+06
+                ExpSmoothing 0.94     116.52       1.48e+06   0.94     116.84       1.48e+06
+                DynamicFactor 0.94    133.90       1.62e+06   0.94     134.04       1.62e+06
+                EnbPI         0.93    261.04       2.55e+06   0.95     129.01       1.38e+06
+                ICP           0.68    145.12       7.09e+06   0.90     103.55       1.65e+06
+                WeightedICP 0.65      141.33       6.49e+06   0.90     100.84       1.69e+06
+   North San Jose
+                ARIMA         0.92    101.12       1.60e+06   0.92     101.34       1.59e+06
+                ExpSmoothing 0.94     120.17       1.54e+06   0.95     120.72       1.55e+06
+                DynamicFactor 0.94    142.07       1.69e+06   0.94     142.32       1.69e+06
+                EnbPI         0.92    258.10       2.54e+06   0.95     129.69       1.43e+06
+                ICP           0.65    143.62       7.06e+06   0.90     100.40       1.66e+06
+                WeightedICP 0.66      152.01       5.77e+06   0.91     106.87       1.66e+06
+   Palo Alto
+                ARIMA         0.93    99.33        1.51e+06   0.93     99.74        1.52e+06
+                ExpSmoothing 0.94     119.96       1.52e+06   0.95     117.99       1.49e+06
+                DynamicFactor 0.93    137.79       1.65e+06   0.93     137.98       1.65e+06
+                EnbPI         0.92    259.57       2.53e+06   0.95     132.31       1.43e+06
+                ICP           0.68    151.59       6.44e+06   0.92     115.10       1.63e+06
+                WeightedICP 0.64      149.69       6.47e+06   0.93     124.41       1.69e+06
+   Redwood City
+                ARIMA         0.93    100.89       1.54e+06   0.93     101.72       1.54e+06
+                ExpSmoothing 0.94     118.54       1.52e+06   0.94     118.49       1.52e+06
+                DynamicFactor 0.94    142.87       1.64e+06   0.94     143.14       1.64e+06
+                EnbPI         0.93    257.20       2.50e+06   0.95     139.29       1.45e+06
+                ICP           0.68    147.86       6.03e+06   0.92     127.50       1.77e+06
+                WeightedICP 0.65      151.80       6.18e+06   0.93     126.55       1.72e+06
+   San Mateo
+                ARIMA         0.92    105.25       1.63e+06   0.92     105.49       1.63e+06
+                ExpSmoothing 0.94     128.21       1.59e+06   0.94     125.95       1.56e+06
+                DynamicFactor 0.94    153.77       1.72e+06   0.94     154.09       1.72e+06
+                EnbPI         0.93    251.93       2.47e+06   0.95     128.49       1.38e+06
+                ICP           0.68    146.22       6.56e+06   0.91     105.98       1.64e+06
+                WeightedICP 0.68      148.40       5.49e+06   0.92     110.49       1.66e+06
+   Santa Clara
+                ARIMA         0.93    101.71       1.55e+06   0.93     103.44       1.54e+06
+                ExpSmoothing 0.94     117.94       1.53e+06   0.95     117.64       1.51e+06
+                DynamicFactor 0.94    138.07       1.64e+06   0.94     138.31       1.64e+06
+                EnbPI         0.92    261.17       2.56e+06   0.95     131.52       1.42e+06   45
+                ICP           0.68    153.19       6.73e+06   0.91     102.26       1.69e+06
+                WeightedICP 0.63      150.14       6.77e+06   0.92     113.00       1.61e+06
+   Sunnyvale
+                ARIMA         0.93    100.63       1.46e+06   0.93     98.32        1.47e+06
+                ExpSmoothing 0.94     114.14       1.47e+06   0.94     114.69       1.44e+06
+                DynamicFactor 0.94    137.63       1.59e+06   0.94     137.79       1.59e+06
+                   At 10:00                      At 11:00                    At 12:00                    At 13:00                    At 14:00
+      500        Coverage is 0.8              Coverage is 0.86            Coverage is 0.85            Coverage is 0.88            Coverage is 0.89
+
+        0
+         April     May    June        April     May    June       April     May    June       April     May    June       April     May    June
+  Covered
+Uncovered
+         April      August December April        August December April       August December April       August December April       August December
+
+                                   (a) Solar Palo Alto: EnbPI under RF with missing data
+                    At 7:00                      At 8:00                     At 9:00                 At 16:00                    At 17:00
+                 Coverage is 0.88             Coverage is 0.85            Coverage is 0.86        Coverage is 0.86            Coverage is 0.86
+       200
+
+        0
+         April May June        April May June        April May June        April May June        April May June
+  Covered
+Uncovered
+         April August December April August December April August December April August December April August December
+                    At 10:00                     At 11:00                    At 12:00                At 13:00                    At 14:00
+                 Coverage is 0.87             Coverage is 0.84            Coverage is 0.85        Coverage is 0.81            Coverage is 0.84
+       200
+
+        0
+         April May June        April May June        April May June        April May June        April May June
+  Covered
+Uncovered
+         April August December April August December April August December April August December April August December
+
+                                   (b) Wind: EnbPI under RF with missing data, s = 24
+
+Figure 9: Solar data in Palo Alto and wind data when EnbPI looks ahead beyond one step.
+Results are similar to those in Figure 2 (Solar Atlanta).
+
+
+         methods with much shorter interval widths. Therefore, we still favor EnbPI, although
+         one needs to be more selective with the regression model A.
+     • Figure 10 (b) (Appliances Energy): All time series methods no longer lose coverage,
+       but EnbPI under RNN yields shortest intervals without coverage losses when Xt is
+       multivariate. When Xt is univariate, EnbPI almost always maintains coverage and
+       yields much shorter intervals than time series methods.
+     • Figure 10 (c) (Beijing Air): Time-series methods do not lose coverage. However,
+       EnbPI under RF or Ridge with univariate Xt can produce shorter intervals with exact
+       coverage guarantee.
+
+(2) Observations from the other grouped boxplots
+
+     • Figure 11 (a) (Greenhouse): EnbPI almost never loses coverage, whereas ICP and
+
+                                                                                                                                                     46
+      WeightedICP can significantly under-cover (for example, see NN on univariate Xt ).
+      Moreover, EnbPI coverage and widths have much less variance than the other ones.
+   • Figure 11 (b) (Appliances Energy) reveals similar patterns. In particular, ICP and
+     WeightedICP can significantly lose coverage significantly (for example, see ridge on
+     multivariate Xt ). Moreover, ICP and WeightedICP also have higher widths with much
+     larger variances than EnbPI (for example, see RNN on multivariate Xt ). Overall, we
+     notice that intervals on univariate versions are much shorter than those on multivariate
+     versions, likely because the past history of energy use is more predictive of future
+     energy use than the exogenous variables such as humidity and temperature of the
+     surrounding (for example, kitchen, bathroom, living room, etc.).
+   • Figure 11 (c) (Beijing Air) shows similar performances by all three CP methods,
+     although ICP and Weighted ICP may greatly lose coverage (for example, see ridge on
+     multivariate Xt ).
+
+In general, we think EnbPI is stable across different combinations of prediction algorithms
+and datasets. Since other CP methods such as ICP and WeightedICP can severely lose
+coverage, we advocate the use of EnbPI for time series predictive inference. Regarding
+interval width, using the history of the response (univariate version) to predict its future
+values tends to yield shorter intervals.
+
+B.6     Details on unsupervised anomaly detection
+
+A. Data Description. The raw bi-hourly traffic flow data are from the California Department
+of Transportation. The same source of data was also used in [Xu and Xie, 2021], but
+sensors are chosen differently, and some competing methods are also different. Thus, we
+follow how [Xu and Xie, 2021] define anomalies with minor differences; the definitions are
+emphasized here for self-contained exposition. Suppose K sensors are in the network and
+T observations are available at each sensor. Denote Ytk as the traffic flow observation of
+sensor k at time t. The symbol Y = [Ytk ] denotes the whole data matrix with no missing
+entries. Then for each k ∈ {1, . . . , 10} and t ∈ {1, . . . , 17520} (48×365 bi-hourly data in
+2020), define Ytk as an anomaly if
+                                             −d                   −d
+                               Ytk ≥ q1−α (Yt,Nk
+                                                 ) or Ytk ≤ qα (Yt,N k
+                                                                       ),
+
+where qα (·) is the α percentile of its input vector, Nk contains sensors closest to k (including
+               −d
+itself), and Yt,N k
+                    contains past d hourly flows from sensors in Nk . Let α = 0.01, d = |Nk | = 5,
+all of which are unknown.
+    We remark that the training data in Y is given to us with 30% missing entries in each
+sensor column. Thus, we use the IterativeImputer from the Python sklearn package
+to denote the imputed matrix. Denote Ŷ as the imputed data matrix. To apply EnbPI,
+we first define Xtk := Ŷt,−m
+                            N̂
+                               ∈ Rm|N̂k | as the past m hourly flows from N̂k closest sensors to
+                           k
+
+
+
+                                                                                               47
+               1.0     Coverage                  Width                        1.0       Coverage                     Width
+                                     150
+                                                                                                        150
+               0.9                   125                                      0.9                       125
+
+Multivariate                                                   Unitivariate
+                                     100
+                                                                                                        100
+               0.8                    75                                      0.8
+                                                                                                         75
+               0.7                    50                                      0.7                        50
+                                      25
+                     0.8       0.9         0.8           0.9                          0.8       0.9            0.8           0.9
+                           1                     1                                          1                         1
+                                                                               ARIMA            ExpSmoothing         DynamicFactor
+                                                                               EnbPI RNN        EnbPI RF             EnbPI Ridge
+                                                     (a) Greenhouse Gas
+               1.0     Coverage                  Width                        1.0       Coverage                     Width
+                                     500                                                                300
+               0.9                   400                                      0.9
+
+Multivariate                                                   Unitivariate
+                                     300                                                                200
+               0.8                                                            0.8
+                                     200
+                                                                                                        100
+               0.7                   100                                      0.7
+                     0.8       0.9         0.8           0.9                          0.8       0.9            0.8           0.9
+                           1                     1                                          1                         1
+                                                                               ARIMA            ExpSmoothing         DynamicFactor
+                                                                               EnbPI RNN        EnbPI RF             EnbPI Ridge
+                                                 (b) Appliances Energy
+               1.0     Coverage                  Width                        1.0       Coverage                     Width
+                                     200                                                                200
+               0.9                                                            0.9
+
+Multivariate                                                   Unitivariate
+                                     150                                                                150
+               0.8                                                            0.8
+                                                                                                        100
+                                     100
+               0.7                                                            0.7                        50
+                                      50
+                     0.8       0.9         0.8           0.9                          0.8       0.9            0.8           0.9
+                           1                     1                                          1                         1
+                                                                               ARIMA            ExpSmoothing         DynamicFactor
+                                                                               EnbPI RNN        EnbPI RF             EnbPI Ridge
+                                                       (c) Beijing Air
+
+    Figure 10: Prediction on three other time series Average coverage and width versus 1 − α
+    target coverage by EnbPI under different prediction algorithms and by ARIMA, Exponential
+    Smoothing, and Dynamic Factor models. Five equally spaced 1 − α ∈ [0.75, 0.95] are chosen.
+    The green dash-dotted line at 0.9 represents the target coverage.
+
+
+
+                                                                                                                                   48
+                           Ridge                RF                     NN                                       Ridge                RF                   NN
+               1.0
+                                                                                                    800
+               0.8
+
+
+Multivariate                                                                         Multivariate
+                                                                                                    600
+               0.6
+                                                                                                    400
+               0.4
+               0.2                                                                                  200
+                                                                                                      0
+               1.0
+                                                                                                    800
+               0.8
+                                                                                                    600
+
+Univariate                                                                           Univariate
+               0.6
+                                                                                                    400
+               0.4
+                                                                                                    200
+               0.2
+                                                                                                      0
+                     0.1    0.19   0.28   0.1   0.19   0.28    0.1     0.19   0.28                        0.1    0.19   0.28   0.1   0.19   0.28    0.1   0.19   0.28
+                     % of Total Data      % of Total Data      % of Total Data                            % of Total Data      % of Total Data      % of Total Data
+                                          EnbPI          ICP        Weighted ICP                                               EnbPI          ICP        Weighted ICP
+                                                                      (a) Greenhouse Gas
+                           Ridge                RF                     NN             Ridge                                          RF                   NN
+               0.9                                                                                  400
+
+
+
+Multivariate                                                                         Multivariate
+               0.8                                                                                  300
+               0.7                                                                                  200
+               0.6
+                                                                                                    100
+
+               0.9                                                                                  400
+
+
+
+Univariate                                                                           Univariate
+               0.8                                                                                  300
+               0.7                                                                                  200
+               0.6
+                                                                                                    100
+                     0.1    0.19   0.28   0.1   0.19   0.28    0.1     0.19   0.28                        0.1    0.19   0.28   0.1   0.19   0.28    0.1   0.19   0.28
+                     % of Total Data      % of Total Data      % of Total Data                            % of Total Data      % of Total Data      % of Total Data
+                                          EnbPI          ICP        Weighted ICP                                               EnbPI          ICP        Weighted ICP
+                                                                     (b) Appliances Energy
+                           Ridge                RF                     NN              Ridge                                         RF                   NN
+               0.9                                                                                  140
+
+
+
+Multivariate                                                                         Multivariate
+               0.8                                                                                  120
+                                                                                                    100
+               0.7
+                                                                                                     80
+               0.6
+                                                                                                     60
+
+               0.9                                                                                  140
+                                                                                                    120
+
+Univariate                                                                           Univariate
+               0.8
+                                                                                                    100
+               0.7
+                                                                                                     80
+               0.6
+                                                                                                     60
+                     0.1    0.19   0.28   0.1   0.19   0.28    0.1     0.19   0.28                        0.1    0.19   0.28   0.1   0.19   0.28    0.1   0.19   0.28
+                     % of Total Data      % of Total Data      % of Total Data                            % of Total Data      % of Total Data      % of Total Data
+                                          EnbPI          ICP        Weighted ICP                                               EnbPI          ICP        Weighted ICP
+                                                                          (c) Beijing Air
+
+    Figure 11: Prediction on three other time series. Each box contains results from 10
+    independent trials. The black dash-dotted line at 0.9 indicates target coverage. 49
+k. Let m = |N̂k | = 8. Then, the test data Ytk is predicted as an anomaly if its residual is
+either higher than 1 − α + β̂ or lower than β̂ quantile of residuals on Yt,−m
+                                                                           N̂
+                                                                              .
+                                                                           k
+
+B. Setup and comparison methods. Our goal is to identify binary anomalies at each sensor,
+defined as traffic flow observations with extremely large or small magnitude compared to
+those from its neighbor and/or in the past. It is natural to use our conformal prediction
+method as the whole data constitute a traffic network, and EnbPI can easily capture the
+spatio-temporal information. We compute the standard precision, recall, and F1 score
+at each node; methods with higher F1 scores are preferable for performance metrics. We
+build 15 pre-trained bootstrap models in EnbPI, fix the significance level α at 0.05, and
+use the mean aggregation function to build LOO ensemble predictors. The four regression
+algorithms are used in Section 5.2 and 5.3. We compare EnbPI against eight competing
+anomaly detectors, four of which are unsupervised (for example, IForest, PCA, OCSVM,
+and HBOS), and the other four are supervised (for example, MLPClassifier, GBoosting,
+KNN, SVC).
+
+   • Four unsupervised methods. All the unsupervised methods are implemented in
+     the pyod library in Python. We consider IForest, PCA,OCSVM, and HBOS and
+     descriptions below mostly come from the package description with minor changes:
+
+        – The IsolationForest (IForest) “isolates” observations xt by randomly selecting a
+          feature of xt and then randomly selecting a split value between the maximum
+          and minimum values of the selected feature. See [Liu et al., 2012].
+        – In the Principal Component Analysis (PCA) for anomaly detection, covariance
+          matrix of the data is first decomposed to orthogonal vectors, which are eigenvec-
+          tors. Then, outlier scores are obtained as the sum of the projected distance of a
+          sample on all eigenvectors. See [Aggarwal, 2015].
+        – The one-class support vector machine (OCSVM) is a wrapper of scikit-learn one-
+          class SVM Class with more functionalities. See https://scikit-learn.org/
+          stable/modules/svm.html#svm-outlier-detection for detailed descriptions.
+        – The Histogram-based Outlier Detection (HBOS) assumes feature independence
+          in xt and calculates the degree of outlyingness by building histograms. See
+          [Goldstein and Dengel, 2012].
+
+   • Four supervised methods. All the supervised methods are taken as binary classification
+     methods from the sklearn package in Python. We take descriptions of methods from
+     the package and specify the following parameters for each method
+
+        – The Gradient Boosting Classifier (GBoosting) builds an additive model in a
+          forward stage-wise fashion; it allows for the optimization of arbitrary differen-
+          tiable loss functions. We build 100 estimators, pick a learning rate of 1, and let
+          maximum depth be 1.
+
+
+                                                                                         50
+– The Multi-layer Perceptron classifier (MLPClassifier) optimizes the log-loss
+  function. We use LBFGS for optimization, let l2 penalty α be 1e-5, and pick
+  two hidden layers with 5 neurons in the first and 2 in the second.
+– The k-nearest neighbor (KNN) algorithm is specified with k = 20 and weights=“distance”,
+  so that closer neighbors of a query point will have a greater influence than neigh-
+  bors which are further away.
+– The support vector classification (SVC) uses all the default settings except with
+  gamma=“auto”, which uses 1 / # features as the kernel coefficient.
+
+
+
+
+                                                                              51
+

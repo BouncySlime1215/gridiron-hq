@@ -231,17 +231,21 @@ function buildCandidate(game, quoteFor, modelOptions) {
       player_availability_shadow: e.player_availability ?? null,
       pregame_snapshot_at: pregame?.captured_at ?? null,
       pregame_context: pregame?.feature_coverage ?? null,
-      // Integration stage 1 (2026-09-12): where this decision's inputs
-      // actually came from, field by field -- see nfl-t60-packet.js's
-      // PACKET_BOARD_INPUT_COVERAGE for why game_context/team_features/
-      // total_market are 'game_lines'/'nfl_team_week_features' even on a
-      // packet-sourced decision (they are genuinely not in that packet's
-      // schema today, and this records that honestly instead of implying a
-      // fuller reproduction than actually happened).
+      // Integration stage 1 (2026-09-12) / WP15-D3 (2026-09-15): where this
+      // decision's inputs actually came from, field by field -- read off
+      // ensembleLine's own `market_data_source` (nfl-ensemble.js) rather than
+      // hardcoded here, so this object cannot silently drift out of sync with
+      // what that function actually did. Before D3, game_context/
+      // team_features were hardcoded to their live-table labels because
+      // ensembleLine had no other path; now they report 'frozen_packet' when
+      // autoPickDecisionBoardForPacket actually supplied an override -- see
+      // nfl-t60-packet.js's PACKET_BOARD_INPUT_COVERAGE for what "frozen" does
+      // and does not claim about these two fields.
       data_provenance: {
         market_quote: quote?.provenance ?? 'game_lines',
         market_spread_and_total: e.market_data_source ?? { home_spread: 'game_lines', total: 'game_lines' },
-        game_context: 'game_lines', team_features: 'nfl_team_week_features',
+        game_context: e.market_data_source?.game_context ?? 'game_lines',
+        team_features: e.market_data_source?.team_features ?? 'nfl_team_week_features',
         model_state: 'live (fit artifacts / calibration / candidate findings -- versioned via forecast_identity, not this packet)'
       }
     }
@@ -302,7 +306,20 @@ export function autoPickDecisionBoardForPacket(packet, policy = NFL_PRODUCTION_P
   const marketOverride = { home_spread: marketQuote.status === 'available' ? marketQuote.home_spread : null,
     source: marketQuote.status === 'available' ? 'frozen_packet' : 'frozen_packet_unavailable' };
 
-  const line = ensembleLine(season, week, home, away, { ...modelOptions, marketOverride });
+  // WP15/D3: the packet's own game_context/team_features values, when this
+  // packet actually froze them (see nfl-t60-packet.js's freezeT60Packet). A
+  // packet with no `values` for a source (frozen before D3, or the source
+  // genuinely had nothing) leaves the matching override `null` -- ensembleLine
+  // then reads game_lines/nfl_team_week_features live, exactly as it always
+  // has, rather than this function guessing a value the packet never froze.
+  const gameContextSource = packet.sources?.find(s => s.source === 'game_lines_context');
+  const gameContextOverride = gameContextSource?.values
+    ? { ...gameContextSource.values, source: 'frozen_packet' } : null;
+  const teamFeaturesSource = packet.sources?.find(s => s.source === 'nfl_team_week_features');
+  const teamFeaturesOverride = teamFeaturesSource?.values ?? null;
+
+  const line = ensembleLine(season, week, home, away,
+    { ...modelOptions, marketOverride, gameContextOverride, teamFeaturesOverride });
   if (line.error) return { ...base, packet_error: `ensemble could not compute this game: ${line.error}` };
 
   const quoteFor = team => {

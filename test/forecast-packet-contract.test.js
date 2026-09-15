@@ -182,6 +182,86 @@ test('sealing throws on an invalid packet rather than returning one', () => {
   assert.equal(sealed.packet.event.event_key, 'nfl|2026-09-20|CHI@CAR');
 });
 
+test('source_lineage.received_at must be a real, parseable instant', () => {
+  const bad = valid({ source_lineage: { received_at: 'bad-clock' } });
+  const result = validateForecastPacket(bad);
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some(p => /received_at: not a parseable instant/.test(p)));
+});
+
+test('feature_lineage.values as a bare object is not a packet -- an object can hide a count', () => {
+  const asObject = valid({ feature_lineage: { values: {} } });
+  const result = validateForecastPacket(asObject);
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some(p => /must be an array of \{name, value\} entries/.test(p)));
+});
+
+test('feature_lineage.values as null is not a packet', () => {
+  const asNull = valid({ feature_lineage: { values: null } });
+  const result = validateForecastPacket(asNull);
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some(p => /must be an array of \{name, value\} entries/.test(p)));
+});
+
+test('a numeric feature value must be finite', () => {
+  const nonFinite = valid({ feature_lineage: { values: [{ name: 'x', value: NaN }] } });
+  const result = validateForecastPacket(nonFinite);
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some(p => /numeric feature values must be finite/.test(p)));
+
+  // A qualitative feature value (a status string, not a computed number) is
+  // legitimate and must not be rejected by the same check.
+  assert.equal(validateForecastPacket(valid()).ok, true);
+});
+
+test('offered_price must be a real American price, never zero', () => {
+  const zero = valid({ market: { offered_price: 0 } });
+  const result = validateForecastPacket(zero);
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some(p => /offered_price: must be a real American price/.test(p)));
+
+  // Prices strictly between -100 and +100 do not exist either.
+  assert.equal(validateForecastPacket(valid({ market: { offered_price: 50 } })).ok, false);
+});
+
+test('market.market must match the contract\'s field shape: spreads only', () => {
+  // This contract's market group carries a spread's fields (side: home/away,
+  // a signed handicap) -- a `totals` packet built from the same fields is a
+  // different market wearing this one's shape, and must be refused.
+  const wrongMarket = valid({ market: { market: 'totals' } });
+  const result = validateForecastPacket(wrongMarket);
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some(p => /market.market: this contract covers spreads only/.test(p)));
+});
+
+test('observation.cutoff_at must be strictly before event.kickoff_at', () => {
+  const late = valid({ observation: { cutoff_at: '2026-09-20T18:00:00Z' } }); // kickoff is 17:00Z
+  const result = validateForecastPacket(late);
+  assert.equal(result.ok, false);
+  assert.ok(result.problems.some(p => /cutoff_at: must be strictly before event.kickoff_at/.test(p)));
+
+  // Equal to kickoff is also refused -- "T-60" means strictly before.
+  const atKickoff = valid({ observation: { cutoff_at: '2026-09-20T17:00:00Z' } });
+  assert.equal(validateForecastPacket(atKickoff).ok, false);
+});
+
+test('canonicalize refuses to hash a non-finite number rather than let it collide with null', () => {
+  // JSON.stringify silently coerces both NaN and a corrupted Infinity to
+  // null, which would make a computed-but-invalid feature value and an
+  // explicitly-missing one hash identically. canonicalize() must fail loudly
+  // instead, because it is also reused directly by nfl-t60-packet.js's
+  // t60PacketHash() on a packet shape that never goes through
+  // validateForecastPacket.
+  assert.throws(() => canonicalize({ a: NaN }), /refusing to hash a non-finite number/);
+  assert.throws(() => canonicalize({ a: Infinity }), /refusing to hash a non-finite number/);
+  assert.throws(() => packetHash(valid({ feature_lineage: {
+    values: [{ name: 'x', value: 1 }] }, market: { handicap: NaN } })),
+    /refusing to hash a non-finite number/);
+  // A genuinely missing value (null) is unaffected -- it is not a number at
+  // all, so it canonicalizes and hashes exactly as before.
+  assert.doesNotThrow(() => canonicalize({ a: null }));
+});
+
 test('the contract can be read back in full', () => {
   const described = contractDescription();
   assert.equal(described.schema_version, PACKET_SCHEMA_VERSION);

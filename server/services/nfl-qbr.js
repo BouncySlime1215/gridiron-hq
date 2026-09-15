@@ -22,10 +22,46 @@ export async function syncQbr({ seasons = null } = {}) {
   const at = name => header.indexOf(name);
   const i = Object.fromEntries(['season', 'season_type', 'game_week', 'team_abb', 'player_id', 'name_display', 'opp_abb',
     'qbr_total', 'pts_added', 'qb_plays', 'epa_total', 'qbr_raw', 'sack', 'qualified'].map(name => [name, at(name)]));
+  // 2026-09: a stale team tag from an earlier sync (a trade, or ESPN
+  // correcting one) must not survive as a second row. The declared primary
+  // key is (season,week,team,player_id), so a changed team alone leaves the
+  // old row in place and INSERTs a new one beside it instead of replacing
+  // it -- confirmed live in server/data.sqlite for player_id 15864 (Geno
+  // Smith), which carried both a team='LV' row fetched 2026-09-10 and a
+  // team='NYJ' row fetched 2026-09-14 simultaneously. Deleting any
+  // other-team row for this exact (season,week,player_id) immediately before
+  // the authoritative INSERT OR REPLACE makes the *effective* upsert key
+  // (season,week,player_id) without a schema/migration change: a player has
+  // at most one team and one QBR result in a given week's actual game
+  // (player_id is ESPN's id, confirmed elsewhere as a reliable crosswalk to
+  // players.espn_id -- not a value that legitimately collides across two
+  // different players), so this can only ever remove the stale sibling, not
+  // a distinct real row.
+  const deleteStaleTeam = db.prepare(`DELETE FROM nfl_qbr_weekly WHERE season=? AND week=? AND player_id=? AND team<>?`);
   const stmt = db.prepare(`INSERT OR REPLACE INTO nfl_qbr_weekly
     (season,week,team,player_id,name,opponent,qbr_total,pts_added,qb_plays,epa_total,qbr_raw,sack,qualified,fetched_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`);
-  let written = 0, reviewed = 0;
+  // 2026-09: nfl_qbr_weekly's entire season=2026, weeks 1-18 turned out to be
+  // 94.5% byte-identical copies of the matching 2025 (player,week,team) row,
+  // all landed by one single sync (one shared fetched_at timestamp) -- weeks
+  // 2-18, which had not been played, were 100% copied. This module has no
+  // season-defaulting or "carry the last known value forward" logic of its
+  // own: season/week/values are taken verbatim from whatever the upstream
+  // CSV says, and no other file in this codebase writes to nfl_qbr_weekly
+  // (confirmed by grep). Independently re-fetching the live release
+  // (github.com/nflverse/nflverse-data, tag espn_data) on 2026-09-14 found it
+  // holding only 30 real season=2026 rows, all week 1, nothing for weeks
+  // 2-18 -- consistent with the upstream provider itself having served a
+  // full-season placeholder/scaffold at the point our 2026-09-10 sync ran,
+  // since corrected. Whatever the exact upstream mechanism, a genuinely
+  // played week's stat line cannot legitimately equal last year's on all six
+  // independent continuous-valued columns at once -- that coincidence is not
+  // realistic, so this is refused as fact regardless of source.
+  const priorSeasonRow = db.prepare(`SELECT qbr_total,pts_added,qb_plays,epa_total,qbr_raw,sack
+    FROM nfl_qbr_weekly WHERE season=? AND week=? AND team=? AND player_id=?`);
+  const sameSix = (a, b) => a.qbr_total === b.qbr_total && a.pts_added === b.pts_added && a.qb_plays === b.qb_plays
+    && a.epa_total === b.epa_total && a.qbr_raw === b.qbr_raw && a.sack === b.sack;
+  let written = 0, reviewed = 0, quarantined = 0;
   db.exec('BEGIN');
   try {
     for (const r of records) {
@@ -33,14 +69,23 @@ export async function syncQbr({ seasons = null } = {}) {
       const season = num(r[i.season]), week = num(r[i.game_week]);
       if (!season || !week || (seasons && !seasons.includes(season))) continue;
       reviewed++;
-      stmt.run(season, week, canonicalTeamCode(r[i.team_abb]), String(r[i.player_id]), r[i.name_display] || null,
-        canonicalTeamCode(r[i.opp_abb]), num(r[i.qbr_total]), num(r[i.pts_added]), num(r[i.qb_plays]), num(r[i.epa_total]),
-        num(r[i.qbr_raw]), num(r[i.sack]), r[i.qualified] === 'TRUE' ? 1 : 0);
+      const team = canonicalTeamCode(r[i.team_abb]);
+      const player_id = String(r[i.player_id]);
+      const incoming = {
+        qbr_total: num(r[i.qbr_total]), pts_added: num(r[i.pts_added]), qb_plays: num(r[i.qb_plays]),
+        epa_total: num(r[i.epa_total]), qbr_raw: num(r[i.qbr_raw]), sack: num(r[i.sack]),
+      };
+      const prior = priorSeasonRow.get(season - 1, week, team, player_id);
+      if (prior && incoming.qb_plays > 0 && sameSix(incoming, prior)) { quarantined++; continue; }
+      deleteStaleTeam.run(season, week, player_id, team);
+      stmt.run(season, week, team, player_id, r[i.name_display] || null, canonicalTeamCode(r[i.opp_abb]),
+        incoming.qbr_total, incoming.pts_added, incoming.qb_plays, incoming.epa_total, incoming.qbr_raw, incoming.sack,
+        r[i.qualified] === 'TRUE' ? 1 : 0);
       written++;
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
-  return { version: NFL_QBR_VERSION, reviewed, written, source: URL };
+  return { version: NFL_QBR_VERSION, reviewed, written, quarantined, source: URL };
 }
 
 /**

@@ -718,7 +718,11 @@ export function analyzeErrors(bets, { minBets = 25 } = {}) {
    * direction of bias — otherwise one anomalous season is doing all the work
    * and the pooled effect is not "systematic," just "once." */
   const robustAcrossSeasons = (segment, side) => {
-    if (segment._seasons.length < 3) return { robust: true, note: 'fewer than 3 seasons in this segment; leave-one-out not meaningful' };
+    // Fewer than 3 seasons means leave-one-out can't actually run (R28: an
+    // uncomputable robustness check must never be reported as a pass — the
+    // same insufficient-data/insufficient status convention used elsewhere
+    // in this codebase, e.g. decay-watch.js and mlb-calibration.js).
+    if (segment._seasons.length < 3) return { robust: false, status: 'insufficient_data', note: 'fewer than 3 seasons in this segment; leave-one-out not meaningful' };
     let agreeing = 0;
     const perSeason = segment._seasons.map(season => {
       const subset = segment._bets.filter(b => b.season !== season); // leave THIS season out

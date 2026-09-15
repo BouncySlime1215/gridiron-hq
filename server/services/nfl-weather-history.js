@@ -77,7 +77,7 @@ async function historicalForecastAt(lat, lon, kickoffIso) {
  * game that has no rows yet. Resumable: a game with any stored lead row is
  * skipped, so a second run only fills the gaps.
  */
-export async function syncForecastHistory({ seasons = [2022, 2023, 2024, 2025], pauseMs = 200, limit = null, onProgress = null } = {}) {
+export async function syncForecastHistory({ seasons = [2022, 2023, 2024, 2025, 2026], pauseMs = 200, limit = null, onProgress = null } = {}) {
   const games = outdoorGames(seasons);
   const have = new Set(rows('SELECT DISTINCT season, week, home FROM nfl_game_weather_forecast_history')
     .map(r => `${r.season}|${r.week}|${r.home}`));

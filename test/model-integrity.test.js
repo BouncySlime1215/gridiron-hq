@@ -13,6 +13,8 @@ const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../
 const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine,
   withEphemeralEnsembleArtifacts } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
+const { runModelWatch } = await import('../server/services/nfl-model-watch.js');
+const { backfillTeamFeatureVectors } = await import('../server/services/nfl-weekly-feature-store.js');
 const { deriveSignalReliability } = await import('../server/services/nfl-signal-reliability.js');
 const { fitNeuralDecisionCalibrator, calibratedNeuralProbability } = await import('../server/services/nfl-replay.js');
 const { calibratedCoverProbability } = await import('../server/services/nfl-cover-calibration.js');
@@ -1422,7 +1424,64 @@ test('cross-season data audit blocks incomplete coverage instead of filling miss
   assert.equal(audit.comparable_2021_core, false);
   assert.match(audit.verdict, /not coverage-consistent/);
   assert.ok(audit.guardrails.some(rule => /never converted to numeric zero/.test(rule)));
-  assert.deepEqual(audit.seasons, [2021, 2022, 2023, 2024, 2025]);
+  assert.deepEqual(audit.seasons, [2021, 2022, 2023, 2024, 2025, 2026]);
+});
+
+test('cross-season data audit covers every real source, not just the core team/player features', () => {
+  // Stage 1: "make a per-source coverage/freshness table: earliest season,
+  // latest completed game, ... whether the source can support historical
+  // reconstruction or actual prospective capture." Previously only the 10
+  // core-feature tables were tracked; odds/QBR/weather/ratings had no entry
+  // at all here.
+  const audit = nflDataConsistencyAudit();
+  const byId = Object.fromEntries(audit.feeds.map(f => [f.id, f]));
+  for (const id of ['nfl_odds_archive', 'nfl_qbr_weekly', 'nfl_game_weather',
+    'nfl_game_weather_forecast_history', 'nfl_external_ratings']) {
+    assert.ok(byId[id], `expected a coverage entry for ${id}`);
+    assert.ok(['historical_reconstruction_only', 'prospective_capture', 'both'].includes(byId[id].capture_mode),
+      `${id} must declare a real capture_mode, not leave it unclassified`);
+    assert.ok('earliest_season_with_data' in byId[id] && 'latest_season_with_data' in byId[id]);
+  }
+  // The weather split matters specifically: reconstructed actual kickoff
+  // weather must never be conflated with a genuine pregame forecast.
+  assert.equal(byId.nfl_game_weather.capture_mode, 'historical_reconstruction_only');
+  assert.equal(byId.nfl_game_weather_forecast_history.capture_mode, 'prospective_capture');
+});
+
+test('cross-season data audit default window tracks the current season, not a stale hardcoded year', () => {
+  // Regression for the class of bug where every season-scoped default array in
+  // the codebase quietly stopped at 2025: a coverage audit whose whole job is
+  // noticing a missing/broken season cannot do that job for whichever season
+  // is actually being played if its own default window excludes it.
+  const currentSeason = new Date().getFullYear();
+  const audit = nflDataConsistencyAudit();
+  assert.ok(audit.seasons.includes(currentSeason),
+    `expected the default audit window to include ${currentSeason}, got ${JSON.stringify(audit.seasons)}`);
+});
+
+test('team feature vector backfill defaults to a window that includes the current season', () => {
+  // Same regression class again: this is the actual feature-freezing job that
+  // feeds the model. A default season window stuck at last year means running
+  // it with no arguments -- exactly how an ad hoc admin/backfill call is most
+  // likely to be invoked -- silently never freezes this season's team vectors.
+  db.prepare(`INSERT INTO game_lines (season,week,team,opponent,home,gameday,gametime,spread,spread_odds)
+    VALUES (2026,5,'LAR','SF',1,'2026-10-05','13:00',-3,-110)`).run();
+  const result = backfillTeamFeatureVectors();
+  assert.ok(result.targets >= 1,
+    `expected the default season window to pick up the inserted 2026 game, got 0 targets (result=${JSON.stringify(result)})`);
+});
+
+test('model-watch drift loop defaults to a window that includes the current season', () => {
+  // Same regression class as the data-consistency audit above: the daily
+  // drift watch exists specifically to catch the model quietly degrading "as
+  // another season of data lands" (see nfl-model-watch.js's own docstring).
+  // A hardcoded default season list that stops at last year cannot do that
+  // for the season actually being played.
+  const currentSeason = new Date().getFullYear();
+  const result = runModelWatch({ includeHeadSearch: false });
+  assert.ok(result.seasons.includes(currentSeason),
+    `expected the default watch window to include ${currentSeason}, got ${JSON.stringify(result.seasons)}`);
+  assert.equal(result.production_eligible, false, 'the watch loop must never self-promote');
 });
 
 test('signal reliability controller is shrink-only, evidence-gated, and ignores apparent winners', () => {

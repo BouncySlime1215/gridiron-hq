@@ -17,10 +17,14 @@ await import('../server/services/line-shopping.js');
 const { __test } = await import('../server/services/nfl-expert-council.js');
 
 run(`INSERT OR IGNORE INTO nfl_teams (abbr,name,conference,division) VALUES ('DEN','Denver Broncos','AFC','West'),('IND','Indianapolis Colts','AFC','South')`);
+// received_at is seeded equal to captured_at: this fixture is about the
+// multi-book board (dedup, staleness, kickoff cutoff), not the receipt-clock
+// distinction shoppingFor now also enforces (nfl-expert-council.js), so each
+// row is seeded as "already known by the time it was captured".
 const snap = (captured, book, side, line, price) => run(`INSERT INTO nfl_line_snapshots
-  (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, captured, 'archive:1:close', '2022-10-07T00:15:01Z', 'Denver Broncos', 'Indianapolis Colts',
-  book, 'spreads', side, line, price, 'archive:oddstrader', captured);
+  (captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price,provider,book_updated_at,received_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, captured, 'archive:1:close', '2022-10-07T00:15:01Z', 'Denver Broncos', 'Indianapolis Colts',
+  book, 'spreads', side, line, price, 'archive:oddstrader', captured, captured);
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 

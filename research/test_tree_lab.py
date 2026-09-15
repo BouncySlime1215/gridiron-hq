@@ -15,14 +15,62 @@ bar names them explicitly rather than leaving them to judgement:
 None of this touches the live database; it is pure synthetic-data testing,
 same spirit as research/test_market_lab.py.
 """
+import sqlite3
+import tempfile
 import unittest
 import numpy as np
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from market_lab import time_folds, digest
 from leakage import detect_feature_leakage
 from tree_lab import (market_no_vig_prob, logit, sigmoid, quantile_coherence_report,
-    calibration_coverage, key_number_push_mass, pinball_loss)
+    calibration_coverage, key_number_push_mass, pinball_loss, build_dataset)
+
+
+class QuarantineTests(unittest.TestCase):
+    """tree_lab.build_dataset now shares its chronology with
+    market_lab.build_dataset via research/betting/nfl/dataset.py's
+    build_betting_dataset -- verified separately here since it's a separate
+    call site, not a shared code path guaranteed to stay in sync."""
+
+    def test_build_dataset_quarantines_bad_games_and_features_instead_of_silently_dropping_them(self):
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            db = str(Path(tmp.name) / 'quarantine.sqlite')
+            con = sqlite3.connect(db)
+            con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT,
+                opponent TEXT, home INTEGER, spread REAL, total REAL, team_score INTEGER,
+                opp_score INTEGER, gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
+            con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
+                team TEXT, features TEXT)''')
+            con.execute('''CREATE TABLE nfl_odds_archive (eid TEXT, season INTEGER, week INTEGER,
+                home TEXT, away TEXT, commence_time TEXT, market TEXT, side TEXT, phase TEXT,
+                line REAL, price REAL, book_updated_at TEXT, source TEXT, book TEXT)''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,1,'KC','BAL',1,-3,44,27,20,'2024-09-05',7,0,'dome')''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,1,'BAL','KC',0,3,44,20,27,'2024-09-05',7,0,'dome')''')
+            con.execute("INSERT INTO nfl_team_week_features VALUES (2024,1,'KC','{\"net_epa_per_play\": 0.05}')")
+            # A game with no final score -- must be quarantined, not dropped silently.
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,2,'KC','SF',1,-1,44,NULL,NULL,'2024-09-12',7,0,'dome')''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,2,'SF','KC',0,1,44,NULL,NULL,'2024-09-12',7,0,'dome')''')
+            # An unparseable feature row -- must be quarantined too.
+            con.execute("INSERT INTO nfl_team_week_features VALUES (2024,1,'BAL','not-json')")
+            con.commit()
+            con.close()
+
+            _, dropped = build_dataset(db)
+            # Reason strings come from dataset.py's canonical quarantine
+            # vocabulary now -- see market_lab.build_dataset's identical note.
+            self.assertEqual(dropped.get('missing_final_score'), 1,
+                'the scoreless week-2 game must be counted, not vanish with no trace')
+            self.assertEqual(dropped.get('unparseable_json'), 1,
+                "BAL's unparseable feature row must be counted, not vanish with no trace")
+        finally:
+            tmp.cleanup()
 
 
 def synthetic_rows(n_weeks=40, games_per_week=8, seed=7):

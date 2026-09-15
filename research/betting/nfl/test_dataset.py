@@ -113,6 +113,45 @@ class SharedChronologyTests(unittest.TestCase):
         kc_weeks = len(pbp.get('KC', []))
         self.assertEqual(kc_weeks, 2, 'week 3 has no publication instant and is dropped, not defaulted')
 
+    def test_dropped_rows_are_quarantined_with_a_reason_not_silently_lost(self):
+        """Codex plan Stage 1: quarantine invalid records, don't erase them.
+        shared_setup's optional quarantine tracking must count and name every
+        row build_chronology/load_team_week_features drops -- not just make
+        it disappear the way test_a_week_with_no_known_publication_instant_is_DROPPED
+        (above) shows the un-tracked call still can."""
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            db = str(Path(tmp.name) / 'quarantine.sqlite')
+            con = sqlite3.connect(db)
+            con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT,
+                opponent TEXT, home INTEGER, spread REAL, total REAL, team_score INTEGER,
+                opp_score INTEGER, gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
+            con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
+                team TEXT, features TEXT)''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,1,'KC','BAL',1,-3,44,27,20,'2024-09-05',7,0,'dome')''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,1,'BAL','KC',0,3,44,20,27,'2024-09-05',7,0,'dome')''')
+            con.execute("INSERT INTO nfl_team_week_features VALUES (2024,1,'KC','{\"net_epa_per_play\": 0.05}')")
+            # No final score -- must be quarantined, not silently dropped.
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,2,'KC','SF',1,-1,44,NULL,NULL,'2024-09-12',7,0,'dome')''')
+            con.execute('''INSERT INTO game_lines VALUES
+                (2024,2,'SF','KC',0,1,44,NULL,NULL,'2024-09-12',7,0,'dome')''')
+            # Unparseable JSON -- must be quarantined too.
+            con.execute("INSERT INTO nfl_team_week_features VALUES (2024,1,'BAL','not-json')")
+            con.commit()
+            con.close()
+
+            setup = shared.shared_setup(db)
+            q = setup['quarantine']
+            self.assertEqual(q['games_excluded_count'], 1)
+            self.assertEqual(q['games_excluded'][0]['reason'], 'missing_final_score')
+            self.assertEqual(q['team_week_features_excluded_count'], 1)
+            self.assertEqual(q['team_week_features_excluded'][0]['reason'], 'unparseable_json')
+        finally:
+            tmp.cleanup()
+
 
 class CutoffTests(unittest.TestCase):
     def test_fold_cutoff_is_a_week_before_the_earliest_decision(self):
@@ -195,6 +234,177 @@ class LabParityTests(unittest.TestCase):
                              'result history must be identical to the labs\' own')
         finally:
             tmp.cleanup()
+
+
+def build_multi_season_fixture(path):
+    """Two seasons: an 'early' one with no nfl_team_week_features at all (the
+    real shape of 1999-2015 data) and a 'modern' one that has them, so
+    pbp_available can be tested both ways without touching the real DB."""
+    con = sqlite3.connect(path)
+    con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT, opponent TEXT,
+        home INTEGER, spread REAL, total REAL, team_score INTEGER, opp_score INTEGER,
+        gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
+    con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
+        team TEXT, features TEXT)''')
+    rows = [
+        # early season: three weeks, no pbp table rows at all for this season.
+        (1999, 1, 'DAL', 'NYG', 20, 17, '1999-09-05', 7, 7, 0),
+        (1999, 2, 'DAL', 'WAS', 24, 21, '1999-09-12', 7, 7, 0),
+        (1999, 3, 'NYG', 'DAL', 14, 27, '1999-09-19', 7, 6, 1),
+        # modern season: pbp rows present, enough weeks that week 3 has two
+        # prior weeks of both history and pbp for DAL.
+        (2024, 1, 'DAL', 'NYG', 27, 20, '2024-09-05', 7, 7, 0),
+        (2024, 2, 'DAL', 'WAS', 24, 21, '2024-09-12', 7, 7, 0),
+        (2024, 3, 'NYG', 'DAL', 17, 20, '2024-09-19', 7, 6, 1),
+    ]
+    for season, week, home, away, hs, aws, day, hrest, arest, div in rows:
+        con.execute('''INSERT INTO game_lines
+            (season,week,team,opponent,home,spread,total,team_score,opp_score,gameday,rest_days,div_game,roof)
+            VALUES (?,?,?,?,1,-3,44,?,?,?,?,?,'dome')''', (season, week, home, away, hs, aws, day, hrest, div))
+        con.execute('''INSERT INTO game_lines
+            (season,week,team,opponent,home,spread,total,team_score,opp_score,gameday,rest_days,div_game,roof)
+            VALUES (?,?,?,?,0,3,44,?,?,?,?,?,'dome')''', (season, week, away, home, aws, hs, day, arest, div))
+        if season == 2024:
+            con.execute('INSERT INTO nfl_team_week_features VALUES (?,?,?,?)',
+                        (season, week, home, '{"net_epa_per_play": 0.05}'))
+            con.execute('INSERT INTO nfl_team_week_features VALUES (?,?,?,?)',
+                        (season, week, away, '{"net_epa_per_play": -0.02}'))
+    con.commit()
+    con.close()
+
+
+class FootballDatasetTests(unittest.TestCase):
+    """Stage 2: the broad, price-agnostic dataset for team-strength learning."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.db = str(Path(cls.tmp.name) / 'football.sqlite')
+        build_multi_season_fixture(cls.db)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_spans_seasons_with_no_price_data_at_all(self):
+        """The fixture has no nfl_odds_archive table whatsoever -- if this
+        function touched price data it would raise, not just return fewer rows."""
+        result = shared.build_football_dataset(self.db, min_season=1999, through_season=2025)
+        seasons = {r['season'] for r in result['rows']}
+        self.assertIn(1999, seasons, 'the whole point of this dataset is pre-2022 seasons')
+        self.assertIn(2024, seasons)
+
+    def test_min_season_filters_earlier_rows(self):
+        result = shared.build_football_dataset(self.db, min_season=2024, through_season=2025)
+        self.assertTrue(all(r['season'] >= 2024 for r in result['rows']))
+        self.assertEqual(result['min_season'], 2024)
+
+    def test_pbp_available_is_false_when_no_team_week_features_exist(self):
+        result = shared.build_football_dataset(self.db, min_season=1999, through_season=2025)
+        early_rows = [r for r in result['rows'] if r['season'] == 1999]
+        self.assertTrue(early_rows)
+        self.assertTrue(all(r['pbp_available'] is False for r in early_rows),
+                         'no nfl_team_week_features rows exist for 1999 in the fixture')
+        self.assertTrue(all(r['home_pbp_features'] is None for r in early_rows))
+
+    def test_pbp_available_is_true_once_a_prior_week_has_published_features(self):
+        result = shared.build_football_dataset(self.db, min_season=1999, through_season=2025)
+        dal_week3 = next(r for r in result['rows']
+                          if r['season'] == 2024 and r['week'] == 3 and 'DAL' in (r['home'], r['away']))
+        self.assertTrue(dal_week3['pbp_available'],
+                         "by week 3, DAL's weeks 1-2 pbp rows are long since published")
+
+    def test_rows_need_no_market_spread_or_total_to_appear(self):
+        """Confirms this is genuinely price-agnostic: a row with market fields
+        stripped out entirely must still appear, since the label is the
+        actual score, not anything derived from a quote."""
+        result = shared.build_football_dataset(self.db, min_season=1999, through_season=2025)
+        self.assertTrue(result['rows'])
+        for r in result['rows']:
+            self.assertIn('actual_margin', r)
+            self.assertIn('actual_total', r)
+
+    def test_decision_at_is_the_games_own_kickoff_not_the_publication_instant(self):
+        result = shared.build_football_dataset(self.db, min_season=1999, through_season=2025)
+        week1 = next(r for r in result['rows'] if r['season'] == 1999 and r['week'] == 1)
+        self.assertEqual(week1['decision_at'], datetime(1999, 9, 5, tzinfo=timezone.utc).isoformat())
+
+
+def build_betting_fixture(path):
+    """game_lines plus a matching nfl_odds_archive pair for one game, shaped
+    exactly like the real table paired_quotes/build_betting_dataset read."""
+    con = sqlite3.connect(path)
+    con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT, opponent TEXT,
+        home INTEGER, spread REAL, total REAL, team_score INTEGER, opp_score INTEGER,
+        gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
+    con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
+        team TEXT, features TEXT)''')
+    con.execute('''CREATE TABLE nfl_odds_archive (eid TEXT, season INTEGER, week INTEGER,
+        home TEXT, away TEXT, commence_time TEXT, book TEXT, market TEXT, side TEXT, phase TEXT,
+        line REAL, price INTEGER, book_updated_at TEXT, source TEXT, fetched_at TEXT)''')
+    con.execute('''INSERT INTO game_lines VALUES
+        (2023,1,'KC','DET',1,-3,44,27,20,'2023-09-07',7,0,'dome')''')
+    con.execute('''INSERT INTO game_lines VALUES
+        (2023,1,'DET','KC',0,3,44,20,27,'2023-09-07',7,0,'dome')''')
+    quotes = [
+        ('e1', 2023, 1, 'KC', 'DET', '2023-09-07T20:20:00Z', 'spreads', 'KC', 'open', -3.0, -110, '2023-09-05T12:00:00Z'),
+        ('e1', 2023, 1, 'KC', 'DET', '2023-09-07T20:20:00Z', 'spreads', 'DET', 'open', 3.0, -110, '2023-09-05T12:00:30Z'),
+        ('e1', 2023, 1, 'KC', 'DET', '2023-09-07T20:20:00Z', 'spreads', 'KC', 'close', -1.0, -115, '2023-09-07T18:00:00Z'),
+    ]
+    for eid, season, week, home, away, commence, market, side, phase, line, price, updated in quotes:
+        con.execute('''INSERT INTO nfl_odds_archive VALUES (?,?,?,?,?,?,'pinnacle',?,?,?,?,?,?,'oddstrader',?)''',
+                     (eid, season, week, home, away, commence, market, side, phase, line, price, updated, updated))
+    con.commit()
+    con.close()
+
+
+class BettingDatasetTests(unittest.TestCase):
+    """The shared chronology-critical block both labs used to duplicate."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.db = str(Path(cls.tmp.name) / 'betting.sqlite')
+        build_betting_fixture(cls.db)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_a_valid_open_close_pair_survives_with_correct_fields(self):
+        result = shared.build_betting_dataset(self.db, min_season=2022, through_season=2025)
+        pairs = result['quote_pairs']
+        self.assertEqual(len(pairs), 1)
+        p = pairs[0]
+        self.assertEqual(p['market'], 'spreads')
+        self.assertEqual(p['home'], 'KC')
+        self.assertEqual(p['o']['line'], -3.0)
+        self.assertEqual(p['c']['line'], -1.0)
+        self.assertEqual(p['decision'], datetime(2023, 9, 5, 12, 0, 30, tzinfo=timezone.utc),
+                          'decision is the LATER of the two opening quotes, not the earlier')
+
+    def test_min_season_excludes_the_pair(self):
+        result = shared.build_betting_dataset(self.db, min_season=2024, through_season=2025)
+        self.assertEqual(result['quote_pairs'], [])
+
+    def test_a_mismatched_spread_pair_is_quarantined_as_different_contracts(self):
+        con = sqlite3.connect(self.db)
+        con.execute('''INSERT INTO nfl_odds_archive VALUES
+            ('e2',2023,1,'KC','DET','2023-09-07T20:20:00Z','pinnacle','spreads','KC','open',-3.0,-110,'2023-09-05T12:01:00Z','oddstrader','2023-09-05T12:01:00Z')''')
+        con.execute('''INSERT INTO nfl_odds_archive VALUES
+            ('e2',2023,1,'KC','DET','2023-09-07T20:20:00Z','pinnacle','spreads','DET','open',2.5,-110,'2023-09-05T12:01:20Z','oddstrader','2023-09-05T12:01:20Z')''')
+        con.execute('''INSERT INTO nfl_odds_archive VALUES
+            ('e2',2023,1,'KC','DET','2023-09-07T20:20:00Z','pinnacle','spreads','KC','close',-1.0,-115,'2023-09-07T18:00:00Z','oddstrader','2023-09-07T18:00:00Z')''')
+        con.commit(); con.close()
+        result = shared.build_betting_dataset(self.db, min_season=2022, through_season=2025)
+        reasons = {q['eid']: q['reason'] for q in result['quarantine']['quote_pairs_excluded']}
+        self.assertEqual(reasons.get('e2'), 'different_contracts',
+                          '-3.0 and 2.5 do not sum to zero: not a real two-sided market')
+
+    def test_quote_pairs_excluded_count_matches_the_list(self):
+        result = shared.build_betting_dataset(self.db, min_season=2022, through_season=2025)
+        q = result['quarantine']
+        self.assertEqual(q['quote_pairs_excluded_count'], len(q['quote_pairs_excluded']))
 
 
 if __name__ == '__main__':

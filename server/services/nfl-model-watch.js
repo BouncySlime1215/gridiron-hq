@@ -39,7 +39,9 @@ import { propEdgeEvidence } from './nfl-prop-clv.js';
 
 // nfl_model_watch_runs comes from server/migrations/000_legacy_schema.js.
 
-const SEASONS = [2022, 2023, 2024, 2025];
+// Extend this every season: a drift watch that stops at last year cannot see
+// the current season landing, which is precisely when drift needs catching.
+const SEASONS = [2022, 2023, 2024, 2025, 2026];
 
 /**
  * One evaluation pass. Everything here is a read of an existing audit; no

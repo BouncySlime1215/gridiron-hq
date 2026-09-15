@@ -464,11 +464,68 @@ test('LOAD-BEARING: the replayed incumbent reproduces fitEnsemble exactly', asyn
     assert.equal(m.residual_slope, t.residual_slope, `${m.id}: slope`);
     assert.equal(m.residual_rmse, t.residual_rmse, `${m.id}: residual RMSE`);
     assert.equal(m.residual_rmse_gain, t.residual_rmse_gain, `${m.id}: RMSE gain`);
-    assert.equal(m.residual_paired_t, t.residual_paired_t, `${m.id}: paired t`);
+    // The superseded statistic, reproduced alongside for audit continuity --
+    // never the thing either gate reads.
+    assert.equal(m.residual_paired_t, t.residual_paired_t, `${m.id}: legacy paired t`);
+    // The statistic the gate ACTUALLY reads post-FIX #2: DM/HLN, clustered by
+    // week. Asserting these too is what makes this test load-bearing again --
+    // before the 2026-09-15 fix, `gate_passed` was computed from the naive
+    // paired t while `fitEnsemble` had already moved to DM, and this test
+    // passed only because the two statistics happened to agree on every
+    // component in this fixture, not because the code paths matched.
+    assert.equal(m.residual_dm_t, t.residual_dm_t, `${m.id}: DM statistic`);
+    assert.equal(m.residual_dm_p, t.residual_dm_p, `${m.id}: DM p-value`);
+    assert.equal(m.residual_dm_ok, t.residual_dm_ok, `${m.id}: DM computability`);
     assert.equal(m.gate_passed, t.residual_gate_passed, `${m.id}: gate decision`);
     assert.equal(m.residual_weight, t.residual_weight, `${m.id}: blend weight`);
   }
   assert.ok(compared >= 20, `only ${compared} components were actually compared`);
+});
+
+test('the incumbent gate reads Diebold-Mariano, not the fixed -1.645 paired-t critical value', () => {
+  // A component built so the naive paired t and DM disagree: its departure
+  // from the market is CONSTANT (so its point forecast does not itself track
+  // anything week-specific), but the outcome it is graded against carries a
+  // large shared per-week shock (every game on a slate moving together --
+  // shared market state, injury news, weather). That shared shock makes the
+  // loss differential nearly identical within a week, so the naive paired t
+  // -- which divides by sqrt(GAMES) -- overstates precision exactly the way
+  // this file's and forecast-comparison.js's own comments describe. DM
+  // -- which divides by sqrt(WEEKS) -- is not fooled by it. If `gate_passed`
+  // ever again reads the naive statistic instead of DM, this is the case
+  // where it would show.
+  const rand = mulberry32(6);
+  const ids = ['a'];
+  const records = [];
+  const TOTAL_WEEKS = 75, GAMES_PER_WEEK = 14, TRUE_EDGE = 0.05, WEEK_EFFECT_MAG = 4, NOISE_SD = 6;
+  let season = 2020, week = 1;
+  for (let w = 0; w < TOTAL_WEEKS; w++) {
+    const weekEffect = (rand() < 0.5 ? -1 : 1) * WEEK_EFFECT_MAG;
+    for (let g = 0; g < GAMES_PER_WEEK; g++) {
+      const actual = TRUE_EDGE + weekEffect + normal(rand) * NOISE_SD; // market = 0
+      records.push({
+        season, week, week_key: `${season}|${week}`, home: `H${w}_${g}`, away: `A${w}_${g}`,
+        market_margin: 0, actual_margin: actual,
+        margins: { a: 1 } // constant departure: the point forecast never sees weekEffect
+      });
+    }
+    week++;
+    if (week > 18) { week = 1; season++; }
+  }
+  const fit = fitIncumbentMarketResidual(records, ids);
+  const m = fit.models[0];
+  assert.ok(m.residual_n >= 250, `only ${m.residual_n} out-of-fold rows`);
+  assert.ok(m.residual_rmse_gain >= 0.03, `RMSE gain too small: ${m.residual_rmse_gain}`);
+  assert.ok(m.residual_dm_ok, 'DM should be computable on this fixture');
+  // The construction is chosen so the naive paired t clears -1.645 while DM's
+  // p-value does not clear 0.05 -- i.e. the superseded rule would have gated
+  // this component in, and the corrected rule (correctly) does not.
+  assert.ok(m.residual_paired_t <= -1.645,
+    `fixture did not produce the intended naive-t pass (got ${m.residual_paired_t})`);
+  assert.ok(m.residual_dm_p > 0.05,
+    `fixture did not produce the intended DM fail (got p=${m.residual_dm_p})`);
+  assert.equal(m.gate_passed, false,
+    'gate_passed followed the naive paired t instead of DM');
 });
 
 test('when nothing clears the incumbent gate, the incumbent IS the market, and says so', () => {

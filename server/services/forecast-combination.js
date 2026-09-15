@@ -41,8 +41,24 @@ import { greedyBasis } from './nfl-ensemble-rank.js';
 
 export const FORECAST_COMBINATION_VERSION = 'nfl-forecast-combination-v1';
 
-/** The incumbent's promotion gate, copied from `fitEnsemble` so it can be replayed. */
-const INCUMBENT_GATE = Object.freeze({ minScoreRows: 250, minGain: 0.03, maxPairedT: -1.645 });
+/**
+ * The incumbent's promotion gate, copied from `fitEnsemble` so it can be
+ * replayed.
+ *
+ * CORRECTED 2026-09-15: this used to read `maxPairedT: -1.645`, a fixed
+ * one-sided normal critical value applied to a naive paired t over per-game
+ * squared errors. That was a faithful copy of `fitEnsemble`'s gate as it
+ * existed before 2026-09-12 -- but `fitEnsemble` (nfl-ensemble.js) was
+ * corrected that day (Giant Plan 7.2, FIX #2) to gate on Diebold-Mariano with
+ * the Harvey-Leybourne-Newbold small-sample correction, clustered by week,
+ * against a one-sided 5% p-value instead: the games on one slate are not
+ * independent observations, and a fixed -1.645 silently re-imports the
+ * large-sample assumption HLN exists to remove (see the FIX #2 comment on
+ * `fitEnsemble`, and `server/services/forecast-comparison.js`). This copy had
+ * fallen out of sync with the thing it claims to replay. `dmAlpha` below is
+ * the current production threshold, not a new one invented here.
+ */
+const INCUMBENT_GATE = Object.freeze({ minScoreRows: 250, minGain: 0.03, dmAlpha: 0.05 });
 
 /** Rounding the incumbent applies to the slope and RMSE its blend then reads. */
 const r3 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(3));
@@ -339,9 +355,12 @@ export function reduceComponents(trainRecords, {
  * other candidate, from precisely the same replayed component forecasts. The
  * arithmetic is copied line for line from `fitEnsemble`: the per-component
  * no-intercept slope fit on an earlier chronological sub-block, the gate on
- * (out-of-fold rows >= 250, RMSE gain >= 0.03, paired t <= -1.645), the
- * exp(-0.7 * residual RMSE) weighting, and the same 3-decimal rounding the
- * production blend actually reads.
+ * (out-of-fold rows >= 250, RMSE gain >= 0.03, Diebold-Mariano with the
+ * Harvey-Leybourne-Newbold correction clustered by week, one-sided p <= 0.05),
+ * the exp(-0.7 * residual RMSE) weighting, and the same 3-decimal rounding the
+ * production blend actually reads. The naive paired t is still computed
+ * alongside and reported as `residual_paired_t`, exactly as `fitEnsemble`
+ * does -- for audit continuity, never read by the gate.
  *
  * `test/forecast-combination.test.js` asserts this reproduces `fitEnsemble`'s
  * own slopes, weights and gate decisions on a fixture. If that assertion ever
@@ -362,17 +381,22 @@ export function fitIncumbentMarketResidual(trainRecords, componentIdList) {
     const splitIdx = completeWeekSplit(weekKeys);
     const fitSignal = signal.slice(0, splitIdx), fitActual = actual.slice(0, splitIdx);
     const scoreSignal = signal.slice(splitIdx), scoreActual = actual.slice(splitIdx);
+    const scoreWeekKeys = weekKeys.slice(splitIdx);
     const denominator = fitSignal.reduce((s, x) => s + x * x, 0);
     const slope = denominator > 0
       ? fitSignal.reduce((s, x, i) => s + x * fitActual[i], 0) / denominator : 0;
     const baselineMse = scoreActual.length ? mean(scoreActual.map(x => x ** 2)) : null;
     const residualMse = scoreActual.length
       ? mean(scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2)) : null;
-    const paired = scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2 - x ** 2);
-    const pairedMean = paired.length ? mean(paired) : null;
-    const pairedSd = paired.length > 1
-      ? Math.sqrt(paired.reduce((s, x) => s + (x - pairedMean) ** 2, 0) / (paired.length - 1)) : null;
-    const pairedT = pairedSd > 0 ? pairedMean / (pairedSd / Math.sqrt(paired.length)) : null;
+    // Same significance leg `fitEnsemble` reads post-FIX #2: DM/HLN, clustered
+    // by week (a slate is one forecast period, not one-per-game), one-sided
+    // "model beats market". The naive paired t is still computed alongside,
+    // exactly as `fitEnsemble` does, and reported but never gates anything.
+    const modelLoss = scoreActual.map((x, i) => (x - slope * scoreSignal[i]) ** 2);
+    const marketLoss = scoreActual.map(x => x ** 2);
+    const dm = dieboldMariano(modelLoss, marketLoss, { horizon: 1, clusters: scoreWeekKeys });
+    const naive = naivePairedT(modelLoss, marketLoss);
+    const pairedT = naive.ok ? naive.statistic : null;
     const marketRmse = baselineMse == null ? null : Math.sqrt(baselineMse);
     const modelRmse = residualMse == null ? null : Math.sqrt(residualMse);
     const gain = marketRmse == null || modelRmse == null ? null : marketRmse - modelRmse;
@@ -381,10 +405,17 @@ export function fitIncumbentMarketResidual(trainRecords, componentIdList) {
     const residualRmse = residualMse == null ? null : r3(Math.sqrt(residualMse));
     const passed = scoreActual.length >= INCUMBENT_GATE.minScoreRows
       && r3(gain) >= INCUMBENT_GATE.minGain
-      && r3(pairedT) <= INCUMBENT_GATE.maxPairedT;
+      && dm.ok === true && dm.pLess <= INCUMBENT_GATE.dmAlpha;
     models.push({
       id, residual_slope: residualSlope, residual_rmse: residualRmse,
-      residual_rmse_gain: r3(gain), residual_paired_t: r3(pairedT),
+      residual_rmse_gain: r3(gain),
+      residual_dm_t: dm.ok ? r3(dm.statistic) : null,
+      residual_dm_p: dm.ok ? +dm.pLess.toFixed(4) : null,
+      residual_dm_weeks: dm.ok ? dm.periods : null,
+      residual_dm_ok: dm.ok,
+      residual_dm_reason: dm.ok ? null : dm.reason,
+      // Superseded; retained for audit continuity, never read by the gate.
+      residual_paired_t: r3(pairedT),
       residual_n: scoreActual.length, residual_fit_n: fitActual.length,
       gate_passed: passed,
       raw_weight: passed ? Math.exp(-0.7 * residualRmse) : 0

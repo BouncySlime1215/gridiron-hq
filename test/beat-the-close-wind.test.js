@@ -41,8 +41,11 @@ function seedGame(home, away, { totalOpen, totalNow, spreadOpen = -3, spreadNow 
   eid++;
   run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,implied_points,source,fetched_at,gameday,gametime)
        VALUES (2026,1,?,?,1,?,?,?,'test',datetime('now'),'2026-09-13','13:00')`, home, away, spreadOpen, totalOpen, totalOpen / 2);
+  // `fetched_at` fixed just after the book posted the opener, not
+  // `datetime('now')` — openerFor's receipt-clock check requires this to be
+  // at or before the fixed `now` these tests pass to decideBeatTheClose.
   run(`INSERT INTO nfl_odds_archive (eid,season,week,home,away,commence_time,book,market,side,phase,line,price,book_updated_at,source,fetched_at)
-       VALUES (?,2026,1,?,?,'2026-09-13T17:00:01Z','pinnacle','totals','Over','open',?,-110,'2026-05-15T14:00:00Z','test',datetime('now'))`,
+       VALUES (?,2026,1,?,?,'2026-09-13T17:00:01Z','pinnacle','totals','Over','open',?,-110,'2026-05-15T14:00:00Z','test','2026-05-16T00:00:00Z')`,
   eid, home, away, totalOpen);
   const homeName = rows('SELECT name FROM nfl_teams WHERE abbr=?', home)[0].name;
   const awayName = rows('SELECT name FROM nfl_teams WHERE abbr=?', away)[0].name;
@@ -102,7 +105,7 @@ test('the reachable-quote check still applies: no price, no decision, even with 
   run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,implied_points,source,fetched_at,gameday,gametime)
        VALUES (2026,1,'BUF','NYJ',1,-3,42,22.5,'test',datetime('now'),'2026-09-13','13:00')`);
   run(`INSERT INTO nfl_odds_archive (eid,season,week,home,away,commence_time,book,market,side,phase,line,price,book_updated_at,source,fetched_at)
-       VALUES (?,2026,1,'BUF','NYJ','2026-09-13T17:00:01Z','pinnacle','totals','Over','open',42,-110,'2026-05-15T14:00:00Z','test',datetime('now'))`, eid);
+       VALUES (?,2026,1,'BUF','NYJ','2026-09-13T17:00:01Z','pinnacle','totals','Over','open',42,-110,'2026-05-15T14:00:00Z','test','2026-05-16T00:00:00Z')`, eid);
   seedWeather('BUF', 30);
   const result = btc.decideBeatTheClose({ season: 2026, week: 1, now });
   assert.ok(!result.decisions.some(d => d.game === 'NYJ at BUF'));

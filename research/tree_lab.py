@@ -31,26 +31,21 @@ extends the research program with:
     ranker on its top-graded opportunities. Verdicts land in the report's
     `model_discipline` block pass or fail; `--discipline strict` stops instead.
 
-The dataset builder below is a close relative of market_lab.build_dataset,
-not an import of it: it needs several team-week fields and time windows
-market_lab's leaner pilot never extracts (off_qb_hit_rate, def_pressure_epa,
-off_pass_rate, off_epa_volatility, a second recent-form window, per-team rest
-days, stadium roof). Reusing market_lab's build_dataset was tried and would
-have meant re-deriving the internal per-team history/pbp sequences from an
-already-reduced dict, which is worse than writing a second, closely-mirrored
-extractor. THE CHRONOLOGY-CRITICAL LINES -- the archive join, the timestamp
-validation, the decision-time computation -- are copied verbatim from
-market_lab.build_dataset on purpose, to avoid inventing a second, subtly
-different chronology rule. If you change one, check the other.
-
-This duplication is a real, named risk (see the master plan's Package C
-section and this run's final report): two extractors that are meant to agree
-on "what a decision-time-safe row looks like" can drift apart silently. A
-follow-up worth doing is factoring the shared chronology block into one
-importable function both scripts call.
+The dataset builder below shares its chronology with market_lab.build_dataset
+via research/betting/nfl/dataset.py's build_betting_dataset/paired_quotes --
+the archive join, timestamp validation and decision-time computation used to
+be copied verbatim in each lab (a real, named risk: two extractors meant to
+agree on "what a decision-time-safe row looks like" could drift apart
+silently), and now live in exactly one place both labs call. Feature
+engineering stays separate: this lab still needs several team-week fields and
+time windows market_lab's leaner pilot never extracts (off_qb_hit_rate,
+def_pressure_epa, off_pass_rate, off_epa_volatility, a second recent-form
+window, per-team rest days, stadium roof), plus the five interaction terms
+and the quantile/classification targets market_lab never needed -- all of
+that is built here, from the shared, already-validated rows.
 """
 from __future__ import annotations
-import argparse, collections, hashlib, itertools, json, math, sqlite3, time
+import argparse, collections, hashlib, itertools, json, math, sys, time
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import numpy as np
@@ -68,6 +63,9 @@ from market_lab import stamp, digest, atomic_json, american_profit, settlement, 
 from leakage import detect_feature_leakage
 from model_discipline import check_fold, record, summarize
 from drift import scan_lab_fold
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'betting' / 'nfl'))
+import dataset as shared_dataset  # noqa: E402
 
 # v2 adds two additive, optional blocks: `model_discipline` (research/model_discipline.py)
 # and `drift_scans` (research/drift.py, run next to the leakage scan). The reader
@@ -122,7 +120,7 @@ def mean(a):
     return float(np.mean(a)) if len(a) else 0.0
 
 
-def build_dataset(db_path):
+def build_dataset(db_path, min_season=2022, through_season=2025):
     """Extended, decision-time-safe extraction. See module docstring.
 
     Returns (rows, dropped) with the SAME row shape as market_lab.build_dataset
@@ -133,76 +131,21 @@ def build_dataset(db_path):
     both new targets: sign(outcome) is the cover/over label (push excluded),
     outcome itself is the quantile-regression target.
     """
-    con = sqlite3.connect(Path(db_path).resolve().as_uri() + '?mode=ro', uri=True)
-    con.row_factory = sqlite3.Row
-    con.execute('BEGIN')
-    games = [dict(x) for x in con.execute('''SELECT season,week,team,opponent,spread,total,
-        team_score,opp_score,gameday,rest_days,div_game,roof FROM game_lines WHERE home=1 AND season<=2025 ORDER BY season,week''')]
-    # Every team's OWN rest_days, keyed by (season,week,team) -- the home-only
-    # query above only carries the home team's rest, and the away team's rest
-    # comes from its own row in the same table.
-    rest_by_team_week = {(r['season'], r['week'], r['team']): r['rest_days']
-        for r in con.execute('SELECT season,week,team,rest_days FROM game_lines')}
-    history = collections.defaultdict(list)
-    week_end = {}
-    game_map = {}
-    for g in games:
-        game_map[(g['season'], g['week'], g['team'])] = g
-        d = stamp(g['gameday'])
-        if d is None or g['team_score'] is None or g['opp_score'] is None:
-            continue
-        ready = d + timedelta(days=3)  # conservative publication proxy, unchanged from market_lab
-        k = (g['season'], g['week'])
-        week_end[k] = max(week_end.get(k, ready), ready)
-        m = g['team_score'] - g['opp_score']
-        total = g['team_score'] + g['opp_score']
-        for team, margin in [(g['team'], m), (g['opponent'], -m)]:
-            history[team].append((ready, margin, total))
-    pbp = collections.defaultdict(list)
-    for r in con.execute('SELECT season,week,team,features FROM nfl_team_week_features WHERE season<=2025'):
-        ready = week_end.get((r['season'], r['week']))
-        if ready is None:
-            continue
-        try:
-            f = json.loads(r['features'])
-        except (TypeError, ValueError):
-            continue
-        pbp[r['team']].append((ready, f))
-    for v in history.values():
-        v.sort(key=lambda z: z[0])
-    for v in pbp.values():
-        v.sort(key=lambda z: z[0])
-    # --- everything above this line mirrors market_lab.build_dataset's setup ---
-    archive = [dict(x) for x in con.execute('''SELECT eid,season,week,home,away,commence_time,
-       market,side,phase,line,price,book_updated_at,source FROM nfl_odds_archive
-       WHERE book='pinnacle' AND market IN ('spreads','totals') AND season BETWEEN 2022 AND 2025''')]
-    con.close()
-    by_game = collections.defaultdict(dict)
-    for q in archive:
-        by_game[(q['eid'], q['market'])][(q['phase'], q['side'])] = q
+    result = shared_dataset.build_betting_dataset(db_path, min_season=min_season, through_season=through_season)
+    history, pbp = result['history'], result['pbp']
+    rest_by_team_week = result['rest_by_team_week']
+    # Reason strings now come from dataset.py's canonical quarantine
+    # vocabulary -- see market_lab.build_dataset's identical note.
     dropped = collections.Counter()
+    for section in ('games_excluded', 'team_week_features_excluded', 'quote_pairs_excluded'):
+        for item in result['quarantine'][section]:
+            dropped[item['reason']] += 1
+
     out = []
-    for (eid, market), qs in by_game.items():
-        sample = next(iter(qs.values()))
-        pos = sample['home'] if market == 'spreads' else 'Over'
-        neg = sample['away'] if market == 'spreads' else 'Under'
-        o = qs.get(('open', pos)); opposite = qs.get(('open', neg)); c = qs.get(('close', pos))
-        g = game_map.get((sample['season'], sample['week'], sample['home']))
-        if not all([o, opposite, c, g]):
-            dropped['missing_pair_or_result'] += 1; continue
-        ot, nt, ct, kick = [stamp(v) for v in [o['book_updated_at'], opposite['book_updated_at'], c['book_updated_at'], sample['commence_time']]]
-        if any(t is None for t in [ot, nt, ct, kick]) or not (ot <= ct < kick) or abs((nt - ot).total_seconds()) > 60:
-            dropped['invalid_or_unpaired_timestamps'] += 1; continue
-        decision = max(ot, nt)
-        if not decision < ct or decision >= kick or g['team_score'] is None or g['opp_score'] is None:
-            dropped['no_future_close_or_score'] += 1; continue
-        if any(american_profit(q['price']) is None for q in [o, opposite]):
-            dropped['missing_real_prices'] += 1; continue
-        if not all(isinstance(q['line'], (int, float)) and math.isfinite(q['line']) for q in [o, opposite, c]):
-            dropped['bad_line'] += 1; continue
-        if (market == 'spreads' and abs(o['line'] + opposite['line']) > 1e-9) or (market == 'totals' and o['line'] != opposite['line']):
-            dropped['different_contracts'] += 1; continue
-        # --- chronology guard block ends; feature construction begins ---
+    for p in result['quote_pairs']:
+        o, opposite, c, g = p['o'], p['opposite'], p['c'], p['g']
+        decision, kick, ct = p['decision'], p['kick'], p['ct']
+        market, sample = p['market'], p['sample']
 
         p_pos, p_neg = american_implied_prob(o['price']), american_implied_prob(opposite['price'])
         overround = (p_pos + p_neg - 1) if (p_pos is not None and p_neg is not None) else None
@@ -302,7 +245,7 @@ def build_dataset(db_path):
         outcome = (g['team_score'] - g['opp_score'] + o['line']) if market == 'spreads' \
             else ((g['team_score'] + g['opp_score']) - o['line'])
         y = o['line'] - c['line'] if market == 'spreads' else c['line'] - o['line']
-        out.append({'event_id': str(eid), 'market': market, 'season': g['season'], 'week': g['week'],
+        out.append({'event_id': p['eid'], 'market': market, 'season': g['season'], 'week': g['week'],
             'home': sample['home'], 'away': sample['away'], 'decision_at': decision.isoformat(),
             'label_at': ct.isoformat(), 'opening_line': o['line'], 'closing_line': c['line'],
             'positive_price': o['price'], 'negative_price': opposite['price'],
@@ -745,8 +688,10 @@ def run_movement(data, names, market, season, run_dir, tpot_minutes, errors, dis
     test = [r for r in data if r['market'] == market and r['season'] == season]
     if not test:
         return None
-    outer_cutoff = min(stamp(r['decision_at']) for r in test) - timedelta(days=7)
-    train = [r for r in data if r['market'] == market and r['season'] < season and stamp(r['label_at']) < outer_cutoff]
+    # research/betting/nfl/dataset.py owns this cutoff-safe filter now -- see
+    # eligible_training_rows's docstring for the two conditions (earlier
+    # season AND settled-before-cutoff label).
+    train = shared_dataset.eligible_training_rows(data, test, market=market, before_season=season)
     cv = time_folds(train)
     if len(cv) < 2:
         errors.append(f'{market}/{season}/move: insufficient temporal training folds')
@@ -801,8 +746,11 @@ def run_classification(data, names, market, season, run_dir, tpot_minutes, error
     test = [r for r in all_rows if r['season'] == season]
     if not test:
         return None
-    outer_cutoff = min(stamp(r['decision_at']) for r in test) - timedelta(days=7)
-    train = [r for r in all_rows if r['season'] < season and stamp(r['label_at']) < outer_cutoff]
+    # `all_rows` is already market-filtered (and outcome!=0-filtered) above,
+    # so no market kwarg here -- eligible_training_rows's market=None default
+    # applies no further market filter, which is exactly what this call site
+    # already relied on.
+    train = shared_dataset.eligible_training_rows(all_rows, test, before_season=season)
     cv = time_folds(train)
     if len(cv) < 2:
         errors.append(f'{market}/{season}/cover: insufficient temporal training folds')
@@ -891,8 +839,10 @@ def run_quantile(data, names, market, season, run_dir, errors, discipline=None, 
     test = [r for r in data if r['market'] == market and r['season'] == season]
     if not test:
         return None
-    outer_cutoff = min(stamp(r['decision_at']) for r in test) - timedelta(days=7)
-    train = [r for r in data if r['market'] == market and r['season'] < season and stamp(r['label_at']) < outer_cutoff]
+    # research/betting/nfl/dataset.py owns this cutoff-safe filter now -- see
+    # eligible_training_rows's docstring for the two conditions (earlier
+    # season AND settled-before-cutoff label).
+    train = shared_dataset.eligible_training_rows(data, test, market=market, before_season=season)
     cv = time_folds(train)
     if len(cv) < 2:
         errors.append(f'{market}/{season}/quantile: insufficient temporal training folds')
@@ -1072,9 +1022,7 @@ def run(args):
             score_rows = [r for r in data if r['market'] == market and r['season'] == season]
             if not score_rows:
                 continue
-            outer_cutoff = min(stamp(r['decision_at']) for r in score_rows) - timedelta(days=7)
-            train_rows = [r for r in data if r['market'] == market and r['season'] < season
-                          and stamp(r['label_at']) < outer_cutoff]
+            train_rows = shared_dataset.eligible_training_rows(data, score_rows, market=market, before_season=season)
             try:
                 drift_reports.append(scan_lab_fold(train_rows, score_rows, names, market=market,
                                                    score_season=season, label=f'{market}/{season}',

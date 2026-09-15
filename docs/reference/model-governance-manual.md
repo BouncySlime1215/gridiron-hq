@@ -258,6 +258,130 @@ when they are weak standalone predictors.
 
 Failing a late gate never requires deleting early-stage evidence.
 
+### 4.4 Rule ownership: learning filters, data-integrity checks, and betting-authority rules
+
+Stage 1 of `docs/CLAUDE-NEXT-STEPS.md` §0.0 asks these three concerns to be separated, each
+given one owner, with duplicated or incompatible rules marked for replacement. They map onto
+§4.3's hierarchy as: data/forecast gates are data-integrity; research/robustness gates are
+learning filters; calibration/forward/staking gates are betting-authority. This section names
+the file/function that actually implements each stage today.
+
+**Learning filters** — decide what a model may learn from, or whether a fit is valid at all.
+Research-only; nothing here has production or staking authority.
+
+| Concern | Owner (file : function) |
+|---|---|
+| Feature-leakage scan (single-feature out-of-fold skill implausibly close to perfect) | `research/leakage.py` : `detect_feature_leakage` |
+| Observation-to-parameter discipline before a fit (effective observations per fold, per target type) | `research/model_discipline.py` : `effective_observations` / `check_fold` |
+| Population drift between fit-time and score-time (PSI, joint-domain classifier) | `research/drift.py` : `detect_distribution_drift` |
+| Chronological training eligibility (which rows may be fit on for a given scored fold) | `research/betting/nfl/dataset.py` : `fold_cutoff` / `eligible_training_rows` (declared canonical; see 4.4.1 below — not yet the rows actually used) |
+| Quarantine of invalid rows in research dataset builders (count and report, never silently drop) | `research/betting/nfl/dataset.py` : `build_chronology` / `load_team_week_features` (`quarantine` param); duplicated inline in `research/market_lab.py::build_dataset` and `research/tree_lab.py::build_dataset` — see 4.4.1 |
+
+**Data-integrity checks** — verify inputs are correct, timestamped, and fresh, independent of
+whether anything is learning from them.
+
+| Concern | Owner (file : function) |
+|---|---|
+| Cross-season, per-source coverage/freshness audit (every real input, `capture_mode` classified) | `server/services/nfl-data-consistency.js` : `nflDataConsistencyAudit` |
+| Per-feature availability contract (source, availability rule, cadence, staleness, missing-value behavior) | `server/services/model-governance.js` : `featureContracts` (data) — **straddles categories, see below** |
+| Evidence-cutoff validation (no outcome-era timestamp hidden inside a captured manifest) | `server/services/model-governance.js` : `validateEvidenceCutoff` — **straddles categories, see below** |
+| T−60 evidence freezing (received/published/effective clocks kept separate; late arrivals excluded, not backdated) | `server/services/nfl-t60-packet.js` : `freezeT60Packet` |
+| Decision-time quote staleness bound for the execution ledger | `server/services/nfl-execution-replay.js` : `DEFAULT_MAX_STALENESS_SECONDS` (1800s), consumed by `nfl-execution-pipeline.js::resolveQuoteBasis` and `nfl-execution-replay.js`'s own replay functions — one constant, several consumers; not a duplicate |
+
+`server/services/model-governance.js` is the one file this investigation found that
+straddles the mapping Stage 1 asks to separate: `featureContracts`/`validateEvidenceCutoff`
+are data-integrity (do the inputs meet their declared contract?), while `recordGateAudit`,
+`promoteEligibleAudit` and `updateRegistry` in the same file are betting-authority (may this
+model version replace the champion?). They are not logically incompatible — nothing about
+splitting them changes behavior — but one file currently owns two answers to two different
+questions ("is this input trustworthy" vs "may this model be promoted"), which is exactly the
+shape Stage 1 asks to be pulled apart. **Recommendation:** split `model-governance.js` into a
+data-integrity module (`featureContracts`, `validateEvidenceCutoff`, `captureEvidenceManifest`,
+`evidenceManifests`) and a promotion module (`recordGateAudit`, `promoteEligibleAudit`,
+`updateRegistry`, `registry`, `registryHistory`), left as a documented follow-up rather than
+done in this pass (Stage 1 is mapping only; see task note below).
+
+**Betting-authority rules** — decide whether, and how, a real bet happens.
+
+| Concern | Owner (file : function) |
+|---|---|
+| Frozen production decision policy (markets, min edge, disagreement guard, ranking, weekly capacity, executable-EV floor) | `server/services/nfl-policy.js` : `NFL_PRODUCTION_POLICY` / `applyNflPolicy` |
+| Forward-evidence sample-size gate (settled decisions required before an aggregate/market CLV claim) | `server/services/nfl-policy.js` : `FORWARD_SAMPLE_TARGETS` (single definition, imported by `nfl-research.js`'s `forward_sample` gate — not duplicated) |
+| Promotion gate execution + registry write (champion/challenger state transition) | `server/services/model-governance.js` : `recordGateAudit` / `promoteEligibleAudit` / `updateRegistry` — see straddle note above |
+| Live 9-gate NFL spread promotion checklist | `server/services/nfl-research.js` : `nflOperations` (gates: `market_residual_margin`, `cover_calibration`, `exact_policy`, `forward_sample`, `quote_provenance`, `untouched_holdout`, `clv`, `pregame_coverage`, `overfitting_correction`) |
+| Statistical pre-registration across every audit ever filed (Šidák-corrected significance, always-valid mSPRT) | `server/services/audit-registry.js` : `preregister` / `runAudit` / `auditHistory` — answers "is any candidate's improvement statistically real across the whole system's testing history"; complementary to, not a duplicate of, `nflOperations`'s `overfitting_correction` gate below (own docstrings on both sides say so explicitly) |
+| Repeated-live-look correction for the one frozen NFL spread policy (deflated Sharpe, effective trial count) | `server/services/nfl-research.js` : `overfittingGate`, backed by `server/services/trial-statistics.js` (`effectiveTrialCount`, `deflatedSharpeRatio`) and `server/services/research-trials.js` (live trial ledger) — a candidate must clear this gate AND audit-registry's, not either |
+| Acceptance-time re-check (exposure budget, market-line corridor, suspect-price challenge, refreshed executable EV) | `server/services/nfl-execution-decision.js` : `attemptAcceptance` / `refreshedEconomics`, delegating to `nfl-execution-exposure.js`, `nfl-execution-corridor.js`, `nfl-execution-attribution.js` |
+| Decision-board-to-contract connector and quote-basis resolution before a stake | `server/services/nfl-execution-pipeline.js` : `resolveQuoteBasis` / the weekly connector |
+| Confidence-based stake sizing (fractional Kelly, calibration-gated, portfolio-level risk) | `server/services/staking.js` (`slateRiskCheck`), `server/services/nfl-execution-staking-policy.js`, `server/services/nfl-execution-edge.js::stakeFor` — each names the others as its source of the shared Kelly math rather than re-deriving it |
+
+#### Flagged for replacement
+
+1. **`expectedNetReturn`/profit-multiple arithmetic reimplemented instead of shared** —
+   `server/services/nfl-policy.js` lines 120–133 recomputes the American-price → profit-multiple
+   conversion inline (`price > 0 ? price / 100 : 100 / Math.abs(price)`, guarded by
+   `Math.abs(price) < 100`) inside its own `expectedNetReturn`, which is byte-for-byte the same
+   guard and formula as `server/betting/nfl/contracts/spread-probabilities.js:66-71`'s
+   `profitMultiple`. `server/services/nfl-execution-decision.js:46,103-104` already imports and
+   uses the `contracts/spread-probabilities.js` version (`expectedNetReturn({win, loss,
+   americanPrice})`, a different call shape from `nfl-policy.js`'s
+   `expectedNetReturn({winProbability, americanPrice, pushProbability})`, though the two are
+   currently mathematically consistent — `win=decided*p`, `loss=decided*(1-p)` reduces to the
+   same expression). Two independently-maintained copies of the same payout arithmetic, one
+   place already importing the other's sibling function — a future change to price validation
+   or rounding in one has no way to reach the other. **Recommendation:** make
+   `server/betting/nfl/contracts/spread-probabilities.js` the one owner of the American-price →
+   profit-multiple primitive; have `nfl-policy.js`'s `expectedNetReturn` call `profitMultiple`
+   instead of restating its formula and validity guard.
+
+2. **Chronological training-cutoff rule computed inline in up to seven places instead of the
+   one function that already exists for it** — **partially resolved.** The archive-join /
+   timestamp-validation / decision-time chronology both labs' `build_dataset` used to duplicate
+   is now the single `research/betting/nfl/dataset.py::paired_quotes`, called by both
+   `market_lab.build_dataset` and `tree_lab.build_dataset` (verified byte-identical dataset
+   hashes against the real database before/after for both labs). **Still open:** the SEPARATE
+   `fold_cutoff` arithmetic each lab's `run()` computes for its own outer/inner CV folds —
+   `min(stamp(r['decision_at']) for r in scored) - timedelta(days=7)` plus a
+   `season < season and label_at < outer_cutoff` filter — is still inlined seven times
+   (`market_lab.py:130,212,278`; `tree_lab.py:691,747,837,1018`) rather than calling
+   `dataset.py::fold_cutoff`/`eligible_training_rows`. All seven still agree with each other and
+   with `dataset.py`'s `SETTLED_LABEL_LAG`, so this remains a latent-not-live risk, not a bug.
+   **Recommendation, unchanged:** migrate those seven call sites onto `fold_cutoff`/
+   `eligible_training_rows` next.
+
+3. **Quarantine/dropped-row accounting duplicated between the two labs and the shared
+   extraction that was built to replace it** — **resolved.** `research/market_lab.py::build_dataset`
+   and `research/tree_lab.py::build_dataset` no longer maintain their own `dropped =
+   collections.Counter()` from an independent chronology walk; both now call
+   `research/betting/nfl/dataset.py::build_betting_dataset`, which does the game/feature/quote
+   quarantine once, and each lab's `dropped` Counter is built by summing the reason strings out
+   of that single shared `quarantine` dict. The reason-string vocabulary changed to `dataset.py`'s
+   canonical names (`missing_final_score`, `unparseable_json`, …) as a direct consequence —
+   `research/test_market_lab.py` and `research/test_tree_lab.py` were updated accordingly, and a
+   dataset-hash parity check against the real database confirmed both labs still select exactly
+   the same rows as before the migration.
+
+   Same commit also added `research/betting/nfl/dataset.py::build_football_dataset`: a broad,
+   price-agnostic dataset (1999+, no archived-quote requirement) for team-strength learning,
+   sitting alongside `build_betting_dataset` (still gated to seasons with a real archived quote,
+   2022+ today) rather than replacing it — Stage 2 of the plan (`docs/CLAUDE-NEXT-STEPS.md`
+   section 0.0). Against the real database: 7,291 broad-dataset rows spanning 1999-2026 vs.
+   roughly 150-285 betting-dataset rows per season/market in the 2022+ window the labs were
+   previously confined to.
+
+4. **Not flagged, checked and found to be correctly a single owner:** `FORWARD_SAMPLE_TARGETS`
+   (`nfl-policy.js`) is imported, not restated, by `nfl-research.js`'s `forward_sample` gate;
+   `DEFAULT_MAX_STALENESS_SECONDS` (`nfl-execution-replay.js`) is imported, not restated, by
+   `nfl-execution-pipeline.js`; and the deflated-Sharpe overfitting gate
+   (`nfl-research.js::overfittingGate`) and the Šidák-corrected audit registry
+   (`audit-registry.js`) are complementary checks over different evidence (one frozen policy's
+   own live-trial history vs. every hypothesis ever filed system-wide), not two implementations
+   of the same question. These were the most likely places for the kind of duplication Stage 1
+   warns about and were verified clean rather than assumed to be.
+
+This is a mapping pass only, per Stage 1's own instruction — no gate logic, threshold, or
+constant above was changed while producing this section.
+
 ## 5. Weekly learning lifecycle
 
 Run this lifecycle after each NFL week becomes final.

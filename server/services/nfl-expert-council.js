@@ -237,8 +237,17 @@ function newsFor(line, beforeIso) {
   const since = Number.isFinite(Date.parse(beforeIso)) ? new Date(Date.parse(beforeIso) - 7 * 86400000).toISOString() : beforeIso;
   const teamIds = rows(`SELECT id,abbr FROM nfl_teams WHERE abbr IN (?,?)`, line.home, line.away);
   const ids = teamIds.map(team => team.id);
+  // published_at<=beforeIso alone is not enough: a story can be published
+  // before the cutoff but not actually ingested into news_items (ingested_at,
+  // the pipeline's own receipt clock -- see server/news/store.js and its
+  // upsertNormalizedNewsItem, which only advances ingested_at when content
+  // genuinely changes) until after it. Requiring ingested_at<=beforeIso too
+  // is what makes a story genuinely "knowable as of cutoff" rather than
+  // knowable only in hindsight -- the same class of look-ahead risk closed
+  // in nfl-news-signal.js's playerNewsSignal/teamNewsSignals (created_at).
   const feedStories = ids.length ? rows(`SELECT COUNT(*) n FROM news_items WHERE published_at<=? AND published_at>=?
-    AND team_id IN (${ids.map(() => '?').join(',')})`, beforeIso, since, ...ids)[0]?.n ?? 0 : 0;
+    AND ingested_at<=?
+    AND team_id IN (${ids.map(() => '?').join(',')})`, beforeIso, since, beforeIso, ...ids)[0]?.n ?? 0 : 0;
   let burdenEdge = r3((away.unavailable_burden ?? 0) - (home.unavailable_burden ?? 0));
   // A raw research opinion, not a hard-coded production weight. Each verified
   // unavailable player contributes probability x source confidence; the
@@ -331,8 +340,20 @@ function shoppingFor(home, away, cutoff) {
   const normalize = value => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const teams = rows(`SELECT abbr,name FROM nfl_teams WHERE abbr IN (?,?)`, home, away);
   const aliases = new Map(teams.map(team => [team.abbr, [normalize(team.abbr), normalize(team.name)]]));
+  // `captured_at<=cutoff` alone is a CONTENT-clock check: for archive-sourced
+  // rows it is the book's own book_updated_at, not when this system actually
+  // received the quote (`received_at`, from nfl_odds_archive.fetched_at --
+  // see migration 052_line_snapshot_receipt_clock.js). Without also requiring
+  // received_at<=cutoff, a historical (e.g. 2022-2025) game's cutoff can see
+  // a closing quote this system did not actually possess until a much later
+  // backfill run -- the same look-ahead class already closed for
+  // news_items.ingested_at and nfl_injuries.modified_at. A row with no known
+  // receipt clock (`received_at IS NULL`, e.g. `legacy_unrecoverable`) is
+  // excluded rather than trusted.
   const snapshots = rows(`SELECT * FROM nfl_line_snapshots WHERE captured_at<=? AND market='spreads'
-    AND (commence_time IS NULL OR commence_time>?) ORDER BY captured_at DESC`, cutoff, cutoff)
+    AND (commence_time IS NULL OR commence_time>?)
+    AND received_at IS NOT NULL AND received_at<=?
+    ORDER BY captured_at DESC`, cutoff, cutoff, cutoff)
     .filter(row => {
       const h = normalize(row.home_team), a = normalize(row.away_team);
       const homeAliases = aliases.get(home) ?? [normalize(home)], awayAliases = aliases.get(away) ?? [normalize(away)];
@@ -466,7 +487,12 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
   const cutoff = kickoffFor(season, week, game.home);
   const modelResiduals = (line.models ?? []).filter(model => Number.isFinite(model.margin))
     .map(model => model.margin - marketMargin);
-  const simpleIds = new Set(['elo', 'melo', 'point_diff', 'pythagorean', 'recent_form', 'rest_travel']);
+  // 'elo' was never a registered component id -- nfl-ensemble.js's Elo-family
+  // rating is 'melo' (Margin-dependent Elo), already listed below. A stale
+  // reference here has no effect on `simple` (Set#has never matched it), so
+  // removing it is a no-op on the computed rulebook median/sd -- just dead
+  // code, not a behavior change.
+  const simpleIds = new Set(['melo', 'point_diff', 'pythagorean', 'recent_form', 'rest_travel']);
   const simple = line.models.filter(model => simpleIds.has(model.id) && Number.isFinite(model.margin))
     .map(model => model.margin - marketMargin);
   const availability = gamePlayerAvailability(season, week, game.home, game.away);

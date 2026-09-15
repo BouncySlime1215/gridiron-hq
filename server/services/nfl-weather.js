@@ -48,7 +48,7 @@ async function hourAt(lat, lon, kickoffIso) {
 }
 
 /** Fetch kickoff-hour weather for every outdoor, non-neutral game not already stored. */
-export async function syncGameWeather({ seasons = [2022, 2023, 2024, 2025], pauseMs = 150, onProgress = null } = {}) {
+export async function syncGameWeather({ seasons = [2022, 2023, 2024, 2025, 2026], pauseMs = 150, onProgress = null } = {}) {
   const games = outdoorGames(seasons);
   // Only a real archive row (the game already happened) should block a re-fetch —
   // a forecast row (source='open-meteo-forecast', written for a game still ahead of

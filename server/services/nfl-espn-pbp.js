@@ -378,7 +378,7 @@ export async function playDistributionAudit({ season = null, sampleTrials = 2000
  * 1,400 parallel requests.
  */
 export async function backfillSeasons({
-  seasons = [2021, 2022, 2023, 2024, 2025], throttleMs = 120, onProgress = null
+  seasons = [2021, 2022, 2023, 2024, 2025, 2026], throttleMs = 120, onProgress = null
 } = {}) {
   const started = Date.now();
   const summary = [];

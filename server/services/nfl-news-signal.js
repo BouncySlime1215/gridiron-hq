@@ -248,10 +248,17 @@ export function playerNewsSignal(playerName, { team = null, before = null, maxAg
   if (!key) return null;
   const cutoff = before ?? new Date().toISOString();
   const since = new Date(new Date(cutoff).getTime() - maxAgeDays * 86400000).toISOString();
+  // published_at<=cutoff alone is not enough: a claim can be published before
+  // the cutoff but not actually extracted into this table (created_at, the
+  // pipeline's own receipt timestamp -- see the CREATE TABLE default) until
+  // after it. Requiring created_at<=cutoff too is what makes this genuinely
+  // "knowable as of cutoff" rather than knowable only in hindsight -- the
+  // same class of look-ahead risk as news_items.ingested_at, one layer over.
   const claims = rows(`SELECT * FROM nfl_news_signals WHERE player_key=? AND verification_state='verified'
       AND published_at<=? AND published_at>=?
+      AND created_at<=?
       ${team ? 'AND (team=? OR team IS NULL)' : ''}
-    ORDER BY published_at DESC,confidence DESC`, ...[key, cutoff, since, ...(team ? [team] : [])]);
+    ORDER BY published_at DESC,confidence DESC`, ...[key, cutoff, since, cutoff, ...(team ? [team] : [])]);
   if (!claims.length) return null;
   const availability = claims.find(claim => claim.signal_type === 'availability') ?? null;
   const role = claims.find(claim => claim.signal_type === 'role') ?? null;
@@ -277,8 +284,12 @@ export function playerWeekNewsSignal(playerName, { season, week, team } = {}) {
 export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
   const cutoff = before ?? new Date().toISOString();
   const since = new Date(new Date(cutoff).getTime() - maxAgeDays * 86400000).toISOString();
+  // Same knowable-by-cutoff requirement as playerNewsSignal above: a claim
+  // published before the cutoff but extracted (created_at) after it was not
+  // actually available to a decision made at that cutoff.
   const claims = rows(`SELECT * FROM nfl_news_signals WHERE team=? AND verification_state='verified' AND published_at<=? AND published_at>=?
-    ORDER BY published_at DESC,confidence DESC`, team, cutoff, since);
+      AND created_at<=?
+    ORDER BY published_at DESC,confidence DESC`, team, cutoff, since, cutoff);
   const latestByPlayerType = new Map();
   for (const claim of claims) {
     const key = `${claim.player_key}|${claim.signal_type}`;
@@ -290,7 +301,7 @@ export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
   const rolePressure = active.filter(x => x.signal_type === 'role')
     .reduce((sum, claim) => sum + (claim.role_delta ?? 0) * claim.confidence, 0);
   const quarantined = rows(`SELECT COUNT(*) n FROM nfl_news_signals WHERE team=? AND verification_state='quarantined'
-    AND published_at<=? AND published_at>=?`, team, cutoff, since)[0]?.n ?? 0;
+    AND published_at<=? AND published_at>=? AND created_at<=?`, team, cutoff, since, cutoff)[0]?.n ?? 0;
   return { team, cutoff, claims: active, quarantined_claims: Number(quarantined), unavailable_burden: +unavailableBurden.toFixed(3),
     role_pressure: +rolePressure.toFixed(3), production_eligible: false,
     note: 'News impact is a visible shadow candidate. It cannot move a spread or projection until full-pipeline ablation and forward evidence pass.' };

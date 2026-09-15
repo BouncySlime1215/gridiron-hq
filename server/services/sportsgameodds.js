@@ -153,12 +153,13 @@ export async function captureSportsGameOddsSnapshot() {
     const awayFull = rows('SELECT name FROM nfl_teams WHERE abbr=?', parsed.away)[0]?.name ?? parsed.away;
     for (const q of parsed.quotes) {
       run(`INSERT INTO nfl_line_snapshots
-          (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+          (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price,
+           received_at, receipt_clock_source)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,'capture_completion')
         ON CONFLICT DO NOTHING`,
         at, `sgo:${parsed.eventId}`, parsed.commenceTime, homeFull, awayFull,
         q.book, q.market, q.side === parsed.home ? homeFull : q.side === parsed.away ? awayFull : q.side,
-        q.line, q.price);
+        q.line, q.price, at);
       rowsWritten++;
     }
   }

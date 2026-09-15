@@ -11,7 +11,7 @@
  * tell a quiet week from a broken collector, and coverage computed from such
  * rows is always 100%.
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +24,25 @@ process.env.SCHEDULER_DISABLED = '1';
 const { db, run, rows } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+
+// The stuck-in-`frozen`-forever regression below needs a way to make the
+// decision-tape link step -- the step AFTER a packet freezes -- fail on
+// command, without touching nfl-decision-tape.js itself. `recordDecisionRun`
+// is real and unmocked for every observation id except the ones a test has
+// explicitly poisoned, so this only affects the rows the regression test
+// means to affect; every other capture in this file still exercises the real
+// tape writer end to end.
+const realDecisionTape = await import('../server/services/nfl-decision-tape.js');
+const poisonedLinkIds = new Set();
+mock.module('../server/services/nfl-decision-tape.js', { namedExports: {
+  ...realDecisionTape,
+  recordDecisionRun: (season, week, board, opts) => {
+    if (poisonedLinkIds.has(opts?.observation?.observationId)) {
+      throw new Error('SIMULATED decision-tape link failure (test-injected)');
+    }
+    return realDecisionTape.recordDecisionRun(season, week, board, opts);
+  }
+} });
 
 db.exec(`INSERT INTO nfl_teams (id,abbr,name,conference,division) VALUES
   (1,'KC','Kansas City Chiefs','AFC','West'), (2,'BAL','Baltimore Ravens','AFC','North'),
@@ -156,4 +175,130 @@ test('C12: one full pass opens, captures and reports without throwing on a bad g
   // a pass records when it believed it was running, not only when it ran.
   assert.equal(pass.started_at, BEFORE);
   assert.ok(Number.isFinite(Date.parse(pass.finished_at)));
+});
+
+/* --------------------------------------------- a `frozen` row must not be
+ * able to die there: the packet freezes, the decision-tape link fails, and
+ * (unlike before this fix) the row gets a real path back into processing
+ * instead of sitting in `frozen` with no `decision_run_id` forever. */
+
+const AT_CUTOFF = '2026-10-25T16:03:00Z'; // inside CAPTURE_GRACE_MINUTES of the 16:00Z cutoff
+
+test('C12: a frozen packet whose decision-tape link fails is retried and completes on a later pass', () => {
+  const EXP = 'relink-success';
+  const opened = runner.openObservations({ season: SEASON, week: WEEK, experimentId: EXP,
+    scheduleVersion: 'sched-1', now: BEFORE });
+  assert.equal(opened.opened.length, 2);
+  const target = opened.opened[0];
+  poisonedLinkIds.add(target.id);
+
+  const captured = runner.captureDueObservations({ experimentId: EXP, now: AT_CUTOFF });
+  assert.equal(captured.captured.length, 2, 'the freeze itself must not be undone by a downstream failure');
+  const poisoned = captured.captured.find(c => c.id === target.id);
+  assert.ok(poisoned.decision_tape_error, 'the poisoned observation records a tape error, not a thrown pass');
+
+  let stored = rows(`SELECT state, decision_run_id, last_error, capture_finished_at
+    FROM nfl_t60_observations WHERE id=?`, target.id)[0];
+  assert.equal(stored.state, 'frozen', 'the packet freeze is real evidence regardless of the link failure');
+  assert.equal(stored.decision_run_id, null);
+  assert.match(stored.last_error, /decision tape write failed/);
+  const frozenAt = stored.capture_finished_at;
+  assert.ok(frozenAt);
+
+  // Before this fix, NOTHING ever looked at a `frozen` row again -- every
+  // capture/scheduling query in the runner reads `state='scheduled'`. This is
+  // the property under test: a later pass gives it a real path forward.
+  assert.equal(
+    rows(`SELECT COUNT(*) n FROM nfl_t60_observations WHERE state='frozen' AND decision_run_id IS NULL AND id=?`,
+      target.id)[0].n, 1);
+
+  // The transient failure clears -- exactly what a real DB blip, or a bug fix
+  // deployed between ticks, looks like from the row's point of view.
+  poisonedLinkIds.delete(target.id);
+
+  const relink = runner.relinkStalledObservations({ experimentId: EXP, graceMinutes: 0 });
+  assert.equal(relink.relinked.length, 1);
+  assert.equal(relink.relinked[0].id, target.id);
+  assert.ok(relink.relinked[0].decision_run_id);
+  assert.deepEqual(relink.failed, []);
+
+  stored = rows(`SELECT state, decision_run_id, last_error, note, capture_finished_at
+    FROM nfl_t60_observations WHERE id=?`, target.id)[0];
+  assert.equal(stored.state, 'decided');
+  assert.ok(stored.decision_run_id, 'the row now has a real decision_run_id, not just a cleared error');
+  assert.equal(stored.last_error, null, 'a resolved failure must not still read as a live one');
+  // The freeze time is NEVER touched by a relink -- only the packet's own
+  // capture wrote it, once, and a retry must not be mistaken for a second
+  // (later) capture of live data.
+  assert.equal(stored.capture_finished_at, frozenAt);
+  // The retry's own completion is recorded distinctly from that freeze time,
+  // which is exactly what lets a report tell "captured and linked on time"
+  // apart from "captured on time but linked late after a retry."
+  assert.match(stored.note, /linked via retry/);
+  assert.ok(stored.note.includes(frozenAt), 'the note cross-references the original freeze time');
+
+  // No duplicate: exactly one decision run was ever written for this observation.
+  assert.equal(rows(`SELECT COUNT(*) n FROM nfl_decision_runs WHERE observation_id=?`, target.id)[0].n, 1);
+
+  const coverage = runner.t60Coverage({ experimentId: EXP, season: SEASON, week: WEEK });
+  const detail = coverage.detail.find(d => d.decision_run_id === stored.decision_run_id);
+  assert.match(detail.note, /linked via retry/, 't60Coverage surfaces the relink note for a report to read');
+});
+
+test('C12: retrying an already fully-linked observation is a safe no-op', () => {
+  const EXP = 'relink-noop';
+  runner.openObservations({ season: SEASON, week: WEEK, experimentId: EXP,
+    scheduleVersion: 'sched-1', now: BEFORE });
+  const captured = runner.captureDueObservations({ experimentId: EXP, now: AT_CUTOFF });
+  assert.ok(captured.captured.every(c => !c.decision_tape_error), 'nothing is poisoned in this test');
+
+  const before = rows(`SELECT id, state, decision_run_id, note FROM nfl_t60_observations
+    WHERE experiment_id=? ORDER BY event_key`, EXP);
+  assert.equal(before.length, 2);
+  assert.ok(before.every(o => o.state === 'decided' && o.decision_run_id),
+    'both observations linked cleanly on the first pass, with no relink involved');
+  const runsBefore = rows(`SELECT COUNT(*) n FROM nfl_decision_runs`)[0].n;
+
+  const relink = runner.relinkStalledObservations({ experimentId: EXP, graceMinutes: 0 });
+  assert.deepEqual(relink.relinked, [], 'an already-decided row is not a candidate for relink at all');
+  assert.deepEqual(relink.failed, []);
+  assert.deepEqual(relink.unretryable, []);
+
+  const after = rows(`SELECT id, state, decision_run_id, note FROM nfl_t60_observations
+    WHERE experiment_id=? ORDER BY event_key`, EXP);
+  assert.deepEqual(after, before, 'an already-linked row is byte-for-byte untouched by a relink pass');
+  assert.equal(rows(`SELECT COUNT(*) n FROM nfl_decision_runs`)[0].n, runsBefore,
+    'no duplicate decision record is created');
+});
+
+test('C12: a full runT60Pass retries a stalled link on a later pass, honoring relinkGraceMinutes', () => {
+  const EXP = 'relink-full-pass';
+  const opened = runner.openObservations({ season: SEASON, week: WEEK, experimentId: EXP,
+    scheduleVersion: 'sched-1', now: BEFORE });
+  const target = opened.opened[0];
+  poisonedLinkIds.add(target.id);
+
+  const first = runner.runT60Pass({ season: SEASON, week: WEEK, experimentId: EXP,
+    scheduleVersion: 'sched-1', now: AT_CUTOFF });
+  assert.equal(first.captured, 2);
+  assert.equal(first.relinked, 0, 'nothing was frozen before this pass ran, so there is nothing to relink yet');
+  let stored = rows(`SELECT state, decision_run_id FROM nfl_t60_observations WHERE id=?`, target.id)[0];
+  assert.equal(stored.state, 'frozen');
+  assert.equal(stored.decision_run_id, null);
+
+  // Still poisoned and inside the default relink grace window: a pass run
+  // again immediately must not spin retrying the same known failure.
+  const stillTooSoon = runner.runT60Pass({ season: SEASON, week: WEEK, experimentId: EXP,
+    scheduleVersion: 'sched-1', now: AT_CUTOFF });
+  assert.equal(stillTooSoon.relinked, 0, 'the grace window has not passed yet');
+
+  poisonedLinkIds.delete(target.id);
+  const second = runner.runT60Pass({ season: SEASON, week: WEEK, experimentId: EXP,
+    scheduleVersion: 'sched-1', now: AT_CUTOFF, relinkGraceMinutes: 0 });
+  assert.equal(second.relinked, 1, 'the stalled row from the first pass is relinked once the grace window is waived');
+  assert.deepEqual(second.relink_failed, []);
+
+  stored = rows(`SELECT state, decision_run_id FROM nfl_t60_observations WHERE id=?`, target.id)[0];
+  assert.equal(stored.state, 'decided');
+  assert.ok(stored.decision_run_id);
 });

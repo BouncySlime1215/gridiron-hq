@@ -15,7 +15,7 @@ seasons and its scoring season (research/drift.py, `drift_scans` in the
 report) -- reported only, never used to withhold a fold or a model.
 """
 from __future__ import annotations
-import argparse, collections, hashlib, json, math, os, sqlite3, subprocess
+import argparse, collections, hashlib, json, math, os, sys, subprocess
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import numpy as np
@@ -30,6 +30,12 @@ import joblib
 
 from model_discipline import check_fold, record, summarize
 from drift import scan_lab_fold
+
+# research/betting/nfl/dataset.py owns the chronology-critical archive join
+# both this lab and tree_lab.py used to duplicate (governance manual section
+# 4.4, item 2). Not a package -- sys.path, same pattern test_dataset.py uses.
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'betting' / 'nfl'))
+import dataset as shared_dataset  # noqa: E402
 
 # v2 adds two additive, optional blocks: `model_discipline` (research/model_discipline.py)
 # and `drift_scans` (research/drift.py). Readers accept v1 and v2 alike
@@ -68,61 +74,27 @@ def settlement(market, positive, line, margin, total, price):
     if payoff is None: return None
     return 0.0 if abs(outcome) < 1e-9 else payoff if outcome > 0 else -1.0
 
-def build_dataset(db_path):
-    con = sqlite3.connect(Path(db_path).resolve().as_uri() + '?mode=ro', uri=True)
-    con.row_factory = sqlite3.Row
-    con.execute('BEGIN')  # consistent read snapshot while the live collector runs
-    games = [dict(x) for x in con.execute('''SELECT season,week,team,opponent,spread,total,
-        team_score,opp_score,gameday,rest_days,div_game FROM game_lines WHERE home=1 AND season<=2025 ORDER BY season,week''')]
-    history = collections.defaultdict(list)
-    week_end = {}
-    game_map = {}
-    for g in games:
-        game_map[(g['season'],g['week'],g['team'])] = g
-        d = stamp(g['gameday'])
-        if d is None or g['team_score'] is None or g['opp_score'] is None: continue
-        # End of gameday plus 48h; intentionally conservative publication proxy.
-        ready = d + timedelta(days=3)
-        k = (g['season'],g['week']); week_end[k] = max(week_end.get(k,ready),ready)
-        m = g['team_score']-g['opp_score']; total = g['team_score']+g['opp_score']
-        for team,margin in [(g['team'],m),(g['opponent'],-m)]:
-            history[team].append((ready,margin,total))
-    pbp = collections.defaultdict(list)
-    for r in con.execute('SELECT season,week,team,features FROM nfl_team_week_features WHERE season<=2025'):
-        ready = week_end.get((r['season'],r['week']))
-        if ready is None: continue
-        try: f=json.loads(r['features'])
-        except (TypeError,ValueError): continue
-        pbp[r['team']].append((ready,f))
-    for v in history.values(): v.sort(key=lambda z:z[0])
-    for v in pbp.values(): v.sort(key=lambda z:z[0])
-    archive=[dict(x) for x in con.execute('''SELECT eid,season,week,home,away,commence_time,
-       market,side,phase,line,price,book_updated_at,source FROM nfl_odds_archive
-       WHERE book='pinnacle' AND market IN ('spreads','totals') AND season BETWEEN 2022 AND 2025''')]
-    con.close()
-    by_game=collections.defaultdict(dict)
-    for q in archive: by_game[(q['eid'],q['market'])][(q['phase'],q['side'])]=q
-    dropped=collections.Counter(); out=[]
-    for (eid,market), qs in by_game.items():
-        sample=next(iter(qs.values())); pos=sample['home'] if market=='spreads' else 'Over'
-        neg=sample['away'] if market=='spreads' else 'Under'
-        o=qs.get(('open',pos)); opposite=qs.get(('open',neg)); c=qs.get(('close',pos))
-        g=game_map.get((sample['season'],sample['week'],sample['home']))
-        if not all([o,opposite,c,g]): dropped['missing_pair_or_result']+=1; continue
-        ot,nt,ct,kick = [stamp(v) for v in [o['book_updated_at'],opposite['book_updated_at'],c['book_updated_at'],sample['commence_time']]]
-        if any(t is None for t in [ot,nt,ct,kick]) or not (ot <= ct < kick) or abs((nt-ot).total_seconds())>60:
-            dropped['invalid_or_unpaired_timestamps']+=1; continue
-        decision=max(ot,nt)
-        if not decision<ct or decision>=kick or g['team_score'] is None or g['opp_score'] is None:
-            dropped['no_future_close_or_score']+=1; continue
-        if any(american_profit(q['price']) is None for q in [o,opposite]): dropped['missing_real_prices']+=1; continue
-        if not all(isinstance(q['line'],(int,float)) and math.isfinite(q['line']) for q in [o,opposite,c]):
-            dropped['bad_line']+=1; continue
-        if (market=='spreads' and abs(o['line']+opposite['line'])>1e-9) or (market=='totals' and o['line']!=opposite['line']):
-            dropped['different_contracts']+=1; continue
+def build_dataset(db_path, min_season=2022, through_season=2025):
+    # research/betting/nfl/dataset.py owns the chronology-critical block: the
+    # game/history/pbp read, the Pinnacle open/close archive join, timestamp
+    # validation and quarantine. This lab only builds its OWN feature set
+    # (PB_KEYS, the movement target) on top of those validated ingredients --
+    # see dataset.py's build_betting_dataset/paired_quotes docstrings for why
+    # feature construction stays here rather than moving into the shared layer.
+    result = shared_dataset.build_betting_dataset(db_path, min_season=min_season, through_season=through_season)
+    history, pbp = result['history'], result['pbp']
+    dropped = collections.Counter()
+    for section in ('games_excluded', 'team_week_features_excluded', 'quote_pairs_excluded'):
+        for item in result['quarantine'][section]:
+            dropped[item['reason']] += 1
+    out = []
+    for p in result['quote_pairs']:
+        o, opposite, c, g = p['o'], p['opposite'], p['c'], p['g']
+        decision, ct = p['decision'], p['ct']
+        market, sample = p['market'], p['sample']
         # These fields were observable in the paired opening quote itself.
         features={'opening_line':o['line'],'opening_positive_price':o['price'],
-            'opening_negative_price':opposite['price'],'hours_to_kickoff':(kick-decision).total_seconds()/3600,
+            'opening_negative_price':opposite['price'],'hours_to_kickoff':(p['kick']-decision).total_seconds()/3600,
             'week':g['week'],'division_game':g['div_game'] or 0,
             'near_key_three':min(abs(abs(o['line'])-3),20),
             'near_key_seven':min(abs(abs(o['line'])-7),20)}
@@ -137,7 +109,7 @@ def build_dataset(db_path):
                 features[side+'_'+key]=float(np.mean(vals)) if vals else 0.0
                 features[side+'_'+key+'_available']=int(bool(vals))
         y=o['line']-c['line'] if market=='spreads' else c['line']-o['line']
-        out.append({'event_id':str(eid),'market':market,'season':g['season'],'week':g['week'],
+        out.append({'event_id':p['eid'],'market':market,'season':g['season'],'week':g['week'],
             'home':sample['home'],'away':sample['away'],'decision_at':decision.isoformat(),
             'label_at':ct.isoformat(),'opening_line':o['line'],'closing_line':c['line'],
             'positive_price':o['price'],'negative_price':opposite['price'],
@@ -155,6 +127,13 @@ def time_folds(rows, folds=3):
         test_weeks={weeks[i] for i in chunk}
         va=np.array([i for i,r in enumerate(rows) if (r['season'],r['week']) in test_weeks],dtype=int)
         if not len(va):continue
+        # NOT migrated to shared_dataset.eligible_training_rows: that helper's
+        # eligibility test is season-only ("r['season'] < before_season"), but
+        # this inner-fold split needs WEEK granularity (same-season rows from
+        # earlier weeks are legal training rows here) and returns INDICES into
+        # `rows`, not row dicts -- a different eligibility condition and a
+        # different return shape, not just a superficial variation. See the
+        # research/betting/nfl/dataset.py migration report for this file.
         cutoff=min(stamp(rows[i]['decision_at']) for i in va)-timedelta(days=7)
         first_week=min(test_weeks)
         tr=np.array([i for i,r in enumerate(rows) if (r['season'],r['week'])<first_week and stamp(r['label_at'])<cutoff],dtype=int)
@@ -237,8 +216,11 @@ def run(args):
         for season in [2023,2024,2025]:
             test=[r for r in data if r['market']==market and r['season']==season]
             if not test:continue
-            outer_cutoff=min(stamp(r['decision_at']) for r in test)-timedelta(days=7)
-            train=[r for r in data if r['market']==market and r['season']<season and stamp(r['label_at'])<outer_cutoff]
+            # research/betting/nfl/dataset.py owns this cutoff-safe filter now --
+            # see eligible_training_rows's docstring for the two conditions
+            # (earlier season AND settled-before-cutoff label) this used to
+            # duplicate inline in seven places across this file and tree_lab.py.
+            train=shared_dataset.eligible_training_rows(data,test,market=market,before_season=season)
             cv=time_folds(train)
             if len(cv)<2:report['errors'].append(f'{market}/{season}: insufficient temporal training folds');continue
             X=np.array([[r['features'][k] for k in names] for r in train]);y=np.array([r['y'] for r in train])
@@ -303,8 +285,7 @@ def run(args):
         for season in [2023,2024,2025]:
             score_rows=[r for r in data if r['market']==market and r['season']==season]
             if not score_rows:continue
-            outer_cutoff=min(stamp(r['decision_at']) for r in score_rows)-timedelta(days=7)
-            train_rows=[r for r in data if r['market']==market and r['season']<season and stamp(r['label_at'])<outer_cutoff]
+            train_rows=shared_dataset.eligible_training_rows(data,score_rows,market=market,before_season=season)
             try:
                 report['drift_scans'].append(scan_lab_fold(train_rows,score_rows,names,market=market,
                     score_season=season,label=f'{market}/{season}',random_state=SEED))

@@ -66,18 +66,36 @@ test('the ledger refuses fabricated games, sides and lines', () => {
 });
 
 test('NFL evidence windows use the real Eastern kickoff and repair queued rows', () => {
+  // Regression note: this test previously hardcoded an absolute kickoff
+  // (2026-09-13). planEvidenceWindows() only plans windows for games whose
+  // kickoff is within the last 6 hours or still ahead (evidence-daemon.js),
+  // so a fixed past date silently ages out and this test starts failing on
+  // every calendar day after it -- a ticking time bomb, the same class of
+  // bug this project has already fixed once (beat-the-close-wind.test.js).
+  // Deriving the kickoff from "now" instead makes the test permanently
+  // valid rather than valid-until-a-date.
+  const kickoffUtc = new Date(Date.now() + 2 * 3600e3); // 2 hours from now: always "upcoming"
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+    .formatToParts(kickoffUtc).map(p => [p.type, p.value]));
+  const gameday = `${parts.year}-${parts.month}-${parts.day}`;
+  const gametime = `${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}`;
+  const eventAt = nflKickoffDate(gameday, gametime).toISOString();
+  const dueAt = new Date(Date.parse(eventAt) - 5 * 60000).toISOString();
+
+  insertGame.run(2099, 1, 'BUF', 'NYJ', -3, gameday, gametime, null, null);
   planEvidenceWindows();
   const close = db.prepare(`SELECT event_at,due_at FROM evidence_capture_windows
-    WHERE sport='NFL' AND event_key='2026:1:BUF:NYJ' AND horizon='close'`).get();
-  assert.equal(close.event_at, '2026-09-13T17:00:00.000Z');
-  assert.equal(close.due_at, '2026-09-13T16:55:00.000Z');
+    WHERE sport='NFL' AND event_key='2099:1:BUF:NYJ' AND horizon='close'`).get();
+  assert.equal(close.event_at, eventAt);
+  assert.equal(close.due_at, dueAt);
 
-  db.prepare(`UPDATE evidence_capture_windows SET event_at='2026-09-13T13:00:00.000Z',
-    due_at='2026-09-13T12:55:00.000Z' WHERE sport='NFL'
-    AND event_key='2026:1:BUF:NYJ' AND horizon='close'`).run();
+  db.prepare(`UPDATE evidence_capture_windows SET event_at='2001-01-01T00:00:00.000Z',
+    due_at='2001-01-01T00:00:00.000Z' WHERE sport='NFL'
+    AND event_key='2099:1:BUF:NYJ' AND horizon='close'`).run();
   planEvidenceWindows();
   const repaired = db.prepare(`SELECT event_at,due_at FROM evidence_capture_windows
-    WHERE sport='NFL' AND event_key='2026:1:BUF:NYJ' AND horizon='close'`).get();
+    WHERE sport='NFL' AND event_key='2099:1:BUF:NYJ' AND horizon='close'`).get();
   assert.deepEqual(repaired, close);
 });
 

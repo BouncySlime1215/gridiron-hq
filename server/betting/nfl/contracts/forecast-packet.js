@@ -104,7 +104,14 @@ export function validateForecastPacket(packet) {
   }
 
   // Contract-specific checks that a required-field list cannot express.
+  // Section 4.1's market group is scoped to full-game spreads only (see
+  // CONTRACT_GROUPS.market's note above): a `market: 'totals'` packet cannot
+  // legitimately carry a spread `side`/`handicap`, so the market TYPE itself
+  // is part of the contract, not just its fields' individual shapes.
   const market = packet.market ?? {};
+  if (market.market !== undefined && market.market !== 'spreads') {
+    problems.push(`market.market: this contract covers spreads only, got ${market.market}`);
+  }
   if (market.period !== undefined && market.period !== 'full_game') {
     problems.push(`market.period: this contract covers full-game spreads only, got ${market.period}`);
   }
@@ -114,21 +121,40 @@ export function validateForecastPacket(packet) {
   if (market.side !== undefined && !['home', 'away'].includes(market.side)) {
     problems.push(`market.side: must be home or away, got ${market.side}`);
   }
+  // American odds strictly between -100 and +100 do not exist (the same
+  // convention spread-probabilities.js's profitMultiple() enforces); zero is
+  // not a price at all.
+  if (market.offered_price !== undefined
+      && (!Number.isFinite(market.offered_price) || Math.abs(market.offered_price) < 100)) {
+    problems.push(`market.offered_price: must be a real American price (|price| >= 100), got ${market.offered_price}`);
+  }
 
   const observation = packet.observation ?? {};
   if (observation.cutoff_at !== undefined && Number.isNaN(Date.parse(observation.cutoff_at))) {
     problems.push('observation.cutoff_at: not a parseable instant');
+  }
+  // A "T-60" packet's entire point is that the decision cutoff precedes
+  // kickoff; a cutoff at or after kickoff is not a pre-game observation.
+  const event = packet.event ?? {};
+  if (observation.cutoff_at !== undefined && event.kickoff_at !== undefined
+      && !Number.isNaN(Date.parse(observation.cutoff_at)) && !Number.isNaN(Date.parse(event.kickoff_at))
+      && Date.parse(observation.cutoff_at) >= Date.parse(event.kickoff_at)) {
+    problems.push('observation.cutoff_at: must be strictly before event.kickoff_at');
   }
 
   // The receipt clock is the whole of correction C11. A packet claiming
   // prospective status on a legacy request-time clock is claiming something
   // its own data cannot support.
   const lineage = packet.source_lineage ?? {};
+  if (lineage.received_at !== undefined && Number.isNaN(Date.parse(lineage.received_at))) {
+    problems.push('source_lineage.received_at: not a parseable instant');
+  }
   if (lineage.mode === 'prospective' && lineage.receipt_clock_source !== 'response_completion') {
     problems.push('source_lineage: a prospective packet needs an observed response-completion receipt; ' +
       `got ${lineage.receipt_clock_source}. A request time is a lower bound, not a receipt.`);
   }
   if (lineage.received_at !== undefined && observation.cutoff_at !== undefined
+      && !Number.isNaN(Date.parse(lineage.received_at)) && !Number.isNaN(Date.parse(observation.cutoff_at))
       && Date.parse(lineage.received_at) > Date.parse(observation.cutoff_at)) {
     problems.push('source_lineage.received_at: after the cutoff, so it was not knowable at the cutoff');
   }
@@ -149,15 +175,36 @@ export function validateForecastPacket(packet) {
 
   // Feature lineage must carry VALUES. This is the line the whole correction
   // turns on: counts and a latest timestamp are a health summary, and a
-  // forecast cannot be reconstructed from them.
+  // forecast cannot be reconstructed from them. `values` must therefore be a
+  // real array of well-formed {name, value} entries -- not an object (which
+  // could carry a bare count under a familiar-looking key), not null, and not
+  // an empty array with nothing recorded as missing.
   const features = packet.feature_lineage ?? {};
-  if (features.values !== undefined && !Array.isArray(features.values) && typeof features.values !== 'object') {
-    problems.push('feature_lineage.values: must be the actual values, not a count');
-  }
-  if (Array.isArray(features.values) && features.values.length === 0
-      && (features.missing ?? []).length === 0) {
-    problems.push('feature_lineage: no values and nothing recorded as missing — ' +
-      'an empty packet must say what was absent, not simply be empty');
+  if (features.values !== undefined) {
+    if (!Array.isArray(features.values)) {
+      problems.push('feature_lineage.values: must be an array of {name, value} entries, not a count');
+    } else if (features.values.length === 0 && (features.missing ?? []).length === 0) {
+      problems.push('feature_lineage: no values and nothing recorded as missing — ' +
+        'an empty packet must say what was absent, not simply be empty');
+    } else {
+      features.values.forEach((entry, i) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+          problems.push(`feature_lineage.values[${i}]: must be a {name, value} entry, got ${JSON.stringify(entry)}`);
+          return;
+        }
+        if (typeof entry.name !== 'string' || entry.name.length === 0) {
+          problems.push(`feature_lineage.values[${i}].name: must be a non-empty string`);
+        }
+        if (!('value' in entry)) {
+          problems.push(`feature_lineage.values[${i}].value: missing`);
+        } else if (typeof entry.value === 'number' && !Number.isFinite(entry.value)) {
+          // A qualitative feature ('active', 'out') is a legitimate value;
+          // a NUMERIC feature that is NaN/Infinity is a computed value that
+          // never resolved, and is not knowable evidence.
+          problems.push(`feature_lineage.values[${i}].value: numeric feature values must be finite, got ${entry.value}`);
+        }
+      });
+    }
   }
 
   return problems.length ? { ok: false, problems } : { ok: true, packet };
@@ -171,11 +218,27 @@ export function validateForecastPacket(packet) {
  * this, re-ordering a builder's property writes changes the content address of
  * a decision that did not change -- which is the same class of defect as C01,
  * in the opposite direction.
+ *
+ * NON-FINITE NUMBERS ARE REFUSED, NOT SILENTLY REWRITTEN. `JSON.stringify`
+ * coerces `NaN` and `Infinity` to `null`, which would make a computed-but-
+ * invalid feature value hash IDENTICALLY to an explicitly-missing one -- two
+ * different claims about the evidence collapsing to the same content
+ * address. `validateForecastPacket` already refuses a non-finite feature
+ * value before a decision packet reaches this function, but `canonicalize`
+ * is also reused directly by `nfl-t60-packet.js`'s `t60PacketHash` for the
+ * T-60 evidence packet, which is a different shape that does not go through
+ * `validateForecastPacket` (see that module's own TODO on the architecture
+ * mismatch). Refusing here, rather than trusting every caller to have
+ * checked first, is what actually prevents the collision.
  */
 export function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === 'object') {
     return Object.fromEntries(Object.keys(value).sort().map(k => [k, canonicalize(value[k])]));
+  }
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    throw new TypeError(`canonicalize: refusing to hash a non-finite number (${value}); ` +
+      'JSON would silently coerce it to null, colliding with an explicitly-missing value');
   }
   return value;
 }

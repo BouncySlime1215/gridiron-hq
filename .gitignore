@@ -42,6 +42,10 @@ server/data/news-event-impact/
 server/data/expert-selector-lab/
 research/__pycache__/
 research/.venv/
+# Full tree_lab.py evaluation runs (per-fold OOF predictions etc.) are large
+# and fully reproducible from the script + database; keep only the summary
+# finding in docs/CLAUDE-NEXT-STEPS.md, matching server/data/tree-lab/ above.
+research/betting/nfl/tree_lab_reports/
 research/catboost_info/
 **/__pycache__/
 

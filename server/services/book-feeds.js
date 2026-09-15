@@ -456,10 +456,11 @@ export async function captureBookFeeds({ providers = Object.keys(PROVIDERS) } = 
     const homeName = nameOf.get(q.home) ?? q.home, awayName = nameOf.get(q.away) ?? q.away;
     const sideName = q.side === q.home ? homeName : q.side === q.away ? awayName : q.side;
     const result = run(`INSERT INTO nfl_line_snapshots
-        (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price, provider, book_updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
+        (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price, provider, book_updated_at,
+         received_at, receipt_clock_source)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'capture_completion') ON CONFLICT DO NOTHING`,
     at, id, q.commence_time, homeName, awayName, q.book, q.market, sideName, q.line, q.price,
-    `free:${q.provider}`, q.book_updated_at ?? null);
+    `free:${q.provider}`, q.book_updated_at ?? null, at);
     written += result.changes ?? 0;
     // Odds-API-shaped payload so the immutable quote tape gets a real producer.
     const ev = events.get(id) ?? { id, commence_time: q.commence_time, home_team: homeName, away_team: awayName, bookmakers: new Map() };

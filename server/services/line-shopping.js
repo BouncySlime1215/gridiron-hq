@@ -47,12 +47,12 @@ export async function snapshotLines({ markets = 'h2h,spreads,totals' } = {}) {
         for (const o of m.outcomes ?? []) {
           const result = run(`INSERT INTO nfl_line_snapshots
               (captured_at, event_id, commence_time, home_team, away_team, book, market, side, line, price,
-               provider, book_updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+               provider, book_updated_at, received_at, receipt_clock_source)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'capture_completion')
             ON CONFLICT DO NOTHING`,
             at, ev.id, ev.commence_time, ev.home_team, ev.away_team,
             b.key, m.key, o.name, o.point ?? null, o.price ?? null,
-            'the-odds-api', m.last_update ?? b.last_update ?? null);
+            'the-odds-api', m.last_update ?? b.last_update ?? null, at);
           n += result.changes ?? 0;
         }
       }

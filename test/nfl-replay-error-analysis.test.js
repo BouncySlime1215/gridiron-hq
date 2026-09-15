@@ -29,8 +29,12 @@ const { db } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
-const { analyzeErrors, proposeAdjustment } = await import('../server/services/nfl-replay.js');
+const { analyzeErrors, proposeAdjustment, decisionTapeForecastRecords, forecastAccuracyReport } =
+  await import('../server/services/nfl-replay.js');
 const { withRandomSeed, random } = await import('../server/services/stats-util.js');
+const { recordDecisionRun } = await import('../server/services/nfl-decision-tape.js');
+const { NFL_PRODUCTION_POLICY } = await import('../server/services/nfl-policy.js');
+const { run } = await import('../server/db/index.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -212,4 +216,143 @@ test('proposeAdjustment refuses an empty discovery or holdout set', () => {
   const segment = { dimension: 'divisional', segment: 'divisional', win_rate: 0.4 };
   assert.throws(() => proposeAdjustment(segment, { discoverySeasons: [], holdoutSeasons: [2024] }), /required/i);
   assert.throws(() => proposeAdjustment(segment, { discoverySeasons: [2021], holdoutSeasons: [] }), /required/i);
+});
+
+/*
+ * WP14/C10: decisionTapeForecastRecords/forecastAccuracyReport are sourced
+ * from the REAL decision tape (nfl-decision-tape.js's recordDecisionRun),
+ * not hand-built bet fixtures -- the property under test is specifically
+ * that a no-bet (abstained) game's frozen forecast survives the trip through
+ * that tape and comes back out gradeable, which a bet-shaped fixture could
+ * never demonstrate.
+ */
+
+let _testRunSuffix = 0;
+/** One decision-tape run for a season/week, with a mix of eligible and abstained games. */
+function recordBoard(season, week, decisions) {
+  const decidedAt = new Date().toISOString();
+  return recordDecisionRun(season, week, { policy: NFL_PRODUCTION_POLICY, decisions }, {
+    observation: { experimentId: 'error-analysis-test', horizon: 'test', cutoffAt: decidedAt,
+      jobId: 'test', observationId: `error-analysis-test:${season}:${week}:${_testRunSuffix++}` },
+    decidedAt
+  });
+}
+
+/** One decision candidate, eligible (bet-shaped) or abstained (no-bet), always carrying a frozen forecast. */
+function candidate({ home, away, market = 'spread', eligible, abstentionReason = null,
+  projectedMargin, marketMargin, selection = null, line = null, americanPrice = null }) {
+  return {
+    matchup: `${away} at ${home}`, home_team: home, away_team: away, market,
+    eligible, abstention_reason: eligible ? null : (abstentionReason ?? 'missing_line'),
+    selection: eligible ? (selection ?? home) : null,
+    line: eligible ? (line ?? -3) : null, american_price: eligible ? (americanPrice ?? -110) : null,
+    model_probability: eligible ? 0.55 : null, implied_probability: eligible ? 0.52 : null,
+    probability_difference: eligible ? 0.03 : null, is_market_identity: false,
+    feature_snapshot: { raw_forecast: { projected_margin: projectedMargin, market_margin: marketMargin } }
+  };
+}
+
+/** Records the final score both sides of game_lines need. */
+function finalGame(season, week, home, away, homeScore, awayScore) {
+  run(`INSERT INTO game_lines (season,week,team,opponent,home,team_score,opp_score) VALUES (?,?,?,?,1,?,?)`,
+    season, week, home, away, homeScore, awayScore);
+  run(`INSERT INTO game_lines (season,week,team,opponent,home,team_score,opp_score) VALUES (?,?,?,?,0,?,?)`,
+    season, week, away, home, awayScore, homeScore);
+}
+
+test('decisionTapeForecastRecords retains a no-bet (abstained) game\'s forecast, not just bets', () => {
+  recordBoard(2031, 1, [
+    candidate({ home: 'AAA', away: 'BBB', eligible: true, projectedMargin: 4, marketMargin: 3 }),
+    candidate({ home: 'CCC', away: 'DDD', eligible: false, abstentionReason: 'missing_line',
+      projectedMargin: 6, marketMargin: null })
+  ]);
+  finalGame(2031, 1, 'AAA', 'BBB', 24, 20); // actual margin +4
+  finalGame(2031, 1, 'CCC', 'DDD', 27, 20); // actual margin +7
+
+  const recs = decisionTapeForecastRecords({ seasons: [2031] });
+  assert.equal(recs.length, 2);
+
+  const bet = recs.find(r => r.home_team === 'AAA');
+  assert.equal(bet.eligible, true);
+  assert.equal(bet.actual_margin, 4);
+  assert.equal(bet.forecast_error, 0, 'projected 4, actual 4');
+  assert.equal(bet.market_error, 1, 'market -3 (margin +3), actual 4');
+
+  const noBet = recs.find(r => r.home_team === 'CCC');
+  assert.ok(noBet, 'the abstained game must still appear');
+  assert.equal(noBet.eligible, false);
+  assert.equal(noBet.abstention_reason, 'missing_line');
+  assert.equal(noBet.actual_margin, 7);
+  assert.equal(noBet.projected_margin, 6, 'the frozen forecast survives even though nothing was bet');
+  assert.equal(noBet.forecast_error, 1);
+  assert.equal(noBet.market_error, null, 'no market_margin was ever frozen for this abstention');
+});
+
+test('decisionTapeForecastRecords excludes a game with no final score yet, rather than zeroing it', () => {
+  recordBoard(2032, 1, [
+    candidate({ home: 'EEE', away: 'FFF', eligible: true, projectedMargin: 2, marketMargin: 1 })
+  ]);
+  // No finalGame() call -- this game has not been played.
+  const recs = decisionTapeForecastRecords({ seasons: [2032] });
+  assert.equal(recs.length, 0, 'an unplayed game has nothing to grade the forecast against');
+});
+
+test('forecastAccuracyReport reports insufficient_data below the read floor, never a rate', () => {
+  recordBoard(2033, 1, [candidate({ home: 'GGG', away: 'HHH', eligible: true, projectedMargin: 3, marketMargin: 2 })]);
+  finalGame(2033, 1, 'GGG', 'HHH', 23, 20);
+  const recs = decisionTapeForecastRecords({ seasons: [2033] });
+  const report = forecastAccuracyReport(recs);
+  assert.equal(report.all.status, 'insufficient_data');
+  assert.equal(report.all.readable, false);
+  assert.equal(report.all.forecast_mae, null, 'a rate must not be reported below the read floor');
+});
+
+test('forecastAccuracyReport separates the eligible cohort from the abstained cohort', () => {
+  const decisions = [];
+  for (let i = 0; i < 25; i++) {
+    const home = `E${i}`, away = `e${i}`;
+    decisions.push(candidate({ home, away, eligible: true, projectedMargin: 3, marketMargin: 5 }));
+  }
+  for (let i = 0; i < 25; i++) {
+    const home = `A${i}`, away = `a${i}`;
+    decisions.push(candidate({ home, away, eligible: false, projectedMargin: 3, marketMargin: 5 }));
+  }
+  recordBoard(2034, 1, decisions);
+  for (const d of decisions) finalGame(2034, 1, d.home_team, d.away_team, 23, 20); // actual margin +3 every game
+
+  const recs = decisionTapeForecastRecords({ seasons: [2034] });
+  const report = forecastAccuracyReport(recs);
+
+  assert.equal(report.eligible.games, 25);
+  assert.equal(report.abstained.games, 25);
+  assert.equal(report.eligible.readable, true);
+  assert.equal(report.abstained.readable, true);
+  // Every game: projected 3, actual 3 -> forecast_mae 0; market 5, actual 3 -> market_mae 2.
+  assert.equal(report.eligible.forecast_mae, 0);
+  assert.equal(report.abstained.forecast_mae, 0);
+  assert.equal(report.eligible.beat_market_rate, 1);
+  assert.equal(report.abstained.beat_market_rate, 1);
+});
+
+test('forecastAccuracyReport keeps by_season a single-season slice, never blended into the pooled cohort', () => {
+  const decisions2035 = [];
+  for (let i = 0; i < 12; i++) decisions2035.push(candidate({ home: `S${i}`, away: `s${i}`,
+    eligible: true, projectedMargin: 3, marketMargin: 5 }));
+  recordBoard(2035, 1, decisions2035);
+  for (const d of decisions2035) finalGame(2035, 1, d.home_team, d.away_team, 23, 20);
+
+  const decisions2036 = [];
+  for (let i = 0; i < 12; i++) decisions2036.push(candidate({ home: `T${i}`, away: `t${i}`,
+    eligible: true, projectedMargin: 3, marketMargin: 5 }));
+  recordBoard(2036, 1, decisions2036);
+  for (const d of decisions2036) finalGame(2036, 1, d.home_team, d.away_team, 23, 20);
+
+  // 12 + 12 = 24 clears the default 20-game floor pooled, but neither season alone does.
+  const recs = decisionTapeForecastRecords({ seasons: [2035, 2036] });
+  const report = forecastAccuracyReport(recs);
+  assert.equal(report.all.readable, true, 'the pooled cohort clears the floor');
+  const s2035 = report.by_season.find(s => s.season === 2035);
+  const s2036 = report.by_season.find(s => s.season === 2036);
+  assert.equal(s2035.readable, false, 'one season alone (12 games) must not pass the same floor as the pool');
+  assert.equal(s2036.readable, false);
 });

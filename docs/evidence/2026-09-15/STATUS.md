@@ -89,8 +89,38 @@ shape as before) so "the current claim" keeps meaning what it always meant for t
 `signal-latency.js`'s `pipelineHealth()` row-count diagnostic deliberately still reads
 the raw table (write-activity monitoring, not current-state).
 
+## WP14 — DONE (2026-09-15)
+Investigation first: WP14's own dependencies (WP11-13, the trained Python candidate)
+don't exist yet, but re-reading C09-C11 against the current code found most of the
+underlying infrastructure already built by earlier work — C09 (`<3 seasons` reported
+`robust:true`) was already fixed (`nfl-replay.js`'s `robustAcrossSeasons` correctly
+returns `insufficient_data`); C11's "no numerical consumer" labeling already exists
+(`nfl-family-contribution.js`'s `familyConsumers()`); and `nfl-decision-tape.js`
+already saves **every** game each week — eligible or abstained, with frozen
+`feature_snapshot_json` context — via `recordDecisionRun`, called weekly by
+`scheduler.js`'s `refreshNflDecisionLedger`. What neither existing error-analysis tool
+actually did was READ that: `analyzeErrors` only ever sees settled bets (needs a price,
+a stake, a result), and `nfl-slice-diagnostic.js` reads a different, older table
+(`nfl_weekly_expert_examples`) tied to the expert-council family, not the production
+ensemble's own decisions.
+
+Added to `nfl-replay.js`: `decisionTapeForecastRecords({seasons})` — row-level forecast
+records sourced from the decision tape, one row per game per week that has both a
+recorded decision AND a final score, whether or not the policy ever bet it (a no-bet
+game still carries a real frozen `projected_margin`, gradeable against the final score
+exactly like a bet's can). `forecastAccuracyReport(records)` — a descriptive MAE/
+beat-market summary, deliberately NOT a second significance-test implementation
+(`analyzeErrors`/`nfl-family-contribution.js` already own that); explicit
+`insufficient_data` below the read floor (C09/R28), and `by_season` kept structurally
+separate from the pooled cohort so a single season can never pass as a multi-season
+result (this WP's own acceptance).
+
+Explicitly NOT done, and named as blocked rather than faked: C11's "verify full refits
+and upstream lineage for the new Python candidate" and totals wiring both require
+WP11-13's actual trained candidate and totals contract, neither of which exist yet.
+
 ## Immediate front (order)
-WP15/D3 (done) -> WP08 (done) -> WP14 save-every-prediction + error ledger -> FIX#28
+WP15/D3 (done) -> WP08 (done) -> WP14 (done) -> FIX#28
 one CLV module + FIX#14 ridge team strength -> WP12-13 walk-forward + conformal ->
 unity (family adapters -> gated comparison + tree_lab -> Node bridge). Each behind the
 gates, registered as a trial, no staking authority.

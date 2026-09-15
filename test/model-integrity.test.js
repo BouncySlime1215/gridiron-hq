@@ -1427,6 +1427,27 @@ test('cross-season data audit blocks incomplete coverage instead of filling miss
   assert.deepEqual(audit.seasons, [2021, 2022, 2023, 2024, 2025, 2026]);
 });
 
+test('cross-season data audit covers every real source, not just the core team/player features', () => {
+  // Stage 1: "make a per-source coverage/freshness table: earliest season,
+  // latest completed game, ... whether the source can support historical
+  // reconstruction or actual prospective capture." Previously only the 10
+  // core-feature tables were tracked; odds/QBR/weather/ratings had no entry
+  // at all here.
+  const audit = nflDataConsistencyAudit();
+  const byId = Object.fromEntries(audit.feeds.map(f => [f.id, f]));
+  for (const id of ['nfl_odds_archive', 'nfl_qbr_weekly', 'nfl_game_weather',
+    'nfl_game_weather_forecast_history', 'nfl_external_ratings']) {
+    assert.ok(byId[id], `expected a coverage entry for ${id}`);
+    assert.ok(['historical_reconstruction_only', 'prospective_capture', 'both'].includes(byId[id].capture_mode),
+      `${id} must declare a real capture_mode, not leave it unclassified`);
+    assert.ok('earliest_season_with_data' in byId[id] && 'latest_season_with_data' in byId[id]);
+  }
+  // The weather split matters specifically: reconstructed actual kickoff
+  // weather must never be conflated with a genuine pregame forecast.
+  assert.equal(byId.nfl_game_weather.capture_mode, 'historical_reconstruction_only');
+  assert.equal(byId.nfl_game_weather_forecast_history.capture_mode, 'prospective_capture');
+});
+
 test('cross-season data audit default window tracks the current season, not a stale hardcoded year', () => {
   // Regression for the class of bug where every season-scoped default array in
   // the codebase quietly stopped at 2025: a coverage audit whose whole job is

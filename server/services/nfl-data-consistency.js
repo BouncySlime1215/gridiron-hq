@@ -22,15 +22,38 @@ const CORE_FEATURES = [
 const exists = table => Boolean(db.prepare(`SELECT 1 ok FROM sqlite_master WHERE type='table' AND name=?`).get(table));
 const r3 = value => value == null || !Number.isFinite(value) ? null : +value.toFixed(3);
 
-function tableCoverage(table, { team = false, note = null, modelUse = 'context' } = {}) {
-  if (!exists(table)) return { id: table, model_use: modelUse, note, seasons: SEASONS.map(season => ({ season, rows: 0, weeks: 0, teams: team ? 0 : null })) };
-  const teamSql = team ? ',COUNT(DISTINCT team) teams' : '';
+/**
+ * `team` may be `true` (use the column literally named `team`), a string
+ * naming a different team-shaped column (e.g. `'home'` for the weather
+ * tables, which have no unified `team` column), or `false`/omitted to skip
+ * team counting entirely (sources like the odds archive have no single
+ * team-shaped column at all -- `home`/`away` both exist and neither alone
+ * describes "how many teams have coverage").
+ *
+ * `captureMode` records, for the per-source table Stage 1 asks for, whether
+ * this source can support a HISTORICAL RECONSTRUCTION (retrospective, from
+ * archived/derived data), an actual PROSPECTIVE CAPTURE (a real receipt at
+ * decision time, usable for a live T-60 packet), or both -- a source that
+ * can only do the former cannot honestly back a claim about what the system
+ * "knew" before a game, however far back its rows go.
+ */
+function tableCoverage(table, { team = false, note = null, modelUse = 'context', captureMode = 'unclassified' } = {}) {
+  const teamColumn = team === true ? 'team' : (typeof team === 'string' ? team : null);
+  if (!exists(table)) return { id: table, model_use: modelUse, note, capture_mode: captureMode,
+    earliest_season_with_data: null, latest_season_with_data: null,
+    seasons: SEASONS.map(season => ({ season, rows: 0, weeks: 0, teams: teamColumn ? 0 : null })) };
+  const teamSql = teamColumn ? `,COUNT(DISTINCT ${teamColumn}) teams` : '';
   const found = new Map(rows(`SELECT season,COUNT(*) rows,COUNT(DISTINCT week) weeks${teamSql}
     FROM ${table} WHERE season BETWEEN ${SEASON_MIN} AND ${SEASON_MAX} GROUP BY season`).map(item => [item.season, item]));
-  return { id: table, model_use: modelUse, note, seasons: SEASONS.map(season => {
+  const seasons = SEASONS.map(season => {
     const item = found.get(season) ?? {};
-    return { season, rows: Number(item.rows ?? 0), weeks: Number(item.weeks ?? 0), teams: team ? Number(item.teams ?? 0) : null };
-  }) };
+    return { season, rows: Number(item.rows ?? 0), weeks: Number(item.weeks ?? 0), teams: teamColumn ? Number(item.teams ?? 0) : null };
+  });
+  const withData = seasons.filter(s => s.rows > 0).map(s => s.season);
+  return { id: table, model_use: modelUse, note, capture_mode: captureMode,
+    earliest_season_with_data: withData.length ? Math.min(...withData) : null,
+    latest_season_with_data: withData.length ? Math.max(...withData) : null,
+    seasons };
 }
 
 function featureCoverage() {
@@ -169,10 +192,36 @@ export function nflDataConsistencyAudit() {
     tableCoverage('nfl_ngs', { team: true, modelUse: 'advanced player efficiency' }),
     tableCoverage('player_week_usage', { team: true, modelUse: 'fantasy/player opportunity' }),
     tableCoverage('player_week_snaps', { modelUse: 'fantasy/player participation' }),
-    tableCoverage('nfl_pfr_adv', { team: true, modelUse: 'charted challenger', note: 'Published/local coverage begins in 2024.' }),
-    tableCoverage('nfl_injuries', { team: true, modelUse: 'availability challenger', note: 'Published coverage begins in 2023.' }),
+    tableCoverage('nfl_pfr_adv', { team: true, modelUse: 'charted challenger', note: 'Published/local coverage begins in 2024.',
+      captureMode: 'historical_reconstruction_only' }),
+    tableCoverage('nfl_injuries', { team: true, modelUse: 'availability challenger', note: 'Published coverage begins in 2023.',
+      captureMode: 'both' }),
     tableCoverage('nfl_depth', { team: true, modelUse: 'roster-strength challenger',
-      note: 'Weekly archives cover 2021–2024; timestamped live snapshots cover 2025 onward.' })
+      note: 'Weekly archives cover 2021–2024; timestamped live snapshots cover 2025 onward.', captureMode: 'both' }),
+    // Sources this audit did not previously cover at all (Stage 1: "make a
+    // per-source coverage/freshness table" for every input, not just the
+    // core team/player features).
+    tableCoverage('nfl_odds_archive', { modelUse: 'archived historical price reconstruction',
+      captureMode: 'historical_reconstruction_only',
+      note: 'market_lab.py/tree_lab.py both hard-require this table and gate to season>=2022 because that is ' +
+        'when archived Pinnacle opening/closing prices exist here. This is NOT the live T-60 receipt path -- ' +
+        'that is nfl_quote_tape/nfl_quote_batches, tracked separately. No unified team column (home/away only), ' +
+        'so team coverage is not reported for this feed.' }),
+    tableCoverage('nfl_qbr_weekly', { team: true, modelUse: 'quarterback state (nfl-qbr.js)',
+      captureMode: 'historical_reconstruction_only',
+      note: 'A weekly nflverse CSV release, read strictly-prior-only for a given prediction (cutoff-safe by ' +
+        'query, per nfl-qbr.js), but the source itself is a periodic release with no decision-time receipt ' +
+        'clock -- unlike nfl_injuries/nfl_depth, there is no separate live-capture path for this feed.' }),
+    tableCoverage('nfl_game_weather', { team: 'home', modelUse: 'postgame weather reconstruction',
+      captureMode: 'historical_reconstruction_only',
+      note: 'Actual kickoff weather, reconstructed after the fact. Explicitly NOT a pregame forecast -- ' +
+        'CLAUDE-NEXT-STEPS.md section 2.1: supports retrospective football diagnosis only.' }),
+    tableCoverage('nfl_game_weather_forecast_history', { team: 'home', modelUse: 'pregame weather forecast (T-60 eligible)',
+      captureMode: 'prospective_capture',
+      note: 'The genuine forecast-with-lead-time table (lead_days column); this is the one weather source a ' +
+        'T-60 packet may legitimately consume, distinct from nfl_game_weather above.' }),
+    tableCoverage('nfl_external_ratings', { team: true, modelUse: 'external rating challenger (FPI etc.)',
+      captureMode: 'both', note: 'Backfilled historically and syncable on a live/current cadence (syncTeamRankings current:true).' })
   ];
   const features = featureCoverage();
   const classification = classify(feeds);

@@ -466,7 +466,12 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
   const cutoff = kickoffFor(season, week, game.home);
   const modelResiduals = (line.models ?? []).filter(model => Number.isFinite(model.margin))
     .map(model => model.margin - marketMargin);
-  const simpleIds = new Set(['elo', 'melo', 'point_diff', 'pythagorean', 'recent_form', 'rest_travel']);
+  // 'elo' was never a registered component id -- nfl-ensemble.js's Elo-family
+  // rating is 'melo' (Margin-dependent Elo), already listed below. A stale
+  // reference here has no effect on `simple` (Set#has never matched it), so
+  // removing it is a no-op on the computed rulebook median/sd -- just dead
+  // code, not a behavior change.
+  const simpleIds = new Set(['melo', 'point_diff', 'pythagorean', 'recent_form', 'rest_travel']);
   const simple = line.models.filter(model => simpleIds.has(model.id) && Number.isFinite(model.margin))
     .map(model => model.margin - marketMargin);
   const availability = gamePlayerAvailability(season, week, game.home, game.away);

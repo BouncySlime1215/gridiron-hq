@@ -23,6 +23,19 @@
  * grant a forecast authority. It records observations and reserves capacity.
  * Whether any of it is worth acting on is a separate question that the policy
  * gate answers, and today the honest answer is that nothing here is qualified.
+ *
+ * A ROW THAT REACHES `frozen` MUST NOT BE ABLE TO DIE THERE. Freezing the
+ * packet and linking it into the decision tape are two different steps
+ * (`captureDueObservations` below), and the second one can fail on its own --
+ * a transient DB error, a bug in the board computation -- after the first one
+ * already succeeded. Every capture/scheduling query in this file selects
+ * `state='scheduled'`; none of them ever look at `frozen` again. Without
+ * `relinkStalledObservations`, a row whose link failed had no path back into
+ * processing at all -- not a slow retry, none. It fixes that without
+ * touching the freeze: the packet is already-immutable evidence
+ * (`packet_json`), so a retry resumes from what is already stored and
+ * retries only the link step, never re-fetching live tables into a new
+ * packet.
  */
 import crypto from 'node:crypto';
 import { db, rows, row, run } from '../../../db/index.js';
@@ -52,6 +65,20 @@ export const SCHEDULE_HORIZON_MINUTES = 24 * 60;
  * capturable" or "missed" -- never both, and never neither.
  */
 export const CAPTURE_GRACE_MINUTES = 10;
+
+/**
+ * How long a `frozen` row is left alone before `relinkStalledObservations`
+ * will retry its decision-tape link.
+ *
+ * This is a back-off, not a deadline like `CAPTURE_GRACE_MINUTES` -- there is
+ * no window past which a relink becomes dishonest the way a late capture
+ * would be, because a relink never reads anything but the packet that was
+ * already frozen on time. The wait just keeps a transient failure from being
+ * hammered again on the very next tick of the same pass; it is measured
+ * against `capture_finished_at` (the real wall-clock instant the freeze
+ * completed), the same clock a relink's own completion is compared against.
+ */
+export const RELINK_GRACE_MINUTES = 5;
 
 /**
  * Every scheduled game for a week, with the cutoff its kickoff implies.
@@ -234,6 +261,105 @@ export function captureDueObservations({ experimentId, now = new Date().toISOStr
 }
 
 /**
+ * Retry the decision-tape link for a packet that already froze but never got
+ * linked -- the gap described at the top of this file.
+ *
+ * This NEVER re-freezes and NEVER re-reads live/mutable tables. It resumes
+ * from `packet_json`, the packet already stored on the row at freeze time,
+ * and retries only the two steps `captureDueObservations` above performs
+ * right after freezing: `autoPickDecisionBoardForPacket` (a pure computation
+ * over the packet) and `recordDecisionRun` (nfl-decision-tape.js). That is
+ * deliberate and load-bearing: nfl-decision-tape.js's own contract (its C01/
+ * C02 tests) is that the SAME observation identity -- experiment, horizon,
+ * cutoff, job id, observation id, held constant here across every attempt --
+ * resolves to the SAME `nfl_decision_runs` row. A retry either finds nothing
+ * recorded yet (the earlier attempt never got far enough to write, or was
+ * rolled back) and writes cleanly, or finds the identical content already
+ * recorded and returns `created:false` without writing anything a second
+ * time, or -- if the content genuinely differs -- throws rather than
+ * silently recording two different answers for one observation. This
+ * function adds no retry logic of its own on top of that; it only gives a
+ * stalled row the chance to reach it again.
+ *
+ * Only `frozen` rows with no `decision_run_id` yet are candidates, and only
+ * past `graceMinutes` since the ORIGINAL freeze completed
+ * (`capture_finished_at`, left untouched here) -- the same partition
+ * discipline as `captureDueObservations`/`markMissedObservations`, just over
+ * a different pair of states. A successful relink stamps its own completion
+ * time into `note` rather than `capture_finished_at`, so a report can tell
+ * "captured and linked on time" (decided, no note) apart from "captured on
+ * time but linked late after a retry" (decided, `note` names the later
+ * relink time) without confusing the two clocks.
+ */
+export function relinkStalledObservations({ experimentId, now = new Date().toISOString(),
+  graceMinutes = RELINK_GRACE_MINUTES } = {}) {
+  const deadline = new Date(Date.parse(now) - graceMinutes * 60_000).toISOString();
+  const stalled = rows(`SELECT * FROM nfl_t60_observations
+    WHERE experiment_id=? AND state='frozen' AND decision_run_id IS NULL
+      AND capture_finished_at IS NOT NULL AND capture_finished_at <= ?
+    ORDER BY capture_finished_at, event_key`, experimentId, deadline);
+
+  const relinked = [], failed = [], unretryable = [];
+  for (const observation of stalled) {
+    if (!observation.packet_json) {
+      // Frozen before migration 036 added packet retention: there is no
+      // stored evidence to resume from, and re-fetching live tables to build
+      // one now would be exactly the after-the-fact reconstruction section
+      // 7.1 forbids. Nothing safe to do but say so.
+      unretryable.push({ id: observation.id, event_key: observation.event_key,
+        reason: 'no stored packet body to resume from (frozen before packet retention existed)' });
+      continue;
+    }
+
+    const attemptedAt = new Date().toISOString();
+    try {
+      const packet = JSON.parse(observation.packet_json);
+      const packetHash = t60PacketHash(packet);
+      if (packetHash !== observation.packet_hash) {
+        // The retained body no longer matches the hash recorded at freeze
+        // time. That is data corruption, not a retryable failure, and
+        // linking a decision from it would be worse than leaving the row
+        // stalled -- so this is reported, not silently patched over.
+        throw new Error(`stored packet body no longer hashes to its recorded packet_hash ` +
+          `(recorded ${observation.packet_hash}, recomputed ${packetHash}) -- refusing to link from it`);
+      }
+
+      const board = autoPickDecisionBoardForPacket(packet, NFL_PRODUCTION_POLICY);
+      const decidedAt = new Date().toISOString();
+      const tape = recordDecisionRun(observation.season, observation.week, board, {
+        observation: {
+          experimentId, horizon: observation.horizon, cutoffAt: observation.cutoff_at,
+          // Same jobId as the original attempt in captureDueObservations --
+          // this must resolve to the SAME observation identity
+          // (nfl-decision-tape.js's observationKey), or the retry becomes a
+          // second, distinct observation instead of a retry of the first.
+          jobId: `${T60_RUNNER_VERSION}:captureDueObservations`, observationId: observation.id
+        },
+        policyId: NFL_PRODUCTION_POLICY.id, policyVersion: NFL_PRODUCTION_POLICY.version,
+        computationStatus: board.decisions?.length ? 'complete' : 'unavailable',
+        dataIdentityStatus: 'frozen_packet', dataHash: packetHash,
+        scheduleVersion: observation.schedule_version,
+        decidedAt, computationStartedAt: attemptedAt, computationEndedAt: decidedAt,
+        note: `t60-runner relink retry of ${observation.event_key} at cutoff ${observation.cutoff_at}`
+      });
+
+      run(`UPDATE nfl_t60_observations SET state='decided', decision_run_id=?, last_error=NULL, note=?
+           WHERE id=?`,
+      tape.run_id,
+      `decision tape linked via retry at ${decidedAt} (packet captured at ${observation.capture_finished_at})`,
+      observation.id);
+      relinked.push({ id: observation.id, event_key: observation.event_key,
+        decision_run_id: tape.run_id, created: tape.created });
+    } catch (error) {
+      run(`UPDATE nfl_t60_observations SET last_error=? WHERE id=?`,
+        `packet froze; decision tape retry at ${attemptedAt} failed: ${error.message}`, observation.id);
+      failed.push({ id: observation.id, event_key: observation.event_key, reason: error.message });
+    }
+  }
+  return { relinked, failed, unretryable };
+}
+
+/**
  * Mark as MISSED every observation whose cutoff has passed without a capture.
  *
  * This is the function that makes coverage honest. Without it a collector
@@ -334,7 +460,8 @@ export function slotsHeldAt({ experimentId, season, week, at }) {
  * scheduling system, per section 7.1.
  */
 export function runT60Pass({ season, week, experimentId, scheduleVersion = null,
-  now = new Date().toISOString(), graceMinutes = CAPTURE_GRACE_MINUTES } = {}) {
+  now = new Date().toISOString(), graceMinutes = CAPTURE_GRACE_MINUTES,
+  relinkGraceMinutes = RELINK_GRACE_MINUTES } = {}) {
   const startedAt = now;
   const opened = openObservations({ season, week, experimentId, scheduleVersion, now });
   // Capture before marking missed, using the SAME grace boundary as
@@ -342,12 +469,20 @@ export function runT60Pass({ season, week, experimentId, scheduleVersion = null,
   // attempted here first, and only what remains `scheduled` past that
   // boundary is marked missed below -- never both, never neither.
   const captured = captureDueObservations({ experimentId, now, graceMinutes });
+  // Deliberately NOT passed `now`: relinkStalledObservations backs off
+  // against `capture_finished_at`, which is always the real wall clock (see
+  // its own doc comment), so its own default -- the real clock too -- is
+  // what actually lines up with that column. Threading this pass's `now`
+  // through would compare a real timestamp against a caller-simulated one.
+  const relinked = relinkStalledObservations({ experimentId, graceMinutes: relinkGraceMinutes });
   const missed = markMissedObservations({ experimentId, now, graceMinutes });
   return {
     runner_version: T60_RUNNER_VERSION, protocol_version: T60_PROTOCOL_VERSION,
     experiment_id: experimentId, season, week, started_at: startedAt,
     opened: opened.opened.length, skipped: opened.skipped,
     captured: captured.captured.length, failed: captured.failed,
+    relinked: relinked.relinked.length, relink_failed: relinked.failed,
+    relink_unretryable: relinked.unretryable,
     missed: missed.missed.length,
     finished_at: new Date().toISOString()
   };
@@ -384,7 +519,12 @@ export function t60Coverage({ experimentId, season, week }) {
       ? +(((byState.frozen ?? 0) + (byState.decided ?? 0)) / scheduled.length).toFixed(4) : null,
     detail: observations.map(o => ({
       event_key: o.event_key, cutoff_at: o.cutoff_at, state: o.state,
-      packet_hash: o.packet_hash, decision_run_id: o.decision_run_id, last_error: o.last_error
+      packet_hash: o.packet_hash, decision_run_id: o.decision_run_id, last_error: o.last_error,
+      // Distinguishes "captured and linked on time" (no note) from "captured
+      // on time but linked late after a relink retry" (note names the later
+      // relink completion, separate from capture_finished_at) -- see
+      // relinkStalledObservations.
+      note: o.note
     }))
   };
 }

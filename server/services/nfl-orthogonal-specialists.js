@@ -68,7 +68,7 @@ function fitRidge(X, y, { ridge = 8, huber = 4 } = {}) {
     return spread > 1e-8 ? spread : 1;
   });
   const Z = X.map(row => [1, ...row.map((value, j) => (value - mu[j]) / scale[j])]);
-  let weights = Array(Z[0].length).fill(1), beta = Array(Z[0].length).fill(0);
+  let weights = Array(Z.length).fill(1), beta = Array(Z[0].length).fill(0);
   for (let iteration = 0; iteration < 5; iteration++) {
     const p = Z[0].length;
     const xtx = Array.from({ length: p }, () => Array(p).fill(0)), xty = Array(p).fill(0);

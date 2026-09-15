@@ -39,7 +39,7 @@ db.exec(`INSERT INTO nfl_teams (id,abbr,name,conference,division) VALUES
   (5,'SEA','Seattle Seahawks','NFC','West'),
   (6,'SF','San Francisco 49ers','NFC','West')`);
 
-const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS } =
+const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS, decisionTimeManifest } =
   await import('../server/services/nfl-t60-packet.js');
 const { recordRevision } = await import('../server/services/nfl-bitemporal.js');
 
@@ -560,4 +560,47 @@ test('GIANT_PLAN §2.2 boundary: an unresolved-team revision (ni.team IS NULL) s
   assert.equal(after.rows, before.rows + 1,
     'it was observed before the cutoff, so it counts toward what this game\'s decision could have known');
   assert.equal(after.claim, 'received_by_cutoff');
+});
+
+/* ======================================================================
+ * decisionTimeManifest's kickoff reconstruction used to hardcode a -04:00
+ * (EDT) offset when turning game_lines.gameday/gametime (US Eastern wall
+ * time) into a kickoff instant. That is only correct for roughly
+ * mid-March-to-early-November; a game played under Eastern STANDARD time
+ * (UTC-5) came out an hour early. The fix reuses date-util.js's
+ * `nflKickoffDate`, which resolves the real America/New_York offset —
+ * including DST — for the given date. These tests pin one game from each
+ * side of the DST boundary and check the resulting packet's own `kickoff`
+ * field, which is the exact instant `freezeT60Packet` used to compute its
+ * cutoff and scope its evidence queries.
+ * ====================================================================== */
+
+test('decisionTimeManifest: a standard-time (winter) kickoff resolves to UTC-5, not the old hardcoded UTC-4', () => {
+  run(`INSERT INTO game_lines (season, week, team, opponent, home, gameday, gametime)
+       VALUES (?,?,?,?,?,?,?)`, 2025, 18, 'ATL', 'CAR', 1, '2026-01-04', '13:00');
+
+  const manifest = decisionTimeManifest([2025], { mode: 'prospective' });
+  const found = manifest.packets.find(p => p.game.gameday === '2026-01-04');
+  assert.ok(found, 'the seeded winter game must produce a packet');
+  assert.equal(found.packet.kickoff, '2026-01-04T18:00:00.000Z',
+    '13:00 Eastern STANDARD time is 18:00Z (UTC-5); the old fixed -04:00 offset would have produced 17:00Z');
+});
+
+test('decisionTimeManifest: a daylight-time (summer/early-fall) kickoff resolves to UTC-4', () => {
+  run(`INSERT INTO game_lines (season, week, team, opponent, home, gameday, gametime)
+       VALUES (?,?,?,?,?,?,?)`, 2026, 2, 'CHI', 'DET', 1, '2026-09-13', '13:00');
+
+  const manifest = decisionTimeManifest([2026], { mode: 'prospective' });
+  const found = manifest.packets.find(p => p.game.gameday === '2026-09-13');
+  assert.ok(found, 'the seeded early-season game must produce a packet');
+  assert.equal(found.packet.kickoff, '2026-09-13T17:00:00.000Z',
+    '13:00 Eastern DAYLIGHT time is 17:00Z (UTC-4), matching nflKickoffDate\'s America/New_York conversion');
+});
+
+test('decisionTimeManifest: caveats no longer disclose a hardcoded -04:00 offset bug that is fixed', () => {
+  const manifest = decisionTimeManifest([2025], { mode: 'prospective' });
+  for (const caveat of manifest.caveats) {
+    assert.doesNotMatch(caveat, /-04:00/, 'no caveat should still describe the retired fixed-offset limitation');
+    assert.doesNotMatch(caveat, /one hour off/i);
+  }
 });

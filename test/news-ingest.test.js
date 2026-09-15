@@ -264,6 +264,43 @@ test('upsertNormalizedNewsItem is idempotent on duplicate_group_id', () => {
   assert.equal(row('SELECT body FROM news_items WHERE id=?', a.id).body, 'updated summary');
 });
 
+test('a genuine revision (changed body) advances ingested_at to the new receipt time', () => {
+  const base = {
+    source: 'Wire', source_url: 'https://example.com/revision-story', headline: 'Practice report filed',
+    published_at: '2026-08-04T00:00:00Z'
+  };
+  const original = normalizeNewsItem(base, { ingestedAt: '2026-08-06T12:00:00.000Z' });
+  const a = upsertNormalizedNewsItem(original);
+  assert.equal(row('SELECT ingested_at FROM news_items WHERE id=?', a.id).ingested_at, '2026-08-06T12:00:00.000Z');
+
+  // Friday's edit to Wednesday's article: same story (same duplicate_group_id),
+  // materially different body, received at a later time.
+  const revised = normalizeNewsItem({ ...base, summary: 'Player added to injury report Friday' },
+    { ingestedAt: '2026-08-08T09:30:00.000Z' });
+  const b = upsertNormalizedNewsItem(revised);
+  assert.equal(a.id, b.id);
+  const stored = row('SELECT body, ingested_at FROM news_items WHERE id=?', b.id);
+  assert.equal(stored.body, 'Player added to injury report Friday');
+  assert.equal(stored.ingested_at, '2026-08-08T09:30:00.000Z');
+});
+
+test('re-upserting unchanged content does not bump ingested_at (idempotent receipt time)', () => {
+  const base = {
+    source: 'Wire', source_url: 'https://example.com/unchanged-story', headline: 'Roster note filed',
+    published_at: '2026-08-04T00:00:00Z', summary: 'Nothing has changed here'
+  };
+  const original = normalizeNewsItem(base, { ingestedAt: '2026-08-06T12:00:00.000Z' });
+  const a = upsertNormalizedNewsItem(original);
+  assert.equal(row('SELECT ingested_at FROM news_items WHERE id=?', a.id).ingested_at, '2026-08-06T12:00:00.000Z');
+
+  // Exact same content resent later (e.g. the feed re-delivers the same item) --
+  // ingested_at must stay put since nothing new was actually received.
+  const resend = normalizeNewsItem(base, { ingestedAt: '2026-08-09T00:00:00.000Z' });
+  const b = upsertNormalizedNewsItem(resend);
+  assert.equal(a.id, b.id);
+  assert.equal(row('SELECT ingested_at FROM news_items WHERE id=?', b.id).ingested_at, '2026-08-06T12:00:00.000Z');
+});
+
 test('a corrected headline updates the existing row instead of forking a duplicate', () => {
   const original = normalizeNewsItem({
     source: 'Wire', source_url: 'https://example.com/corrected-story', headline: 'Player questionable for Sunday',

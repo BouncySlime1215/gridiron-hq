@@ -171,6 +171,35 @@ test('leave-one-season-out rejects a bias driven by a single anomalous season', 
     'a bias present in only 1 of 3 seasons must not survive leave-one-season-out');
 });
 
+test('robustAcrossSeasons: fewer than 3 seasons must be reported not-estimable, never a truthy pass (R28)', () => {
+  // Real bias, but confined to a single season -- by construction there are
+  // only 2 seasons of history in this segment, so leave-one-season-out
+  // literally cannot run (removing either one leaves too little to compare).
+  // Before the fix this uncomputable check returned `robust: true`, which
+  // would fool any caller doing `if (result.robust)` into treating "we
+  // couldn't check this" as "we checked this and it's fine."
+  const bets = [];
+  for (const season of [2023, 2024]) {
+    for (let i = 0; i < 40; i++) {
+      bets.push(spreadBet({
+        season, week: 15, home: `Q${season}_${i}`, away: `R${season}_${i}`,
+        side: 'home', line: -3, modelMargin: 4, actualMargin: 1,
+        won: false, edge: 5, disagreement: 2
+      }));
+    }
+  }
+  const result = analyzeErrors(bets, { minBets: 25 });
+  const seg = result.segments.find(s => s.dimension === 'side' && s.segment === 'backed home');
+  assert.ok(seg, 'segment should exist');
+  assert.equal(seg._seasons === undefined, true, 'internal _seasons must be stripped from the public segments list');
+  const flagged = result.weakest.find(s => s.dimension === 'side' && s.segment === 'backed home');
+  assert.ok(flagged, 'this 2-season bias should otherwise clear significance + effect-size gates, exercising the robustness branch');
+  assert.notEqual(flagged.robust_across_seasons, true, 'an uncomputable (fewer than 3 seasons) check must never read as a pass');
+  assert.equal(flagged.leave_one_season_out.robust, false);
+  assert.equal(flagged.leave_one_season_out.status, 'insufficient_data');
+  assert.match(flagged.leave_one_season_out.note, /fewer than 3 seasons/);
+});
+
 test('proposeAdjustment refuses an overlapping discovery/holdout split outright', () => {
   const segment = { dimension: 'divisional', segment: 'divisional', win_rate: 0.4 };
   assert.throws(

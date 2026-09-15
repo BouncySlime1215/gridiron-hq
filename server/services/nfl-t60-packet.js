@@ -42,6 +42,7 @@ import { decisionCutoff, T60_PROTOCOL_VERSION } from './nfl-t60-protocol.js';
 import { teamCodeFor } from './team-codes.js';
 import { canonicalize } from '../betting/nfl/contracts/forecast-packet.js';
 import { SHARP_BOOKS } from './nfl-sharp.js';
+import { nflKickoffDate } from './date-util.js';
 
 export const PACKET_VERSION = 'nfl-t60-packet-v3-c11';
 
@@ -652,12 +653,9 @@ export function resolvePacketMarketQuote(packet) {
  * seasons the answer is largely "nothing, and here is exactly why."
  *
  * Kickoff is reconstructed from `game_lines.gameday`/`gametime`, which are
- * stored in US Eastern local time. The conversion below uses a fixed −04:00
- * offset; a game in late season under standard time is therefore off by one
- * hour. That is disclosed rather than hidden because it does not affect any
- * conclusion here — the receipt gaps being measured are years wide, not hours
- * — but it would matter for a real prospective cutoff and is flagged in the
- * manifest's own `caveats`.
+ * stored in US Eastern local time. `nflKickoffDate` converts that wall time
+ * to a real UTC instant via the America/New_York zone, so both daylight- and
+ * standard-time games resolve to the correct hour.
  */
 export function decisionTimeManifest(seasons = [2021, 2022, 2023, 2024, 2025], { mode = 'prospective' } = {}) {
   const games = rows(`SELECT season, week, team AS home, opponent AS away, gameday, gametime, div_game, rest_days
@@ -671,7 +669,8 @@ export function decisionTimeManifest(seasons = [2021, 2022, 2023, 2024, 2025], {
   const packets = [];
 
   for (const g of games) {
-    const kickoff = `${g.gameday}T${g.gametime}:00-04:00`;
+    const kickoff = nflKickoffDate(g.gameday, g.gametime)?.toISOString() ?? null;
+    if (!kickoff) continue;
     const packet = freezeT60Packet({ season: g.season, week: g.week, home: g.home, away: g.away, kickoff, mode });
     if (packet.error) continue;
     packets.push({ game: g, packet });
@@ -706,9 +705,6 @@ export function decisionTimeManifest(seasons = [2021, 2022, 2023, 2024, 2025], {
       per_season: [...perSeason.values()].sort((a, b) => a.season - b.season)
     },
     caveats: [
-      'Kickoff is reconstructed from gameday/gametime at a fixed -04:00 Eastern offset; standard-time games are ' +
-        'one hour off. Immaterial to these results (the receipt gaps measured are years wide) and material to a ' +
-        'real prospective cutoff.',
       'This manifest describes AVAILABILITY, not quality. A source eligible by cutoff may still be wrong.'
     ],
     packets
@@ -727,7 +723,8 @@ export function representativePackets(season = 2025) {
   const pick = (label, sql, ...params) => {
     const g = rows(sql, ...params)[0];
     if (!g) return { case: label, error: 'no game in this database matches the case' };
-    const kickoff = `${g.gameday}T${g.gametime}:00-04:00`;
+    const kickoff = nflKickoffDate(g.gameday, g.gametime)?.toISOString() ?? null;
+    if (!kickoff) return { case: label, error: 'unresolvable kickoff for this game' };
     return { case: label, game: `${g.away} at ${g.home}`, season: g.season, week: g.week,
       kickoff_local: `${g.gameday} ${g.gametime} ET`,
       packet: freezeT60Packet({ season: g.season, week: g.week, home: g.home, away: g.away, kickoff }) };

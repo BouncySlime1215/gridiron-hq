@@ -566,6 +566,28 @@ export const PACKET_BOARD_INPUT_COVERAGE = Object.freeze({
   model_state: 'out_of_packet_scope'
 });
 
+// A real spread market always mirrors: a home line of -3 exists only because
+// someone is laying +3 on the other side. Two quotes whose lines do not sum
+// to (approximately) zero are not a matched contract -- they are two
+// different, non-simultaneous offers, and presenting them as one price would
+// silently fabricate a contract the market never actually made. The epsilon
+// only absorbs float noise from storage/transport; it is not slack for a
+// genuinely different number (a real half-point difference is 0.5, five
+// orders of magnitude above this).
+const MIRRORED_LINE_EPSILON = 1e-6;
+const isMirroredPair = (homeLine, awayLine) =>
+  Number.isFinite(homeLine) && Number.isFinite(awayLine)
+  && Math.abs(homeLine + awayLine) <= MIRRORED_LINE_EPSILON;
+
+// When a pair IS matched, the moment the pair as a whole became knowable is
+// the LATER of the two sides' own receipt times -- the earlier side was only
+// half the contract until the later one showed up. Using the home side's
+// clock unconditionally (the previous behaviour) could report a pair as
+// fresh when its away leg was actually stale, or as stale when the home leg
+// was the old one; either way a cutoff-eligibility check reading this field
+// would be reasoning about the wrong moment.
+const laterOf = (a, b) => (a == null ? b : b == null ? a : (a < b ? b : a));
+
 /**
  * Resolve "the" market spread and price from a frozen packet's quote-tape
  * evidence -- the one number a live board reads off `game_lines`, reconstructed
@@ -580,6 +602,15 @@ export const PACKET_BOARD_INPUT_COVERAGE = Object.freeze({
  * deterministic even when none of the usual sharp books were captured for this
  * game. The chosen book is always reported on the result, so this is a
  * disclosed selection rule, not a hidden one.
+ *
+ * Book preference is applied only AFTER completeness: a book only qualifies
+ * as "the" book if it actually holds a complete, correctly-mirrored pair (or,
+ * failing that everywhere, at least a lone home-side quote with no away quote
+ * to contradict it -- see the single-sided fallback below). Checking
+ * preference before completeness (Codex correction C04) meant a preferred
+ * book with only half a market could shadow a different book holding a
+ * perfectly good, fully matched quote, throwing away real evidence for no
+ * reason.
  *
  * Returns `{ status: 'unavailable' | 'ineligible', reason }` when the packet
  * genuinely has nothing a prospective decision could use -- the caller's job
@@ -614,31 +645,78 @@ export function resolvePacketMarketQuote(packet) {
   }
   const otherBooksSorted = [...byBook.keys()].filter(b => !SHARP_BOOKS.includes(b)).sort();
   const bookOrder = [...SHARP_BOOKS, ...otherBooksSorted];
-  const chosenBook = bookOrder.find(b => byBook.has(b));
-  if (!chosenBook) return { status: 'unavailable', reason: 'no book present among the packet\'s frozen quotes' };
 
-  // Within the chosen book, several snapshots may have been received by the
-  // cutoff (the tape is append-only); the latest one is what a decision made
-  // right at the cutoff would have held, the same "last observation before
-  // the moment that matters" rule the rest of this codebase uses for a close.
+  // Within a book, several snapshots may have been received by the cutoff
+  // (the tape is append-only); the latest one is what a decision made right
+  // at the cutoff would have held, the same "last observation before the
+  // moment that matters" rule the rest of this codebase uses for a close.
   const latestOf = side => side
     .slice().sort((a, b) => (a.received_at < b.received_at ? -1 : a.received_at > b.received_at ? 1 : 0)).at(-1);
-  const bookValues = byBook.get(chosenBook);
-  const home = latestOf(bookValues.filter(v => v.side_key === 'home'));
-  const away = latestOf(bookValues.filter(v => v.side_key === 'away'));
-  if (!home) {
-    return { status: 'unavailable', reason: `chosen book '${chosenBook}' has no home-side quote in this packet` };
+
+  // Evaluate every book the packet actually has, in preference order, and
+  // classify each one BEFORE choosing among them -- completeness first,
+  // preference second (Codex correction C04). A book with a home quote and
+  // no away quote at all is single-sided (nothing to contradict the home
+  // line); a book with a home AND an away quote that do not mirror each
+  // other is mismatched, and is never eligible -- for that book OR as a
+  // single-sided fallback, since the away leg it did capture makes clear
+  // the market moved between the two receipts rather than being silent.
+  const candidates = bookOrder
+    .filter(b => byBook.has(b))
+    .map(book => {
+      const bookValues = byBook.get(book);
+      const home = latestOf(bookValues.filter(v => v.side_key === 'home'));
+      const away = latestOf(bookValues.filter(v => v.side_key === 'away'));
+      if (!home) return { book, home: null, away, kind: 'no_home' };
+      if (!away) return { book, home, away: null, kind: 'single_sided' };
+      if (isMirroredPair(home.line, away.line)) return { book, home, away, kind: 'complete' };
+      return { book, home, away, kind: 'mismatched' };
+    })
+    .filter(c => c.home);
+
+  if (!candidates.length) {
+    return { status: 'unavailable', reason: 'no book present among the packet\'s frozen quotes has a home-side quote' };
   }
 
+  const complete = candidates.find(c => c.kind === 'complete');
+  // No book anywhere has a full matched pair. The most conservative fallback
+  // -- and the one this function already committed to for a book that never
+  // captured an away side at all -- is a single-sided quote: the spread is
+  // reported (spreads are symmetric by construction) but never a fabricated
+  // price for the side this packet never actually froze. A book whose away
+  // quote is present but MISMATCHED does not get this fallback: unlike a
+  // book that simply never saw the other side, this book's own evidence
+  // contradicts treating its home line as an uncontested single-sided quote.
+  const chosen = complete ?? candidates.find(c => c.kind === 'single_sided');
+
+  if (!chosen) {
+    const mismatched = candidates.filter(c => c.kind === 'mismatched');
+    return { status: 'unavailable',
+      reason: mismatched.length
+        ? `every book with both sides in this packet has non-mirrored home/away lines (e.g. book ` +
+          `'${mismatched[0].book}': home ${mismatched[0].home.line} vs away ${mismatched[0].away.line}), and no ` +
+          'other book captured a usable single-sided quote'
+        : 'no book among the packet\'s frozen quotes has a usable home-side quote' };
+  }
+
+  const { book: chosenBook, home, away, kind } = chosen;
+
   return {
-    status: 'available', book: chosenBook, book_selection_rule: 'sharp_books_first_then_alphabetical',
+    status: 'available', book: chosenBook,
+    book_selection_rule: 'complete_mirrored_pair_first_then_sharp_books_then_alphabetical_then_single_sided_fallback',
+    pair_complete: kind === 'complete',
     home_spread: home.line, home_price: home.american_price,
     // A missing away-side row still lets the spread be reported (spreads are
     // symmetric by construction), but never its price -- assuming the price
     // is symmetric would fabricate a number this packet never actually froze.
     away_spread: away?.line ?? (home.line == null ? null : -home.line),
     away_price: away?.american_price ?? null,
-    quote_at: home.received_at, snapshot_at: home.snapshot_at
+    // For a complete pair, the pair as a whole was only fully known once its
+    // LATER leg was received -- using the home side's clock unconditionally
+    // could make an asynchronously-updated pair look fresher (or staler)
+    // than it actually was to a downstream cutoff-eligibility check.
+    quote_at: away ? laterOf(home.received_at, away.received_at) : home.received_at,
+    snapshot_at: away ? laterOf(home.snapshot_at, away.snapshot_at) : home.snapshot_at
   };
 }
 

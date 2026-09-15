@@ -39,7 +39,7 @@ db.exec(`INSERT INTO nfl_teams (id,abbr,name,conference,division) VALUES
   (5,'SEA','Seattle Seahawks','NFC','West'),
   (6,'SF','San Francisco 49ers','NFC','West')`);
 
-const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS, decisionTimeManifest } =
+const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS, decisionTimeManifest, resolvePacketMarketQuote } =
   await import('../server/services/nfl-t60-packet.js');
 const { recordRevision } = await import('../server/services/nfl-bitemporal.js');
 
@@ -603,4 +603,142 @@ test('decisionTimeManifest: caveats no longer disclose a hardcoded -04:00 offset
     assert.doesNotMatch(caveat, /-04:00/, 'no caveat should still describe the retired fixed-offset limitation');
     assert.doesNotMatch(caveat, /one hour off/i);
   }
+});
+
+/**
+ * resolvePacketMarketQuote: two related bugs found in code review (C03/C04).
+ *
+ * resolvePacketMarketQuote() operates purely on a packet's already-frozen
+ * `sources` array -- it never touches the database -- so these tests build a
+ * minimal synthetic packet directly rather than going through
+ * freezeT60Packet(). That keeps each case a single, unambiguous fixture for
+ * exactly the pairing/selection logic under test.
+ */
+function quote(bookmaker_key, side_key, line, receivedAt, { american_price = -110, snapshotAt = receivedAt } = {}) {
+  return { bookmaker_key, side_key, line, american_price, received_at: receivedAt, snapshot_at: snapshotAt };
+}
+function quotePacket(values, { mode = 'prospective' } = {}) {
+  return { mode, sources: [{ source: 'nfl_quote_tape', claim: 'received_by_cutoff', values }],
+    summary: { eligible: ['nfl_quote_tape'] } };
+}
+
+test('resolvePacketMarketQuote: an exact mirrored pair from the preferred book is unaffected (happy path)', () => {
+  const packet = quotePacket([
+    quote('pinnacle', 'home', -3, '2026-09-20T15:00:00Z'),
+    quote('pinnacle', 'away', 3, '2026-09-20T15:05:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.status, 'available');
+  assert.equal(resolved.book, 'pinnacle');
+  assert.equal(resolved.pair_complete, true);
+  assert.equal(resolved.home_spread, -3);
+  assert.equal(resolved.away_spread, 3);
+  assert.equal(resolved.away_price, -110);
+});
+
+test('C03: a home/away pair whose lines are not exact mirror images is rejected, not silently combined', () => {
+  // home -3 paired with away +2.5 is not a real spread contract (a real
+  // market always mirrors: home -3 implies away +3). The two quotes were
+  // also received at different times, underscoring they are independent,
+  // non-simultaneous offers rather than one coherent capture.
+  const packet = quotePacket([
+    quote('pinnacle', 'home', -3, '2026-09-20T15:59:00Z'),
+    quote('pinnacle', 'away', 2.5, '2026-09-20T15:30:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.status, 'unavailable',
+    'mismatched home/away lines must never be presented as one matched contract');
+  assert.match(resolved.reason, /mirror|mismatch|non-mirrored/i);
+});
+
+test('C03: a mismatched book does not fall back to a single-sided quote either', () => {
+  // The book DID capture an away side -- it just does not mirror the home
+  // side -- so treating the home line as an uncontested single-sided quote
+  // would ignore evidence the book itself froze that the market had moved.
+  const packet = quotePacket([
+    quote('pinnacle', 'home', -3, '2026-09-20T15:59:00Z'),
+    quote('pinnacle', 'away', 2.5, '2026-09-20T15:30:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.status, 'unavailable');
+  assert.notEqual(resolved.book, 'pinnacle');
+});
+
+test('C04: a preferred book with only half the market falls back to a different book holding a complete pair', () => {
+  // pinnacle (first in SHARP_BOOKS) only froze an away-side quote here; a
+  // second book, 'other', has a complete, correctly mirrored pair. The
+  // complete pair must be used instead of declaring the quote unavailable.
+  const packet = quotePacket([
+    quote('pinnacle', 'away', 3, '2026-09-20T15:59:00Z'),
+    quote('other', 'home', -3, '2026-09-20T15:59:00Z'),
+    quote('other', 'away', 3, '2026-09-20T15:59:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.status, 'available',
+    'a complete pair in a non-preferred book must not be discarded for an incomplete preferred book');
+  assert.equal(resolved.book, 'other');
+  assert.equal(resolved.pair_complete, true);
+  assert.equal(resolved.home_spread, -3);
+  assert.equal(resolved.away_spread, 3);
+  assert.equal(resolved.away_price, -110);
+});
+
+test('C04: with no complete pair anywhere, a lone home-side quote is still reported as a single-sided fallback', () => {
+  const packet = quotePacket([
+    quote('pinnacle', 'home', -3, '2026-09-20T15:00:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.status, 'available');
+  assert.equal(resolved.book, 'pinnacle');
+  assert.equal(resolved.pair_complete, false);
+  assert.equal(resolved.home_spread, -3);
+  // Spreads are symmetric by construction, so the away number can be
+  // reported, but never a price this packet never actually froze.
+  assert.equal(resolved.away_spread, 3);
+  assert.equal(resolved.away_price, null);
+});
+
+test('C04: an unavailable book is skipped in favor of a later, complete book even when both are non-sharp', () => {
+  const packet = quotePacket([
+    quote('zzzbook', 'home', -3, '2026-09-20T15:00:00Z'),
+    // zzzbook has no away quote at all (single-sided candidate).
+    quote('aaabook', 'home', -3, '2026-09-20T15:00:00Z'),
+    quote('aaabook', 'away', 3, '2026-09-20T15:00:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.status, 'available');
+  assert.equal(resolved.book, 'aaabook', 'a complete pair beats a single-sided quote regardless of alphabetical order');
+  assert.equal(resolved.pair_complete, true);
+});
+
+test('timestamp of record: an asynchronously-updated pair reports the LATER of the two sides\' receipt times', () => {
+  // The away leg arrived 45 minutes after the home leg -- the pair as a
+  // whole was not fully known until the away leg showed up, so quote_at
+  // must reflect that later moment, not the home side's earlier clock.
+  const packet = quotePacket([
+    quote('pinnacle', 'home', -3, '2026-09-20T15:00:00Z'),
+    quote('pinnacle', 'away', 3, '2026-09-20T15:45:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.quote_at, '2026-09-20T15:45:00Z');
+  assert.equal(resolved.snapshot_at, '2026-09-20T15:45:00Z');
+});
+
+test('timestamp of record: the later side is whichever leg actually updated last, not always home or always away', () => {
+  // Same pair, but this time HOME is the side that updated last -- the
+  // result must track "whichever leg was later," not a hardcoded side.
+  const packet = quotePacket([
+    quote('pinnacle', 'away', 3, '2026-09-20T15:00:00Z'),
+    quote('pinnacle', 'home', -3, '2026-09-20T15:45:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.quote_at, '2026-09-20T15:45:00Z');
+});
+
+test('timestamp of record: a single-sided quote uses the home side\'s own clock (there is no second leg to combine)', () => {
+  const packet = quotePacket([
+    quote('pinnacle', 'home', -3, '2026-09-20T15:00:00Z')
+  ]);
+  const resolved = resolvePacketMarketQuote(packet);
+  assert.equal(resolved.quote_at, '2026-09-20T15:00:00Z');
 });

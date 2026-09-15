@@ -688,8 +688,10 @@ def run_movement(data, names, market, season, run_dir, tpot_minutes, errors, dis
     test = [r for r in data if r['market'] == market and r['season'] == season]
     if not test:
         return None
-    outer_cutoff = min(stamp(r['decision_at']) for r in test) - timedelta(days=7)
-    train = [r for r in data if r['market'] == market and r['season'] < season and stamp(r['label_at']) < outer_cutoff]
+    # research/betting/nfl/dataset.py owns this cutoff-safe filter now -- see
+    # eligible_training_rows's docstring for the two conditions (earlier
+    # season AND settled-before-cutoff label).
+    train = shared_dataset.eligible_training_rows(data, test, market=market, before_season=season)
     cv = time_folds(train)
     if len(cv) < 2:
         errors.append(f'{market}/{season}/move: insufficient temporal training folds')
@@ -744,8 +746,11 @@ def run_classification(data, names, market, season, run_dir, tpot_minutes, error
     test = [r for r in all_rows if r['season'] == season]
     if not test:
         return None
-    outer_cutoff = min(stamp(r['decision_at']) for r in test) - timedelta(days=7)
-    train = [r for r in all_rows if r['season'] < season and stamp(r['label_at']) < outer_cutoff]
+    # `all_rows` is already market-filtered (and outcome!=0-filtered) above,
+    # so no market kwarg here -- eligible_training_rows's market=None default
+    # applies no further market filter, which is exactly what this call site
+    # already relied on.
+    train = shared_dataset.eligible_training_rows(all_rows, test, before_season=season)
     cv = time_folds(train)
     if len(cv) < 2:
         errors.append(f'{market}/{season}/cover: insufficient temporal training folds')
@@ -834,8 +839,10 @@ def run_quantile(data, names, market, season, run_dir, errors, discipline=None, 
     test = [r for r in data if r['market'] == market and r['season'] == season]
     if not test:
         return None
-    outer_cutoff = min(stamp(r['decision_at']) for r in test) - timedelta(days=7)
-    train = [r for r in data if r['market'] == market and r['season'] < season and stamp(r['label_at']) < outer_cutoff]
+    # research/betting/nfl/dataset.py owns this cutoff-safe filter now -- see
+    # eligible_training_rows's docstring for the two conditions (earlier
+    # season AND settled-before-cutoff label).
+    train = shared_dataset.eligible_training_rows(data, test, market=market, before_season=season)
     cv = time_folds(train)
     if len(cv) < 2:
         errors.append(f'{market}/{season}/quantile: insufficient temporal training folds')
@@ -1015,9 +1022,7 @@ def run(args):
             score_rows = [r for r in data if r['market'] == market and r['season'] == season]
             if not score_rows:
                 continue
-            outer_cutoff = min(stamp(r['decision_at']) for r in score_rows) - timedelta(days=7)
-            train_rows = [r for r in data if r['market'] == market and r['season'] < season
-                          and stamp(r['label_at']) < outer_cutoff]
+            train_rows = shared_dataset.eligible_training_rows(data, score_rows, market=market, before_season=season)
             try:
                 drift_reports.append(scan_lab_fold(train_rows, score_rows, names, market=market,
                                                    score_season=season, label=f'{market}/{season}',

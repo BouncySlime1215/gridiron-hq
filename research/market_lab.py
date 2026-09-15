@@ -127,6 +127,13 @@ def time_folds(rows, folds=3):
         test_weeks={weeks[i] for i in chunk}
         va=np.array([i for i,r in enumerate(rows) if (r['season'],r['week']) in test_weeks],dtype=int)
         if not len(va):continue
+        # NOT migrated to shared_dataset.eligible_training_rows: that helper's
+        # eligibility test is season-only ("r['season'] < before_season"), but
+        # this inner-fold split needs WEEK granularity (same-season rows from
+        # earlier weeks are legal training rows here) and returns INDICES into
+        # `rows`, not row dicts -- a different eligibility condition and a
+        # different return shape, not just a superficial variation. See the
+        # research/betting/nfl/dataset.py migration report for this file.
         cutoff=min(stamp(rows[i]['decision_at']) for i in va)-timedelta(days=7)
         first_week=min(test_weeks)
         tr=np.array([i for i,r in enumerate(rows) if (r['season'],r['week'])<first_week and stamp(r['label_at'])<cutoff],dtype=int)
@@ -209,8 +216,11 @@ def run(args):
         for season in [2023,2024,2025]:
             test=[r for r in data if r['market']==market and r['season']==season]
             if not test:continue
-            outer_cutoff=min(stamp(r['decision_at']) for r in test)-timedelta(days=7)
-            train=[r for r in data if r['market']==market and r['season']<season and stamp(r['label_at'])<outer_cutoff]
+            # research/betting/nfl/dataset.py owns this cutoff-safe filter now --
+            # see eligible_training_rows's docstring for the two conditions
+            # (earlier season AND settled-before-cutoff label) this used to
+            # duplicate inline in seven places across this file and tree_lab.py.
+            train=shared_dataset.eligible_training_rows(data,test,market=market,before_season=season)
             cv=time_folds(train)
             if len(cv)<2:report['errors'].append(f'{market}/{season}: insufficient temporal training folds');continue
             X=np.array([[r['features'][k] for k in names] for r in train]);y=np.array([r['y'] for r in train])
@@ -275,8 +285,7 @@ def run(args):
         for season in [2023,2024,2025]:
             score_rows=[r for r in data if r['market']==market and r['season']==season]
             if not score_rows:continue
-            outer_cutoff=min(stamp(r['decision_at']) for r in score_rows)-timedelta(days=7)
-            train_rows=[r for r in data if r['market']==market and r['season']<season and stamp(r['label_at'])<outer_cutoff]
+            train_rows=shared_dataset.eligible_training_rows(data,score_rows,market=market,before_season=season)
             try:
                 report['drift_scans'].append(scan_lab_fold(train_rows,score_rows,names,market=market,
                     score_season=season,label=f'{market}/{season}',random_state=SEED))

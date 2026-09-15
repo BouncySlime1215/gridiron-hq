@@ -6,7 +6,7 @@
  * those claims to both fantasy and props; the spread model receives a shadow
  * team-impact candidate that must pass ablation before gaining authority.
  */
-import { db, rows } from '../db/index.js';
+import { db, rows, run } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
 import { nflKickoffDate } from './date-util.js';
 import { callClaude, getApiKey, parseJson } from './claude.js';
@@ -186,25 +186,49 @@ function localTextForPlayer(text, entity, allEntities) {
   return clauses.length ? clauses.join(' ') : text;
 }
 
+// WP08/R1: nfl_news_signals is append-only (migration 053) -- a re-sync or
+// re-extraction of the same story no longer overwrites the existing row, it
+// INSERTS A NEW VERSION. `upsertVersionedSignal` reads the one row
+// `nfl_news_signals_current` (that migration's view) already resolves as
+// "the latest version" for this exact key, and `_contentEqual` decides
+// whether the new claim actually differs from it. Only a genuine content
+// change gets a new row -- an identical re-run (the common case: most
+// stories are re-synced every pass and have not changed) is a no-op, per
+// this WP's own acceptance ("repeating the same fetch does not duplicate
+// versions"). Uses `rows`/`run` (not a module-scope db.prepare) deliberately:
+// a prepared statement built at import time would run before some callers'
+// test setup has applied migrations yet, throwing "no such table" for a
+// table that is about to exist a moment later.
+const _CONTENT_FIELDS = ['status', 'body_part', 'unavailable_probability', 'role_delta', 'confidence',
+  'published_at', 'source', 'source_url', 'evidence_span', 'extractor_version',
+  'verification_state', 'verification_reason'];
+function _contentEqual(existing, next) {
+  return _CONTENT_FIELDS.every(field => (existing[field] ?? null) === (next[field] ?? null));
+}
+/** Inserts a new version only if it genuinely differs from the current one. Returns whether it inserted. */
+function upsertVersionedSignal(next) {
+  const existing = rows(`SELECT * FROM nfl_news_signals_current WHERE news_id=? AND player_key=? AND signal_type=?`,
+    next.news_id, next.player_key, next.signal_type)[0];
+  if (existing && _contentEqual(existing, next)) return false;
+  run(`INSERT INTO nfl_news_signals
+    (news_id,player_key,player_id,player_name,team,signal_type,status,body_part,
+     unavailable_probability,role_delta,confidence,published_at,source,source_url,evidence_span,extractor_version,
+     verification_state,verification_reason)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    next.news_id, next.player_key, next.player_id, next.player_name, next.team,
+    next.signal_type, next.status, next.body_part, next.unavailable_probability, next.role_delta,
+    next.confidence, next.published_at, next.source, next.source_url, next.evidence_span,
+    next.extractor_version, next.verification_state, next.verification_reason);
+  return true;
+}
+
 export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {}) {
   const since = new Date(Date.now() - sinceDays * 86400000).toISOString();
   const items = rows(`SELECT id,team_id,headline,body,published_at,source,source_url,source_type,
       entities_json,reliability_json FROM news_items
     WHERE published_at IS NOT NULL AND published_at>=?
     ORDER BY published_at DESC LIMIT ?`, since, limit);
-  const insert = db.prepare(`INSERT INTO nfl_news_signals
-    (news_id,player_key,player_id,player_name,team,signal_type,status,body_part,
-     unavailable_probability,role_delta,confidence,published_at,source,source_url,evidence_span,extractor_version,
-     verification_state,verification_reason)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(news_id,player_key,signal_type) DO UPDATE SET
-      status=excluded.status,body_part=excluded.body_part,
-      unavailable_probability=excluded.unavailable_probability,role_delta=excluded.role_delta,
-      confidence=excluded.confidence,published_at=excluded.published_at,source=excluded.source,
-      source_url=excluded.source_url,evidence_span=excluded.evidence_span,
-      extractor_version=excluded.extractor_version,verification_state=excluded.verification_state,
-      verification_reason=excluded.verification_reason`);
-  let signals = 0, skippedNoPlayer = 0, skippedNoClaim = 0;
+  let signals = 0, newVersions = 0, skippedNoPlayer = 0, skippedNoClaim = 0;
   for (const item of items) {
     const text = `${item.headline ?? ''}. ${item.body ?? ''}`.slice(0, 1600);
     const players = candidatePlayers(item);
@@ -220,27 +244,35 @@ export function syncStructuredNewsSignals({ sinceDays = 14, limit = 1000 } = {})
       for (const rule of STATUS_RULES) {
         const match = localText.match(rule.re);
         if (!match) continue;
-        insert.run(item.id, key, entity.id == null ? null : String(entity.id), entity.name, team,
-          'availability', rule.status, bodyPart, rule.unavailable, null,
-          Math.min(rule.confidence, reliabilityCap), item.published_at, item.source, item.source_url,
-          match[0], EXTRACTOR_VERSION, verification.state, verification.reason);
+        if (upsertVersionedSignal({ news_id: item.id, player_key: key,
+          player_id: entity.id == null ? null : String(entity.id), player_name: entity.name, team,
+          signal_type: 'availability', status: rule.status, body_part: bodyPart,
+          unavailable_probability: rule.unavailable, role_delta: null,
+          confidence: Math.min(rule.confidence, reliabilityCap), published_at: item.published_at,
+          source: item.source, source_url: item.source_url, evidence_span: match[0],
+          extractor_version: EXTRACTOR_VERSION, verification_state: verification.state,
+          verification_reason: verification.reason })) newVersions++;
         signals++; itemSignals++; break;
       }
       for (const rule of ROLE_RULES) {
         const match = localText.match(rule.re);
         if (!match) continue;
-        insert.run(item.id, key, entity.id == null ? null : String(entity.id), entity.name, team,
-          'role', rule.status, null, null, rule.delta,
-          Math.min(rule.confidence, reliabilityCap), item.published_at, item.source, item.source_url,
-          match[0], EXTRACTOR_VERSION, verification.state, verification.reason);
+        if (upsertVersionedSignal({ news_id: item.id, player_key: key,
+          player_id: entity.id == null ? null : String(entity.id), player_name: entity.name, team,
+          signal_type: 'role', status: rule.status, body_part: null,
+          unavailable_probability: null, role_delta: rule.delta,
+          confidence: Math.min(rule.confidence, reliabilityCap), published_at: item.published_at,
+          source: item.source, source_url: item.source_url, evidence_span: match[0],
+          extractor_version: EXTRACTOR_VERSION, verification_state: verification.state,
+          verification_reason: verification.reason })) newVersions++;
         signals++; itemSignals++; break;
       }
     }
     if (!itemSignals) skippedNoClaim++;
   }
-  const quarantine = rows(`SELECT COUNT(*) n FROM nfl_news_signals WHERE verification_state='quarantined'`)[0]?.n ?? 0;
-  return { reviewed: items.length, signals, quarantined: Number(quarantine), skipped_no_player: skippedNoPlayer,
-    skipped_no_typed_claim: skippedNoClaim, extractor_version: EXTRACTOR_VERSION };
+  const quarantine = rows(`SELECT COUNT(*) n FROM nfl_news_signals_current WHERE verification_state='quarantined'`)[0]?.n ?? 0;
+  return { reviewed: items.length, signals, new_versions: newVersions, quarantined: Number(quarantine),
+    skipped_no_player: skippedNoPlayer, skipped_no_typed_claim: skippedNoClaim, extractor_version: EXTRACTOR_VERSION };
 }
 
 export function playerNewsSignal(playerName, { team = null, before = null, maxAgeDays = 14 } = {}) {
@@ -268,11 +300,25 @@ export function playerNewsSignal(playerName, { team = null, before = null, maxAg
   // to the same canonical form before comparing (the same fix already used
   // for `draft_at` in draft-ingest.js) -- no data migration needed, since the
   // stored values were never wrong, only compared incorrectly.
-  const claims = rows(`SELECT * FROM nfl_news_signals WHERE player_key=? AND verification_state='verified'
-      AND published_at<=? AND published_at>=?
-      AND datetime(created_at)<=datetime(?)
-      ${team ? 'AND (team=? OR team IS NULL)' : ''}
-    ORDER BY published_at DESC,confidence DESC`, ...[key, cutoff, since, cutoff, ...(team ? [team] : [])]);
+  // WP08/R1: nfl_news_signals is append-only (migration 053) -- several
+  // versions can now share (news_id,player_key,signal_type). The NOT EXISTS
+  // clause keeps only the LATEST version of each key that was itself
+  // knowable by the cutoff (a later version created after the cutoff, or a
+  // later version whose own verification_state disqualifies it, does not
+  // count -- see this file's note on upsertVersionedSignal/the migration for
+  // why "the latest verified-as-of-cutoff version" is deliberately not the
+  // same question as "the latest version, verified or not").
+  const claims = rows(`SELECT s.* FROM nfl_news_signals s WHERE s.player_key=? AND s.verification_state='verified'
+      AND s.published_at<=? AND s.published_at>=?
+      AND datetime(s.created_at)<=datetime(?)
+      AND NOT EXISTS (
+        SELECT 1 FROM nfl_news_signals s2
+        WHERE s2.news_id=s.news_id AND s2.player_key=s.player_key AND s2.signal_type=s.signal_type
+          AND s2.id>s.id AND datetime(s2.created_at)<=datetime(?)
+      )
+      ${team ? 'AND (s.team=? OR s.team IS NULL)' : ''}
+    ORDER BY s.published_at DESC,s.confidence DESC`,
+    ...[key, cutoff, since, cutoff, cutoff, ...(team ? [team] : [])]);
   if (!claims.length) return null;
   const availability = claims.find(claim => claim.signal_type === 'availability') ?? null;
   const role = claims.find(claim => claim.signal_type === 'role') ?? null;
@@ -302,9 +348,19 @@ export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
   // published before the cutoff but extracted (created_at) after it was not
   // actually available to a decision made at that cutoff. Same R2
   // datetime()-normalization fix, for the same reason -- see that function.
-  const claims = rows(`SELECT * FROM nfl_news_signals WHERE team=? AND verification_state='verified' AND published_at<=? AND published_at>=?
-      AND datetime(created_at)<=datetime(?)
-    ORDER BY published_at DESC,confidence DESC`, team, cutoff, since, cutoff);
+  // Same WP08/R1 latest-version-as-of-cutoff filter too (this is one dedup
+  // dimension: several VERSIONS of the same story's claim; the
+  // latestByPlayerType map below is a SEPARATE dimension, collapsing across
+  // DIFFERENT stories for the same player -- both are needed, in this order).
+  const claims = rows(`SELECT s.* FROM nfl_news_signals s WHERE s.team=? AND s.verification_state='verified'
+      AND s.published_at<=? AND s.published_at>=?
+      AND datetime(s.created_at)<=datetime(?)
+      AND NOT EXISTS (
+        SELECT 1 FROM nfl_news_signals s2
+        WHERE s2.news_id=s.news_id AND s2.player_key=s.player_key AND s2.signal_type=s.signal_type
+          AND s2.id>s.id AND datetime(s2.created_at)<=datetime(?)
+      )
+    ORDER BY s.published_at DESC,s.confidence DESC`, team, cutoff, since, cutoff, cutoff);
   const latestByPlayerType = new Map();
   for (const claim of claims) {
     const key = `${claim.player_key}|${claim.signal_type}`;
@@ -315,19 +371,27 @@ export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
     .reduce((sum, claim) => sum + (claim.unavailable_probability ?? 0) * claim.confidence, 0);
   const rolePressure = active.filter(x => x.signal_type === 'role')
     .reduce((sum, claim) => sum + (claim.role_delta ?? 0) * claim.confidence, 0);
-  const quarantined = rows(`SELECT COUNT(*) n FROM nfl_news_signals WHERE team=? AND verification_state='quarantined'
-    AND published_at<=? AND published_at>=? AND datetime(created_at)<=datetime(?)`, team, cutoff, since, cutoff)[0]?.n ?? 0;
+  const quarantined = rows(`SELECT COUNT(*) n FROM nfl_news_signals s WHERE s.team=? AND s.verification_state='quarantined'
+    AND s.published_at<=? AND s.published_at>=? AND datetime(s.created_at)<=datetime(?)
+    AND NOT EXISTS (
+      SELECT 1 FROM nfl_news_signals s2
+      WHERE s2.news_id=s.news_id AND s2.player_key=s.player_key AND s2.signal_type=s.signal_type
+        AND s2.id>s.id AND datetime(s2.created_at)<=datetime(?)
+    )`, team, cutoff, since, cutoff, cutoff)[0]?.n ?? 0;
   return { team, cutoff, claims: active, quarantined_claims: Number(quarantined), unavailable_burden: +unavailableBurden.toFixed(3),
     role_pressure: +rolePressure.toFixed(3), production_eligible: false,
     note: 'News impact is a visible shadow candidate. It cannot move a spread or projection until full-pipeline ablation and forward evidence pass.' };
 }
 
 export function newsSignalCoverage() {
+  // WP08/R1: the CURRENT-version view, not the raw append-only table --
+  // counting raw rows here would count every superseded version as if it
+  // were its own signal.
   const summary = rows(`SELECT COUNT(*) signals,COUNT(DISTINCT news_id) stories,
       COUNT(DISTINCT player_key) players,MAX(published_at) latest,
       SUM(signal_type='availability') availability,SUM(signal_type='role') role,
       SUM(verification_state='verified') verified,SUM(verification_state='quarantined') quarantined
-    FROM nfl_news_signals`)[0];
+    FROM nfl_news_signals_current`)[0];
   const untyped = rows(`SELECT COUNT(*) n FROM news_items
     WHERE published_at>=datetime('now','-14 days')
       AND (headline LIKE '%injur%' OR headline LIKE '%out %' OR headline LIKE '%practice%')
@@ -374,17 +438,7 @@ ${JSON.stringify(promptStories)}` });
   const claims = parseJson(response);
   if (!Array.isArray(claims)) return { reviewed: candidates.length, accepted: 0, rejected: 1, error: 'extractor did not return an array' };
   const byId = new Map(candidates.map(item => [Number(item.id), item]));
-  const insert = db.prepare(`INSERT INTO nfl_news_signals
-    (news_id,player_key,player_id,player_name,team,signal_type,status,body_part,
-     unavailable_probability,role_delta,confidence,published_at,source,source_url,evidence_span,extractor_version,
-     verification_state,verification_reason)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(news_id,player_key,signal_type) DO UPDATE SET status=excluded.status,
-      body_part=excluded.body_part,unavailable_probability=excluded.unavailable_probability,
-      role_delta=excluded.role_delta,confidence=excluded.confidence,evidence_span=excluded.evidence_span,
-      extractor_version=excluded.extractor_version,verification_state=excluded.verification_state,
-      verification_reason=excluded.verification_reason`);
-  let accepted = 0, rejected = 0;
+  let accepted = 0, rejected = 0, newVersions = 0;
   const acceptedByNews = new Map();
   for (const claim of claims) {
     const item = byId.get(Number(claim.news_id));
@@ -401,19 +455,23 @@ ${JSON.stringify(promptStories)}` });
     const reliability = parse(item.reliability_json, {});
     const cap = Number.isFinite(reliability.score) ? clamp(reliability.score) : 0.8;
     const verification = newsSourceVerification(item);
-    insert.run(item.id, normalizePlayerName(canonicalName), entity?.id == null ? null : String(entity.id),
-      canonicalName, team, signalType, claim.status,
-      claim.body_part && BODY_PARTS.includes(String(claim.body_part).toLowerCase()) ? String(claim.body_part).toLowerCase() : null,
-      signalType === 'availability' ? values[claim.status] : null,
-      signalType === 'role' ? values[claim.status] : null,
-      Math.min(clamp(Number(claim.confidence) || 0), cap), item.published_at, item.source,
-      item.source_url, span, 'claude-typed-news-2026.1', verification.state, verification.reason);
+    if (upsertVersionedSignal({ news_id: item.id, player_key: normalizePlayerName(canonicalName),
+      player_id: entity?.id == null ? null : String(entity.id), player_name: canonicalName, team,
+      signal_type: signalType, status: claim.status,
+      body_part: claim.body_part && BODY_PARTS.includes(String(claim.body_part).toLowerCase())
+        ? String(claim.body_part).toLowerCase() : null,
+      unavailable_probability: signalType === 'availability' ? values[claim.status] : null,
+      role_delta: signalType === 'role' ? values[claim.status] : null,
+      confidence: Math.min(clamp(Number(claim.confidence) || 0), cap), published_at: item.published_at,
+      source: item.source, source_url: item.source_url, evidence_span: span,
+      extractor_version: 'claude-typed-news-2026.1', verification_state: verification.state,
+      verification_reason: verification.reason })) newVersions++;
     accepted++; acceptedByNews.set(item.id, (acceptedByNews.get(item.id) ?? 0) + 1);
   }
   const attempt = db.prepare(`INSERT OR REPLACE INTO nfl_news_extraction_attempts
     (news_id,extractor_version,attempted_at,accepted_claims) VALUES (?,?,?,?)`);
   for (const item of candidates) attempt.run(item.id, 'claude-typed-news-2026.1',
     new Date().toISOString(), acceptedByNews.get(item.id) ?? 0);
-  return { reviewed: candidates.length, proposed: claims.length, accepted, rejected,
+  return { reviewed: candidates.length, proposed: claims.length, accepted, rejected, new_versions: newVersions,
     policy: 'Known identities + fixed enums + exact evidence span + independently verified source. Quarantined claims have zero model authority.' };
 }

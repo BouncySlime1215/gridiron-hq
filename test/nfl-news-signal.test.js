@@ -134,3 +134,44 @@ test('R2 regression: the same-format claim IS visible once its own created_at ha
   assert.ok(signal, 'created_at (06:00) is genuinely before the 18:00 cutoff on the same date -- must be visible, ' +
     'proving the fix does not just exclude everything on a shared date');
 });
+
+/*
+ * WP08/R1 (2026-09-15): nfl_news_signals is append-only (migration 053) --
+ * several rows can now share (news_id,player_key,signal_type), one per
+ * version. These tests seed TWO versions of the same claim directly (same
+ * news_id/player_key/signal_type, different status/created_at) and check
+ * that a cutoff resolves to whichever version was actually current AT THAT
+ * CUTOFF, not always the newest -- the whole point of real versioning.
+ */
+
+test('WP08/R1: a cutoff between two versions sees the version that was actually current then, not a later correction', () => {
+  // Version 1 (lower id, inserted first): extracted well before either cutoff.
+  seedNewsSignal({ news_id: 401, player_key: 'versioned1', team: 'WWW', status: 'questionable',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-01T13:00:00Z' });
+  // Version 2 (higher id): the SAME story, corrected -- not extracted until
+  // days later, after the "beforeCorrection" cutoff below.
+  seedNewsSignal({ news_id: 401, player_key: 'versioned1', team: 'WWW', status: 'out',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-03T09:00:00Z' });
+
+  const beforeCorrection = playerNewsSignal('versioned1', { team: 'WWW', before: '2026-11-02T00:00:00Z', maxAgeDays: 30 });
+  assert.equal(beforeCorrection?.availability?.status, 'questionable',
+    'a decision made before the correction was even extracted must see the ORIGINAL version -- version 2 did ' +
+    'not exist yet as far as this cutoff is concerned');
+
+  const afterCorrection = playerNewsSignal('versioned1', { team: 'WWW', before: '2026-11-04T00:00:00Z', maxAgeDays: 30 });
+  assert.equal(afterCorrection?.availability?.status, 'out',
+    'a decision made after the correction lands sees the corrected version');
+});
+
+test('WP08/R1: teamNewsSignals also resolves to the version current as of its own cutoff, not always the newest', () => {
+  seedNewsSignal({ news_id: 402, player_key: 'teamversioned1', team: 'WWW', status: 'questionable',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-01T13:00:00Z' });
+  seedNewsSignal({ news_id: 402, player_key: 'teamversioned1', team: 'WWW', status: 'out',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-03T09:00:00Z' });
+
+  const before = teamNewsSignals('WWW', { before: '2026-11-02T00:00:00Z', maxAgeDays: 30 });
+  assert.equal(before.claims.find(c => c.player_key === 'teamversioned1')?.status, 'questionable');
+
+  const after = teamNewsSignals('WWW', { before: '2026-11-04T00:00:00Z', maxAgeDays: 30 });
+  assert.equal(after.claims.find(c => c.player_key === 'teamversioned1')?.status, 'out');
+});

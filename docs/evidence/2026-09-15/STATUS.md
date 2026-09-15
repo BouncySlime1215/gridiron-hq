@@ -49,9 +49,9 @@ ensemble cache invalidation → re-score → decision unchanged, while the live 
 demonstrably would have moved) passes in `t60-packet-sourced-board.test.js`. C05's
 frozen-packet retry/recovery is untouched (separate, already-partial concern).
 
-## WP08/R2 — DONE (2026-09-15); R1 — next up
-`playerNewsSignal`/`teamNewsSignals` (`server/services/nfl-news-signal.js`) compared
-`nfl_news_signals.created_at` (written by the table's own
+## WP08 — DONE (2026-09-15), both R1 and R2
+**R2:** `playerNewsSignal`/`teamNewsSignals` (`server/services/nfl-news-signal.js`)
+compared `nfl_news_signals.created_at` (written by the table's own
 `DEFAULT (datetime('now'))`, SQLite's space-separated format) directly against an ISO
 `cutoff` parameter as TEXT. Confirmed empirically (node:sqlite, this project's own
 driver): because `' '` (0x20) sorts before `'T'` (0x54), a row whose `created_at` was
@@ -63,18 +63,37 @@ sides in SQLite's `datetime()` (same pattern already used for `draft_at` in
 `draft-ingest.js`); no data migration needed since stored values were never wrong,
 only compared incorrectly. New regression tests write `created_at` in the real format
 directly and were confirmed to fail without the fix.
-**Still open (R1):** `nfl_news_signals`' `ON CONFLICT ... DO UPDATE` overwrites a
-claim's content in place on re-sync/re-extraction with no version history — a later
-corrected extraction can silently change what an earlier snapshot would have seen.
-This needs a real schema/versioning decision (append-only history vs. a superseded-row
-marker) rather than a one-line fix, so it's the next handoff item, not bundled here.
+
+**R1:** `nfl_news_signals` is now genuinely append-only (migration
+`053_nfl_news_signals_versioning.js`). Rebuilt with a surrogate
+`id INTEGER PRIMARY KEY AUTOINCREMENT` (replacing
+`PRIMARY KEY (news_id,player_key,signal_type)`, which forced the old overwrite-in-
+place), `BEFORE UPDATE`/`BEFORE DELETE` triggers that `RAISE(ABORT)` (same pattern as
+`nfl_feature_revisions`), and the mutation-journal triggers recreated verbatim (they'd
+otherwise silently vanish — migration 000, which installed them originally, never runs
+again on an existing database). `syncStructuredNewsSignals`/`syncAiNewsSignals` now
+insert a new version only when content genuinely differs from the current one
+(`upsertVersionedSignal`); an unchanged re-sync is a no-op, matching this WP's own
+acceptance ("repeating the same fetch does not duplicate versions"). `playerNewsSignal`/
+`teamNewsSignals` resolve the version that was actually current **as of their own
+cutoff** (a `NOT EXISTS` filter, not just "the latest version") — confirmed with a
+direct test: a cutoff between two versions sees the older one, a later cutoff sees the
+correction.
+
+Discovered mid-implementation and handled: 7 other files read `nfl_news_signals`
+directly assuming one row per key (`news-lag-trader.js`, `nfl-capture-dispatch.js`,
+`nfl-news-market-latency.js`, `nfl-rookie-ingest.js`, `signal-latency.js`,
+`polymarket.js`, `who-plays.js`, plus `routes/news.js`) — all repointed at a new
+`nfl_news_signals_current` view (one row per key: the latest version, same column
+shape as before) so "the current claim" keeps meaning what it always meant for them.
+`signal-latency.js`'s `pipelineHealth()` row-count diagnostic deliberately still reads
+the raw table (write-activity monitoring, not current-state).
 
 ## Immediate front (order)
-WP15/D3 (done) -> WP08/R1 news signal versioning (append, don't overwrite) -> WP14
-save-every-prediction + error ledger -> FIX#28 one CLV module + FIX#14 ridge team
-strength -> WP12-13 walk-forward + conformal -> unity (family adapters -> gated
-comparison + tree_lab -> Node bridge). Each behind the gates, registered as a trial,
-no staking authority.
+WP15/D3 (done) -> WP08 (done) -> WP14 save-every-prediction + error ledger -> FIX#28
+one CLV module + FIX#14 ridge team strength -> WP12-13 walk-forward + conformal ->
+unity (family adapters -> gated comparison + tree_lab -> Node bridge). Each behind the
+gates, registered as a trial, no staking authority.
 
 ## Time / effort read
 - Engineering, full 20-WP scope: the corpus's own estimate is ~41-78 engineer-days of

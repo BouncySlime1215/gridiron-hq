@@ -34,7 +34,7 @@ export function enqueueEspnMoveTriggers(detected = [], observedAt = now()) {
 /** Queue newly typed, material claims against the latest ESPN-tracked event. */
 export function enqueueRecentNewsTriggers({ minutes = 120 } = {}) {
   const signals = rows(`SELECT news_id,team,signal_type,status,confidence,published_at
-    FROM nfl_news_signals
+    FROM nfl_news_signals_current
     WHERE verification_state='verified' AND created_at>=datetime('now',?) AND team IS NOT NULL
       AND (unavailable_probability>=0.5 OR ABS(COALESCE(role_delta,0))>=0.15)`, `-${minutes} minutes`);
   const hasMoveLog = rows(`SELECT name FROM sqlite_master WHERE type='table' AND name='espn_line_moves'`).length > 0;

@@ -254,9 +254,23 @@ export function playerNewsSignal(playerName, { team = null, before = null, maxAg
   // after it. Requiring created_at<=cutoff too is what makes this genuinely
   // "knowable as of cutoff" rather than knowable only in hindsight -- the
   // same class of look-ahead risk as news_items.ingested_at, one layer over.
+  //
+  // R2 (2026-09-15): `created_at` is written by this table's own `DEFAULT
+  // (datetime('now'))` -- SQLite's space-separated 'YYYY-MM-DD HH:MM:SS', no
+  // 'T', no 'Z' -- while `cutoff`/`before` arrive as JS ISO strings
+  // ('YYYY-MM-DDTHH:MM:SS.sssZ'). A bare `created_at<=?` compares those as
+  // plain TEXT, and ' ' (0x20) sorts before 'T' (0x54): for any two same-DATE
+  // timestamps this made created_at<=cutoff evaluate true regardless of the
+  // actual time of day -- confirmed empirically (node:sqlite): a row whose
+  // created_at was the current instant still compared <= a cutoff from an
+  // hour earlier. That silently defeated the one check this line exists for.
+  // Wrapping both sides in SQLite's own `datetime()` normalizes both formats
+  // to the same canonical form before comparing (the same fix already used
+  // for `draft_at` in draft-ingest.js) -- no data migration needed, since the
+  // stored values were never wrong, only compared incorrectly.
   const claims = rows(`SELECT * FROM nfl_news_signals WHERE player_key=? AND verification_state='verified'
       AND published_at<=? AND published_at>=?
-      AND created_at<=?
+      AND datetime(created_at)<=datetime(?)
       ${team ? 'AND (team=? OR team IS NULL)' : ''}
     ORDER BY published_at DESC,confidence DESC`, ...[key, cutoff, since, cutoff, ...(team ? [team] : [])]);
   if (!claims.length) return null;
@@ -286,9 +300,10 @@ export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
   const since = new Date(new Date(cutoff).getTime() - maxAgeDays * 86400000).toISOString();
   // Same knowable-by-cutoff requirement as playerNewsSignal above: a claim
   // published before the cutoff but extracted (created_at) after it was not
-  // actually available to a decision made at that cutoff.
+  // actually available to a decision made at that cutoff. Same R2
+  // datetime()-normalization fix, for the same reason -- see that function.
   const claims = rows(`SELECT * FROM nfl_news_signals WHERE team=? AND verification_state='verified' AND published_at<=? AND published_at>=?
-      AND created_at<=?
+      AND datetime(created_at)<=datetime(?)
     ORDER BY published_at DESC,confidence DESC`, team, cutoff, since, cutoff);
   const latestByPlayerType = new Map();
   for (const claim of claims) {
@@ -301,7 +316,7 @@ export function teamNewsSignals(team, { before = null, maxAgeDays = 14 } = {}) {
   const rolePressure = active.filter(x => x.signal_type === 'role')
     .reduce((sum, claim) => sum + (claim.role_delta ?? 0) * claim.confidence, 0);
   const quarantined = rows(`SELECT COUNT(*) n FROM nfl_news_signals WHERE team=? AND verification_state='quarantined'
-    AND published_at<=? AND published_at>=? AND created_at<=?`, team, cutoff, since, cutoff)[0]?.n ?? 0;
+    AND published_at<=? AND published_at>=? AND datetime(created_at)<=datetime(?)`, team, cutoff, since, cutoff)[0]?.n ?? 0;
   return { team, cutoff, claims: active, quarantined_claims: Number(quarantined), unavailable_burden: +unavailableBurden.toFixed(3),
     role_pressure: +rolePressure.toFixed(3), production_eligible: false,
     note: 'News impact is a visible shadow candidate. It cannot move a spread or projection until full-pipeline ablation and forward evidence pass.' };

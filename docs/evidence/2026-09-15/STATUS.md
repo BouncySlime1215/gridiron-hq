@@ -12,31 +12,69 @@ Where the betting-model work stands, pushed to GitHub on branch
 - Repo-managed Cloud env: `.cursor/environment.json` (npm ci && npm run build; server terminal on 5177; scheduler off by default). Validated: install/build/typecheck/lint all pass here.
 - Per-phase model assignment (fable Tier A / sonnet Tier B / grok Tier C) recorded in the plan.
 
-## Phase 0 test triage (interim)
-Full `npm test` re-run against current `main` in a clean isolated temp DB.
-**19 failures observed** (run was still finishing/slow on a heavy file at snapshot
-time). All cluster in **data-/environment-dependent** areas on a clean DB, not logic
-touched by this branch (this branch changed no product code):
-- news/claim extraction (superseded/ambiguous claims, evidence span, content-hash cache, coverage summary, press-conference),
-- AI `POST /explain/page` explanation tests,
-- C05 shopping/distribution ("the residual population is the one this database actually contains", "with no qualified distribution available, it refuses rather than ranking").
-Consistent with the prior run (~21) and with the developer's populated-DB run showing
-0 failures. **Final per-test classification (data-dependent skip vs real) is pending a
-clean completion** and is the first thing to finish before WP code lands.
+## Phase 0 test triage — CLOSED (2026-09-15)
+Full `npm test` (2,089 tests) now completes clean in a fresh isolated temp DB.
+The interim "19 failures" above did not survive triage as real:
+- **Missing `fast-check` devDependency.** Declared in `package.json` but absent from
+  `node_modules` in this checkout — this alone failed every test in a file that imports
+  it at module load (e.g. `nfl-ensemble-authority.test.js`) before a single assertion
+  ran. `npm install fast-check@4.9.0` (matching the pinned version) resolved it;
+  worth an `npm ci` on a fresh clone to confirm it isn't a lockfile drift.
+- **One real regression, now fixed:** `docs/CLAUDE-NEXT-STEPS.md` had a navigation
+  banner prepended above its required `# Gridiron HQ` H1 (from this branch's own
+  earlier docs-reorg work), breaking `test/platform-paths.test.js`'s two tests that
+  pin line 1 — and, more importantly, the real contract `nfl-research-lab.js` and its
+  consumers rely on. Fixed by reordering (H1 first, banner second); both tests pass.
+- **Everything else** (news/claim extraction, AI `POST /explain/page`, C05
+  shopping/distribution) did not reproduce in a clean, complete run at all — the
+  original 19 were most likely a combination of the fast-check failures cascading
+  into unrelated-looking file names in the TAP summary, and a run that never actually
+  finished (STATUS.md's own note: "still finishing/slow on a heavy file at snapshot
+  time"). No skip dispositions needed; nothing here is being carried forward as
+  accepted debt.
 
-## Designed, not yet started (gated on Phase 0)
-- WP15/D3 full frozen packet: `freezeT60Packet` in `server/services/nfl-t60-packet.js`
-  persists quote/injury/news rows but NOT `game_context`/`team_features`/`total_market`
-  (`PACKET_BOARD_INPUT_COVERAGE`). Plan: add those to the packet schema and have
-  `autoPickDecisionBoardForPacket` (`server/services/nfl-auto-picks.js`) consume them via
-  an override like the existing `marketOverride`; regression test = freeze, mutate live
-  tables, re-score, assert identical.
+## WP15/D3 — DONE (2026-09-15)
+Full frozen packet: `freezeT60Packet` (`server/services/nfl-t60-packet.js`) now
+freezes real `game_context` values (weather/rest/division/neutral/opener, from the
+game's own `game_lines` row) and the full league-wide `team_features` aggregate map
+(`nfl-ensemble.js`'s `featureAggregates`, exported for this), plus a totals quote as
+disclosed-but-unwired evidence (`nfl_quote_tape_totals`; no margin model consumes a
+totals quote, and a real totals decision is gated on WP13). `ensembleLine` gained
+`gameContextOverride`/`teamFeaturesOverride`; `autoPickDecisionBoardForPacket`
+(`nfl-auto-picks.js`) now supplies both from the packet instead of re-reading
+`game_lines`/`nfl_team_week_features` live. `PACKET_BOARD_INPUT_COVERAGE` updated
+honestly (`total_market: 'in_schema_not_wired'`, not overclaimed as wired). Acceptance
+test (freeze → flip live game_lines to the opposite rest/division state → force a full
+ensemble cache invalidation → re-score → decision unchanged, while the live board
+demonstrably would have moved) passes in `t60-packet-sourced-board.test.js`. C05's
+frozen-packet retry/recovery is untouched (separate, already-partial concern).
+
+## WP08/R2 — DONE (2026-09-15); R1 — next up
+`playerNewsSignal`/`teamNewsSignals` (`server/services/nfl-news-signal.js`) compared
+`nfl_news_signals.created_at` (written by the table's own
+`DEFAULT (datetime('now'))`, SQLite's space-separated format) directly against an ISO
+`cutoff` parameter as TEXT. Confirmed empirically (node:sqlite, this project's own
+driver): because `' '` (0x20) sorts before `'T'` (0x54), a row whose `created_at` was
+the literal current instant still compared `<=` a cutoff from an hour earlier, for any
+same-calendar-date pair — silently defeating the one look-ahead guard that comparison
+exists for. Every existing test had hand-supplied `created_at` in ISO format, which
+never exercises the real DEFAULT and is why this survived. Fixed by wrapping both
+sides in SQLite's `datetime()` (same pattern already used for `draft_at` in
+`draft-ingest.js`); no data migration needed since stored values were never wrong,
+only compared incorrectly. New regression tests write `created_at` in the real format
+directly and were confirmed to fail without the fix.
+**Still open (R1):** `nfl_news_signals`' `ON CONFLICT ... DO UPDATE` overwrites a
+claim's content in place on re-sync/re-extraction with no version history — a later
+corrected extraction can silently change what an earlier snapshot would have seen.
+This needs a real schema/versioning decision (append-only history vs. a superseded-row
+marker) rather than a one-line fix, so it's the next handoff item, not bundled here.
 
 ## Immediate front (order)
-WP15/D3 -> WP08 news signal versioning -> WP14 save-every-prediction + error ledger ->
-FIX#28 one CLV module + FIX#14 ridge team strength -> WP12-13 walk-forward + conformal ->
-unity (family adapters -> gated comparison + tree_lab -> Node bridge). Each behind the
-gates, registered as a trial, no staking authority.
+WP15/D3 (done) -> WP08/R1 news signal versioning (append, don't overwrite) -> WP14
+save-every-prediction + error ledger -> FIX#28 one CLV module + FIX#14 ridge team
+strength -> WP12-13 walk-forward + conformal -> unity (family adapters -> gated
+comparison + tree_lab -> Node bridge). Each behind the gates, registered as a trial,
+no staking authority.
 
 ## Time / effort read
 - Engineering, full 20-WP scope: the corpus's own estimate is ~41-78 engineer-days of

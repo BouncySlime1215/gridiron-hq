@@ -96,3 +96,41 @@ test('teamNewsSignals with no `before` given (defaults to now) is unaffected', (
   assert.ok(result.claims.find(c => c.player_key === 'teamdefaultnow1'),
     'the default-to-now cutoff must not exclude a claim whose created_at is legitimately "now"');
 });
+
+/*
+ * R2 (2026-09-15): every test above hand-supplies created_at in ISO format
+ * ('...T...Z'), which sidesteps the actual bug -- the table's own
+ * `DEFAULT (datetime('now'))` writes SQLite's space-separated
+ * 'YYYY-MM-DD HH:MM:SS', with no 'T' and no 'Z'. A bare `created_at<=?`
+ * compared that TEXT against an ISO cutoff, and ' ' (0x20) sorts before 'T'
+ * (0x54) -- so for any two timestamps on the SAME calendar date, the
+ * space-formatted created_at compared as "earlier" REGARDLESS of the actual
+ * time of day. Confirmed empirically against node:sqlite (this project's own
+ * driver) before the fix: a row whose created_at was the literal current
+ * instant still compared <= a cutoff from an hour earlier. These two tests
+ * write created_at in that REAL format directly, so they actually exercise
+ * the bug nfl-news-signal.js's datetime()-wrapped comparison now fixes.
+ */
+
+test('R2 regression: a same-day created_at in the pipeline\'s own datetime(\'now\') format compares correctly against an ISO cutoff', () => {
+  seedNewsSignal({ news_id: 301, player_key: 'sameday1', team: 'XXX', status: 'out',
+    published_at: '2026-11-01T12:00:00Z',
+    // 18:00 the same calendar day as the cutoff below, in the REAL default
+    // format -- chronologically AFTER the 06:00 cutoff, so this claim was
+    // not yet extracted as of that cutoff and must be excluded.
+    created_at: '2026-11-02 18:00:00' });
+
+  const signal = playerNewsSignal('sameday1', { team: 'XXX', before: '2026-11-02T06:00:00.000Z', maxAgeDays: 30 });
+  assert.equal(signal, null,
+    'created_at (18:00) is genuinely AFTER the 06:00 cutoff on the same date -- a raw TEXT compare wrongly ' +
+    'includes it because the space in datetime(\'now\')\'s format sorts before the ISO cutoff\'s "T"');
+});
+
+test('R2 regression: the same-format claim IS visible once its own created_at has actually passed', () => {
+  seedNewsSignal({ news_id: 302, player_key: 'sameday2', team: 'XXX', status: 'out',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-02 06:00:00' });
+
+  const signal = playerNewsSignal('sameday2', { team: 'XXX', before: '2026-11-02T18:00:00.000Z', maxAgeDays: 30 });
+  assert.ok(signal, 'created_at (06:00) is genuinely before the 18:00 cutoff on the same date -- must be visible, ' +
+    'proving the fix does not just exclude everything on a shared date');
+});

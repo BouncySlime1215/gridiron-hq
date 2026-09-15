@@ -107,14 +107,29 @@ function awayRest() {
  *
  * A measured non-improvement is not a reason to ship the change silently at a
  * nonzero default, so the default is the old behaviour exactly. The estimator
- * stays because it is the correct closed form, it is now testable, and one
- * constant is all that stands between it and production if the same sweep ever
- * runs against real NFL history — which this branch could not do.
+ * stays because it is the correct closed form and it is now testable.
  *
- * Caveat worth carrying forward: the fixture schedules a near-balanced rotating
- * round-robin, which is the regime where opponent-aware shrinkage has least to
- * add. Real NFL schedules are genuinely unbalanced, so this measurement may
- * understate the ridge rather than overstate it.
+ * FIX#14 (2026-09-15): the fixture caveat above ("real NFL schedules are
+ * genuinely unbalanced, so this measurement may understate the ridge") was a
+ * hypothesis this branch could not check — no real-history sweep had been run.
+ * It has now been run, directly against this database's real game_lines
+ * (2015-2025, 3,028 games; same lambda grid; same walk-forward split, held out
+ * on 2021-2025 = 1,424 graded games): lambda = 50 is AGAIN the pooled optimum
+ * (13.8385 -> 13.7842 RMSE, a genuine but small 0.39% component improvement --
+ * real, not the synthetic fixture's artifact, but modest). The hypothesis was
+ * partly right: real data shows more improvement than the synthetic fixture's
+ * "no benefit at all" case. It is not enough to promote on, though -- broken
+ * down by season the win is not robust: 2022/2023/2024 improve, 2021/2025 get
+ * slightly WORSE, 3 of 5 seasons -- below the same "at least 2/3 of seasons
+ * must agree" bar this codebase applies elsewhere (nfl-replay.js's
+ * `robustAcrossSeasons`). An ensemble-level re-check (does the full blend move
+ * at all) was not run: there is no point re-fitting 20+ models' weights across
+ * a lambda grid to look for a benefit whose own component-level input already
+ * fails the season-robustness bar the synthetic run also failed at the
+ * ensemble level. Conclusion: keep lambda = 0. The real-data measurement
+ * confirms the synthetic one rather than overturning it -- one constant is
+ * still all that stands between this and production, and the numbers now
+ * exist from real history, not just a fixture, the next time this comes up.
  */
 const MASSEY_RIDGE_LAMBDA = 0;
 

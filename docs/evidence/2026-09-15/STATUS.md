@@ -119,11 +119,54 @@ Explicitly NOT done, and named as blocked rather than faked: C11's "verify full 
 and upstream lineage for the new Python candidate" and totals wiring both require
 WP11-13's actual trained candidate and totals contract, neither of which exist yet.
 
+## FIX#28 (one CLV module) — DONE (2026-09-15)
+The ORIGINAL "four independent CLV calculators" the corpus named (`nfl-clv.js`,
+`nfl-execution-clv.js`, `forward-ledger.js`, `shadow-ledger.js`) were already
+consolidated into `clv-core.js`'s `signedClvPoints()` by earlier work (`nfl-clv.js`
+deleted outright; see that module's own docstring) — re-verified, not re-fixed.
+Investigation found the SAME disease had regrown since: `sharp-lag.js` and
+`beat-the-close.js` had each grown their own independent inline CLV-points formula,
+never wired to `clv-core.js`. Verified both were mathematically identical to
+`signedClvPoints()` (worked through the sign algebra for home/away and spread/total
+before touching either), then replaced both with real calls to it —
+`beat-the-close.js` converts its home-perspective stored lines to backed-side
+perspective at the one call site that needs it; `sharp-lag.js` needed no conversion
+(its rows are already keyed per side). All 33 existing tests for both files pass
+unchanged. `nfl-drive-sim.js`'s `clvReport()` was investigated and deliberately left
+alone: its `clv_points` grades a hypothetical bet at the OPEN against the CLOSE for
+walk-forward model validation, a genuinely different measurement from a real settled
+decision's CLV — the same kind of exception `clv-core.js` already carved out for
+`nfl-prop-clv.js`'s probability-delta metric.
+
+## FIX#14 (ridge team strength) — investigated, real-data-confirmed NO CHANGE (2026-09-15)
+`nfl-ensemble.js`'s Massey rating already had the ridge machinery built
+(`MASSEY_RIDGE_LAMBDA`, closed-form, `lambda` parameter) but shipped at `lambda=0`
+(OLS) because an earlier sweep against a SYNTHETIC fixture found the ridge-shrunk
+component improved (13.823→13.583 RMSE) but the full ensemble did not (WORSE in 4/5
+seeds) — with an explicit caveat that real NFL schedules are more unbalanced than the
+fixture's round-robin, so "this measurement may understate the ridge." This session
+finally ran that real-data check the prior work flagged it couldn't: copied
+`server/data.sqlite` to a scratch location (never touched the real file), read
+`game_lines` directly (bypassing an unrelated old-schema migration snag in that
+snapshot), and re-ran the identical lambda sweep {0,1,2,5,10,20,50,100,200,500}
+against 3,028 real games (2015-2025), held out on 2021-2025 (1,424 graded games).
+Result: lambda=50 is again the pooled optimum, and the real-data improvement is
+genuinely bigger than the fixture's null result (13.8385→13.7842 RMSE, 0.39%) —
+confirming the caveat's direction. But it is not robust enough to promote: only 3 of
+5 seasons individually improve (2022/2023/2024 better, 2021/2025 worse), below the
+same "≥2/3 of seasons must agree" bar this codebase applies elsewhere
+(`nfl-replay.js`'s `robustAcrossSeasons`). No ensemble-level re-check was run — no
+point re-fitting 20+ models' weights across a lambda grid to chase a benefit whose
+own component-level input already fails the season-robustness bar the synthetic
+result also failed at the ensemble level. **Decision: keep `lambda=0`.** The finding
+is now real-data-confirmed rather than a fixture-only hypothesis, and written into
+the code's own docstring so the numbers exist the next time this comes up.
+
 ## Immediate front (order)
-WP15/D3 (done) -> WP08 (done) -> WP14 (done) -> FIX#28
-one CLV module + FIX#14 ridge team strength -> WP12-13 walk-forward + conformal ->
-unity (family adapters -> gated comparison + tree_lab -> Node bridge). Each behind the
-gates, registered as a trial, no staking authority.
+WP15/D3 (done) -> WP08 (done) -> WP14 (done) -> FIX#28 (done) -> FIX#14 (investigated,
+no change) -> WP12-13 walk-forward + conformal -> unity (family adapters -> gated
+comparison + tree_lab -> Node bridge). Each behind the gates, registered as a trial,
+no staking authority.
 
 ## Time / effort read
 - Engineering, full 20-WP scope: the corpus's own estimate is ~41-78 engineer-days of
